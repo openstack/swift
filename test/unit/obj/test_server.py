@@ -5427,35 +5427,65 @@ class TestObjectController(unittest.TestCase):
         self.assertTrue('chost,badhost' in msg)
         self.assertTrue('cdevice' in msg)
 
-    def test_delete_at_update_on_put(self):
+    def test_delete_at_update_on_put_and_post(self):
         # Test how delete_at_update works when issued a delete for old
-        # expiration info after a new put with no new expiration info.
+        # expiration info after a new put/post with no new expiration info.
         policy = random.choice(list(POLICIES))
-        given_args = []
 
-        def fake_async_update(*args):
-            given_args.extend(args)
+        def do_test(method, headers, expected_args):
+            given_args = []
 
-        req = Request.blank(
-            '/v1/a/c/o',
-            environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': 1,
-                     'X-Trans-Id': '123',
-                     'X-Backend-Storage-Policy-Index': int(policy)})
-        with mock.patch.object(self.object_controller, 'async_update',
-                               fake_async_update):
-            self.object_controller.delete_at_update(
-                'DELETE', 2, 'a', 'c', 'o', req, 'sda1', policy)
-        self.assertEqual(
-            given_args, [
-                'DELETE', '.expiring_objects', '0000000000',
-                '0000000002-a/c/o', None, None, None,
-                HeaderKeyDict({
-                    'X-Backend-Storage-Policy-Index': 0,
-                    'x-timestamp': utils.Timestamp('1').internal,
-                    'x-trans-id': '123',
-                    'referer': 'PUT http://localhost/v1/a/c/o'}),
-                'sda1', policy])
+            def fake_async_update(*args):
+                given_args.extend(args)
+
+            headers.update({'X-Timestamp': 1,
+                            'X-Trans-Id': '123',
+                            'X-Backend-Storage-Policy-Index': int(policy)})
+            req = Request.blank(
+                '/v1/a/c/o',
+                environ={'REQUEST_METHOD': method},
+                headers=headers)
+            with mock.patch.object(self.object_controller, 'async_update',
+                                   fake_async_update):
+                self.object_controller.delete_at_update(
+                    'DELETE', 2, 'a', 'c', 'o', req, 'sda1', policy)
+            self.assertEqual(expected_args, given_args)
+
+        expected_args = [
+            'DELETE', '.expiring_objects', '0000000000',
+            '0000000002-a/c/o', None, None, None,
+            HeaderKeyDict({
+                'X-Backend-Storage-Policy-Index': 0,
+                'x-timestamp': utils.Timestamp('1').internal,
+                'x-trans-id': '123',
+                'referer': 'PUT http://localhost/v1/a/c/o'}),
+            'sda1', policy]
+        do_test('PUT', {}, expected_args)
+        do_test('PUT', {'X-Backend-Clean-Expiring-Object-Queue': 'true'},
+                expected_args)
+        do_test('PUT', {'X-Backend-Clean-Expiring-Object-Queue': 't'},
+                expected_args)
+
+        expected_args = [
+            'DELETE', '.expiring_objects', '0000000000',
+            '0000000002-a/c/o', None, None, None,
+            HeaderKeyDict({
+                'X-Backend-Storage-Policy-Index': 0,
+                'x-timestamp': utils.Timestamp('1').internal,
+                'x-trans-id': '123',
+                'referer': 'POST http://localhost/v1/a/c/o'}),
+            'sda1', policy]
+        do_test('POST', {}, expected_args)
+        do_test('POST', {'X-Backend-Clean-Expiring-Object-Queue': 'true'},
+                expected_args)
+        do_test('POST', {'X-Backend-Clean-Expiring-Object-Queue': 't'},
+                expected_args)
+
+        do_test('PUT', {'X-Backend-Clean-Expiring-Object-Queue': 'false'}, [])
+        do_test('PUT', {'X-Backend-Clean-Expiring-Object-Queue': 'f'}, [])
+
+        do_test('POST', {'X-Backend-Clean-Expiring-Object-Queue': 'false'}, [])
+        do_test('POST', {'X-Backend-Clean-Expiring-Object-Queue': 'f'}, [])
 
     def test_delete_at_negative(self):
         # Test how delete_at_update works when issued a delete for old
@@ -5590,30 +5620,42 @@ class TestObjectController(unittest.TestCase):
 
     def test_delete_at_update_delete(self):
         policy = random.choice(list(POLICIES))
-        given_args = []
 
-        def fake_async_update(*args):
-            given_args.extend(args)
+        def do_test(headers, expected_args):
+            given_args = []
 
-        self.object_controller.async_update = fake_async_update
-        req = Request.blank(
-            '/v1/a/c/o',
-            environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': 1,
-                     'X-Trans-Id': '1234',
-                     'X-Backend-Storage-Policy-Index': int(policy)})
-        self.object_controller.delete_at_update('DELETE', 2, 'a', 'c', 'o',
-                                                req, 'sda1', policy)
-        self.assertEqual(
-            given_args, [
-                'DELETE', '.expiring_objects', '0000000000',
-                '0000000002-a/c/o', None, None,
-                None, HeaderKeyDict({
-                    'X-Backend-Storage-Policy-Index': 0,
-                    'x-timestamp': utils.Timestamp('1').internal,
-                    'x-trans-id': '1234',
-                    'referer': 'DELETE http://localhost/v1/a/c/o'}),
-                'sda1', policy])
+            def fake_async_update(*args):
+                given_args.extend(args)
+
+            self.object_controller.async_update = fake_async_update
+
+            headers.update({'X-Timestamp': 1,
+                            'X-Trans-Id': '1234',
+                            'X-Backend-Storage-Policy-Index': int(policy)})
+            req = Request.blank(
+                '/v1/a/c/o',
+                environ={'REQUEST_METHOD': 'DELETE'},
+                headers=headers)
+            self.object_controller.delete_at_update('DELETE', 2, 'a', 'c', 'o',
+                                                    req, 'sda1', policy)
+            self.assertEqual(expected_args, given_args)
+
+        expected_args = [
+            'DELETE', '.expiring_objects', '0000000000',
+            '0000000002-a/c/o', None, None,
+            None, HeaderKeyDict({
+                'X-Backend-Storage-Policy-Index': 0,
+                'x-timestamp': utils.Timestamp('1').internal,
+                'x-trans-id': '1234',
+                'referer': 'DELETE http://localhost/v1/a/c/o'}),
+            'sda1', policy]
+        do_test({}, expected_args)
+        do_test({'X-Backend-Clean-Expiring-Object-Queue': 'true'},
+                expected_args)
+        do_test({'X-Backend-Clean-Expiring-Object-Queue': 't'}, expected_args)
+
+        do_test({'X-Backend-Clean-Expiring-Object-Queue': 'false'}, [])
+        do_test({'X-Backend-Clean-Expiring-Object-Queue': 'f'}, [])
 
     def test_delete_backend_replication(self):
         # If X-Backend-Replication: True delete_at_update should completely
