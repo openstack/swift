@@ -4485,6 +4485,21 @@ class ShardRange(object):
         yield 'meta_timestamp', self.meta_timestamp.internal
         yield 'deleted', 1 if self.deleted else 0
 
+    def copy(self, timestamp=None):
+        """
+        Creates a copy of the ShardRange.
+
+        :param timestamp: (optional) If given, the returned ShardRange will
+            have all of its timestamps set to this value. Otherwise the
+            returned ShardRange will have the original timestamps.
+        :return: an instance of :class:`~swift.common.utils.ShardRange`
+        """
+        new = ShardRange.from_dict(dict(self))
+        if timestamp:
+            new.timestamp = timestamp
+            new.meta_timestamp = None
+        return new
+
     @classmethod
     def from_dict(cls, params):
         """
