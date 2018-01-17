@@ -650,6 +650,12 @@ metadata on the request to copy the object, either PUT or COPY ,
 the metadata overwrites any conflicting keys on the target (new)
 object.
 
+.. note::
+
+  While using COPY instead of POST allows sending only a subset of
+  the metadata, it carries the cost of reading and rewriting the entire
+  contents of the object.
+
 A POST request deletes any existing custom metadata that you added
 with a previous PUT or POST request. Consequently, you must specify
 all custom metadata in the request. However, system metadata is
