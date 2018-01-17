@@ -66,6 +66,16 @@ class SweepStats(object):
         self.successes = 0
         self.unlinks = 0
 
+    def __str__(self):
+        keys = (
+            (self.successes, 'successes'),
+            (self.failures, 'failures'),
+            (self.quarantines, 'quarantines'),
+            (self.unlinks, 'unlinks'),
+            (self.errors, 'errors'),
+        )
+        return ', '.join('%d %s' % pair for pair in keys)
+
 
 class ObjectUpdater(Daemon):
     """Update object information in container listings."""
@@ -148,16 +158,9 @@ class ObjectUpdater(Daemon):
                     elapsed = time.time() - forkbegin
                     self.logger.info(
                         ('Object update sweep of %(device)s '
-                         'completed: %(elapsed).02fs, '
-                         '%(successes)d successes, %(failures)d failures, '
-                         '%(quarantines)d quarantines, '
-                         '%(unlinks)d unlinks, %(errors)d errors'),
+                         'completed: %(elapsed).02fs, %(stats)s'),
                         {'device': device, 'elapsed': elapsed,
-                         'success': self.stats.successes,
-                         'failures': self.stats.failures,
-                         'quarantines': self.stats.quarantines,
-                         'unlinks': self.stats.unlinks,
-                         'errors': self.stats.errors})
+                         'stats': self.stats})
                     sys.exit()
             while pids:
                 pids.remove(os.wait()[0])
@@ -186,16 +189,8 @@ class ObjectUpdater(Daemon):
         elapsed = time.time() - begin
         self.logger.info(
             ('Object update single-threaded sweep completed: '
-             '%(elapsed).02fs, %(successes)d successes, '
-             '%(failures)d failures, '
-             '%(quarantines)d quarantines, %(unlinks)d unlinks, '
-             '%(errors)d errors'),
-            {'elapsed': elapsed,
-             'successes': self.stats.successes,
-             'failures': self.stats.failures,
-             'quarantines': self.stats.quarantines,
-             'unlinks': self.stats.unlinks,
-             'errors': self.stats.errors})
+             '%(elapsed).02fs, %(stats)s'),
+            {'elapsed': elapsed, 'stats': self.stats})
         dump_recon_cache({'object_updater_sweep': elapsed},
                          self.rcache, self.logger)
 
@@ -267,19 +262,11 @@ class ObjectUpdater(Daemon):
                         this_sweep = self.stats.since(start_stats)
                         self.logger.info(
                             ('Object update sweep progress on %(device)s: '
-                             '%(elapsed).02fs, '
-                             '%(successes)d successes, %(failures)d failures, '
-                             '%(quarantines)d quarantines, '
-                             '%(unlinks)d unlinks, %(errors)d errors '
-                             '(pid: %(pid)d)'),
+                             '%(elapsed).02fs, %(stats)s (pid: %(pid)d)'),
                             {'device': device,
                              'elapsed': now - start_time,
                              'pid': my_pid,
-                             'successes': this_sweep.successes,
-                             'failures': this_sweep.failures,
-                             'quarantines': this_sweep.quarantines,
-                             'unlinks': this_sweep.unlinks,
-                             'errors': this_sweep.errors})
+                             'stats': this_sweep})
                         last_status_update = now
                 try:
                     os.rmdir(prefix_path)
