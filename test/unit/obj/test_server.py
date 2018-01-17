@@ -5597,7 +5597,115 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
                                                 req, 'sda1', policy)
+        self.assertEqual(
+            self.logger.get_lines_for_level('warning'),
+            ['X-Delete-At-Container header must be specified for expiring '
+             'objects background PUT to work properly. Making best guess as '
+             'to the container name for now.'])
+        self.assertEqual(
+            given_args, [
+                'PUT', '.expiring_objects', '0000000000', '0000000002-a/c/o',
+                '127.0.0.1:1234',
+                '3', 'sdc1', HeaderKeyDict({
+                    # the .expiring_objects account is always policy-0
+                    'X-Backend-Storage-Policy-Index': 0,
+                    'x-size': '0',
+                    'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                    'x-content-type': 'text/plain',
+                    'x-timestamp': utils.Timestamp('1').internal,
+                    'x-trans-id': '1234',
+                    'referer': 'PUT http://localhost/v1/a/c/o'}),
+                'sda1', policy])
+
+    def test_delete_at_update_put_with_info_but_missing_host(self):
+        # Same as test_delete_at_update_put_with_info, but just
+        # missing the X-Delete-At-Host header.
+        policy = random.choice(list(POLICIES))
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        self.object_controller.logger = self.logger
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '1234',
+                     'X-Delete-At-Container': '0',
+                     'X-Delete-At-Partition': '3',
+                     'X-Delete-At-Device': 'sdc1',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
+        self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
+                                                req, 'sda1', policy)
+        self.assertFalse(self.logger.get_lines_for_level('warning'))
         self.assertEqual(given_args, [])
+
+    def test_delete_at_update_put_with_info_but_empty_host(self):
+        # Same as test_delete_at_update_put_with_info, but empty
+        # X-Delete-At-Host header and no X-Delete-At-Partition nor
+        # X-Delete-At-Device.
+        policy = random.choice(list(POLICIES))
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        self.object_controller.logger = self.logger
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '1234',
+                     'X-Delete-At-Container': '0',
+                     'X-Delete-At-Host': '',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
+        self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
+                                                req, 'sda1', policy)
+        self.assertFalse(self.logger.get_lines_for_level('warning'))
+        self.assertEqual(
+            given_args, [
+                'PUT', '.expiring_objects', '0000000000', '0000000002-a/c/o',
+                None,
+                None, None, HeaderKeyDict({
+                    # the .expiring_objects account is always policy-0
+                    'X-Backend-Storage-Policy-Index': 0,
+                    'x-size': '0',
+                    'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                    'x-content-type': 'text/plain',
+                    'x-timestamp': utils.Timestamp('1').internal,
+                    'x-trans-id': '1234',
+                    'referer': 'PUT http://localhost/v1/a/c/o'}),
+                'sda1', policy])
+
+    def test_delete_at_update_delete(self):
+        policy = random.choice(list(POLICIES))
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '1234',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
+        self.object_controller.delete_at_update('DELETE', 2, 'a', 'c', 'o',
+                                                req, 'sda1', policy)
+        self.assertEqual(
+            given_args, [
+                'DELETE', '.expiring_objects', '0000000000',
+                '0000000002-a/c/o', None, None,
+                None, HeaderKeyDict({
+                    'X-Backend-Storage-Policy-Index': 0,
+                    'x-timestamp': utils.Timestamp('1').internal,
+                    'x-trans-id': '1234',
+                    'referer': 'DELETE http://localhost/v1/a/c/o'}),
+                'sda1', policy])
 
     def test_delete_backend_replication(self):
         # If X-Backend-Replication: True delete_at_update should completely
@@ -6249,6 +6357,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': normalize_timestamp(put_time),
                      'X-Delete-At': str(delete_at_timestamp_1),
                      'X-Delete-At-Container': delete_at_container_1,
+                     'X-Delete-At-Host': '1.2.3.4',
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
@@ -6266,6 +6375,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Clean-Expiring-Object-Queue': 'false',
                      'X-Delete-At': str(delete_at_timestamp_2),
                      'X-Delete-At-Container': delete_at_container_2,
+                     'X-Delete-At-Host': '1.2.3.4',
                      'Content-Length': '9',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'new stuff'
