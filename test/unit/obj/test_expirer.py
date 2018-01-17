@@ -747,6 +747,18 @@ class TestObjectExpirer(TestCase):
         self.assertRaises(internal_client.UnexpectedResponse,
                           x.delete_actual_object, '/path/to/object', '1234')
 
+    def test_delete_actual_object_returns_expected_409(self):
+        # object was overwritten *after* the original expiration
+
+        def fake_app(env, start_response):
+            start_response('409 Conflict', [('Content-Length', '0')])
+            return []
+
+        internal_client.loadapp = lambda *a, **kw: fake_app
+
+        x = expirer.ObjectExpirer({})
+        x.delete_actual_object('/path/to/object', '1234')
+
     def test_delete_actual_object_raises_412(self):
 
         def fake_app(env, start_response):

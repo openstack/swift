@@ -300,9 +300,11 @@ class ObjectExpirer(Daemon):
                            '<account>/<container>/<object>'
         :param timestamp: The timestamp the X-Delete-At value must match to
                           perform the actual delete.
+        :raises UnexpectedResponse: if the delete was unsuccessful and
+                                    should be retried later
         """
         path = '/v1/' + urllib.parse.quote(actual_obj.lstrip('/'))
         self.swift.make_request('DELETE', path,
                                 {'X-If-Delete-At': str(timestamp),
                                  'X-Timestamp': str(timestamp)},
-                                (2,))
+                                (2, HTTP_CONFLICT))
