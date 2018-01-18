@@ -2213,12 +2213,15 @@ class TestContainerController(unittest.TestCase):
         shard_range = shard_ranges[0]
         headers = {
             'x-timestamp': next(ts_iter).internal,
-            'x-backend-record-type': 1,
+            'x-backend-record-type': '1',
             'x-backend-shard-lower': shard_range.lower,
             'x-backend-shard-upper': shard_range.upper,
             # TODO (acoles): should this be shard_range.timestamp.internal?
             'x-backend-timestamp': next(ts_iter).internal,
-            'x-meta-timestamp': shard_range.meta_timestamp.normal}
+            'x-meta-timestamp': shard_range.meta_timestamp.normal,
+            'x-backend-shard-state': '0',  # CREATED
+            'x-backend-shard-state-timestamp': next(ts_iter).internal,
+        }
         req = Request.blank('/sda1/p/a/c/%s' % shard_range.name,
                             method='DELETE', headers=headers)
         resp = req.get_response(self.controller)

@@ -4295,11 +4295,14 @@ class ShardRange(object):
         :param object_count: the number of objects in the shard, defaults to
             zero.
         :param bytes_used: the number of bytes in the shard; defaults to zero.
-        :param meta_timestamp: the timestamp at which the shard state was last
-            updated; defaults to the value of ``created_at``.
+        :param meta_timestamp: the timestamp at which the shard's object_count
+            and bytes_used were last updated; defaults to the value of
+            ``created_at``.
         :param deleted: if set the shard range is considered to be deleted.
         :param state: the state, must be one of ShardRange.STATES, defaults to
             CREATED
+        :param state_timestamp: the timestamp at which the shard state was last
+            updated; defaults to the value of ``created_at``.
         """
         self.account, self.container = self.validate_name(name)
         self.name = name
@@ -4410,6 +4413,10 @@ class ShardRange(object):
         self._state = int_state
 
     @property
+    def state_text(self):
+        return self.STATES[self.state]
+
+    @property
     def state_timestamp(self):
         return self._state_timestamp or self.timestamp
 
@@ -4468,7 +4475,7 @@ class ShardRange(object):
         return '%s<%r to %r as of %s, (%d, %d) as of %s, %s as of %s>' % (
             self.__class__.__name__, self.lower, self.upper,
             self.timestamp.internal, self.object_count, self.bytes_used,
-            self.meta_timestamp.internal, self.state,
+            self.meta_timestamp.internal, self.state_text,
             self.state_timestamp.internal)
 
     def entire_namespace(self):

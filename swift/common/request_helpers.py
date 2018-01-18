@@ -692,14 +692,14 @@ def shard_range_from_headers(name, headers):
     # TODO: add unit test
     return ShardRange(
         name,
-        headers.get('x-backend-timestamp'),
-        headers.get('x-backend-shard-lower'),
-        headers.get('x-backend-shard-upper'),
-        headers.get('x-backend-shard-objects', 0),
-        headers.get('x-backend-shard-bytes', 0),
-        headers.get('x-meta-timestamp'),
-        state=headers.get('x-backend-shard-state'),
-        state_timestamp=headers.get('x-backend-shard-state-timestamp')
+        created_at=headers['x-backend-timestamp'],
+        lower=headers['x-backend-shard-lower'],
+        upper=headers['x-backend-shard-upper'],
+        object_count=headers.get('x-backend-shard-objects', 0),
+        bytes_used=headers.get('x-backend-shard-bytes', 0),
+        meta_timestamp=headers['x-meta-timestamp'],
+        state=headers['x-backend-shard-state'],
+        state_timestamp=headers['x-backend-shard-state-timestamp'],
     )
 
 
@@ -713,5 +713,6 @@ def shard_range_to_headers(shard_range):
         'x-backend-shard-bytes': shard_range.bytes_used,
         'x-meta-timestamp': shard_range.meta_timestamp.internal,
         'x-backend-shard-state': shard_range.state,
-        'x-backend-shard-state-timestamp': shard_range.state_timestamp.internal
+        'x-backend-shard-state-timestamp':
+            shard_range.state_timestamp.internal,
     }

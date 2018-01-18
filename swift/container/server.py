@@ -621,7 +621,12 @@ class ContainerController(BaseStorageServer):
             return HTTPNotFound(request=req, headers=resp_headers)
         include_deleted = False
         if items == 'shard':
-            state = ShardRange.STATES_BY_NAME.get(get_param(req, 'state'))
+            state = get_param(req, 'state') or None
+            if state:
+                try:
+                    state = ShardRange.STATES_BY_NAME[state]
+                except KeyError:
+                    return HTTPBadRequest(request=req, body='Bad state')
             container_list = broker.get_shard_ranges(
                 marker, end_marker, includes, reverse, state=state)
         elif info.get('db_state') == DB_STATE_SHARDING:
