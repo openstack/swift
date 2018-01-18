@@ -555,8 +555,11 @@ class ContainerSharder(ContainerReplicator):
                         broker.root_account, broker.root_container, 'PUT',
                         broker.get_shard_ranges())
                     own_shard_range = broker.get_own_shard_range()
-                    now = Timestamp.now().internal
-                    own_shard_range.timestamp = now
+                    own_shard_range = own_shard_range.copy(
+                        timestamp=Timestamp.now())
+                    # TODO: maybe differentiate SHARDED vs SHRUNK?
+                    own_shard_range.state = ShardRange.SHARDED
+                    # TODO: DELETE may be unnecessary given shard range state
                     self._update_shard_ranges(
                         broker.root_account, broker.root_container, 'DELETE',
                         [own_shard_range])
@@ -894,8 +897,7 @@ class ContainerSharder(ContainerReplicator):
             # there is a risk here that if the async shrinking never happens
             # then the acceptor shard can never update itself or even delete
             # itself
-            acceptor.timestamp = Timestamp.now()
-            acceptor.meta_timestamp = acceptor.timestamp
+            acceptor = acceptor.copy(timestamp=Timestamp.now())
             # update acceptor usage in root container table to best estimate
             # for purposes of summing root container shard usages
             acceptor.object_count += donor.object_count
@@ -904,8 +906,7 @@ class ContainerSharder(ContainerReplicator):
             # usage updates from any un-shrunk instances of the shard. Also
             # set Scan-Done so that the donor will not scan itself and will
             # transition to SHARDED state once it has cleaved to the acceptor;
-            donor.timestamp = Timestamp.now()
-            donor.meta_timestamp = donor.timestamp
+            donor = donor.copy(timestamp=Timestamp.now())
             headers = {'X-Container-Sysmeta-Shard-Scan-Done': True}
             self._put_shard_container(broker, donor, extra_headers=headers)
             # PUT the acceptor shard range to the donor shard container; this
@@ -927,7 +928,7 @@ class ContainerSharder(ContainerReplicator):
             # TODO: not sure we really want to delete the donor yet but need
             # some way to ensure it is passed over in future shrink cycles;
             # some audit process should delete the shard once it has emptied
-            donor.deleted = 1
+            donor.state = ShardRange.SHRUNK
             updated_shard_ranges.append(donor)
             updated_shard_ranges.append(acceptor)
 
@@ -1071,6 +1072,12 @@ class ContainerSharder(ContainerReplicator):
                 shard_range.object_count = info['object_count']
                 shard_range.bytes_used = info['bytes_used']
                 shard_range.meta_timestamp = Timestamp.now()
+                # NB: set state to ACTIVE here but this must not be sent to
+                # root until *all* shard ranges have been cleaved and we are
+                # ready to transfer responsibility for the namespace from the
+                # original shards to the complete set of new shards.
+                shard_range.state = ShardRange.ACTIVE
+                shard_range.state_timestamp = Timestamp.now()
 
             if not hasattr(shard_range, 'dont_save'):
                 ranges_done.append(shard_range)

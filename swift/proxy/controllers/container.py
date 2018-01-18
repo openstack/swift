@@ -18,7 +18,7 @@ from swift import gettext_ as _
 import json
 
 from swift.common.utils import public, csv_append, Timestamp, \
-    config_true_value
+    config_true_value, ShardRange
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED, is_success
@@ -165,8 +165,9 @@ class ContainerController(Controller):
         limit = req.params.get('limit', CONTAINER_LISTING_LIMIT)
         # In whatever case we need the list of ShardRanges that contain this
         # range
-        ranges = self._get_shard_ranges(req, self.account_name,
-                                        self.container_name)
+        ranges = self._get_shard_ranges(
+            req, self.account_name, self.container_name,
+            state=ShardRange.STATES[ShardRange.ACTIVE])
         if not ranges:
             # can't find ranges or there was a problem getting the ranges. So
             # return what we have.
@@ -265,7 +266,7 @@ class ContainerController(Controller):
                         (end_marker < shard_range.upper or
                          end_marker in shard_range)):
                     continue
-                params['end_marker'] = end_marker
+                params['end_marker'] = end_marker or ''
                 params['marker'] = shard_range.upper
                 shard_range = None
             else:

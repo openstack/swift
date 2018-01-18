@@ -78,9 +78,10 @@ def print_db(node, broker, expect_type='ROOT', indent_level=0):
 
 def print_shard_range(node, sr, indent_level):
     indent = indent_level * TAB
-    print('%s%r-%r, objs: %s, bytes: %s, created: %s (%s), modified: %s (%s), '
-          '%s: %s (%s), deleted: %s (%s)' %
-          (indent, sr.lower, sr.upper, sr.object_count, sr.bytes_used,
+    range = '%r - %r' % (sr.lower, sr.upper)
+    print('%s%23s, objs: %3s, bytes: %3s, created: %s (%s), '
+          'modified: %s (%s), %7s: %s (%s), deleted: %s (%s)' %
+          (indent, range, sr.object_count, sr.bytes_used,
            Timestamp(sr.timestamp).isoformat, sr.timestamp.internal,
            Timestamp(sr.meta_timestamp).isoformat, sr.meta_timestamp.internal,
            ShardRange.STATES[sr.state], sr.state_timestamp.isoformat,

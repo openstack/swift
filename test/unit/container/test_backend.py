@@ -2922,7 +2922,11 @@ class TestContainerBroker(unittest.TestCase):
         check_broker_info(broker.get_info())
         check_sharding_state(broker)
 
-        # Now move to the final state
+        # Now move to the final state - update shard ranges' state
+        broker.merge_shard_ranges(
+            [dict(sr, state=ShardRange.ACTIVE,
+                  state_timestamp=next(ts_iter).internal)
+             for sr in shard_ranges])
         self.assertTrue(broker.set_sharded_state())
         check_broker_properties(broker)
         check_broker_info(broker.get_info())

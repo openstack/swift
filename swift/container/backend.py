@@ -1393,8 +1393,8 @@ class ContainerBroker(DatabaseBroker):
                 sql = '''
                 SELECT sum(object_count), sum(bytes_used)
                 FROM shard_ranges
-                WHERE deleted=0;
-                '''
+                WHERE deleted=0 AND state=%s;
+                ''' % ShardRange.ACTIVE
                 data = conn.execute(sql)
                 data.row_factory = None
                 row = data.fetchone()
