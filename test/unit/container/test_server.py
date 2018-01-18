@@ -2069,6 +2069,94 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 412)
 
+    def test_PUT_shard_range_json_in_body(self):
+        # make a container
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        # PUT some shard ranges
+        shard_bounds = [('', 'ham', ShardRange.ACTIVE),
+                        ('ham', 'salami', ShardRange.ACTIVE),
+                        ('salami', '', ShardRange.CREATED)]
+        shard_ranges = [
+            ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
+                       lower, upper,
+                       i * 100, i * 1000, meta_timestamp=next(ts_iter),
+                       state=state, state_timestamp=next(ts_iter))
+            for i, (lower, upper, state) in enumerate(shard_bounds)]
+
+        headers = {'X-Backend-Record-Type': '1',
+                   'X-Timestamp': next(ts_iter).internal}
+        body = json.dumps([dict(sr) for sr in shard_ranges[:2]])
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+        self._assertShardRangesEqual(shard_ranges[:2],
+                                     broker.get_shard_ranges())
+
+        # empty json dict
+        body = json.dumps({})
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self._assertShardRangesEqual(shard_ranges[:2],
+                                     broker.get_shard_ranges())
+
+        # updated and new shard ranges
+        shard_ranges[1].bytes_used += 100
+        shard_ranges[1].meta_timestamp = next(ts_iter)
+        body = json.dumps([dict(sr) for sr in shard_ranges[1:]])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+        self._assertShardRangesEqual(shard_ranges, broker.get_shard_ranges())
+
+        # deleted shard range
+        shard_ranges[0].deleted = 1
+        shard_ranges[0].timestamp = next(ts_iter)
+        body = json.dumps([dict(shard_ranges[0])])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+        self._assertShardRangesEqual(
+            shard_ranges, broker.get_shard_ranges(include_deleted=True))
+
+        def check_bad_body(body):
+            req = Request.blank(
+                '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+            resp = req.get_response(self.controller)
+            self.assertEqual(400, resp.status_int)
+            self.assertIn('Invalid body', resp.body)
+            self._assertShardRangesEqual(
+                shard_ranges, broker.get_shard_ranges(include_deleted=True))
+
+        check_bad_body('not json')
+        check_bad_body('')
+
+        def check_not_shard_record_type(headers):
+            # body ignored
+            body = json.dumps([dict(sr) for sr in shard_ranges])
+            req = Request.blank(
+                '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+            resp = req.get_response(self.controller)
+            self.assertEqual(202, resp.status_int)
+            self._assertShardRangesEqual(
+                shard_ranges, broker.get_shard_ranges(include_deleted=True))
+
+        check_not_shard_record_type(
+            {'X-Backend-Record-Type': '0',
+             'X-Timestamp': next(ts_iter).internal})
+
+        check_not_shard_record_type(
+            {'X-Timestamp': next(ts_iter).internal})
+
     def test_PUT_GET_shard_ranges(self):
         # make a container
         ts_iter = make_timestamp_iter()

@@ -402,6 +402,7 @@ class ContainerController(BaseStorageServer):
         requested_policy_index = self.get_and_validate_policy_index(req)
         broker = self._get_container_broker(drive, part, account, container)
 
+        record_type = req.headers.get('x-backend-record-type')
         if obj:     # put container object
             # obj put expects the policy_index header, default is for
             # legacy support during upgrade.
@@ -415,7 +416,6 @@ class ContainerController(BaseStorageServer):
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
 
-            record_type = req.headers.get('x-backend-record-type')
             if record_type == str(RECORD_TYPE_SHARD_NODE):
                 broker.update_shard_range(
                     shard_range_from_headers(obj, req.headers))
@@ -433,6 +433,15 @@ class ContainerController(BaseStorageServer):
                                   obj_policy_index,
                                   req.headers.get('x-content-type-timestamp'),
                                   req.headers.get('x-meta-timestamp'))
+            return HTTPCreated(request=req)
+        elif record_type == str(RECORD_TYPE_SHARD_NODE):
+            try:
+                shard_ranges = json.loads(req.body)
+            except ValueError as err:
+                return HTTPBadRequest('Invalid body: %s' % err)
+            # TODO: consider writing the shard ranges into the pending file,
+            # but if so ensure an all-or-none semantic for the write
+            broker.merge_shard_ranges(shard_ranges)
             return HTTPCreated(request=req)
         else:   # put container
             if requested_policy_index is None:
