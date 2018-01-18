@@ -348,16 +348,16 @@ class TestConstraints(unittest.TestCase):
         self.assertIn('X-Delete-At in past', cm.exception.body)
 
     def test_check_delete_headers_removes_delete_after(self):
-        t = time.time()
+        ts = utils.Timestamp.now()
         headers = {'Content-Length': '0',
                    'Content-Type': 'text/plain',
                    'X-Delete-After': '42',
-                   'X-Delete-At': str(int(t) + 40),
-                   'X-Timestamp': str(t)}
+                   'X-Delete-At': str(int(ts) + 40),
+                   'X-Timestamp': ts.internal}
         req = Request.blank('/', headers=headers)
         constraints.check_delete_headers(req)
         self.assertNotIn('X-Delete-After', req.headers)
-        self.assertEqual(req.headers['X-Delete-At'], str(int(t) + 42))
+        self.assertEqual(req.headers['X-Delete-At'], str(int(ts) + 42))
 
     def test_check_delete_headers_sets_delete_at(self):
         t = time.time()
