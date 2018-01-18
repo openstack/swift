@@ -28,9 +28,9 @@ from test.unit import FakeLogger, FakeRing
 
 
 class LeakTrackingIter(object):
-    def __init__(self, inner_iter, fake_swift, path):
+    def __init__(self, inner_iter, mark_closed, path):
         self.inner_iter = inner_iter
-        self.fake_swift = fake_swift
+        self.mark_closed = mark_closed
         self.path = path
 
     def __iter__(self):
@@ -38,7 +38,7 @@ class LeakTrackingIter(object):
             yield x
 
     def close(self):
-        self.fake_swift.mark_closed(self.path)
+        self.mark_closed(self.path)
 
 
 FakeSwiftCall = namedtuple('FakeSwiftCall', ['method', 'path', 'headers'])
@@ -173,7 +173,7 @@ class FakeSwift(object):
                 conditional_etag=conditional_etag)
         wsgi_iter = resp(env, start_response)
         self.mark_opened(path)
-        return LeakTrackingIter(wsgi_iter, self, path)
+        return LeakTrackingIter(wsgi_iter, self.mark_closed, path)
 
     def mark_opened(self, path):
         self._unclosed_req_paths[path] += 1
