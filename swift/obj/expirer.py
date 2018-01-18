@@ -308,7 +308,8 @@ class ObjectExpirer(Daemon):
                           perform the actual delete.
         """
         path = '/v1/' + urllib.parse.quote(actual_obj.lstrip('/'))
-        self.swift.make_request('DELETE', path,
-                                {'X-If-Delete-At': str(timestamp),
-                                 'X-Timestamp': str(timestamp)},
-                                (2,))
+        self.swift.make_request(
+            'DELETE', path,
+            {'X-If-Delete-At': str(timestamp), 'X-Timestamp': str(timestamp),
+             'X-Backend-Clean-Expiring-Object-Queue': 'no'},
+            (2,))

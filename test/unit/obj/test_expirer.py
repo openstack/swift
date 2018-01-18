@@ -796,6 +796,18 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(x.swift.make_request.call_args[0][1],
                          '/v1/' + urllib.parse.quote(name))
 
+    def test_delete_actual_object_queue_cleaning(self):
+        name = 'something'
+        timestamp = '1515544858.80602'
+        x = expirer.ObjectExpirer({})
+        x.swift.make_request = mock.MagicMock()
+        x.delete_actual_object(name, timestamp)
+        self.assertEqual(x.swift.make_request.call_count, 1)
+        header = 'X-Backend-Clean-Expiring-Object-Queue'
+        self.assertEqual(
+            x.swift.make_request.call_args[0][2].get(header),
+            'no')
+
     def test_pop_queue(self):
         class InternalClient(object):
             container_ring = FakeRing()

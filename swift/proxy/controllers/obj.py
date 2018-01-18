@@ -372,8 +372,8 @@ class BaseObjectController(Controller):
         # small.
         n_desired_queue_updates = 2
         for i in range(len(headers)):
-            headers[i]['X-Backend-Clean-Expiring-Object-Queue'] = (
-                't' if i < n_desired_queue_updates else 'f')
+            headers[i].setdefault('X-Backend-Clean-Expiring-Object-Queue',
+                                  't' if i < n_desired_queue_updates else 'f')
 
         return headers
 
