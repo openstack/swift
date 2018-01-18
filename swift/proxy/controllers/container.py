@@ -116,7 +116,8 @@ class ContainerController(Controller):
         sharding_state = \
             int(resp.headers.get('X-Backend-Sharding-State',
                                  DB_STATE_UNSHARDED))
-        if (req.method == "GET" and params.get('items') != 'shard' and
+        record_type = req.headers.get('X-Backend-Record-Type', '').lower()
+        if (req.method == "GET" and record_type != 'shard' and
                 params.get('scope') != 'root' and
                 sharding_state in (DB_STATE_SHARDING, DB_STATE_SHARDED)):
             resp = self._get_from_shards(req, resp)
@@ -127,7 +128,7 @@ class ContainerController(Controller):
             self.app.recheck_container_existence)
         # TODO: seems like a good idea to not set cache for shard/all
         # requests, but revisit this at some point
-        if params.get('items') not in ('shard', 'all'):
+        if record_type != 'shard' and params.get('items') != 'all':
             set_info_cache(self.app, req.environ, self.account_name,
                            self.container_name, resp)
         if 'swift.authorize' in req.environ:

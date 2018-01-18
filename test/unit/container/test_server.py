@@ -100,7 +100,7 @@ class TestContainerController(unittest.TestCase):
             'x-backend-shard-state': shard_range.state,
             'x-backend-shard-state-timestamp':
                 shard_range.state_timestamp.internal,
-            'x-backend-record-type': 1,
+            'x-backend-record-type': 'shard',
             'x-size': 0,
         }
         req = Request.blank('/sda1/p/a/c/%s' % shard_range.name, method='PUT',
@@ -2087,7 +2087,7 @@ class TestContainerController(unittest.TestCase):
                        state=state, state_timestamp=next(ts_iter))
             for i, (lower, upper, state) in enumerate(shard_bounds)]
 
-        headers = {'X-Backend-Record-Type': '1',
+        headers = {'X-Backend-Record-Type': 'shard',
                    'X-Timestamp': next(ts_iter).internal}
         body = json.dumps([dict(sr) for sr in shard_ranges[:2]])
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
@@ -2151,7 +2151,7 @@ class TestContainerController(unittest.TestCase):
                 shard_ranges, broker.get_shard_ranges(include_deleted=True))
 
         check_not_shard_record_type(
-            {'X-Backend-Record-Type': '0',
+            {'X-Backend-Record-Type': 'object',
              'X-Timestamp': next(ts_iter).internal})
 
         check_not_shard_record_type(
@@ -2211,8 +2211,9 @@ class TestContainerController(unittest.TestCase):
 
         # GET only shard ranges
         def check_shard_GET(expected_shard_ranges, path, params=''):
-            req = Request.blank('/sda1/p/%s?items=shard&format=json%s' %
-                                (path, params), method='GET')
+            req = Request.blank('/sda1/p/%s?format=json%s' %
+                                (path, params), method='GET',
+                                headers={'X-Backend-Record-Type': 'shard'})
             with mock.patch('swift.common.utils.Timestamp.now',
                             classmethod(lambda ts_cls: ts_now)):
                 resp = req.get_response(self.controller)
@@ -2330,7 +2331,7 @@ class TestContainerController(unittest.TestCase):
         shard_range = shard_ranges[0]
         headers = {
             'x-timestamp': next(ts_iter).internal,
-            'x-backend-record-type': '1',
+            'x-backend-record-type': 'shard',
             'x-backend-shard-lower': shard_range.lower,
             'x-backend-shard-upper': shard_range.upper,
             # TODO (acoles): should this be shard_range.timestamp.internal?

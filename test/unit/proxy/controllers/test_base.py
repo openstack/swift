@@ -1057,8 +1057,9 @@ class TestFuncs(unittest.TestCase):
         # container GET
         self.assertEqual('GET', captured[1]['method'])
         self.assertEqual('a/c', captured[1]['path'][7:])
-        params = sorted(captured[1]['qs'].split('&'))
-        self.assertEqual(['format=json', 'items=shard'], params)
+        self.assertEqual('format=json', captured[1]['qs'])
+        self.assertEqual(
+            'shard', captured[1]['headers'].get('X-Backend-Record-Type'))
         self.assertEqual(shard_ranges, [dict(pr) for pr in actual])
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
 
@@ -1085,7 +1086,9 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual('a/c', captured[1]['path'][7:])
         params = sorted(captured[1]['qs'].split('&'))
         self.assertEqual(
-            ['format=json', 'includes=1_test', 'items=shard'], params)
+            ['format=json', 'includes=1_test'], params)
+        self.assertEqual(
+            'shard', captured[1]['headers'].get('X-Backend-Record-Type'))
         self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
 

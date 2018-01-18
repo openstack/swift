@@ -313,8 +313,8 @@ class ContainerController(BaseStorageServer):
         if not os.path.exists(broker.db_file):
             return HTTPNotFound()
         if obj:     # delete object
-            record_type = req.headers.get('x-backend-record-type')
-            if record_type == str(RECORD_TYPE_SHARD_NODE):
+            record_type = req.headers.get('x-backend-record-type', '').lower()
+            if record_type == RECORD_TYPE_SHARD_NODE:
                 shard_range = shard_range_from_headers(obj, req.headers)
                 shard_range.deleted = 1
                 broker.update_shard_range(shard_range)
@@ -402,7 +402,7 @@ class ContainerController(BaseStorageServer):
         requested_policy_index = self.get_and_validate_policy_index(req)
         broker = self._get_container_broker(drive, part, account, container)
 
-        record_type = req.headers.get('x-backend-record-type')
+        record_type = req.headers.get('x-backend-record-type', '').lower()
         if obj:     # put container object
             # obj put expects the policy_index header, default is for
             # legacy support during upgrade.
@@ -416,7 +416,7 @@ class ContainerController(BaseStorageServer):
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
 
-            if record_type == str(RECORD_TYPE_SHARD_NODE):
+            if record_type == RECORD_TYPE_SHARD_NODE:
                 broker.update_shard_range(
                     shard_range_from_headers(obj, req.headers))
 
@@ -628,7 +628,8 @@ class ContainerController(BaseStorageServer):
         if is_deleted:
             return HTTPNotFound(request=req, headers=resp_headers)
         include_deleted = False
-        if items == 'shard':
+        record_type = req.headers.get('x-backend-record-type', '').lower()
+        if record_type == 'shard':
             includes = get_param(req, 'includes')
             state = get_param(req, 'state') or None
             if state:

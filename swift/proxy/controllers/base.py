@@ -1986,13 +1986,15 @@ class Controller(object):
 
         return resp
 
-    def _get_container_listing(self, req, account, container, params=None):
+    def _get_container_listing(self, req, account, container, headers=None,
+                               params=None):
         """
         Fetch container listing from given `account/container`.
 
         :param req: original Request instance.
         :param account: account in which `container` is stored.
         :param container: container from listing should be fetched.
+        :param headers: headers to be included with the request
         :param params: query string parameters to be used.
         :return: deserialized json data structure
         """
@@ -2003,6 +2005,8 @@ class Controller(object):
         # TODO: consider adding user agent and swift source to subreq
         subreq = make_pre_authed_request(
             req.environ, method='GET', path=quote(path), headers=req.headers)
+        if headers:
+            subreq.headers.update(headers)
         subreq.params = params
         self.app.logger.debug('Get listing from %s' % subreq.path_qs)
         response = self.app.handle_request(subreq)
@@ -2038,14 +2042,14 @@ class Controller(object):
             or None if there was a problem fetching the shard ranges
         """
         params = req.params.copy()
-        params.update({'items': 'shard', 'format': 'json'})
+        params['format'] = 'json'
         if includes:
             params['includes'] = includes
         if state:
             params['state'] = state
-
+        headers = {'X-Backend-Record-Type': 'shard'}
         listing, response = self._get_container_listing(
-            req, account, container, params=params)
+            req, account, container, headers=headers, params=params)
         if listing is None:
             return None
 
