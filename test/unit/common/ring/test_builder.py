@@ -4476,16 +4476,21 @@ class TestRingBuilderDispersion(unittest.TestCase):
 
     def assertAlmostPartCount(self, counts, expected, delta=3):
         msgs = []
+        failed = False
         for k, p in sorted(expected.items()):
             try:
                 self.assertAlmostEqual(counts[k], p, delta=delta)
             except KeyError:
                 self.fail('%r is missing the key %r' % (counts, k))
             except AssertionError:
-                msgs.append('parts in %s was %s expected %s' % (
-                    k, counts[k], p))
-        if msgs:
-            self.fail('part counts not close enough '
+                failed = True
+                state = '!='
+            else:
+                state = 'ok'
+            msgs.append('parts in %s was %s expected %s (%s)' % (
+                k, counts[k], p, state))
+        if failed:
+            self.fail('some part counts not close enough '
                       'to expected:\n' + '\n'.join(msgs))
 
     def test_rebalance_dispersion(self):
@@ -4578,14 +4583,14 @@ class TestRingBuilderDispersion(unittest.TestCase):
         self.assertAlmostPartCount(counts, expected)
 
     def test_multiple_tier_dispersion(self):
-        rb = ring.RingBuilder(8, 8, 0)
-        tiers = {
+        rb = ring.RingBuilder(10, 8, 0)
+        r_z_to_ip_count = {
             (0, 0): 2,
             (1, 1): 1,
             (1, 2): 2,
         }
         ip_index = 0
-        for (r, z), ip_count in tiers.items():
+        for (r, z), ip_count in sorted(r_z_to_ip_count.items()):
             for i in range(ip_count):
                 ip_index += 1
                 for d in range(3):
@@ -4594,22 +4599,27 @@ class TestRingBuilderDispersion(unittest.TestCase):
                                 'port': 6000, 'weight': 1.0,
                                 'device': next(self.devs)})
 
-        rb.rebalance()
+        for i in range(3):
+            # it might take a few rebalances for all the right part replicas to
+            # balance from r1z2 into r1z1
+            rb.rebalance()
         self.assertAlmostEqual(15.52734375, rb.dispersion, delta=5.0)
+        self.assertAlmostEqual(0.0, rb.get_balance(), delta=0.5)
         expected = {
-            '127.1.2.1': 414,
-            '127.1.2.2': 413,
-            '127.0.0.3': 410,
-            '127.0.0.4': 410,
-            '127.1.1.5': 401,
+            '127.0.0.1': 1638,
+            '127.0.0.2': 1638,
+            '127.1.1.3': 1638,
+            '127.1.2.4': 1638,
+            '127.1.2.5': 1638,
         }
+        delta = 10
         self.assertAlmostPartCount(_partition_counts(rb, 'ip'), expected,
-                                   delta=5)
+                                   delta=delta)
         report = dict(utils.dispersion_report(
             rb, r'r\d+z\d+-[^/]*$', verbose=True)['graph'])
         counts = {k.split('-')[1]: d['placed_parts']
                   for k, d in report.items()}
-        self.assertAlmostPartCount(counts, expected, delta=5)
+        self.assertAlmostPartCount(counts, expected, delta=delta)
 
 
 if __name__ == '__main__':
