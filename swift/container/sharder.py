@@ -24,6 +24,7 @@ from random import random
 
 from eventlet import Timeout
 
+from swift.common.request_helpers import shard_range_to_headers
 from swift.container.replicator import ContainerReplicator
 from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD_NODE, DB_STATE_NOTFOUND, \
@@ -683,15 +684,9 @@ class ContainerSharder(ContainerReplicator):
             obj_path = '%s/%s' % (path, obj)
             self.logger.info('sending %s update for shard range %s to %s' %
                              (op, shard_range, obj_path))
-            headers = {
-                'x-backend-record-type': RECORD_TYPE_SHARD_NODE,
-                'x-backend-shard-objects': shard_range.object_count,
-                'x-backend-shard-bytes': shard_range.bytes_used,
-                'x-backend-shard-lower': shard_range.lower,
-                'x-backend-shard-upper': shard_range.upper,
-                'x-backend-timestamp': shard_range.timestamp.internal,
-                'x-meta-timestamp': shard_range.meta_timestamp.internal,
-                'x-size': 0}
+            headers = shard_range_to_headers(shard_range)
+            headers['x-backend-record-type'] = RECORD_TYPE_SHARD_NODE
+            headers['x-size'] = 0
 
             for node in nodes:
                 self.cpool.spawn(

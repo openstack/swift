@@ -30,7 +30,7 @@ from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, \
-    split_and_validate_path, is_sys_or_user_meta
+    split_and_validate_path, is_sys_or_user_meta, shard_range_from_headers
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
@@ -78,16 +78,6 @@ def gen_resp_headers(info, is_deleted=False):
                                                  DB_STATE_UNSHARDED),
         })
     return headers
-
-
-def shard_range_from_headers(name, headers):
-    return ShardRange(name,
-                      headers.get('x-backend-timestamp'),
-                      headers.get('x-backend-shard-lower'),
-                      headers.get('x-backend-shard-upper'),
-                      headers.get('x-backend-shard-objects', 0),
-                      headers.get('x-backend-shard-bytes', 0),
-                      headers.get('x-meta-timestamp'))
 
 
 class ContainerController(BaseStorageServer):
@@ -631,8 +621,9 @@ class ContainerController(BaseStorageServer):
             return HTTPNotFound(request=req, headers=resp_headers)
         include_deleted = False
         if items == 'shard':
+            state = ShardRange.STATES_BY_NAME.get(get_param(req, 'state'))
             container_list = broker.get_shard_ranges(
-                marker, end_marker, includes, reverse)
+                marker, end_marker, includes, reverse, state=state)
         elif info.get('db_state') == DB_STATE_SHARDING:
             # Container is sharding, so we need to look at both brokers
             # TODO: will we ever want items=all to be supported in this case?

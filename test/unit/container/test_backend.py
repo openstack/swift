@@ -2712,7 +2712,8 @@ class TestContainerBroker(unittest.TestCase):
                 )
                 d = dict(name=name, created_at=ts_now.internal, lower=lower,
                          upper=upper, object_count=object_count, bytes_used=0,
-                         meta_timestamp=ts_now.internal, deleted=0)
+                         meta_timestamp=ts_now.internal, deleted=0,
+                         state=0, state_timestamp=ts_now.internal)
                 expected_range_dicts.append(d)
             # call the method under test
             with mock.patch('swift.common.utils.time.time',
@@ -2870,7 +2871,7 @@ class TestContainerBroker(unittest.TestCase):
             for key in ('db_state', 'id'):
                 actual_info.pop(key, None)
                 original_info.pop(key, None)
-            self.assertEqual(actual_info, original_info)
+            self.assertEqual(original_info, actual_info)
 
         def check_unsharded_state(broker):
             # this are expected properties in unsharded state

@@ -91,14 +91,18 @@ class TestContainerController(unittest.TestCase):
     def _put_shard_range(self, shard_range):
         headers = {
             'x-timestamp': shard_range.timestamp.normal,
-            'x-backend-record-type': 1,
             'x-backend-shard-objects': shard_range.object_count,
             'x-backend-shard-bytes': shard_range.bytes_used,
             'x-backend-shard-lower': shard_range.lower,
             'x-backend-shard-upper': shard_range.upper,
-            'x-backend-timestamp': shard_range.timestamp.normal,
-            'x-meta-timestamp': shard_range.meta_timestamp.normal,
-            'x-size': 0}
+            'x-backend-timestamp': shard_range.timestamp.internal,
+            'x-meta-timestamp': shard_range.meta_timestamp.internal,
+            'x-backend-shard-state': shard_range.state,
+            'x-backend-shard-state-timestamp':
+                shard_range.state_timestamp.internal,
+            'x-backend-record-type': 1,
+            'x-size': 0,
+        }
         req = Request.blank('/sda1/p/a/c/%s' % shard_range.name, method='PUT',
                             headers=headers)
         self._update_object_put_headers(req)
@@ -2086,10 +2090,13 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(201, resp.status_int)
         # PUT some shard ranges
         shard_bounds = [('', 'ham'), ('ham', 'salami'), ('salami', '')]
-        shard_ranges = [ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
-                                   lower, upper,
-                                   i * 100, i * 1000, None)
-                        for i, (lower, upper) in enumerate(shard_bounds)]
+        shard_ranges = [
+            ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
+                       lower, upper,
+                       i * 100, i * 1000, meta_timestamp=next(ts_iter),
+                       state=random.choice(ShardRange.STATES.keys()),
+                       state_timestamp=next(ts_iter))
+            for i, (lower, upper) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
 
@@ -2126,6 +2133,12 @@ class TestContainerController(unittest.TestCase):
         # all shards
         check_shard_GET(shard_ranges, 'a/c')
         check_shard_GET(reversed(shard_ranges), 'a/c', params='&reverse=true')
+        # only active shards
+        # TODO: test combinations of active plus marker, limit etc
+        expected = [sr for sr in shard_ranges if sr.state == ShardRange.ACTIVE]
+        check_shard_GET(expected, 'a/c', params='&state=active')
+        check_shard_GET(reversed(expected), 'a/c',
+                        params='&state=active&reverse=true')
         # specific object
         check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=cheese')
         check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=ham')
