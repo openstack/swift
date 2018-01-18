@@ -35,7 +35,7 @@ from time import time
 from swift.common import exceptions
 from swift.common.ring import RingData
 from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
-    validate_and_normalize_address, pretty_dev
+    validate_and_normalize_address, validate_replicas_by_tier, pretty_dev
 
 # we can't store None's in the replica2part2dev array, so we high-jack
 # the max value for magic to represent the part is not currently
@@ -1369,16 +1369,6 @@ class RingBuilder(object):
     def _sort_key_for(dev):
         return (dev['parts_wanted'], random.randint(0, 0xFFFF), dev['id'])
 
-    def _validate_replicas_at_tier(self, replicas_by_tier):
-        tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
-        for i, tier_name in enumerate(tiers):
-            replicas_at_tier = sum(replicas_by_tier[t] for t in
-                                   replicas_by_tier if len(t) == i)
-            if abs(self.replicas - replicas_at_tier) > 1e-10:
-                raise exceptions.RingValidationError(
-                    '%s != %s at tier %s' % (
-                        replicas_at_tier, self.replicas, tier_name))
-
     def _build_max_replicas_by_tier(self, bound=math.ceil):
         """
         Returns a defaultdict of (tier: replica_count) for all tiers in the
@@ -1493,7 +1483,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # weighted_replicas should be very close to the total number of
         # replicas for the ring
-        self._validate_replicas_at_tier(weighted_replicas_by_tier)
+        validate_replicas_by_tier(self.replicas, weighted_replicas_by_tier)
 
         return weighted_replicas_by_tier
 
@@ -1596,7 +1586,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # wanted_replicas should be very close to the total number of
         # replicas for the ring
-        self._validate_replicas_at_tier(wanted_replicas)
+        validate_replicas_by_tier(self.replicas, wanted_replicas)
 
         return wanted_replicas
 
@@ -1625,7 +1615,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # target_replicas should be very close to the total number
         # of replicas for the ring
-        self._validate_replicas_at_tier(target_replicas)
+        validate_replicas_by_tier(self.replicas, target_replicas)
 
         return target_replicas
 

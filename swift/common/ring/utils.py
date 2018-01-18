@@ -17,6 +17,7 @@ import optparse
 import re
 import socket
 
+from swift.common import exceptions
 from swift.common.utils import expand_ipv6, is_valid_ip, is_valid_ipv4, \
     is_valid_ipv6
 
@@ -644,6 +645,17 @@ def dispersion_report(builder, search_filter=None,
         'worst_tier': worst_tier,
         'graph': sorted_graph,
     }
+
+
+def validate_replicas_by_tier(replicas, replicas_by_tier):
+    tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
+    for i, tier_name in enumerate(tiers):
+        replicas_at_tier = sum(replicas_by_tier[t] for t in
+                               replicas_by_tier if len(t) == i)
+        if abs(replicas - replicas_at_tier) > 1e-10:
+            raise exceptions.RingValidationError(
+                '%s != %s at tier %s' % (
+                    replicas_at_tier, replicas, tier_name))
 
 
 def format_device(region=None, zone=None, ip=None, device=None, **kwargs):

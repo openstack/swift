@@ -14,7 +14,9 @@
 # limitations under the License.
 
 import unittest
+from collections import defaultdict
 
+from swift.common import exceptions
 from swift.common import ring
 from swift.common.ring.utils import (tiers_for_dev, build_tier_tree,
                                      validate_and_normalize_ip,
@@ -26,7 +28,8 @@ from swift.common.ring.utils import (tiers_for_dev, build_tier_tree,
                                      validate_args, parse_args,
                                      parse_builder_ring_filename_args,
                                      build_dev_from_opts, dispersion_report,
-                                     parse_address, get_tier_name, pretty_dev)
+                                     parse_address, get_tier_name, pretty_dev,
+                                     validate_replicas_by_tier)
 
 
 class TestUtils(unittest.TestCase):
@@ -171,6 +174,81 @@ class TestUtils(unittest.TestCase):
         hostname = "$blah#"
         self.assertRaises(ValueError,
                           validate_and_normalize_address, hostname)
+
+    def test_validate_replicas_by_tier_close(self):
+        one_ip_six_devices = \
+            defaultdict(float,
+                        {(): 4.0,
+                         (0,): 4.0,
+                         (0, 0): 4.0,
+                         (0, 0, '127.0.0.1'): 4.0,
+                         (0, 0, '127.0.0.1', 0): 0.6666666670,
+                         (0, 0, '127.0.0.1', 1): 0.6666666668,
+                         (0, 0, '127.0.0.1', 2): 0.6666666667,
+                         (0, 0, '127.0.0.1', 3): 0.6666666666,
+                         (0, 0, '127.0.0.1', 4): 0.6666666665,
+                         (0, 0, '127.0.0.1', 5): 0.6666666664,
+                         })
+        try:
+            validate_replicas_by_tier(4, one_ip_six_devices)
+        except Exception as e:
+            self.fail('one_ip_six_devices is invalid for %s' % e)
+
+    def test_validate_replicas_by_tier_exact(self):
+        three_regions_three_devices = \
+            defaultdict(float,
+                        {(): 3.0,
+                         (0,): 1.0,
+                         (0, 0): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1,): 1.0,
+                         (1, 1): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (2,): 1.0,
+                         (2, 2): 1.0,
+                         (2, 2, '127.0.0.1'): 1.0,
+                         (2, 2, '127.0.0.1', 2): 1.0,
+                         })
+        try:
+            validate_replicas_by_tier(3, three_regions_three_devices)
+        except Exception as e:
+            self.fail('three_regions_three_devices is invalid for %s' % e)
+
+    def test_validate_replicas_by_tier_errors(self):
+        pseudo_replicas = \
+            defaultdict(float,
+                        {(): 3.0,
+                         (0,): 1.0,
+                         (0, 0): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1,): 1.0,
+                         (1, 1): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (2,): 1.0,
+                         (2, 2): 1.0,
+                         (2, 2, '127.0.0.1'): 1.0,
+                         (2, 2, '127.0.0.1', 2): 1.0,
+                         })
+
+        def do_test(bad_tier_key, bad_tier_name):
+            # invalidate a copy of pseudo_replicas at given key and check for
+            # an exception to be raised
+            test_replicas = dict(pseudo_replicas)
+            test_replicas[bad_tier_key] += 0.1  # <- this is not fair!
+            with self.assertRaises(exceptions.RingValidationError) as ctx:
+                validate_replicas_by_tier(3, test_replicas)
+            self.assertEqual(
+                '3.1 != 3 at tier %s' % bad_tier_name, str(ctx.exception))
+
+        do_test((), 'cluster')
+        do_test((1,), 'regions')
+        do_test((0, 0), 'zones')
+        do_test((2, 2, '127.0.0.1'), 'servers')
+        do_test((1, 1, '127.0.0.1', 1), 'devices')
 
     def test_parse_search_value(self):
         res = parse_search_value('r0')
