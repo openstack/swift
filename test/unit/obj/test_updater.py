@@ -298,15 +298,21 @@ class TestObjectUpdater(unittest.TestCase):
 
         self.assertIn("sweep progress", info_lines[1])
         # the space ensures it's a positive number
-        self.assertIn(" 2 successes", info_lines[1])
+        self.assertIn(
+            "2 successes, 0 failures, 0 quarantines, 2 unlinks, 0 error",
+            info_lines[1])
         self.assertIn(self.sda1, info_lines[1])
 
         self.assertIn("sweep progress", info_lines[2])
-        self.assertIn(" 4 successes", info_lines[2])
+        self.assertIn(
+            "4 successes, 0 failures, 0 quarantines, 4 unlinks, 0 error",
+            info_lines[2])
         self.assertIn(self.sda1, info_lines[2])
 
         self.assertIn("sweep complete", info_lines[3])
-        self.assertIn(" 5 successes", info_lines[3])
+        self.assertIn(
+            "5 successes, 0 failures, 0 quarantines, 5 unlinks, 0 error",
+            info_lines[3])
         self.assertIn(self.sda1, info_lines[3])
 
     @mock.patch.object(object_updater, 'check_drive')
