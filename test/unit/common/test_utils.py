@@ -7010,7 +7010,8 @@ class TestShardRange(unittest.TestCase):
                               meta_timestamp=meta_ts, state=1,
                               state_timestamp=state_ts)
         self.assertEqual(
-            "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s, 1 as of %s>"
+            "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s, "
+            "active as of %s>"
             % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
 
     def test_copy(self):

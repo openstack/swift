@@ -463,7 +463,7 @@ class ContainerBroker(DatabaseBroker):
                 bytes_used INTEGER DEFAULT 0,
                 created_at TEXT,
                 meta_timestamp TEXT,
-                state TEXT,
+                state INTEGER,
                 state_timestamp TEXT,
                 deleted INTEGER DEFAULT 0
             );
@@ -1453,8 +1453,8 @@ class ContainerBroker(DatabaseBroker):
             ``marker`` and ``end_marker`` are ignored.
         :param reverse: reverse the result order.
         :param include_deleted: include items that have the delete marker set
-        :param state: restricts the returned list to shard ranges that have the
-            given state.
+        :param state: if specified, restricts the returned list to shard
+            ranges that have the given state.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
         shard_ranges = [

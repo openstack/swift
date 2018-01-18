@@ -19,7 +19,7 @@ from collections import defaultdict
 from swift.common import utils
 from swift.common.db_replicator import roundrobin_datadirs
 from swift.common.ring import ring
-from swift.common.utils import Timestamp, ShardRange
+from swift.common.utils import Timestamp
 from swift.container.backend import ContainerBroker, DATADIR, DB_STATE
 from swift.container.sharder import get_sharding_info
 
@@ -83,7 +83,7 @@ def print_shard_range(node, sr, indent_level):
           (indent, sr.lower, sr.upper, sr.object_count, sr.bytes_used,
            Timestamp(sr.timestamp).isoformat, sr.timestamp.internal,
            Timestamp(sr.meta_timestamp).isoformat, sr.meta_timestamp.internal,
-           ShardRange.STATES[sr.state], sr.state_timestamp.isoformat,
+           sr.state_text, sr.state_timestamp.isoformat,
            sr.state_timestamp.internal, sr.deleted, node))
 
 
