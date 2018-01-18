@@ -5,7 +5,7 @@ Object Storage monitoring
 .. note::
 
    This section was excerpted from a `blog post by Darrell
-   Bishop <http://swiftstack.com/blog/2012/04/11/swift-monitoring-with-statsd>`_ and
+   Bishop <https://swiftstack.com/blog/2012/04/11/swift-monitoring-with-statsd>`_ and
    has since been edited.
 
 An OpenStack Object Storage cluster is a collection of many daemons that
