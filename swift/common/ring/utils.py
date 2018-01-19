@@ -648,6 +648,14 @@ def dispersion_report(builder, search_filter=None,
 
 
 def validate_replicas_by_tier(replicas, replicas_by_tier):
+    """
+    Validate the sum of the replicas at each tier.
+    The sum of the replicas at each tier should be less than or very close to
+    the upper limit indicated by replicas
+
+    :param replicas: float,the upper limit of replicas
+    :param replicas_by_tier: defaultdict,the replicas by tier
+    """
     tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
     for i, tier_name in enumerate(tiers):
         replicas_at_tier = sum(replicas_by_tier[t] for t in
