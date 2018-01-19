@@ -27,6 +27,7 @@ from tempfile import mkdtemp
 from shutil import rmtree
 import random
 import uuid
+import itertools
 
 from six.moves import range
 
@@ -34,6 +35,16 @@ from swift.common import exceptions
 from swift.common import ring
 from swift.common.ring import utils
 from swift.common.ring.builder import MAX_BALANCE
+
+
+def _partition_counts(builder, key='id'):
+    """
+    Returns a dictionary mapping the given device key to (number of
+    partitions assigned to that key).
+    """
+    return Counter(builder.devs[dev_id][key]
+                   for part2dev_id in builder._replica2part2dev
+                   for dev_id in part2dev_id)
 
 
 class TestRingBuilder(unittest.TestCase):
@@ -44,21 +55,12 @@ class TestRingBuilder(unittest.TestCase):
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
 
-    def _partition_counts(self, builder, key='id'):
-        """
-        Returns a dictionary mapping the given device key to (number of
-        partitions assigned to that key).
-        """
-        return Counter(builder.devs[dev_id][key]
-                       for part2dev_id in builder._replica2part2dev
-                       for dev_id in part2dev_id)
-
     def _get_population_by_region(self, builder):
         """
         Returns a dictionary mapping region to number of partitions in that
         region.
         """
-        return self._partition_counts(builder, key='region')
+        return _partition_counts(builder, key='region')
 
     def test_init(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -320,7 +322,7 @@ class TestRingBuilder(unittest.TestCase):
                         'port': 10000 + region * 100 + zone,
                         'device': 'sda%d' % dev_id})
         rb.rebalance()
-        self.assertEqual(self._partition_counts(rb, 'zone'),
+        self.assertEqual(_partition_counts(rb, 'zone'),
                          {0: 256, 10: 256, 11: 256})
         wanted_by_zone = defaultdict(lambda: defaultdict(int))
         for dev in rb._iter_devs():
@@ -443,6 +445,110 @@ class TestRingBuilder(unittest.TestCase):
 
         # maybe not *perfect*, but should be close
         self.assertLessEqual(balance, 1)
+
+    def test_validate_replicate_by_tier(self):
+        rb = ring.RingBuilder(5, 3, 0)
+        # replicas 3.0 and three devices with two weight 10 and one weight 5
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 10,
+                    'ip': '127.0.0.1', 'port': 6000, 'device': 'object1'})
+        rb.add_dev({'id': 1, 'region': 1, 'zone': 1, 'weight': 10,
+                    'ip': '127.0.0.1', 'port': 6000, 'device': 'object2'})
+        rb.add_dev({'id': 2, 'region': 2, 'zone': 2, 'weight': 5,
+                    'ip': '127.0.0.1', 'port': 6000, 'device': 'object3'})
+        rb.rebalance()
+
+        # validate weighted_replicas
+        weighted_replicas = \
+            defaultdict(float,
+                        {(0, 0): 1.0, (1,): 1.0,
+                         (2,): 0.9999999999999999,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0, (): 3.0,
+                         (2, 2, '127.0.0.1'): 0.9999999999999999,
+                         (2, 2): 0.9999999999999999,
+                         (2, 2, '127.0.0.1', 2): 0.9999999999999999,
+                         (1, 1): 1.0, (0,): 1.0
+                         })
+        try:
+            rb._validate_replicas_at_tier(weighted_replicas)
+        except Exception as e:
+            self.fail('weighted_replicas is invalid for %s' % e)
+
+        # validate wanted_replicas
+        wanted_replicas = \
+            defaultdict(float,
+                        {(0, 0): 1.0, (1,): 1.0, (2,): 1.0,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0, (): 3.0,
+                         (2, 2, '127.0.0.1'): 1.0,
+                         (2, 2): 1.0, (2, 2, '127.0.0.1', 2): 1.0,
+                         (1, 1): 1.0, (0,): 1.0
+                         })
+        try:
+            rb._validate_replicas_at_tier(wanted_replicas)
+        except Exception as e:
+            self.fail('wanted_replicas is invalid for %s' % e)
+
+        # validate target_replicas
+        target_replicas = \
+            defaultdict(float,
+                        {(0, 0): 1.0, (1,): 1.0,
+                         (2,): 0.9999999999999999,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0,
+                         (2, 2, '127.0.0.1'): 0.9999999999999999,
+                         (2, 2): 0.9999999999999999, (): 3.0,
+                         (2, 2, '127.0.0.1', 2): 0.9999999999999999,
+                         (1, 1): 1.0, (0,): 1.0
+                         })
+        try:
+            rb._validate_replicas_at_tier(target_replicas)
+        except Exception as e:
+            self.fail('target_replicas is invalid for %s' % e)
+
+        # set overload to 10%
+        rb.set_overload(0.1)
+        rb.rebalance()
+        # validate target_replicas
+        target_replicas = \
+            defaultdict(float,
+                        {(0, 0): 1.0, (1,): 1.0, (2,): 1.0,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0,
+                         (2, 2, '127.0.0.1'): 1.0, (2, 2): 1.0, (): 3.0,
+                         (2, 2, '127.0.0.1', 2): 1.0,
+                         (1, 1): 1.0, (0,): 1.0
+                         })
+        try:
+            rb._validate_replicas_at_tier(target_replicas)
+        except Exception as e:
+            self.fail('target_replicas is invalid after overload for %s'
+                      % e)
+
+        # invalidate case
+        pseudo_replicas = \
+            defaultdict(float,
+                        {(0, 0): 1.1, (1,): 1.0, (2,): 1.0,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0,
+                         (2, 2, '127.0.0.1'): 1.0,
+                         (2, 2): 1.0, (): 3.0,
+                         (2, 2, '127.0.0.1', 2): 1.0,
+                         (1, 1): 1.0, (0,): 1.0
+                         })
+        with self.assertRaises(exceptions.RingValidationError) as ctx:
+            rb._validate_replicas_at_tier(pseudo_replicas)
+        self.assertEqual('3.1 != 3 at tier zones', str(ctx.exception))
 
     def test_multitier_partial(self):
         # Multitier test, nothing full
@@ -777,7 +883,7 @@ class TestRingBuilder(unittest.TestCase):
         # replica should have been moved, therefore we expect 256 parts in zone
         # 0 and 1, and a total of 256 in zone 2,3, and 4
         expected = defaultdict(int, {0: 256, 1: 256, 2: 86, 3: 85, 4: 85})
-        self.assertEqual(expected, self._partition_counts(rb, key='zone'))
+        self.assertEqual(expected, _partition_counts(rb, key='zone'))
 
         zone_histogram = defaultdict(int)
         for part in range(rb.parts):
@@ -804,7 +910,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertAlmostEqual(rb.get_balance(), 0, delta=0.5)
 
         # every zone has either 153 or 154 parts
-        for zone, count in self._partition_counts(
+        for zone, count in _partition_counts(
                 rb, key='zone').items():
             self.assertAlmostEqual(153.5, count, delta=1)
 
@@ -872,18 +978,18 @@ class TestRingBuilder(unittest.TestCase):
         self.assertFalse(rb.ever_rebalanced)
         rb.rebalance()
         self.assertTrue(rb.ever_rebalanced)
-        counts = self._partition_counts(rb)
+        counts = _partition_counts(rb)
         self.assertEqual(counts, {0: 256, 1: 256, 2: 256})
         rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
         self.assertTrue(rb.ever_rebalanced)
-        counts = self._partition_counts(rb)
+        counts = _partition_counts(rb)
         self.assertEqual(counts, {0: 192, 1: 192, 2: 192, 3: 192})
         rb.set_dev_weight(3, 100)
         rb.rebalance()
-        counts = self._partition_counts(rb)
+        counts = _partition_counts(rb)
         self.assertEqual(counts[3], 256)
 
     def test_add_rebalance_add_rebalance_delete_rebalance(self):
@@ -1072,6 +1178,11 @@ class TestRingBuilder(unittest.TestCase):
                 new_dev_parts[dev_id] += 1
         for dev in rb._iter_devs():
             dev['parts'] = new_dev_parts[dev['id']]
+        # reset the _last_part_gather_start otherwise
+        # there is a chance it'll unluckly wrap and try and
+        # move one of the device 1's from replica 2
+        # causing the intermitant failure in bug 1724356
+        rb._last_part_gather_start = 0
 
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
@@ -1632,7 +1743,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.validate()
 
         # sanity check: balance respects weights, so default
-        part_counts = self._partition_counts(rb, key='zone')
+        part_counts = _partition_counts(rb, key='zone')
         self.assertEqual(part_counts[0], 192)
         self.assertEqual(part_counts[1], 192)
         self.assertEqual(part_counts[2], 384)
@@ -1643,7 +1754,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.pretend_min_part_hours_passed()
         rb.rebalance(seed=12345)
 
-        part_counts = self._partition_counts(rb, key='zone')
+        part_counts = _partition_counts(rb, key='zone')
         self.assertEqual({0: 212, 1: 211, 2: 345}, part_counts)
 
         # Now, devices 0 and 1 take 50% more than their fair shares by
@@ -1653,7 +1764,7 @@ class TestRingBuilder(unittest.TestCase):
             rb.pretend_min_part_hours_passed()
             rb.rebalance(seed=12345)
 
-        part_counts = self._partition_counts(rb, key='zone')
+        part_counts = _partition_counts(rb, key='zone')
         self.assertEqual({0: 256, 1: 256, 2: 256}, part_counts)
 
         # Devices 0 and 1 may take up to 75% over their fair share, but the
@@ -1664,7 +1775,7 @@ class TestRingBuilder(unittest.TestCase):
             rb.pretend_min_part_hours_passed()
             rb.rebalance(seed=12345)
 
-        part_counts = self._partition_counts(rb, key='zone')
+        part_counts = _partition_counts(rb, key='zone')
         self.assertEqual(part_counts[0], 256)
         self.assertEqual(part_counts[1], 256)
         self.assertEqual(part_counts[2], 256)
@@ -1704,7 +1815,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=12345)
 
         # sanity check: our overload is big enough to balance things
-        part_counts = self._partition_counts(rb, key='ip')
+        part_counts = _partition_counts(rb, key='ip')
         self.assertEqual(part_counts['127.0.0.1'], 216)
         self.assertEqual(part_counts['127.0.0.2'], 216)
         self.assertEqual(part_counts['127.0.0.3'], 336)
@@ -1716,7 +1827,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.pretend_min_part_hours_passed()
         rb.rebalance(seed=12345)
 
-        part_counts = self._partition_counts(rb, key='ip')
+        part_counts = _partition_counts(rb, key='ip')
 
         self.assertEqual({
             '127.0.0.1': 237,
@@ -1732,7 +1843,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.pretend_min_part_hours_passed()
         rb.rebalance(seed=12345)
 
-        part_counts = self._partition_counts(rb, key='ip')
+        part_counts = _partition_counts(rb, key='ip')
         self.assertEqual(part_counts['127.0.0.1'], 256)
         self.assertEqual(part_counts['127.0.0.2'], 256)
         self.assertEqual(part_counts['127.0.0.3'], 256)
@@ -1765,7 +1876,7 @@ class TestRingBuilder(unittest.TestCase):
             '127.0.0.4': 192,
         }
 
-        part_counts = self._partition_counts(rb, key='ip')
+        part_counts = _partition_counts(rb, key='ip')
         self.assertEqual(part_counts, expected)
 
     def test_overload_keeps_balanceable_things_balanced_initially(self):
@@ -1798,7 +1909,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.set_overload(99999)
         rb.rebalance(seed=12345)
 
-        part_counts = self._partition_counts(rb)
+        part_counts = _partition_counts(rb)
         self.assertEqual(part_counts, {
             0: 128,
             1: 128,
@@ -1842,7 +1953,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.set_overload(99999)
 
         rb.rebalance(seed=123)
-        part_counts = self._partition_counts(rb)
+        part_counts = _partition_counts(rb)
         self.assertEqual(part_counts, {
             0: 128,
             1: 128,
@@ -1863,7 +1974,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.set_dev_weight(1, 8)
 
         rb.rebalance(seed=456)
-        part_counts = self._partition_counts(rb)
+        part_counts = _partition_counts(rb)
         self.assertEqual(part_counts, {
             0: 128,
             1: 128,
@@ -2268,7 +2379,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertRaises(exceptions.RingValidationError, rb.validate)
 
         rb.rebalance()
-        counts = self._partition_counts(rb, key='zone')
+        counts = _partition_counts(rb, key='zone')
         self.assertEqual(counts, {0: 128, 1: 128, 2: 256, 3: 256})
 
         dev_usage, worst = rb.validate()
@@ -2450,7 +2561,7 @@ class TestRingBuilder(unittest.TestCase):
         # we'll rebalance but can't move any parts
         rb.rebalance(seed=1)
         # zero weight tier has one copy of 1/4 part-replica
-        self.assertEqual(rb.dispersion, 75.0)
+        self.assertEqual(rb.dispersion, 25.0)
         self.assertEqual(rb._dispersion_graph, {
             (0,): [0, 0, 0, 256],
             (0, 0): [0, 0, 0, 256],
@@ -2509,7 +2620,7 @@ class TestRingBuilder(unittest.TestCase):
         # so the first time, rings are still unbalanced becase we'll only move
         # one replica of each part.
         self.assertEqual(rb.get_balance(), 50.1953125)
-        self.assertEqual(rb.dispersion, 99.609375)
+        self.assertEqual(rb.dispersion, 16.6015625)
 
         # N.B. since we mostly end up grabbing parts by "weight forced" some
         # seeds given some specific ring state will randomly pick bad
@@ -2519,14 +2630,14 @@ class TestRingBuilder(unittest.TestCase):
         # ... this isn't a really "desirable" behavior, but even with bad luck,
         # things do get better
         self.assertEqual(rb.get_balance(), 47.265625)
-        self.assertEqual(rb.dispersion, 99.609375)
+        self.assertEqual(rb.dispersion, 16.6015625)
 
         # but if you stick with it, eventually the next rebalance, will get to
         # move "the right" part-replicas, resulting in near optimal balance
         changed_part, _, _ = rb.rebalance(seed=7)
         self.assertEqual(changed_part, 240)
         self.assertEqual(rb.get_balance(), 0.390625)
-        self.assertEqual(rb.dispersion, 99.609375)
+        self.assertEqual(rb.dispersion, 16.6015625)
 
     def test_undispersable_server_converge_on_balance(self):
         rb = ring.RingBuilder(8, 6, 0)
@@ -2562,7 +2673,7 @@ class TestRingBuilder(unittest.TestCase):
         # but the first time, those are still unbalance becase ring builder
         # can move only one replica for each part
         self.assertEqual(rb.get_balance(), 16.9921875)
-        self.assertEqual(rb.dispersion, 59.765625)
+        self.assertEqual(rb.dispersion, 9.9609375)
 
         rb.rebalance(seed=7)
 
@@ -2570,7 +2681,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertGreaterEqual(rb.get_balance(), 0)
         self.assertLess(rb.get_balance(), 1)
         # dispersion doesn't get any worse
-        self.assertEqual(rb.dispersion, 59.765625)
+        self.assertEqual(rb.dispersion, 9.9609375)
 
     def test_effective_overload(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -3623,7 +3734,7 @@ class TestGetRequiredOverload(unittest.TestCase):
         # when overload can not change the outcome none is required
         self.assertEqual(0.0, rb.get_required_overload())
         # even though dispersion is terrible (in z1 particularly)
-        self.assertEqual(100.0, rb.dispersion)
+        self.assertEqual(20.0, rb.dispersion)
 
     def test_one_big_guy_does_not_spoil_his_buddy(self):
         rb = ring.RingBuilder(8, 3, 0)
@@ -4356,6 +4467,159 @@ class TestGetRequiredOverload(unittest.TestCase):
         for tier_len, expected in expectations.items():
             self.assertEqual(expected, {t: ceil(r) for (t, r) in
                                         wr.items() if len(t) == tier_len})
+
+
+class TestRingBuilderDispersion(unittest.TestCase):
+
+    def setUp(self):
+        self.devs = ('d%s' % i for i in itertools.count())
+
+    def assertAlmostPartCount(self, counts, expected, delta=3):
+        msgs = []
+        failed = False
+        for k, p in sorted(expected.items()):
+            try:
+                self.assertAlmostEqual(counts[k], p, delta=delta)
+            except KeyError:
+                self.fail('%r is missing the key %r' % (counts, k))
+            except AssertionError:
+                failed = True
+                state = '!='
+            else:
+                state = 'ok'
+            msgs.append('parts in %s was %s expected %s (%s)' % (
+                k, counts[k], p, state))
+        if failed:
+            self.fail('some part counts not close enough '
+                      'to expected:\n' + '\n'.join(msgs))
+
+    def test_rebalance_dispersion(self):
+        rb = ring.RingBuilder(8, 6, 0)
+
+        for i in range(6):
+            rb.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                        'port': 6000, 'weight': 1.0,
+                        'device': next(self.devs)})
+        rb.rebalance()
+        self.assertEqual(0, rb.dispersion)
+
+        for z in range(2):
+            for i in range(6):
+                rb.add_dev({'region': 0, 'zone': z + 1, 'ip': '127.0.1.1',
+                            'port': 6000, 'weight': 1.0,
+                            'device': next(self.devs)})
+
+        self.assertAlmostPartCount(_partition_counts(rb, 'zone'),
+                                   {0: 1536, 1: 0, 2: 0})
+        rb.rebalance()
+        self.assertEqual(rb.dispersion, 50.0)
+        expected = {0: 1280, 1: 128, 2: 128}
+        self.assertAlmostPartCount(_partition_counts(rb, 'zone'),
+                                   expected)
+        report = dict(utils.dispersion_report(
+            rb, r'r\d+z\d+$', verbose=True)['graph'])
+        counts = {int(k.split('z')[1]): d['placed_parts']
+                  for k, d in report.items()}
+        self.assertAlmostPartCount(counts, expected)
+        rb.rebalance()
+        self.assertEqual(rb.dispersion, 33.333333333333336)
+        expected = {0: 1024, 1: 256, 2: 256}
+        self.assertAlmostPartCount(_partition_counts(rb, 'zone'),
+                                   expected)
+        report = dict(utils.dispersion_report(
+            rb, r'r\d+z\d+$', verbose=True)['graph'])
+        counts = {int(k.split('z')[1]): d['placed_parts']
+                  for k, d in report.items()}
+        self.assertAlmostPartCount(counts, expected)
+        rb.rebalance()
+        self.assertEqual(rb.dispersion, 16.666666666666668)
+        expected = {0: 768, 1: 384, 2: 384}
+        self.assertAlmostPartCount(_partition_counts(rb, 'zone'),
+                                   expected)
+        report = dict(utils.dispersion_report(
+            rb, r'r\d+z\d+$', verbose=True)['graph'])
+        counts = {int(k.split('z')[1]): d['placed_parts']
+                  for k, d in report.items()}
+        self.assertAlmostPartCount(counts, expected)
+        rb.rebalance()
+        self.assertEqual(0, rb.dispersion)
+        expected = {0: 512, 1: 512, 2: 512}
+        self.assertAlmostPartCount(_partition_counts(rb, 'zone'), expected)
+        report = dict(utils.dispersion_report(
+            rb, r'r\d+z\d+$', verbose=True)['graph'])
+        counts = {int(k.split('z')[1]): d['placed_parts']
+                  for k, d in report.items()}
+        self.assertAlmostPartCount(counts, expected)
+
+    def test_weight_dispersion(self):
+        rb = ring.RingBuilder(8, 3, 0)
+
+        for i in range(2):
+            for d in range(3):
+                rb.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.%s.1' % i,
+                            'port': 6000, 'weight': 1.0,
+                            'device': next(self.devs)})
+        for d in range(3):
+            rb.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.2.1',
+                        'port': 6000, 'weight': 10.0,
+                        'device': next(self.devs)})
+
+        rb.rebalance()
+        # each tier should only have 1 replicanth, but the big server has 2
+        # replicas of every part and 3 replicas another 1/2 - so our total
+        # dispersion is greater than one replicanth, it's 1.5
+        self.assertEqual(50.0, rb.dispersion)
+        expected = {
+            '127.0.0.1': 64,
+            '127.0.1.1': 64,
+            '127.0.2.1': 640,
+        }
+        self.assertAlmostPartCount(_partition_counts(rb, 'ip'),
+                                   expected)
+        report = dict(utils.dispersion_report(
+            rb, r'r\d+z\d+-[^/]*$', verbose=True)['graph'])
+        counts = {k.split('-')[1]: d['placed_parts']
+                  for k, d in report.items()}
+        self.assertAlmostPartCount(counts, expected)
+
+    def test_multiple_tier_dispersion(self):
+        rb = ring.RingBuilder(10, 8, 0)
+        r_z_to_ip_count = {
+            (0, 0): 2,
+            (1, 1): 1,
+            (1, 2): 2,
+        }
+        ip_index = 0
+        for (r, z), ip_count in sorted(r_z_to_ip_count.items()):
+            for i in range(ip_count):
+                ip_index += 1
+                for d in range(3):
+                    rb.add_dev({'region': r, 'zone': z,
+                                'ip': '127.%s.%s.%s' % (r, z, ip_index),
+                                'port': 6000, 'weight': 1.0,
+                                'device': next(self.devs)})
+
+        for i in range(3):
+            # it might take a few rebalances for all the right part replicas to
+            # balance from r1z2 into r1z1
+            rb.rebalance()
+        self.assertAlmostEqual(15.52734375, rb.dispersion, delta=5.0)
+        self.assertAlmostEqual(0.0, rb.get_balance(), delta=0.5)
+        expected = {
+            '127.0.0.1': 1638,
+            '127.0.0.2': 1638,
+            '127.1.1.3': 1638,
+            '127.1.2.4': 1638,
+            '127.1.2.5': 1638,
+        }
+        delta = 10
+        self.assertAlmostPartCount(_partition_counts(rb, 'ip'), expected,
+                                   delta=delta)
+        report = dict(utils.dispersion_report(
+            rb, r'r\d+z\d+-[^/]*$', verbose=True)['graph'])
+        counts = {k.split('-')[1]: d['placed_parts']
+                  for k, d in report.items()}
+        self.assertAlmostPartCount(counts, expected, delta=delta)
 
 
 if __name__ == '__main__':

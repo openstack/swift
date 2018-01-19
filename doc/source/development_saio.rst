@@ -217,7 +217,7 @@ do the following::
 
 To persist this, edit and add the following to ``/etc/fstab``::
 
-        /home/swift/xfs_file /tmp xfs rw,noatime,nodiratime,attr2,inode64,noquota 0 0
+        /home/<your-user-name>/xfs_file /tmp xfs rw,noatime,nodiratime,attr2,inode64,noquota 0 0
 
 ----------------
 Getting the code

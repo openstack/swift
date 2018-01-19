@@ -619,10 +619,10 @@ class TestUtils(unittest.TestCase):
         rb.rebalance(seed=100)
         rb.validate()
 
-        self.assertEqual(rb.dispersion, 55.46875)
+        self.assertEqual(rb.dispersion, 18.489583333333332)
         report = dispersion_report(rb)
-        self.assertEqual(report['worst_tier'], 'r1z1')
-        self.assertEqual(report['max_dispersion'], 44.921875)
+        self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.1')
+        self.assertEqual(report['max_dispersion'], 22.68370607028754)
 
         def build_tier_report(max_replicas, placed_parts, dispersion,
                               replicas):
@@ -633,17 +633,15 @@ class TestUtils(unittest.TestCase):
                 'replicas': replicas,
             }
 
-        # Each node should store less than or equal to 256 partitions to
-        # avoid multiple replicas.
-        # 2/5 of total weight * 768 ~= 307 -> 51 partitions on each node in
-        # zone 1 are stored at least twice on the nodes
+        # every partition has at least two replicas in this zone, unfortunately
+        # sometimes they're both on the same server.
         expected = [
             ['r1z1', build_tier_report(
-                2, 256, 44.921875, [0, 0, 141, 115])],
+                2, 627, 18.341307814992025, [0, 0, 141, 115])],
             ['r1z1-127.0.0.1', build_tier_report(
-                1, 242, 29.33884297520661, [14, 171, 71, 0])],
+                1, 313, 22.68370607028754, [14, 171, 71, 0])],
             ['r1z1-127.0.0.2', build_tier_report(
-                1, 243, 29.218106995884774, [13, 172, 71, 0])],
+                1, 314, 22.611464968152866, [13, 172, 71, 0])],
         ]
         report = dispersion_report(rb, 'r1z1[^/]*$', verbose=True)
         graph = report['graph']
@@ -668,15 +666,15 @@ class TestUtils(unittest.TestCase):
         # can't move all the part-replicas in one rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
-        self.assertEqual(rb.dispersion, 11.71875)
+        self.assertEqual(rb.dispersion, 3.90625)
         self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.2')
-        self.assertEqual(report['max_dispersion'], 8.875739644970414)
+        self.assertEqual(report['max_dispersion'], 8.152173913043478)
         # do a sencond rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
-        self.assertEqual(rb.dispersion, 50.0)
+        self.assertEqual(rb.dispersion, 16.666666666666668)
         self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.3')
-        self.assertEqual(report['max_dispersion'], 50.0)
+        self.assertEqual(report['max_dispersion'], 33.333333333333336)
 
         # ... but overload can square it
         rb.set_overload(rb.get_required_overload())

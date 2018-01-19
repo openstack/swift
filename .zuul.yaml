@@ -1,0 +1,117 @@
+- job:
+    name: swift-tox-base
+    parent: openstack-tox-py27
+    description: |
+      Base job for swift-tox jobs.
+
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    timeout: 2400
+    vars:
+      tox_environment:
+        TMPDIR: "{{ ansible_env.HOME }}/xfstmp"
+
+- job:
+    name: swift-tox-py27
+    parent: swift-tox-base
+    description: |
+      Run unit-tests for swift under cPython version 2.7.
+
+      Uses tox with the ``py27`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py27
+
+- job:
+    name: swift-tox-py27-centos-7
+    parent: swift-tox-py27
+    nodeset: centos-7
+
+- job:
+    name: swift-tox-py35
+    parent: swift-tox-base
+    description: |
+      Run unit-tests for swift under cPython version 3.5.
+
+      Uses tox with the ``py35`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py35
+      bindep_profile: test py35
+
+- job:
+    name: swift-tox-func
+    parent: swift-tox-base
+    description: |
+      Run functional tests for swift under cPython version 2.7.
+
+      Uses tox with the ``func`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func
+
+- job:
+    name: swift-tox-func-centos-7
+    parent: swift-tox-func
+    nodeset: centos-7
+
+- job:
+    name: swift-tox-func-encryption
+    parent: swift-tox-base
+    description: |
+      Run functional tests for swift under cPython version 2.7.
+
+      Uses tox with the ``func-encryption`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-encryption
+
+- job:
+    name: swift-tox-func-encryption-centos-7
+    parent: swift-tox-func-encryption
+    nodeset: centos-7
+
+- job:
+    name: swift-tox-func-ec
+    parent: swift-tox-base
+    description: |
+      Run functional tests for swift under cPython version 2.7.
+
+      Uses tox with the ``func-post-ec`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    branches: ^(?!stable/ocata).*$
+    vars:
+      tox_envlist: func-ec
+
+- job:
+    name: swift-tox-func-ec-centos-7
+    parent: swift-tox-func-ec
+    nodeset: centos-7
+
+- project:
+    name: openstack/swift
+    check:
+      jobs:
+        - swift-tox-py27
+        - swift-tox-py35
+        - swift-tox-func
+        - swift-tox-func-encryption
+        - swift-tox-func-ec
+    gate:
+      jobs:
+        - swift-tox-py27
+        - swift-tox-py35
+        - swift-tox-func
+        - swift-tox-func-encryption
+        - swift-tox-func-ec
+    experimental:
+      jobs:
+        - swift-tox-py27-centos-7
+        - swift-tox-func-centos-7
+        - swift-tox-func-encryption-centos-7
+        - swift-tox-func-ec-centos-7

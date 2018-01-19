@@ -606,8 +606,9 @@ def build_dev_from_opts(opts):
             'replication_port': replication_port, 'weight': opts.weight}
 
 
-def dispersion_report(builder, search_filter=None, verbose=False):
-    if not builder._dispersion_graph:
+def dispersion_report(builder, search_filter=None,
+                      verbose=False, recalculate=False):
+    if recalculate or not builder._dispersion_graph:
         builder._build_dispersion_graph()
     max_allowed_replicas = builder._build_max_replicas_by_tier()
     worst_tier = None
@@ -618,8 +619,11 @@ def dispersion_report(builder, search_filter=None, verbose=False):
         if search_filter and not re.match(search_filter, tier_name):
             continue
         max_replicas = int(max_allowed_replicas[tier])
-        at_risk_parts = sum(replica_counts[max_replicas + 1:])
-        placed_parts = sum(replica_counts[1:])
+        at_risk_parts = sum(replica_counts[i] * (i - max_replicas)
+                            for i in range(max_replicas + 1,
+                                           len(replica_counts)))
+        placed_parts = sum(replica_counts[i] * i for i in range(
+            1, len(replica_counts)))
         tier_dispersion = 100.0 * at_risk_parts / placed_parts
         if tier_dispersion > max_dispersion:
             max_dispersion = tier_dispersion

@@ -17,11 +17,10 @@
 
 import json
 import unittest2
-from unittest2 import SkipTest
 from uuid import uuid4
 
 from test.functional import check_response, cluster_info, retry, \
-    requires_acls, load_constraint, requires_policies
+    requires_acls, load_constraint, requires_policies, SkipTest
 import test.functional as tf
 
 from six.moves import range

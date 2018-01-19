@@ -133,7 +133,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                     msg += '%3d: %s\n' % (i, line)
                 self.fail(msg)
 
-    def create_sample_ring(self, part_power=6, overload=None):
+    def create_sample_ring(self, part_power=6, overload=None, empty=False):
         """
         Create a sample ring with four devices
 
@@ -152,35 +152,36 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring = RingBuilder(part_power, 3, 1)
         if overload is not None:
             ring.set_overload(overload)
-        ring.add_dev({'weight': 100.0,
-                      'region': 0,
-                      'zone': 0,
-                      'ip': '127.0.0.1',
-                      'port': 6200,
-                      'device': 'sda1',
-                      'meta': 'some meta data',
-                      })
-        ring.add_dev({'weight': 100.0,
-                      'region': 1,
-                      'zone': 1,
-                      'ip': '127.0.0.2',
-                      'port': 6201,
-                      'device': 'sda2'
-                      })
-        ring.add_dev({'weight': 100.0,
-                      'region': 2,
-                      'zone': 2,
-                      'ip': '127.0.0.3',
-                      'port': 6202,
-                      'device': 'sdc3'
-                      })
-        ring.add_dev({'weight': 100.0,
-                      'region': 3,
-                      'zone': 3,
-                      'ip': '127.0.0.4',
-                      'port': 6203,
-                      'device': 'sdd4'
-                      })
+        if not empty:
+            ring.add_dev({'weight': 100.0,
+                          'region': 0,
+                          'zone': 0,
+                          'ip': '127.0.0.1',
+                          'port': 6200,
+                          'device': 'sda1',
+                          'meta': 'some meta data',
+                          })
+            ring.add_dev({'weight': 100.0,
+                          'region': 1,
+                          'zone': 1,
+                          'ip': '127.0.0.2',
+                          'port': 6201,
+                          'device': 'sda2'
+                          })
+            ring.add_dev({'weight': 100.0,
+                          'region': 2,
+                          'zone': 2,
+                          'ip': '127.0.0.3',
+                          'port': 6202,
+                          'device': 'sdc3'
+                          })
+            ring.add_dev({'weight': 100.0,
+                          'region': 3,
+                          'zone': 3,
+                          'ip': '127.0.0.4',
+                          'port': 6203,
+                          'device': 'sdd4'
+                          })
         ring.save(self.tmpfile)
         return ring
 
@@ -1885,6 +1886,55 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring_invalid_re = re.compile("Ring file .*\.ring\.gz is invalid")
         self.assertTrue(ring_invalid_re.findall(mock_stdout.getvalue()))
 
+    def test_default_no_device_ring_without_exception(self):
+        self.create_sample_ring()
+
+        # remove devices from ring file
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+        for device in ["d0", "d1", "d2", "d3"]:
+            argv = ["", self.tmpfile, "remove", device]
+            with mock.patch("sys.stdout", mock_stdout):
+                with mock.patch("sys.stderr", mock_stderr):
+                    self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        # default ring file without exception
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+        argv = ["", self.tmpfile, "default"]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        deleted_dev_list = (
+            "            0      0    0  127.0.0.1:6200      127.0.0.1:6200  "
+            "sda1   0.00          0    0.00   DEL some meta data\n"
+            "            1      1    1  127.0.0.2:6201      127.0.0.2:6201  "
+            "sda2   0.00          0    0.00   DEL \n"
+            "            2      2    2  127.0.0.3:6202      127.0.0.3:6202  "
+            "sdc3   0.00          0    0.00   DEL \n"
+            "            3      3    3  127.0.0.4:6203      127.0.0.4:6203  "
+            "sdd4   0.00          0    0.00   DEL \n")
+
+        output = mock_stdout.getvalue()
+        self.assertIn("64 partitions", output)
+        self.assertIn("all devices have been deleted", output)
+        self.assertIn("all devices have been deleted", output)
+        self.assertIn(deleted_dev_list, output)
+
+    def test_empty_ring(self):
+        self.create_sample_ring(empty=True)
+
+        # default ring file without exception
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+        argv = ["", self.tmpfile, "default"]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("64 partitions", output)
+        self.assertIn("There are no devices in this ring", output)
+
     def test_pretend_min_part_hours_passed(self):
         self.run_srb("create", 8, 3, 1)
         argv_pretend = ["", self.tmpfile, "pretend_min_part_hours_passed"]
@@ -1916,7 +1966,69 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring.save(self.tmpfile)
         # Test No change to the device
         argv = ["", self.tmpfile, "rebalance", "3"]
+        with mock.patch('swift.common.ring.RingBuilder.save') as mock_save:
+            self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+        self.assertEqual(len(mock_save.calls), 0)
+
+    def test_rebalance_saves_dispersion_improvement(self):
+        # We set up a situation where dispersion improves but balance
+        # doesn't. We construct a ring with one zone, then add a second zone
+        # concurrently with a new device in the first zone. That first
+        # device won't acquire any partitions, so the ring's balance won't
+        # change. However, dispersion will improve.
+
+        ring = RingBuilder(6, 6, 1)
+        devs = ('d%s' % i for i in itertools.count())
+        for i in range(6):
+            ring.add_dev({
+                'region': 1, 'zone': 1,
+                'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+                'device': next(devs)})
+        ring.rebalance()
+
+        # The last guy in zone 1
+        ring.add_dev({
+            'region': 1, 'zone': 1,
+            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+            'device': next(devs)})
+
+        # Add zone 2 (same total weight as zone 1)
+        for i in range(7):
+            ring.add_dev({
+                'region': 1, 'zone': 2,
+                'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
+                'device': next(devs)})
+        ring.pretend_min_part_hours_passed()
+        ring.save(self.tmpfile)
+        del ring
+
+        # Rebalance once: this gets 1/6th replica into zone 2; the ring is
+        # saved because devices changed.
+        argv = ["", self.tmpfile, "rebalance", "5759339"]
         self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+        rb = RingBuilder.load(self.tmpfile)
+        self.assertEqual(rb.dispersion, 33.333333333333336)
+        self.assertEqual(rb.get_balance(), 100)
+        self.run_srb('pretend_min_part_hours_passed')
+
+        # Rebalance again: this gets 2/6th replica into zone 2, but no devices
+        # changed and the balance stays the same. The only improvement is
+        # dispersion.
+
+        captured = {}
+
+        def capture_save(rb, path):
+            captured['dispersion'] = rb.dispersion
+            captured['balance'] = rb.get_balance()
+        # The warning is benign; it's just telling the user to keep on
+        # rebalancing. The important assertion is that the builder was
+        # saved.
+        with mock.patch('swift.common.ring.RingBuilder.save', capture_save):
+            self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+        self.assertEqual(captured, {
+            'dispersion': 16.666666666666668,
+            'balance': 100,
+        })
 
     def test_rebalance_no_devices(self):
         # Test no devices
@@ -2117,6 +2229,14 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", backup_file, "write_builder", "24"]
         self.assertIsNone(ringbuilder.main(argv))
 
+        rb = RingBuilder.load(self.tmpfile + '.builder')
+        self.assertIsNotNone(rb._last_part_moves)
+        rb._last_part_moves = None
+        rb.save(self.tmpfile)
+
+        argv = ["", self.tmpfile + '.builder', "rebalance"]
+        self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+
     def test_warn_at_risk(self):
         # check that warning is generated when rebalance does not achieve
         # satisfactory balance
@@ -2192,6 +2312,28 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         out, err = self.run_srb('dispersion -v')
         self.assertIn('dispersion', out.lower())
         self.assertFalse(err)
+
+    def test_dispersion_command_recalculate(self):
+        rb = RingBuilder(8, 3, 0)
+        for i in range(3):
+            i += 1
+            rb.add_dev({'region': 1, 'zone': i, 'weight': 1.0,
+                        'ip': '127.0.0.%d' % i, 'port': 6000, 'device': 'sda'})
+        # extra device in z1
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 1.0,
+                    'ip': '127.0.0.1', 'port': 6000, 'device': 'sdb'})
+        rb.rebalance()
+        self.assertEqual(rb.dispersion, 16.666666666666668)
+        # simulate an out-of-date dispersion calculation
+        rb.dispersion = 50
+        rb.save(self.tempfile)
+        old_version = rb.version
+        out, err = self.run_srb('dispersion')
+        self.assertIn('Dispersion is 50.000000', out)
+        out, err = self.run_srb('dispersion --recalculate')
+        self.assertIn('Dispersion is 16.666667', out)
+        rb = RingBuilder.load(self.tempfile)
+        self.assertEqual(rb.version, old_version + 1)
 
     def test_use_ringfile_as_builderfile(self):
         mock_stdout = six.StringIO()

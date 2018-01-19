@@ -19,10 +19,9 @@ import hashlib
 import itertools
 import json
 from copy import deepcopy
-from unittest2 import SkipTest
 
 import test.functional as tf
-from test.functional import cluster_info
+from test.functional import cluster_info, SkipTest
 from test.functional.tests import Utils, Base, Base2, BaseEnv
 from test.functional.swift_test_client import Connection, ResponseError
 

@@ -18,14 +18,13 @@
 import datetime
 import json
 import unittest2
-from unittest2 import SkipTest
 from uuid import uuid4
 import time
 
 from six.moves import range
 
 from test.functional import check_response, retry, requires_acls, \
-    requires_policies
+    requires_policies, SkipTest
 import test.functional as tf
 
 

@@ -16,6 +16,7 @@
 from __future__ import print_function
 import logging
 
+from collections import defaultdict
 from errno import EEXIST
 from itertools import islice
 from operator import itemgetter
@@ -471,18 +472,18 @@ swift-ring-builder <builder_file>
             builder_id = "(not assigned)"
         print('%s, build version %d, id %s' %
               (builder_file, builder.version, builder_id))
-        regions = 0
-        zones = 0
         balance = 0
-        dev_count = 0
-        if builder.devs:
-            regions = len(set(d['region'] for d in builder.devs
-                              if d is not None))
-            zones = len(set((d['region'], d['zone']) for d in builder.devs
-                            if d is not None))
-            dev_count = len([dev for dev in builder.devs
-                             if dev is not None])
+        ring_empty_error = None
+        regions = len(set(d['region'] for d in builder.devs
+                          if d is not None))
+        zones = len(set((d['region'], d['zone']) for d in builder.devs
+                        if d is not None))
+        dev_count = len([dev for dev in builder.devs
+                         if dev is not None])
+        try:
             balance = builder.get_balance()
+        except exceptions.EmptyRingError as e:
+            ring_empty_error = str(e)
         dispersion_trailer = '' if builder.dispersion is None else (
             ', %.02f dispersion' % (builder.dispersion))
         print('%d partitions, %.6f replicas, %d regions, %d zones, '
@@ -514,16 +515,18 @@ swift-ring-builder <builder_file>
                 else:
                     print('Ring file %s is obsolete' % ring_file)
 
-        if builder.devs:
+        if ring_empty_error:
+            balance_per_dev = defaultdict(int)
+        else:
             balance_per_dev = builder._build_balance_per_dev()
-            header_line, print_dev_f = _make_display_device_table(builder)
-            print(header_line)
-            for dev in sorted(
-                builder._iter_devs(),
-                key=lambda x: (x['region'], x['zone'], x['ip'], x['device'])
-            ):
-                flags = 'DEL' if dev in builder._remove_devs else ''
-                print_dev_f(dev, balance_per_dev[dev['id']], flags)
+        header_line, print_dev_f = _make_display_device_table(builder)
+        print(header_line)
+        for dev in sorted(
+            builder._iter_devs(),
+            key=lambda x: (x['region'], x['zone'], x['ip'], x['device'])
+        ):
+            flags = 'DEL' if dev in builder._remove_devs else ''
+            print_dev_f(dev, balance_per_dev[dev['id']], flags)
 
         # Print some helpful info if partition power increase in progress
         if (builder.next_part_power and
@@ -542,6 +545,8 @@ swift-ring-builder <builder_file>
             print('Run "swift-object-relinker cleanup" on all nodes before '
                   'moving on to finish_increase_partition_power.')
 
+        if ring_empty_error:
+            print(ring_empty_error)
         exit(EXIT_SUCCESS)
 
     @staticmethod
@@ -898,7 +903,9 @@ swift-ring-builder <builder_file> rebalance [options]
         min_part_seconds_left = builder.min_part_seconds_left
         try:
             last_balance = builder.get_balance()
+            last_dispersion = builder.dispersion
             parts, balance, removed_devs = builder.rebalance(seed=get_seed(3))
+            dispersion = builder.dispersion
         except exceptions.RingBuilderError as e:
             print('-' * 79)
             print("An error has occurred during ring validation. Common\n"
@@ -922,9 +929,26 @@ swift-ring-builder <builder_file> rebalance [options]
         # special value(MAX_BALANCE) until zero weighted device return all
         # its partitions. So we cannot check balance has changed.
         # Thus we need to check balance or last_balance is special value.
-        if not options.force and \
-                not devs_changed and abs(last_balance - balance) < 1 and \
-                not (last_balance == MAX_BALANCE and balance == MAX_BALANCE):
+        be_cowardly = True
+        if options.force:
+            # User said save it, so we save it.
+            be_cowardly = False
+        elif devs_changed:
+            # We must save if a device changed; this could be something like
+            # a changed IP address.
+            be_cowardly = False
+        else:
+            # If balance or dispersion changed (presumably improved), then
+            # we should save to get the improvement.
+            balance_changed = (
+                abs(last_balance - balance) >= 1 or
+                (last_balance == MAX_BALANCE and balance == MAX_BALANCE))
+            dispersion_changed = last_dispersion is None or (
+                abs(last_dispersion - dispersion) >= 1)
+            if balance_changed or dispersion_changed:
+                be_cowardly = False
+
+        if be_cowardly:
             print('Cowardly refusing to save rebalance as it did not change '
                   'at least 1%.')
             exit(EXIT_WARNING)
@@ -979,6 +1003,7 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
 
     Output report on dispersion.
 
+    --recalculate option will rebuild cached dispersion info and save builder
     --verbose option will display dispersion graph broken down by tier
 
     You can filter which tiers are evaluated to drill down using a regex
@@ -1017,6 +1042,8 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
             exit(EXIT_ERROR)
         usage = Commands.dispersion.__doc__.strip()
         parser = optparse.OptionParser(usage)
+        parser.add_option('--recalculate', action='store_true',
+                          help='Rebuild cached dispersion info and save')
         parser.add_option('-v', '--verbose', action='store_true',
                           help='Display dispersion report for tiers')
         options, args = parser.parse_args(argv)
@@ -1024,8 +1051,13 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
             search_filter = args[3]
         else:
             search_filter = None
+        orig_version = builder.version
         report = dispersion_report(builder, search_filter=search_filter,
-                                   verbose=options.verbose)
+                                   verbose=options.verbose,
+                                   recalculate=options.recalculate)
+        if builder.version != orig_version:
+            # we've already done the work, better go ahead and save it!
+            builder.save(builder_file)
         print('Dispersion is %.06f, Balance is %.06f, Overload is %0.2f%%' % (
             builder.dispersion, builder.get_balance(), builder.overload * 100))
         print('Required overload is %.6f%%' % (

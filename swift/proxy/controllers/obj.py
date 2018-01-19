@@ -84,6 +84,46 @@ def check_content_type(req):
     return None
 
 
+def num_container_updates(container_replicas, container_quorum,
+                          object_replicas, object_quorum):
+    """
+    We need to send container updates via enough object servers such
+    that, if the object PUT succeeds, then the container update is
+    durable (either it's synchronously updated or written to async
+    pendings).
+
+    Define:
+      Qc = the quorum size for the container ring
+      Qo = the quorum size for the object ring
+      Rc = the replica count for the container ring
+      Ro = the replica count (or EC N+K) for the object ring
+
+    A durable container update is one that's made it to at least Qc
+    nodes. To always be durable, we have to send enough container
+    updates so that, if only Qo object PUTs succeed, and all the
+    failed object PUTs had container updates, at least Qc updates
+    remain. Since (Ro - Qo) object PUTs may fail, we must have at
+    least Qc + Ro - Qo container updates to ensure that Qc of them
+    remain.
+
+    Also, each container replica is named in at least one object PUT
+    request so that, when all requests succeed, no work is generated
+    for the container replicator. Thus, at least Rc updates are
+    necessary.
+
+    :param container_replicas: replica count for the container ring (Rc)
+    :param container_quorum: quorum size for the container ring (Qc)
+    :param object_replicas: replica count for the object ring (Ro)
+    :param object_quorum: quorum size for the object ring (Qo)
+
+    """
+    return max(
+        # Qc + Ro - Qo
+        container_quorum + object_replicas - object_quorum,
+        # Rc
+        container_replicas)
+
+
 class ObjectControllerRouter(object):
 
     policy_type_to_controller_map = {}
@@ -246,6 +286,8 @@ class BaseObjectController(Controller):
         if error_response:
             return error_response
 
+        req.headers['X-Timestamp'] = Timestamp.now().internal
+
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
 
@@ -259,8 +301,6 @@ class BaseObjectController(Controller):
             req.headers['X-Backend-Next-Part-Power'] = next_part_power
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-
-        req.headers['X-Timestamp'] = Timestamp.now().internal
 
         headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
@@ -285,31 +325,55 @@ class BaseObjectController(Controller):
                 headers[index].get('X-Container-Device'),
                 container['device'])
 
-        for i, container in enumerate(containers):
-            i = i % len(headers)
-            set_container_update(i, container)
+        def set_delete_at_headers(index, delete_at_node):
+            headers[index]['X-Delete-At-Container'] = delete_at_container
+            headers[index]['X-Delete-At-Partition'] = delete_at_partition
+            headers[index]['X-Delete-At-Host'] = csv_append(
+                headers[index].get('X-Delete-At-Host'),
+                '%(ip)s:%(port)s' % delete_at_node)
+            headers[index]['X-Delete-At-Device'] = csv_append(
+                headers[index].get('X-Delete-At-Device'),
+                delete_at_node['device'])
 
-        # if # of container_updates is not enough against # of replicas
-        # (or fragments). Fill them like as pigeon hole problem.
-        # TODO?: apply these to X-Delete-At-Container?
-        n_updates_needed = min(policy.quorum + 1, n_outgoing)
+        n_updates_needed = num_container_updates(
+            len(containers), quorum_size(len(containers)),
+            n_outgoing, policy.quorum)
+
         container_iter = itertools.cycle(containers)
-        existing_updates = len(containers)
+        dan_iter = itertools.cycle(delete_at_nodes or [])
+        existing_updates = 0
         while existing_updates < n_updates_needed:
-            set_container_update(existing_updates, next(container_iter))
+            index = existing_updates % n_outgoing
+            set_container_update(index, next(container_iter))
+            if delete_at_nodes:
+                # We reverse the index in order to distribute the updates
+                # across all nodes.
+                set_delete_at_headers(n_outgoing - 1 - index, next(dan_iter))
             existing_updates += 1
 
-        for i, node in enumerate(delete_at_nodes or []):
-            i = i % len(headers)
-
-            headers[i]['X-Delete-At-Container'] = delete_at_container
-            headers[i]['X-Delete-At-Partition'] = delete_at_partition
-            headers[i]['X-Delete-At-Host'] = csv_append(
-                headers[i].get('X-Delete-At-Host'),
-                '%(ip)s:%(port)s' % node)
-            headers[i]['X-Delete-At-Device'] = csv_append(
-                headers[i].get('X-Delete-At-Device'),
-                node['device'])
+        # Keep the number of expirer-queue deletes to a reasonable number.
+        #
+        # In the best case, at least one object server writes out an
+        # async_pending for an expirer-queue update. In the worst case, no
+        # object server does so, and an expirer-queue row remains that
+        # refers to an already-deleted object. In this case, upon attempting
+        # to delete the object, the object expirer will notice that the
+        # object does not exist and then remove the row from the expirer
+        # queue.
+        #
+        # In other words: expirer-queue updates on object DELETE are nice to
+        # have, but not strictly necessary for correct operation.
+        #
+        # Also, each queue update results in an async_pending record, which
+        # causes the object updater to talk to all container servers. If we
+        # have N async_pendings and Rc container replicas, we cause N * Rc
+        # requests from object updaters to container servers (possibly more,
+        # depending on retries). Thus, it is helpful to keep this number
+        # small.
+        n_desired_queue_updates = 2
+        for i in range(len(headers)):
+            headers[i]['X-Backend-Clean-Expiring-Object-Queue'] = (
+                't' if i < n_desired_queue_updates else 'f')
 
         return headers
 
@@ -456,7 +520,9 @@ class BaseObjectController(Controller):
                 req.headers.pop('x-detect-content-type')
 
     def _update_x_timestamp(self, req):
-        # Used by container sync feature
+        # The container sync feature includes an x-timestamp header with
+        # requests. If present this is checked and preserved, otherwise a fresh
+        # timestamp is added.
         if 'x-timestamp' in req.headers:
             try:
                 req_timestamp = Timestamp(req.headers['X-Timestamp'])
@@ -711,13 +777,13 @@ class BaseObjectController(Controller):
         # update content type in case it is missing
         self._update_content_type(req)
 
+        self._update_x_timestamp(req)
+
         # check constraints on object name and request headers
         error_response = check_object_creation(req, self.object_name) or \
             check_content_type(req)
         if error_response:
             return error_response
-
-        self._update_x_timestamp(req)
 
         def reader():
             try:
@@ -769,18 +835,8 @@ class BaseObjectController(Controller):
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        # Used by container sync feature
-        if 'x-timestamp' in req.headers:
-            try:
-                req_timestamp = Timestamp(req.headers['X-Timestamp'])
-            except ValueError:
-                return HTTPBadRequest(
-                    request=req, content_type='text/plain',
-                    body='X-Timestamp should be a UNIX timestamp float value; '
-                         'was %r' % req.headers['x-timestamp'])
-            req.headers['X-Timestamp'] = req_timestamp.internal
-        else:
-            req.headers['X-Timestamp'] = Timestamp.now().internal
+
+        self._update_x_timestamp(req)
 
         # Include local handoff nodes if write-affinity is enabled.
         node_count = len(nodes)
@@ -1023,7 +1079,11 @@ class ECAppIter(object):
         """
         self.mime_boundary = resp.boundary
 
-        self.stashed_iter = reiterate(self._real_iter(req, resp.headers))
+        try:
+            self.stashed_iter = reiterate(self._real_iter(req, resp.headers))
+        except Exception:
+            self.close()
+            raise
 
         if self.learned_content_type is not None:
             resp.content_type = self.learned_content_type
@@ -2083,7 +2143,7 @@ class ECGetResponseCollection(object):
         Return the best bucket in the collection.
 
         The "best" bucket is the newest timestamp with sufficient getters, or
-        the closest to having a sufficient getters, unless it is bettered by a
+        the closest to having sufficient getters, unless it is bettered by a
         bucket with potential alternate nodes.
 
         :return: An instance of :class:`~ECGetResponseBucket` or None if there
