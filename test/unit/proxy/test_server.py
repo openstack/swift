@@ -7825,7 +7825,7 @@ class TestContainerController(unittest.TestCase):
             # fail to retrieve account info
             test_status_map(
                 (503, 503, 503),  # account_info fails on 503
-                404, missing_container=True)
+                500, missing_container=True)
             # account fail after creation
             test_status_map(
                 (404, 404, 404,   # account_info fails on 404
@@ -7836,7 +7836,7 @@ class TestContainerController(unittest.TestCase):
                 (503, 503, 404,   # account_info fails on 404
                  503, 503, 503,   # PUT account
                  503, 503, 404),  # account_info fail
-                404, missing_container=True)
+                500, missing_container=True)
             # put fails
             test_status_map(
                 (404, 404, 404,   # account_info fails on 404
