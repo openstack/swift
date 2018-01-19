@@ -1781,9 +1781,7 @@ class TestFile(Base):
                                                    (prefix,
                                                     Utils.create_name(),
                                                     source_filename)})
-            # looks like cached responses leak "not found"
-            # to un-authorized users, not going to fix it now, but...
-            self.assert_status([403, 404])
+            self.assert_status(403)
 
             # invalid source object
             file_item = self.env.container.file(Utils.create_name())
@@ -1805,6 +1803,48 @@ class TestFile(Base):
                                                     src_cont,
                                                     source_filename)})
             self.assert_status(404)
+
+    def testCopyFromAccountHeader403s(self):
+        acct = self.env.conn2.account_name
+        src_cont = self.env.account2.container(Utils.create_name())
+        self.assertTrue(src_cont.create())  # Primary user has no access
+        source_filename = Utils.create_name()
+        file_item = src_cont.file(source_filename)
+        file_item.write_random()
+        dest_cont = self.env.account.container(Utils.create_name())
+        self.assertTrue(dest_cont.create())
+
+        for prefix in ('', '/'):
+            # invalid source container
+            file_item = dest_cont.file(Utils.create_name())
+            self.assertRaises(ResponseError, file_item.write,
+                              hdrs={'X-Copy-From-Account': acct,
+                                    'X-Copy-From': '%s%s/%s' %
+                                                   (prefix,
+                                                    Utils.create_name(),
+                                                    source_filename)})
+            self.assert_status(403)
+
+            # invalid source object
+            file_item = self.env.container.file(Utils.create_name())
+            self.assertRaises(ResponseError, file_item.write,
+                              hdrs={'X-Copy-From-Account': acct,
+                                    'X-Copy-From': '%s%s/%s' %
+                                                   (prefix,
+                                                    src_cont,
+                                                    Utils.create_name())})
+            self.assert_status(403)
+
+            # invalid destination container
+            dest_cont = self.env.account.container(Utils.create_name())
+            file_item = dest_cont.file(Utils.create_name())
+            self.assertRaises(ResponseError, file_item.write,
+                              hdrs={'X-Copy-From-Account': acct,
+                                    'X-Copy-From': '%s%s/%s' %
+                                                   (prefix,
+                                                    src_cont,
+                                                    source_filename)})
+            self.assert_status(403)
 
     def testNameLimit(self):
         limit = load_constraint('max_object_name_length')
