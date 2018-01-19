@@ -26,9 +26,11 @@ from time import gmtime, strftime, time
 from zlib import compressobj
 
 from swift.common.exceptions import ClientException
-from swift.common.http import HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES
+from swift.common.http import HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES, \
+    HTTP_CONFLICT
 from swift.common.swob import Request
-from swift.common.utils import quote, closing_if_possible
+from swift.common.utils import quote, closing_if_possible, \
+    server_handled_successfully
 from swift.common.wsgi import loadapp, pipeline_property
 
 if six.PY3:
@@ -191,11 +193,20 @@ class InternalClient(object):
                 req.params = params
             try:
                 resp = req.get_response(self.app)
+            except (Exception, Timeout):
+                exc_type, exc_value, exc_traceback = exc_info()
+            else:
                 if resp.status_int in acceptable_statuses or \
                         resp.status_int // 100 in acceptable_statuses:
                     return resp
-            except (Exception, Timeout):
-                exc_type, exc_value, exc_traceback = exc_info()
+                elif server_handled_successfully(resp.status_int):
+                    # No sense retrying when we expect the same result
+                    break
+                elif resp.status_int == HTTP_CONFLICT and 'x-timestamp' in [
+                        header.lower() for header in headers]:
+                    # Since the caller provided the timestamp, retrying won't
+                    # change the result
+                    break
             # sleep only between tries, not after each one
             if attempt < self.request_tries - 1:
                 if resp:
