@@ -118,7 +118,7 @@ Swift is a WSGI application and uses eventlet's WSGI server. After the
 processes are running, the entry point for new requests is the
 ``Application`` class in ``swift/proxy/server.py``. From there, a
 controller is chosen, and the request is processed. The proxy may choose
-to forward the request to a back- end server. For example, the entry
+to forward the request to a back-end server. For example, the entry
 point for requests to the object server is the ``ObjectController``
 class in ``swift/obj/server.py``.
 
