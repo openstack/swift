@@ -637,21 +637,24 @@ class ContainerController(BaseStorageServer):
                 # range when necessary to better separate implementation
                 # details and ensure the filler is always equal to the
                 # uncleaved namespace
-                last_upper = ShardRange.MIN
                 if reverse:
                     if container_list:
                         last_upper = container_list[0].upper
+                    else:
+                        last_upper = end_marker or ShardRange.MIN
                     required_upper = marker or ShardRange.MAX
                     filler_index = 0
                 else:
                     if container_list:
                         last_upper = container_list[-1].upper
+                    else:
+                        last_upper = marker or ShardRange.MIN
                     required_upper = end_marker or ShardRange.MAX
                     filler_index = len(container_list)
                 if required_upper > last_upper:
                     filler_sr = ShardRange(
                         '%s/%s' % (account, container), Timestamp.now(),
-                        str(last_upper), ShardRange.MAX,
+                        str(last_upper), str(required_upper),
                         state=ShardRange.ACTIVE)
                     container_list.insert(filler_index, filler_sr)
 
