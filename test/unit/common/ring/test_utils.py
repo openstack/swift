@@ -14,7 +14,9 @@
 # limitations under the License.
 
 import unittest
+from collections import defaultdict
 
+from swift.common import exceptions
 from swift.common import ring
 from swift.common.ring.utils import (tiers_for_dev, build_tier_tree,
                                      validate_and_normalize_ip,
@@ -26,7 +28,8 @@ from swift.common.ring.utils import (tiers_for_dev, build_tier_tree,
                                      validate_args, parse_args,
                                      parse_builder_ring_filename_args,
                                      build_dev_from_opts, dispersion_report,
-                                     parse_address, get_tier_name, pretty_dev)
+                                     parse_address, get_tier_name, pretty_dev,
+                                     validate_replicas_by_tier)
 
 
 class TestUtils(unittest.TestCase):
@@ -171,6 +174,81 @@ class TestUtils(unittest.TestCase):
         hostname = "$blah#"
         self.assertRaises(ValueError,
                           validate_and_normalize_address, hostname)
+
+    def test_validate_replicas_by_tier_close(self):
+        one_ip_six_devices = \
+            defaultdict(float,
+                        {(): 4.0,
+                         (0,): 4.0,
+                         (0, 0): 4.0,
+                         (0, 0, '127.0.0.1'): 4.0,
+                         (0, 0, '127.0.0.1', 0): 0.6666666670,
+                         (0, 0, '127.0.0.1', 1): 0.6666666668,
+                         (0, 0, '127.0.0.1', 2): 0.6666666667,
+                         (0, 0, '127.0.0.1', 3): 0.6666666666,
+                         (0, 0, '127.0.0.1', 4): 0.6666666665,
+                         (0, 0, '127.0.0.1', 5): 0.6666666664,
+                         })
+        try:
+            validate_replicas_by_tier(4, one_ip_six_devices)
+        except Exception as e:
+            self.fail('one_ip_six_devices is invalid for %s' % e)
+
+    def test_validate_replicas_by_tier_exact(self):
+        three_regions_three_devices = \
+            defaultdict(float,
+                        {(): 3.0,
+                         (0,): 1.0,
+                         (0, 0): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1,): 1.0,
+                         (1, 1): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (2,): 1.0,
+                         (2, 2): 1.0,
+                         (2, 2, '127.0.0.1'): 1.0,
+                         (2, 2, '127.0.0.1', 2): 1.0,
+                         })
+        try:
+            validate_replicas_by_tier(3, three_regions_three_devices)
+        except Exception as e:
+            self.fail('three_regions_three_devices is invalid for %s' % e)
+
+    def test_validate_replicas_by_tier_errors(self):
+        pseudo_replicas = \
+            defaultdict(float,
+                        {(): 3.0,
+                         (0,): 1.0,
+                         (0, 0): 1.0,
+                         (0, 0, '127.0.0.1'): 1.0,
+                         (0, 0, '127.0.0.1', 0): 1.0,
+                         (1,): 1.0,
+                         (1, 1): 1.0,
+                         (1, 1, '127.0.0.1'): 1.0,
+                         (1, 1, '127.0.0.1', 1): 1.0,
+                         (2,): 1.0,
+                         (2, 2): 1.0,
+                         (2, 2, '127.0.0.1'): 1.0,
+                         (2, 2, '127.0.0.1', 2): 1.0,
+                         })
+
+        def do_test(bad_tier_key, bad_tier_name):
+            # invalidate a copy of pseudo_replicas at given key and check for
+            # an exception to be raised
+            test_replicas = dict(pseudo_replicas)
+            test_replicas[bad_tier_key] += 0.1  # <- this is not fair!
+            with self.assertRaises(exceptions.RingValidationError) as ctx:
+                validate_replicas_by_tier(3, test_replicas)
+            self.assertEqual(
+                '3.1 != 3 at tier %s' % bad_tier_name, str(ctx.exception))
+
+        do_test((), 'cluster')
+        do_test((1,), 'regions')
+        do_test((0, 0), 'zones')
+        do_test((2, 2, '127.0.0.1'), 'servers')
+        do_test((1, 1, '127.0.0.1', 1), 'devices')
 
     def test_parse_search_value(self):
         res = parse_search_value('r0')
@@ -619,10 +697,10 @@ class TestUtils(unittest.TestCase):
         rb.rebalance(seed=100)
         rb.validate()
 
-        self.assertEqual(rb.dispersion, 55.46875)
+        self.assertEqual(rb.dispersion, 18.489583333333332)
         report = dispersion_report(rb)
-        self.assertEqual(report['worst_tier'], 'r1z1')
-        self.assertEqual(report['max_dispersion'], 44.921875)
+        self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.1')
+        self.assertEqual(report['max_dispersion'], 22.68370607028754)
 
         def build_tier_report(max_replicas, placed_parts, dispersion,
                               replicas):
@@ -633,17 +711,15 @@ class TestUtils(unittest.TestCase):
                 'replicas': replicas,
             }
 
-        # Each node should store less than or equal to 256 partitions to
-        # avoid multiple replicas.
-        # 2/5 of total weight * 768 ~= 307 -> 51 partitions on each node in
-        # zone 1 are stored at least twice on the nodes
+        # every partition has at least two replicas in this zone, unfortunately
+        # sometimes they're both on the same server.
         expected = [
             ['r1z1', build_tier_report(
-                2, 256, 44.921875, [0, 0, 141, 115])],
+                2, 627, 18.341307814992025, [0, 0, 141, 115])],
             ['r1z1-127.0.0.1', build_tier_report(
-                1, 242, 29.33884297520661, [14, 171, 71, 0])],
+                1, 313, 22.68370607028754, [14, 171, 71, 0])],
             ['r1z1-127.0.0.2', build_tier_report(
-                1, 243, 29.218106995884774, [13, 172, 71, 0])],
+                1, 314, 22.611464968152866, [13, 172, 71, 0])],
         ]
         report = dispersion_report(rb, 'r1z1[^/]*$', verbose=True)
         graph = report['graph']
@@ -668,15 +744,15 @@ class TestUtils(unittest.TestCase):
         # can't move all the part-replicas in one rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
-        self.assertEqual(rb.dispersion, 11.71875)
+        self.assertEqual(rb.dispersion, 3.90625)
         self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.2')
-        self.assertEqual(report['max_dispersion'], 8.875739644970414)
+        self.assertEqual(report['max_dispersion'], 8.152173913043478)
         # do a sencond rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
-        self.assertEqual(rb.dispersion, 50.0)
+        self.assertEqual(rb.dispersion, 16.666666666666668)
         self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.3')
-        self.assertEqual(report['max_dispersion'], 50.0)
+        self.assertEqual(report['max_dispersion'], 33.333333333333336)
 
         # ... but overload can square it
         rb.set_overload(rb.get_required_overload())

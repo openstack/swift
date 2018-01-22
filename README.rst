@@ -16,7 +16,7 @@ and high concurrency. Swift is ideal for backups, web and mobile
 content, and any other unstructured data that can grow without bound.
 
 Swift provides a simple, REST-based API fully documented at
-http://docs.openstack.org/.
+https://docs.openstack.org/.
 
 Swift was originally developed as the basis for Rackspace's Cloud Files
 and was open-sourced in 2010 as part of the OpenStack project. It has
@@ -118,7 +118,7 @@ Swift is a WSGI application and uses eventlet's WSGI server. After the
 processes are running, the entry point for new requests is the
 ``Application`` class in ``swift/proxy/server.py``. From there, a
 controller is chosen, and the request is processed. The proxy may choose
-to forward the request to a back- end server. For example, the entry
+to forward the request to a back-end server. For example, the entry
 point for requests to the object server is the ``ObjectController``
 class in ``swift/obj/server.py``.
 
@@ -141,7 +141,7 @@ For Client Apps
 ---------------
 
 For client applications, official Python language bindings are provided
-at http://github.com/openstack/python-swiftclient.
+at https://github.com/openstack/python-swiftclient.
 
 Complete API documentation at
 https://developer.openstack.org/api-ref/object-store/

@@ -34,7 +34,7 @@ from six.moves import range
 import swift
 from swift.common import utils, swob, exceptions
 from swift.common.exceptions import ChunkWriteTimeout
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, list_from_csv
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import \
@@ -45,7 +45,7 @@ from swift.common.storage_policy import POLICIES, ECDriverError, \
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
     debug_logger, patch_policies, SlowBody, FakeStatus, \
     DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub, \
-    fake_ec_node_response, StubResponse
+    fake_ec_node_response, StubResponse, mocked_http_conn
 from test.unit.proxy.test_server import node_error_count
 
 
@@ -452,6 +452,70 @@ class BaseObjectControllerMixin(object):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 204)
 
+    def test_DELETE_limits_expirer_queue_updates(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+        codes = [204] * self.replicas()
+        captured_headers = []
+
+        def capture_headers(ip, port, device, part, method, path,
+                            headers=None, **kwargs):
+            captured_headers.append(headers)
+
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)  # sanity check
+
+        counts = {True: 0, False: 0, None: 0}
+        for headers in captured_headers:
+            v = headers.get('X-Backend-Clean-Expiring-Object-Queue')
+            norm_v = None if v is None else utils.config_true_value(v)
+            counts[norm_v] += 1
+
+        max_queue_updates = 2
+        o_replicas = self.replicas()
+        self.assertEqual(counts, {
+            True: min(max_queue_updates, o_replicas),
+            False: max(o_replicas - max_queue_updates, 0),
+            None: 0,
+        })
+
+    def test_expirer_DELETE_suppresses_expirer_queue_updates(self):
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='DELETE', headers={
+                'X-Backend-Clean-Expiring-Object-Queue': 'no'})
+        codes = [204] * self.replicas()
+        captured_headers = []
+
+        def capture_headers(ip, port, device, part, method, path,
+                            headers=None, **kwargs):
+            captured_headers.append(headers)
+
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)  # sanity check
+
+        counts = {True: 0, False: 0, None: 0}
+        for headers in captured_headers:
+            v = headers.get('X-Backend-Clean-Expiring-Object-Queue')
+            norm_v = None if v is None else utils.config_true_value(v)
+            counts[norm_v] += 1
+
+        o_replicas = self.replicas()
+        self.assertEqual(counts, {
+            True: 0,
+            False: o_replicas,
+            None: 0,
+        })
+
+        # Make sure we're not sending any expirer-queue update headers here.
+        # Since we're not updating the expirer queue, these headers would be
+        # superfluous.
+        for headers in captured_headers:
+            self.assertNotIn('X-Delete-At-Container', headers)
+            self.assertNotIn('X-Delete-At-Partition', headers)
+            self.assertNotIn('X-Delete-At-Host', headers)
+            self.assertNotIn('X-Delete-At-Device', headers)
+
     def test_DELETE_write_affinity_before_replication(self):
         policy_conf = self.app.get_policy_options(self.policy)
         policy_conf.write_affinity_handoff_delete_count = self.replicas() / 2
@@ -481,6 +545,69 @@ class BaseObjectControllerMixin(object):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 204)
+
+    def test_PUT_limits_expirer_queue_deletes(self):
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='PUT', body='',
+            headers={'Content-Type': 'application/octet-stream'})
+        codes = [201] * self.replicas()
+        captured_headers = []
+
+        def capture_headers(ip, port, device, part, method, path,
+                            headers=None, **kwargs):
+            captured_headers.append(headers)
+
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, give_connect=capture_headers,
+                              expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 201)  # sanity check
+
+        counts = {True: 0, False: 0, None: 0}
+        for headers in captured_headers:
+            v = headers.get('X-Backend-Clean-Expiring-Object-Queue')
+            norm_v = None if v is None else utils.config_true_value(v)
+            counts[norm_v] += 1
+
+        max_queue_updates = 2
+        o_replicas = self.replicas()
+        self.assertEqual(counts, {
+            True: min(max_queue_updates, o_replicas),
+            False: max(o_replicas - max_queue_updates, 0),
+            None: 0,
+        })
+
+    def test_POST_limits_expirer_queue_deletes(self):
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='POST', body='',
+            headers={'Content-Type': 'application/octet-stream'})
+        codes = [201] * self.replicas()
+        captured_headers = []
+
+        def capture_headers(ip, port, device, part, method, path,
+                            headers=None, **kwargs):
+            captured_headers.append(headers)
+
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 201)  # sanity check
+
+        counts = {True: 0, False: 0, None: 0}
+        for headers in captured_headers:
+            v = headers.get('X-Backend-Clean-Expiring-Object-Queue')
+            norm_v = None if v is None else utils.config_true_value(v)
+            counts[norm_v] += 1
+
+        max_queue_updates = 2
+        o_replicas = self.replicas()
+        self.assertEqual(counts, {
+            True: min(max_queue_updates, o_replicas),
+            False: max(o_replicas - max_queue_updates, 0),
+            None: 0,
+        })
 
     def test_POST_non_int_delete_after(self):
         t = str(int(time.time() + 100)) + '.1'
@@ -676,20 +803,131 @@ class BaseObjectControllerMixin(object):
                     req, self.replicas(policy), 1, containers)
 
                 # how many of the backend headers have a container update
-                container_updates = len(
+                n_container_updates = len(
                     [headers for headers in backend_headers
                      if 'X-Container-Partition' in headers])
 
-                if num_containers <= self.quorum(policy):
-                    # filling case
-                    expected = min(self.quorum(policy) + 1,
-                                   self.replicas(policy))
-                else:
-                    # container updates >= object replicas
-                    expected = min(num_containers,
-                                   self.replicas(policy))
+                # how many object-server PUTs can fail and still let the
+                # client PUT succeed
+                n_can_fail = self.replicas(policy) - self.quorum(policy)
+                n_expected_updates = (
+                    n_can_fail + utils.quorum_size(num_containers))
 
-                self.assertEqual(container_updates, expected)
+                # you get at least one update per container no matter what
+                n_expected_updates = max(
+                    n_expected_updates, num_containers)
+
+                # you can't have more object requests with updates than you
+                # have object requests (the container stuff gets doubled up,
+                # but that's not important for purposes of durability)
+                n_expected_updates = min(
+                    n_expected_updates, self.replicas(policy))
+                self.assertEqual(n_expected_updates, n_container_updates)
+
+    def test_delete_at_backend_requests(self):
+        t = str(int(time.time() + 100))
+        for policy in POLICIES:
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='PUT',
+                headers={'Content-Length': '0',
+                         'X-Backend-Storage-Policy-Index': int(policy),
+                         'X-Delete-At': t})
+            controller = self.controller_cls(self.app, 'a', 'c', 'o')
+
+            for num_del_at_nodes in range(1, 16):
+                containers = [
+                    {'ip': '2.0.0.%s' % i, 'port': '70%s' % str(i).zfill(2),
+                     'device': 'sdc'} for i in range(num_del_at_nodes)]
+                del_at_nodes = [
+                    {'ip': '1.0.0.%s' % i, 'port': '60%s' % str(i).zfill(2),
+                     'device': 'sdb'} for i in range(num_del_at_nodes)]
+
+                backend_headers = controller._backend_requests(
+                    req, self.replicas(policy), 1, containers,
+                    delete_at_container='dac', delete_at_partition=2,
+                    delete_at_nodes=del_at_nodes)
+
+                devices = []
+                hosts = []
+                part = ctr = 0
+                for given_headers in backend_headers:
+                    self.assertEqual(given_headers.get('X-Delete-At'), t)
+                    if 'X-Delete-At-Partition' in given_headers:
+                        self.assertEqual(
+                            given_headers.get('X-Delete-At-Partition'), '2')
+                        part += 1
+                    if 'X-Delete-At-Container' in given_headers:
+                        self.assertEqual(
+                            given_headers.get('X-Delete-At-Container'), 'dac')
+                        ctr += 1
+                    devices += (
+                        list_from_csv(given_headers.get('X-Delete-At-Device')))
+                    hosts += (
+                        list_from_csv(given_headers.get('X-Delete-At-Host')))
+
+                # same as in test_container_update_backend_requests
+                n_can_fail = self.replicas(policy) - self.quorum(policy)
+                n_expected_updates = (
+                    n_can_fail + utils.quorum_size(num_del_at_nodes))
+
+                n_expected_hosts = max(
+                    n_expected_updates, num_del_at_nodes)
+
+                self.assertEqual(len(hosts), n_expected_hosts)
+                self.assertEqual(len(devices), n_expected_hosts)
+
+                # parts don't get doubled up, maximum is count of obj requests
+                n_expected_parts = min(
+                    n_expected_hosts, self.replicas(policy))
+                self.assertEqual(part, n_expected_parts)
+                self.assertEqual(ctr, n_expected_parts)
+
+                # check that hosts are correct
+                self.assertEqual(
+                    set(hosts),
+                    set('%s:%s' % (h['ip'], h['port']) for h in del_at_nodes))
+                self.assertEqual(set(devices), set(('sdb',)))
+
+    def test_smooth_distributed_backend_requests(self):
+        t = str(int(time.time() + 100))
+        for policy in POLICIES:
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='PUT',
+                headers={'Content-Length': '0',
+                         'X-Backend-Storage-Policy-Index': int(policy),
+                         'X-Delete-At': t})
+            controller = self.controller_cls(self.app, 'a', 'c', 'o')
+
+            for num_containers in range(1, 16):
+                containers = [
+                    {'ip': '2.0.0.%s' % i, 'port': '70%s' % str(i).zfill(2),
+                     'device': 'sdc'} for i in range(num_containers)]
+                del_at_nodes = [
+                    {'ip': '1.0.0.%s' % i, 'port': '60%s' % str(i).zfill(2),
+                     'device': 'sdb'} for i in range(num_containers)]
+
+                backend_headers = controller._backend_requests(
+                    req, self.replicas(policy), 1, containers,
+                    delete_at_container='dac', delete_at_partition=2,
+                    delete_at_nodes=del_at_nodes)
+
+                # caculate no of expected updates, see
+                # test_container_update_backend_requests for explanation
+                n_expected_updates = min(max(
+                    self.replicas(policy) - self.quorum(policy) +
+                    utils.quorum_size(num_containers), num_containers),
+                    self.replicas(policy))
+
+                # the first n_expected_updates servers should have received
+                # a container update
+                self.assertTrue(
+                    all([h.get('X-Container-Partition')
+                         for h in backend_headers[:n_expected_updates]]))
+                # the last n_expected_updates servers should have received
+                # the x-delete-at* headers
+                self.assertTrue(
+                    all([h.get('X-Delete-At-Container')
+                         for h in backend_headers[-n_expected_updates:]]))
 
     def _check_write_affinity(
             self, conf, policy_conf, policy, affinity_regions, affinity_count):
@@ -1579,6 +1817,52 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 202)
+
+    def test_x_timestamp_not_overridden(self):
+        def do_test(method, base_headers, resp_code):
+            # no given x-timestamp
+            req = swob.Request.blank(
+                '/v1/a/c/o', method=method, headers=base_headers)
+            codes = [resp_code] * self.replicas()
+            with mocked_http_conn(*codes) as fake_conn:
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, resp_code)
+            self.assertEqual(self.replicas(), len(fake_conn.requests))
+            for req in fake_conn.requests:
+                self.assertIn('X-Timestamp', req['headers'])
+                # check value can be parsed as valid timestamp
+                Timestamp(req['headers']['X-Timestamp'])
+
+            # given x-timestamp is retained
+            def do_check(ts):
+                headers = dict(base_headers)
+                headers['X-Timestamp'] = ts.internal
+                req = swob.Request.blank(
+                    '/v1/a/c/o', method=method, headers=headers)
+                codes = [resp_code] * self.replicas()
+                with mocked_http_conn(*codes) as fake_conn:
+                    resp = req.get_response(self.app)
+                self.assertEqual(resp.status_int, resp_code)
+                self.assertEqual(self.replicas(), len(fake_conn.requests))
+                for req in fake_conn.requests:
+                    self.assertEqual(ts.internal,
+                                     req['headers']['X-Timestamp'])
+
+            do_check(Timestamp.now())
+            do_check(Timestamp.now(offset=123))
+
+            # given x-timestamp gets sanity checked
+            headers = dict(base_headers)
+            headers['X-Timestamp'] = 'bad timestamp'
+            req = swob.Request.blank(
+                '/v1/a/c/o', method=method, headers=headers)
+            with mocked_http_conn() as fake_conn:
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 400)
+            self.assertIn('X-Timestamp should be a UNIX timestamp ', resp.body)
+
+        do_test('PUT', {'Content-Length': 0}, 200)
+        do_test('DELETE', {}, 204)
 
 
 @patch_policies(
@@ -4503,6 +4787,38 @@ class TestECDuplicationObjController(
         self._test_determine_chunk_destinations_prioritize(0, 1)
         # drop node_index 1, 15 and 0 should work, too
         self._test_determine_chunk_destinations_prioritize(1, 0)
+
+
+class TestNumContainerUpdates(unittest.TestCase):
+    def test_it(self):
+        test_cases = [
+            # (container replicas, object replicas, object quorum, expected)
+            (3, 17, 13, 6),  # EC 12+5
+            (3, 9, 4, 7),    # EC 3+6
+            (3, 14, 11, 5),  # EC 10+4
+            (5, 14, 11, 6),  # EC 10+4, 5 container replicas
+            (7, 14, 11, 7),  # EC 10+4, 7 container replicas
+            (3, 19, 16, 5),  # EC 15+4
+            (5, 19, 16, 6),  # EC 15+4, 5 container replicas
+            (3, 28, 22, 8),  # EC (10+4)x2
+            (5, 28, 22, 9),  # EC (10+4)x2, 5 container replicas
+            (3, 1, 1, 3),    # 1 object replica
+            (3, 2, 1, 3),    # 2 object replicas
+            (3, 3, 2, 3),    # 3 object replicas
+            (3, 4, 2, 4),    # 4 object replicas
+            (3, 5, 3, 4),    # 5 object replicas
+            (3, 6, 3, 5),    # 6 object replicas
+            (3, 7, 4, 5),    # 7 object replicas
+        ]
+
+        for c_replica, o_replica, o_quorum, exp in test_cases:
+            c_quorum = utils.quorum_size(c_replica)
+            got = obj.num_container_updates(c_replica, c_quorum,
+                                            o_replica, o_quorum)
+            self.assertEqual(
+                exp, got,
+                "Failed for c_replica=%d, o_replica=%d, o_quorum=%d" % (
+                    c_replica, o_replica, o_quorum))
 
 
 if __name__ == '__main__':

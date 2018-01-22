@@ -17,5 +17,6 @@ pycscope.*
 MANIFEST
 
 .testrepository/*
+.stestr/*
 subunit.log
 test/probe/.noseids

@@ -59,6 +59,7 @@ class KmsKeyMaster(KeyMaster):
                                      set(keymaster_opts).intersection(conf))))
             conf = readconf(self.keymaster_config_path, 'kms_keymaster')
         ctxt = keystone_password.KeystonePassword(
+            auth_url=conf.get('auth_endpoint'),
             username=conf.get('username'),
             password=conf.get('password'),
             project_name=conf.get('project_name'),

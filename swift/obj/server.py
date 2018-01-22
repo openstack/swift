@@ -418,19 +418,26 @@ class ObjectController(BaseStorageServer):
             'x-trans-id': headers_in.get('x-trans-id', '-'),
             'referer': request.as_referer()})
         if op != 'DELETE':
+            hosts = headers_in.get('X-Delete-At-Host', None)
+            if hosts is None:
+                # If header is missing, no update needed as sufficient other
+                # object servers should perform the required update.
+                return
             delete_at_container = headers_in.get('X-Delete-At-Container', None)
             if not delete_at_container:
+                # older proxy servers did not send X-Delete-At-Container so for
+                # backwards compatibility calculate the value here, but also
+                # log a warning because this is prone to inconsistent
+                # expiring_objects_container_divisor configurations.
+                # See https://bugs.launchpad.net/swift/+bug/1187200
                 self.logger.warning(
                     'X-Delete-At-Container header must be specified for '
                     'expiring objects background %s to work properly. Making '
                     'best guess as to the container name for now.' % op)
-                # TODO(gholt): In a future release, change the above warning to
-                # a raised exception and remove the guess code below.
                 delete_at_container = get_expirer_container(
                     delete_at, self.expiring_objects_container_divisor,
                     account, container, obj)
             partition = headers_in.get('X-Delete-At-Partition', None)
-            hosts = headers_in.get('X-Delete-At-Host', '')
             contdevices = headers_in.get('X-Delete-At-Device', '')
             updates = [upd for upd in
                        zip((h.strip() for h in hosts.split(',')),
@@ -442,6 +449,11 @@ class ObjectController(BaseStorageServer):
             headers_out['x-content-type'] = 'text/plain'
             headers_out['x-etag'] = 'd41d8cd98f00b204e9800998ecf8427e'
         else:
+            if not config_true_value(
+                request.headers.get(
+                    'X-Backend-Clean-Expiring-Object-Queue', 't')):
+                return
+
             # DELETEs of old expiration data have no way of knowing what the
             # old X-Delete-At-Container was at the time of the initial setting
             # of the data, so a best guess is made here.

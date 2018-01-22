@@ -10,20 +10,20 @@ Application Bindings
 
 * OpenStack supported binding:
 
-  * `Python-SwiftClient <http://pypi.python.org/pypi/python-swiftclient>`_
+  * `Python-SwiftClient <https://pypi.python.org/pypi/python-swiftclient>`_
 
 * Unofficial libraries and bindings:
 
   * `PHP-opencloud <http://php-opencloud.com>`_ - Official Rackspace PHP bindings that should work for other Swift deployments too.
-  * `PyRAX <https://github.com/rackspace/pyrax>`_ - Official Rackspace Python bindings for CloudFiles that should work for other Swift deployments too.
+  * `PyRAX <https://github.com/pycontribs/pyrax>`_ - Official Rackspace Python bindings for CloudFiles that should work for other Swift deployments too.
   * `openstack.net <https://github.com/rackspace/openstack.net/>`_ - Official Rackspace .NET bindings that should work for other Swift deployments too.
   * `RSwift <https://github.com/pandemicsyn/RSwift>`_ - R API bindings.
   * `Go language bindings <https://github.com/ncw/swift>`_
   * `supload <https://github.com/selectel/supload>`_ - Bash script to upload file to cloud storage based on OpenStack Swift API.
   * `libcloud <http://libcloud.apache.org>`_ - Apache Libcloud - a unified interface in Python for different clouds with OpenStack Swift support.
   * `SwiftBox <https://github.com/suniln/SwiftBox>`_ - C# library using RestSharp
-  * `jclouds <http://jclouds.incubator.apache.org/documentation/quickstart/openstack/>`_ - Java library offering bindings for all OpenStack projects
-  * `java-openstack-swift <https://github.com/dkocher/java-openstack-swift>`_ - Java bindings for OpenStack Swift
+  * `jclouds <http://jclouds.apache.org/guides/openstack/>`_ - Java library offering bindings for all OpenStack projects
+  * `java-openstack-swift <https://github.com/iterate-ch/java-openstack-swift>`_ - Java bindings for OpenStack Swift
   * `swift_client <https://github.com/mrkamel/swift_client>`_ - Small but powerful Ruby client to interact with OpenStack Swift
   * `nightcrawler_swift <https://github.com/tulios/nightcrawler_swift>`_ - This Ruby gem teleports your assets to a OpenStack Swift bucket/container
   * `swift storage <https://rubygems.org/gems/swift-storage>`_ - Simple OpenStack Swift storage client.
@@ -94,13 +94,13 @@ Storage Backends (DiskFile API implementations)
 
 Developer Tools
 ---------------
-* `SAIO bash scripts <https://github.com/ntata/swift-setup-scripts.git>`_ -
+* `SAIO bash scripts <https://github.com/ntata/swift-setup-scripts>`_ -
   Well commented simple bash scripts for Swift all in one setup.
 * `vagrant-swift-all-in-one
   <https://github.com/swiftstack/vagrant-swift-all-in-one>`_ - Quickly setup a
   standard development environment using Vagrant and Chef cookbooks in an
   Ubuntu virtual machine.
-* `SAIO Ansible playbook <https://github.com/thiagodasilva/swift-aio>`_ -
+* `SAIO Ansible playbook <https://github.com/thiagodasilva/ansible-saio>`_ -
   Quickly setup a standard development environment using Vagrant and Ansible in
   a Fedora virtual machine (with built-in `Swift-on-File
   <https://github.com/openstack/swiftonfile>`_ support).
@@ -111,11 +111,11 @@ Other
 * `Glance <https://github.com/openstack/glance>`_ - Provides services for discovering, registering, and retrieving virtual machine images (for OpenStack Compute [Nova], for example).
 * `Better Staticweb <https://github.com/CloudVPS/better-staticweb>`_ - Makes swift containers accessible by default.
 * `Django Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ - Simple Django web app to access OpenStack Swift.
-* `Swift-account-stats <https://github.com/enovance/swift-account-stats>`_ - Swift-account-stats is a tool to report statistics on Swift usage at tenant and global levels.
+* `Swift-account-stats <https://github.com/redhat-cip/swift-account-stats>`_ - Swift-account-stats is a tool to report statistics on Swift usage at tenant and global levels.
 * `PyECLib <https://github.com/openstack/pyeclib>`_ - High Level Erasure Code library used by Swift
 * `liberasurecode <https://github.com/openstack/liberasurecode>`_ - Low Level Erasure Code library used by PyECLib
-* `Swift Browser <https://github.com/zerovm/swift-browser>`_ - JavaScript interface for Swift
+* `Swift Browser <https://github.com/mgeisler/swift-browser>`_ - JavaScript interface for Swift
 * `swift-ui <https://github.com/fanatic/swift-ui>`_ - OpenStack Swift web browser
-* `Swift Durability Calculator <https://github.com/enovance/swift-durability-calculator>`_ - Data Durability Calculation Tool for Swift
+* `Swift Durability Calculator <https://github.com/redhat-cip/swift-durability-calculator>`_ - Data Durability Calculation Tool for Swift
 * `swiftbackmeup <https://github.com/redhat-cip/swiftbackmeup>`_ -  Utility that allows one to create backups and upload them to OpenStack Swift
 * `Multi Swift <https://github.com/ntata/multi-swift-POC>`_ - Bash scripts to spin up multiple Swift clusters sharing the same hardware

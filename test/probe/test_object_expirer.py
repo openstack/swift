@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import errno
+import os
 import random
 import time
 import uuid
@@ -103,7 +105,7 @@ class TestObjectExpirer(ReplProbeTest):
 
         # clear proxy cache
         client.post_container(self.url, self.token, self.container_name, {})
-        # run the expirier again after replication
+        # run the expirer again after replication
         self.expirer.once()
 
         # object is not in the listing
@@ -125,6 +127,80 @@ class TestObjectExpirer(ReplProbeTest):
                 self.assertIn('x-backend-timestamp', metadata)
                 self.assertGreater(Timestamp(metadata['x-backend-timestamp']),
                                    create_timestamp)
+
+    def test_expirer_doesnt_make_async_pendings(self):
+        # The object expirer cleans up its own queue. The inner loop
+        # basically looks like this:
+        #
+        #    for obj in stuff_to_delete:
+        #        delete_the_object(obj)
+        #        remove_the_queue_entry(obj)
+        #
+        # By default, upon receipt of a DELETE request for an expiring
+        # object, the object servers will create async_pending records to
+        # clean the expirer queue. Since the expirer cleans its own queue,
+        # this is unnecessary. The expirer can make requests in such a way
+        # tha the object server does not write out any async pendings; this
+        # test asserts that this is the case.
+
+        def gather_async_pendings(onodes):
+            async_pendings = []
+            for onode in onodes:
+                device_dir = self.device_dir('', onode)
+                for ap_pol_dir in os.listdir(device_dir):
+                    if not ap_pol_dir.startswith('async_pending'):
+                        # skip 'objects', 'containers', etc.
+                        continue
+                    async_pending_dir = os.path.join(device_dir, ap_pol_dir)
+                    try:
+                        ap_dirs = os.listdir(async_pending_dir)
+                    except OSError as err:
+                        if err.errno == errno.ENOENT:
+                            pass
+                        else:
+                            raise
+                    else:
+                        for ap_dir in ap_dirs:
+                            ap_dir_fullpath = os.path.join(
+                                async_pending_dir, ap_dir)
+                            async_pendings.extend([
+                                os.path.join(ap_dir_fullpath, ent)
+                                for ent in os.listdir(ap_dir_fullpath)])
+            return async_pendings
+
+        # Make an expiring object in each policy
+        for policy in ENABLED_POLICIES:
+            container_name = "expirer-test-%d" % policy.idx
+            container_headers = {'X-Storage-Policy': policy.name}
+            client.put_container(self.url, self.token, container_name,
+                                 headers=container_headers)
+
+            now = time.time()
+            delete_at = int(now + 2.0)
+            client.put_object(
+                self.url, self.token, container_name, "some-object",
+                headers={'X-Delete-At': str(delete_at),
+                         'X-Timestamp': Timestamp(now).normal},
+                contents='dontcare')
+
+        time.sleep(2.0)
+        # make sure auto-created expirer-queue containers get in the account
+        # listing so the expirer can find them
+        Manager(['container-updater']).once()
+
+        # Make sure there's no async_pendings anywhere. Probe tests only run
+        # on single-node installs anyway, so this set should be small enough
+        # that an exhaustive check doesn't take too long.
+        all_obj_nodes = {}
+        for policy in ENABLED_POLICIES:
+            for dev in policy.object_ring.devs:
+                all_obj_nodes[dev['device']] = dev
+        pendings_before = gather_async_pendings(all_obj_nodes.values())
+
+        # expire the objects
+        Manager(['object-expirer']).once()
+        pendings_after = gather_async_pendings(all_obj_nodes.values())
+        self.assertEqual(pendings_after, pendings_before)
 
     def test_expirer_object_should_not_be_expired(self):
 
@@ -281,9 +357,6 @@ class TestObjectExpirer(ReplProbeTest):
 
         # run expirer again, delete should now succeed
         self.expirer.once()
-
-        # this is mainly to paper over lp bug #1652323
-        self.get_to_final_state()
 
         # verify the deletion by checking the container listing
         self.assertFalse(self._check_obj_in_container_listing(),

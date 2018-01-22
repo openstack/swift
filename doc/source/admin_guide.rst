@@ -120,24 +120,23 @@ out were you need to add capacity or to help tune an :ref:`ring_overload` value.
 Now let's take an example with 1 region, 3 zones and 4 devices. Each device has
 the same weight, and the ``dispersion --verbose`` might show the following::
 
-  Dispersion is 50.000000, Balance is 0.000000, Overload is 0.00%
+  Dispersion is 16.666667, Balance is 0.000000, Overload is 0.00%
   Required overload is 33.333333%
-  Worst tier is 50.000000 (r1z3)
+  Worst tier is 33.333333 (r1z3)
   --------------------------------------------------------------------------
   Tier                           Parts      %    Max     0     1     2     3
   --------------------------------------------------------------------------
-  r1                               256   0.00      3     0     0     0   256
+  r1                               768   0.00      3     0     0     0   256
   r1z1                             192   0.00      1    64   192     0     0
   r1z1-127.0.0.1                   192   0.00      1    64   192     0     0
   r1z1-127.0.0.1/sda               192   0.00      1    64   192     0     0
   r1z2                             192   0.00      1    64   192     0     0
   r1z2-127.0.0.2                   192   0.00      1    64   192     0     0
   r1z2-127.0.0.2/sda               192   0.00      1    64   192     0     0
-  r1z3                             256  50.00      1     0   128   128     0
-  r1z3-127.0.0.3                   256  50.00      1     0   128   128     0
+  r1z3                             384  33.33      1     0   128   128     0
+  r1z3-127.0.0.3                   384  33.33      1     0   128   128     0
   r1z3-127.0.0.3/sda               192   0.00      1    64   192     0     0
   r1z3-127.0.0.3/sdb               192   0.00      1    64   192     0     0
-
 
 The first line reports that there are 256 partitions with 3 copies in region 1;
 and this is an expected output in this case (single region with 3 replicas) as
@@ -818,7 +817,7 @@ resolves to an IPv4 address, an IPv4 socket will be used to send StatsD UDP
 packets, even if the hostname would also resolve to an IPv6 address.
 
 .. _StatsD: http://codeascraft.etsy.com/2011/02/15/measure-anything-measure-everything/
-.. _Graphite: http://graphite.wikidot.com/
+.. _Graphite: http://graphiteapp.org/
 .. _Ganglia: http://ganglia.sourceforge.net/
 
 The sample rate is a real number between 0 and 1 which defines the

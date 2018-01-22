@@ -151,15 +151,17 @@ class FakeInternalClient(reconciler.InternalClient):
                 container_listing_data.sort(key=operator.itemgetter('name'))
                 # register container listing response
                 container_headers = {}
-                container_qry_string = '?format=json&marker=&end_marker='
+                container_qry_string = \
+                    '?format=json&marker=&end_marker=&prefix='
                 self.app.register('GET', container_path + container_qry_string,
                                   swob.HTTPOk, container_headers,
                                   json.dumps(container_listing_data))
                 if container_listing_data:
                     obj_name = container_listing_data[-1]['name']
                     # client should quote and encode marker
-                    end_qry_string = '?format=json&marker=%s&end_marker=' % (
-                        urllib.parse.quote(obj_name.encode('utf-8')))
+                    end_qry_string = \
+                        '?format=json&marker=%s&end_marker=&prefix=' % (
+                            urllib.parse.quote(obj_name.encode('utf-8')))
                     self.app.register('GET', container_path + end_qry_string,
                                       swob.HTTPOk, container_headers,
                                       json.dumps([]))
@@ -171,11 +173,11 @@ class FakeInternalClient(reconciler.InternalClient):
             # register account response
             account_listing_data.sort(key=operator.itemgetter('name'))
             account_headers = {}
-            account_qry_string = '?format=json&marker=&end_marker='
+            account_qry_string = '?format=json&marker=&end_marker=&prefix='
             self.app.register('GET', account_path + account_qry_string,
                               swob.HTTPOk, account_headers,
                               json.dumps(account_listing_data))
-            end_qry_string = '?format=json&marker=%s&end_marker=' % (
+            end_qry_string = '?format=json&marker=%s&end_marker=&prefix=' % (
                 urllib.parse.quote(account_listing_data[-1]['name']))
             self.app.register('GET', account_path + end_qry_string,
                               swob.HTTPOk, account_headers,
@@ -704,7 +706,7 @@ class TestReconcilerUtils(unittest.TestCase):
 
 
 def listing_qs(marker):
-    return "?format=json&marker=%s&end_marker=" % \
+    return "?format=json&marker=%s&end_marker=&prefix=" % \
         urllib.parse.quote(marker.encode('utf-8'))
 
 

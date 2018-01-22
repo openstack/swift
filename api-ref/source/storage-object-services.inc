@@ -130,7 +130,7 @@ Response Parameters
    - X-Object-Meta-name: X-Object-Meta-name_resp
    - Content-Disposition: Content-Disposition_resp
    - Content-Encoding: Content-Encoding_resp
-   - X-Delete-At: X-Delete-At
+   - X-Delete-At: X-Delete-At_resp
    - Accept-Ranges: Accept-Ranges
    - X-Object-Manifest: X-Object-Manifest_resp
    - Last-Modified: Last-Modified
@@ -602,7 +602,7 @@ Response Parameters
    - X-Object-Meta-name: X-Object-Meta-name
    - Content-Disposition: Content-Disposition_resp
    - Content-Encoding: Content-Encoding_resp
-   - X-Delete-At: X-Delete-At
+   - X-Delete-At: X-Delete-At_resp
    - X-Object-Manifest: X-Object-Manifest_resp
    - Last-Modified: Last-Modified
    - ETag: ETag_obj_resp
@@ -649,6 +649,12 @@ All metadata is preserved during the object copy. If you specify
 metadata on the request to copy the object, either PUT or COPY ,
 the metadata overwrites any conflicting keys on the target (new)
 object.
+
+.. note::
+
+  While using COPY instead of POST allows sending only a subset of
+  the metadata, it carries the cost of reading and rewriting the entire
+  contents of the object.
 
 A POST request deletes any existing custom metadata that you added
 with a previous PUT or POST request. Consequently, you must specify
@@ -752,9 +758,9 @@ Request
    - X-Service-Token: X-Service-Token
    - X-Object-Meta-name: X-Object-Meta-name
    - X-Delete-At: X-Delete-At
+   - X-Delete-After: X-Delete-After
    - Content-Disposition: Content-Disposition
    - Content-Encoding: Content-Encoding
-   - X-Delete-After: X-Delete-After
    - Content-Type: Content-Type_obj_cu_req
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 

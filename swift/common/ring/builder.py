@@ -35,7 +35,7 @@ from time import time
 from swift.common import exceptions
 from swift.common.ring import RingData
 from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
-    validate_and_normalize_address, pretty_dev
+    validate_and_normalize_address, validate_replicas_by_tier, pretty_dev
 
 # we can't store None's in the replica2part2dev array, so we high-jack
 # the max value for magic to represent the part is not currently
@@ -247,7 +247,11 @@ class RingBuilder(object):
             self.version = builder.version
             self._replica2part2dev = builder._replica2part2dev
             self._last_part_moves_epoch = builder._last_part_moves_epoch
-            self._last_part_moves = builder._last_part_moves
+            if builder._last_part_moves is None:
+                self._last_part_moves = array(
+                    'B', itertools.repeat(0, self.parts))
+            else:
+                self._last_part_moves = builder._last_part_moves
             self._last_part_gather_start = builder._last_part_gather_start
             self._remove_devs = builder._remove_devs
             self._id = getattr(builder, '_id', None)
@@ -263,7 +267,11 @@ class RingBuilder(object):
             self.version = builder['version']
             self._replica2part2dev = builder['_replica2part2dev']
             self._last_part_moves_epoch = builder['_last_part_moves_epoch']
-            self._last_part_moves = builder['_last_part_moves']
+            if builder['_last_part_moves'] is None:
+                self._last_part_moves = array(
+                    'B', itertools.repeat(0, self.parts))
+            else:
+                self._last_part_moves = builder['_last_part_moves']
             self._last_part_gather_start = builder['_last_part_gather_start']
             self._dispersion_graph = builder.get('_dispersion_graph', {})
             self.dispersion = builder.get('dispersion')
@@ -555,7 +563,6 @@ class RingBuilder(object):
                 {'status': finish_status, 'count': gather_count + 1})
 
         self.devs_changed = False
-        self.version += 1
         changed_parts = self._build_dispersion_graph(old_replica2part2dev)
 
         # clean up the cache
@@ -623,22 +630,23 @@ class RingBuilder(object):
 
                 if old_device != dev['id']:
                     changed_parts += 1
-            part_at_risk = False
             # update running totals for each tiers' number of parts with a
             # given replica count
+            part_risk_depth = defaultdict(int)
+            part_risk_depth[0] = 0
             for tier, replicas in replicas_at_tier.items():
                 if tier not in dispersion_graph:
                     dispersion_graph[tier] = [self.parts] + [0] * int_replicas
                 dispersion_graph[tier][0] -= 1
                 dispersion_graph[tier][replicas] += 1
                 if replicas > max_allowed_replicas[tier]:
-                    part_at_risk = True
-            # this part may be at risk in multiple tiers, but we only count it
-            # as at_risk once
-            if part_at_risk:
-                parts_at_risk += 1
+                    part_risk_depth[len(tier)] += (
+                        replicas - max_allowed_replicas[tier])
+            # count each part-replica once at tier where dispersion is worst
+            parts_at_risk += max(part_risk_depth.values())
         self._dispersion_graph = dispersion_graph
-        self.dispersion = 100.0 * parts_at_risk / self.parts
+        self.dispersion = 100.0 * parts_at_risk / (self.parts * self.replicas)
+        self.version += 1
         return changed_parts
 
     def validate(self, stats=False):
@@ -1475,14 +1483,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # weighted_replicas should be very close to the total number of
         # replicas for the ring
-        tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
-        for i, tier_name in enumerate(tiers):
-            replicas_at_tier = sum(weighted_replicas_by_tier[t] for t in
-                                   weighted_replicas_by_tier if len(t) == i)
-            if abs(self.replicas - replicas_at_tier) > 1e-10:
-                raise exceptions.RingValidationError(
-                    '%s != %s at tier %s' % (
-                        replicas_at_tier, self.replicas, tier_name))
+        validate_replicas_by_tier(self.replicas, weighted_replicas_by_tier)
 
         return weighted_replicas_by_tier
 
@@ -1585,14 +1586,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # wanted_replicas should be very close to the total number of
         # replicas for the ring
-        tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
-        for i, tier_name in enumerate(tiers):
-            replicas_at_tier = sum(wanted_replicas[t] for t in
-                                   wanted_replicas if len(t) == i)
-            if abs(self.replicas - replicas_at_tier) > 1e-10:
-                raise exceptions.RingValidationError(
-                    '%s != %s at tier %s' % (
-                        replicas_at_tier, self.replicas, tier_name))
+        validate_replicas_by_tier(self.replicas, wanted_replicas)
 
         return wanted_replicas
 
@@ -1621,14 +1615,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # target_replicas should be very close to the total number
         # of replicas for the ring
-        tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
-        for i, tier_name in enumerate(tiers):
-            replicas_at_tier = sum(target_replicas[t] for t in
-                                   target_replicas if len(t) == i)
-            if abs(self.replicas - replicas_at_tier) > 1e-10:
-                raise exceptions.RingValidationError(
-                    '%s != %s at tier %s' % (
-                        replicas_at_tier, self.replicas, tier_name))
+        validate_replicas_by_tier(self.replicas, target_replicas)
 
         return target_replicas
 

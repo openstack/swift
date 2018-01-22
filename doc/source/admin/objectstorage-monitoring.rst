@@ -5,7 +5,7 @@ Object Storage monitoring
 .. note::
 
    This section was excerpted from a `blog post by Darrell
-   Bishop <http://swiftstack.com/blog/2012/04/11/swift-monitoring-with-statsd>`_ and
+   Bishop <https://swiftstack.com/blog/2012/04/11/swift-monitoring-with-statsd>`_ and
    has since been edited.
 
 An OpenStack Object Storage cluster is a collection of many daemons that
@@ -123,10 +123,8 @@ actual number when flushing meters upstream.
 
 To avoid the problems inherent with middleware-based monitoring and
 after-the-fact log processing, the sending of StatsD meters is
-integrated into Object Storage itself. The submitted change set (see
-`<https://review.openstack.org/#change,6058>`_) currently reports 124 meters
-across 15 Object Storage daemons and the tempauth middleware. Details of
-the meters tracked are in the :doc:`/admin_guide`.
+integrated into Object Storage itself. Details of the meters tracked
+are in the :doc:`/admin_guide`.
 
 The sending of meters is integrated with the logging framework. To
 enable, configure ``log_statsd_host`` in the relevant config file. You
