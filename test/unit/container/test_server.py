@@ -2155,15 +2155,19 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=active&reverse=true&end_marker=pickle')
         # when no active shard ranges cover the requested namespace range then
-        # filler is for entire namespace (this might change to be just the
-        # uncleaved namespace)
+        # filler is for entire requested namespace
         extra_shard_range = ShardRange(
-            'a/c', ts_now, ShardRange.MIN, ShardRange.MAX,
-            state=ShardRange.ACTIVE)
-        expected = [extra_shard_range]
-        check_shard_GET(expected, 'a/c', params='&state=active&marker=walnut')
-        check_shard_GET(reversed(expected), 'a/c',
-                        params='&state=active&reverse=true&end_marker=walnut')
+            'a/c', ts_now, 'treacle', ShardRange.MAX, state=ShardRange.ACTIVE)
+        check_shard_GET([extra_shard_range], 'a/c',
+                        params='&state=active&marker=treacle')
+        check_shard_GET([extra_shard_range], 'a/c',
+                        params='&state=active&reverse=true&end_marker=treacle')
+        extra_shard_range = ShardRange(
+            'a/c', ts_now, 'treacle', 'walnut', state=ShardRange.ACTIVE)
+        params = '&state=active&marker=treacle&end_marker=walnut'
+        check_shard_GET([extra_shard_range], 'a/c', params=params)
+        params = '&state=active&reverse=true&marker=walnut&end_marker=treacle'
+        check_shard_GET([extra_shard_range], 'a/c', params=params)
         # specific object
         check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=cheese')
         check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=ham')

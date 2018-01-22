@@ -165,7 +165,6 @@ class ContainerController(Controller):
         reverse = config_true_value(params.get('reverse'))
         marker = params.get('marker')
         end_marker = params.get('end_marker')
-        params['format'] = 'json'
         params['scope'] = 'root'  # avoid fetching shards again
 
         for shard_range in ranges:
