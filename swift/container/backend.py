@@ -733,6 +733,7 @@ class ContainerBroker(DatabaseBroker):
                   db_state.
         """
         data = self._get_info()
+        # TODO: unit test sharding states including with no shard ranges
         if data['db_state'] == DB_STATE_SHARDING:
             # grab the obj_count, bytes used from locked DB. We need
             # obj_count for sharding.
@@ -1400,8 +1401,8 @@ class ContainerBroker(DatabaseBroker):
                 row = data.fetchone()
                 object_count = row[0]
                 bytes_used = row[1]
-                return {'bytes_used': bytes_used,
-                        'object_count': object_count}
+                return {'bytes_used': bytes_used or 0,
+                        'object_count': object_count or 0}
             except sqlite3.OperationalError as err:
                 if 'no such table: shard_ranges' not in str(err):
                     raise
