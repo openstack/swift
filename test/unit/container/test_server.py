@@ -2073,9 +2073,16 @@ class TestContainerController(unittest.TestCase):
         # make a container
         ts_iter = make_timestamp_iter()
         headers = {'X-Timestamp': next(ts_iter).normal}
+        metadata = {'X-Container-Sysmeta-Test': 'original',
+                    'X-Container-Meta-Test': 'existing'}
+        headers.update(metadata)
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertEqual(
+            metadata, dict((k, v[0]) for k, v in broker.metadata.items()))
+        put_timestamp = broker.get_info()['put_timestamp']
+
         # PUT some shard ranges
         shard_bounds = [('', 'ham', ShardRange.ACTIVE),
                         ('ham', 'salami', ShardRange.ACTIVE),
@@ -2088,7 +2095,9 @@ class TestContainerController(unittest.TestCase):
             for i, (lower, upper, state) in enumerate(shard_bounds)]
 
         headers = {'X-Backend-Record-Type': 'shard',
-                   'X-Timestamp': next(ts_iter).internal}
+                   'X-Timestamp': next(ts_iter).internal,
+                   'X-Container-Sysmeta-Test': 'changed',
+                   'X-Container-Meta-Test': 'modified'}
         body = json.dumps([dict(sr) for sr in shard_ranges[:2]])
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
                             body=body)
@@ -2096,6 +2105,11 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(201, resp.status_int)
         self._assertShardRangesEqual(shard_ranges[:2],
                                      broker.get_shard_ranges())
+        # sysmeta is updated, user meta is not
+        metadata['X-Container-Sysmeta-Test'] = 'changed'
+        self.assertEqual(
+            metadata, dict((k, v[0]) for k, v in broker.metadata.items()))
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         # empty json dict
         body = json.dumps({})
@@ -2106,6 +2120,7 @@ class TestContainerController(unittest.TestCase):
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         self._assertShardRangesEqual(shard_ranges[:2],
                                      broker.get_shard_ranges())
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         # updated and new shard ranges
         shard_ranges[1].bytes_used += 100
@@ -2116,6 +2131,7 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(201, resp.status_int)
         self._assertShardRangesEqual(shard_ranges, broker.get_shard_ranges())
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         # deleted shard range
         shard_ranges[0].deleted = 1
@@ -2127,6 +2143,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(201, resp.status_int)
         self._assertShardRangesEqual(
             shard_ranges, broker.get_shard_ranges(include_deleted=True))
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         def check_bad_body(body):
             req = Request.blank(
@@ -2136,6 +2153,7 @@ class TestContainerController(unittest.TestCase):
             self.assertIn('Invalid body', resp.body)
             self._assertShardRangesEqual(
                 shard_ranges, broker.get_shard_ranges(include_deleted=True))
+            self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         check_bad_body('not json')
         check_bad_body('')
@@ -2149,6 +2167,8 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(202, resp.status_int)
             self._assertShardRangesEqual(
                 shard_ranges, broker.get_shard_ranges(include_deleted=True))
+            self.assertNotEqual(
+                put_timestamp, broker.get_info()['put_timestamp'])
 
         check_not_shard_record_type(
             {'X-Backend-Record-Type': 'object',

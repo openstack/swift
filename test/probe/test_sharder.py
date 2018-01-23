@@ -91,7 +91,6 @@ class TestContainerSharding(ReplProbeTest):
 
     def direct_get_container_shard_ranges(self, account=None, container=None,
                                           expect_failure=False):
-
         account = account if account else self.account
         container = container if container else self.container_name
         cpart, cnodes = self.container_ring.get_nodes(account, container)
@@ -214,12 +213,16 @@ class TestContainerSharding(ReplProbeTest):
         actual = sum([sr['object_count'] for sr in shard_ranges])
         self.assertEqual(expected_object_count, actual)
 
-    def assert_container_listing(self, expected_listing):
+    def assert_container_listing(self, expected_listing,
+                                 expected_obj_count=None):
         headers, actual_listing = client.get_container(
             self.url, self.token, self.container_name)
         self.assertIn('x-container-object-count', headers)
-        self.assertEqual(headers['x-container-object-count'],
-                         str(len(expected_listing)))
+        if expected_obj_count is None:
+            expected_obj_count = len(expected_listing)
+
+        self.assertEqual(str(expected_obj_count),
+                         headers['x-container-object-count'])
         self.assertEqual(expected_listing, [
             x['name'].encode('utf-8') for x in actual_listing])
         return headers, actual_listing
@@ -726,17 +729,19 @@ class TestContainerSharding(ReplProbeTest):
         orig_range_data = root_nodes_data[node_id][1]
         orig_shard_ranges = [ShardRange.from_dict(r) for r in orig_range_data]
 
-        # check first shard
-        def check_shard_nodes_data(node_data):
+        def check_shard_nodes_data(node_data, expected_state=1,
+                                   expected_shards=0, exp_obj_count=0):
+            # checks that shard range is consistent on all nodes
             root_path = '%s/%s' % (self.account, self.container_name)
             exp_shard_hdrs = {'X-Container-Sysmeta-Shard-Root': root_path,
-                              'X-Backend-Sharding-State': '1'}  # unsharded
+                              'X-Backend-Sharding-State': str(expected_state)}
             object_counts = []
             bytes_used = []
             for node_id, node_data in node_data.items():
                 with self.annotate_failure('Node id %s.' % node_id):
-                    # NB shards have no shard ranges
-                    check_node_data(node_data, exp_shard_hdrs, 0, 0)
+                    check_node_data(
+                        node_data, exp_shard_hdrs, exp_obj_count,
+                        expected_shards)
                 hdrs = node_data[0]
                 object_counts.append(int(hdrs['X-Container-Object-Count']))
                 bytes_used.append(int(hdrs['X-Container-Bytes-Used']))
@@ -746,6 +751,7 @@ class TestContainerSharding(ReplProbeTest):
                 self.fail('Inconsistent bytes used: %s' % bytes_used)
             return object_counts[0], bytes_used[0]
 
+        # check first shard
         shard_nodes_data = self.direct_get_container_shard_ranges(
             orig_shard_ranges[0].account, orig_shard_ranges[0].container)
         obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
@@ -777,9 +783,9 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(len(obj_names), shard_obj_count)
 
         # delete objects from first shard range
-        shard_objects = [obj_name for obj_name in obj_names
-                         if obj_name <= orig_shard_ranges[0].upper]
-        for obj in shard_objects:
+        first_shard_objects = [obj_name for obj_name in obj_names
+                               if obj_name <= orig_shard_ranges[0].upper]
+        for obj in first_shard_objects:
             client.delete_object(
                 self.url, self.token, self.container_name, obj)
             with self.assertRaises(ClientException):
@@ -796,12 +802,10 @@ class TestContainerSharding(ReplProbeTest):
         self.updaters.once()
 
         # listing has new object but root object counts not updated...
-        headers, listing = client.get_container(self.url, self.token,
-                                                self.container_name)
-        self.assertEqual('alpha', listing[0]['name'])
-        self.assertIn('x-container-object-count', headers)
-        self.assertEqual(str(exp_obj_count),
-                         headers['x-container-object-count'])
+        second_shard_objects = [obj_name for obj_name in obj_names
+                                if obj_name > orig_shard_ranges[1].lower]
+        self.assert_container_listing(['alpha'] + second_shard_objects,
+                                      expected_obj_count=len(obj_names))
         root_nodes_data = self.direct_get_container_shard_ranges()
         self.assertEqual(3, len(root_nodes_data))
         for node_id, node_data in root_nodes_data.items():
@@ -814,7 +818,7 @@ class TestContainerSharding(ReplProbeTest):
 
         # ...until the sharders run
         self.sharders.once()
-        exp_obj_count = len(obj_names) + 1 - len(shard_objects)
+        exp_obj_count = len(second_shard_objects) + 1
 
         # we may then need sharders to run once or more to find the donor
         # shard, shrink and replicate it to the acceptor
@@ -830,11 +834,7 @@ class TestContainerSharding(ReplProbeTest):
                 # NB now only *one* shard range in root
                 check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
 
-        headers, listing = client.get_container(self.url, self.token,
-                                                self.container_name)
-        self.assertIn('x-container-object-count', headers)
-        self.assertEqual(str(exp_obj_count),
-                         headers['x-container-object-count'])
+        self.assert_container_listing(['alpha'] + second_shard_objects)
 
         # the acceptor shard is intact..
         shard_nodes_data = self.direct_get_container_shard_ranges(
