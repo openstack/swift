@@ -17,6 +17,8 @@ Pluggable Back-ends for Container Server
 """
 
 import errno
+import json
+
 import os
 from uuid import uuid4
 from contextlib import contextmanager
@@ -1592,7 +1594,20 @@ class ContainerBroker(DatabaseBroker):
 
         return True
 
-    def set_sharded_state(self):
+    def _sharding_context(self):
+        return {'max_row': self.get_brokers()[0].get_max_row()}
+
+    def get_sharding_context(self):
+        """
+        Returns a string that represents the current state of the db file that
+        is being sharded.
+
+        :return: a string
+        """
+        # use a dict to allow for future extension
+        return json.dumps(self._sharding_context())
+
+    def set_sharded_state(self, sharding_context):
         db_state = self.get_db_state()
         if not db_state == DB_STATE_SHARDING:
             self.logger.warn("Container '%s/%s' cannot be set to sharded "
@@ -1601,6 +1616,15 @@ class ContainerBroker(DatabaseBroker):
             return False
 
         # TODO add some checks to see if we are ready to unlink the old db
+        sharding_context = json.loads(sharding_context)
+        current_sharding_context = self._sharding_context()
+        if current_sharding_context['max_row'] != sharding_context['max_row']:
+            # the db_file has been modified, let's not delete it
+            self.logger.debug(
+                'refusing to go to sharded state, current context %s != %s' %
+                (current_sharding_context, sharding_context))
+            return False
+
         try:
             os.unlink(self._db_file)
         except OSError as err:

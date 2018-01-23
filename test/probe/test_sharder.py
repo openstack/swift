@@ -14,6 +14,7 @@
 # limitations under the License.
 import json
 import os
+import time
 import uuid
 
 from nose import SkipTest
@@ -21,7 +22,8 @@ from nose import SkipTest
 from swift.common import direct_client
 from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange
-from swift.container.backend import ContainerBroker, DB_STATE
+from swift.container.backend import ContainerBroker, DB_STATE, \
+    DB_STATE_SHARDING, DB_STATE_SHARDED
 from swift.common import utils
 from swift.common.manager import Manager
 from swiftclient import client, get_auth, ClientException
@@ -30,6 +32,7 @@ from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number
 
 
+MIN_SHARD_CONTAINER_SIZE = 4
 MAX_SHARD_CONTAINER_SIZE = 100
 
 
@@ -54,10 +57,12 @@ class TestContainerSharding(ReplProbeTest):
         else:
             self.max_shard_size = 1000000
 
-        if self.max_shard_size > MAX_SHARD_CONTAINER_SIZE:
+        if not (MIN_SHARD_CONTAINER_SIZE <= self.max_shard_size
+                <= MAX_SHARD_CONTAINER_SIZE):
             skip_reasons.append(
-                'shard_container_size is too big! %d > %d' %
-                (self.max_shard_size, MAX_SHARD_CONTAINER_SIZE))
+                'shard_container_size %d must be between %d and %d' %
+                (self.max_shard_size, MIN_SHARD_CONTAINER_SIZE,
+                 MAX_SHARD_CONTAINER_SIZE))
 
         def skip_check(reason_list, option, required):
             values = set([int(c.get(option, required)) for c in cont_configs])
@@ -130,22 +135,32 @@ class TestContainerSharding(ReplProbeTest):
         if unexpected_responses:
             self.fail('Unexpected responses: %s' % unexpected_responses)
 
+    def get_storage_dir(self, part, node, account=None, container=None):
+        account = account or self.brain.account
+        container = container or self.container_name
+        server_type, config_number = get_server_number(
+            (node['ip'], node['port']), self.ipport2server)
+        assert server_type == 'container'
+        repl_server = '%s-replicator' % server_type
+        conf = utils.readconf(self.configs[repl_server][config_number],
+                              section_name=repl_server)
+        datadir = os.path.join(conf['devices'], node['device'], 'containers')
+        container_hash = utils.hash_path(account, container)
+        return (utils.storage_directory(datadir, part, container_hash),
+                container_hash)
+
+    def get_broker(self, part, node, suffix='.db'):
+        container_dir, container_hash = self.get_storage_dir(part, node)
+        db_file = os.path.join(container_dir, container_hash + suffix)
+        self.assertTrue(os.path.isfile(db_file))  # sanity check
+        return ContainerBroker(db_file, force_db_file=True)
+
     def categorize_container_dir_content(self, container=None):
         container = container or self.container_name
         part, nodes = self.brain.ring.get_nodes(self.brain.account, container)
-        datadirs = []
-        for node in nodes:
-            server_type, config_number = get_server_number(
-                (node['ip'], node['port']), self.ipport2server)
-            assert server_type == 'container'
-            repl_server = '%s-replicator' % server_type
-            conf = utils.readconf(self.configs[repl_server][config_number],
-                                  section_name=repl_server)
-            datadirs.append(os.path.join(conf['devices'], node['device'],
-                                         'containers'))
-        container_hash = utils.hash_path(self.brain.account, container)
-        storage_dirs = [utils.storage_directory(datadir, part, container_hash)
-                        for datadir in datadirs]
+        storage_dirs = [
+            self.get_storage_dir(part, node, container=container)[0]
+            for node in nodes]
         result = {
             'shard_dbs': [],
             'normal_dbs': [],
@@ -226,6 +241,17 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(expected_listing, [
             x['name'].encode('utf-8') for x in actual_listing])
         return headers, actual_listing
+
+    def assert_container_state(self, node_number, expected_state,
+                               num_shard_ranges):
+        node = self.brain.nodes_by_number[node_number]
+        headers, shard_ranges = direct_client.direct_get_container(
+            node, self.brain.part, self.account, self.container_name,
+            headers={'X-Backend-Record-Type': 'shard'})
+        self.assertEqual(num_shard_ranges, len(shard_ranges))
+        self.assertIn('X-Backend-Sharding-State', headers)
+        self.assertEqual(
+            str(expected_state), headers['X-Backend-Sharding-State'])
 
     def test_sharding_listing(self):
         # verify parameterised listing of a container during sharding
@@ -848,3 +874,169 @@ class TestContainerSharding(ReplProbeTest):
         # deleted, test for deletion/clean up
         self.direct_get_container_shard_ranges(
             orig_shard_ranges[0].account, orig_shard_ranges[0].container)
+
+    def _setup_replication_to_sharding_container(self, num_shards):
+        # put objects while all servers are up
+        obj_names = ['obj%03d' % x
+                     for x in range(num_shards * self.max_shard_size / 2)]
+        for obj in obj_names:
+            client.put_object(self.url, self.token, self.container_name, obj)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        node_numbers = self.brain.node_numbers
+        # stop the leader node and one other server
+        for number in node_numbers[:2]:
+            self.brain.servers.stop(number=number)
+
+        # ...then put one more object in first shard range namespace
+        client.put_object(self.url, self.token, self.container_name, 'alpha')
+        # and wait for object server container update threads to timeout
+        # TODO: the test intermittently fails because one of the leader/other
+        # servers IS getting updated despite being stopped before - why? even
+        # this huge sleep does not fix the intermittent fail. is there a better
+        # workaround?
+        time.sleep(10)
+
+        # start leader and first other server, stop third server
+        for number in node_numbers[:2]:
+            self.brain.servers.start(number=number)
+        self.brain.servers.stop(number=node_numbers[2])
+        self.assert_container_listing(obj_names)  # sanity check
+
+        # shard the container - first two shard ranges are cleaved
+        for number in node_numbers[:2]:
+            self.sharders.once(number=number)
+
+        self.assert_container_listing(obj_names)  # sanity check
+        return obj_names
+
+    def test_usync_replication_to_sharding_container(self):
+        # verify that, while sharding, if an usync replication adds objects to
+        # hash_shard.db in already cleaved namespace then those objects are
+        # eventually cleaved to shards
+        obj_names = self._setup_replication_to_sharding_container(3)
+        node_numbers = self.brain.node_numbers
+        self.assert_container_state(node_numbers[0], DB_STATE_SHARDING, 3)
+        self.assert_container_state(node_numbers[1], DB_STATE_SHARDING, 3)
+
+        # bring third server back up, run replicator
+        self.brain.servers.start(number=node_numbers[2])
+        self.replicators.once(number=node_numbers[2])
+
+        # now third server stops forever...
+        self.brain.servers.stop(number=node_numbers[2])
+        # ...but the .db file has been usync replicated to 2 other servers'
+        # _shard.db dbs
+        for number in node_numbers[:2]:
+            broker = self.get_broker(
+                self.brain.part, self.brain.nodes_by_number[number],
+                suffix='_shard.db')
+            info = broker.get_info()
+            # while sharding the 'stale' object count is taken from hash.db
+            self.assertEqual(len(obj_names), info['object_count'])
+
+        # complete cleaving third shard range...
+        for number in node_numbers[:2]:
+            self.sharders.once(number=number)
+        # ...misplaced objects including the 'alpha' object also get moved
+        self.assert_container_listing(['alpha'] + obj_names)  # sanity check
+        # ...and now in sharded state
+        self.assert_container_state(node_numbers[0], DB_STATE_SHARDED, 3)
+        self.assert_container_state(node_numbers[1], DB_STATE_SHARDED, 3)
+
+    def test_rsync_replication_to_sharding_container(self):
+        # verify that, while sharding, if an rsync replication adds objects to
+        # hash.db in already cleaved namespace then those objects are
+        # eventually cleaved to shards
+        obj_names = self._setup_replication_to_sharding_container(3)
+        node_numbers = self.brain.node_numbers
+        self.assert_container_state(node_numbers[0], DB_STATE_SHARDING, 3)
+        self.assert_container_state(node_numbers[1], DB_STATE_SHARDING, 3)
+
+        # remove .db file on running nodes - this is an artificial way of
+        # provoking an rsync replication when replicator runs; in real world
+        # rsync would be used if the replicated db had a large difference in
+        # row count, which is hard to achieve with a probe test
+        for number in node_numbers[:2]:
+            broker = self.get_broker(
+                self.brain.part, self.brain.nodes_by_number[number])
+            info = broker.get_info()
+            self.assertEqual(len(obj_names), info['object_count'])
+            os.unlink(broker.db_file)
+
+        # bring third server back up, run replicator
+        self.brain.servers.start(number=node_numbers[2])
+        self.replicators.once(number=node_numbers[2])
+
+        # now third server stops forever...
+        self.brain.servers.stop(number=node_numbers[2])
+        # ...but the .db file has been replicated to 2 other servers
+        for number in node_numbers[:2]:
+            broker = self.get_broker(
+                self.brain.part, self.brain.nodes_by_number[number])
+            info = broker.get_info()
+            self.assertEqual(len(obj_names) + 1, info['object_count'])
+
+        # complete cleaving third shard range...
+        for number in node_numbers[:2]:
+            self.sharders.once(number=number)
+        # ...which does not include the 'alpha' object, so that does not appear
+        # in listing composed from shard containers
+        # TODO: obj count is anomalous, should be fixed to equal listing length
+        self.assert_container_listing(
+            obj_names, expected_obj_count=len(obj_names) + 1)
+
+        # ...but still in sharding state, because hash.db changed
+        self.assert_container_state(node_numbers[0], DB_STATE_SHARDING, 3)
+        self.assert_container_state(node_numbers[1], DB_STATE_SHARDING, 3)
+
+        # two more cycles will repeat cleaving all shard ranges, again,
+        # including the 'alpha' object...
+        for number in node_numbers[:2]:
+            self.sharders.once(number=number)
+            self.sharders.once(number=number)
+        self.assert_container_listing(['alpha'] + obj_names)  # sanity check
+
+        # ...and now in sharded state
+        self.assert_container_state(node_numbers[0], DB_STATE_SHARDED, 3)
+        self.assert_container_state(node_numbers[1], DB_STATE_SHARDED, 3)
+
+    def test_rsync_replication_to_sharded_container(self):
+        # verify that, when sharded, if an rsync replication creates a hash.db
+        # with new objects in already cleaved namespace then those objects are
+        # eventually cleaved to shards
+        obj_names = self._setup_replication_to_sharding_container(2)
+        node_numbers = self.brain.node_numbers
+        self.assert_container_state(node_numbers[0], DB_STATE_SHARDED, 2)
+        self.assert_container_state(node_numbers[1], DB_STATE_SHARDED, 2)
+
+        for number in node_numbers[:2]:
+            container_dir, container_hash = self.get_storage_dir(
+                self.brain.part, self.brain.nodes_by_number[number])
+            db_file = os.path.join(container_dir, container_hash + '.db')
+            self.assertFalse(os.path.exists(db_file))  # sanity check
+
+        # bring third server back up, run replicator
+        self.brain.servers.start(number=node_numbers[2])
+        self.replicators.once(number=node_numbers[2])
+
+        # now third server stops forever...
+        self.brain.servers.stop(number=node_numbers[2])
+        # ...but the hash.db file has been replicated to 2 other servers
+        for number in node_numbers[:2]:
+            broker = self.get_broker(
+                self.brain.part, self.brain.nodes_by_number[number])
+            info = broker.get_info()
+            self.assertEqual(len(obj_names) + 1, info['object_count'])
+        # ...and they have returned to sharding state
+        self.assert_container_state(node_numbers[0], DB_STATE_SHARDING, 2)
+        self.assert_container_state(node_numbers[1], DB_STATE_SHARDING, 2)
+
+        # repeat cleaving
+        for number in node_numbers[:2]:
+            self.sharders.once(number=number)
+        self.assert_container_listing(['alpha'] + obj_names)
+        # ...and now in sharded state again
+        self.assert_container_state(node_numbers[0], DB_STATE_SHARDED, 2)
+        self.assert_container_state(node_numbers[1], DB_STATE_SHARDED, 2)

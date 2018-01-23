@@ -60,7 +60,7 @@ def update_sharding_info(broker, info, node=None):
          (value, timestamp.internal))
         for key, value in info.items()
     )
-    broker.update_metadata(metadata)
+    broker.update_metadata(metadata, validate_metadata=True)
 
 
 # TODO: needs unit test
@@ -346,6 +346,7 @@ class ContainerSharder(ContainerReplicator):
                 return run_query(qry, True)
             return True
 
+        self.logger.debug('misplaced object queries %s' % queries)
         misplaced_items = False
         for query in queries:
             misplaced_items = run_query(query, misplaced_items)
@@ -478,6 +479,10 @@ class ContainerSharder(ContainerReplicator):
         own_shard_range = broker.get_own_shard_range()
         # TODO: sigh, we should get the info cached *once*, somehow
         broker.get_info()  # make sure account/container are populated
+        state = broker.get_db_state()
+        self.logger.info('Starting processing %s/%s state %s',
+                         broker.account, broker.container,
+                         DB_STATE[broker.get_db_state()])
 
         # Before we do any heavy lifting, lets do an audit on the shard
         # container. We grab the root's view of the shard_points and make
@@ -498,7 +503,6 @@ class ContainerSharder(ContainerReplicator):
             # have new objects sitting in them that may need to move.
             return
 
-        state = broker.get_db_state()
         if state == DB_STATE_NOTFOUND:
             return
 
@@ -509,16 +513,13 @@ class ContainerSharder(ContainerReplicator):
         is_leader = node['index'] == 0
         try:
             if state == DB_STATE_UNSHARDED:
-                if broker.get_shard_ranges():
+                if ((is_leader and broker.get_info()['object_count'] >=
+                        self.shard_container_size) or
+                        broker.get_shard_ranges()):
                     # container may have been given shard ranges rather
                     # than found them e.g. via replication or a shrink event
                     broker.set_sharding_state()
                     state = DB_STATE_SHARDING
-                elif is_leader:
-                    object_count = broker.get_info()['object_count']
-                    if object_count >= self.shard_container_size:
-                        broker.set_sharding_state()
-                        state = DB_STATE_SHARDING
 
             if state == DB_STATE_SHARDING:
                 scan_complete = config_true_value(
@@ -531,37 +532,49 @@ class ContainerSharder(ContainerReplicator):
                 cleave_complete = self._cleave(broker, node)
 
                 if scan_complete and cleave_complete:
-                    # we've finished sharding this container.
-                    broker.set_sharded_state()
-                    state = DB_STATE_SHARDED
+                    # we've finished cleaving this container.
                     self.logger.info('Completed cleaving of %s/%s',
                                      broker.account, broker.container)
-                    self.logger.increment('sharding_complete')
+                    if not broker.is_root_container():
+                        # let the root know about this shard's sharded shard
+                        # ranges; this is the point at which the root container
+                        # will see the new shards will move to ACTIVE state and
+                        # the sharded shard simultaneously become deleted. Do
+                        # this now because the shards are active, even though
+                        # there may be repeated cleaving if the hash.db
+                        # was changed by replication during cleaving.
+                        # TODO: the new shard ranges may have existed for some
+                        # time and already be updating the root with their
+                        # usage e.g. multiple cycles before we finished
+                        # cleaving, or process failed right here. If so then
+                        # the updates we send here probably have an out of date
+                        # view of the shards' usage, but I think it is still ok
+                        # to send these updates because the meta_timestamp
+                        # should prevent these updates undoing any newer
+                        # updates at the root from the actual shards. *It would
+                        # be good to have a test to verify that.*
+                        own_shard_range = broker.get_own_shard_range()
+                        own_shard_range = own_shard_range.copy(
+                            timestamp=Timestamp.now())
+                        # TODO: maybe differentiate SHARDED vs SHRUNK?
+                        own_shard_range.state = ShardRange.SHARDED
+                        own_shard_range.deleted = 1
+                        self._update_shard_ranges(
+                            broker.root_account, broker.root_container,
+                            [own_shard_range] + broker.get_shard_ranges())
+
+                    context = get_sharding_info(broker, 'Context', node)
+                    if broker.set_sharded_state(context):
+                        state = DB_STATE_SHARDED
+                        self.logger.increment('sharding_complete')
+                    else:
+                        self.logger.debug('Remaining in sharding state %s/%s',
+                                          broker.account, broker.container)
 
             if state == DB_STATE_SHARDED:
                 if broker.is_root_container():
                     if is_leader:
                         self._find_shrinks(broker, node, part)
-                else:
-                    # let the root know about this shard's sharded shard ranges
-                    # TODO: these shard ranges may have existed for some time
-                    # and already be updating the root with their usage e.g.
-                    # multiple cycles before we finished cleaving, or process
-                    # failed right here. If so then the updates we send here
-                    # probably have an out of date view of the shards' usage,
-                    # but I think it is still ok to send these updates because
-                    # the meta_timestamp should prevent these updates undoing
-                    # any newer updates at the root from the actual shards.
-                    # *It would be good to have a test to verify that.*
-                    own_shard_range = broker.get_own_shard_range()
-                    own_shard_range = own_shard_range.copy(
-                        timestamp=Timestamp.now())
-                    # TODO: maybe differentiate SHARDED vs SHRUNK?
-                    own_shard_range.state = ShardRange.SHARDED
-                    own_shard_range.deleted = 1
-                    self._update_shard_ranges(
-                        broker.root_account, broker.root_container,
-                        [own_shard_range] + broker.get_shard_ranges())
             else:
                 if not broker.is_root_container():
                     # update the root container with this shard's usage stats
@@ -751,7 +764,7 @@ class ContainerSharder(ContainerReplicator):
     def _find_shard_ranges(self, broker, node, part):
         """
         This function is the main work horse of a scanner node, it:
-          - look at the shard_ranges table to see where to continue on from.
+          - Looks at the shard_ranges table to see where to continue on from.
           - Once it finds the next shard_range it'll ask for a quorum as to
              whether this node is still in fact a scanner node.
           - If it is still the scanner, it's time to add it to the shard_ranges
@@ -770,7 +783,7 @@ class ContainerSharder(ContainerReplicator):
             if last_found:
                 self.logger.info("Already found all shard ranges")
                 # set scan done in case it's missing
-                update_sharding_info(broker, {'Scan-Done': True})
+                update_sharding_info(broker, {'Scan-Done': 'True'})
             else:
                 # we didn't find anything
                 self.logger.warning("No shard ranges found, something went "
@@ -780,15 +793,15 @@ class ContainerSharder(ContainerReplicator):
         # TODO: if we bring back leader election, this is about the spot where
         # we should confirm we're still the scanner
 
-        # First, persist the found ranges with a *newer* timestamp than will be
-        # used for the shard container PUTs. Why? The new shard container will
-        # initially be empty. As a result, any shard range updates received at
-        # root from the shard container are likely to make the new shard range
-        # mistakenly appear ready for shrinking. Persisting the shard range
-        # with a newer timestamp means that updates from the new shard
-        # container will be ignored until cleaving replicates objects to it and
-        # simultaneously updates timestamps to the persisted shard range
-        # timestamps.
+        # First, persist the found ranges, in created state, with a *newer*
+        # timestamp than will be used for the shard container PUTs.
+        # Why? The new shard container will initially be empty. As a result,
+        # any shard range updates received at root from the shard container are
+        # likely to make the new shard range mistakenly appear ready for
+        # shrinking. Persisting the shard range with a newer timestamp means
+        # that updates from the new shard container will be ignored until
+        # cleaving replicates objects to it and simultaneously updates
+        # timestamps to the persisted shard range timestamps.
         # TODO: we may need to mark the state of these freshly minted
         # shard_ranges so that we do not redirect object updates to them until
         # the PUTs succeed (e.g. morph deleted filed to a state field)...or
@@ -825,7 +838,7 @@ class ContainerSharder(ContainerReplicator):
             len(found_ranges), len(created_ranges))
         if last_found:
             # We've found the last shard range, so mark that in metadata
-            update_sharding_info(broker, {'Scan-Done': True})
+            update_sharding_info(broker, {'Scan-Done': 'True'})
             self.logger.info("Final shard range reached.")
 
         # TODO: (see comment above) possibly update the successfully created
@@ -962,24 +975,29 @@ class ContainerSharder(ContainerReplicator):
             self.logger.info('Passing over already sharded container %s/%s',
                              broker.account, broker.container)
             return True
-
         sharding_info = get_sharding_info(broker)
         scan_complete = sharding_info.get('Scan-Done')
-        last_pivot = sharding_info.get('Last-%d' % node['index'])
+        last_upper = sharding_info.get('Last-%d' % node['index'])
         last_piv_exists = False
-        if last_pivot:
-            last_range = find_shard_range(last_pivot, shard_ranges)
-            last_piv_exists = last_range and last_range.upper == last_pivot
+        if last_upper:
+            last_range = find_shard_range(last_upper, shard_ranges)
+            last_piv_exists = last_range and last_range.upper == last_upper
             self.logger.info('Continuing to cleave %s/%s',
                              broker.account, broker.container)
         else:
-            self.logger.info('Starting to cleave %s/%s',
-                             broker.account, broker.container)
+            # last_upper might be '' if there has been no previous cleaving
+            # or if cleaving previously completed, i.e. the
+            # entire namespace was cleaved. In either case, while in state
+            # sharding, start cleaving from first shard range.
+            context = broker.get_sharding_context()
+            update_sharding_info(broker, {'Context': context}, node)
+            self.logger.debug('Starting to cleave %s/%s',
+                              broker.account, broker.container)
 
         # TODO: use get_shard_ranges with marker?
         ranges_todo = [
             srange for srange in shard_ranges
-            if srange.upper > last_pivot or srange.lower >= last_pivot]
+            if srange.upper > last_upper or srange.lower >= last_upper]
         if not ranges_todo and scan_complete and not last_piv_exists:
             # TODO (acoles): I need to understand this better.
             # 1. The last recorded pivot does not line up with a range upper,
@@ -997,7 +1015,7 @@ class ContainerSharder(ContainerReplicator):
             # last range doesn't exist, then we need find the last real shard
             # range and send the rest of the objects to it so nothing is lost.
                 # TODO: are we sure last_range is not None?
-                last_range.lower = last_pivot
+                last_range.lower = last_upper
                 last_range.dont_save = True
                 ranges_todo.append(last_range)
 
@@ -1046,16 +1064,17 @@ class ContainerSharder(ContainerReplicator):
                 # Do not do the same when sharding a shard because we're not
                 # ready to handover donor namespace until all shards are
                 # cleaved.
-            if (broker.is_root_container() or
-                    own_shard_range.includes(shard_range)):
+            if (shard_range.state != ShardRange.ACTIVE and
+                    (broker.is_root_container() or
+                     own_shard_range.includes(shard_range))):
                 # TODO: unit test scenario when this condition is not met
                 # The shard range object stats may have changed since the shard
                 # range was found, so update with stats of objects actually
-                # copied to the shard broker. Only do this if the source
-                # namespace includes the entire shard range; when shrinking,
-                # the source namespace is smaller than the existing acceptor
-                # shard range to which we are cleaving and the source stats are
-                # therefore incomplete.
+                # copied to the shard broker. Only do this the first time each
+                # shard range is cleaved and if the source namespace includes
+                # the entire shard range; when shrinking, the source namespace
+                # is smaller than the existing acceptor shard range to which we
+                # are cleaving and the source stats are therefore incomplete.
                 info = new_broker.get_info()
                 shard_range.object_count = info['object_count']
                 shard_range.bytes_used = info['bytes_used']
@@ -1083,8 +1102,14 @@ class ContainerSharder(ContainerReplicator):
 
         if ranges_done:
             broker.merge_shard_ranges([dict(sr) for sr in ranges_done])
-            update_sharding_info(
-                broker, {'Last': str(ranges_done[-1].upper)}, node)
+            final_upper = (own_shard_range.upper if own_shard_range
+                           else ShardRange.MAX)
+            if ranges_done[-1].upper >= final_upper:
+                # cleaving complete, reset last_upper
+                last_upper = ''
+            else:
+                last_upper = str(ranges_done[-1].upper)
+            update_sharding_info(broker, {'Last': last_upper}, node)
         else:
             self.logger.warning('No progress made in _cleave()!')
 
