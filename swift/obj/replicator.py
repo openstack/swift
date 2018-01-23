@@ -487,7 +487,8 @@ class ObjectReplicator(Daemon):
             self.suffix_count += len(local_hash)
         except StopIteration:
             self.logger.error('Ran out of handoffs while replicating '
-                              'partition %s', job['partition'])
+                              'partition %s of policy %d',
+                              job['partition'], int(job['policy']))
         except (Exception, Timeout):
             failure_devs_info.update(target_devs_info)
             self.logger.exception(_("Error syncing partition"))

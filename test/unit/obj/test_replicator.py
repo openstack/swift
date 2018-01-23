@@ -1808,7 +1808,8 @@ class TestObjectReplicator(unittest.TestCase):
                 expected.append(error % node)
             # ... and finally we get an error about running out of nodes
             expected.append('Ran out of handoffs while replicating '
-                            'partition %s' % job['partition'])
+                            'partition %s of policy %d' %
+                            (job['partition'], job['policy']))
             self.assertEqual(expected, error_lines)
             self.assertEqual(len(self.replicator.partition_times), 1)
             self.assertEqual(mock_http.call_count, len(ring._devs) - 1)
