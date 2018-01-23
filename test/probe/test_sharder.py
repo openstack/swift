@@ -21,8 +21,9 @@ from nose import SkipTest
 
 from swift.common import direct_client
 from swift.common.direct_client import DirectClientException
-from swift.common.utils import ShardRange
-from swift.container.backend import ContainerBroker, SHARDED, SHARDING
+from swift.common.utils import ShardRange, parse_db_filename, get_db_files
+from swift.container.backend import ContainerBroker, UNSHARDED, SHARDED, \
+    SHARDING
 from swift.common import utils
 from swift.common.manager import Manager
 from swiftclient import client, get_auth, ClientException
@@ -149,11 +150,11 @@ class TestContainerSharding(ReplProbeTest):
         return (utils.storage_directory(datadir, part, container_hash),
                 container_hash)
 
-    def get_broker(self, part, node, suffix='.db'):
+    def get_broker(self, part, node):
         container_dir, container_hash = self.get_storage_dir(part, node)
-        db_file = os.path.join(container_dir, container_hash + suffix)
-        self.assertTrue(os.path.isfile(db_file))  # sanity check
-        return ContainerBroker(db_file, force_db_file=True)
+        db_file = os.path.join(container_dir, container_hash + '.db')
+        self.assertTrue(get_db_files(db_file))  # sanity check
+        return ContainerBroker(db_file)
 
     def categorize_container_dir_content(self, container=None):
         container = container or self.container_name
@@ -171,10 +172,12 @@ class TestContainerSharding(ReplProbeTest):
         for storage_dir in storage_dirs:
             for f in os.listdir(storage_dir):
                 path = os.path.join(storage_dir, f)
-                if path.endswith('_shard.db'):
-                    result['shard_dbs'].append(path)
-                elif path.endswith('.db'):
-                    result['normal_dbs'].append(path)
+                if path.endswith('.db'):
+                    hash_, epoch, ext = parse_db_filename(path)
+                    if epoch:
+                        result['shard_dbs'].append(path)
+                    else:
+                        result['normal_dbs'].append(path)
                 elif path.endswith('.db.pending'):
                     result['pendings'].append(path)
                 elif path.endswith('/.lock'):
@@ -705,54 +708,12 @@ class TestContainerSharding(ReplProbeTest):
 
     def test_shrinking(self):
         int_client = self.make_internal_client()
-        obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
-        for obj in obj_names:
-            client.put_object(self.url, self.token, self.container_name, obj)
-
-        # Enable sharding
-        client.post_container(self.url, self.admin_token, self.container_name,
-                              headers={'X-Container-Sharding': 'on'})
-
-        orig_headers, orig_listing = client.get_container(
-            self.url, self.admin_token, self.container_name)
-        # sanity checks
-        self.assertEqual(obj_names, [x['name'].encode('utf-8')
-                                     for x in orig_listing])
-        self.assertEqual('True', orig_headers.get('x-container-sharding'))
-        exp_obj_count = len(obj_names)
-        self.assertEqual(str(exp_obj_count),
-                         orig_headers['x-container-object-count'])
-
-        # Only run the one in charge of scanning
-        self.sharders.once(number=self.brain.node_numbers[0])
-
-        # check root container
-        root_nodes_data = self.direct_get_container_shard_ranges()
-        self.assertEqual(3, len(root_nodes_data))
 
         def check_node_data(node_data, exp_hdrs, exp_obj_count, exp_shards):
             hdrs, range_data = node_data
             self.assert_dict_contains(exp_hdrs, hdrs)
             self.assert_shard_ranges_contiguous(exp_shards, range_data)
             self.assert_total_object_count(exp_obj_count, range_data)
-
-        # nodes on which sharder has not run are still in unsharded state but
-        # have had shard ranges replicated to them
-        exp_hdrs = {'X-Container-Sysmeta-Shard-Scan-Done': 'True',
-                    'X-Backend-Sharding-State': '1',  # unsharded
-                    'X-Container-Object-Count': str(exp_obj_count)}
-        node_id = self.brain.node_numbers[1] - 1
-        check_node_data(root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
-        node_id = self.brain.node_numbers[2] - 1
-        check_node_data(root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
-
-        # only one that ran sharder is in sharded state
-        exp_hdrs['X-Backend-Sharding-State'] = '3'
-        node_id = self.brain.node_numbers[0] - 1
-        check_node_data(root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
-
-        orig_range_data = root_nodes_data[node_id][1]
-        orig_shard_ranges = [ShardRange.from_dict(r) for r in orig_range_data]
 
         def check_shard_nodes_data(node_data, expected_state=1,
                                    expected_shards=0, exp_obj_count=0):
@@ -776,112 +737,187 @@ class TestContainerSharding(ReplProbeTest):
                 self.fail('Inconsistent bytes used: %s' % bytes_used)
             return object_counts[0], bytes_used[0]
 
-        # check first shard
-        shard_nodes_data = self.direct_get_container_shard_ranges(
-            orig_shard_ranges[0].account, orig_shard_ranges[0].container)
-        obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
-        total_shard_object_count = obj_count
-
-        # check second shard
-        shard_nodes_data = self.direct_get_container_shard_ranges(
-            orig_shard_ranges[1].account, orig_shard_ranges[1].container)
-        obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
-        total_shard_object_count += obj_count
-        self.assertEqual(exp_obj_count, total_shard_object_count)
-
-        # Now that everyone has shard ranges, run *everyone*
-        self.sharders.once()
-
-        # all root container nodes should now be in sharded state
-        root_nodes_data = self.direct_get_container_shard_ranges()
-        self.assertEqual(3, len(root_nodes_data))
-        for node_id, node_data in root_nodes_data.items():
-            with annotate_failure('Node id %s.' % node_id):
-                check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
-
-        # run updaters to update .sharded account; shard containers have not
-        # updated account since having objects replicated to them
-        self.updaters.once()
-        shard_container_count, shard_obj_count = int_client.get_account_info(
-            orig_shard_ranges[0].account, [204])
-        self.assertEqual(2, shard_container_count)
-        self.assertEqual(len(obj_names), shard_obj_count)
-
-        # delete objects from first shard range
-        first_shard_objects = [obj_name for obj_name in obj_names
-                               if obj_name <= orig_shard_ranges[0].upper]
-        for obj in first_shard_objects:
-            client.delete_object(
-                self.url, self.token, self.container_name, obj)
-            with self.assertRaises(ClientException):
-                client.get_object(
+        def do_shard_then_shrink(obj_names, start_state, repeat):
+            for obj in obj_names:
+                client.put_object(
                     self.url, self.token, self.container_name, obj)
 
-        # put another obj
-        client.put_object(self.url, self.token, self.container_name, 'alpha')
+            # Enable sharding
+            client.post_container(
+                self.url, self.admin_token, self.container_name,
+                headers={'X-Container-Sharding': 'on'})
 
-        # proxy container info cache has not been refreshed with container's
-        # sharding state so all object updates will have been sent to root,
-        # redirected and landed in async pending - so listing will not be up to
-        # date until we run the object updater :(
-        self.updaters.once()
+            # sanity check
+            self.assert_container_listing(obj_names)
 
-        # listing has new object
-        second_shard_objects = [obj_name for obj_name in obj_names
-                                if obj_name > orig_shard_ranges[1].lower]
-        self.assert_container_listing(['alpha'] + second_shard_objects)
-        # but root object count is not updated...
-        headers = client.head_container(
-            self.url, self.token, self.container_name)
-        self.assertEqual(headers['x-container-object-count'],
-                         str(len(obj_names)))
-        root_nodes_data = self.direct_get_container_shard_ranges()
-        self.assertEqual(3, len(root_nodes_data))
-        for node_id, node_data in root_nodes_data.items():
-            with annotate_failure('Node id %s.' % node_id):
-                check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
-            range_data = node_data[1]
-            self.assert_shard_range_lists_equal(
-                orig_range_data, range_data,
-                excludes=['meta_timestamp', 'state_timestamp'])
+            # Only run the one in charge of scanning
+            self.sharders.once(number=self.brain.node_numbers[0])
 
-        # ...until the sharders run
-        self.sharders.once()
-        self.assert_container_listing(['alpha'] + second_shard_objects)
-        exp_obj_count = len(second_shard_objects) + 1
-        headers = client.head_container(
-            self.url, self.token, self.container_name)
-        self.assertEqual(headers['x-container-object-count'],
-                         str(exp_obj_count))
+            # check root container
+            root_nodes_data = self.direct_get_container_shard_ranges()
+            self.assertEqual(3, len(root_nodes_data))
 
-        # we may then need sharders to run once or more to find the donor
-        # shard, shrink and replicate it to the acceptor
-        self.sharders.once()
-        self.assert_container_listing(['alpha'] + second_shard_objects)
-        self.sharders.once()
-        self.assert_container_listing(['alpha'] + second_shard_objects)
+            # nodes on which sharder has not run are still in unsharded state
+            # but have had shard ranges replicated to them
+            exp_obj_count = len(obj_names)
+            exp_hdrs = {'X-Container-Sysmeta-Shard-Scan-Done': 'True',
+                        'X-Backend-Sharding-State': str(start_state),
+                        'X-Container-Object-Count': str(exp_obj_count)}
+            node_id = self.brain.node_numbers[1] - 1
+            check_node_data(
+                root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
+            node_id = self.brain.node_numbers[2] - 1
+            check_node_data(
+                root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
 
-        # check root container
-        root_nodes_data = self.direct_get_container_shard_ranges()
-        self.assertEqual(3, len(root_nodes_data))
-        exp_hdrs['X-Container-Object-Count'] = str(exp_obj_count)
-        for node_id, node_data in root_nodes_data.items():
-            with annotate_failure('Node id %s.' % node_id):
-                # NB now only *one* shard range in root
-                check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
+            # only one that ran sharder is in sharded state
+            exp_hdrs['X-Backend-Sharding-State'] = '3'
+            node_id = self.brain.node_numbers[0] - 1
+            check_node_data(
+                root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
 
-        # the acceptor shard is intact..
-        shard_nodes_data = self.direct_get_container_shard_ranges(
-            orig_shard_ranges[1].account, orig_shard_ranges[1].container)
-        obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
-        # all objects should now be in this shard
-        self.assertEqual(exp_obj_count, obj_count)
+            orig_range_data = root_nodes_data[node_id][1]
+            orig_shard_ranges = [ShardRange.from_dict(r)
+                                 for r in orig_range_data]
 
-        # the donor shard is also still intact
-        # TODO: once we have figured out when these redundant donors are
-        # deleted, test for deletion/clean up
-        self.direct_get_container_shard_ranges(
-            orig_shard_ranges[0].account, orig_shard_ranges[0].container)
+            # check first shard
+            shard_nodes_data = self.direct_get_container_shard_ranges(
+                orig_shard_ranges[0].account, orig_shard_ranges[0].container)
+            obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
+            total_shard_object_count = obj_count
+
+            # check second shard
+            shard_nodes_data = self.direct_get_container_shard_ranges(
+                orig_shard_ranges[1].account, orig_shard_ranges[1].container)
+            obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
+            total_shard_object_count += obj_count
+            self.assertEqual(exp_obj_count, total_shard_object_count)
+
+            # Now that everyone has shard ranges, run *everyone*
+            self.sharders.once()
+
+            # all root container nodes should now be in sharded state
+            root_nodes_data = self.direct_get_container_shard_ranges()
+            self.assertEqual(3, len(root_nodes_data))
+            for node_id, node_data in root_nodes_data.items():
+                with annotate_failure('Node id %s.' % node_id):
+                    check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
+
+            # run updaters to update .sharded account; shard containers have
+            # not updated account since having objects replicated to them
+            self.updaters.once()
+            shard_cont_count, shard_obj_count = int_client.get_account_info(
+                orig_shard_ranges[0].account, [204])
+            self.assertEqual(2 * repeat, shard_cont_count)
+            self.assertEqual(len(obj_names), shard_obj_count)
+
+            # delete objects from first shard range
+            first_shard_objects = [obj_name for obj_name in obj_names
+                                   if obj_name <= orig_shard_ranges[0].upper]
+            for obj in first_shard_objects:
+                client.delete_object(
+                    self.url, self.token, self.container_name, obj)
+                with self.assertRaises(ClientException):
+                    client.get_object(
+                        self.url, self.token, self.container_name, obj)
+
+            # put another obj
+            client.put_object(
+                self.url, self.token, self.container_name, 'alpha')
+
+            # proxy container info cache has not been refreshed with
+            # container's sharding state so all object updates will have been
+            # sent to root, redirected and landed in async pending - so listing
+            # will not be up to date until we run the object updater :(
+            self.updaters.once()
+
+            # listing has new object
+            second_shard_objects = [obj_name for obj_name in obj_names
+                                    if obj_name > orig_shard_ranges[1].lower]
+            self.assert_container_listing(['alpha'] + second_shard_objects)
+            # but root object count is not updated...
+            headers = client.head_container(
+                self.url, self.token, self.container_name)
+            self.assertEqual(headers['x-container-object-count'],
+                             str(len(obj_names)))
+            root_nodes_data = self.direct_get_container_shard_ranges()
+            self.assertEqual(3, len(root_nodes_data))
+            for node_id, node_data in root_nodes_data.items():
+                with annotate_failure('Node id %s.' % node_id):
+                    check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
+                range_data = node_data[1]
+                self.assert_shard_range_lists_equal(
+                    orig_range_data, range_data,
+                    excludes=['meta_timestamp', 'state_timestamp'])
+
+            # ...until the sharders run
+            self.sharders.once()
+            exp_obj_count = len(second_shard_objects) + 1
+            headers = client.head_container(
+                self.url, self.token, self.container_name)
+            self.assertEqual(headers['x-container-object-count'],
+                             str(exp_obj_count))
+
+            # we may then need sharders to run once or more to find the donor
+            # shard, shrink and replicate it to the acceptor
+            self.sharders.once()
+            self.sharders.once()
+
+            # check root container
+            root_nodes_data = self.direct_get_container_shard_ranges()
+            self.assertEqual(3, len(root_nodes_data))
+            exp_hdrs['X-Container-Object-Count'] = str(exp_obj_count)
+            for node_id, node_data in root_nodes_data.items():
+                with annotate_failure('Node id %s.' % node_id):
+                    # NB now only *one* shard range in root
+                    check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
+
+            self.assert_container_listing(['alpha'] + second_shard_objects)
+
+            # the acceptor shard is intact..
+            shard_nodes_data = self.direct_get_container_shard_ranges(
+                orig_shard_ranges[1].account, orig_shard_ranges[1].container)
+            obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
+            # all objects should now be in this shard
+            self.assertEqual(exp_obj_count, obj_count)
+
+            # the donor shard is also still intact
+            # TODO: once we have figured out when these redundant donors are
+            # deleted, test for deletion/clean up
+            self.direct_get_container_shard_ranges(
+                orig_shard_ranges[0].account, orig_shard_ranges[0].container)
+
+            # delete all the second shard's object apart from 'alpha'
+            for obj in second_shard_objects:
+                client.delete_object(
+                    self.url, self.token, self.container_name, obj)
+
+            self.assert_container_listing(['alpha'])
+
+            # runs sharders so second range shrinks away, requires up to 3
+            # cycles
+            self.sharders.once()  # shard updates root stats
+            self.assert_container_listing(['alpha'])
+            self.sharders.once()  # root finds shrinkable shard
+            self.assert_container_listing(['alpha'])
+            self.sharders.once()  # shards shrink themselves
+            self.assert_container_listing(['alpha'])
+
+            # the second shard range has sharded and is empty
+            shard_nodes_data = self.direct_get_container_shard_ranges(
+                orig_shard_ranges[1].account, orig_shard_ranges[1].container)
+            check_shard_nodes_data(
+                shard_nodes_data, expected_state=3, expected_shards=1,
+                exp_obj_count=1)
+
+        obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
+        do_shard_then_shrink(obj_names, UNSHARDED, 1)
+
+        # now put some more objects to grow the container again
+        client.delete_object(
+            self.url, self.token, self.container_name, 'alpha')
+        new_obj_names = ['new_obj%03d' % x for x in range(self.max_shard_size)]
+        do_shard_then_shrink(new_obj_names, UNSHARDED, 2)
 
     def _setup_replication_scenario(self, num_shards):
         # Get cluster to state where 2 replicas are sharding or sharded but 3rd
@@ -939,8 +975,7 @@ class TestContainerSharding(ReplProbeTest):
         # _shard.db dbs
         for number in node_numbers[:2]:
             broker = self.get_broker(
-                self.brain.part, self.brain.nodes_by_number[number],
-                suffix='_shard.db')
+                self.brain.part, self.brain.nodes_by_number[number])
             info = broker.get_info()
             # while sharding the 'stale' object count is taken from hash.db
             self.assertEqual(len(obj_names), info['object_count'])
@@ -976,8 +1011,7 @@ class TestContainerSharding(ReplProbeTest):
             db_file = os.path.join(container_dir, container_hash + '.db')
             self.assertFalse(os.path.exists(db_file))
             broker = self.get_broker(
-                self.brain.part, self.brain.nodes_by_number[number],
-                suffix='_shard.db')
+                self.brain.part, self.brain.nodes_by_number[number])
             info = broker.get_info()
             policy = info['storage_policy_index']
             misplaced = broker.get_objects(storage_policy_index=int(policy))
@@ -1000,8 +1034,7 @@ class TestContainerSharding(ReplProbeTest):
             db_file = os.path.join(container_dir, container_hash + '.db')
             self.assertFalse(os.path.exists(db_file))
             broker = self.get_broker(
-                self.brain.part, self.brain.nodes_by_number[number],
-                suffix='_shard.db')
+                self.brain.part, self.brain.nodes_by_number[number])
             policy = broker.get_info()['storage_policy_index']
             misplaced = broker.get_objects(storage_policy_index=int(policy))
             with annotate_failure(

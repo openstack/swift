@@ -569,7 +569,8 @@ class TestSharder(unittest.TestCase):
 
         # run cleave - all shard ranges in found state, nothing happens
         broker.merge_shard_ranges(shard_ranges[:4])
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
+
         with self._mock_sharder() as sharder:
             self.assertTrue(sharder._cleave(broker, node))
 
@@ -767,7 +768,7 @@ class TestSharder(unittest.TestCase):
                              db_hash[-3:], db_hash, db_hash + '.db'))
 
         broker.merge_shard_ranges(shard_ranges[:3])
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
 
         # run cleave - first batch is cleaved
         node = {'id': 2, 'index': 1}
@@ -873,7 +874,7 @@ class TestSharder(unittest.TestCase):
                              db_hash[-3:], db_hash, db_hash + '.db'))
 
         broker.merge_shard_ranges(shard_ranges)
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
 
         # run cleave - first range is cleaved
         node = {'id': 2, 'index': 1}
@@ -960,7 +961,7 @@ class TestSharder(unittest.TestCase):
             sharder.logger.get_increment_counts().get('misplaced_items_found'))
 
         # sharding - no misplaced objects
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
         with self._mock_sharder() as sharder:
             sharder._misplaced_objects(broker, node, own_sr)
         sharder._replicate_object.assert_not_called()
@@ -1280,7 +1281,7 @@ class TestSharder(unittest.TestCase):
                              db_hash[-3:], db_hash, db_hash + '.db'))
 
         # pretend broker is sharding but not yet cleaved a shard
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
         broker.merge_shard_ranges([dict(sr) for sr in root_shard_ranges[1:3]])
         # then some updates arrive
         for obj in objects:
@@ -1394,7 +1395,7 @@ class TestSharder(unittest.TestCase):
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
         broker.merge_shard_ranges(root_shard_ranges)
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
 
         ts_older_internal = self.ts_encoded()  # used later
         # put deleted objects into source

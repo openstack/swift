@@ -4962,22 +4962,46 @@ def get_redirect_data(response):
 # TODO: unit test
 def parse_db_filename(filename):
     """
-    Splits a db filename into three parts: the hash, anything following the
-    hash and the extension.
+    Splits a db filename into three parts: the hash, the epoch, and the
+    extension.
 
-    e.g. given a filename "ab2134.db", returns ("ab2134", None, "db")
-    e.g. given a filename "ab2134_shard.db", returns ("ab2134", "shard", "db")
+    >>> parse_db_filename("ab2134.db")
+    ('ab2134', None, '.db')
+    >>> parse_db_filename("ab2134_1234567890.12345.db")
+    ('ab2134', '1234567890.12345', '.db')
 
-    :param filename: A file basename.
-    :return: A tuple of (hash part, other part, extension). ``other part``
-        may be None.
+    :param filename: A db file basename or path to a db file.
+    :return: A tuple of (hash , epoch, extension). ``epoch`` may be None.
     """
     filename = os.path.basename(filename)
     name, ext = os.path.splitext(filename)
     parts = name.split('_')
     hash_ = parts.pop(0)
-    other = parts[0] if parts else None
-    return hash_, other, ext
+    epoch = parts[0] if parts else None
+    return hash_, epoch, ext
+
+
+# TODO: unit test
+def make_db_file_path(db_path, epoch):
+    """
+    Given a path to a db file, return a modified path whose filename part has
+    the given epoch.
+
+    A db filename takes the form <hash>[_<epoch>].db; this method replaces the
+    <epoch> part of the given ``db_path`` with the given ``epoch`` value.
+
+    :param db_path: Path to a db file that does not necessarily exist.
+    :param epoch: A string that will be used as the epoch in the new path's
+        filename; the value will be normalized to the normal string
+        representation of a :class:`~swift.common.utils.Timestamp`.
+    :return: A modified path to a db file.
+    :raises ValueError: if the ``epoch`` is not valid for constructing a
+        :class:`~swift.common.utils.Timestamp`.
+    """
+    epoch = Timestamp(epoch).normal
+    hash_, _, ext = parse_db_filename(db_path)
+    db_dir = os.path.dirname(db_path)
+    return os.path.join(db_dir, '%s_%s%s' % (hash_, epoch, ext))
 
 
 # TODO: unit test
@@ -4996,10 +5020,10 @@ def get_db_files(db_path):
     files = os.listdir(db_dir)
     if not files:
         return []
-    match_hash, other, ext = parse_db_filename(db_file)
+    match_hash, epoch, ext = parse_db_filename(db_file)
     results = []
     for f in files:
-        hash_, other, ext = parse_db_filename(f)
+        hash_, epoch, ext = parse_db_filename(f)
         if ext != '.db':
             continue
         if hash_ != match_hash:

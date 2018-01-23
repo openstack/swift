@@ -32,7 +32,7 @@ from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, ShardRange, renamer, \
     find_shard_range, MD5_OF_EMPTY_STRING, mkdirs, get_db_files, \
-    parse_db_filename
+    parse_db_filename, make_db_file_path
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT
 
 
@@ -293,20 +293,18 @@ class ContainerBroker(DatabaseBroker):
     Note that this may involve multiple on-disk DB files if the container
     becomes sharded:
 
-      * :attr:`_db_file` is the path to the original container DB, i.e.
-        `<hash>.db`. This file should exist for an initialised broker when the
-        container is in the unsharded or sharding state.
-      * :attr:`_shard_db_file` is the path to the sharded container DB, i.e.
-        `<hash>_shard.db`. This file should exist for an initialised broker
-        when the container is in the sharding or sharded state.
-      * :attr:`db_file` is the path to whichever DB is currently authoritative
+      * :attr:`_db_file` is the path to the legacy container DB name, i.e.
+        `<hash>.db`. This file should exist for an initialised broker that has
+        never been sharded, but will not exist once a container has been
+        sharded.
+      * :attr:`db_files` is a list of existing db files for the broker. This
+        list should have at least one entry for an initialised broker, and will
+        have two entries while a broker is in SHARDING state.
+      * :attr:`db_file` is the path to whichever db is currently authoritative
         for the container. Depending on the container's state, this may not be
-        the same as the ``db_file`` argument given to :meth:`~__init__`; while
-        the container is unsharded it will be equal to :attr:`_db_file`; while
-        the container is sharding or sharded it will be equal to
-        :attr:`_shard_db_file`. However, if ``force_db_file`` is True then
-        :attr:`db_file` is always equal to the ``db_file`` argument given to
-        :meth:`~__init__`.
+        the same as the ``db_file`` argument given to :meth:`~__init__`, unless
+        ``force_db_file`` is True in which case :attr:`db_file` is always equal
+        to the ``db_file`` argument given to :meth:`~__init__`.
       * :attr:`pending_file` is always equal to :attr:`_db_file` extended with
         `.pending`, i.e. `<hash>.db.pending`.
     """
@@ -327,10 +325,6 @@ class ContainerBroker(DatabaseBroker):
         super(ContainerBroker, self).__init__(
             base_db_file, timeout, logger, account, container, pending_timeout,
             stale_reads_ok)
-        if db_file == ':memory:':
-            self._shard_db_file = db_file
-        else:
-            self._shard_db_file = base_db_file.replace(".db", "_shard.db")
         # the root account and container are populated on demand
         self._root_account = self._root_container = None
         self._force_db_file = force_db_file
@@ -344,7 +338,7 @@ class ContainerBroker(DatabaseBroker):
         if len(self.db_files) > 1:
             return SHARDING
         hash_, epoch, ext = parse_db_filename(self.db_files[0])
-        sharding_epoch = 'shard'
+        sharding_epoch = self.get_sharding_info('Epoch', default='unknown')
         if epoch != sharding_epoch:
             return UNSHARDED
         if not self.get_shard_ranges():
@@ -1596,7 +1590,12 @@ class ContainerBroker(DatabaseBroker):
         lockpath = '%s/.sharding' % self.db_dir
         return os.path.exists(lockpath)
 
-    def set_sharding_state(self):
+    def set_sharding_state(self, epoch=None):
+        if epoch:
+            epoch = Timestamp(epoch).normal
+            self.update_sharding_info({'Epoch': epoch})
+        else:
+            epoch = self.get_sharding_info('Epoch')
         state = self.get_db_state()
         if not state == UNSHARDED:
             self.logger.warn("Container '%s/%s' cannot be set to sharding "
@@ -1679,7 +1678,8 @@ class ContainerBroker(DatabaseBroker):
                                   self.container, err)
 
         # Rename to the new database
-        renamer(tmp_db_file, self._shard_db_file)
+        sub_broker_filename = make_db_file_path(self._db_file, epoch)
+        renamer(tmp_db_file, sub_broker_filename)
 
         # Now we need to reset the connection so next time the correct database
         # will be in use.
@@ -1725,6 +1725,7 @@ class ContainerBroker(DatabaseBroker):
         except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
+            self.logger.debug('Failed to unlink %s' % self._db_file)
 
         # now reset the connection so next time the correct database will
         # be used

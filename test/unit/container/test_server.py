@@ -2484,7 +2484,7 @@ class TestContainerController(unittest.TestCase):
 
         # set broker to sharding state
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
         # TODO: also test broker in SHARDED state
         resp = do_update('grumpy')
         self.assertEqual(301, resp.status_int)
@@ -2617,7 +2617,7 @@ class TestContainerController(unittest.TestCase):
         # set broker to sharding state
         # TODO: also test broker in SHARDED state
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
         resp = do_update('grumpy')
         self.assertEqual(301, resp.status_int)
         self.assertEqual('/.sharded_a/sr_happy/grumpy',

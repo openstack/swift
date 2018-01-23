@@ -78,12 +78,12 @@ def print_shard_range(node, sr, indent_level):
     indent = indent_level * TAB
     range = '%r - %r' % (sr.lower, sr.upper)
     print('%s%23s, objs: %3s, bytes: %3s, created: %s (%s), '
-          'modified: %s (%s), %7s: %s (%s), deleted: %s (%s)' %
+          'modified: %s (%s), %7s: %s (%s), deleted: %s (%s) %s' %
           (indent, range, sr.object_count, sr.bytes_used,
            Timestamp(sr.timestamp).isoformat, sr.timestamp.internal,
            Timestamp(sr.meta_timestamp).isoformat, sr.meta_timestamp.internal,
            sr.state_text, sr.state_timestamp.isoformat,
-           sr.state_timestamp.internal, sr.deleted, node))
+           sr.state_timestamp.internal, sr.deleted, node, sr.name))
 
 
 def print_shard_range_info(node, shard_ranges, indent_level=0):
@@ -97,11 +97,16 @@ def print_sharding_info(node, broker, indent_level=0):
 
 
 def print_container(name, name2nodes2brokers, expect_type='ROOT',
-                    indent_level=0):
+                    indent_level=0, used_names=None):
+    used_names = used_names or set()
     indent = indent_level * TAB
     node2broker = name2nodes2brokers[name]
     print('%sName: %s' % (indent, name))
+    if name in used_names:
+        print('%s  (Details already listed)\n' % indent)
+        return
 
+    used_names.add(name)
     print(indent + 'DB files:')
     for node, broker in node2broker.items():
         print_db(node, broker, expect_type, indent_level=indent_level + 1)
@@ -124,7 +129,7 @@ def print_container(name, name2nodes2brokers, expect_type='ROOT',
     print(indent + 'Shards:')
     for sr_name in shard_names:
         print_container(sr_name, name2nodes2brokers, expect_type='SHARD',
-                        indent_level=indent_level + 1)
+                        indent_level=indent_level + 1, used_names=used_names)
     print('\n')
 
 
@@ -139,6 +144,7 @@ def run(conf_files):
             expect_root = broker.is_root_container() or expect_root
         if expect_root:
             print_container(name, name2nodes2brokers)
+
 
 if __name__ == '__main__':
     conf_dir = '/etc/swift/container-server'

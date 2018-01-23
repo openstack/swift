@@ -61,7 +61,7 @@ class ContainerReplicator(db_replicator.Replicator):
         return sync_args
 
     def _handle_sync_response(self, node, response, info, broker, http,
-                              different_region, diffs=0):
+                              different_region=False, diffs=0):
         parent = super(ContainerReplicator, self)
         if is_success(response.status):
             remote_info = json.loads(response.data)

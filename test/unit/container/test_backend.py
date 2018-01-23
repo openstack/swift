@@ -899,7 +899,8 @@ class TestContainerBroker(unittest.TestCase):
         cont = 'container'
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
-        db_shard_file = "%s_shard.db" % hsh
+        ts_now = Timestamp.now()
+        db_shard_file = "%s_%s.db" % (hsh, ts_now.normal)
         db_path = os.path.join(tempdir, db_file)
         db_shard_path = os.path.join(tempdir, db_shard_file)
         ts = Timestamp.now()
@@ -922,6 +923,7 @@ class TestContainerBroker(unittest.TestCase):
         shard_broker.initialize(ts.internal, 0)
         shard_range = ShardRange.create(acct, cont)
         shard_broker.merge_shard_ranges([shard_range])
+        shard_broker.update_sharding_info({'Epoch': ts_now.normal})
         self.assertEqual(shard_broker.get_db_state(), SHARDING)
         self.assertEqual(shard_broker.get_db_state_text(), 'sharding')
         # old broker will also change state if we reload its db files
@@ -948,7 +950,8 @@ class TestContainerBroker(unittest.TestCase):
         cont = 'continer'
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
-        db_shard_file = "%s_shard.db" % hsh
+        ts_epoch = Timestamp.now()
+        db_shard_file = "%s_%s.db" % (hsh, ts_epoch.normal)
         db_path = os.path.join(tempdir, db_file)
         db_shard_path = os.path.join(tempdir, db_shard_file)
         ts = Timestamp.now()
@@ -1032,7 +1035,8 @@ class TestContainerBroker(unittest.TestCase):
         cont = 'container'
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
-        db_shard_file = "%s_shard.db" % hsh
+        ts_epoch = Timestamp.now()
+        db_shard_file = "%s_%s.db" % (hsh, ts_epoch.normal)
         db_path = os.path.join(tempdir, 'part', 'suffix', 'hash', db_file)
         db_shard_path = os.path.join(
             tempdir, 'part', 'suffix', 'hash', db_shard_file)
@@ -1049,7 +1053,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(old_max_row, 3)  # sanity
 
         # Move to SHARDING state, then populate the holding table
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=ts_epoch.normal)
         self.assertEqual(broker.db_file, db_shard_path)
         broker.delete_object('o4', next(ts).internal)
         broker.delete_object('o5', next(ts).internal)
@@ -2926,8 +2930,9 @@ class TestContainerBroker(unittest.TestCase):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
             tempdir, 'part', 'suffix', 'hash', 'container.db')
-        new_db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container_shard.db')
+        ts_epoch = Timestamp.now()
+        new_db_path = os.path.join(tempdir, 'part', 'suffix', 'hash',
+                                   'container_%s.db' % ts_epoch.normal)
         broker = ContainerBroker(
             db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
@@ -3007,7 +3012,9 @@ class TestContainerBroker(unittest.TestCase):
         check_unsharded_state(broker)
 
         # now set sharding state and make sure everything moves.
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=ts_epoch.normal)
+        epoch = broker.metadata['X-Container-Sysmeta-Shard-Epoch']
+        meta['X-Container-Sysmeta-Shard-Epoch'] = epoch
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
 
@@ -3070,7 +3077,7 @@ class TestContainerBroker(unittest.TestCase):
         broker = ContainerBroker(
             db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
 
         # load up the old broker with some objects
         objects = [{'name': 'obj_%d' % i,
@@ -3221,7 +3228,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(1, broker.get_info()['object_count'])
         self.assertEqual(14, broker.get_info()['bytes_used'])
 
-        broker.set_sharding_state()
+        broker.set_sharding_state(epoch=Timestamp.now())
         sr_1 = ShardRange.create(
             root_a, root_c, lower='', upper='m', object_count=99,
             bytes_used=999, state=ShardRange.ACTIVE)
