@@ -1783,7 +1783,6 @@ class TestObjectReplicator(unittest.TestCase):
         # count of attempts and call args
         resp.status = 507
         error = '%(replication_ip)s/%(device)s responded as unmounted'
-        expect = 'Error syncing partition: '
         expected_listdir_calls = [
             mock.call(int(job['partition']),
                       self.replicator.replication_cycle)
@@ -1810,8 +1809,9 @@ class TestObjectReplicator(unittest.TestCase):
             for node in job['policy'].object_ring.get_more_nodes(
                     int(job['partition'])):
                 expected.append(error % node)
-            # ... and finally it will exception out
-            expected.append(expect)
+            # ... and finally we get an error about running out of nodes
+            expected.append('Ran out of handoffs while replicating '
+                            'partition %s' % job['partition'])
             self.assertEqual(expected, error_lines)
             self.assertEqual(len(self.replicator.partition_times), 1)
             self.assertEqual(mock_http.call_count, len(ring._devs) - 1)
