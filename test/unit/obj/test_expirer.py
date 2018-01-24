@@ -742,7 +742,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(got_env[0]['PATH_INFO'], '/v1/path/to/object name')
 
     def test_delete_actual_object_returns_expected_error(self):
-        def do_test(test_status):
+        def do_test(test_status, should_raise):
             calls = [0]
 
             def fake_app(env, start_response):
@@ -753,18 +753,21 @@ class TestObjectExpirer(TestCase):
             internal_client.loadapp = lambda *a, **kw: fake_app
 
             x = expirer.ObjectExpirer({})
-            self.assertRaises(internal_client.UnexpectedResponse,
-                              x.delete_actual_object, '/path/to/object',
-                              '1234')
+            if should_raise:
+                with self.assertRaises(internal_client.UnexpectedResponse):
+                    x.delete_actual_object('/path/to/object', '1234')
+            else:
+                x.delete_actual_object('/path/to/object', '1234')
             self.assertEqual(calls[0], 1)
 
         # object was deleted and tombstone reaped
-        do_test('404 Not Found')
+        do_test('404 Not Found', True)
         # object was overwritten *after* the original expiration, or
+        do_test('409 Conflict', False)
         # object was deleted but tombstone still exists, or
         # object was overwritten ahead of the original expiration, or
         # object was POSTed to with a new (or no) expiration, or ...
-        do_test('412 Precondition Failed')
+        do_test('412 Precondition Failed', True)
 
     def test_delete_actual_object_does_not_handle_odd_stuff(self):
 
