@@ -180,8 +180,8 @@ class InternalClient(object):
 
         headers = dict(headers)
         headers['user-agent'] = self.user_agent
-        resp = exc_type = exc_value = exc_traceback = None
         for attempt in range(self.request_tries):
+            resp = exc_type = exc_value = exc_traceback = None
             req = Request.blank(
                 path, environ={'REQUEST_METHOD': method}, headers=headers)
             if body_file is not None:
