@@ -268,10 +268,10 @@ class ContainerSharder(ContainerReplicator):
             last_shard = get_sharding_info(broker, 'Last', node)
             if last_shard:
                 queries.append(dict(query, end_marker=last_shard + '\x00'))
-                if own_shard_range and own_shard_range.upper:
+                if own_shard_range.upper:
                     queries.append(dict(query, marker=own_shard_range.upper))
 
-        if not queries and own_shard_range:
+        if not queries:
             # Objects outside of this container's own range are misplaced.
             if own_shard_range.lower:
                 queries.append(dict(query,
@@ -1032,8 +1032,7 @@ class ContainerSharder(ContainerReplicator):
                 # ready to handover donor namespace until all shards are
                 # cleaved.
             if (shard_range.state != ShardRange.ACTIVE and
-                    (broker.is_root_container() or
-                     own_shard_range.includes(shard_range))):
+                    own_shard_range.includes(shard_range)):
                 # TODO: unit test scenario when this condition is not met
                 # The shard range object stats may have changed since the shard
                 # range was found, so update with stats of objects actually
