@@ -2810,6 +2810,52 @@ class TestContainerBroker(unittest.TestCase):
         self._check_find_shard_ranges('lower', 'upper')
 
     @with_tempdir
+    def test_find_shard_ranges_with_misplaced_objects(self, tempdir):
+        # verify that misplaced objects outside of a shard's range do not
+        # influence choice of shard ranges (but do distort the object counts)
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()
+        container_name = 'test_container'
+
+        db_path = os.path.join(tempdir, 'test_container.db')
+        broker = ContainerBroker(
+            db_path, account='a', container=container_name)
+        # shard size > object count, no objects
+        broker.initialize(next(ts_iter).internal, 0)
+
+        ts = next(ts_iter)
+        broker.update_metadata({
+            'X-Container-Sysmeta-Shard-Lower': ('l', ts.internal),
+            'X-Container-Sysmeta-Shard-Upper': ('u', ts.internal),
+            'X-Container-Sysmeta-Shard-Timestamp':
+                (ts.internal, ts.internal)})
+
+        self.assertEqual(([], False), broker.find_shard_ranges(10))
+
+        for name in ('a-misplaced', 'm', 'n', 'p', 'q', 'r', 'z-misplaced'):
+            broker.put_object(
+                name, next(ts_iter).internal, 0, 'text/plain', 'etag')
+
+        expected_bounds = (
+            ('l', 'n', 2),  # contains m, n
+            ('n', 'q', 2),  # contains p, q
+            ('q', 'u', 3)   # contains r; object count distorted by 2 misplaced
+        )
+        expected_shard_ranges = [
+            ShardRange.create('a', container_name, lower, upper,
+                              created_at=ts_now, object_count=object_count)
+            for lower, upper, object_count in expected_bounds]
+
+        # call the method under test
+        with mock.patch('swift.common.utils.time.time',
+                        return_value=float(ts_now.normal)):
+            ranges, last_found = broker.find_shard_ranges(2, -1)
+        # verify results
+        self.assertEqual(
+            [dict(shard_range) for shard_range in expected_shard_ranges],
+            [dict(shard_range) for shard_range in ranges])
+
+    @with_tempdir
     def test_set_sharding_states(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(

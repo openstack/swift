@@ -1861,9 +1861,15 @@ class ContainerBroker(DatabaseBroker):
                     self.logger.exception("Problem finding shard point: ", err)
                     break
 
-            if next_shard_upper is None:
-                # We reached the end of the container
+            if (next_shard_upper is None or
+                    next_shard_upper > own_shard_range.upper):
+                # We reached the end of the container namespace, or possibly
+                # beyond if the container has misplaced objects. In either case
+                # limit the final shard range to own_shard_range.upper.
                 next_shard_upper = own_shard_range.upper
+                # object count may include misplaced objects, so the final
+                # shard size may not be accurate until cleaved, but at least
+                # the sum of shard sizes will equal the unsharded object_count
                 shard_size = object_count - progress
 
             # NB shard ranges are created with a non-zero object count so that
