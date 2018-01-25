@@ -4419,6 +4419,10 @@ class ShardRange(object):
         self._lower = value
 
     @property
+    def end_marker(self):
+        return self.upper + '\x00' if self.upper else ''
+
+    @property
     def upper(self):
         return self._upper
 

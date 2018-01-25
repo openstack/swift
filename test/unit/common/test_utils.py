@@ -6965,6 +6965,12 @@ class TestShardRange(unittest.TestCase):
         do_test(1)
         do_test(1.234)
 
+    def test_end_marker(self):
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', 'y')
+        self.assertEqual('y\x00', sr.end_marker)
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', '')
+        self.assertEqual('', sr.end_marker)
+
     def test_entire_namespace(self):
         # test infinite range (no boundaries)
         inf_sr = utils.ShardRange('a/test', utils.Timestamp.now())
