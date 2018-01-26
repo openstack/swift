@@ -18,8 +18,6 @@ import json
 import os
 import time
 
-from collections import defaultdict
-
 from random import random
 
 from eventlet import Timeout
@@ -35,9 +33,8 @@ from swift.common.exceptions import DeviceUnavailable, ConnectionTimeout, \
 from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
-    dump_recon_cache, whataremyips, Timestamp, ShardRange, \
-    find_shard_range, GreenAsyncPile, config_float_value, \
-    config_positive_int_value, FileLikeIter
+    dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
+    config_float_value, config_positive_int_value, FileLikeIter
 from swift.common.storage_policy import POLICIES
 
 
@@ -192,14 +189,17 @@ class ContainerSharder(ContainerReplicator):
         return [ShardRange.from_dict(shard_range)
                 for shard_range in json.loads(resp.body)]
 
-    def _get_shard_broker(self, shard_range, policy_index):
+    def _get_shard_broker(self, shard_range, root_path, policy_index,
+                          force=False):
         """
-        Get a local instance of the shard container broker that will be
-        pushed out.
+        Get a container broker for given shard range.
 
         :param shard_range: a :class:`~swift.common.utils.ShardRange`
+        :param root_path: the path of the shard's root container
         :param policy_index: the storage policy index
-        :returns: a local shard container broker
+        :param force: if True set the broker's sharding metadata even if
+            sharding metadata already exists
+        :returns: a shard container broker
         """
         part = self.ring.get_part(shard_range.account, shard_range.container)
         node = self.find_local_handoff_for_part(part)
@@ -210,26 +210,172 @@ class ContainerSharder(ContainerReplicator):
                 'No mounted devices found suitable to Handoff sharded '
                 'container %s in partition %s' % (shard_range.name, part))
 
-        broker = self._initialize_broker(
+        shard_broker = self._initialize_broker(
             node['device'], part, shard_range.account, shard_range.container,
             storage_policy_index=policy_index)
 
         # Get the valid info into the broker.container, etc
-        broker.get_info()
-        return part, broker, node['id']
+        shard_broker.get_info()
 
-    def _add_shard_metadata(self, broker, root_path, shard_range, force=False):
-        if not get_sharding_info(broker, 'Root') and shard_range or force:
+        if not get_sharding_info(shard_broker, 'Root') or force:
             update_sharding_info(
-                broker,
+                shard_broker,
                 {'Root': root_path,
                  'Lower': str(shard_range.lower),
                  'Upper': str(shard_range.upper),
                  'Timestamp': shard_range.timestamp.internal,
                  'Meta-Timestamp': shard_range.meta_timestamp.internal})
-            broker.update_metadata({
+            shard_broker.update_metadata({
                 'X-Container-Sysmeta-Sharding':
                     ('True', Timestamp.now().internal)})
+
+        return part, shard_broker, node['id']
+
+    def yield_objects(self, broker, src_shard_range, policy_index):
+        """
+        Iterates through all objects in ``src_shard_range`` in name order
+        yielding them in lists of up to CONTAINER_LISTING_LIMIT length.
+
+        :param broker: A :class:`~swift.container.backend.ContainerBroker`.
+        :param src_shard_range: A :class:`~swift.common.utils.ShardRange`
+            describing the source range.
+        :param policy_index: The storage policy index.
+        :return: lists objects
+        """
+        # Since we're going to change lower attribute in the loop...
+        src_shard_range = src_shard_range.copy()
+
+        # TODO: list_objects_iter transforms the timestamp, losing info
+        # that we want to copy - see _transform_record - we need to
+        # override that behaviour
+
+        while True:
+            objects = broker.get_objects(
+                CONTAINER_LISTING_LIMIT,
+                marker=str(src_shard_range.lower),
+                end_marker=src_shard_range.end_marker,
+                storage_policy_index=policy_index,
+                include_deleted=True)
+            yield objects
+
+            if len(objects) < CONTAINER_LISTING_LIMIT:
+                break
+            src_shard_range.lower = objects[-1]['name']
+
+    def yield_objects_to_shard_range(self, broker, src_shard_range,
+                                     policy_index, dest_shard_ranges):
+        """
+        Iterates through all objects in ``src_shard_range`` to place them in
+        destination shard ranges provided by the ``next_shard_range`` function.
+        Yields tuples of (object list, destination shard range in which those
+        objects belong). Note that the same destination shard range may be
+        referenced in more than one yielded tuple.
+
+        :param broker: A :class:`~swift.container.backend.ContainerBroker`.
+        :param src_shard_range: A :class:`~swift.common.utils.ShardRange`
+            describing the source range.
+        :param policy_index: The storage policy index.
+        :param dest_shard_ranges: A function which should return a list of
+            destination shard ranges in name order.
+        :return: tuples of (object list, shard range)
+        """
+        dest_shard_range_iter = dest_shard_range = None
+        for objs in self.yield_objects(broker, src_shard_range, policy_index):
+            if not objs:
+                return
+
+            def next_or_none(it):
+                try:
+                    return next(it)
+                except StopIteration:
+                    return None
+
+            if dest_shard_range_iter is None:
+                dest_shard_range_iter = iter(dest_shard_ranges())
+                dest_shard_range = next_or_none(dest_shard_range_iter)
+
+            unplaced = False
+            last_index = next_index = 0
+            for obj in objs:
+                if dest_shard_range is None:
+                    # no more destinations: yield remainder of batch and return
+                    # NB there may be more batches of objects but none of them
+                    # will be placed so no point fetching them
+                    yield objs[last_index:], None
+                    return
+                if obj['name'] <= dest_shard_range.lower:
+                    unplaced = True
+                elif unplaced:
+                    # end of run of unplaced objects, yield them
+                    yield objs[last_index:next_index], None
+                    last_index = next_index
+                    unplaced = False
+                while (dest_shard_range and
+                       obj['name'] > dest_shard_range.upper):
+                    if next_index != last_index:
+                        # yield the objects in current dest_shard_range
+                        yield objs[last_index:next_index], dest_shard_range
+                    last_index = next_index
+                    dest_shard_range = next_or_none(dest_shard_range_iter)
+                next_index += 1
+
+            if next_index != last_index:
+                # yield tail of current batch of objects
+                # NB there may be more objects for the current
+                # dest_shard_range in the next batch from yield_objects
+                yield (objs[last_index:next_index],
+                       None if unplaced else dest_shard_range)
+
+    def _move_misplaced_objects(self, broker, src_shard_range, policy_index,
+                                dest_shard_ranges):
+        # map shard range -> broker
+        brokers = {}
+        unplaced = 0
+        for objs, dest_shard_range in self.yield_objects_to_shard_range(
+                broker, src_shard_range, policy_index, dest_shard_ranges):
+            if not dest_shard_range:
+                unplaced += len(objs)
+                continue
+
+            if (dest_shard_range.name ==
+                    '%s/%s' % (broker.account, broker.container)):
+                # in shrinking context, the misplaced objects might actually be
+                # correctly placed if the root has expanded this shard but this
+                # broker has not yet been updated
+                continue
+
+            if dest_shard_range not in brokers:
+                part, dest_broker, node_id = self._get_shard_broker(
+                    dest_shard_range, broker.root_path, policy_index)
+                brokers[dest_shard_range] = (part, dest_broker, node_id)
+            else:
+                part, dest_broker, node_id = brokers[dest_shard_range]
+            dest_broker.merge_items(objs)
+
+        if unplaced:
+            self.logger.warning(
+                'Failed to find destination for at least %s misplaced objects'
+                % unplaced)
+
+        if not brokers:
+            return False
+
+        for dest_shard_range, (part, dest_broker, node_id) in brokers.items():
+            self.cpool.spawn(
+                self._replicate_object, part, dest_broker.db_file, node_id)
+
+        # wait for one of these to error, or all to complete successfully
+        any(self.cpool)
+        # TODO: we need to be confident that replication succeeded before
+        # removing misplaced items from source - if not then just leave the
+        # misplaced items in source, but do not mark them as deleted, and
+        # leave for next cycle to try again
+        for dest_shard_range in brokers:
+            broker.remove_objects(
+                str(dest_shard_range.lower), str(dest_shard_range.upper),
+                policy_index)
+
+        return True
 
     def _misplaced_objects(self, broker, node, own_shard_range):
         """
@@ -240,11 +386,11 @@ class ContainerSharder(ContainerReplicator):
         :param broker: An instance of :class:`swift.container.ContainerBroker`
         :param node: The node being processed
         :param own_shard_range: A ShardRange describing the namespace for this
-            broker, or None if the current broker is for a root container
+            broker
         """
-
         self.logger.info('Scanning %s/%s (%s) for misplaced objects',
                          broker.account, broker.container, broker.db_file)
+
         if broker.is_deleted():
             return
 
@@ -252,104 +398,57 @@ class ContainerSharder(ContainerReplicator):
         if state == DB_STATE_NOTFOUND:
             return
 
+        def make_query(lower, upper):
+            # each misplaced object namespace is represented by a shard range
+            return ShardRange.create('dont', 'care', lower, upper)
+
         queries = []
         policy_index = broker.storage_policy_index
-        query = dict(marker='', end_marker='', prefix='', delimiter='',
-                     storage_policy_index=policy_index, include_deleted=True)
         # TODO: what about records for objects in the wrong storage policy?
 
         if state == DB_STATE_SHARDED:
             # Anything in the object table is treated as a misplaced object.
-            queries.append(query.copy())
+            queries.append(make_query('', ''))
 
         if not queries and state == DB_STATE_SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
-            last_shard = get_sharding_info(broker, 'Last', node)
-            if last_shard:
-                queries.append(dict(query, end_marker=last_shard + '\x00'))
+            last_upper = get_sharding_info(broker, 'Last', node)
+            if last_upper:
+                queries.append(make_query('', last_upper))
                 if own_shard_range.upper:
-                    queries.append(dict(query, marker=own_shard_range.upper))
+                    queries.append(make_query(own_shard_range.upper, ''))
 
         if not queries:
             # Objects outside of this container's own range are misplaced.
             if own_shard_range.lower:
-                queries.append(dict(query,
-                                    end_marker=own_shard_range.lower + '\x00'))
+                queries.append(make_query('', own_shard_range.lower))
             if own_shard_range.upper:
-                queries.append(dict(query, marker=own_shard_range.upper))
+                queries.append(make_query(own_shard_range.upper, ''))
 
         if not queries:
             return
 
-        if broker.is_root_container():
-            outer = {'ranges': broker.get_shard_ranges()}
-        else:
-            outer = {'ranges': None}
+        def make_dest_shard_ranges():
+            # returns a function that will lazy load shard ranges on demand;
+            # this means only one lookup is made for all misplaced ranges.
+            outer = {}
 
-        def run_query(qry, found_misplaced_items):
-            # TODO: list_objects_iter transforms the timestamp, losing info
-            # that we want to copy - see _transform_record - we need to
-            # override that behaviour
-            objs = broker.get_objects(CONTAINER_LISTING_LIMIT, **qry)
-            if not objs:
-                return found_misplaced_items
-
-            # We have a list of misplaced objects, so we better find a home
-            # for them
-            if outer['ranges'] is None:
-                outer['ranges'] = self._get_shard_ranges(broker, newest=True)
-
-            shard_to_obj = defaultdict(list)
-            for obj in objs:
-                shard_range = find_shard_range(obj['name'], outer['ranges'])
-                if shard_range:
-                    shard_to_obj[shard_range].append(obj)
-                else:
-                    # TODO: don't log for *every* object
-                    self.logger.warning(
-                        'Failed to find destination shard for %s/%s/%s',
-                        broker.account, broker.container, obj['name'])
-
-            self.logger.info('preparing to move %d misplaced objects found '
-                             'in %s/%s',
-                             sum(map(len, shard_to_obj.values())),
-                             broker.account, broker.container)
-            for shard_range, obj_list in shard_to_obj.items():
-                # TODO: in shrinking context, the misplaced objects might
-                # actually be correctly placed if the root has expanded this
-                # shard but this broker did not get updated - so add a check
-                # here that shard_range.name != own shard name
-                part, new_broker, node_id = self._get_shard_broker(
-                    shard_range, policy_index)
-                self._add_shard_metadata(new_broker, broker.root_path,
-                                         shard_range)
-                new_broker.merge_items(obj_list)
-
-                self.cpool.spawn(
-                    self._replicate_object, part, new_broker.db_file, node_id)
-
-            # wait for one of these to error, or all to complete successfully
-            any(self.cpool)
-            # TODO: we need to be confident that replication succeeded before
-            # removing misplaced items from source - if not then just leave the
-            # misplaced items in source, but do not mark them as deleted, and
-            # leave for next cycle to try again
-            for shard_range in shard_to_obj:
-                broker.remove_objects(
-                    str(shard_range.lower), str(shard_range.upper),
-                    policy_index)
-
-            # There could be more, so recurse my pretty
-            if len(objs) == CONTAINER_LISTING_LIMIT:
-                qry['marker'] = objs[-1]['name']
-                return run_query(qry, True)
-            return True
+            def dest_shard_ranges():
+                if not outer:
+                    if broker.is_root_container():
+                        ranges = broker.get_shard_ranges()
+                    else:
+                        ranges = self._get_shard_ranges(broker, newest=True)
+                    outer['ranges'] = iter(ranges)
+                return outer['ranges']
+            return dest_shard_ranges
 
         self.logger.debug('misplaced object queries %s' % queries)
         misplaced_items = False
         for query in queries:
-            misplaced_items = run_query(query, misplaced_items)
+            misplaced_items |= self._move_misplaced_objects(
+                broker, query, policy_index, make_dest_shard_ranges())
 
         if misplaced_items:
             self.logger.increment('misplaced_items_found')
@@ -945,29 +1044,6 @@ class ContainerSharder(ContainerReplicator):
             self._update_shard_ranges(
                 donor.account, donor.container, [acceptor], headers=headers)
 
-    def _add_items(self, broker, broker_to_update, qry, ignore_state=False):
-        """
-        Copy objects from one broker to another.
-
-        The qry is a query dict in the form of:
-            dict(marker='', end_marker='', prefix='', delimiter='',
-                 storage_policy_index=policy_index)
-        """
-        if not ignore_state:
-            db_state = broker.get_db_state()
-            if db_state == DB_STATE_SHARDING:
-                for sub_broker in broker.get_brokers():
-                    self._add_items(sub_broker, broker_to_update, qry,
-                                    ignore_state=True)
-            return
-        qry = qry.copy()  # Since we're going to change marker in the loop...
-        while True:
-            objects = broker.get_objects(CONTAINER_LISTING_LIMIT, **qry)
-            broker_to_update.merge_items(objects)
-            if len(objects) < CONTAINER_LISTING_LIMIT:
-                break
-            qry['marker'] = objects[-1]['name']
-
     def _cleave(self, broker, node):
         # Returns True if all available shard ranges are successfully cleaved,
         # False otherwise
@@ -1004,30 +1080,22 @@ class ContainerSharder(ContainerReplicator):
                 "Cleaving '%s/%s': %r",
                 broker.account, broker.container, shard_range)
             try:
+                # use force here because we may want to update existing shard
+                # metadata timestamps
                 new_part, new_broker, node_id = self._get_shard_broker(
-                    shard_range, policy_index)
+                    shard_range, broker.root_path, policy_index, force=True)
             except DeviceUnavailable as duex:
                 self.logger.warning(str(duex))
                 self.logger.increment('failure')
                 self.stats['containers_failed'] += 1
                 return False
 
-            # use force here because we may want to update existing shard
-            # metadata timestamps
-            self._add_shard_metadata(
-                new_broker, broker.root_path, shard_range, force=True)
-
-            query = {
-                'marker': str(shard_range.lower),
-                'end_marker': shard_range.end_marker,
-                'prefix': '',
-                'delimiter': '',
-                'storage_policy_index': policy_index,
-                'include_deleted': True
-            }
-
             with new_broker.sharding_lock():
-                self._add_items(broker, new_broker, query)
+                for source_broker in broker.get_brokers():
+                    for objects in self.yield_objects(
+                            source_broker, shard_range, policy_index):
+                        new_broker.merge_items(objects)
+
                 # TODO: when shrinking, include deleted own (donor) shard range
                 # in the replicated db so that when acceptor next updates root
                 # it will atomically update its namespace and delete the donor
