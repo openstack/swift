@@ -26,6 +26,7 @@ import six
 from six.moves import urllib
 
 from swift.common import internal_client, utils, swob
+from swift.common.utils import Timestamp
 from swift.obj import expirer
 
 
@@ -215,11 +216,12 @@ class TestObjectExpirer(TestCase):
                 self.deleted_objects = {}
                 self.obj_containers_in_order = []
 
-            def delete_object(self, actual_obj, timestamp, container, obj):
-                if container not in self.deleted_objects:
-                    self.deleted_objects[container] = set()
-                self.deleted_objects[container].add(obj)
-                self.obj_containers_in_order.append(container)
+            def delete_object(self, target_path, delete_timestamp,
+                              task_container, task_object):
+                if task_container not in self.deleted_objects:
+                    self.deleted_objects[task_container] = set()
+                self.deleted_objects[task_container].add(task_object)
+                self.obj_containers_in_order.append(task_container)
 
         aco_dict = {
             '.expiring_objects': {
@@ -320,6 +322,45 @@ class TestObjectExpirer(TestCase):
             'completed' not in str(x.logger.get_lines_for_level('info')))
         self.assertTrue(
             'so far' in str(x.logger.get_lines_for_level('info')))
+
+    def test_round_robin_order(self):
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger)
+        task_con_obj_list = [
+            # objects in 0000 timestamp container
+            {'task_container': '0000', 'task_object': '0000-a/c0/o0',
+             'delete_timestamp': Timestamp('0000'), 'target_path': 'a/c0/o0'},
+            {'task_container': '0000', 'task_object': '0000-a/c0/o1',
+             'delete_timestamp': Timestamp('0000'), 'target_path': 'a/c0/o1'},
+            # objects in 0001 timestamp container
+            {'task_container': '0001', 'task_object': '0001-a/c1/o0',
+             'delete_timestamp': Timestamp('0001'), 'target_path': 'a/c1/o0'},
+            {'task_container': '0001', 'task_object': '0001-a/c1/o1',
+             'delete_timestamp': Timestamp('0001'), 'target_path': 'a/c1/o1'},
+            # objects in 0002 timestamp container
+            {'task_container': '0002', 'task_object': '0002-a/c2/o0',
+             'delete_timestamp': Timestamp('0002'), 'target_path': 'a/c2/o0'},
+            {'task_container': '0002', 'task_object': '0002-a/c2/o1',
+             'delete_timestamp': Timestamp('0002'), 'target_path': 'a/c2/o1'},
+        ]
+        result = list(x.round_robin_order(task_con_obj_list))
+
+        # sorted by poping one object to delete for each target_container
+        expected = [
+            # objects in 0000 timestamp container
+            {'task_container': '0000', 'task_object': '0000-a/c0/o0',
+             'delete_timestamp': Timestamp('0000'), 'target_path': 'a/c0/o0'},
+            {'task_container': '0001', 'task_object': '0001-a/c1/o0',
+             'delete_timestamp': Timestamp('0001'), 'target_path': 'a/c1/o0'},
+            {'task_container': '0002', 'task_object': '0002-a/c2/o0',
+             'delete_timestamp': Timestamp('0002'), 'target_path': 'a/c2/o0'},
+            {'task_container': '0000', 'task_object': '0000-a/c0/o1',
+             'delete_timestamp': Timestamp('0000'), 'target_path': 'a/c0/o1'},
+            {'task_container': '0001', 'task_object': '0001-a/c1/o1',
+             'delete_timestamp': Timestamp('0001'), 'target_path': 'a/c1/o1'},
+            {'task_container': '0002', 'task_object': '0002-a/c2/o1',
+             'delete_timestamp': Timestamp('0002'), 'target_path': 'a/c2/o1'},
+        ]
+        self.assertEqual(expected, result)
 
     def test_run_once_nothing_to_do(self):
         x = expirer.ObjectExpirer(self.conf, logger=self.logger)
@@ -621,7 +662,7 @@ class TestObjectExpirer(TestCase):
         internal_client.loadapp = lambda *a, **kw: fake_app
 
         x = expirer.ObjectExpirer({})
-        ts = '1234'
+        ts = Timestamp('1234')
         x.delete_actual_object('/path/to/object', ts)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
         self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
@@ -640,7 +681,7 @@ class TestObjectExpirer(TestCase):
         internal_client.loadapp = lambda *a, **kw: fake_app
 
         x = expirer.ObjectExpirer({})
-        ts = '1234'
+        ts = Timestamp('1234')
         x.delete_actual_object('/path/to/object name', ts)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
         self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
@@ -659,11 +700,12 @@ class TestObjectExpirer(TestCase):
             internal_client.loadapp = lambda *a, **kw: fake_app
 
             x = expirer.ObjectExpirer({})
+            ts = Timestamp('1234')
             if should_raise:
                 with self.assertRaises(internal_client.UnexpectedResponse):
-                    x.delete_actual_object('/path/to/object', '1234')
+                    x.delete_actual_object('/path/to/object', ts)
             else:
-                x.delete_actual_object('/path/to/object', '1234')
+                x.delete_actual_object('/path/to/object', ts)
             self.assertEqual(calls[0], 1)
 
         # object was deleted and tombstone reaped
@@ -688,7 +730,7 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         exc = None
         try:
-            x.delete_actual_object('/path/to/object', '1234')
+            x.delete_actual_object('/path/to/object', Timestamp('1234'))
         except Exception as err:
             exc = err
         finally:
@@ -697,7 +739,7 @@ class TestObjectExpirer(TestCase):
 
     def test_delete_actual_object_quotes(self):
         name = 'this name should get quoted'
-        timestamp = '1366063156.863045'
+        timestamp = Timestamp('1366063156.863045')
         x = expirer.ObjectExpirer({})
         x.swift.make_request = mock.Mock()
         x.swift.make_request.return_value.status_int = 204
@@ -708,7 +750,7 @@ class TestObjectExpirer(TestCase):
 
     def test_delete_actual_object_queue_cleaning(self):
         name = 'something'
-        timestamp = '1515544858.80602'
+        timestamp = Timestamp('1515544858.80602')
         x = expirer.ObjectExpirer({})
         x.swift.make_request = mock.MagicMock()
         x.delete_actual_object(name, timestamp)
