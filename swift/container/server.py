@@ -30,7 +30,8 @@ from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, \
-    split_and_validate_path, is_sys_or_user_meta, shard_range_from_headers
+    split_and_validate_path, is_sys_or_user_meta, shard_range_from_headers, \
+    is_sys_meta
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
@@ -439,6 +440,11 @@ class ContainerController(BaseStorageServer):
                 shard_ranges = json.loads(req.body)
             except ValueError as err:
                 return HTTPBadRequest('Invalid body: %s' % err)
+            metadata = dict(
+                (key, (value, req_timestamp.internal))
+                for key, value in req.headers.items()
+                if is_sys_meta('container', key))
+            broker.update_metadata(metadata, validate_metadata=True)
             # TODO: consider writing the shard ranges into the pending file,
             # but if so ensure an all-or-none semantic for the write
             broker.merge_shard_ranges(shard_ranges)

@@ -563,6 +563,12 @@ class ContainerSharder(ContainerReplicator):
                 if not broker.is_root_container():
                     # update the root container with this shard's usage stats
                     own_shard_range = broker.get_own_shard_range()
+                    # TODO: yuk, need to send state to root to avoid resetting
+                    # it to CREATED when a donor has cleaved an expanded
+                    # namespace and *new timestamp* to this shard, but should
+                    # we be persisting the actual state rather than hard code
+                    # it?
+                    own_shard_range.state = ShardRange.ACTIVE
                     self._update_shard_ranges(
                         broker.root_account, broker.root_container,
                         [own_shard_range])
@@ -673,15 +679,17 @@ class ContainerSharder(ContainerReplicator):
             # TODO: Need to do something here.
             return None, node_idx
 
-    def _update_shard_ranges(self, account, container, shard_ranges):
+    def _update_shard_ranges(self, account, container, shard_ranges,
+                             headers=None):
         body = json.dumps([dict(sr) for sr in shard_ranges])
         path = "/%s/%s" % (account, container)
         part, nodes = self.ring.get_nodes(account, container)
-        headers = {'X-Backend-Record-Type': RECORD_TYPE_SHARD_NODE,
-                   'User-Agent': 'container-sharder %s' % os.getpid(),
-                   'X-Timestamp': Timestamp.now().normal,
-                   'Content-Length': len(body),
-                   'Content-Type': 'application/json'}
+        headers = headers or {}
+        headers.update({'X-Backend-Record-Type': RECORD_TYPE_SHARD_NODE,
+                        'User-Agent': 'container-sharder %s' % os.getpid(),
+                        'X-Timestamp': Timestamp.now().normal,
+                        'Content-Length': len(body),
+                        'Content-Type': 'application/json'})
 
         for node in nodes:
             self.cpool.spawn(
@@ -867,39 +875,38 @@ class ContainerSharder(ContainerReplicator):
 
         # TODO: think long and hard about the correct order for these remaining
         # operations and what happens when one fails...
-        updated_shard_ranges = []
         for acceptor, donor in merge_pairs.items():
             self.logger.debug('shrinking shard range %s into %s in %s' %
                               (donor, acceptor, broker.db_file))
-            # update the acceptor shard container with its expanded shard range
-            # but leave its timestamp unchanged
-            # TODO: update the shard container lower bound now so that it
-            # starts to accept updates for its expanded range...OR we could
-            # have the act of cleaving from the donor update the acceptor lower
-            # range - between now and that happening, where do updates for the
-            # retired range get directed?
+            # Update the acceptor shard container with its expanded shard
+            # range but leave its timestamp unchanged; this means that the
+            # acceptor will accept any object updates that the donor might
+            # redirect to it while the donor is in sharding state
+            # (equivalent to when a new shard has been found but not yet
+            # cleaved).
+            # Note that the acceptor namespace is not yet changed in the
+            # root; and any updates from the acceptor to root will not
+            # change the acceptor namespace because its created_at
+            # timestamp has not advanced.
+            # TODO: OR we could skip this step and wait for the act of
+            # cleaving from the donor to update the acceptor lower range -
+            # between now and that happening, updates redirected to the
+            # shrinking range would either land there and become misplaced
+            # or get redirected from the donor to the acceptor and become
+            # misplaced until cleaving happens.
             acceptor.lower = donor.lower
             self._put_shard_container(broker, acceptor)
-            # give the acceptor a fresh timestamp so that the only shard range
-            # updates accepted at the root will be for the expanded acceptor
-            # shard range once it receives its new timestamp via replication
-            # from the retiring shard container
-            # TODO: maybe we should use a separate (expiring?) timestamp -
-            # there is a risk here that if the async shrinking never happens
-            # then the acceptor shard can never update itself or even delete
-            # itself
+            # Now send a copy of the expanded acceptor, with an updated
+            # timestamp, to the donor. The donor will pass this newer
+            # timestamp to the acceptor when cleaving, so that subsequent
+            # updates from the acceptor will update the root to have the
+            # expended acceptor namespace.
             acceptor = acceptor.copy(timestamp=Timestamp.now())
-            # update acceptor usage in root container table to best estimate
-            # for purposes of summing root container shard usages
             acceptor.object_count += donor.object_count
             acceptor.bytes_used += donor.bytes_used
-            # Give the donor a fresh timestamp. This prevents the root merging
-            # usage updates from any un-shrunk instances of the shard. Also
-            # set Scan-Done so that the donor will not scan itself and will
+            # Set Scan-Done so that the donor will not scan itself and will
             # transition to SHARDED state once it has cleaved to the acceptor;
-            donor = donor.copy(timestamp=Timestamp.now())
             headers = {'X-Container-Sysmeta-Shard-Scan-Done': True}
-            self._put_shard_container(broker, donor, extra_headers=headers)
             # PUT the acceptor shard range to the donor shard container; this
             # forces the donor to asynchronously cleave its entire contents to
             # the acceptor; the donor's version of the acceptor shard range has
@@ -915,25 +922,7 @@ class ContainerSharder(ContainerReplicator):
             # existence of a shard range whose upper >= shard own range, rather
             # than using sysmeta Scan-Done.
             self._update_shard_ranges(
-                donor.account, donor.container, [acceptor])
-            # TODO: not sure we really want to delete the donor yet but need
-            # some way to ensure it is passed over in future shrink cycles;
-            # some audit process should delete the shard once it has emptied
-            donor.state = ShardRange.SHRUNK
-            updated_shard_ranges.append(donor)
-            updated_shard_ranges.append(acceptor)
-
-        if updated_shard_ranges:
-            # merge all changed shard ranges into root shard_ranges table
-            broker.merge_shard_ranges(
-                [dict(sr) for sr in updated_shard_ranges])
-            # TODO: almagamate this replicate with one after find_shard_ranges
-            # if any mods were made to broker
-            self.cpool.spawn(
-                self._replicate_object, part, broker.db_file, node['id'])
-            any(self.cpool)
-
-        self.logger.debug('shrink done, modified %s' % updated_shard_ranges)
+                donor.account, donor.container, [acceptor], headers=headers)
 
     def _add_items(self, broker, broker_to_update, qry, ignore_state=False):
         """
@@ -1048,7 +1037,12 @@ class ContainerSharder(ContainerReplicator):
 
             with new_broker.sharding_lock():
                 self._add_items(broker, new_broker, query)
-
+                # TODO: when shrinking, include deleted own (donor) shard range
+                # in the replicated db so that when acceptor next updates root
+                # it will atomically update its namespace and delete the donor
+                # Do not do the same when sharding a shard because we're not
+                # ready to handover donor namespace until all shards are
+                # cleaved.
             if (broker.is_root_container() or
                     own_shard_range.includes(shard_range)):
                 # TODO: unit test scenario when this condition is not met
