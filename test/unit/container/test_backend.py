@@ -713,23 +713,23 @@ class TestContainerBroker(unittest.TestCase):
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
                   'meta_timestamp': None,
-                  'record_type': 0}
+                  'record_type': 'object'}
         broker = ContainerBroker(':memory:', account='a', container='c')
 
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', None, None, 0)
+                  '1', '2', None, None, 'object')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['ctype_timestamp'] = '2233445566.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', None, 0)
+                  '1', '2', '2233445566.00000', None, 'object')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['meta_timestamp'] = '5566778899.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', '5566778899.00000', 0)
+                  '1', '2', '2233445566.00000', '5566778899.00000', 'object')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
@@ -749,7 +749,7 @@ class TestContainerBroker(unittest.TestCase):
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
                   'meta_timestamp': None,
-                  'record_type': 0}
+                  'record_type': 'object'}
 
         # sanity check
         self.assertFalse(os.path.isfile(broker.pending_file))
@@ -795,7 +795,7 @@ class TestContainerBroker(unittest.TestCase):
                   'storage_policy_index': '2',
                   'ctype_timestamp': '1234567890.44444',
                   'meta_timestamp': '1234567890.99999',
-                  'record_type': 0}
+                  'record_type': 'object'}
 
         # sanity check
         self.assertFalse(os.path.isfile(broker.pending_file))

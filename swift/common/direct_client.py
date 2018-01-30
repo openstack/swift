@@ -82,12 +82,14 @@ def _get_direct_account_container(path, stype, node, part,
                                   marker=None, limit=None,
                                   prefix=None, delimiter=None,
                                   conn_timeout=5, response_timeout=15,
-                                  end_marker=None, reverse=None, items=None):
+                                  end_marker=None, reverse=None, headers=None,
+                                  items=None):
     """Base class for get direct account and container.
 
     Do not use directly use the get_direct_account or
     get_direct_container instead.
     """
+    headers = {} if headers is None else headers
     params = ['format=json']
     if marker:
         params.append('marker=%s' % quote(marker))
@@ -109,7 +111,7 @@ def _get_direct_account_container(path, stype, node, part,
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                             'GET', path, query_string=qs,
-                            headers=gen_headers())
+                            headers=gen_headers(hdrs_in=headers))
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if not is_success(resp.status):
@@ -201,7 +203,7 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
 def direct_get_container(node, part, account, container, marker=None,
                          limit=None, prefix=None, delimiter=None,
                          conn_timeout=5, response_timeout=15, end_marker=None,
-                         reverse=None, items=None):
+                         reverse=None, headers=None, items=None):
     """
     Get container listings directly from the container server.
 
@@ -217,6 +219,7 @@ def direct_get_container(node, part, account, container, marker=None,
     :param response_timeout: timeout in seconds for getting the response
     :param end_marker: end_marker query
     :param reverse: reverse the returned listing
+    :param headers: headers to be included in the request
     :param items: omit for normal listings, ``all`` to include deleted object
                   records, ``shard`` to get shard ranges instead of object
                   records
@@ -232,7 +235,7 @@ def direct_get_container(node, part, account, container, marker=None,
                                          reverse=reverse,
                                          conn_timeout=conn_timeout,
                                          response_timeout=response_timeout,
-                                         items=items)
+                                         headers=headers, items=items)
 
 
 def direct_delete_container(node, part, account, container, conn_timeout=5,

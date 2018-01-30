@@ -85,7 +85,8 @@ class TestContainerSharding(ReplProbeTest):
         container = container if container else self.container_name
         path = self.internal_client.make_path(account, container)
         resp = self.internal_client.make_request(
-            'GET', path + '?format=json&items=shard', {}, [200])
+            'GET', path + '?format=json', {'X-Backend-Record-Type': 'shard'},
+            [200])
         return json.loads(resp.body)
 
     def direct_get_container_shard_ranges(self, account=None, container=None,
@@ -99,7 +100,8 @@ class TestContainerSharding(ReplProbeTest):
         for cnode in cnodes:
             try:
                 shard_ranges[cnode['id']] = direct_client.direct_get_container(
-                    cnode, cpart, account, container, items='shard')
+                    cnode, cpart, account, container,
+                    headers={'X-Backend-Record-Type': 'shard'})
             except DirectClientException as err:
                 if not expect_failure:
                     unexpected_responses.append((cnode, err))

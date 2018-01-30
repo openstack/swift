@@ -431,18 +431,18 @@ class TestContainerController(TestRingBase):
                    for i in range(lower + 1, upper + 1)]
         return objects
 
-    def _check_GET_shard_listing(self, responses, expected_objects,
+    def _check_GET_shard_listing(self, mock_responses, expected_objects,
                                  expected_requests, query_string=''):
-        # responses is a list of tuples (status, json body, headers)
+        # mock_responses is a list of tuples (status, json body, headers)
         # expected objects is a list of dicts
-        # expected_requests is a list of tuples (path, params dict)
+        # expected_requests is a list of tuples (path, hdrs dict, params dict)
         container_path = '/v1/a/c' + query_string
-        codes = (resp[0] for resp in responses)
-        bodies = iter([json.dumps(resp[1]) for resp in responses])
-        headers = [resp[2] for resp in responses]
+        codes = (resp[0] for resp in mock_responses)
+        bodies = iter([json.dumps(resp[1]) for resp in mock_responses])
+        exp_headers = [resp[2] for resp in mock_responses]
         request = Request.blank(container_path)
         with mocked_http_conn(
-                *codes, body_iter=bodies, headers=headers) as fake_conn:
+                *codes, body_iter=bodies, headers=exp_headers) as fake_conn:
             resp = request.get_response(self.app)
         for backend_req in fake_conn.requests:
             # TODO: add assertion wrt swift source, user agent
@@ -453,14 +453,17 @@ class TestContainerController(TestRingBase):
         self.assertEqual(len(expected_objects), len(actual_objects))
         self.assertEqual(expected_objects, actual_objects)
         self.assertEqual(len(expected_requests), len(fake_conn.requests))
-        for i, ((path, params), req) in enumerate(
+        for i, ((exp_path, exp_headers, exp_params), req) in enumerate(
                 zip(expected_requests, fake_conn.requests)):
             try:
                 # strip off /sdx/0/ from path
-                self.assertEqual(path, req['path'][7:])
+                self.assertEqual(exp_path, req['path'][7:])
                 self.assertEqual(
-                    dict(params, format='json'),
+                    dict(exp_params, format='json'),
                     dict(urllib.parse.parse_qsl(req['qs'], True)))
+                for k, v in exp_headers.items():
+                    self.assertIn(k, req['headers'])
+                    self.assertEqual(v, req['headers'][k])
             except AssertionError as e:
                 self.fail('Request check failed at index %d: %s' % (i, e))
         return resp
@@ -471,7 +474,7 @@ class TestContainerController(TestRingBase):
                         for lower, upper in shard_bounds]
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
-        sr_headers = [
+        shard_resp_hdrs = [
             {'X-Backend-Sharding-State': '1',
              'X-Container-Object-Count': len(sr_objs[i]),
              'X-Container-Bytes-Used':
@@ -489,34 +492,42 @@ class TestContainerController(TestRingBase):
         # GET all objects
         limit = CONTAINER_LISTING_LIMIT
         expected_objects = all_objects
-        root_headers = {'X-Backend-Sharding-State': '3',
-                        'X-Container-Object-Count': num_all_objects,
-                        'X-Container-Bytes-Used': size_all_objects,
-                        'X-Container-Meta-Flavour': 'peach',
-                        'X-Backend-Storage-Policy-Index': 0}
+        root_resp_hdrs = {'X-Backend-Sharding-State': '3',
+                          'X-Container-Object-Count': num_all_objects,
+                          'X-Container-Bytes-Used': size_all_objects,
+                          'X-Container-Meta-Flavour': 'peach',
+                          'X-Backend-Storage-Policy-Index': 0}
         # include some failed responses
-        responses = [(404, '', {}), (200, {}, root_headers)]
-        responses += [(404, '', {}), (200, sr_dicts, root_headers)]
-        responses += [(200, sr_objs[0], sr_headers[0])]
-        responses += [(200, sr_objs[1], sr_headers[1])]
-        responses += [(200, sr_objs[2], sr_headers[2])]
+        mock_responses = [
+            # status, body, headers
+            (404, '', {}),
+            (200, {}, root_resp_hdrs),
+            (404, '', {}),
+            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2])
+        ]
         expected_requests = [
-            ('a/c', {}),  # 404
-            ('a/c', {}),  # 200
-            ('a/c', dict(items='shard', state='active')),  # 404
-            ('a/c', dict(items='shard', state='active')),  # 200
-            (shard_ranges[0].name,
+            # path, headers, params
+            ('a/c', {}, {}),  # 404
+            ('a/c', {}, {}),  # 200
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(state='active')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(state='active')),  # 404
+            (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', scope='root',
                   limit=str(limit))),  # 200
-            (shard_ranges[1].name,
+            (shard_ranges[1].name, {},
              dict(marker='ham', end_marker='pie\x00', scope='root',
                   limit=str(limit - len(sr_objs[0])))),  # 200
-            (shard_ranges[2].name,
+            (shard_ranges[2].name, {},
              dict(marker='pie', end_marker='', scope='root',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
         ]
         resp = self._check_GET_shard_listing(
-            responses, expected_objects, expected_requests)
+            mock_responses, expected_objects, expected_requests)
 
         def check_response(resp):
             self.assertEqual(len(all_objects),
@@ -524,36 +535,40 @@ class TestContainerController(TestRingBase):
             self.assertEqual('3', resp.headers['X-Backend-Sharding-State'])
             # check that info cache is correct for root container
             info = get_container_info(resp.request.environ, self.app)
-            self.assertEqual(headers_to_container_info(root_headers), info)
+            self.assertEqual(headers_to_container_info(root_resp_hdrs), info)
         check_response(resp)
 
         # GET with limit param
         limit = len(sr_objs[0]) + len(sr_objs[1]) + 1
         expected_objects = all_objects[:limit]
-        responses = [(404, '', {}), (200, {}, root_headers)]
-        responses += [(404, '', {}), (200, sr_dicts, root_headers)]
-        responses += [(200, sr_objs[0], sr_headers[0])]
-        responses += [(200, sr_objs[1], sr_headers[1])]
-        responses += [(200, sr_objs[2][:1], sr_headers[2])]
+        mock_responses = [
+            (404, '', {}),
+            (200, {}, root_resp_hdrs),
+            (404, '', {}),
+            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2][:1], shard_resp_hdrs[2])
+        ]
         expected_requests = [
-            ('a/c', dict(limit=str(limit))),  # 404
-            ('a/c', dict(limit=str(limit))),  # 200
-            ('a/c',
-             dict(items='shard', limit=str(limit), state='active')),  # 404
-            ('a/c',
-             dict(items='shard', limit=str(limit), state='active')),  # 200
-            (shard_ranges[0].name,  # 200
+            ('a/c', {}, dict(limit=str(limit))),  # 404
+            ('a/c', {}, dict(limit=str(limit))),  # 200
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(limit=str(limit), state='active')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(limit=str(limit), state='active')),  # 200
+            (shard_ranges[0].name, {},  # 200
              dict(marker='', end_marker='ham\x00', scope='root',
                   limit=str(limit))),
-            (shard_ranges[1].name,  # 200
+            (shard_ranges[1].name, {},  # 200
              dict(marker='ham', end_marker='pie\x00', scope='root',
                   limit=str(limit - len(sr_objs[0])))),
-            (shard_ranges[2].name,  # 200
+            (shard_ranges[2].name, {},   # 200
              dict(marker='pie', end_marker='', scope='root',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]))))
         ]
         self._check_GET_shard_listing(
-            responses, expected_objects, expected_requests,
+            mock_responses, expected_objects, expected_requests,
             query_string='?limit=%s' % limit)
         check_response(resp)
 
@@ -562,24 +577,31 @@ class TestContainerController(TestRingBase):
         first_included = len(sr_objs[0]) + 2
         limit = CONTAINER_LISTING_LIMIT
         expected_objects = all_objects[first_included:]
-        responses = [(404, '', {}), (200, {}, root_headers)]
-        responses += [(404, '', {}), (200, sr_dicts[1:], root_headers)]
-        responses += [(200, sr_objs[1][2:], sr_headers[1])]
-        responses += [(200, sr_objs[2], sr_headers[2])]
+        mock_responses = [
+            (404, '', {}),
+            (200, {}, root_resp_hdrs),
+            (200, sr_dicts[1:], root_resp_hdrs),
+            (404, '', {}),
+            (200, sr_objs[1][2:], shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2])
+        ]
         expected_requests = [
-            ('a/c', dict(marker=marker)),  # 404
-            ('a/c', dict(marker=marker)),  # 200
-            ('a/c', dict(items='shard', marker=marker, state='active')),  # 404
-            ('a/c', dict(items='shard', marker=marker, state='active')),  # 200
-            (shard_ranges[1].name,  # 200
+            ('a/c', {}, dict(marker=marker)),  # 404
+            ('a/c', {}, dict(marker=marker)),  # 200
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(marker=marker, state='active')),  # 200
+            (shard_ranges[1].name, {},  # 404
              dict(marker=marker, end_marker='pie\x00', scope='root',
                   limit=str(limit))),
-            (shard_ranges[2].name,  # 200
+            (shard_ranges[1].name, {},  # 200
+             dict(marker=marker, end_marker='pie\x00', scope='root',
+                  limit=str(limit))),
+            (shard_ranges[2].name, {},  # 200
              dict(marker='pie', end_marker='', scope='root',
                   limit=str(limit - len(sr_objs[1][2:])))),
         ]
         self._check_GET_shard_listing(
-            responses, expected_objects, expected_requests,
+            mock_responses, expected_objects, expected_requests,
             query_string='?marker=%s' % marker)
         check_response(resp)
 
@@ -587,82 +609,95 @@ class TestContainerController(TestRingBase):
         end_marker = sr_objs[1][6]['name']
         first_excluded = len(sr_objs[0]) + 6
         expected_objects = all_objects[:first_excluded]
-        responses = [(404, '', {}), (200, {}, root_headers)]
-        responses += [(404, '', {}), (200, sr_dicts[:2], root_headers)]
-        responses += [(200, sr_objs[0], sr_headers[0])]
-        responses += [(200, sr_objs[1][:6], sr_headers[1])]
+        mock_responses = [
+            (404, '', {}),
+            (200, {}, root_resp_hdrs),
+            (200, sr_dicts[:2], root_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (404, '', {}),
+            (200, sr_objs[1][:6], shard_resp_hdrs[1])
+        ]
         expected_requests = [
-            ('a/c', dict(end_marker=end_marker)),  # 404
-            ('a/c', dict(end_marker=end_marker)),  # 200
-            ('a/c',
-             dict(items='shard', end_marker=end_marker,
-                  state='active')),  # 404
-            ('a/c',
-             dict(items='shard', end_marker=end_marker,
-                  state='active')),  # 200
-            (shard_ranges[0].name,  # 200
+            ('a/c', {}, dict(end_marker=end_marker)),  # 404
+            ('a/c', {}, dict(end_marker=end_marker)),  # 200
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(end_marker=end_marker, state='active')),  # 200
+            (shard_ranges[0].name, {},  # 200
              dict(marker='', end_marker='ham\x00', scope='root',
                   limit=str(limit))),
-            (shard_ranges[1].name,  # 200
+            (shard_ranges[1].name, {},  # 404
+             dict(marker='ham', end_marker=end_marker, scope='root',
+                  limit=str(limit - len(sr_objs[0])))),
+            (shard_ranges[1].name, {},  # 200
              dict(marker='ham', end_marker=end_marker, scope='root',
                   limit=str(limit - len(sr_objs[0])))),
         ]
         self._check_GET_shard_listing(
-            responses, expected_objects, expected_requests,
+            mock_responses, expected_objects, expected_requests,
             query_string='?end_marker=%s' % end_marker)
         check_response(resp)
 
         # marker and end_marker and limit
         limit = 2
         expected_objects = all_objects[first_included:first_excluded]
-        responses = [(404, '', {}), (200, {}, root_headers)]
-        responses += [(404, '', {}), (200, sr_dicts[1:2], root_headers)]
-        responses += [(200, sr_objs[1][2:6], sr_headers[1])]
+        mock_responses = [
+            (404, '', {}),
+            (200, {}, root_resp_hdrs),
+            (404, '', {}),
+            (200, sr_dicts[1:2], root_resp_hdrs),
+            (200, sr_objs[1][2:6], shard_resp_hdrs[1])
+        ]
         expected_requests = [
-            ('a/c',
+            ('a/c', {},
              dict(marker=marker, end_marker=end_marker,
                   limit=str(limit))),  # 404
-            ('a/c',
+            ('a/c', {},
              dict(marker=marker, end_marker=end_marker,
                   limit=str(limit))),  # 200
-            ('a/c',
-             dict(items='shard', limit=str(limit), state='active',
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(limit=str(limit), state='active',
                   marker=marker, end_marker=end_marker)),  # 404
-            ('a/c',
-             dict(items='shard', limit=str(limit), state='active',
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(limit=str(limit), state='active',
                   marker=marker, end_marker=end_marker)),  # 200
-            (shard_ranges[1].name,  # 200
+            (shard_ranges[1].name, {},  # 200
              dict(marker=marker, end_marker=end_marker, scope='root',
                   limit=str(limit))),
         ]
         self._check_GET_shard_listing(
-            responses, expected_objects, expected_requests,
+            mock_responses, expected_objects, expected_requests,
             query_string='?marker=%s&end_marker=%s&limit=%s'
             % (marker, end_marker, limit))
         check_response(resp)
 
         # reverse
         expected_objects.reverse()
-        responses = [(404, '', {}), (200, {}, root_headers)]
-        responses += [(404, '', {}), (200, sr_dicts[1:2], root_headers)]
-        responses += [(200, list(reversed(sr_objs[1][2:6])), sr_headers[1])]
+        mock_responses = [
+            (404, '', {}),
+            (200, {}, root_resp_hdrs),
+            (404, '', {}),
+            (200, sr_dicts[1:2], root_resp_hdrs),
+            (200, list(reversed(sr_objs[1][2:6])), shard_resp_hdrs[1])
+        ]
         expected_requests = [
-            ('a/c', dict(marker=marker, reverse='true',
-                         end_marker=end_marker, limit=str(limit))),  # 404
-            ('a/c', dict(marker=marker, reverse='true',
-                         end_marker=end_marker, limit=str(limit))),  # 200
-            ('a/c', dict(items='shard', limit=str(limit), state='active',
-                         marker=marker, end_marker=end_marker,
-                         reverse='true')),  # 404
-            ('a/c', dict(items='shard', limit=str(limit), state='active',
-                         marker=marker, end_marker=end_marker,
-                         reverse='true')),  # 200
-            (shard_ranges[1].name,  # 200
+            ('a/c', {},
+             dict(marker=marker, reverse='true', end_marker=end_marker,
+                  limit=str(limit))),  # 404
+            ('a/c', {},
+             dict(marker=marker, reverse='true', end_marker=end_marker,
+                  limit=str(limit))),  # 200
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(limit=str(limit), state='active', marker=marker,
+                  end_marker=end_marker, reverse='true')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(limit=str(limit), state='active', marker=marker,
+                  end_marker=end_marker, reverse='true')),  # 200
+            (shard_ranges[1].name, {},  # 200
              dict(marker=marker, end_marker=end_marker, scope='root',
                   limit=str(limit), reverse='true')),
         ]
         self._check_GET_shard_listing(
-            responses, expected_objects, expected_requests,
+            mock_responses, expected_objects, expected_requests,
             query_string='?marker=%s&end_marker=%s&limit=%s&reverse=true'
             % (marker, end_marker, limit))
         check_response(resp)
