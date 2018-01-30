@@ -24,7 +24,6 @@ from random import random
 
 from eventlet import Timeout
 
-from swift.common.request_helpers import shard_range_to_headers
 from swift.container.replicator import ContainerReplicator
 from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD_NODE, DB_STATE_NOTFOUND, \
@@ -37,8 +36,8 @@ from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, \
-    find_shard_range, GreenAsyncPile, config_float_value,\
-    config_positive_int_value
+    find_shard_range, GreenAsyncPile, config_float_value, \
+    config_positive_int_value, FileLikeIter
 from swift.common.storage_policy import POLICIES
 
 
@@ -411,8 +410,7 @@ class ContainerSharder(ContainerReplicator):
                 for range in older:
                     range.timestamp = timestamp
                 self._update_shard_ranges(
-                    broker.root_account, broker.root_container, 'DELETE', older
-                )
+                    broker.root_account, broker.root_container, older)
                 continue_with_container = False
             missing_ranges = ContainerSharder.check_complete_ranges(ranges)
             if missing_ranges:
@@ -552,36 +550,21 @@ class ContainerSharder(ContainerReplicator):
                     # the meta_timestamp should prevent these updates undoing
                     # any newer updates at the root from the actual shards.
                     # *It would be good to have a test to verify that.*
-                    self._update_shard_ranges(
-                        broker.root_account, broker.root_container, 'PUT',
-                        broker.get_shard_ranges())
                     own_shard_range = broker.get_own_shard_range()
                     own_shard_range = own_shard_range.copy(
                         timestamp=Timestamp.now())
                     # TODO: maybe differentiate SHARDED vs SHRUNK?
                     own_shard_range.state = ShardRange.SHARDED
-                    # TODO: DELETE may be unnecessary given shard range state
+                    own_shard_range.deleted = 1
                     self._update_shard_ranges(
-                        broker.root_account, broker.root_container, 'DELETE',
-                        [own_shard_range])
-                    # delete shard ranges so that the container's effective
-                    # object_count is zero
-                    # TODO: not sure this was safe - if replicated before other
-                    # replicas performed cleaving then other replicas would
-                    # lose state (sysmeta and shard range rows)
-                    # sharded shard containers get cleaned up
-                    # self.logger.info('Deleting sharded shard %s/%s',
-                    #                  broker.account, broker.container)
-                    # broker.merge_shard_ranges(
-                    #     [dict(sr, created_at=now, deleted=1)
-                    #      for sr in broker.get_shard_ranges()])
-                    # broker.delete_db(now)
+                        broker.root_account, broker.root_container,
+                        [own_shard_range] + broker.get_shard_ranges())
             else:
                 if not broker.is_root_container():
                     # update the root container with this shard's usage stats
                     own_shard_range = broker.get_own_shard_range()
                     self._update_shard_ranges(
-                        broker.root_account, broker.root_container, 'PUT',
+                        broker.root_account, broker.root_container,
                         [own_shard_range])
             self.logger.info('Finished processing %s/%s state %s',
                              broker.account, broker.container,
@@ -661,42 +644,50 @@ class ContainerSharder(ContainerReplicator):
         self.logger.info('Finished container sharding pass')
 
     def _send_request(self, ip, port, contdevice, partition, op, path,
-                      headers_out=None, node_idx=None):
-        headers_out = {} if headers_out is None else headers_out
-        if 'user-agent' not in headers_out:
-            headers_out['user-agent'] = 'container-sharder %s' % \
-                                        os.getpid()
-        if 'X-Timestamp' not in headers_out:
-            headers_out['X-Timestamp'] = Timestamp.now().normal
+                      headers_out, body, node_idx):
+        # TODO: can we eliminate this method by making internal client or
+        # direct client support PUT to container with a body?
         try:
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(ip, port, contdevice, partition,
                                     op, path, headers_out)
+
+            left = len(body)
+            contents_f = FileLikeIter(body)
+            chunk_size = 65536
+            while left > 0:
+                size = chunk_size
+                if size > left:
+                    size = left
+                chunk = contents_f.read(size)
+                if not chunk:
+                    break
+                conn.send(chunk)
+                left -= len(chunk)
+
             with Timeout(self.node_timeout):
                 response = conn.getresponse()
                 return response, node_idx
         except (Exception, Timeout) as x:
             self.logger.info(str(x))
-            # Need to do something here.
+            # TODO: Need to do something here.
             return None, node_idx
 
-    def _update_shard_ranges(self, account, container, op, shard_ranges):
+    def _update_shard_ranges(self, account, container, shard_ranges):
+        body = json.dumps([dict(sr) for sr in shard_ranges])
         path = "/%s/%s" % (account, container)
         part, nodes = self.ring.get_nodes(account, container)
-        for shard_range in shard_ranges:
-            obj = shard_range.name
-            obj_path = '%s/%s' % (path, obj)
-            self.logger.info('sending %s update for shard range %s to %s' %
-                             (op, shard_range, obj_path))
-            headers = shard_range_to_headers(shard_range)
-            headers['x-backend-record-type'] = RECORD_TYPE_SHARD_NODE
-            headers['x-size'] = 0
+        headers = {'X-Backend-Record-Type': RECORD_TYPE_SHARD_NODE,
+                   'User-Agent': 'container-sharder %s' % os.getpid(),
+                   'X-Timestamp': Timestamp.now().normal,
+                   'Content-Length': len(body),
+                   'Content-Type': 'application/json'}
 
-            for node in nodes:
-                self.cpool.spawn(
-                    self._send_request, node['ip'], node['port'],
-                    node['device'], part, op, obj_path, headers, node['index'])
-            all(self.cpool)
+        for node in nodes:
+            self.cpool.spawn(
+                self._send_request, node['ip'], node['port'], node['device'],
+                part, 'PUT', path, headers, body, node['index'])
+        all(self.cpool)
 
     @staticmethod
     def check_complete_ranges(ranges):
@@ -797,8 +788,7 @@ class ContainerSharder(ContainerReplicator):
         broker.merge_shard_ranges([dict(sr) for sr in persisted_ranges])
         if not broker.is_root_container():
             self._update_shard_ranges(
-                broker.root_account, broker.root_container, 'PUT',
-                persisted_ranges)
+                broker.root_account, broker.root_container, persisted_ranges)
         # Second, create shard containers ready to receive redirected object
         # updates. Do this now so that redirection can begin immediately
         # without waiting for cleaving to complete.
@@ -925,7 +915,7 @@ class ContainerSharder(ContainerReplicator):
             # existence of a shard range whose upper >= shard own range, rather
             # than using sysmeta Scan-Done.
             self._update_shard_ranges(
-                donor.account, donor.container, 'PUT', [acceptor])
+                donor.account, donor.container, [acceptor])
             # TODO: not sure we really want to delete the donor yet but need
             # some way to ensure it is passed over in future shrink cycles;
             # some audit process should delete the shard once it has emptied
