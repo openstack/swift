@@ -617,13 +617,13 @@ class ECStoragePolicy(BaseStoragePolicy):
             considering the number of nodes in the primary list from the ring.
             """
 
-            configured_fragment_count = len(ring_data._replica2part2dev_id)
+            configured_fragment_count = ring_data.replica_count
             required_fragment_count = \
                 (self.ec_n_unique_fragments) * self.ec_duplication_factor
             if configured_fragment_count != required_fragment_count:
                 raise RingLoadError(
                     'EC ring for policy %s needs to be configured with '
-                    'exactly %d replicas. Got %d.' % (
+                    'exactly %d replicas. Got %s.' % (
                         self.name, required_fragment_count,
                         configured_fragment_count))
 
