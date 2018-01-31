@@ -275,10 +275,10 @@ Procedure
 
 #. The ``list_parts`` option to the ring builder indicates how many ring
    partitions the nodes have in common. If, as in this case,  the
-   first entry in the list has a ‘Matches’ column of 2 or less,  there
+   first entry in the list has a 'Matches' column of 2 or less,  there
    is no data availability risk if all three nodes are down.
 
-#. If the ‘Matches’ column has entries equal to 3, there is some data
+#. If the 'Matches' column has entries equal to 3, there is some data
    availability risk if all three nodes are down. The risk is generally
    small, and is proportional to the number of entries that have a 3 in
    the Matches column. For example:
