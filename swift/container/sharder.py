@@ -397,8 +397,8 @@ class ContainerSharder(ContainerReplicator):
         if broker.is_root_container():
             # This is the root container, and therefore the tome of knowledge,
             # all we can do is check there is nothing screwy with the range
-            ranges = broker.get_shard_ranges()
-            overlaps = ContainerSharder.find_overlapping_ranges(ranges)
+            shard_ranges = broker.get_shard_ranges()
+            overlaps = ContainerSharder.find_overlapping_ranges(shard_ranges)
             for overlap in overlaps:
                 self.logger.error('Range overlaps found, attempting to '
                                   'correct')
@@ -407,12 +407,15 @@ class ContainerSharder(ContainerReplicator):
 
                 # now delete the older overlaps, keeping only the newest
                 timestamp = Timestamp(newest.timestamp, offset=1)
-                for range in older:
-                    range.timestamp = timestamp
+                for shard_range in older:
+                    shard_range.timestamp = timestamp
+                    shard_range.deleted = 1
+                # TODO: make a single update of older ranges at end of loop
                 self._update_shard_ranges(
                     broker.root_account, broker.root_container, older)
                 continue_with_container = False
-            missing_ranges = ContainerSharder.check_complete_ranges(ranges)
+            missing_ranges = ContainerSharder.check_complete_ranges(
+                shard_ranges)
             if missing_ranges:
                 self.logger.error('Missing range(s) dectected: %s',
                                   '-'.join(missing_ranges))
@@ -425,8 +428,8 @@ class ContainerSharder(ContainerReplicator):
             return continue_with_container
 
         # Get the root view of the world.
-        ranges = self._get_shard_ranges(broker, newest=True)
-        if ranges is None:
+        shard_ranges = self._get_shard_ranges(broker, newest=True)
+        if shard_ranges is None:
             # failed to get the root tree. Error out for now.. we may need to
             # quarantine the container.
             self.logger.warning("Failed to get a shard range tree from root "
@@ -436,7 +439,7 @@ class ContainerSharder(ContainerReplicator):
             self.stats['containers_failed'] += 1
             self.stats['containers_audit_failed'] += 1
             return False
-        if shard_range in ranges:
+        if shard_range in shard_ranges:
             return continue_with_container
 
         # shard range isn't in ranges, if it overlaps with an item, we're in
@@ -445,7 +448,7 @@ class ContainerSharder(ContainerReplicator):
         # TODO(tburke): is ^^^ right? or better to consider it all misplaced?
         # if it's newer, then it might not be updated yet, so just let it
         # continue (or maybe we shouldn't?).
-        overlaps = [r for r in ranges if r.overlaps(shard_range)]
+        overlaps = [r for r in shard_ranges if r.overlaps(shard_range)]
         if overlaps:
             if max(overlaps + [shard_range],
                    key=lambda x: x.timestamp) == shard_range:
