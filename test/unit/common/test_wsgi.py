@@ -203,7 +203,7 @@ class TestWSGI(unittest.TestCase):
         conf_file = os.path.join(tempdir, 'file.conf')
 
         def _write_and_load_conf_file(conf):
-            with open(conf_file, 'wb') as fd:
+            with open(conf_file, 'wt') as fd:
                 fd.write(dedent(conf))
             return wsgi.load_app_config(conf_file)
 
@@ -659,12 +659,12 @@ class TestWSGI(unittest.TestCase):
         oldenv = {}
         newenv = wsgi.make_pre_authed_env(oldenv)
         self.assertTrue('wsgi.input' in newenv)
-        self.assertEqual(newenv['wsgi.input'].read(), '')
+        self.assertEqual(newenv['wsgi.input'].read(), b'')
 
         oldenv = {'wsgi.input': BytesIO(b'original wsgi.input')}
         newenv = wsgi.make_pre_authed_env(oldenv)
         self.assertTrue('wsgi.input' in newenv)
-        self.assertEqual(newenv['wsgi.input'].read(), '')
+        self.assertEqual(newenv['wsgi.input'].read(), b'')
 
         oldenv = {'swift.source': 'UT'}
         newenv = wsgi.make_pre_authed_env(oldenv)
@@ -677,7 +677,7 @@ class TestWSGI(unittest.TestCase):
     def test_pre_auth_req(self):
         class FakeReq(object):
             @classmethod
-            def fake_blank(cls, path, environ=None, body='', headers=None):
+            def fake_blank(cls, path, environ=None, body=b'', headers=None):
                 if environ is None:
                     environ = {}
                 if headers is None:
@@ -687,7 +687,7 @@ class TestWSGI(unittest.TestCase):
         was_blank = Request.blank
         Request.blank = FakeReq.fake_blank
         wsgi.make_pre_authed_request({'HTTP_X_TRANS_ID': '1234'},
-                                     'PUT', '/', body='tester', headers={})
+                                     'PUT', '/', body=b'tester', headers={})
         wsgi.make_pre_authed_request({'HTTP_X_TRANS_ID': '1234'},
                                      'PUT', '/', headers={})
         Request.blank = was_blank
@@ -695,7 +695,7 @@ class TestWSGI(unittest.TestCase):
     def test_pre_auth_req_with_quoted_path(self):
         r = wsgi.make_pre_authed_request(
             {'HTTP_X_TRANS_ID': '1234'}, 'PUT', path=quote('/a space'),
-            body='tester', headers={})
+            body=b'tester', headers={})
         self.assertEqual(r.path, quote('/a space'))
 
     def test_pre_auth_req_drops_query(self):
@@ -711,8 +711,8 @@ class TestWSGI(unittest.TestCase):
 
     def test_pre_auth_req_with_body(self):
         r = wsgi.make_pre_authed_request(
-            {'QUERY_STRING': 'original'}, 'GET', 'path', 'the body')
-        self.assertEqual(r.body, 'the body')
+            {'QUERY_STRING': 'original'}, 'GET', 'path', b'the body')
+        self.assertEqual(r.body, b'the body')
 
     def test_pre_auth_creates_script_name(self):
         e = wsgi.make_pre_authed_env({})
@@ -730,9 +730,9 @@ class TestWSGI(unittest.TestCase):
 
     def test_pre_auth_req_swift_source(self):
         r = wsgi.make_pre_authed_request(
-            {'QUERY_STRING': 'original'}, 'GET', 'path', 'the body',
+            {'QUERY_STRING': 'original'}, 'GET', 'path', b'the body',
             swift_source='UT')
-        self.assertEqual(r.body, 'the body')
+        self.assertEqual(r.body, b'the body')
         self.assertEqual(r.environ['swift.source'], 'UT')
 
     def test_run_server_global_conf_callback(self):
@@ -1363,7 +1363,8 @@ class TestWSGIContext(unittest.TestCase):
         self.assertEqual('aaaaa', next(iterator))
         self.assertEqual('bbbbb', next(iterator))
         iterable.close()
-        self.assertRaises(StopIteration, iterator.next)
+        with self.assertRaises(StopIteration):
+            next(iterator)
 
     def test_update_content_length(self):
         statuses = ['200 Ok']

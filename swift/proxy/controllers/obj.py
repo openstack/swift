@@ -150,11 +150,11 @@ class ObjectControllerRouter(object):
     def __init__(self):
         self.policy_to_controller_cls = {}
         for policy in POLICIES:
-            self.policy_to_controller_cls[policy] = \
+            self.policy_to_controller_cls[int(policy)] = \
                 self.policy_type_to_controller_map[policy.policy_type]
 
     def __getitem__(self, policy):
-        return self.policy_to_controller_cls[policy]
+        return self.policy_to_controller_cls[int(policy)]
 
 
 class BaseObjectController(Controller):

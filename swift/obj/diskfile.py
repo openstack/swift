@@ -608,10 +608,10 @@ class DiskFileRouter(object):
         self.policy_to_manager = {}
         for policy in POLICIES:
             manager_cls = self.policy_type_to_manager_cls[policy.policy_type]
-            self.policy_to_manager[policy] = manager_cls(*args, **kwargs)
+            self.policy_to_manager[int(policy)] = manager_cls(*args, **kwargs)
 
     def __getitem__(self, policy):
-        return self.policy_to_manager[policy]
+        return self.policy_to_manager[int(policy)]
 
 
 class BaseDiskFileManager(object):
