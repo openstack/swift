@@ -341,7 +341,7 @@ from swift.common.utils import get_logger, config_true_value, \
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
     get_container_update_override_key
-from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
+from swift.common.constraints import check_utf8
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
 from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.middleware.bulk import get_response_body, \
@@ -1099,7 +1099,10 @@ class StaticLargeObject(object):
         delete_concurrency = int(self.conf.get(
             'delete_concurrency', self.concurrency))
         self.bulk_deleter = Bulk(
-            app, {}, delete_concurrency=delete_concurrency, logger=self.logger)
+            app, {},
+            max_deletes_per_request=float('inf'),
+            delete_concurrency=delete_concurrency,
+            logger=self.logger)
 
     def handle_multipart_get_or_head(self, req, start_response):
         """
@@ -1417,7 +1420,13 @@ class StaticLargeObject(object):
             'sub_slo': True,
             'name': obj_path}]
         while segments:
-            if len(segments) > MAX_BUFFERED_SLO_SEGMENTS:
+            # We chose not to set the limit at max_manifest_segments
+            # in the case this value was decreased by operators.
+            # Still it is important to set a limit to avoid this list
+            # growing too large and causing OOM failures.
+            # x10 is a best guess as to how much operators would change
+            # the value of max_manifest_segments.
+            if len(segments) > self.max_manifest_segments * 10:
                 raise HTTPBadRequest(
                     'Too many buffered slo segments to delete.')
             seg_data = segments.pop(0)
