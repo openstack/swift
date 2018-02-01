@@ -237,9 +237,9 @@ except InvalidHashPathConfigError:
     pass
 
 
-def get_hmac(request_method, path, expires, key):
+def get_hmac(request_method, path, expires, key, digest=sha1):
     """
-    Returns the hexdigest string of the HMAC-SHA1 (RFC 2104) for
+    Returns the hexdigest string of the HMAC (see RFC 2104) for
     the request.
 
     :param request_method: Request method to allow.
@@ -247,11 +247,16 @@ def get_hmac(request_method, path, expires, key):
     :param expires: Unix timestamp as an int for when the URL
                     expires.
     :param key: HMAC shared secret.
+    :param digest: constructor for the digest to use in calculating the HMAC
+                   Defaults to SHA1
 
-    :returns: hexdigest str of the HMAC-SHA1 for the request.
+    :returns: hexdigest str of the HMAC for the request using the specified
+              digest algorithm.
     """
     return hmac.new(
-        key, '%s\n%s\n%s' % (request_method, expires, path), sha1).hexdigest()
+        key,
+        '%s\n%s\n%s' % (request_method, expires, path),
+        digest).hexdigest()
 
 
 # Used by get_swift_info and register_swift_info to store information about
