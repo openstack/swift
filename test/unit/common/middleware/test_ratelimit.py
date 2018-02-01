@@ -71,36 +71,6 @@ class FakeMemcache(object):
         return True
 
 
-def mock_http_connect(response, headers=None, with_exc=False):
-
-    class FakeConn(object):
-
-        def __init__(self, status, headers, with_exc):
-            self.status = status
-            self.reason = 'Fake'
-            self.host = '1.2.3.4'
-            self.port = '1234'
-            self.with_exc = with_exc
-            self.headers = headers
-            if self.headers is None:
-                self.headers = {}
-
-        def getresponse(self):
-            if self.with_exc:
-                raise Exception('test')
-            return self
-
-        def getheader(self, header):
-            return self.headers[header]
-
-        def read(self, amt=None):
-            return ''
-
-        def close(self):
-            return
-    return lambda *args, **kwargs: FakeConn(response, headers, with_exc)
-
-
 class FakeApp(object):
 
     def __call__(self, env, start_response):
@@ -246,7 +216,6 @@ class TestRateLimit(unittest.TestCase):
         num_calls = 50
         conf_dict = {'account_ratelimit': current_rate}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
         with mock.patch('swift.common.middleware.ratelimit.get_container_info',
                         lambda *args, **kwargs: {}):
             with mock.patch(
@@ -270,7 +239,6 @@ class TestRateLimit(unittest.TestCase):
         num_calls = 50
         conf_dict = {'account_ratelimit': current_rate}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/a/c')
         req.method = 'PUT'
         req.environ['swift.cache'] = FakeMemcache()
@@ -310,7 +278,6 @@ class TestRateLimit(unittest.TestCase):
                      'account_whitelist': 'a',
                      'account_blacklist': 'b'}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/a/c')
         req.environ['swift.cache'] = FakeMemcache()
 
@@ -353,7 +320,6 @@ class TestRateLimit(unittest.TestCase):
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         self.test_ratelimit.logger = FakeLogger()
         self.test_ratelimit.BLACK_LIST_SLEEP = 0
-        ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/b/c')
         req.environ['swift.cache'] = FakeMemcache()
 
@@ -394,7 +360,6 @@ class TestRateLimit(unittest.TestCase):
                      'clock_accuracy': 100,
                      'max_sleep_time_seconds': 1}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
         self.test_ratelimit.log_sleep_time_seconds = .00001
         req = Request.blank('/v/a/c')
         req.method = 'PUT'
@@ -425,7 +390,6 @@ class TestRateLimit(unittest.TestCase):
                      'clock_accuracy': 100,
                      'max_sleep_time_seconds': 1}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
         self.test_ratelimit.log_sleep_time_seconds = .00001
         req = Request.blank('/v/a/c/o')
         req.method = 'PUT'
@@ -459,7 +423,6 @@ class TestRateLimit(unittest.TestCase):
                      'clock_accuracy': 100,
                      'max_sleep_time_seconds': 1}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
         self.test_ratelimit.log_sleep_time_seconds = .00001
         req = Request.blank('/v/a/c')
         req.method = 'GET'
@@ -555,7 +518,6 @@ class TestRateLimit(unittest.TestCase):
         num_calls = 5
         conf_dict = {'account_ratelimit': current_rate}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/a')
         req.environ['swift.cache'] = None
         make_app_call = lambda: self.test_ratelimit(req.environ,
@@ -570,7 +532,6 @@ class TestRateLimit(unittest.TestCase):
         num_calls = 5
         conf_dict = {'account_ratelimit': current_rate}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/a/c')
         req.method = 'PUT'
         req.environ['swift.cache'] = FakeMemcache()
