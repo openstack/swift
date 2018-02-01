@@ -203,8 +203,17 @@ class BaseStoragePolicy(object):
     def __int__(self):
         return self.idx
 
-    def __cmp__(self, other):
-        return cmp(self.idx, int(other))
+    def __eq__(self, other):
+        return self.idx == int(other)
+
+    def __ne__(self, other):
+        return self.idx != int(other)
+
+    def __lt__(self, other):
+        return self.idx < int(other)
+
+    def __gt__(self, other):
+        return self.idx > int(other)
 
     def __repr__(self):
         return ("%s(%d, %r, is_default=%s, "
@@ -923,7 +932,12 @@ def reload_storage_policies():
     Reload POLICIES from ``swift.conf``.
     """
     global _POLICIES
-    policy_conf = ConfigParser()
+    if six.PY2:
+        policy_conf = ConfigParser()
+    else:
+        # Python 3.2 disallows section or option duplicates by default
+        # strict=False allows us to preserve the older behavior
+        policy_conf = ConfigParser(strict=False)
     policy_conf.read(utils.SWIFT_CONF_FILE)
     try:
         _POLICIES = parse_storage_policies(policy_conf)

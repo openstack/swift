@@ -70,7 +70,10 @@ class FakeStoragePolicy(BaseStoragePolicy):
 class TestStoragePolicies(unittest.TestCase):
     def _conf(self, conf_str):
         conf_str = "\n".join(line.strip() for line in conf_str.split("\n"))
-        conf = ConfigParser()
+        if six.PY2:
+            conf = ConfigParser()
+        else:
+            conf = ConfigParser(strict=False)
         conf.readfp(six.StringIO(conf_str))
         return conf
 
@@ -679,7 +682,7 @@ class TestStoragePolicies(unittest.TestCase):
         with capture_logging('swift.common.storage_policy') as records, \
                 self.assertRaises(PolicyError) as exc_mgr:
             parse_storage_policies(bad_conf)
-        self.assertEqual(exc_mgr.exception.message,
+        self.assertEqual(exc_mgr.exception.args[0],
                          'Storage policy bad-policy uses an EC '
                          'configuration known to harm data durability. This '
                          'policy MUST be deprecated.')
@@ -1048,7 +1051,7 @@ class TestStoragePolicies(unittest.TestCase):
         [storage-policy:00]
         name = double-zero
         """)
-        with NamedTemporaryFile() as f:
+        with NamedTemporaryFile(mode='w+t') as f:
             conf.write(f)
             f.flush()
             with mock.patch('swift.common.utils.SWIFT_CONF_FILE',
