@@ -34,8 +34,9 @@ from swift.common.request_helpers import get_param, \
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
-    override_bytes_from_content_type, get_log_line, ShardRange, list_from_csv
-
+    override_bytes_from_content_type, get_log_line, \
+    config_fallocate_value, fs_has_free_space, list_from_csv, \
+    ShardRange
 from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
@@ -124,6 +125,8 @@ class ContainerController(BaseStorageServer):
         self.sync_store = ContainerSyncStore(self.root,
                                              self.logger,
                                              self.mount_check)
+        self.fallocate_reserve, self.fallocate_is_percent = \
+            config_fallocate_value(conf.get('fallocate_reserve', '1%'))
 
     def _get_container_broker(self, drive, part, account, container, **kwargs):
         """
@@ -298,6 +301,11 @@ class ContainerController(BaseStorageServer):
         req.environ['swift.leave_relative_location'] = True
         return HTTPMovedPermanently(headers=headers, request=req)
 
+    def check_free_space(self, drive):
+        drive_root = os.path.join(self.root, drive)
+        return fs_has_free_space(
+            drive_root, self.fallocate_reserve, self.fallocate_is_percent)
+
     @public
     @timing_stats()
     def DELETE(self, req):
@@ -437,6 +445,8 @@ class ContainerController(BaseStorageServer):
         try:
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
+            return HTTPInsufficientStorage(drive=drive, request=req)
+        if not self.check_free_space(drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         requested_policy_index = self.get_and_validate_policy_index(req)
         broker = self._get_container_broker(drive, part, account, container)
@@ -726,6 +736,8 @@ class ContainerController(BaseStorageServer):
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
+        if not self.check_free_space(drive):
+            return HTTPInsufficientStorage(drive=drive, request=req)
         try:
             args = json.load(req.environ['wsgi.input'])
         except ValueError as err:
@@ -749,6 +761,8 @@ class ContainerController(BaseStorageServer):
         try:
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
+            return HTTPInsufficientStorage(drive=drive, request=req)
+        if not self.check_free_space(drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container)
         if broker.is_deleted():

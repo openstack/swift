@@ -759,6 +759,35 @@ class FileLikeIter(object):
         self.closed = True
 
 
+def fs_has_free_space(fs_path, space_needed, is_percent):
+    """
+    Check to see whether or not a filesystem has the given amount of space
+    free. Unlike fallocate(), this does not reserve any space.
+
+    :param fs_path: path to a file or directory on the filesystem; typically
+        the path to the filesystem's mount point
+
+    :param space_needed: minimum bytes or percentage of free space
+
+    :param is_percent: if True, then space_needed is treated as a percentage
+        of the filesystem's capacity; if False, space_needed is a number of
+        free bytes.
+
+    :returns: True if the filesystem has at least that much free space,
+        False otherwise
+
+    :raises OSError: if fs_path does not exist
+    """
+    st = os.statvfs(fs_path)
+    free_bytes = st.f_frsize * st.f_bavail
+    if is_percent:
+        size_bytes = st.f_frsize * st.f_blocks
+        free_percent = float(free_bytes) / float(size_bytes) * 100
+        return free_percent >= space_needed
+    else:
+        return free_bytes >= space_needed
+
+
 class FallocateWrapper(object):
 
     def __init__(self, noop=False):

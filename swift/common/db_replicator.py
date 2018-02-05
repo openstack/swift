@@ -918,6 +918,13 @@ class ReplicatorRpc(object):
                     quarantine_db(broker.db_file, broker.db_type)
                     return HTTPNotFound()
                 raise
+        # TODO(mattoliverau) At this point in the RPC, we have the callers
+        # replication info and ours, so it would be cool to be able to make
+        # an educated guess here on the size of the incoming replication (maybe
+        # average object table row size * difference in ROWIDs or something)
+        # and the fallocate_reserve setting so we could return a 507.
+        # This would make db fallocate_reserve more or less on par with the
+        # object's.
         if remote_info['metadata']:
             with self.debug_timing('update_metadata'):
                 broker.update_metadata(remote_info['metadata'])

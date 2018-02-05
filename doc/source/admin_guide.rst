@@ -298,10 +298,27 @@ Preventing Disk Full Scenarios
 Prevent disk full scenarios by ensuring that the ``proxy-server`` blocks PUT
 requests and rsync prevents replication to the specific drives.
 
-You can prevent `proxy-server` PUT requests to low space disks by ensuring
-``fallocate_reserve`` is set in the ``object-server.conf``. By default,
-``fallocate_reserve`` is set to 1%. This blocks PUT requests that leave the
-free disk space below 1% of the disk.
+You can prevent `proxy-server` PUT requests to low space disks by
+ensuring ``fallocate_reserve`` is set in ``account-server.conf``,
+``container-server.conf``, and ``object-server.conf``. By default,
+``fallocate_reserve`` is set to 1%. In the object server, this blocks
+PUT requests that would leave the free disk space below 1% of the
+disk. In the account and container servers, this blocks operations
+that will increase account or container database size once the free
+disk space falls below 1%.
+
+Setting ``fallocate_reserve`` is highly recommended to avoid filling
+disks to 100%. When Swift's disks are completely full, all requests
+involving those disks will fail, including DELETE requests that would
+otherwise free up space. This is because object deletion includes the
+creation of a zero-byte tombstone (.ts) to record the time of the
+deletion for replication purposes; this happens prior to deletion of
+the object's data. On a completely-full filesystem, that zero-byte .ts
+file cannot be created, so the DELETE request will fail and the disk
+will remain completely full. If ``fallocate_reserve`` is set, then the
+filesystem will have enough space to create the zero-byte .ts file,
+and thus the deletion of the object will succeed and free up some
+space.
 
 In order to prevent rsync replication to specific drives, firstly
 setup ``rsync_module`` per disk in your ``object-replicator``.
