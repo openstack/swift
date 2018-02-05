@@ -61,7 +61,10 @@ class FakeInternalClient(object):
         self.aco_dict.update(aco_dict)
 
     def get_account_info(self, account):
-        return 1, 2
+        acc_dict = self.aco_dict[account]
+        container_count = len(acc_dict)
+        obj_count = sum(len(objs) for objs in acc_dict.values())
+        return container_count, obj_count
 
     def iter_containers(self, account, prefix=''):
         acc_dict = self.aco_dict[account]
@@ -335,7 +338,7 @@ class TestObjectExpirer(TestCase):
         x.run_once()
         self.assertEqual(
             x.logger.get_lines_for_level('info'), [
-                'Pass beginning; 1 possible containers; 2 possible objects',
+                'Pass beginning; 0 possible containers; 0 possible objects',
                 'Pass completed in 0s; 0 objects expired',
             ])
 
@@ -369,7 +372,7 @@ class TestObjectExpirer(TestCase):
             x.run_once()
         logs = x.logger.all_log_lines()
         self.assertEqual(logs['info'], [
-            'Pass beginning; 1 possible containers; 2 possible objects',
+            'Pass beginning; 1 possible containers; 0 possible objects',
             'Pass completed in 0s; 0 objects expired',
         ])
         self.assertNotIn('error', logs)
@@ -404,7 +407,7 @@ class TestObjectExpirer(TestCase):
         x.run_once()
         self.assertNotIn('error', x.logger.all_log_lines())
         self.assertEqual(x.logger.get_lines_for_level('info'), [
-            'Pass beginning; 1 possible containers; 2 possible objects',
+            'Pass beginning; 1 possible containers; 1 possible objects',
             'Pass completed in 0s; 0 objects expired',
         ])
         # Reverse test to be sure it still would blow up the way expected.
@@ -447,7 +450,7 @@ class TestObjectExpirer(TestCase):
              'failed to delete actual object: ' % (ts, ts)])
         self.assertEqual(
             x.logger.get_lines_for_level('info'), [
-                'Pass beginning; 1 possible containers; 2 possible objects',
+                'Pass beginning; 1 possible containers; 1 possible objects',
                 'Pass completed in 0s; 0 objects expired',
             ])
 
@@ -486,7 +489,7 @@ class TestObjectExpirer(TestCase):
             self.assertEqual(x.report_objects, 1)
             self.assertEqual(
                 x.logger.get_lines_for_level('info'),
-                ['Pass beginning; 1 possible containers; 2 possible objects',
+                ['Pass beginning; 1 possible containers; 1 possible objects',
                  'Pass completed in 0s; 1 objects expired'])
 
     def test_delete_actual_object_does_not_get_unicode(self):
@@ -511,7 +514,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(x.report_objects, 1)
         self.assertEqual(
             x.logger.get_lines_for_level('info'), [
-                'Pass beginning; 1 possible containers; 2 possible objects',
+                'Pass beginning; 1 possible containers; 1 possible objects',
                 'Pass completed in 0s; 1 objects expired',
             ])
         self.assertFalse(got_unicode[0])
@@ -553,7 +556,7 @@ class TestObjectExpirer(TestCase):
             'Exception while deleting container %d failed to delete '
             'container: ' % (cts + 1,)]))
         self.assertEqual(x.logger.get_lines_for_level('info'), [
-            'Pass beginning; 1 possible containers; 2 possible objects',
+            'Pass beginning; 2 possible containers; 4 possible objects',
             'Pass completed in 0s; 0 objects expired',
         ])
 
