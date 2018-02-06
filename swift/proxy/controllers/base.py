@@ -47,6 +47,7 @@ from swift.common.utils import Timestamp, config_true_value, \
     GreenAsyncPile, quorum_size, parse_content_type, \
     document_iters_to_http_response_body, ShardRange
 from swift.common.bufferedhttp import http_connect
+from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout, RangeAlreadyComplete
 from swift.common.header_key_dict import HeaderKeyDict
@@ -1985,6 +1986,20 @@ class Controller(object):
         resp.headers = headers
 
         return resp
+
+    def get_name_length_limit(self):
+        if self.account_name.startswith(self.app.auto_create_account_prefix):
+            multiplier = 2
+        else:
+            multiplier = 1
+
+        if self.server_type == 'Account':
+            return constraints.MAX_ACCOUNT_NAME_LENGTH * multiplier
+        elif self.server_type == 'Container':
+            return constraints.MAX_CONTAINER_NAME_LENGTH * multiplier
+        else:
+            raise ValueError(
+                "server_type can only be 'account' or 'container'")
 
     def _get_container_listing(self, req, account, container, headers=None,
                                params=None):

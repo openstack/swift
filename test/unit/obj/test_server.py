@@ -6235,13 +6235,31 @@ class TestObjectController(unittest.TestCase):
 
             # make the x-if-delete-at with all the right bits (again)
             req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': delete_at_timestamp,
+                         'X-If-Delete-At': delete_at_timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 409)
+            self.assertFalse(os.path.isfile(objfile))
+
+            # overwrite with new content
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={
+                    'X-Timestamp': str(test_time + 100),
+                    'Content-Length': '0',
+                    'Content-Type': 'application/octet-stream'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 201, resp.body)
+
+            # simulate processing a stale expirer queue entry
+            req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'DELETE'},
                 headers={'X-Timestamp': delete_at_timestamp,
                          'X-If-Delete-At': delete_at_timestamp})
             resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 412)
-            self.assertFalse(os.path.isfile(objfile))
+            self.assertEqual(resp.status_int, 409)
 
             # make the x-if-delete-at for some not found
             req = Request.blank(

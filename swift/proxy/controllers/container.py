@@ -13,14 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from six.moves.urllib.parse import unquote
 from swift import gettext_ as _
 import json
 
+from six.moves.urllib.parse import unquote
 from swift.common.utils import public, csv_append, Timestamp, \
     config_true_value, ShardRange
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
-from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -246,11 +245,11 @@ class ContainerController(Controller):
                 'X-Container-Sharding' in req.headers:
             req.headers[get_sys_meta_prefix('container') + 'Sharding'] = \
                 config_true_value(req.headers['X-Container-Sharding'])
-        if len(self.container_name) > constraints.MAX_CONTAINER_NAME_LENGTH:
+        length_limit = self.get_name_length_limit()
+        if len(self.container_name) > length_limit:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Container name length of %d longer than %d' % \
-                        (len(self.container_name),
-                         constraints.MAX_CONTAINER_NAME_LENGTH)
+                        (len(self.container_name), length_limit)
             return resp
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)

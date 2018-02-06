@@ -464,7 +464,7 @@ class TestInternalClient(unittest.TestCase):
 
         # Since we didn't provide an X-Timestamp, retrying gives us a chance to
         # succeed (assuming the failure was due to clock skew between servers)
-        expected = (' HTTP/1.0 409 ', ' HTTP/1.0 409 ', ' HTTP/1.0 409 ', )
+        expected = (' HTTP/1.0 409 ',)
         loglines = client.logger.get_lines_for_level('info')
         for expected, logline in izip_longest(expected, loglines):
             if not expected:

@@ -9,7 +9,7 @@
     timeout: 2400
     vars:
       tox_environment:
-        TMPDIR: "{{ ansible_env.HOME }}/xfstmp"
+        TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
 - job:
     name: swift-tox-py27
@@ -94,7 +94,6 @@
     nodeset: centos-7
 
 - project:
-    name: openstack/swift
     check:
       jobs:
         - swift-tox-py27

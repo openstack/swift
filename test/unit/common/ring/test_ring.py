@@ -163,6 +163,21 @@ class TestRingData(unittest.TestCase):
         self.assertEqual(oct(stat.S_IMODE(os.stat(ring_fname).st_mode)),
                          '0644')
 
+    def test_replica_count(self):
+        rd = ring.RingData(
+            [[0, 1, 0, 1], [0, 1, 0, 1]],
+            [{'id': 0, 'zone': 0, 'ip': '10.1.1.0', 'port': 7000},
+             {'id': 1, 'zone': 1, 'ip': '10.1.1.1', 'port': 7000}],
+            30)
+        self.assertEqual(rd.replica_count, 2)
+
+        rd = ring.RingData(
+            [[0, 1, 0, 1], [0, 1, 0]],
+            [{'id': 0, 'zone': 0, 'ip': '10.1.1.0', 'port': 7000},
+             {'id': 1, 'zone': 1, 'ip': '10.1.1.1', 'port': 7000}],
+            30)
+        self.assertEqual(rd.replica_count, 1.75)
+
 
 class TestRing(TestRingBase):
 
@@ -216,6 +231,11 @@ class TestRing(TestRingBase):
                 mock.patch.object(utils, 'HASH_PATH_PREFIX', ''), \
                 mock.patch.object(utils, 'SWIFT_CONF_FILE', ''):
             self.assertRaises(SystemExit, ring.Ring, self.testdir, 'whatever')
+
+    def test_replica_count(self):
+        self.assertEqual(self.ring.replica_count, 3)
+        self.ring._replica2part2dev_id.append([0])
+        self.assertEqual(self.ring.replica_count, 3.25)
 
     def test_has_changed(self):
         self.assertFalse(self.ring.has_changed())

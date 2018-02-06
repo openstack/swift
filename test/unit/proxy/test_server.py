@@ -7747,10 +7747,9 @@ class TestContainerController(unittest.TestCase):
     def assert_status_map(self, method, statuses, expected,
                           raise_exc=False, missing_container=False):
         with save_globals():
-            kwargs = {}
+            kwargs = {'missing_container': missing_container}
             if raise_exc:
                 kwargs['raise_exc'] = raise_exc
-            kwargs['missing_container'] = missing_container
             set_http_connect(*statuses, **kwargs)
             self.app.memcache.store = {}
             req = Request.blank('/v1/a/c', headers={'Content-Length': '0',
@@ -8058,17 +8057,36 @@ class TestContainerController(unittest.TestCase):
                                    missing_container=True)
 
     def test_PUT_max_container_name_length(self):
-        with save_globals():
-            limit = constraints.MAX_CONTAINER_NAME_LENGTH
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          '1' * limit)
-            self.assert_status_map(controller.PUT,
-                                   (200, 201, 201, 201), 201,
-                                   missing_container=True)
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          '2' * (limit + 1))
-            self.assert_status_map(controller.PUT, (201, 201, 201), 400,
-                                   missing_container=True)
+        limit = constraints.MAX_CONTAINER_NAME_LENGTH
+        controller = proxy_server.ContainerController(self.app, 'account',
+                                                      '1' * limit)
+        self.assert_status_map(controller.PUT, (200, 201, 201, 201), 201,
+                               missing_container=True)
+        controller = proxy_server.ContainerController(self.app, 'account',
+                                                      '2' * (limit + 1))
+        self.assert_status_map(controller.PUT, (), 400,
+                               missing_container=True)
+
+        # internal auto-created-accounts get higher limits
+        limit *= 2
+        controller = proxy_server.ContainerController(self.app, '.account',
+                                                      '3' * limit)
+        self.assert_status_map(controller.PUT, (200, 201, 201, 201), 201,
+                               missing_container=True)
+        controller = proxy_server.ContainerController(self.app, '.account',
+                                                      '4' * (limit + 1))
+        self.assert_status_map(controller.PUT, (), 400,
+                               missing_container=True)
+
+        self.app.auto_create_account_prefix = 'acc'
+        controller = proxy_server.ContainerController(self.app, 'account',
+                                                      '1' * limit)
+        self.assert_status_map(controller.PUT, (200, 201, 201, 201), 201,
+                               missing_container=True)
+        controller = proxy_server.ContainerController(self.app, 'account',
+                                                      '2' * (limit + 1))
+        self.assert_status_map(controller.PUT, (), 400,
+                               missing_container=True)
 
     def test_PUT_connect_exceptions(self):
         with save_globals():
@@ -9197,14 +9215,39 @@ class TestAccountController(unittest.TestCase):
             test_status_map((204, 500, 404), 503)
 
     def test_PUT_max_account_name_length(self):
-        with save_globals():
-            self.app.allow_account_management = True
-            limit = constraints.MAX_ACCOUNT_NAME_LENGTH
-            controller = proxy_server.AccountController(self.app, '1' * limit)
-            self.assert_status_map(controller.PUT, (201, 201, 201), 201)
-            controller = proxy_server.AccountController(
-                self.app, '2' * (limit + 1))
-            self.assert_status_map(controller.PUT, (201, 201, 201), 400)
+        self.app.allow_account_management = True
+        limit = constraints.MAX_ACCOUNT_NAME_LENGTH
+        controller = proxy_server.AccountController(self.app, '1' * limit)
+        self.assert_status_map(controller.PUT, (201, 201, 201), 201)
+        controller = proxy_server.AccountController(
+            self.app, '2' * (limit + 1))
+        self.assert_status_map(controller.PUT, (), 400)
+
+        # internal auto-created accounts get higher limits
+        limit *= 2
+        controller = proxy_server.AccountController(
+            self.app, '.' + '3' * (limit - 1))
+        self.assert_status_map(controller.PUT, (201, 201, 201), 201)
+        controller = proxy_server.AccountController(
+            self.app, '.' + '4' * limit)
+        self.assert_status_map(controller.PUT, (), 400)
+
+        self.app.auto_create_account_prefix = 'FOO_'
+        limit /= 2
+        controller = proxy_server.AccountController(
+            self.app, '.' + '5' * (limit - 1))
+        self.assert_status_map(controller.PUT, (201, 201, 201), 201)
+        controller = proxy_server.AccountController(
+            self.app, '.' + '6' * limit)
+        self.assert_status_map(controller.PUT, (), 400)
+
+        limit *= 2
+        controller = proxy_server.AccountController(
+            self.app, 'FOO_' + '7' * (limit - 4))
+        self.assert_status_map(controller.PUT, (201, 201, 201), 201)
+        controller = proxy_server.AccountController(
+            self.app, 'FOO_' + '8' * (limit - 3))
+        self.assert_status_map(controller.PUT, (), 400)
 
     def test_PUT_connect_exceptions(self):
         with save_globals():

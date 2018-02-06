@@ -35,6 +35,12 @@ from swift.common.utils import hash_path, validate_configuration
 from swift.common.ring.utils import tiers_for_dev
 
 
+def calc_replica_count(replica2part2dev_id):
+    base = len(replica2part2dev_id) - 1
+    extra = 1.0 * len(replica2part2dev_id[-1]) / len(replica2part2dev_id[0])
+    return base + extra
+
+
 class RingData(object):
     """Partitioned consistent hashing ring data (used for serialization)."""
 
@@ -48,6 +54,11 @@ class RingData(object):
         for dev in self.devs:
             if dev is not None:
                 dev.setdefault("region", 1)
+
+    @property
+    def replica_count(self):
+        """Number of replicas (full or partial) used in the ring."""
+        return calc_replica_count(self._replica2part2dev_id)
 
     @classmethod
     def deserialize_v1(cls, gz_file, metadata_only=False):
@@ -285,7 +296,7 @@ class Ring(object):
     @property
     def replica_count(self):
         """Number of replicas (full or partial) used in the ring."""
-        return len(self._replica2part2dev_id)
+        return calc_replica_count(self._replica2part2dev_id)
 
     @property
     def partition_count(self):

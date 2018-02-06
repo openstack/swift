@@ -387,6 +387,7 @@ class Bulk(object):
                      'Response Body': '',
                      'Number Deleted': 0,
                      'Number Not Found': 0}
+        req.environ['eventlet.minimum_write_chunk_size'] = 0
         try:
             if not out_content_type:
                 raise HTTPNotAcceptable(request=req)
@@ -407,7 +408,6 @@ class Bulk(object):
             if objs_to_delete is None:
                 objs_to_delete = self.get_objs_to_delete(req)
             failed_file_response = {'type': HTTPBadRequest}
-            req.environ['eventlet.minimum_write_chunk_size'] = 0
 
             def delete_filter(predicate, objs_to_delete):
                 for obj_to_delete in objs_to_delete:
@@ -515,6 +515,7 @@ class Bulk(object):
         last_yield = time()
         separator = ''
         containers_accessed = set()
+        req.environ['eventlet.minimum_write_chunk_size'] = 0
         try:
             if not out_content_type:
                 raise HTTPNotAcceptable(request=req)
@@ -534,7 +535,6 @@ class Bulk(object):
             tar = tarfile.open(mode='r|' + compress_type,
                                fileobj=req.body_file)
             failed_response_type = HTTPBadRequest
-            req.environ['eventlet.minimum_write_chunk_size'] = 0
             containers_created = 0
             while True:
                 if last_yield + self.yield_frequency < time():

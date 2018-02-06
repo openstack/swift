@@ -329,8 +329,10 @@ class TestObject(unittest2.TestCase):
                               'Content-Length': '0'})
             return check_response(conn)
         ts_before = time.time()
+        time.sleep(0.05)
         resp = retry(put)
         body = resp.read()
+        time.sleep(0.05)
         ts_after = time.time()
         if resp.status == 400:
             # shunt_inbound_x_timestamp must be false
@@ -360,8 +362,10 @@ class TestObject(unittest2.TestCase):
                               'Content-Length': '0'})
             return check_response(conn)
         ts_before = time.time()
+        time.sleep(0.05)
         resp = retry(put)
         body = resp.read()
+        time.sleep(0.05)
         ts_after = time.time()
         if resp.status == 400:
             # shunt_inbound_x_timestamp must be false

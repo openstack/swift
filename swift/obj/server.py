@@ -1105,6 +1105,9 @@ class ObjectController(BaseStorageServer):
             if not orig_timestamp:
                 # no object found at all
                 return HTTPNotFound()
+            if orig_timestamp >= req_timestamp:
+                # Found a newer object -- return 409 as work item is stale
+                return HTTPConflict()
             if orig_delete_at != req_if_delete_at:
                 return HTTPPreconditionFailed(
                     request=request,

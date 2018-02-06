@@ -44,6 +44,16 @@ Container Server
     :undoc-members:
     :show-inheritance:
 
+.. _container-reconciler:
+
+Container Reconciler
+====================
+
+.. automodule:: swift.container.reconciler
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. _container-sharder:
 
 Container Sharder
