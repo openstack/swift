@@ -764,7 +764,7 @@ This information can also be queried via the swift-recon command line utility::
     fhines@ubuntu:~$ swift-recon -h
     Usage:
             usage: swift-recon <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d]
-            [-l] [-T] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
+            [-R] [-l] [-T] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
 
             <server_type>   account|container|object
             Defaults to object server.
@@ -778,6 +778,7 @@ This information can also be queried via the swift-recon command line utility::
       --suppress            Suppress most connection related errors
       -a, --async           Get async stats
       -r, --replication     Get replication stats
+      -R, --reconstruction  Get reconstruction stats
       --auditor             Get auditor stats
       --updater             Get updater stats
       --expirer             Get expirer stats

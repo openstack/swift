@@ -169,6 +169,13 @@ class ReconMiddleware(object):
         else:
             return None
 
+    def get_reconstruction_info(self):
+        """get reconstruction info"""
+        reconstruction_list = ['object_reconstruction_last',
+                               'object_reconstruction_time']
+        return self._from_recon_cache(reconstruction_list,
+                                      self.object_recon_cache)
+
     def get_device_info(self):
         """get devices"""
         try:
@@ -399,6 +406,8 @@ class ReconMiddleware(object):
             content = self.get_sharding_info()
         elif rcheck == "relinker":
             content = self.get_relinker_info()
+        elif rcheck == "reconstruction" and rtype == 'object':
+            content = self.get_reconstruction_info()
         else:
             content = "Invalid path: %s" % req.path
             return Response(request=req, status="404 Not Found",
