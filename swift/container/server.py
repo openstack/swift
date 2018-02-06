@@ -25,7 +25,7 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
-    RECORD_TYPE_SHARD_NODE, DB_STATE_SHARDING, DB_STATE_UNSHARDED
+    RECORD_TYPE_SHARD_NODE, DB_STATE_UNSHARDED
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
@@ -512,64 +512,6 @@ class ContainerController(BaseStorageServer):
         resp.last_modified = math.ceil(float(headers['X-PUT-Timestamp']))
         return resp
 
-    def _check_local_brokers(self, req, broker, headers, marker='',
-                             end_marker='', prefix='',
-                             limit=constraints.CONTAINER_LISTING_LIMIT):
-
-        def merge_items(old_items, new_items, reverse=False):
-            # TODO: this method should compare timestamps and not assume that
-            # any item in the shard db is newer (across data, content-type and
-            # metadata) than an item in the old db.
-            if old_items and isinstance(old_items[0], dict):
-                # TODO (acoles): does this condition ever occur?
-                name, deleted = 'name', 'deleted'
-            else:
-                name, deleted = 0, -1
-
-            items = dict([(r[name], r) for r in old_items])
-            for item in new_items:
-                if item[deleted] == 1:
-                    if item[name] in items:
-                        del items[item[name]]
-                        # TODO: if limit was applied to old_items then we may
-                        # now need to go back to the old db to fetch a
-                        # replacement for the deleted item
-                    continue
-                items[item[name]] = item
-
-            result = sorted([item for item in items.values()],
-                            key=lambda i: i[name])
-            if reverse:
-                result.reverse()
-            return result
-
-        path = get_param(req, 'path')
-        delimiter = get_param(req, 'delimiter')
-        reverse = config_true_value(get_param(req, 'reverse'))
-        old_b, shard_b = broker.get_brokers()
-        info, is_deleted = old_b.get_info_is_deleted()
-        headers.update({'X-Container-Object-Count': info['object_count'],
-                        'X-Container-Bytes-Used': info['bytes_used']})
-
-        results = old_b.list_objects_iter(
-            limit, marker, end_marker, prefix, delimiter, path,
-            broker.storage_policy_index, reverse)
-
-        last_old = results[-1] if results else None
-        while True:
-            shard_items = shard_b.list_objects_iter(
-                constraints.CONTAINER_LISTING_LIMIT, marker, end_marker,
-                prefix, delimiter, path, broker.storage_policy_index, reverse,
-                include_deleted=True)
-            results = merge_items(results, shard_items, reverse)
-            if len(shard_items) < constraints.CONTAINER_LISTING_LIMIT:
-                break
-            marker = shard_items[-1][0]
-            if len(results) >= limit and marker > last_old[0]:
-                # no more deletes to apply to old_items
-                break
-        return headers, results[:limit]
-
     def update_data_record(self, record, include_deleted=False):
         """
         Perform any mutations to container listing records that are common to
@@ -673,16 +615,12 @@ class ContainerController(BaseStorageServer):
                         str(last_upper), str(required_upper),
                         state=ShardRange.ACTIVE)
                     container_list.insert(filler_index, filler_sr)
-
-        elif info.get('db_state') == DB_STATE_SHARDING:
-            # Container is sharding, so we need to look at both brokers
-            # TODO: will we ever want items=all to be supported in this case?
-            # TODO: what happened to reverse?
-            resp_headers, container_list = self._check_local_brokers(
-                req, broker, resp_headers, marker, end_marker, prefix, limit)
         else:
+            # Use the retired db while container is in process of sharding,
+            # otherwise use current db
+            src_broker = broker.get_brokers()[0]
             include_deleted = items == 'all'
-            container_list = broker.list_objects_iter(
+            container_list = src_broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],
                 reverse=reverse, include_deleted=include_deleted)

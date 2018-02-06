@@ -2383,88 +2383,6 @@ class TestContainerController(unittest.TestCase):
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
         self.assertFalse(self.controller.logger.get_lines_for_level('error'))
 
-    # TODO: fix implementation so that this test passes
-    @unittest.expectedFailure
-    def test_GET_while_in_sharding_state_no_shards(self):
-        # verify that GET merges items from the old and new db's
-        ts_iter = make_timestamp_iter()
-        headers = {'X-Timestamp': next(ts_iter).normal}
-        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
-        self.assertEqual(201, req.get_response(self.controller).status_int)
-        objects = [{'name': 'obj_%d' % i,
-                    'x-timestamp': next(ts_iter).normal,
-                    'x-content-type': 'text/plain',
-                    'x-etag': 'etag_%d' % i,
-                    'x-size': 1024 * i
-                    } for i in range(10)]
-        for obj in objects[:5]:
-            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
-                                headers=obj)
-            self._update_object_put_headers(req)
-            resp = req.get_response(self.controller)
-            self.assertEqual(201, resp.status_int)
-
-        # set broker to sharding state
-        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        broker.set_sharding_state()
-
-        # these PUTS will land in the shard db (no shard ranges yet)
-        for obj in objects[5:]:
-            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
-                                headers=obj)
-            self._update_object_put_headers(req)
-            resp = req.get_response(self.controller)
-            self.assertEqual(201, resp.status_int)
-
-        def check_object_GET(path, expected_objs):
-            req = Request.blank(path, method='GET')
-            resp = req.get_response(self.controller)
-            self.assertEqual(resp.status_int, 200)
-            self.assertEqual(resp.content_type, 'application/json')
-            self.assertEqual(expected_objs, json.loads(resp.body))
-
-        expected = [
-            dict(hash=obj['x-etag'], bytes=obj['x-size'],
-                 content_type=obj['x-content-type'],
-                 last_modified=Timestamp(obj['x-timestamp']).isoformat,
-                 name=obj['name']) for obj in objects]
-        check_object_GET('/sda1/p/a/c?format=json', expected)
-
-        # these DELETES will land in the shard db (no shard ranges yet)
-        for obj in objects[2:4]:
-            obj['x-timestamp'] = next(ts_iter).normal
-            req = Request.blank('/sda1/p/a/c/%s' % obj['name'],
-                                method='DELETE', headers=obj)
-            self._update_object_put_headers(req)
-            resp = req.get_response(self.controller)
-            self.assertEqual(204, resp.status_int)
-
-        check_object_GET('/sda1/p/a/c?format=json',
-                         expected[:2] + expected[4:])
-        check_object_GET('/sda1/p/a/c?format=json&limit=6',
-                         expected[:2] + expected[4:8])
-        check_object_GET('/sda1/p/a/c?format=json&limit=100',
-                         expected[:2] + expected[4:])
-        check_object_GET('/sda1/p/a/c?format=json&limit=2', expected[:2])
-        check_object_GET('/sda1/p/a/c?format=json&prefix=obj_2', [])
-        check_object_GET('/sda1/p/a/c?format=json&marker=obj_2', expected[4:])
-        check_object_GET('/sda1/p/a/c?format=json&reverse=true',
-                         list(reversed(expected[:2] + expected[4:])))
-        check_object_GET('/sda1/p/a/c?format=json&reverse=true&marker=obj_4',
-                         list(reversed(expected[:2])))
-        # TODO: next assertion fails because the limit is applied to old_items,
-        # which has 5 items but only 4 are listed due to limit=4. Then two of
-        # those are removed due to deletes in the shard db, and replaced with
-        # items in the shard db. The fifth old item is not listed but should
-        # be.
-        check_object_GET('/sda1/p/a/c?format=json&limit=4',
-                         expected[:2] + expected[4:6])
-        with mock.patch('swift.common.constraints.CONTAINER_LISTING_LIMIT', 2):
-            # mock listing limit to check that repeated calls are made to the
-            # shard db to replace old items that are found to be deleted
-            check_object_GET('/sda1/p/a/c?format=json&marker=obj_1&limit=2',
-                             [expected[1], expected[4]])
-
     def test_PUT_object_update_redirected_to_shard(self):
         ts_iter = make_timestamp_iter()
         headers = {'X-Timestamp': next(ts_iter).normal}
@@ -2538,15 +2456,15 @@ class TestContainerController(unittest.TestCase):
                          resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
 
-        # no shard for this object yet
+        # no shard for this object yet so it is accepted by root container
         ts_dopey_orig = next(ts_iter)
         resp = do_update('dopey', timestamp=ts_dopey_orig)
         self.assertEqual(201, resp.status_int)
         self.assertNotIn('Location', resp.headers)
         self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        self.assertEqual(['bashful', 'dopey'],
-                         [obj['name'] for obj in get_listing()])
-        self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat],
+        # but it won't appear in listings
+        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
+        self.assertEqual([ts_bashful_orig.isoformat],
                          [obj['last_modified'] for obj in get_listing()])
 
         # now PUT the first shard range
@@ -2564,9 +2482,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
         # existing updates in this container were *not* updated
-        self.assertEqual(['bashful', 'dopey'],
-                         [obj['name'] for obj in get_listing()])
-        self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat],
+        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
+        self.assertEqual([ts_bashful_orig.isoformat],
                          [obj['last_modified'] for obj in get_listing()])
 
         # no shard for this object yet
@@ -2575,10 +2492,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(201, resp.status_int)
         self.assertNotIn('Location', resp.headers)
         self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        self.assertEqual(['bashful', 'dopey', 'sleepy'],
-                         [obj['name'] for obj in get_listing()])
-        self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat,
-                          ts_sleepy_orig.isoformat],
+        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
+        self.assertEqual([ts_bashful_orig.isoformat],
                          [obj['last_modified'] for obj in get_listing()])
 
         # now PUT the final shard
@@ -2589,10 +2504,8 @@ class TestContainerController(unittest.TestCase):
                          resp.headers['Location'])
         self.assertEqual(shard_ranges[''].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(['bashful', 'dopey', 'sleepy'],
-                         [obj['name'] for obj in get_listing()])
-        self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat,
-                          ts_sleepy_orig.isoformat],
+        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
+        self.assertEqual([ts_bashful_orig.isoformat],
                          [obj['last_modified'] for obj in get_listing()])
 
     def test_DELETE_object_update_redirected_to_shard(self):
@@ -2675,13 +2588,13 @@ class TestContainerController(unittest.TestCase):
                          resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
 
-        # no shard for this object yet
-        obj_timestamps['dopey'] = next(ts_iter)
-        resp = do_update('dopey', timestamp=obj_timestamps['dopey'])
+        # no shard for this object yet, so accepted to misplaced objects table
+        delete_times = {'dopey': next(ts_iter)}
+        resp = do_update('dopey', timestamp=delete_times['dopey'])
         self.assertEqual(204, resp.status_int)
         self.assertNotIn('Location', resp.headers)
         self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        obj_names.remove('dopey')
+        # but the delete is not reflected in the listing
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
         self.assertEqual(
             [obj_timestamps[name].isoformat for name in obj_names],
@@ -2707,13 +2620,13 @@ class TestContainerController(unittest.TestCase):
             [obj_timestamps[name].isoformat for name in obj_names],
             [obj['last_modified'] for obj in get_listing()])
 
-        # no shard for this object yet
-        obj_timestamps['sleepy'] = next(ts_iter)
-        resp = do_update('sleepy', timestamp=obj_timestamps['sleepy'])
+        # no shard for this object yet, so accepted to misplaced objects table
+        delete_times['sleepy'] = next(ts_iter)
+        resp = do_update('sleepy', timestamp=delete_times['sleepy'])
         self.assertEqual(204, resp.status_int)
         self.assertNotIn('Location', resp.headers)
         self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        obj_names.remove('sleepy')
+        # but the delete is not reflected in the listing
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
         self.assertEqual(
             [obj_timestamps[name].isoformat for name in obj_names],
@@ -2733,8 +2646,9 @@ class TestContainerController(unittest.TestCase):
             [obj['last_modified'] for obj in get_listing()])
 
         # sanity check existence of rows for the delete updates that were
-        # accepted when no shard ranges; note that this queries only the
-        # misplaced objects table because the broker is in sharding state
+        # accepted in misplaced objects table when no shard ranges existed for
+        # them; note that this queries only the misplaced objects table because
+        # the broker is in sharding state
         container_rows = broker.list_objects_iter(
             100, '', '', '', '', None,
             storage_policy_index=broker.storage_policy_index,
@@ -2742,7 +2656,7 @@ class TestContainerController(unittest.TestCase):
         deleted_obj_names = ['dopey', 'sleepy']
         self.assertEqual(deleted_obj_names, [obj[0] for obj in container_rows])
         self.assertEqual(
-            [obj_timestamps[name].internal for name in deleted_obj_names],
+            [delete_times[name].internal for name in deleted_obj_names],
             [obj[1] for obj in container_rows])
 
     def test_GET_json_all_items(self):
