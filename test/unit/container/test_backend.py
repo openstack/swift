@@ -2888,7 +2888,7 @@ class TestContainerBroker(unittest.TestCase):
         check_broker_info(broker.get_info())
 
         # first test that moving from UNSHARDED to SHARDED doesn't work
-        self.assertFalse(broker.set_sharded_state())
+        self.assertFalse(broker.set_sharded_state(None))
         # check nothing changed
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
@@ -2927,7 +2927,8 @@ class TestContainerBroker(unittest.TestCase):
             [dict(sr, state=ShardRange.ACTIVE,
                   state_timestamp=next(ts_iter).internal)
              for sr in shard_ranges])
-        self.assertTrue(broker.set_sharded_state())
+        context = broker.get_sharding_context()
+        self.assertTrue(broker.set_sharded_state(context))
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
 
@@ -2941,11 +2942,59 @@ class TestContainerBroker(unittest.TestCase):
         check_sharded_state(broker)
 
         # Try to set sharded state again
-        self.assertFalse(broker.set_sharded_state())
+        self.assertFalse(broker.set_sharded_state(context))
         # check nothing changed
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
         check_sharded_state(broker)
+
+    @with_tempdir
+    def test_get_sharding_context(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        old_broker = ContainerBroker(
+            db_path, account='a', container='c', force_db_file=True)
+        broker = ContainerBroker(
+            db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+        broker.set_sharding_state()
+
+        # load up the old broker with some objects
+        objects = [{'name': 'obj_%d' % i,
+                    'created_at': next(ts_iter).normal,
+                    'content_type': 'text/plain',
+                    'etag': 'etag_%d' % i,
+                    'size': 1024 * i,
+                    'deleted': 0,
+                    'storage_policy_index': 0,
+                    } for i in range(1, 4)]
+
+        def assert_context_valid(context):
+            ts_str = Timestamp.now().internal
+            md = {'x-container-sysmeta-shard-context': (context, ts_str)}
+            try:
+                DatabaseBroker.validate_metadata(md)
+            except Exception as err:
+                self.fail('context %r is not valid broker metadata: %s' %
+                          (context, err))
+
+        old_broker.merge_objects(objects[:1])
+        context_1 = broker.get_sharding_context()
+        assert_context_valid(context_1)
+
+        old_broker.merge_objects(objects[1:2])
+        self.assertFalse(broker.set_sharded_state(context_1))
+        context_2 = broker.get_sharding_context()
+        assert_context_valid(context_2)
+        self.assertNotEqual(context_1, context_2)
+
+        broker.merge_objects(objects[2:3])
+        context_3 = broker.get_sharding_context()
+        assert_context_valid(context_3)
+        self.assertEqual(context_2, context_3)
+        self.assertFalse(broker.set_sharded_state(context_1))
+        self.assertTrue(broker.set_sharded_state(context_2))
 
     @with_tempdir
     def test_merge_shard_ranges(self, tempdir):
