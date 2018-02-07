@@ -1014,14 +1014,12 @@ class ContainerSharder(ContainerReplicator):
 
             query = {
                 'marker': str(shard_range.lower),
-                'end_marker': '',
+                'end_marker': shard_range.end_marker,
                 'prefix': '',
                 'delimiter': '',
                 'storage_policy_index': policy_index,
                 'include_deleted': True
             }
-            if shard_range.upper:
-                query['end_marker'] = str(shard_range.upper) + '\x00'
 
             with new_broker.sharding_lock():
                 self._add_items(broker, new_broker, query)
