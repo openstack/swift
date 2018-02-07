@@ -1839,7 +1839,6 @@ class ContainerBroker(DatabaseBroker):
                 # == implies all ranges were previously found
                 # > implies an acceptor range has been set into which this
                 # shard should cleave itself
-                # TODO: this assumes that cont_upper does not change - safe?
                 return [], True
         else:
             last_shard_upper = own_shard_range.lower

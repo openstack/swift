@@ -60,7 +60,7 @@ def update_sharding_info(broker, info, node=None):
          (value, timestamp.internal))
         for key, value in info.items()
     )
-    broker.update_metadata(metadata, validate_metadata=True)
+    broker.update_metadata(metadata)
 
 
 # TODO: needs unit test
@@ -538,11 +538,11 @@ class ContainerSharder(ContainerReplicator):
                     if not broker.is_root_container():
                         # let the root know about this shard's sharded shard
                         # ranges; this is the point at which the root container
-                        # will see the new shards will move to ACTIVE state and
-                        # the sharded shard simultaneously become deleted. Do
-                        # this now because the shards are active, even though
-                        # there may be repeated cleaving if the hash.db
-                        # was changed by replication during cleaving.
+                        # will see the new shards move to ACTIVE state and the
+                        # sharded shard simultaneously become deleted. Do this
+                        # now because the shards are now active, even though
+                        # there may be repeated cleaving if the hash.db was
+                        # changed by replication during cleaving.
                         # TODO: the new shard ranges may have existed for some
                         # time and already be updating the root with their
                         # usage e.g. multiple cycles before we finished
