@@ -28,8 +28,8 @@ from swift.common.constraints import check_drive
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
-    dump_recon_cache, config_true_value, ratelimit_sleep, urlparse, \
-    split_path, eventlet_monkey_patch
+    dump_recon_cache, config_true_value, ratelimit_sleep, split_path, \
+    eventlet_monkey_patch, get_redirect_data
 from swift.common.daemon import Daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
@@ -412,23 +412,12 @@ class ObjectUpdater(Daemon):
                 resp.read()
 
             if resp.status == HTTP_MOVED_PERMANENTLY:
-                rheaders = HeaderKeyDict(resp.getheaders())
-                location = rheaders.get('Location')
-                if location:
-                    location = urlparse(location).path
-                    try:
-                        shard_account, shard_cont, _junk = split_path(
-                            location, 2, 3, True)
-                    except ValueError as err:
-                        self.logger.error(
-                            'Container update failed for %r; problem with '
-                            'redirect location: %s' % (obj, err))
-                    else:
-                        # TODO: should it be an error for the redirect
-                        # timestamp to be missing?
-                        redirect = (
-                            '%s/%s' % (shard_account, shard_cont),
-                            rheaders.get('X-Backend-Redirect-Timestamp'))
+                try:
+                    redirect = get_redirect_data(resp)
+                except ValueError as err:
+                    self.logger.error(
+                        'Container update failed for %r; problem with '
+                        'redirect location: %s' % (obj, err))
 
             success = is_success(resp.status)
             if not success:
