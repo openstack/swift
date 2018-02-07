@@ -311,83 +311,82 @@ class ObjectUpdater(Daemon):
                                        os.path.basename(update_path))
             renamer(update_path, target_path, fsync=False)
             return
-        successes = update.get('successes', [])
-        success = True
-        rewrite_pickle = False
-        attempts_remaining = 2
-        while attempts_remaining > 0:
-            attempts_remaining -= 1
-            redirects = set()
-            headers_out = HeaderKeyDict(update['headers'].copy())
+
+        def do_update():
+            successes = update.get('successes', [])
             container_path = update.get('container_path')
             if container_path:
                 acct, cont = split_path('/' + container_path, minsegs=2)
             else:
                 acct, cont = update['account'], update['container']
-            part, nodes = self.get_container_ring().get_nodes(
-                acct, cont)
+            part, nodes = self.get_container_ring().get_nodes(acct, cont)
             obj = '/%s/%s/%s' % (acct, cont, update['obj'])
+            headers_out = HeaderKeyDict(update['headers'].copy())
             headers_out['user-agent'] = 'object-updater %s' % os.getpid()
             headers_out.setdefault('X-Backend-Storage-Policy-Index',
                                    str(int(policy)))
             events = [spawn(self.object_update,
                             node, part, update['op'], obj, headers_out)
                       for node in nodes if node['id'] not in successes]
+            success = True
+            new_successes = rewrite_pickle = False
+            redirect = None
+            redirects = set()
             for event in events:
                 event_success, node_id, redirect = event.wait()
                 if event_success is True:
                     successes.append(node_id)
-                    rewrite_pickle = True
-                elif redirect:
-                    redirects.add(redirect)
+                    new_successes = True
                 else:
                     success = False
-            if redirects:
+                if redirect:
+                    redirects.add(redirect)
+
+            if success:
+                self.stats.successes += 1
+                self.logger.increment('successes')
+                self.logger.debug('Update sent for %(obj)s %(path)s',
+                                  {'obj': obj, 'path': update_path})
+                self.stats.unlinks += 1
+                self.logger.increment('unlinks')
+                os.unlink(update_path)
+            elif redirects:
+                # erase any previous successes
+                update.pop('successes', None)
                 redirect = max(redirects, key=lambda x: x[-1])[0]
                 redirect_history = update.setdefault('redirect_history', [])
                 if redirect in redirect_history:
-                    # force update to root, reset history
+                    # force next update to be sent to root, reset history
                     update['container_path'] = None
                     update['redirect_history'] = []
                 else:
                     update['container_path'] = redirect
                     redirect_history.append(redirect)
-
+                # TODO: update self.stats?
+                self.logger.increment("redirects")
+                self.logger.debug(
+                    'Update redirected for %(obj)s %(path)s to %(shard)s',
+                    {'obj': obj, 'path': update_path,
+                     'shard': update['container_path']})
                 rewrite_pickle = True
-                if attempts_remaining > 0:
-                    self.logger.increment("redirects")
-                    self.logger.debug('Update sent for %(obj)s %(path)s '
-                                      'triggered a redirect to '
-                                      '%(shard)s',
-                                      {'obj': obj, 'path': update_path,
-                                       'shard': update['container_path']})
-                else:
-                    # got redirect but ran out of attempts
-                    # TODO: we increment failures, but not redirects?? may make
-                    # sense in terms of failure but we 'lose' a redirection
-                    # from the stats even though the next visit to this update
-                    # *will* target a redirection location
-                    success = False
             else:
-                break
+                self.stats.failures += 1
+                self.logger.increment('failures')
+                self.logger.debug('Update failed for %(obj)s %(path)s',
+                                  {'obj': obj, 'path': update_path})
+                if new_successes:
+                    update['successes'] = successes
+                    rewrite_pickle = True
 
-        if success:
-            self.stats.successes += 1
-            self.logger.increment('successes')
-            self.logger.debug('Update sent for %(obj)s %(path)s',
-                              {'obj': obj, 'path': update_path})
-            self.stats.unlinks += 1
-            self.logger.increment('unlinks')
-            os.unlink(update_path)
-        else:
-            self.stats.failures += 1
-            self.logger.increment('failures')
-            self.logger.debug('Update failed for %(obj)s %(path)s',
-                              {'obj': obj, 'path': update_path})
-            if rewrite_pickle:
-                update['successes'] = successes
-                write_pickle(update, update_path, os.path.join(
-                    device, get_tmp_dir(policy)))
+            return rewrite_pickle, redirect
+
+        rewrite_pickle, redirect = do_update()
+        if redirect:
+            # make one immediate retry to the redirect location
+            rewrite_pickle, redirect = do_update()
+        if rewrite_pickle:
+            write_pickle(update, update_path, os.path.join(
+                device, get_tmp_dir(policy)))
 
     def object_update(self, node, part, op, obj, headers_out):
         """
