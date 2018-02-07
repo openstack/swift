@@ -2651,7 +2651,13 @@ class TestContainerBroker(unittest.TestCase):
             db_path, account='.sharded_a', container='shard_c')
         broker.initialize(next(ts_iter).internal, 0)
 
-        self.assertIsNone(broker.get_own_shard_range())
+        now = Timestamp.now()
+        expected = ShardRange('.sharded_a/shard_c', now, '', '', 0, 0, now)
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=now):
+            actual = broker.get_own_shard_range()
+        self.assertEqual(expected, actual)
+
         ts_1 = next(ts_iter)
         metadata = {
             'X-Container-Sysmeta-Shard-Timestamp':
@@ -2659,7 +2665,6 @@ class TestContainerBroker(unittest.TestCase):
             'X-Container-Sysmeta-Shard-Lower': ('l', next(ts_iter).internal),
             'X-Container-Sysmeta-Shard-Upper': ('u', next(ts_iter).internal)}
 
-        now = Timestamp.now()
         broker.update_metadata(metadata)
         expected = ShardRange('.sharded_a/shard_c', ts_1, 'l', 'u', 0, 0, now)
         with mock.patch('swift.container.backend.Timestamp.now',
@@ -2703,26 +2708,21 @@ class TestContainerBroker(unittest.TestCase):
 
         def do_test(expected_bounds, expected_last_found, shard_size, limit):
             # expected_bounds is a list of tuples (lower, upper, object_count)
-            # build expected shard range dicts
-            expected_range_dicts = []
-            for lower, upper, object_count in expected_bounds:
-                name = '.sharded_a/%s-%s' % (
-                    container_name,
-                    hashlib.md5('%s-%s' % (upper, ts_now.internal)).hexdigest()
-                )
-                d = dict(name=name, created_at=ts_now.internal, lower=lower,
-                         upper=upper, object_count=object_count, bytes_used=0,
-                         meta_timestamp=ts_now.internal, deleted=0,
-                         state=0, state_timestamp=ts_now.internal)
-                expected_range_dicts.append(d)
+            # build expected shard ranges
+            expected_shard_ranges = [
+                ShardRange.create('a', container_name, lower, upper,
+                                  created_at=ts_now, object_count=object_count)
+                for lower, upper, object_count in expected_bounds]
+
             # call the method under test
             with mock.patch('swift.common.utils.time.time',
                             return_value=float(ts_now.normal)):
                 ranges, last_found = broker.find_shard_ranges(shard_size,
                                                               limit)
             # verify results
-            self.assertEqual(expected_range_dicts,
-                             [dict(shard_range) for shard_range in ranges])
+            self.assertEqual(
+                [dict(shard_range) for shard_range in expected_shard_ranges],
+                [dict(shard_range) for shard_range in ranges])
             self.assertEqual(expected_last_found, last_found)
 
         db_path = os.path.join(tempdir, 'test_container.db')

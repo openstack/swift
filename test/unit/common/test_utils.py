@@ -6753,6 +6753,12 @@ class TestShardRange(unittest.TestCase):
                         state=0, state_timestamp=ts0.internal)
         self.assertEqual(expected, dict(sr))
 
+        # with created_at
+        sr = utils.ShardRange.create('acc', 'con', 'l', 'u', created_at=ts0)
+        self.assertEqual(expected_account, sr.account)
+        self.assertEqual(expected_container, sr.container)
+        self.assertEqual(expected, dict(sr))
+
         # with meta and meta_timestamp
         with mock.patch('swift.common.utils.time.time', lambda: float(ts0)):
             sr = utils.ShardRange.create('acc', 'con', 'l', 'u',

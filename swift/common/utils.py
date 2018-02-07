@@ -4374,7 +4374,8 @@ class ShardRange(object):
     @classmethod
     def create(cls, root_account, root_container, lower='', upper='',
                **kwargs):
-        timestamp = Timestamp.now()
+        kwargs = kwargs or {}
+        timestamp = kwargs.pop('created_at', Timestamp.now())
         shard_account = ".sharded_%s" % root_account
         shard_container = cls._generate_name(root_container, timestamp, upper)
         return cls('%s/%s' % (shard_account, shard_container), timestamp,

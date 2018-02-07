@@ -1690,7 +1690,9 @@ class ContainerBroker(DatabaseBroker):
         upper, ts = metadata.get(
             'X-Container-Sysmeta-Shard-Upper', ('', None))
         if created_at in (None, ''):
-            return None
+            created_at = Timestamp.now()
+            lower = ShardRange.MIN
+            upper = ShardRange.MAX
 
         info = self.get_info()  # Also ensures self.container is not None
         shard_range = ShardRange(
@@ -1816,12 +1818,12 @@ class ContainerBroker(DatabaseBroker):
             order, the second value is a boolean which is True if the last
             shard range has been found, False otherwise.
         """
-        cont_range = self.get_own_shard_range()
-        cont_upper = cont_range.upper if cont_range else ''
-        # TODO: we just made a call to get_info in get_own_shard_range! how
-        # about get_shard_range always returns a shard_range?
         object_count = self.get_info().get('object_count', 0)
-        last_shard_upper = cont_range.lower if cont_range else ''
+        if shard_size >= object_count:
+            # container not big enough to shard
+            return [], False
+
+        own_shard_range = self.get_own_shard_range()
         progress = 0
         # update initial state to account for any existing shard ranges
         existing_ranges = self.get_shard_ranges()
@@ -1833,21 +1835,15 @@ class ContainerBroker(DatabaseBroker):
             # and lose the optimisation on finding last shard range
             progress = len(existing_ranges) * shard_size
             last_shard_upper = existing_ranges[-1].upper
-            if (last_shard_upper == cont_upper or
-                    (cont_upper and last_shard_upper > cont_upper)):
-                # TODO: moe complex condition than it should be because
-                # cont_upper == '' is *less* than any intermediate bound :(
-                # last_shard_upper == cont_upper implies all ranges were
-                # previously found
-                # last_shard_upper > cont_upper implies an acceptor range has
-                # been set into which this shard should cleave itself
+            if last_shard_upper >= own_shard_range.upper:
+                # == implies all ranges were previously found
+                # > implies an acceptor range has been set into which this
+                # shard should cleave itself
                 # TODO: this assumes that cont_upper does not change - safe?
                 return [], True
-        elif shard_size >= object_count:
-            # container not big enough to shard
-            return [], False
+        else:
+            last_shard_upper = own_shard_range.lower
 
-        last_found = False
         found_ranges = []
         while limit < 0 or len(found_ranges) < limit:
             if progress + shard_size >= object_count:
@@ -1867,21 +1863,23 @@ class ContainerBroker(DatabaseBroker):
 
             if next_shard_upper is None:
                 # We reached the end of the container
-                next_shard_upper = cont_upper
+                next_shard_upper = own_shard_range.upper
                 shard_size = object_count - progress
-                last_found = True
 
-            # NB set non-zero object count to that container is non-deletable
-            # if shards found but not yet cleaved
+            # NB shard ranges are created with a non-zero object count so that
+            # the apparent container object count remains constant, and the
+            # container is non-deletable while shards have been found but not
+            # yet cleaved
             found_ranges.append(
                 ShardRange.create(self.root_account, self.root_container,
                                   last_shard_upper, next_shard_upper,
                                   object_count=shard_size)
             )
 
-            if last_found:
-                break
+            if next_shard_upper == own_shard_range.upper:
+                return found_ranges, True
+
             progress += shard_size
             last_shard_upper = next_shard_upper
 
-        return found_ranges, last_found
+        return found_ranges, False
