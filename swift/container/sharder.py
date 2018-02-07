@@ -966,63 +966,30 @@ class ContainerSharder(ContainerReplicator):
     def _cleave(self, broker, node):
         # Returns True if all available shard ranges are successfully cleaved,
         # False otherwise
-        shard_ranges = broker.get_shard_ranges()
-        if not shard_ranges:
-            return True
-
         state = broker.get_db_state()
         if state == DB_STATE_SHARDED:
-            self.logger.info('Passing over already sharded container %s/%s',
-                             broker.account, broker.container)
+            self.logger.debug('Passing over already sharded container %s/%s',
+                              broker.account, broker.container)
             return True
-        sharding_info = get_sharding_info(broker)
-        scan_complete = sharding_info.get('Scan-Done')
-        last_upper = sharding_info.get('Last-%d' % node['index'])
-        last_piv_exists = False
-        if last_upper:
-            last_range = find_shard_range(last_upper, shard_ranges)
-            last_piv_exists = last_range and last_range.upper == last_upper
-            self.logger.info('Continuing to cleave %s/%s',
-                             broker.account, broker.container)
-        else:
+
+        last_upper = get_sharding_info(broker, 'Last', node) or ''
+        ranges_todo = broker.get_shard_ranges(marker=last_upper + '\x00')
+        if not ranges_todo:
+            self.logger.debug('No uncleaved shard ranges for %s/%s',
+                              broker.account, broker.container)
+            return True
+
+        if not last_upper:
             # last_upper might be '' if there has been no previous cleaving
             # or if cleaving previously completed, i.e. the
             # entire namespace was cleaved. In either case, while in state
-            # sharding, start cleaving from first shard range.
+            # sharding, reset sharding context and restart cleaving.
             context = broker.get_sharding_context()
             update_sharding_info(broker, {'Context': context}, node)
-            self.logger.debug('Starting to cleave %s/%s',
-                              broker.account, broker.container)
 
-        # TODO: use get_shard_ranges with marker?
-        ranges_todo = [
-            srange for srange in shard_ranges
-            if srange.upper > last_upper or srange.lower >= last_upper]
-        if not ranges_todo and scan_complete and not last_piv_exists:
-            # TODO (acoles): I need to understand this better.
-            # 1. The last recorded pivot does not line up with a range upper,
-            # so we slide that range's lower up to the pivot...to avoid copying
-            # rows again? but if the range has changed then don't we need to
-            # get all rows into the new range?
-            # 2. why does this edge case only occur when scan_complete is true?
-            # 3. we don't save this range, so next time round..what happens?
-            # the same again?
-            # This means no new shard_ranges have been added since last cycle.
-            # If the scanner is complete, then we have finished sharding.
-            # However there is an edge case where the scan could be complete,
-            # but we haven't finished but this node has been off and shrinking
-            # or other sharding has taken place. If this is the case and the
-            # last range doesn't exist, then we need find the last real shard
-            # range and send the rest of the objects to it so nothing is lost.
-                # TODO: are we sure last_range is not None?
-                last_range.lower = last_upper
-                last_range.dont_save = True
-                ranges_todo.append(last_range)
-
-        if not ranges_todo:
-            self.logger.info('No new shard ranges to cleave for %s/%s',
-                             broker.account, broker.container)
-            return True
+        self.logger.debug('%s to cleave %s/%s',
+                          'Continuing' if last_upper else 'Starting',
+                          broker.account, broker.container)
 
         own_shard_range = broker.get_own_shard_range()
         ranges_done = []
@@ -1054,7 +1021,7 @@ class ContainerSharder(ContainerReplicator):
                 'include_deleted': True
             }
             if shard_range.upper:
-                query['end_marker'] = shard_range.upper + '\x00'
+                query['end_marker'] = str(shard_range.upper) + '\x00'
 
             with new_broker.sharding_lock():
                 self._add_items(broker, new_broker, query)
@@ -1086,8 +1053,7 @@ class ContainerSharder(ContainerReplicator):
                 shard_range.state = ShardRange.ACTIVE
                 shard_range.state_timestamp = Timestamp.now()
 
-            if not hasattr(shard_range, 'dont_save'):
-                ranges_done.append(shard_range)
+            ranges_done.append(shard_range)
 
             self.logger.info('Replicating new shard container %s/%s with %s',
                              new_broker.account, new_broker.container,
