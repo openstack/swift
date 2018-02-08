@@ -699,6 +699,7 @@ class TestObjectUpdater(unittest.TestCase):
             # second round of update attempts
             (200, {}),
             (200, {}),
+            (200, {}),
         ]
         fake_status_codes, fake_headers = zip(*fake_responses)
         with mocked_http_conn(
@@ -708,11 +709,67 @@ class TestObjectUpdater(unittest.TestCase):
 
         self._check_update_requests(conn.requests, ts_obj, policies[0])
         self.assertEqual(['/sda1/0/a/c/o'] * 3 +
-                         ['/sda1/0/.sharded_a/c_shard_new/o'] * 2,
+                         ['/sda1/0/.sharded_a/c_shard_new/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
             {'redirects': 1, 'successes': 1,
              'unlinks': 1, 'async_pendings': 1},
+            daemon.logger.get_increment_counts())
+        self.assertFalse(os.listdir(async_dir))  # no async file
+
+    def test_obj_put_async_root_update_redirected_previous_success(self):
+        policies = list(POLICIES)
+        random.shuffle(policies)
+        # setup updater
+        conf = {
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+        }
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
+        async_dir = os.path.join(self.sda1, get_async_dir(policies[0]))
+        os.mkdir(async_dir)
+        dfmanager = DiskFileManager(conf, daemon.logger)
+
+        ts_obj = next(self.ts_iter)
+        self._write_async_update(dfmanager, ts_obj, policies[0])
+        orig_async_path, orig_async_data = self._check_async_file(async_dir)
+
+        # run once
+        with mocked_http_conn(
+                507, 200, 507) as conn:
+            with mock.patch('swift.obj.updater.dump_recon_cache'):
+                daemon.run_once()
+
+        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self.assertEqual(['/sda1/0/a/c/o'] * 3,
+                         [req['path'] for req in conn.requests])
+        self.assertEqual(
+            {'failures': 1, 'async_pendings': 1},
+            daemon.logger.get_increment_counts())
+        async_path, async_data = self._check_async_file(async_dir)
+        self.assertEqual(dict(orig_async_data, successes=[1]), async_data)
+
+        # run again - expect 3 redirected updates despite previous success
+        ts_redirect = next(self.ts_iter)
+        resp_headers_1 = {'Location': '/.sharded_a/c_shard_1/o',
+                          'X-Backend-Redirect-Timestamp': ts_redirect.internal}
+        fake_responses = (
+            # 1st round of redirects, 2nd round of redirects
+            [(301, resp_headers_1)] * 2 + [(200, {})] * 3)
+        fake_status_codes, fake_headers = zip(*fake_responses)
+        with mocked_http_conn(
+                *fake_status_codes, headers=fake_headers) as conn:
+            with mock.patch('swift.obj.updater.dump_recon_cache'):
+                daemon.run_once()
+
+        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self.assertEqual(['/sda1/0/a/c/o'] * 2 +
+                         ['/sda1/3/.sharded_a/c_shard_1/o'] * 3,
+                         [req['path'] for req in conn.requests])
+        self.assertEqual(
+            {'redirects': 1, 'successes': 1, 'failures': 1, 'unlinks': 1,
+             'async_pendings': 1},
             daemon.logger.get_increment_counts())
         self.assertFalse(os.listdir(async_dir))  # no async file
 
@@ -833,7 +890,7 @@ class TestObjectUpdater(unittest.TestCase):
                          ['/sda1/0/.sharded_a/c_shard_new/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
-            {'redirects': 1, 'failures': 1, 'async_pendings': 1},
+            {'redirects': 2, 'async_pendings': 1},
             daemon.logger.get_increment_counts())
         # update failed, we still have pending file with most recent redirect
         # response Location header value added to data
@@ -842,8 +899,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(
             dict(orig_async_data, container_path='.sharded_a/c_shard_newer',
                  redirect_history=['.sharded_a/c_shard_new',
-                                   '.sharded_a/c_shard_newer'],
-                 successes=[]),
+                                   '.sharded_a/c_shard_newer']),
             async_data)
 
         # next cycle, should get latest redirect from pickled async update
@@ -858,7 +914,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(['/sda1/1/.sharded_a/c_shard_newer/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
-            {'redirects': 1, 'failures': 1, 'successes': 1, 'unlinks': 1,
+            {'redirects': 2, 'successes': 1, 'unlinks': 1,
              'async_pendings': 1},
             daemon.logger.get_increment_counts())
         self.assertFalse(os.listdir(async_dir))  # no async file
@@ -902,7 +958,7 @@ class TestObjectUpdater(unittest.TestCase):
                          ['/sda1/3/.sharded_a/c_shard_1/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
-            {'redirects': 1, 'failures': 1, 'async_pendings': 1},
+            {'redirects': 2, 'async_pendings': 1},
             daemon.logger.get_increment_counts())
         # update failed, we still have pending file with most recent redirect
         # response Location header value added to data
@@ -911,8 +967,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(
             dict(orig_async_data, container_path='.sharded_a/c_shard_2',
                  redirect_history=['.sharded_a/c_shard_1',
-                                   '.sharded_a/c_shard_2'],
-                 successes=[]),
+                                   '.sharded_a/c_shard_2']),
             async_data)
 
         # next cycle, more redirects! first is to previously visited location
@@ -933,7 +988,7 @@ class TestObjectUpdater(unittest.TestCase):
                          ['/sda1/0/a/c/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
-            {'redirects': 2, 'failures': 2, 'async_pendings': 1},
+            {'redirects': 4, 'async_pendings': 1},
             daemon.logger.get_increment_counts())
         # update failed, we still have pending file with most recent redirect
         # response Location header value from root added to persisted data
@@ -942,13 +997,12 @@ class TestObjectUpdater(unittest.TestCase):
         # note: redirect_history was reset when falling back to root
         self.assertEqual(
             dict(orig_async_data, container_path='.sharded_a/c_shard_3',
-                 redirect_history=['.sharded_a/c_shard_3'],
-                 successes=[]),
+                 redirect_history=['.sharded_a/c_shard_3']),
             async_data)
 
         # next cycle, more redirects! first is to a location visited previously
-        # but not since last fall back to root, so that location IS tried,
-        # second is to a location visited since last fallback to root so that
+        # but not since last fall back to root, so that location IS tried;
+        # second is to a location visited since last fall back to root so that
         # location is NOT tried
         fake_responses = (
             # 1st round of redirects, 2nd round of redirects
@@ -963,7 +1017,7 @@ class TestObjectUpdater(unittest.TestCase):
                          ['/sda1/3/.sharded_a/c_shard_1/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
-            {'redirects': 3, 'failures': 3, 'async_pendings': 1},
+            {'redirects': 6, 'async_pendings': 1},
             daemon.logger.get_increment_counts())
         # update failed, we still have pending file, but container_path is None
         # because most recent redirect location was a repeat
@@ -971,8 +1025,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(orig_async_path, async_path)
         self.assertEqual(
             dict(orig_async_data, container_path=None,
-                 redirect_history=[],
-                 successes=[]),
+                 redirect_history=[]),
             async_data)
 
         # next cycle, persisted container path is None so update should go to
@@ -987,7 +1040,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(['/sda1/0/a/c/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
-            {'redirects': 3, 'failures': 3, 'successes': 1, 'unlinks': 1,
+            {'redirects': 6, 'successes': 1, 'unlinks': 1,
              'async_pendings': 1},
             daemon.logger.get_increment_counts())
         self.assertFalse(os.listdir(async_dir))  # no async file
