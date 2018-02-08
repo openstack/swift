@@ -2751,7 +2751,8 @@ class TestContainerBroker(unittest.TestCase):
             # build expected shard ranges
             expected_shard_ranges = [
                 ShardRange.create('a', container_name, lower, upper,
-                                  created_at=ts_now, object_count=object_count)
+                                  created_at=ts_now, object_count=object_count,
+                                  state=ShardRange.FOUND)
                 for lower, upper, object_count in expected_bounds]
 
             # call the method under test
@@ -2883,7 +2884,8 @@ class TestContainerBroker(unittest.TestCase):
         )
         expected_shard_ranges = [
             ShardRange.create('a', container_name, lower, upper,
-                              created_at=ts_now, object_count=object_count)
+                              created_at=ts_now, object_count=object_count,
+                              state=ShardRange.FOUND)
             for lower, upper, object_count in expected_bounds]
 
         # call the method under test

@@ -7198,7 +7198,8 @@ class TestShardRange(unittest.TestCase):
         meta_ts = next(self.ts_iter)
         state_ts = next(self.ts_iter)
         sr = utils.ShardRange('a/c', ts, 'l', 'u', 100, 1000,
-                              meta_timestamp=meta_ts, state=1,
+                              meta_timestamp=meta_ts,
+                              state=utils.ShardRange.ACTIVE,
                               state_timestamp=state_ts)
         self.assertEqual(
             "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s, "
@@ -7209,16 +7210,18 @@ class TestShardRange(unittest.TestCase):
         meta_ts.offset = 2
         state_ts.offset = 3
         sr = utils.ShardRange('a/c', ts, '', '', 100, 1000,
-                              meta_timestamp=meta_ts, state=1,
+                              meta_timestamp=meta_ts,
+                              state=utils.ShardRange.FOUND,
                               state_timestamp=state_ts)
         self.assertEqual(
             "ShardRange<'' to '' as of %s, (100, 1000) as of %s, "
-            "active as of %s>"
+            "found as of %s>"
             % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
 
     def test_copy(self):
         sr = utils.ShardRange('a/c', next(self.ts_iter), 'x', 'y', 99, 99000,
-                              meta_timestamp=next(self.ts_iter), state=1,
+                              meta_timestamp=next(self.ts_iter),
+                              state=utils.ShardRange.CREATED,
                               state_timestamp=next(self.ts_iter))
         new = sr.copy()
         self.assertEqual(dict(sr), dict(new))

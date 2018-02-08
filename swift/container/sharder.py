@@ -621,11 +621,33 @@ class ContainerSharder(ContainerReplicator):
                     state = DB_STATE_SHARDING
 
             if state == DB_STATE_SHARDING:
+                num_found = num_created = 0
                 scan_complete = config_true_value(
                     get_sharding_info(broker, 'Scan-Done'))
                 if is_leader and not scan_complete:
-                    scan_complete = self._find_shard_ranges(
-                        broker, node, part)
+                    scan_complete, num_found = self._find_shard_ranges(broker)
+
+                if is_leader:
+                    # create shard containers for newly found ranges
+                    # TODO: the current messing with timestamps when creating
+                    # the shard container makes it safer to restrict this to
+                    # the leader; an improved container creation strategy might
+                    # allow this to run on any node
+                    num_created = self._create_shard_containers(broker)
+
+                # TODO: what if this replication attempt fails? if we wrote the
+                # db then replicator should eventually find it, but what if we
+                # failed to create the handoff db? Perhaps there should be some
+                # state propagated via cleaving to the shard container and then
+                # included in shard range update back to root so we know when
+                # cleaving succeeded?
+                if num_found or num_created:
+                    # share the shard ranges with other nodes so they can get
+                    # cleaving
+                    self.cpool.spawn(
+                        self._replicate_object, part, broker.db_file,
+                        node['id'])
+                    any(self.cpool)
 
                 # always try to cleave any pending shard ranges
                 cleave_complete = self._cleave(broker, node)
@@ -865,7 +887,7 @@ class ContainerSharder(ContainerReplicator):
                                 shard_range.name, str(ex))
             raise ex
 
-    def _find_shard_ranges(self, broker, node, part):
+    def _find_shard_ranges(self, broker):
         """
         This function is the main work horse of a scanner node, it:
           - Looks at the shard_ranges table to see where to continue on from.
@@ -892,71 +914,73 @@ class ContainerSharder(ContainerReplicator):
                 # we didn't find anything
                 self.logger.warning("No shard ranges found, something went "
                                     "wrong. We will try again next cycle.")
-            return last_found
+            return last_found, 0
 
         # TODO: if we bring back leader election, this is about the spot where
         # we should confirm we're still the scanner
 
-        # First, persist the found ranges, in created state, with a *newer*
-        # timestamp than will be used for the shard container PUTs.
-        # Why? The new shard container will initially be empty. As a result,
-        # any shard range updates received at root from the shard container are
-        # likely to make the new shard range mistakenly appear ready for
-        # shrinking. Persisting the shard range with a newer timestamp means
-        # that updates from the new shard container will be ignored until
-        # cleaving replicates objects to it and simultaneously updates
-        # timestamps to the persisted shard range timestamps.
-        # TODO: we may need to mark the state of these freshly minted
-        # shard_ranges so that we do not redirect object updates to them until
-        # the PUTs succeed (e.g. morph deleted filed to a state field)...or
-        # just accept that initially some redirected updates may fail and
-        # eventually come back to the root
-        persisted_ranges = [sr.copy(timestamp=Timestamp.now())
-                            for sr in found_ranges]
-        broker.merge_shard_ranges(persisted_ranges)
+        broker.merge_shard_ranges(found_ranges)
         if not broker.is_root_container():
+            # TODO: check for success and do not proceed otherwise
             self._update_shard_ranges(
-                broker.root_account, broker.root_container, persisted_ranges)
-        # Second, create shard containers ready to receive redirected object
-        # updates. Do this now so that redirection can begin immediately
-        # without waiting for cleaving to complete.
-        created_ranges = []
-        for shard_range in found_ranges:
-            try:
-                self._put_shard_container(broker, shard_range)
-                self.logger.debug('PUT new shard range container for %s',
-                                  shard_range)
-                created_ranges.append(shard_range)
-            except internal_client.UnexpectedResponse:
-                self.logger.error('PUT of new shard containers failed, '
-                                  'aborting split of %s/%s. '
-                                  'Will try again next cycle',
-                                  broker.account, broker.container)
-                break
-            # TODO: increment here or in the try clause above?
-            self.logger.increment('shard_ranges_found')
-            self.stats['container_shard_ranges'] += 1
+                broker.root_account, broker.root_container, found_ranges)
 
         self.logger.info(
-            "Completed scan for shard ranges: %d found, %d created.",
-            len(found_ranges), len(created_ranges))
+            "Completed scan for shard ranges: %d found", len(found_ranges))
         if last_found:
             # We've found the last shard range, so mark that in metadata
             update_sharding_info(broker, {'Scan-Done': 'True'})
             self.logger.info("Final shard range reached.")
+        return last_found, len(found_ranges)
 
-        # TODO: (see comment above) possibly update the successfully created
-        # shard ranges in db to indicate that they now have shard containers
-        # ready to accept redirects
-        # TODO: what if this replication attempt fails? if we wrote the db then
-        # replicator should eventually find it, but what if we failed to create
-        # the handoff db? Perhaps there should be some state propagated via
-        # cleaving to the shard container and then included in shard range
-        # update back to root so we know when cleaving succeeded?
-        self.cpool.spawn(
-            self._replicate_object, part, broker.db_file, node['id'])
-        any(self.cpool)
-        return last_found
+    def _create_shard_containers(self, broker):
+        # Create shard containers that are ready to receive redirected object
+        # updates. Do this now, so that redirection can begin immediately
+        # without waiting for cleaving to complete.
+        found_ranges = broker.get_shard_ranges(state=ShardRange.FOUND)
+        created_ranges = []
+        for shard_range in found_ranges:
+            # Create newly found shard containers with a timestamp that is
+            # slightly older that the persisted shard range. Why? The new shard
+            # container will initially be empty. As a result, any shard range
+            # updates received at the root from the shard container are likely
+            # to make the new shard range mistakenly appear ready for
+            # shrinking. Creating the shard container with an older timestamp
+            # means that updates from it will be ignored until cleaving
+            # replicates objects to it and simultaneously updates timestamps to
+            # the persisted shard range timestamps.
+            # TODO: avoid these timestamp shenanigans by sending state to the
+            # shard container and have it not send updates until in active
+            # state
+            older_shard_range = shard_range.copy(
+                timestamp=Timestamp(float(shard_range.timestamp) - 1))
+            try:
+                self._put_shard_container(broker, older_shard_range)
+            except internal_client.UnexpectedResponse:
+                self.logger.error(
+                    'PUT of new shard container %r failed for %s/%s.',
+                    older_shard_range, broker.account, broker.container)
+                # break, not continue, because elsewhere it is assumed that
+                # finding and cleaving shard ranges progresses linearly, so we
+                # do not want any subsequent shard ranges to be in created
+                # state while this one is still in found state
+                break
+            else:
+                self.logger.debug('PUT new shard range container for %s',
+                                  older_shard_range)
+                shard_range.update_state(ShardRange.CREATED)
+                created_ranges.append(shard_range)
+                self.logger.increment('shard_ranges_created')
+
+        broker.merge_shard_ranges(created_ranges)
+        if not broker.is_root_container():
+            # TODO: check for success and do not proceed otherwise
+            self._update_shard_ranges(
+                broker.root_account, broker.root_container, created_ranges)
+        self.logger.info(
+            "Completed creating shard range containers: %d created.",
+            len(created_ranges))
+        return len(created_ranges)
 
     def _find_shrinks(self, broker, node, part):
         # this should only execute on root containers; the goal is to find
@@ -1055,7 +1079,9 @@ class ContainerSharder(ContainerReplicator):
             return True
 
         last_upper = get_sharding_info(broker, 'Last', node) or ''
-        ranges_todo = broker.get_shard_ranges(marker=last_upper + '\x00')
+        ranges_todo = broker.get_shard_ranges(
+            marker=last_upper + '\x00',
+            state=[ShardRange.CREATED, ShardRange.ACTIVE])
         if not ranges_todo:
             self.logger.debug('No uncleaved shard ranges for %s/%s',
                               broker.account, broker.container)

@@ -4275,12 +4275,14 @@ def get_md5_socket():
 
 
 class ShardRange(object):
-    CREATED = 0
-    ACTIVE = 1
-    SHRINKING = 2
-    SHARDED = 3
-    SHRUNK = 4
-    STATES = {CREATED: 'created',
+    FOUND = 0
+    CREATED = 1
+    ACTIVE = 2
+    SHRINKING = 3
+    SHARDED = 4
+    SHRUNK = 5
+    STATES = {FOUND: 'found',
+              CREATED: 'created',
               ACTIVE: 'active',
               SHRINKING: 'shrinking',
               SHARDED: 'sharded',
@@ -4356,7 +4358,7 @@ class ShardRange(object):
         # TODO: add getter/setter for deleted similar to other attrs & validate
         self.deleted = deleted
         self._state = None
-        self.state = self.CREATED if state is None else state
+        self.state = self.FOUND if state is None else state
         self._state_timestamp = None
         self.state_timestamp = state_timestamp
 

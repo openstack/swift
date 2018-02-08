@@ -583,11 +583,12 @@ class ContainerController(BaseStorageServer):
             states = get_param(req, 'state') or None
             if states:
                 states = set(list_from_csv(states))
-                if 'listing' in states:
-                    # map auto to states in which shard range is available for
-                    # listing
-                    states.remove('listing')
-                    states = states | {'active', 'shrinking'}
+                aliases = {'listing': {'active', 'shrinking'},
+                           'updating': {'created', 'active', 'shrinking'}}
+                for alias, aliased_states in aliases.items():
+                    if alias in states:
+                        states.remove(alias)
+                        states = states | aliased_states
                 try:
                     states = [ShardRange.STATES_BY_NAME[st] for st in states]
                 except KeyError:

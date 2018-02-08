@@ -1876,7 +1876,8 @@ class ContainerBroker(DatabaseBroker):
             found_ranges.append(
                 ShardRange.create(self.root_account, self.root_container,
                                   last_shard_upper, next_shard_upper,
-                                  object_count=shard_size)
+                                  object_count=shard_size,
+                                  state=ShardRange.FOUND)
             )
 
             if next_shard_upper == own_shard_range.upper:

@@ -269,17 +269,12 @@ class BaseObjectController(Controller):
         return self.GETorHEAD(req)
 
     def _get_update_target(self, req, container_info):
+        # find the sharded container to which we'll send the update
         db_state = container_info.get('sharding_state', DB_STATE_UNSHARDED)
         if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
-            # find the sharded container to which we'll send the update; don't
-            # restrict this to only active shards
-            # TODO: we may need to restrict this to some subset of shard range
-            # states by using state=comma-separated-list, or by using a more
-            # abstract query such as ready_for_updates=True vs
-            # ready_for_listing
             shard_ranges = self._get_shard_ranges(
                 req, self.account_name, self.container_name,
-                includes=self.object_name)
+                includes=self.object_name, state='updating')
             if shard_ranges:
                 partition, nodes = self.app.container_ring.get_nodes(
                     shard_ranges[0].account, shard_ranges[0].container)
