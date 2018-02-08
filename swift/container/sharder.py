@@ -979,7 +979,7 @@ class ContainerSharder(ContainerReplicator):
         merge_pairs = {}
         for donor, acceptor in zip(shard_ranges, shard_ranges[1:]):
             if donor in merge_pairs:
-                # we may have previously expanded this range; if so then
+                # this range may already have been made an acceptor; if so then
                 # move on. In principle it might be that even after expansion
                 # this range and its donor(s) could all be merged with the next
                 # range. In practice it is much easier to reason about a single
@@ -987,10 +987,16 @@ class ContainerSharder(ContainerReplicator):
                 # all the small ranges will be retired (except possibly the
                 # uppermost).
                 continue
+            if acceptor.state == ShardRange.SHRINKING:
+                # this range was selected as a donor on a previous cycle
+                continue
 
             proposed_object_count = donor.object_count + acceptor.object_count
-            if (donor.object_count < self.shrink_size and
-                    proposed_object_count < self.merge_size):
+            if (donor.state == ShardRange.SHRINKING or
+                    (donor.object_count < self.shrink_size and
+                     proposed_object_count < self.merge_size)):
+                # include previously identified merge pairs on presumption that
+                # following shrink procedure is idempotent
                 merge_pairs[acceptor] = donor
 
         # TODO: think long and hard about the correct order for these remaining
@@ -1008,12 +1014,6 @@ class ContainerSharder(ContainerReplicator):
             # root; and any updates from the acceptor to root will not
             # change the acceptor namespace because its created_at
             # timestamp has not advanced.
-            # TODO: OR we could skip this step and wait for the act of
-            # cleaving from the donor to update the acceptor lower range -
-            # between now and that happening, updates redirected to the
-            # shrinking range would either land there and become misplaced
-            # or get redirected from the donor to the acceptor and become
-            # misplaced until cleaving happens.
             acceptor.lower = donor.lower
             self._put_shard_container(broker, acceptor)
             # Now send a copy of the expanded acceptor, with an updated
@@ -1024,19 +1024,20 @@ class ContainerSharder(ContainerReplicator):
             acceptor = acceptor.copy(timestamp=Timestamp.now())
             acceptor.object_count += donor.object_count
             acceptor.bytes_used += donor.bytes_used
-            # Set Scan-Done so that the donor will not scan itself and will
-            # transition to SHARDED state once it has cleaved to the acceptor;
-            headers = {'X-Container-Sysmeta-Shard-Scan-Done': True}
+            # Set donor state to shrinking so that next cycle won't use it as
+            # an acceptor
+            donor.update_state(ShardRange.SHRINKING)
+            broker.merge_shard_ranges([donor])
             # PUT the acceptor shard range to the donor shard container; this
             # forces the donor to asynchronously cleave its entire contents to
             # the acceptor; the donor's version of the acceptor shard range has
-            # the fresh timestamp
-            # Note: if this fails, the shard has a new timestamp and Scan-Done
-            # set but no shard range to cleave, which is ok. It should remain
-            # in unsharded state until the next cycle when the shard range will
-            # be PUT again.
-            # TODO: ...but if the attempt to shrink was not repeated, the shard
-            # is left with Scan-Done set, and if it was to then grow in size to
+            # the fresh timestamp.
+            # Set Scan-Done so that the donor will not scan itself and will
+            # transition to SHARDED state once it has cleaved to the acceptor.
+            headers = {'X-Container-Sysmeta-Shard-Scan-Done': True}
+            # TODO: if the PUT request successfully write the Scan-Done sysmeta
+            # but fails to write the acceptor shard range, then the shard is
+            # left with Scan-Done set, and if it was to then grow in size to
             # eventually need sharding, we don't want Scan-Done prematurely
             # set. This is an argument for basing 'scan done condition' on the
             # existence of a shard range whose upper >= shard own range, rather

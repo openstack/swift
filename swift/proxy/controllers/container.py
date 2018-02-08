@@ -18,7 +18,7 @@ import json
 
 from six.moves.urllib.parse import unquote
 from swift.common.utils import public, csv_append, Timestamp, \
-    config_true_value, ShardRange
+    config_true_value
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -152,8 +152,7 @@ class ContainerController(Controller):
         # get the list of ShardRanges that contain the requested listing range
         # by using original request params
         ranges = self._get_shard_ranges(
-            req, self.account_name, self.container_name,
-            state=ShardRange.STATES[ShardRange.ACTIVE])
+            req, self.account_name, self.container_name, state='listing')
         if not ranges:
             # can't find ranges or there was a problem getting the ranges. So
             # return what we have.

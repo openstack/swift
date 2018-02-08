@@ -2198,7 +2198,8 @@ class TestContainerController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(201, resp.status_int)
         # PUT some shard ranges
-        shard_bounds = [('', 'ham', ShardRange.ACTIVE),
+        shard_bounds = [('', 'apple', ShardRange.SHRINKING),
+                        ('apple', 'ham', ShardRange.ACTIVE),
                         ('ham', 'salami', ShardRange.ACTIVE),
                         ('salami', '', ShardRange.CREATED)]
         shard_ranges = [
@@ -2247,19 +2248,30 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(shard_ranges, 'a/c')
         check_shard_GET(reversed(shard_ranges), 'a/c', params='&reverse=true')
         # only active shards
-        check_shard_GET(shard_ranges[:2], 'a/c',
+        check_shard_GET(shard_ranges[1:3], 'a/c',
                         params='&state=active&end_marker=pickle')
-        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+        check_shard_GET(reversed(shard_ranges[1:3]), 'a/c',
                         params='&state=active&reverse=true&marker=pickle')
+        # only shrinking shards
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&state=shrinking&end_marker=pickle')
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&state=shrinking&reverse=true&marker=pickle')
+        # only active or shrinking shards
+        check_shard_GET(shard_ranges[:3], 'a/c',
+                        params='&state=shrinking,active&end_marker=pickle')
+        check_shard_GET(
+            reversed(shard_ranges[:3]), 'a/c',
+            params='&state=active,shrinking&reverse=true&marker=pickle')
         # active shards don't cover entire namespace so expect an extra filler
         extra_shard_range = ShardRange(
-            'a/c', ts_now, shard_ranges[1].upper, ShardRange.MAX,
+            'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX,
             state=ShardRange.ACTIVE)
-        expected = shard_ranges[:2] + [extra_shard_range]
+        expected = shard_ranges[1:3] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&state=active')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=active&reverse=true')
-        expected = [shard_ranges[1], extra_shard_range]
+        expected = [shard_ranges[2], extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&state=active&marker=pickle')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=active&reverse=true&end_marker=pickle')
@@ -2278,77 +2290,77 @@ class TestContainerController(unittest.TestCase):
         params = '&state=active&reverse=true&marker=walnut&end_marker=treacle'
         check_shard_GET([extra_shard_range], 'a/c', params=params)
         # specific object
-        check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=cheese')
-        check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=ham')
-        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=pickle')
-        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=salami')
-        check_shard_GET(shard_ranges[2:], 'a/c', params='&includes=walnut')
-        check_shard_GET(shard_ranges[2:], 'a/c',
+        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=cheese')
+        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=ham')
+        check_shard_GET(shard_ranges[2:3], 'a/c', params='&includes=pickle')
+        check_shard_GET(shard_ranges[2:3], 'a/c', params='&includes=salami')
+        check_shard_GET(shard_ranges[3:], 'a/c', params='&includes=walnut')
+        check_shard_GET(shard_ranges[3:], 'a/c',
                         params='&includes=walnut&reverse=true')
         # with marker
-        check_shard_GET(shard_ranges, 'a/c', params='&marker=cheese')
-        check_shard_GET(shard_ranges[:1], 'a/c',
+        check_shard_GET(shard_ranges[1:], 'a/c', params='&marker=cheese')
+        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
                         params='&marker=cheese&reverse=true')
-        check_shard_GET(shard_ranges, 'a/c', params='&marker=ham')
-        check_shard_GET(shard_ranges[:1], 'a/c',
+        check_shard_GET(shard_ranges[1:], 'a/c', params='&marker=ham')
+        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
                         params='&marker=ham&reverse=true')
-        check_shard_GET(shard_ranges[1:], 'a/c', params='&marker=pickle')
-        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+        check_shard_GET(shard_ranges[2:], 'a/c', params='&marker=pickle')
+        check_shard_GET(reversed(shard_ranges[:3]), 'a/c',
                         params='&marker=pickle&reverse=true')
-        check_shard_GET(shard_ranges[1:], 'a/c', params='&marker=salami')
-        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+        check_shard_GET(shard_ranges[2:], 'a/c', params='&marker=salami')
+        check_shard_GET(reversed(shard_ranges[:3]), 'a/c',
                         params='&marker=salami&reverse=true')
-        check_shard_GET(shard_ranges[2:], 'a/c', params='&marker=walnut')
+        check_shard_GET(shard_ranges[3:], 'a/c', params='&marker=walnut')
         check_shard_GET(reversed(shard_ranges), 'a/c',
                         params='&marker=walnut&reverse=true')
         # with end marker
-        check_shard_GET(shard_ranges[:1], 'a/c', params='&end_marker=cheese')
-        check_shard_GET(reversed(shard_ranges), 'a/c',
+        check_shard_GET(shard_ranges[:2], 'a/c', params='&end_marker=cheese')
+        check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
                         params='&end_marker=cheese&reverse=true')
         # TODO: revisit - should the first range be included when the
         # end_marker equals its upper? i.e. is end_marker inclusive or not
-        check_shard_GET(shard_ranges[:1], 'a/c', params='&end_marker=ham')
-        check_shard_GET(reversed(shard_ranges), 'a/c',
+        check_shard_GET(shard_ranges[:2], 'a/c', params='&end_marker=ham')
+        check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
                         params='&end_marker=ham&reverse=true')
-        check_shard_GET(shard_ranges[:2], 'a/c', params='&end_marker=pickle')
-        check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
+        check_shard_GET(shard_ranges[:3], 'a/c', params='&end_marker=pickle')
+        check_shard_GET(reversed(shard_ranges[2:]), 'a/c',
                         params='&end_marker=pickle&reverse=true')
-        check_shard_GET(shard_ranges[:2], 'a/c', params='&end_marker=salami')
-        check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
+        check_shard_GET(shard_ranges[:3], 'a/c', params='&end_marker=salami')
+        check_shard_GET(reversed(shard_ranges[2:]), 'a/c',
                         params='&end_marker=salami&reverse=true')
         check_shard_GET(shard_ranges, 'a/c', params='&end_marker=walnut')
-        check_shard_GET(shard_ranges[2:], 'a/c',
+        check_shard_GET(shard_ranges[3:], 'a/c',
                         params='&end_marker=walnut&reverse=true')
         # with marker and end marker
-        check_shard_GET(shard_ranges[:1], 'a/c',
+        check_shard_GET(shard_ranges[1:2], 'a/c',
                         params='&marker=cheese&end_marker=egg')
-        check_shard_GET(shard_ranges[:1], 'a/c',
+        check_shard_GET(shard_ranges[1:2], 'a/c',
                         params='&end_marker=cheese&marker=egg&reverse=true')
-        check_shard_GET(shard_ranges[:2], 'a/c',
+        check_shard_GET(shard_ranges[1:3], 'a/c',
                         params='&marker=egg&end_marker=jam')
-        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+        check_shard_GET(reversed(shard_ranges[1:3]), 'a/c',
                         params='&end_marker=egg&marker=jam&reverse=true')
-        check_shard_GET(shard_ranges, 'a/c',
-                        params='&marker=cheese&end_marker=walnut')
-        check_shard_GET(reversed(shard_ranges), 'a/c',
-                        params='&end_marker=cheese&marker=walnut&reverse=true')
         check_shard_GET(shard_ranges[1:], 'a/c',
-                        params='&marker=jam&end_marker=walnut')
+                        params='&marker=cheese&end_marker=walnut')
         check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
+                        params='&end_marker=cheese&marker=walnut&reverse=true')
+        check_shard_GET(shard_ranges[2:], 'a/c',
+                        params='&marker=jam&end_marker=walnut')
+        check_shard_GET(reversed(shard_ranges[2:]), 'a/c',
                         params='&end_marker=jam&marker=walnut&reverse=true')
-        check_shard_GET(shard_ranges[2:], 'a/c',
+        check_shard_GET(shard_ranges[3:], 'a/c',
                         params='&marker=toast&end_marker=walnut')
-        check_shard_GET(shard_ranges[2:], 'a/c',
+        check_shard_GET(shard_ranges[3:], 'a/c',
                         params='&end_marker=toast&marker=walnut&reverse=true')
         # TODO: should this return anything? marker > end_marker
-        check_shard_GET(shard_ranges[:1], 'a/c',
+        check_shard_GET(shard_ranges[1:2], 'a/c',
                         params='&marker=egg&end_marker=cheese')
         # TODO: should this return anything? marker < end_marker and reverse
-        check_shard_GET(shard_ranges[:1], 'a/c',
+        check_shard_GET(shard_ranges[1:2], 'a/c',
                         params='&marker=cheese&end_marker=egg&reverse=true')
 
         # delete a shardrange range
-        shard_range = shard_ranges[0]
+        shard_range = shard_ranges[1]
         headers = {
             'x-timestamp': next(ts_iter).internal,
             'x-backend-record-type': 'shard',
@@ -2365,19 +2377,20 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(204, resp.status_int)
 
-        self._assertShardRangesEqual(shard_ranges[1:],
+        self._assertShardRangesEqual(shard_ranges[:1] + shard_ranges[2:],
                                      broker.get_shard_ranges())
 
-        check_shard_GET(shard_ranges[1:], 'a/c')
-        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=jam')
+        check_shard_GET(shard_ranges[:1] + shard_ranges[2:], 'a/c')
+        check_shard_GET(shard_ranges[2:3], 'a/c', params='&includes=jam')
         # specify obj, marker or end_marker not in any shard range
         check_shard_GET([], 'a/c', params='&includes=cheese')
         check_shard_GET([], 'a/c', params='&includes=cheese&reverse=true')
         check_shard_GET([], 'a/c', params='&includes=ham')
-        check_shard_GET(shard_ranges[1:], 'a/c/', params='&marker=cheese')
-        check_shard_GET([], 'a/c/', params='&marker=cheese&reverse=true')
-        check_shard_GET([], 'a/c/', params='&end_marker=cheese')
-        check_shard_GET(reversed(shard_ranges[1:]), 'a/c/',
+        check_shard_GET(shard_ranges[2:], 'a/c/', params='&marker=cheese')
+        check_shard_GET(shard_ranges[:1], 'a/c/',
+                        params='&marker=cheese&reverse=true')
+        check_shard_GET(shard_ranges[:1], 'a/c/', params='&end_marker=cheese')
+        check_shard_GET(reversed(shard_ranges[2:]), 'a/c/',
                         params='&end_marker=cheese&reverse=true')
 
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))

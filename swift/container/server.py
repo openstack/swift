@@ -35,7 +35,8 @@ from swift.common.request_helpers import get_param, \
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
-    override_bytes_from_content_type, get_log_line, whataremyips, ShardRange
+    override_bytes_from_content_type, get_log_line, whataremyips, ShardRange, \
+    list_from_csv
 
 from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
@@ -579,15 +580,21 @@ class ContainerController(BaseStorageServer):
         record_type = req.headers.get('x-backend-record-type', '').lower()
         if record_type == 'shard':
             includes = get_param(req, 'includes')
-            state = get_param(req, 'state') or None
-            if state:
+            states = get_param(req, 'state') or None
+            if states:
+                states = set(list_from_csv(states))
+                if 'listing' in states:
+                    # map auto to states in which shard range is available for
+                    # listing
+                    states.remove('listing')
+                    states = states | {'active', 'shrinking'}
                 try:
-                    state = ShardRange.STATES_BY_NAME[state]
+                    states = [ShardRange.STATES_BY_NAME[st] for st in states]
                 except KeyError:
                     return HTTPBadRequest(request=req, body='Bad state')
             container_list = broker.get_shard_ranges(
-                marker, end_marker, includes, reverse, state=state)
-            if state == ShardRange.ACTIVE:
+                marker, end_marker, includes, reverse, state=states)
+            if states and ShardRange.ACTIVE in states:
                 # we might not get all required shard ranges if the container
                 # is part way through sharding, in which case add a filler
                 # shard range for the remainder of the container namespace

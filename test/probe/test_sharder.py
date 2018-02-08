@@ -848,6 +848,7 @@ class TestContainerSharding(ReplProbeTest):
 
         # ...until the sharders run
         self.sharders.once()
+        self.assert_container_listing(['alpha'] + second_shard_objects)
         exp_obj_count = len(second_shard_objects) + 1
         headers = client.head_container(
             self.url, self.token, self.container_name)
@@ -857,7 +858,9 @@ class TestContainerSharding(ReplProbeTest):
         # we may then need sharders to run once or more to find the donor
         # shard, shrink and replicate it to the acceptor
         self.sharders.once()
+        self.assert_container_listing(['alpha'] + second_shard_objects)
         self.sharders.once()
+        self.assert_container_listing(['alpha'] + second_shard_objects)
 
         # check root container
         root_nodes_data = self.direct_get_container_shard_ranges()
@@ -867,8 +870,6 @@ class TestContainerSharding(ReplProbeTest):
             with annotate_failure('Node id %s.' % node_id):
                 # NB now only *one* shard range in root
                 check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
-
-        self.assert_container_listing(['alpha'] + second_shard_objects)
 
         # the acceptor shard is intact..
         shard_nodes_data = self.direct_get_container_shard_ranges(

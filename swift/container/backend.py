@@ -1398,14 +1398,16 @@ class ContainerBroker(DatabaseBroker):
             'COMMIT;')
 
     def get_shard_usage(self):
+        states = (ShardRange.ACTIVE, ShardRange.SHRINKING)
+        states = ','.join([str(state) for state in states])
         self._commit_puts_stale_ok()
         with self.get() as conn:
             try:
                 sql = '''
                 SELECT sum(object_count), sum(bytes_used)
                 FROM shard_ranges
-                WHERE deleted=0 AND state=%s;
-                ''' % ShardRange.ACTIVE
+                WHERE deleted=0 AND state in (%s);
+                ''' % states
                 data = conn.execute(sql)
                 data.row_factory = None
                 row = data.fetchone()
@@ -1420,13 +1422,17 @@ class ContainerBroker(DatabaseBroker):
 
     def _get_shard_range_rows(self, connection=None, include_deleted=False,
                               state=None):
+
         def do_query(conn):
             try:
                 condition = ''
                 conditions = []
                 if not include_deleted:
                     conditions.append('deleted=0')
-                if state is not None:
+                if isinstance(state, list):
+                    state_list = ','.join([str(st) for st in state])
+                    conditions.append('state in (%s)' % state_list)
+                elif state is not None:
                     conditions.append('state=%s' % state)
                 if conditions:
                     condition = ' WHERE ' + ' AND '.join(conditions)
@@ -1450,6 +1456,7 @@ class ContainerBroker(DatabaseBroker):
             with self.get() as conn:
                 return do_query(conn)
 
+    # TODO: add unit test
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
                          reverse=False, include_deleted=False, state=None):
         """
@@ -1465,7 +1472,8 @@ class ContainerBroker(DatabaseBroker):
         :param reverse: reverse the result order.
         :param include_deleted: include items that have the delete marker set
         :param state: if specified, restricts the returned list to shard
-            ranges that have the given state.
+            ranges that have the given state(s); can be a list of ints or a
+            single int.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
         shard_ranges = [

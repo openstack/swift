@@ -529,9 +529,9 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, {}),  # 404
             ('a/c', {}, {}),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='active')),  # 404
+             dict(state='listing')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='active')),  # 404
+             dict(state='listing')),  # 404
             (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', scope='root',
                   limit=str(limit))),  # 200
@@ -561,7 +561,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, dict(reverse='true')),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='active', reverse='true')),  # 404
+             dict(state='listing', reverse='true')),  # 404
             (shard_ranges[2].name, {},
              dict(marker='', end_marker='pie', scope='root', reverse='true',
                   limit=str(limit))),  # 200
@@ -596,9 +596,9 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, dict(limit=str(limit))),  # 404
             ('a/c', {}, dict(limit=str(limit))),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(limit=str(limit), state='active')),  # 404
+             dict(limit=str(limit), state='listing')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(limit=str(limit), state='active')),  # 200
+             dict(limit=str(limit), state='listing')),  # 200
             (shard_ranges[0].name, {},  # 200
              dict(marker='', end_marker='ham\x00', scope='root',
                   limit=str(limit))),
@@ -631,7 +631,7 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, dict(marker=marker)),  # 404
             ('a/c', {}, dict(marker=marker)),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(marker=marker, state='active')),  # 200
+             dict(marker=marker, state='listing')),  # 200
             (shard_ranges[1].name, {},  # 404
              dict(marker=marker, end_marker='pie\x00', scope='root',
                   limit=str(limit))),
@@ -663,7 +663,7 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, dict(end_marker=end_marker)),  # 404
             ('a/c', {}, dict(end_marker=end_marker)),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(end_marker=end_marker, state='active')),  # 200
+             dict(end_marker=end_marker, state='listing')),  # 200
             (shard_ranges[0].name, {},  # 200
              dict(marker='', end_marker='ham\x00', scope='root',
                   limit=str(limit))),
@@ -697,10 +697,10 @@ class TestContainerController(TestRingBase):
              dict(marker=marker, end_marker=end_marker,
                   limit=str(limit))),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(limit=str(limit), state='active',
+             dict(limit=str(limit), state='listing',
                   marker=marker, end_marker=end_marker)),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(limit=str(limit), state='active',
+             dict(limit=str(limit), state='listing',
                   marker=marker, end_marker=end_marker)),  # 200
             (shard_ranges[1].name, {},  # 200
              dict(marker=marker, end_marker=end_marker, scope='root',
@@ -729,10 +729,10 @@ class TestContainerController(TestRingBase):
              dict(marker=end_marker, reverse='true', end_marker=marker,
                   limit=str(limit))),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(limit=str(limit), state='active', marker=end_marker,
+             dict(limit=str(limit), state='listing', marker=end_marker,
                   end_marker=marker, reverse='true')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(limit=str(limit), state='active', marker=end_marker,
+             dict(limit=str(limit), state='listing', marker=end_marker,
                   end_marker=marker, reverse='true')),  # 200
             (shard_ranges[1].name, {},  # 200
              dict(marker=end_marker, end_marker=marker, scope='root',
