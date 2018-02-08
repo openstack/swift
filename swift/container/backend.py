@@ -260,7 +260,11 @@ def merge_shards(item, existing):
         return False
 
     new_content = False
-    # created_at must be the same, now we need to look for meta data updates
+    # created_at must be the same, so preserve existing range bounds
+    for k in ('lower', 'upper'):
+        item[k] = existing[k]
+
+    # now we need to look for meta data updates
     if existing['meta_timestamp'] >= item['meta_timestamp']:
         for k in ('object_count', 'bytes_used', 'meta_timestamp'):
             item[k] = existing[k]

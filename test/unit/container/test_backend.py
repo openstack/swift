@@ -3077,6 +3077,8 @@ class TestContainerBroker(unittest.TestCase):
         assert_shard_ranges(broker, [sr_b_1_1])
 
         # merge same timestamp - ignored
+        broker.merge_shard_ranges([dict(sr_b_1_1, lower='', upper='c')])
+        assert_shard_ranges(broker, [sr_b_1_1])
         broker.merge_shard_ranges([dict(sr_b_1_1, object_count=99)])
         assert_shard_ranges(broker, [sr_b_1_1])
 
@@ -3100,10 +3102,10 @@ class TestContainerBroker(unittest.TestCase):
         broker.merge_shard_ranges([dict(sr_c_5_4)])
         assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_5])
 
-        # merge newer metadata item - updated
+        # merge newer metadata item - only metadata is updated
         sr_c_5_6 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
                               object_count=7, meta_timestamp=ts[6])
-        broker.merge_shard_ranges([dict(sr_c_5_6)])
+        broker.merge_shard_ranges([dict(sr_c_5_6, lower='', upper='d')])
         assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_6])
 
         # merge older created_at, newer metadata item - ignored
@@ -3136,6 +3138,7 @@ class TestContainerBroker(unittest.TestCase):
                                         object_count=0, deleted=1)
         broker.merge_shard_ranges([dict(sr_c_10_10_deleted), dict(sr_c_9_12)])
         assert_shard_ranges(broker, [sr_b_2_2_deleted, sr_c_10_10_deleted])
+        # TODO: add unit tests for state and state_timestamp changes
 
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):
