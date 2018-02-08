@@ -1397,29 +1397,6 @@ class ContainerBroker(DatabaseBroker):
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
 
-    def get_shard_usage(self):
-        states = (ShardRange.ACTIVE, ShardRange.SHRINKING)
-        states = ','.join([str(state) for state in states])
-        self._commit_puts_stale_ok()
-        with self.get() as conn:
-            try:
-                sql = '''
-                SELECT sum(object_count), sum(bytes_used)
-                FROM shard_ranges
-                WHERE deleted=0 AND state in (%s);
-                ''' % states
-                data = conn.execute(sql)
-                data.row_factory = None
-                row = data.fetchone()
-                object_count = row[0]
-                bytes_used = row[1]
-                return {'bytes_used': bytes_used or 0,
-                        'object_count': object_count or 0}
-            except sqlite3.OperationalError as err:
-                if 'no such table: shard_ranges' not in str(err):
-                    raise
-                return {'bytes_used': 0, 'object_count': 0}
-
     def _get_shard_range_rows(self, connection=None, include_deleted=False,
                               state=None):
 
@@ -1498,6 +1475,13 @@ class ContainerBroker(DatabaseBroker):
 
             shard_ranges = list(filter(shard_range_filter, shard_ranges))
         return shard_ranges
+
+    # TODO: add unit test
+    def get_shard_usage(self):
+        shard_ranges = self.get_shard_ranges(
+            state=[ShardRange.ACTIVE, ShardRange.SHRINKING])
+        return {'bytes_used': sum([sr.bytes_used for sr in shard_ranges]),
+                'object_count': sum([sr.object_count for sr in shard_ranges])}
 
     def get_other_replication_items(self):
         return [dict(sr, record_type=RECORD_TYPE_SHARD_NODE)
