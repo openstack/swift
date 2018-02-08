@@ -423,9 +423,9 @@ class ContainerController(BaseStorageServer):
 
             else:
                 # redirect if a shard exists for this object name
-                redirect = self._find_shard_location(req, broker, obj)
-                if redirect:
-                    return redirect
+                response = self._find_shard_location(req, broker, obj)
+                if response:
+                    return response
 
                 broker.put_object(obj, req_timestamp.internal,
                                   int(req.headers['x-size']),

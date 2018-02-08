@@ -343,10 +343,16 @@ class ObjectUpdater(Daemon):
                 else:
                     success = False
             if redirects:
-                # TODO: sanity check that redirect != container_path we just
-                # used
-                redirect = max(redirects, key=lambda x: x[-1])
-                update['container_path'] = redirect[0]
+                redirect = max(redirects, key=lambda x: x[-1])[0]
+                redirect_history = update.setdefault('redirect_history', [])
+                if redirect in redirect_history:
+                    # force update to root, reset history
+                    update['container_path'] = None
+                    update['redirect_history'] = []
+                else:
+                    update['container_path'] = redirect
+                    redirect_history.append(redirect)
+
                 rewrite_pickle = True
                 if attempts_remaining > 0:
                     self.logger.increment("redirects")
@@ -354,7 +360,7 @@ class ObjectUpdater(Daemon):
                                       'triggered a redirect to '
                                       '%(shard)s',
                                       {'obj': obj, 'path': update_path,
-                                       'shard': redirect[0]})
+                                       'shard': update['container_path']})
                 else:
                     # got redirect but ran out of attempts
                     # TODO: we increment failures, but not redirects?? may make
@@ -392,6 +398,10 @@ class ObjectUpdater(Daemon):
         :param op: operation performed (ex: 'PUT' or 'DELETE')
         :param obj: object name being updated
         :param headers_out: headers to send with the update
+        :return: a tuple of (``success``, ``node_id``, ``redirect``)
+            where ``success`` is True of the update succeeded, ``node_id`` is
+            the_id of the node updated and ``redirect`` is either None or a
+            tuple of (a path, a timestamp string).
         """
         redirect = None
         try:
@@ -401,41 +411,33 @@ class ObjectUpdater(Daemon):
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
                 resp.read()
-            success = is_success(resp.status)
 
             if resp.status == HTTP_MOVED_PERMANENTLY:
                 rheaders = HeaderKeyDict(resp.getheaders())
                 location = rheaders.get('Location')
-                if not location:
-                    # treat as a normal failure.
-                    resp_dict = {
-                        'status': resp.status, 'ip': node['ip'],
-                        'port': node['port'], 'device': node['device']}
-                    self.logger.debug(
-                        _('Error code %(status)d is returned from remote '
-                          'server %(ip)s: %(port)s / %(device)s'), resp_dict)
-                    return success, node['id'], redirect
-
-                location = urlparse(location).path
-                try:
-                    shard_account, shard_cont, _junk = split_path(
-                        location, 2, 3, True)
-                except ValueError as err:
-                    # there has been an error so log it and return
-                    self.logger.error(
-                        'Container update failed for %r; problem with '
-                        'redirect location: %s' % (obj, err))
-                    return False, node['id'], redirect
-                redirect = ('%s/%s' % (shard_account, shard_cont),
+                if location:
+                    location = urlparse(location).path
+                    try:
+                        shard_account, shard_cont, _junk = split_path(
+                            location, 2, 3, True)
+                    except ValueError as err:
+                        self.logger.error(
+                            'Container update failed for %r; problem with '
+                            'redirect location: %s' % (obj, err))
+                    else:
+                        # TODO: should it be an error for the redirect
+                        # timestamp to be missing?
+                        redirect = (
+                            '%s/%s' % (shard_account, shard_cont),
                             rheaders.get('X-Backend-Redirect-Timestamp'))
 
-            elif not success:
-                resp_dict = {'status': resp.status, 'ip': node['ip'],
-                             'port': node['port'], 'device': node['device']}
+            success = is_success(resp.status)
+            if not success:
                 self.logger.debug(
                     _('Error code %(status)d is returned from remote '
-                      'server %(ip)s: %(port)s / %(device)s'), resp_dict)
-
+                      'server %(ip)s: %(port)s / %(device)s'),
+                    {'status': resp.status, 'ip': node['ip'],
+                     'port': node['port'], 'device': node['device']})
             return success, node['id'], redirect
         except (Exception, Timeout):
             self.logger.exception(_('ERROR with remote server '
