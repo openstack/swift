@@ -559,8 +559,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
         self.assertFalse(os.path.exists(expected_shard_dbs[3]))
 
-        broker.merge_shard_ranges(
-            [dict(shard_range) for shard_range in shard_ranges[:3]])
+        broker.merge_shard_ranges(shard_ranges[:3])
         broker.set_sharding_state()
 
         # run cleave again now we have shard ranges - first batch is cleaved
@@ -631,7 +630,7 @@ class TestSharder(unittest.TestCase):
         sharder._replicate_object.assert_not_called()
 
         # add final shard range
-        broker.merge_shard_ranges([dict(shard_ranges[3])])
+        broker.merge_shard_ranges(shard_ranges[3:4])
         update_sharding_info(broker, {'Scan-Done': 'True'})
 
         with self._mock_sharder() as sharder:
@@ -711,8 +710,7 @@ class TestSharder(unittest.TestCase):
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
 
-        broker.merge_shard_ranges(
-            [dict(shard_range) for shard_range in shard_ranges[:3]])
+        broker.merge_shard_ranges(shard_ranges[:3])
         broker.set_sharding_state()
 
         # run cleave - first batch is cleaved
@@ -760,8 +758,7 @@ class TestSharder(unittest.TestCase):
         shard_ranges[2].lower = 'd'
         shard_ranges[2].timestamp = Timestamp.now()
 
-        broker.merge_shard_ranges(
-            [dict(shard_range) for shard_range in shard_ranges[1:3]])
+        broker.merge_shard_ranges(shard_ranges[1:3])
 
         # run cleave - should process the extended third (final) range
         with self._mock_sharder() as sharder:
@@ -822,8 +819,7 @@ class TestSharder(unittest.TestCase):
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
 
-        broker.merge_shard_ranges(
-            [dict(shard_range) for shard_range in shard_ranges])
+        broker.merge_shard_ranges(shard_ranges)
         broker.set_sharding_state()
 
         # run cleave - first range is cleaved
@@ -904,8 +900,7 @@ class TestSharder(unittest.TestCase):
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
-        broker.merge_shard_ranges(
-            [dict(shard_range) for shard_range in initial_shard_ranges])
+        broker.merge_shard_ranges(initial_shard_ranges)
 
         # unsharded
         with self._mock_sharder() as sharder:
@@ -1314,8 +1309,7 @@ class TestSharder(unittest.TestCase):
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
-        broker.merge_shard_ranges(
-            [dict(shard_range) for shard_range in root_shard_ranges])
+        broker.merge_shard_ranges(root_shard_ranges)
 
         broker.set_sharding_state()
         ts_older_internal = self.ts_encoded()

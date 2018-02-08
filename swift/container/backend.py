@@ -1160,21 +1160,25 @@ class ContainerBroker(DatabaseBroker):
                 self._migrate_add_storage_policy(conn)
                 return _really_merge_items(conn)
 
-    def merge_shard_ranges(self, item_list):
+    def merge_shard_ranges(self, shard_ranges):
         """
         Merge items into the object or shard ranges tables.
 
-        :param item_list: list of dictionaries of {'name', 'created_at',
-                          'lower', 'upper', 'object_count', 'bytes_used',
-                          'meta_timestamp', 'deleted'}
+        :param shard_ranges: a list of shard ranges; each entry in the list
+            should be an instance of :class:`~swift.common.utils.ShardRange` or
+            a dict representation of a shard range having `SHARD_RANGE_KEYS`.
         """
-        if not item_list:
+        if not shard_ranges:
             return
 
-        for item in item_list:
+        item_list = []
+        for item in shard_ranges:
+            if isinstance(item, ShardRange):
+                item = dict(item)
             for col in ('name', 'lower', 'upper'):
                 if isinstance(item[col], six.text_type):
                     item[col] = item[col].encode('utf-8')
+            item_list.append(item)
 
         def _really_merge_items(conn):
             curs = conn.cursor()
@@ -1544,9 +1548,7 @@ class ContainerBroker(DatabaseBroker):
         # who are still in the UNSHARDED state.
         # TODO: should we include deleted shard ranges here...just in case it
         # ever happened and mattered?
-        sub_broker.merge_shard_ranges(
-            [dict(shard_range, deleted=0)
-             for shard_range in self.get_shard_ranges()])
+        sub_broker.merge_shard_ranges(self.get_shard_ranges())
 
         # We also need to sync the sync tables as we have no idea how long
         # sharding will take and we want to be able to continue replication

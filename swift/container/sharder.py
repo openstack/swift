@@ -809,7 +809,7 @@ class ContainerSharder(ContainerReplicator):
         # eventually come back to the root
         persisted_ranges = [sr.copy(timestamp=Timestamp.now())
                             for sr in found_ranges]
-        broker.merge_shard_ranges([dict(sr) for sr in persisted_ranges])
+        broker.merge_shard_ranges(persisted_ranges)
         if not broker.is_root_container():
             self._update_shard_ranges(
                 broker.root_account, broker.root_container, persisted_ranges)
@@ -1064,7 +1064,7 @@ class ContainerSharder(ContainerReplicator):
             self.stats['containers_sharded'] += 1
 
         if ranges_done:
-            broker.merge_shard_ranges([dict(sr) for sr in ranges_done])
+            broker.merge_shard_ranges(ranges_done)
             final_upper = (own_shard_range.upper if own_shard_range
                            else ShardRange.MAX)
             if ranges_done[-1].upper >= final_upper:
