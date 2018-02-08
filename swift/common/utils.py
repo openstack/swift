@@ -4924,3 +4924,24 @@ class PipeMutex(object):
 class ThreadSafeSysLogHandler(SysLogHandler):
     def createLock(self):
         self.lock = PipeMutex()
+
+
+def get_redirect_data(response):
+    """
+    Extract a redirect location from a response's headers.
+
+    :param response: a response
+    :return: a tuple of (path, Timestamp) if a Location header is found,
+        otherwise None
+    :raises ValueError: if there is a problem with the Location header format
+    """
+    # TODO: add unit test
+    headers = HeaderKeyDict(response.getheaders())
+    if 'Location' not in headers:
+        return None
+    location = urlparse(headers['Location']).path
+    account, container, _junk = split_path(location, 2, 3, True)
+    # TODO: should it be an error for the redirect
+    # timestamp to be missing?
+    return ('%s/%s' % (account, container),
+            Timestamp(headers.get('X-Backend-Redirect-Timestamp')))

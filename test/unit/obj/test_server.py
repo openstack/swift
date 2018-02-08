@@ -1073,6 +1073,104 @@ class TestObjectController(unittest.TestCase):
         self._test_PUT_then_POST_async_pendings(
             POLICIES[1], update_etag='override_etag')
 
+    def _check_PUT_redirected_async_pending(self, container_path=None):
+        # When container update is redirected verify that the redirect location
+        # is persisted in the async pending file.
+        policy = POLICIES[0]
+        device_dir = os.path.join(self.testdir, 'sda1')
+        t_put = next(self.ts)
+        update_etag = '098f6bcd4621d373cade4e832627b4f6'
+
+        put_headers = {
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'Content-Length': '4',
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'X-Container-Host': 'chost:3200',
+            'X-Container-Partition': '99',
+            'X-Container-Device': 'cdevice'}
+
+        if container_path:
+            # the proxy may include this header
+            put_headers['X-Backend-Container-Path'] = container_path
+            expected_update_path = '/cdevice/99/%s/o' % container_path
+        else:
+            expected_update_path = '/cdevice/99/a/c/o'
+
+        if policy.policy_type == EC_POLICY:
+            put_headers.update({
+                'X-Object-Sysmeta-Ec-Frag-Index': '2',
+                'X-Backend-Container-Update-Override-Etag': update_etag,
+                'X-Object-Sysmeta-Ec-Etag': update_etag})
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=put_headers, body='test')
+        resp_headers = {'Location': '/.sharded_a/c_shard_1/o',
+                        'X-Backend-Redirect-Timestamp': next(self.ts).internal}
+
+        with mocked_http_conn(301, headers=[resp_headers]) as conn, \
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''),\
+                fake_spawn():
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(1, len(conn.requests))
+
+        self.assertEqual(expected_update_path, conn.requests[0]['path'])
+
+        # whether or not an X-Backend-Container-Path was received from the
+        # proxy, the async pending file should now have the container_path
+        # equal to the Location header received in the update response.
+        async_pending_file_put = os.path.join(
+            device_dir, diskfile.get_async_dir(policy), 'a83',
+            '06fbf0b514e5199dfc4e00f42eb5ea83-%s' % t_put.internal)
+        self.assertTrue(os.path.isfile(async_pending_file_put),
+                        'Expected %s to be a file but it is not.'
+                        % async_pending_file_put)
+        expected_put_headers = {
+            'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'X-Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'X-Size': '4',
+            'X-Etag': '098f6bcd4621d373cade4e832627b4f6',
+            'User-Agent': 'object-server %s' % os.getpid(),
+            'X-Backend-Storage-Policy-Index': '%d' % int(policy)}
+        if policy.policy_type == EC_POLICY:
+            expected_put_headers['X-Etag'] = update_etag
+        self.assertEqual(
+            {'headers': expected_put_headers,
+             'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
+             'container_path': '.sharded_a/c_shard_1'},
+            pickle.load(open(async_pending_file_put)))
+
+        # when updater is run its first request will be to the redirect
+        # location that is persisted in the async pending file
+        with mocked_http_conn(201) as conn:
+            with mock.patch('swift.obj.updater.dump_recon_cache',
+                            lambda *args: None):
+                object_updater = updater.ObjectUpdater(
+                    {'devices': self.testdir,
+                     'mount_check': 'false'}, logger=debug_logger())
+                node = {'id': 1, 'ip': 'chost', 'port': 3200,
+                        'device': 'cdevice'}
+                mock_ring = mock.MagicMock()
+                mock_ring.get_nodes.return_value = (99, [node])
+                object_updater.container_ring = mock_ring
+                object_updater.run_once()
+
+        self.assertEqual(1, len(conn.requests))
+        self.assertEqual('/cdevice/99/.sharded_a/c_shard_1/o',
+                         conn.requests[0]['path'])
+
+    def test_PUT_redirected_async_pending(self):
+        self._check_PUT_redirected_async_pending()
+
+    def test_PUT_redirected_async_pending_with_container_path(self):
+        self._check_PUT_redirected_async_pending(container_path='.another/c')
+
     def test_POST_quarantine_zbyte(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},

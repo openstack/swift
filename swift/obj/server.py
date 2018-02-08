@@ -34,7 +34,7 @@ from swift.common.utils import public, get_logger, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
-    config_auto_int_value, split_path
+    config_auto_int_value, split_path, get_redirect_data
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -43,7 +43,7 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
     ChunkReadError, DiskFileXattrNotSupported
 from swift.obj import ssync_receiver
-from swift.common.http import is_success
+from swift.common.http import is_success, HTTP_MOVED_PERMANENTLY
 from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
@@ -274,6 +274,7 @@ class ObjectController(BaseStorageServer):
         else:
             full_path = '/%s/%s/%s' % (account, container, obj)
 
+        redirect_data = None
         if all([host, partition, contdevice]):
             try:
                 with ConnectionTimeout(self.conn_timeout):
@@ -283,15 +284,23 @@ class ObjectController(BaseStorageServer):
                 with Timeout(self.node_timeout):
                     response = conn.getresponse()
                     response.read()
-                    if is_success(response.status):
-                        return
-                    else:
-                        self.logger.error(_(
-                            'ERROR Container update failed '
-                            '(saving for async update later): %(status)d '
-                            'response from %(ip)s:%(port)s/%(dev)s'),
-                            {'status': response.status, 'ip': ip, 'port': port,
-                             'dev': contdevice})
+                if is_success(response.status):
+                    return
+
+                if response.status == HTTP_MOVED_PERMANENTLY:
+                    try:
+                        redirect_data = get_redirect_data(response)
+                    except ValueError as err:
+                        self.logger.error(
+                            'Container update failed for %r; problem with '
+                            'redirect location: %s' % (obj, err))
+                else:
+                    self.logger.error(_(
+                        'ERROR Container update failed '
+                        '(saving for async update later): %(status)d '
+                        'response from %(ip)s:%(port)s/%(dev)s'),
+                        {'status': response.status, 'ip': ip, 'port': port,
+                         'dev': contdevice})
             except (Exception, Timeout):
                 self.logger.exception(_(
                     'ERROR container update failed with '
@@ -299,6 +308,11 @@ class ObjectController(BaseStorageServer):
                     {'ip': ip, 'port': port, 'dev': contdevice})
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
+        if redirect_data:
+            self.logger.debug(
+                'Update to %(path)s redirected to %(redirect)s',
+                {'path': full_path, 'redirect': redirect_data[0]})
+            container_path = redirect_data[0]
         if container_path:
             data['container_path'] = container_path
         timestamp = headers_out.get('x-meta-timestamp',
@@ -363,7 +377,6 @@ class ObjectController(BaseStorageServer):
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
         headers_out['X-Backend-Storage-Policy-Index'] = int(policy)
-
         update_greenthreads = []
         for conthost, contdevice in updates:
             gt = spawn(self.async_update, op, account, container, obj,
