@@ -475,7 +475,6 @@ class TestWSGI(unittest.TestCase):
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt, \
-                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
                     mock.patch('swift.common.wsgi.inspect'):
                 conf = wsgi.appconfig(conf_file)
                 logger = logging.getLogger('test')
@@ -485,10 +484,6 @@ class TestWSGI(unittest.TestCase):
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
-        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
-                                                           socket=True,
-                                                           select=True,
-                                                           thread=True)
         _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
@@ -562,7 +557,6 @@ class TestWSGI(unittest.TestCase):
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt, \
-                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
                     mock.patch.dict('os.environ', {'TZ': ''}), \
                     mock.patch('swift.common.wsgi.inspect'), \
                     mock.patch('time.tzset'):
@@ -576,10 +570,6 @@ class TestWSGI(unittest.TestCase):
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
-        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
-                                                           socket=True,
-                                                           select=True,
-                                                           thread=True)
         _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
@@ -617,7 +607,6 @@ class TestWSGI(unittest.TestCase):
             with mock.patch('swift.proxy.server.Application.'
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
-                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt:
                 mock_server = _wsgi.server
                 _wsgi.server = lambda *args, **kwargs: mock_server(
@@ -630,10 +619,6 @@ class TestWSGI(unittest.TestCase):
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
-        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
-                                                           socket=True,
-                                                           select=True,
-                                                           thread=True)
         _wsgi_evt.debug.hub_exceptions.assert_called_with(True)
         self.assertTrue(mock_server.called)
         args, kwargs = mock_server.call_args
@@ -777,12 +762,17 @@ class TestWSGI(unittest.TestCase):
                 mock.patch.object(wsgi, 'drop_privileges'), \
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
-                mock.patch.object(wsgi, 'run_server'):
+                mock.patch.object(wsgi, 'run_server'), \
+                mock.patch('swift.common.utils.eventlet') as _utils_evt:
             wsgi.run_wsgi('conf_file', 'app_section',
                           global_conf_callback=_global_conf_callback)
 
         self.assertEqual(calls['_global_conf_callback'], 1)
         self.assertEqual(calls['_loadapp'], 1)
+        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
+                                                           socket=True,
+                                                           select=True,
+                                                           thread=True)
 
     def test_run_server_success(self):
         calls = defaultdict(lambda: 0)
@@ -802,11 +792,16 @@ class TestWSGI(unittest.TestCase):
                 mock.patch.object(wsgi, 'drop_privileges'), \
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
-                mock.patch.object(wsgi, 'run_server'):
+                mock.patch.object(wsgi, 'run_server'), \
+                mock.patch('swift.common.utils.eventlet') as _utils_evt:
             rc = wsgi.run_wsgi('conf_file', 'app_section')
         self.assertEqual(calls['_initrp'], 1)
         self.assertEqual(calls['_loadapp'], 1)
         self.assertEqual(rc, 0)
+        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
+                                                           socket=True,
+                                                           select=True,
+                                                           thread=True)
 
     @mock.patch('swift.common.wsgi.run_server')
     @mock.patch('swift.common.wsgi.WorkersStrategy')
