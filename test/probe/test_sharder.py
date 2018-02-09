@@ -28,6 +28,7 @@ from swift.common import utils
 from swift.common.manager import Manager
 from swiftclient import client, get_auth, ClientException
 
+from test import annotate_failure
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number
 
@@ -764,7 +765,7 @@ class TestContainerSharding(ReplProbeTest):
             object_counts = []
             bytes_used = []
             for node_id, node_data in node_data.items():
-                with self.annotate_failure('Node id %s.' % node_id):
+                with annotate_failure('Node id %s.' % node_id):
                     check_node_data(
                         node_data, exp_shard_hdrs, exp_obj_count,
                         expected_shards)
@@ -797,7 +798,7 @@ class TestContainerSharding(ReplProbeTest):
         root_nodes_data = self.direct_get_container_shard_ranges()
         self.assertEqual(3, len(root_nodes_data))
         for node_id, node_data in root_nodes_data.items():
-            with self.annotate_failure('Node id %s.' % node_id):
+            with annotate_failure('Node id %s.' % node_id):
                 check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
 
         # run updaters to update .sharded account; shard containers have not
@@ -835,7 +836,7 @@ class TestContainerSharding(ReplProbeTest):
         root_nodes_data = self.direct_get_container_shard_ranges()
         self.assertEqual(3, len(root_nodes_data))
         for node_id, node_data in root_nodes_data.items():
-            with self.annotate_failure('Node id %s.' % node_id):
+            with annotate_failure('Node id %s.' % node_id):
                 check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
             range_data = node_data[1]
             self.assert_shard_range_lists_equal(
@@ -856,7 +857,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(3, len(root_nodes_data))
         exp_hdrs['X-Container-Object-Count'] = str(exp_obj_count)
         for node_id, node_data in root_nodes_data.items():
-            with self.annotate_failure('Node id %s.' % node_id):
+            with annotate_failure('Node id %s.' % node_id):
                 # NB now only *one* shard range in root
                 check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
 
