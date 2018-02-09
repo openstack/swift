@@ -2979,7 +2979,7 @@ def validate_sync_to(value, allowed_sync_hosts, realms_conf):
     :param value: The X-Container-Sync-To header value to validate.
     :param allowed_sync_hosts: A list of allowed hosts in endpoints,
         if realms_conf does not apply.
-    :param realms_conf: A instance of
+    :param realms_conf: An instance of
         swift.common.container_sync_realms.ContainerSyncRealms to
         validate against.
     :returns: A tuple of (error_string, validated_endpoint, realm,
