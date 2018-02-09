@@ -791,7 +791,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEqual('1', jobs[0]['partition'])
 
     def test_handoffs_first_mode_will_process_all_jobs_after_handoffs(self):
-        # make a object in the handoff & primary partition
+        # make an object in the handoff & primary partition
         expected_suffix_paths = []
         for policy in POLICIES:
             # primary
