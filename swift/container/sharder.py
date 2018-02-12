@@ -553,9 +553,10 @@ class ContainerSharder(ContainerReplicator):
                         # should prevent these updates undoing any newer
                         # updates at the root from the actual shards. *It would
                         # be good to have a test to verify that.*
+                        update_sharding_info(
+                            broker, {'Timestamp': Timestamp.now().internal}
+                        )
                         own_shard_range = broker.get_own_shard_range()
-                        own_shard_range = own_shard_range.copy(
-                            timestamp=Timestamp.now())
                         # TODO: maybe differentiate SHARDED vs SHRUNK?
                         own_shard_range.state = ShardRange.SHARDED
                         own_shard_range.deleted = 1
@@ -571,23 +572,27 @@ class ContainerSharder(ContainerReplicator):
                         self.logger.debug('Remaining in sharding state %s/%s',
                                           broker.account, broker.container)
 
-            if state == DB_STATE_SHARDED:
-                if broker.is_root_container():
-                    if is_leader:
-                        self._find_shrinks(broker, node, part)
-            else:
-                if not broker.is_root_container():
-                    # update the root container with this shard's usage stats
-                    own_shard_range = broker.get_own_shard_range()
-                    # TODO: yuk, need to send state to root to avoid resetting
-                    # it to CREATED when a donor has cleaved an expanded
-                    # namespace and *new timestamp* to this shard, but should
-                    # we be persisting the actual state rather than hard code
-                    # it?
+            if (state == DB_STATE_SHARDED and broker.is_root_container() and
+                    is_leader):
+                self._find_shrinks(broker, node, part)
+
+            if not broker.is_root_container():
+                # update the root container with this shard's usage stats; do
+                # this even when sharded in case previous attempts failed
+                own_shard_range = broker.get_own_shard_range()
+                if state == DB_STATE_SHARDED:
+                    own_shard_range.state = ShardRange.SHARDED
+                    own_shard_range.deleted = 1
+                else:
+                    # TODO: yuk, need to send ACTIVE state to root to avoid
+                    # resetting it to CREATED when a donor has cleaved an
+                    # expanded namespace and *new timestamp* to this shard, but
+                    # should we be persisting the actual state rather than hard
+                    # code it?
                     own_shard_range.state = ShardRange.ACTIVE
-                    self._update_shard_ranges(
-                        broker.root_account, broker.root_container,
-                        [own_shard_range])
+                self._update_shard_ranges(
+                    broker.root_account, broker.root_container,
+                    [own_shard_range])
             self.logger.info('Finished processing %s/%s state %s',
                              broker.account, broker.container,
                              DB_STATE[broker.get_db_state()])
