@@ -1013,7 +1013,7 @@ class TestContainerBroker(unittest.TestCase):
         check_sharded_db_files(broker)
 
     @with_tempdir
-    def test_get_items_since_with_shard_db(self, tempdir):
+    def test_get_items_since_include_sharding(self, tempdir):
         acct = 'account'
         cont = 'container'
         hsh = hash_path(acct, cont)
@@ -1043,10 +1043,19 @@ class TestContainerBroker(unittest.TestCase):
         new_max_row = broker.get_max_row()
         self.assertEqual(new_max_row, 5)  # sanity
 
-        expected = range(1, new_max_row + 1)
+        # default will only consider rows in the holding object table
+        possible_rows = range(old_max_row + 1, new_max_row + 1)
         for x in range(new_max_row + 2):
-            self.assertEqual(expected[x:x + 2], [
-                item['ROWID'] for item in broker.get_items_since(x, 2)])
+            actual = broker.get_items_since(x, 2)
+            self.assertEqual(possible_rows[max(x - old_max_row, 0):2],
+                             [item['ROWID'] for item in actual])
+
+        # optionally include rows in the sharding object table
+        possible_rows = range(1, new_max_row + 1)
+        for x in range(new_max_row + 2):
+            actual = broker.get_items_since(x, 2, include_sharding=True)
+            self.assertEqual(possible_rows[x:x + 2],
+                             [item['ROWID'] for item in actual])
 
         # final sanity check
         broker._create_connection(broker._db_file)
@@ -1063,15 +1072,15 @@ class TestContainerBroker(unittest.TestCase):
         with mock.patch('swift.common.db.DatabaseBroker.get_items_since',
                         get_items_since_counter):
             # Should only hit the old broker
-            items = broker.get_items_since(1, 2)
+            items = broker.get_items_since(1, 2, include_sharding=True)
             self.assertEqual(len(broker_calls), 1)
             self.assertFalse(broker_calls[0].endswith('shard.db'))
             self.assertEqual([2, 3], [item['ROWID'] for item in items])
 
-            # Now well wrap around between 2 so we should call get_items_since
+            # Now we'll wrap around between 2 so we should call get_items_since
             # twice, 1 old and 1 shardrange broker.
             broker_calls = []
-            items = broker.get_items_since(2, 2)
+            items = broker.get_items_since(2, 2, include_sharding=True)
             self.assertEqual(len(broker_calls), 2)
             self.assertFalse(broker_calls[0].endswith('shard.db'))
             self.assertTrue(broker_calls[1].endswith('shard.db'))
@@ -1080,7 +1089,7 @@ class TestContainerBroker(unittest.TestCase):
             # Now only hit the shard range broker, so only call get_items_since
             # once
             broker_calls = []
-            items = broker.get_items_since(3, 2)
+            items = broker.get_items_since(3, 2, include_sharding=True)
             self.assertEqual(len(broker_calls), 1)
             self.assertTrue(broker_calls[0].endswith('shard.db'))
             self.assertEqual([4, 5], [item['ROWID'] for item in items])

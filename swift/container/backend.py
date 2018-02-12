@@ -1051,6 +1051,7 @@ class ContainerBroker(DatabaseBroker):
             result = self._record_to_dict(record)
             result['storage_policy_index'] = policy_index
             return result
+
         limit = CONTAINER_LISTING_LIMIT if limit is None else limit
         return self.list_objects_iter(
             limit, marker, end_marker, prefix, delimiter, path=path,
@@ -1635,6 +1636,11 @@ class ContainerBroker(DatabaseBroker):
         return True
 
     def get_brokers(self):
+        """
+        Return a list of brokers for each component db, ordered by age.
+
+        :return: a list of :class:`~swift.container.backend.ContainerBroker`
+        """
         # TODO: could the first item just be self?
         brokers = [ContainerBroker(
             self.db_file, self.timeout, self.logger, self.account,
@@ -1648,7 +1654,7 @@ class ContainerBroker(DatabaseBroker):
                 force_db_file=True))
         return brokers
 
-    def get_items_since(self, start, count):
+    def get_items_since(self, start, count, include_sharding=False):
         """
         Get a list of objects in the database between start and end.
 
@@ -1656,28 +1662,21 @@ class ContainerBroker(DatabaseBroker):
         :param count: number to get
         :returns: list of objects between start and end
         """
-        if self.get_db_state() == DB_STATE_SHARDING:
-            # When in sharding state the there are 2 databases that may
-            # contain the items. So based on where the point and the max_row
-            # of the old readonly database we can figure out where to read
-            # from.
-            self._create_connection(self._db_file)
-            old_max_row = self.get_max_row()
-            if old_max_row <= start:
-                self._create_connection(self._shard_db_file)
-                return \
-                    super(ContainerBroker, self).get_items_since(start, count)
-
-            objs = super(ContainerBroker, self).get_items_since(start, count)
-            if len(objs) == count:
-                return objs
-
-            self._create_connection(self._shard_db_file)
-            objs.extend(super(ContainerBroker, self).get_items_since(
-                old_max_row, count - len(objs)))
-            return objs
-        else:
+        if not include_sharding:
             return super(ContainerBroker, self).get_items_since(start, count)
+
+        # TODO: do we need to support include_sharding? possibly for container
+        # sync
+        objs = []
+        for broker in self.get_brokers():
+            if start < broker.get_max_row():
+                # TODO: the condition is not necessary so check if it is an
+                # optimisation, else remove
+                objs.extend(super(ContainerBroker, broker).get_items_since(
+                    start, count - len(objs)))
+                if len(objs) == count:
+                    break
+        return objs
 
     def get_own_shard_range(self):
         metadata = self.metadata  # Single DB hit

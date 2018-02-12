@@ -989,6 +989,17 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEqual(broker.get_sync(uuid3), 2)
         broker.merge_syncs([{'sync_point': 5, 'remote_id': uuid2}])
         self.assertEqual(broker.get_sync(uuid2), 5)
+        # max sync point sticks
+        broker.merge_syncs([{'sync_point': 5, 'remote_id': uuid2}])
+        self.assertEqual(broker.get_sync(uuid2), 5)
+        self.assertEqual(broker.get_sync(uuid3), 2)
+        broker.merge_syncs([{'sync_point': 4, 'remote_id': uuid2}])
+        self.assertEqual(broker.get_sync(uuid2), 5)
+        self.assertEqual(broker.get_sync(uuid3), 2)
+        broker.merge_syncs([{'sync_point': -1, 'remote_id': uuid2},
+                            {'sync_point': 3, 'remote_id': uuid3}])
+        self.assertEqual(broker.get_sync(uuid2), 5)
+        self.assertEqual(broker.get_sync(uuid3), 3)
 
     def test_get_replication_info(self):
         self.get_replication_info_tester(metadata=False)

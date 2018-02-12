@@ -20,8 +20,7 @@ from collections import defaultdict
 from eventlet import Timeout
 
 from swift.container.sync_store import ContainerSyncStore
-from swift.container.backend import ContainerBroker, DATADIR, \
-    DB_STATE_UNSHARDED, DB_STATE_SHARDING
+from swift.container.backend import ContainerBroker, DATADIR
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, incorrect_policy_index,
     get_reconciler_container_name, get_row_to_q_entry_translator)
@@ -62,7 +61,7 @@ class ContainerReplicator(db_replicator.Replicator):
         return sync_args
 
     def _handle_sync_response(self, node, response, info, broker, http,
-                              different_region):
+                              different_region, diffs=0):
         parent = super(ContainerReplicator, self)
         if is_success(response.status):
             remote_info = json.loads(response.data)
@@ -77,7 +76,7 @@ class ContainerReplicator(db_replicator.Replicator):
                 broker.merge_timestamps(*(remote_info[key] for key in
                                           sync_timestamps))
         rv = parent._handle_sync_response(
-            node, response, info, broker, http, different_region)
+            node, response, info, broker, http, different_region, diffs=diffs)
         return rv
 
     def _initialize_broker(self, device, part, account, container, **kwargs):
@@ -268,6 +267,7 @@ class ContainerReplicator(db_replicator.Replicator):
         return rv
 
     def _in_sync(self, rinfo, info, broker, local_sync):
+        # TODO: don't always sync shard ranges!
         if broker.get_shard_ranges():
             return False
 
@@ -277,13 +277,11 @@ class ContainerReplicator(db_replicator.Replicator):
     def _is_locked(self, broker):
         return broker.has_sharding_lock()
 
-    def _can_push(self, info, rinfo):
-        state = info.get('db_state', DB_STATE_UNSHARDED)
-        rstate = rinfo.get('db_state', DB_STATE_UNSHARDED)
-        return state == rstate and state != DB_STATE_SHARDING
-
 
 class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
+
+    def _db_file_exists(self, db_path):
+        return bool(db_replicator.get_db_files(db_path))
 
     def _parse_sync_args(self, args):
         parent = super(ContainerReplicatorRpc, self)

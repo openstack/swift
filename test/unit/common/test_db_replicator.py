@@ -26,6 +26,7 @@ from tempfile import mkdtemp, NamedTemporaryFile
 import json
 
 import mock
+from copy import deepcopy
 from mock import patch, call
 from six.moves import reload_module
 
@@ -341,7 +342,7 @@ class TestDBReplicator(unittest.TestCase):
                 'rsync', '--quiet', '--no-motd',
                 '--timeout=%s' % int(math.ceil(replicator.node_timeout)),
                 '--contimeout=%s' % int(math.ceil(replicator.conn_timeout)),
-                '--whole-file', '/some/file', 'remote:/some_filefile'],)
+                '--whole-file', '/some/file', 'remote:/some_file'],)
             self.assertEqual(exp_args, process.args)
 
     def test_rsync_file_popen_args_whole_file_false(self):
@@ -352,7 +353,7 @@ class TestDBReplicator(unittest.TestCase):
                 'rsync', '--quiet', '--no-motd',
                 '--timeout=%s' % int(math.ceil(replicator.node_timeout)),
                 '--contimeout=%s' % int(math.ceil(replicator.conn_timeout)),
-                '/some/file', 'remote:/some_filefile'],)
+                '/some/file', 'remote:/some_file'],)
             self.assertEqual(exp_args, process.args)
 
     def test_rsync_file_popen_args_different_region_and_rsync_compress(self):
@@ -361,8 +362,7 @@ class TestDBReplicator(unittest.TestCase):
             replicator.rsync_compress = rsync_compress
             for different_region in (False, True):
                 with _mock_process(0) as process:
-                    replicator._rsync_file('/some/file',
-                                           'remote:/some_filefile',
+                    replicator._rsync_file('/some/file', 'remote:/some_file',
                                            False, different_region)
                     if rsync_compress and different_region:
                         # --compress arg should be passed to rsync binary
@@ -385,22 +385,21 @@ class TestDBReplicator(unittest.TestCase):
                        'device': 'sda1'}
 
         class MyTestReplicator(TestReplicator):
-            def __init__(self, db_files, remote_file):
+            def __init__(self, db_file, remote_file):
                 super(MyTestReplicator, self).__init__({})
-                self.db_files = db_files
+                self.db_file = db_file
                 self.remote_file = remote_file
 
             def _rsync_file(self_, db_file, remote_file, whole_file=True,
                             different_region=False):
-                self.assertEqual(self_.db_files, db_file)
+                self.assertEqual(self_.db_file, db_file)
                 self.assertEqual(self_.remote_file, remote_file)
                 self_._rsync_file_called = True
                 return False
 
         broker = FakeBroker()
         remote_file = '127.0.0.1::container/sda1/tmp/abcd'
-        db_files = [b.db_file for b in broker.get_brokers()]
-        replicator = MyTestReplicator(db_files, remote_file)
+        replicator = MyTestReplicator(broker.db_file, remote_file)
         replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
         self.assertTrue(replicator._rsync_file_called)
 
@@ -589,13 +588,15 @@ class TestDBReplicator(unittest.TestCase):
     def test_usync_http_error_above_300(self):
         fake_http = ReplHttp(set_status=301)
         replicator = TestReplicator({})
-        self.assertFalse(
+        self.assertEqual(
+            (False, 0),
             replicator._usync_db(0, FakeBroker(), fake_http, '12345', '67890'))
 
     def test_usync_http_error_below_200(self):
         fake_http = ReplHttp(set_status=101)
         replicator = TestReplicator({})
-        self.assertFalse(
+        self.assertEqual(
+            (False, 0),
             replicator._usync_db(0, FakeBroker(), fake_http, '12345', '67890'))
 
     @mock.patch('swift.common.db_replicator.dump_recon_cache')
@@ -954,11 +955,10 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os, \
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
-            mock_os.unlink.return_value = True
             response = rpc.dispatch(('drive', 'part', 'hash'),
-                                    ['rsync_then_merge', 'arg1', ['arg2']])
+                                    ['rsync_then_merge', 'arg1', 'arg2'])
             expected_calls = [call('/part/ash/hash/hash.db'),
-                              call('/drive/tmp/arg1arg2')]
+                              call('/drive/tmp/arg1')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)
             self.assertEqual('204 No Content', response.status)
@@ -975,9 +975,22 @@ class TestDBReplicator(unittest.TestCase):
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.side_effect = [False, True]
             response = rpc.dispatch(('drive', 'part', 'hash'),
-                                    ['complete_rsync', 'arg1', ['arg2']])
+                                    ['complete_rsync', 'arg1'])
             expected_calls = [call('/part/ash/hash/hash.db'),
-                              call('/drive/tmp/arg1arg2')]
+                              call('/drive/tmp/arg1')]
+            self.assertEqual(mock_os.path.exists.call_args_list,
+                             expected_calls)
+            self.assertEqual('204 No Content', response.status)
+            self.assertEqual(204, response.status_int)
+
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
+            mock_os.path.exists.side_effect = [False, True]
+            response = rpc.dispatch(('drive', 'part', 'hash'),
+                                    ['complete_rsync', 'arg1', 'arg2'])
+            expected_calls = [call('/part/ash/hash/arg2'),
+                              call('/drive/tmp/arg1')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)
             self.assertEqual('204 No Content', response.status)
@@ -992,7 +1005,7 @@ class TestDBReplicator(unittest.TestCase):
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = False
             response = rpc.rsync_then_merge('drive', '/data/db.db',
-                                            ['arg1', ['arg2']])
+                                            ('arg1', 'arg2'))
             mock_os.path.exists.assert_called_with('/data/db.db')
             self.assertEqual('404 Not Found', response.status)
             self.assertEqual(404, response.status_int)
@@ -1006,8 +1019,8 @@ class TestDBReplicator(unittest.TestCase):
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.side_effect = [True, False]
             response = rpc.rsync_then_merge('drive', '/data/db.db',
-                                            ['arg1', ['arg2']])
-            expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1arg2')]
+                                            ('arg1', 'arg2'))
+            expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)
             self.assertEqual('404 Not Found', response.status)
@@ -1018,8 +1031,9 @@ class TestDBReplicator(unittest.TestCase):
                                           mount_check=False)
 
         def mock_renamer(old, new):
-            self.assertEqual('/drive/tmp/arg1arg2', old)
-            self.assertEqual('/data/arg2', new)
+            self.assertEqual('/drive/tmp/arg1', old)
+            # FakeBroker uses module filename as db_file!
+            self.assertEqual(__file__, new)
 
         self._patch(patch.object, db_replicator, 'renamer', mock_renamer)
 
@@ -1027,13 +1041,12 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os, \
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
-            mock_os.unlink.return_value = True
             response = rpc.rsync_then_merge('drive', '/data/db.db',
-                                            ['arg1', ['arg2']])
+                                            ['arg1', 'arg2'])
             self.assertEqual('204 No Content', response.status)
             self.assertEqual(204, response.status_int)
 
-    def test_complete_rsync_db_does_not_exist(self):
+    def test_complete_rsync_db_exists(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
 
@@ -1041,9 +1054,18 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os, \
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
+            response = rpc.complete_rsync('drive', '/data/db.db', ['arg1'])
+            mock_os.path.exists.assert_called_with('/data/db.db')
+            self.assertEqual('404 Not Found', response.status)
+            self.assertEqual(404, response.status_int)
+
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
+            mock_os.path.exists.return_value = True
             response = rpc.complete_rsync('drive', '/data/db.db',
                                           ['arg1', 'arg2'])
-            mock_os.path.exists.assert_called_with('/data/db.db')
+            mock_os.path.exists.assert_called_with('/data/arg2')
             self.assertEqual('404 Not Found', response.status)
             self.assertEqual(404, response.status_int)
 
@@ -1056,8 +1078,20 @@ class TestDBReplicator(unittest.TestCase):
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = False
             response = rpc.complete_rsync('drive', '/data/db.db',
-                                          ['arg1', ['arg2']])
-            expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1arg2')]
+                                          ['arg1'])
+            expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1')]
+            self.assertEqual(expected_calls,
+                             mock_os.path.exists.call_args_list)
+            self.assertEqual('404 Not Found', response.status)
+            self.assertEqual(404, response.status_int)
+
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
+            mock_os.path.exists.return_value = False
+            response = rpc.complete_rsync('drive', '/data/db.db',
+                                          ['arg1', 'arg2'])
+            expected_calls = [call('/data/arg2'), call('/drive/tmp/arg1')]
             self.assertEqual(expected_calls,
                              mock_os.path.exists.call_args_list)
             self.assertEqual('404 Not Found', response.status)
@@ -1067,26 +1101,34 @@ class TestDBReplicator(unittest.TestCase):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
 
-        def mock_exists(path):
-            if path == '/data/db.db':
-                return False
-            self.assertEqual('/drive/tmp/arg1arg2', path)
-            return True
-
         def mock_renamer(old, new):
-            self.assertEqual('/drive/tmp/arg1arg2', old)
-            self.assertEqual('/data/arg2', new)
+            renamer_calls.append((old, new))
 
         self._patch(patch.object, db_replicator, 'renamer', mock_renamer)
 
+        renamer_calls = []
         with patch('swift.common.db_replicator.os',
                    new=mock.MagicMock(wraps=os)) as mock_os, \
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.side_effect = [False, True]
             response = rpc.complete_rsync('drive', '/data/db.db',
-                                          ['arg1', ['arg2']])
-            self.assertEqual('204 No Content', response.status)
-            self.assertEqual(204, response.status_int)
+                                          ['arg1'])
+        self.assertEqual('204 No Content', response.status)
+        self.assertEqual(204, response.status_int)
+        self.assertEqual(('/drive/tmp/arg1', '/data/db.db'), renamer_calls[0])
+        self.assertFalse(renamer_calls[1:])
+
+        renamer_calls = []
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
+            mock_os.path.exists.side_effect = [False, True]
+            response = rpc.complete_rsync('drive', '/data/db.db',
+                                          ['arg1', 'arg2'])
+        self.assertEqual('204 No Content', response.status)
+        self.assertEqual(204, response.status_int)
+        self.assertEqual(('/drive/tmp/arg1', '/data/arg2'), renamer_calls[0])
+        self.assertFalse(renamer_calls[1:])
 
     def test_replicator_sync_with_broker_replication_missing_table(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
@@ -1142,7 +1184,7 @@ class TestDBReplicator(unittest.TestCase):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
         with unit.mock_check_drive(isdir=True):
-            rpc.rsync_then_merge('sda1', '/srv/swift/blah', ['a', ['b']])
+            rpc.rsync_then_merge('sda1', '/srv/swift/blah', ('a', 'b'))
 
     def test_merge_items(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
@@ -1165,15 +1207,15 @@ class TestDBReplicator(unittest.TestCase):
     def test_complete_rsync_with_bad_input(self):
         drive = '/some/root'
         db_file = __file__
-        args = ['old_file', ['filename']]
+        args = ['old_file']
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
         with unit.mock_check_drive(isdir=True):
-            resp = rpc.complete_rsync(drive, db_file, list(args))
+            resp = rpc.complete_rsync(drive, db_file, args)
         self.assertTrue(isinstance(resp, HTTPException))
         self.assertEqual(404, resp.status_int)
         with unit.mock_check_drive(isdir=True):
-            resp = rpc.complete_rsync(drive, 'new_db_file', list(args))
+            resp = rpc.complete_rsync(drive, 'new_db_file', args)
         self.assertTrue(isinstance(resp, HTTPException))
         self.assertEqual(404, resp.status_int)
 
@@ -1456,7 +1498,7 @@ class TestReplToNode(unittest.TestCase):
                               'Test': ('Value', normalize_timestamp(1))})}
         self.replicator.logger = mock.Mock()
         self.replicator._rsync_db = mock.Mock(return_value=True)
-        self.replicator._usync_db = mock.Mock(return_value=True)
+        self.replicator._usync_db = mock.Mock(return_value=(True, 1))
         self.http = ReplHttp('{"id": 3, "point": -1}')
         self.replicator._http_connect = lambda *args: self.http
 
@@ -1468,7 +1510,7 @@ class TestReplToNode(unittest.TestCase):
             self.fake_node, self.broker, '0', self.fake_info), True)
         self.replicator._usync_db.assert_has_calls([
             mock.call(max(rinfo['point'], local_sync), self.broker,
-                      self.http, rinfo['id'], self.fake_info['id'])
+                      self.http, rinfo['id'], self.fake_info['id'], diffs=0)
         ])
 
     def test_repl_to_node_rsync_success(self):
@@ -1530,7 +1572,7 @@ class TestReplToNode(unittest.TestCase):
     def test_repl_to_node_300_status(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=300)
 
-        self.assertIsNone(self.replicator._repl_to_node(
+        self.assertFalse(self.replicator._repl_to_node(
             self.fake_node, FakeBroker(), '0', self.fake_info))
 
     def test_repl_to_node_not_response(self):
@@ -1548,14 +1590,15 @@ class TestReplToNode(unittest.TestCase):
         for r, l in ((5, 20), (40, 100), (450, 1000), (550, 1500)):
             rinfo['max_row'] = r
             self.fake_info['max_row'] = l
-            self.replicator._usync_db = mock.Mock(return_value=True)
+            self.replicator._usync_db = mock.Mock(return_value=(True, 1000))
             self.http = ReplHttp(json.dumps(rinfo))
             local_sync = self.broker.get_sync()
             self.assertEqual(self.replicator._repl_to_node(
                 self.fake_node, self.broker, '0', self.fake_info), True)
             self.replicator._usync_db.assert_has_calls([
                 mock.call(max(rinfo['point'], local_sync), self.broker,
-                          self.http, rinfo['id'], self.fake_info['id'])
+                          self.http, rinfo['id'], self.fake_info['id'],
+                          diffs=0)
             ])
 
 
@@ -1573,7 +1616,7 @@ class FakeHTTPResponse(object):
         return self.resp.body
 
 
-def attach_fake_replication_rpc(rpc, replicate_hook=None):
+def attach_fake_replication_rpc(rpc, replicate_hook=None, errors=None):
     class FakeReplConnection(object):
 
         def __init__(self, node, partition, hash_, logger):
@@ -1585,12 +1628,16 @@ def attach_fake_replication_rpc(rpc, replicate_hook=None):
 
         def replicate(self, op, *sync_args):
             print('REPLICATE: %s, %s, %r' % (self.path, op, sync_args))
-            replicate_args = self.path.lstrip('/').split('/')
-            args = [op] + list(sync_args)
-            with unit.mock_check_drive(isdir=not rpc.mount_check,
-                                       ismount=rpc.mount_check):
-                swob_response = rpc.dispatch(replicate_args, args)
-            resp = FakeHTTPResponse(swob_response)
+            resp = None
+            if errors and op in errors and errors[op]:
+                resp = errors[op].pop(0)
+            if not resp:
+                replicate_args = self.path.lstrip('/').split('/')
+                args = [op] + deepcopy(list(sync_args))
+                with unit.mock_check_drive(isdir=not rpc.mount_check,
+                                           ismount=rpc.mount_check):
+                    swob_response = rpc.dispatch(replicate_args, args)
+                resp = FakeHTTPResponse(swob_response)
             if replicate_hook:
                 replicate_hook(op, *sync_args)
             return resp
@@ -1662,19 +1709,19 @@ class TestReplicatorSync(unittest.TestCase):
             conf.update(conf_updates)
         return self.replicator_daemon(conf, logger=self.logger)
 
-    def _run_once(self, node, conf_updates=None, daemon=None):
-        daemon = daemon or self._get_daemon(node, conf_updates)
-
-        def _rsync_file(db_files, remote_file, **kwargs):
-            if not isinstance(db_files, (list, tuple)):
-                db_files = [db_files]
-            for db_f in db_files:
-                remote_server, remote_path = remote_file.split('/', 1)
-                remote_path = '%s%s' % (remote_path, os.path.basename(db_f))
-                dest_path = os.path.join(self.root, remote_path)
-                copy(db_f, dest_path)
+    def _install_fake_rsync_file(self, daemon, captured_calls=None):
+        def _rsync_file(db_file, remote_file, **kwargs):
+            if captured_calls is not None:
+                captured_calls.append((db_file, remote_file, kwargs))
+            remote_server, remote_path = remote_file.split('/', 1)
+            dest_path = os.path.join(self.root, remote_path)
+            copy(db_file, dest_path)
             return True
         daemon._rsync_file = _rsync_file
+
+    def _run_once(self, node, conf_updates=None, daemon=None):
+        daemon = daemon or self._get_daemon(node, conf_updates)
+        self._install_fake_rsync_file(daemon)
         with mock.patch('swift.common.db_replicator.whataremyips',
                         new=lambda *a, **kw: [node['replication_ip']]), \
                 unit.mock_check_drive(isdir=not daemon.mount_check,
