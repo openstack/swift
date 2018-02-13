@@ -1052,8 +1052,7 @@ class ContainerSharder(ContainerReplicator):
                 # root until *all* shard ranges have been cleaved and we are
                 # ready to transfer responsibility for the namespace from the
                 # original shards to the complete set of new shards.
-                shard_range.state = ShardRange.ACTIVE
-                shard_range.state_timestamp = Timestamp.now()
+                shard_range.update_state(ShardRange.ACTIVE)
 
             ranges_done.append(shard_range)
 

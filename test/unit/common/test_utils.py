@@ -6882,6 +6882,22 @@ class TestShardRange(unittest.TestCase):
                 sr.state = bad_state
             self.assertIn('Invalid state', str(cm.exception))
 
+    def test_update_state(self):
+        sr = utils.ShardRange.create('a', 'c')
+        old_sr = sr.copy()
+        self.assertEqual(0, sr.state)
+        self.assertEqual(dict(sr), dict(old_sr))  # sanity check
+        sr.update_state(utils.ShardRange.ACTIVE)
+        self.assertGreater(sr.state_timestamp, old_sr.state_timestamp)
+        self.assertEqual(utils.ShardRange.ACTIVE, sr.state)
+        old_sr_dict = dict(old_sr)
+        old_sr_dict.pop('state')
+        old_sr_dict.pop('state_timestamp')
+        sr_dict = dict(sr)
+        sr_dict.pop('state')
+        sr_dict.pop('state_timestamp')
+        self.assertEqual(old_sr_dict, sr_dict)
+
     def test_lower_setter(self):
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', '')
         # sanity checks

@@ -4491,6 +4491,16 @@ class ShardRange(object):
     def state_timestamp(self, ts):
         self._state_timestamp = self._to_timestamp(ts)
 
+    def update_state(self, state):
+        """
+        Set the state to the given value and update the state_timestamp to the
+        current time.
+
+        :param state: new state, should be an integer
+        """
+        self.state = state
+        self.state_timestamp = Timestamp.now()
+
     def __contains__(self, item):
         if self.lower == ShardRange.MIN and self.upper == ShardRange.MAX:
             # No limits so must match
