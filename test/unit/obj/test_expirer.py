@@ -356,6 +356,34 @@ class TestObjectExpirer(TestCase):
         ]
         self.assertEqual(expected, result)
 
+        # task containers have some task objects with invalid target paths
+        task_con_obj_list = [
+            # objects in 0000 timestamp container
+            make_task('0000', 'invalid0'),
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
+            # objects in 0001 timestamp container
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'invalid1'),
+            make_task('0001', 'a/c1/o1'),
+            # objects in 0002 timestamp container
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
+            make_task('0002', 'invalid2'),
+        ]
+        result = list(x.round_robin_order(task_con_obj_list))
+
+        # the invalid task objects are ignored
+        expected = [
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0002', 'a/c2/o1'),
+        ]
+        self.assertEqual(expected, result)
+
         # for a given target container, tasks won't necessarily all go in
         # the same timestamp container
         task_con_obj_list = [
@@ -434,7 +462,7 @@ class TestObjectExpirer(TestCase):
 
     def test_run_once_unicode_problem(self):
         fake_swift = FakeInternalClient({
-            '.expiring_objects': {u'1234': [u'1234-troms\xf8']}
+            '.expiring_objects': {u'1234': [u'1234-a/c/troms\xf8']}
         })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
@@ -489,7 +517,7 @@ class TestObjectExpirer(TestCase):
         fake_swift = FakeInternalClient({
             '.expiring_objects': {
                 str(int(time() - 86400)): [
-                    '%d-actual-obj' % int(time() + 86400)],
+                    '%d-a/c/actual-obj' % int(time() + 86400)],
             },
         })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
@@ -504,7 +532,7 @@ class TestObjectExpirer(TestCase):
         ts = int(time() - 86400)
         fake_swift = FakeInternalClient({
             '.expiring_objects': {
-                str(int(time() - 86400)): ['%d-actual-obj' % ts],
+                str(int(time() - 86400)): ['%d-a/c/actual-obj' % ts],
             },
         })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
@@ -513,7 +541,7 @@ class TestObjectExpirer(TestCase):
         x.run_once()
         self.assertEqual(
             x.logger.get_lines_for_level('error'),
-            ['Exception while deleting object %d %d-actual-obj '
+            ['Exception while deleting object %d %d-a/c/actual-obj '
              'This should not have been called: ' % (ts, ts)])
 
     def test_failed_delete_keeps_entry(self):
@@ -526,7 +554,7 @@ class TestObjectExpirer(TestCase):
         ts = int(time() - 86400)
         fake_swift = FakeInternalClient({
             '.expiring_objects': {
-                str(int(time() - 86400)): ['%d-actual-obj' % ts],
+                str(int(time() - 86400)): ['%d-a/c/actual-obj' % ts],
             },
         })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
@@ -536,7 +564,7 @@ class TestObjectExpirer(TestCase):
         x.run_once()
         self.assertEqual(
             x.logger.get_lines_for_level('error'),
-            ['Exception while deleting object %d %d-actual-obj '
+            ['Exception while deleting object %d %d-a/c/actual-obj '
              'failed to delete actual object: ' % (ts, ts)])
         self.assertEqual(
             x.logger.get_lines_for_level('info'), [
@@ -548,7 +576,7 @@ class TestObjectExpirer(TestCase):
         ts = int(time() - 86400)
         fake_swift = FakeInternalClient({
             '.expiring_objects': {
-                str(int(time() - 86400)): ['%d-actual-obj' % ts],
+                str(int(time() - 86400)): ['%d-a/c/actual-obj' % ts],
             },
         })
         self.logger._clear()
@@ -559,8 +587,8 @@ class TestObjectExpirer(TestCase):
         x.run_once()
         self.assertEqual(
             self.logger.get_lines_for_level('error'),
-            ['Exception while deleting object %d %d-actual-obj This should '
-             'not have been called: ' % (ts, ts)])
+            ['Exception while deleting object %d %d-a/c/actual-obj This '
+             'should not have been called: ' % (ts, ts)])
 
     def test_success_gets_counted(self):
         fake_swift = FakeInternalClient({
@@ -592,7 +620,7 @@ class TestObjectExpirer(TestCase):
         fake_swift = FakeInternalClient({
             '.expiring_objects': {
                 str(int(time() - 86400)): [
-                    '%d-actual-obj' % int(time() - 86400)],
+                    '%d-a/c/actual-obj' % int(time() - 86400)],
             },
         })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
@@ -621,8 +649,10 @@ class TestObjectExpirer(TestCase):
 
         fake_swift = FakeInternalClient({
             '.expiring_objects': {
-                str(cts): ['%d-actual-obj' % ots, '%d-next-obj' % ots],
-                str(cts + 1): ['%d-actual-obj' % ots, '%d-next-obj' % ots],
+                str(cts): [
+                    '%d-a/c/actual-obj' % ots, '%d-a/c/next-obj' % ots],
+                str(cts + 1): [
+                    '%d-a/c/actual-obj' % ots, '%d-a/c/next-obj' % ots],
             },
         })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
@@ -633,13 +663,13 @@ class TestObjectExpirer(TestCase):
             x.run_once()
         error_lines = x.logger.get_lines_for_level('error')
         self.assertEqual(sorted(error_lines), sorted([
-            'Exception while deleting object %d %d-actual-obj failed to '
+            'Exception while deleting object %d %d-a/c/actual-obj failed to '
             'delete actual object: ' % (cts, ots),
-            'Exception while deleting object %d %d-next-obj failed to '
+            'Exception while deleting object %d %d-a/c/next-obj failed to '
             'delete actual object: ' % (cts, ots),
-            'Exception while deleting object %d %d-actual-obj failed to '
+            'Exception while deleting object %d %d-a/c/actual-obj failed to '
             'delete actual object: ' % (cts + 1, ots),
-            'Exception while deleting object %d %d-next-obj failed to '
+            'Exception while deleting object %d %d-a/c/next-obj failed to '
             'delete actual object: ' % (cts + 1, ots),
             'Exception while deleting container %d failed to delete '
             'container: ' % (cts,),

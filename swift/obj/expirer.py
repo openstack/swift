@@ -120,7 +120,9 @@ class ObjectExpirer(Daemon):
                     split_path('/' + delete_task['target_path'], 3, 3, True)
                 cache_key = '%s/%s' % (target_account, target_container)
             except ValueError:
-                cache_key = None
+                self.logger.exception('Unexcepted error handling task %r' %
+                                      delete_task)
+                continue
 
             obj_cache[cache_key].append(delete_task)
             cnt += 1
