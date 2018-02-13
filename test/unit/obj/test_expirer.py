@@ -214,21 +214,19 @@ class TestObjectExpirer(TestCase):
                 super(ObjectExpirer, self).__init__(conf, swift=swift)
                 self.processes = 3
                 self.deleted_objects = {}
-                self.obj_containers_in_order = []
 
             def delete_object(self, target_path, delete_timestamp,
                               task_container, task_object):
                 if task_container not in self.deleted_objects:
                     self.deleted_objects[task_container] = set()
                 self.deleted_objects[task_container].add(task_object)
-                self.obj_containers_in_order.append(task_container)
 
         aco_dict = {
             '.expiring_objects': {
-                '0': set('1-one 2-two 3-three'.split()),
-                '1': set('2-two 3-three 4-four'.split()),
-                '2': set('5-five 6-six'.split()),
-                '3': set(u'7-seven\u2661'.split()),
+                '0': set('1-a/c/one 2-a/c/two 3-a/c/three'.split()),
+                '1': set('2-a/c/two 3-a/c/three 4-a/c/four'.split()),
+                '2': set('5-a/c/five 6-a/c/six'.split()),
+                '3': set(u'7-a/c/seven\u2661'.split()),
             },
         }
         fake_swift = FakeInternalClient(aco_dict)
@@ -243,7 +241,6 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(aco_dict['.expiring_objects']['3'].pop(),
                          deleted_objects['3'].pop().decode('utf8'))
         self.assertEqual(aco_dict['.expiring_objects'], deleted_objects)
-        self.assertEqual(len(set(x.obj_containers_in_order[:4])), 4)
 
     def test_delete_object(self):
         x = expirer.ObjectExpirer({}, logger=self.logger)
