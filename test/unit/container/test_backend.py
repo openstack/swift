@@ -1563,6 +1563,46 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_object_count'], 2)
         self.assertEqual(info['reported_bytes_used'], 1123)
 
+    def test_get_objects(self):
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        obj_names = ['obj%03d' % i for i in range(20)]
+        for name in obj_names:
+            broker.put_object(name, Timestamp.now().internal,
+                              0, 'text/plain', EMPTY_ETAG)
+        broker.put_object('other_policy', Timestamp.now().internal,
+                          0, 'text/plain', EMPTY_ETAG, storage_policy_index=1)
+        broker.put_object('deleted', Timestamp.now().internal,
+                          0, 'text/plain', EMPTY_ETAG, deleted=1)
+
+        actual = broker.get_objects()
+        self.assertEqual(obj_names, [o['name'] for o in actual])
+
+        with mock.patch('swift.container.backend.CONTAINER_LISTING_LIMIT', 2):
+            actual = broker.get_objects()
+            self.assertEqual(obj_names[:2], [o['name'] for o in actual])
+
+        with mock.patch('swift.container.backend.CONTAINER_LISTING_LIMIT', 2):
+            actual = broker.get_objects(limit=4)
+            self.assertEqual(obj_names[:4], [o['name'] for o in actual])
+
+        actual = broker.get_objects(marker=obj_names[2])
+        self.assertEqual(obj_names[3:], [o['name'] for o in actual])
+
+        actual = broker.get_objects(end_marker=obj_names[2])
+        self.assertEqual(obj_names[:2], [o['name'] for o in actual])
+
+        actual = broker.get_objects(reverse=True)
+        self.assertEqual([n for n in reversed(obj_names)],
+                         [o['name'] for o in actual])
+
+        actual = broker.get_objects(storage_policy_index=1)
+        self.assertEqual(['other_policy'], [o['name'] for o in actual])
+
+        actual = broker.get_objects(include_deleted=1)
+        self.assertEqual(['deleted'] + obj_names, [o['name'] for o in actual])
+        # TODO: add tests for prefix, path, delimiter
+
     def test_list_objects_iter(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(':memory:', account='a', container='c')
