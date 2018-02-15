@@ -1266,9 +1266,11 @@ class TestDBReplicator(unittest.TestCase):
                 return []
             path = path[len('/srv/node/sdx/containers'):]
             if path == '':
-                return ['123', '456', '789', '9999']
+                return ['123', '456', '789', '9999', "-5", "not-a-partition"]
                 # 456 will pretend to be a file
                 # 9999 will be an empty partition with no contents
+                # -5 and not-a-partition were created by something outside
+                #   Swift
             elif path == '/123':
                 return ['abc', 'def.db']  # def.db will pretend to be a file
             elif path == '/123/abc':
@@ -1292,6 +1294,10 @@ class TestDBReplicator(unittest.TestCase):
                         'weird2']  # weird2 will pretend to be a dir, if asked
             elif path == '9999':
                 return []
+            elif path == 'not-a-partition':
+                raise Exception("shouldn't look in not-a-partition")
+            elif path == '-5':
+                raise Exception("shouldn't look in -5")
             return []
 
         def _isdir(path):
