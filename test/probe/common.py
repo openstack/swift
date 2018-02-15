@@ -267,16 +267,24 @@ def get_policy(**kwargs):
     raise unittest.SkipTest('No policy matching %s' % kwargs)
 
 
-def resetswift():
-    p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
+def run_cleanup(cmd):
+    p = Popen(cmd + " 2>&1", shell=True, stdout=PIPE)
     stdout, _stderr = p.communicate()
     if p.returncode:
         raise AssertionError(
-            'Cleanup with "resetswift" failed: stdout: %s, stderr: %s'
-            % (stdout, _stderr))
+            'Cleanup with %r failed: stdout: %s, stderr: %s'
+            % (cmd, stdout, _stderr))
 
     print(stdout)
     Manager(['all']).stop()
+
+
+def resetswift():
+    run_cleanup("resetswift")
+
+
+def kill_orphans():
+    run_cleanup("swift-orphans -a 0 -k 9")
 
 
 class Body(object):
@@ -329,6 +337,7 @@ class ProbeTest(unittest.TestCase):
 
     def setUp(self):
         resetswift()
+        kill_orphans()
         try:
             self.ipport2server = {}
             self.configs = defaultdict(dict)

@@ -430,7 +430,6 @@ def run_server(conf, logger, sock, global_conf=None):
     wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
 
     eventlet.hubs.use_hub(get_hub())
-    utils.eventlet_monkey_patch()
     eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
     eventlet.debug.hub_exceptions(eventlet_debug)
     wsgi_logger = NullLogger()
@@ -904,6 +903,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             conf, logger, servers_per_port=servers_per_port)
     else:
         strategy = WorkersStrategy(conf, logger)
+
+    # patch event before loadapp
+    utils.eventlet_monkey_patch()
 
     # Ensure the configuration and application can be loaded before proceeding.
     global_conf = {'log_name': log_name}

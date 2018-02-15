@@ -872,7 +872,7 @@ class RingBuilder(object):
         device is "overweight" and wishes to give partitions away if possible.
 
         :param replica_plan: a dict of dicts, as returned from
-                             _build_replica_plan, that that maps
+                             _build_replica_plan, that maps
                              each tier to it's target replicanths.
         """
         tier2children = self._build_tier2children()

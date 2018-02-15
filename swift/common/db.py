@@ -322,50 +322,6 @@ class DatabaseBroker(object):
             self._delete_db(conn, timestamp)
             conn.commit()
 
-    def get_device_path(self):
-        prefix_path = os.path.dirname(self.db_dir)
-        partition_path = os.path.dirname(prefix_path)
-        dbs_path = os.path.dirname(partition_path)
-        return os.path.dirname(dbs_path)
-
-    def possibly_quarantine(self, exc_type, exc_value, exc_traceback):
-        """
-        Checks the exception info to see if it indicates a quarantine situation
-        (malformed or corrupted database). If not, the original exception will
-        be reraised. If so, the database will be quarantined and a new
-        sqlite3.DatabaseError will be raised indicating the action taken.
-        """
-        if 'database disk image is malformed' in str(exc_value):
-            exc_hint = 'malformed'
-        elif 'malformed database schema' in str(exc_value):
-            exc_hint = 'malformed'
-        elif ' is not a database' in str(exc_value):
-            # older versions said 'file is not a database'
-            # now 'file is encrypted or is not a database'
-            exc_hint = 'corrupted'
-        elif 'disk I/O error' in str(exc_value):
-            exc_hint = 'disk error while accessing'
-        else:
-            six.reraise(exc_type, exc_value, exc_traceback)
-
-        device_path = self.get_device_path()
-        quar_path = os.path.join(device_path, 'quarantined',
-                                 self.db_type + 's',
-                                 os.path.basename(self.db_dir))
-        try:
-            renamer(self.db_dir, quar_path, fsync=False)
-        except OSError as e:
-            if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-                raise
-            quar_path = "%s-%s" % (quar_path, uuid4().hex)
-            renamer(self.db_dir, quar_path, fsync=False)
-        detail = _('Quarantined %(db_dir)s to %(quar_path)s due to '
-                   '%(exc_hint)s database') % {'db_dir': self.db_dir,
-                                               'quar_path': quar_path,
-                                               'exc_hint': exc_hint}
-        self.logger.error(detail)
-        raise sqlite3.DatabaseError(detail)
-
     def _db_exists(self):
         return self.db_file == ':memory:' or os.path.exists(self.db_file)
 
@@ -382,6 +338,57 @@ class DatabaseBroker(object):
             self.conn = get_db_connection(db_file, self.timeout)
         except (sqlite3.DatabaseError, DatabaseConnectionError):
             self.possibly_quarantine(*sys.exc_info())
+
+    def get_device_path(self):
+        prefix_path = os.path.dirname(self.db_dir)
+        partition_path = os.path.dirname(prefix_path)
+        dbs_path = os.path.dirname(partition_path)
+        return os.path.dirname(dbs_path)
+
+    def quarantine(self, reason):
+        """
+        The database will be quarantined and a
+        sqlite3.DatabaseError will be raised indicating the action taken.
+        """
+        device_path = self.get_device_path()
+        quar_path = os.path.join(device_path, 'quarantined',
+                                 self.db_type + 's',
+                                 os.path.basename(self.db_dir))
+        try:
+            renamer(self.db_dir, quar_path, fsync=False)
+        except OSError as e:
+            if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            quar_path = "%s-%s" % (quar_path, uuid4().hex)
+            renamer(self.db_dir, quar_path, fsync=False)
+        detail = _('Quarantined %(db_dir)s to %(quar_path)s due to '
+                   '%(reason)s') % {'db_dir': self.db_dir,
+                                    'quar_path': quar_path,
+                                    'reason': reason}
+        self.logger.error(detail)
+        raise sqlite3.DatabaseError(detail)
+
+    def possibly_quarantine(self, exc_type, exc_value, exc_traceback):
+        """
+        Checks the exception info to see if it indicates a quarantine situation
+        (malformed or corrupted database). If not, the original exception will
+        be reraised. If so, the database will be quarantined and a new
+        sqlite3.DatabaseError will be raised indicating the action taken.
+        """
+        if 'database disk image is malformed' in str(exc_value):
+            exc_hint = 'malformed database'
+        elif 'malformed database schema' in str(exc_value):
+            exc_hint = 'malformed database'
+        elif ' is not a database' in str(exc_value):
+            # older versions said 'file is not a database'
+            # now 'file is encrypted or is not a database'
+            exc_hint = 'corrupted database'
+        elif 'disk I/O error' in str(exc_value):
+            exc_hint = 'disk error while accessing database'
+        else:
+            six.reraise(exc_type, exc_value, exc_traceback)
+
+        self.quarantine(exc_hint)
 
     @contextmanager
     def get(self):
@@ -748,8 +755,12 @@ class DatabaseBroker(object):
     def get_raw_metadata(self):
         with self.get() as conn:
             try:
-                metadata = conn.execute('SELECT metadata FROM %s_stat' %
-                                        self.db_type).fetchone()[0]
+                row = conn.execute('SELECT metadata FROM %s_stat' %
+                                   self.db_type).fetchone()
+                if not row:
+                    self.quarantine("missing row in %s_stat table" %
+                                    self.db_type)
+                metadata = row[0]
             except sqlite3.OperationalError as err:
                 if 'no such column: metadata' not in str(err):
                     raise
@@ -821,8 +832,12 @@ class DatabaseBroker(object):
                 return
         with self.get() as conn:
             try:
-                md = conn.execute('SELECT metadata FROM %s_stat' %
-                                  self.db_type).fetchone()[0]
+                row = conn.execute('SELECT metadata FROM %s_stat' %
+                                   self.db_type).fetchone()
+                if not row:
+                    self.quarantine("missing row in %s_stat table" %
+                                    self.db_type)
+                md = row[0]
                 md = json.loads(md) if md else {}
                 utf8encodekeys(md)
             except sqlite3.OperationalError as err:
@@ -891,8 +906,12 @@ class DatabaseBroker(object):
         :returns: True if conn.commit() should be called
         """
         try:
-            md = conn.execute('SELECT metadata FROM %s_stat' %
-                              self.db_type).fetchone()[0]
+            row = conn.execute('SELECT metadata FROM %s_stat' %
+                               self.db_type).fetchone()
+            if not row:
+                self.quarantine("missing row in %s_stat table" %
+                                self.db_type)
+            md = row[0]
             if md:
                 md = json.loads(md)
                 keys_to_delete = []
