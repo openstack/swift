@@ -34,6 +34,11 @@ from swift.common.ring import RingBuilder
 
 from test.unit import Timeout
 
+try:
+    from itertools import zip_longest
+except ImportError:
+    from itertools import izip_longest as zip_longest
+
 
 class RunSwiftRingBuilderMixin(object):
 
@@ -115,8 +120,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         output = output.replace(self.tempfile, '__RINGFILE__')
         stub = stub.replace('__BUILDER_ID__', builder_id)
         for i, (value, expected) in enumerate(
-                itertools.izip_longest(
-                    output.splitlines(), stub.splitlines())):
+                zip_longest(output.splitlines(), stub.splitlines())):
             # N.B. differences in trailing whitespace are ignored!
             value = (value or '').rstrip()
             expected = (expected or '').rstrip()

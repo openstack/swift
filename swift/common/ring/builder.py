@@ -696,7 +696,7 @@ class RingBuilder(object):
                     (dev['id'], dev['port']))
 
         int_replicas = int(math.ceil(self.replicas))
-        rep2part_len = map(len, self._replica2part2dev)
+        rep2part_len = list(map(len, self._replica2part2dev))
         # check the assignments of each part's replicas
         for part in range(self.parts):
             devs_for_part = []
@@ -932,7 +932,7 @@ class RingBuilder(object):
         more recently than min_part_hours.
         """
         self._part_moved_bitmap = bytearray(max(2 ** (self.part_power - 3), 1))
-        elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
+        elapsed_hours = int(time() - self._last_part_moves_epoch) // 3600
         if elapsed_hours <= 0:
             return
         for part in range(self.parts):
@@ -1182,7 +1182,7 @@ class RingBuilder(object):
         """
         # pick a random starting point on the other side of the ring
         quarter_turn = (self.parts // 4)
-        random_half = random.randint(0, self.parts / 2)
+        random_half = random.randint(0, self.parts // 2)
         start = (self._last_part_gather_start + quarter_turn +
                  random_half) % self.parts
         self.logger.debug('Gather start is %(start)s '

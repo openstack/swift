@@ -17,6 +17,8 @@ import os
 import ctypes
 from ctypes.util import find_library
 
+import six
+
 __all__ = ['linkat']
 
 
@@ -69,6 +71,11 @@ class Linkat(object):
 
         if not isinstance(olddirfd, int) or not isinstance(newdirfd, int):
             raise TypeError("fd must be an integer.")
+
+        if isinstance(oldpath, six.text_type):
+            oldpath = oldpath.encode('utf8')
+        if isinstance(newpath, six.text_type):
+            newpath = newpath.encode('utf8')
 
         return self._c_linkat(olddirfd, oldpath, newdirfd, newpath, flags)
 
