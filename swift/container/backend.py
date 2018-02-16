@@ -28,6 +28,7 @@ import six.moves.cPickle as pickle
 from six.moves import range
 import sqlite3
 
+from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, ShardRange, renamer, \
     find_shard_range, MD5_OF_EMPTY_STRING, mkdirs
@@ -1026,10 +1027,9 @@ class ContainerBroker(DatabaseBroker):
                     break
             return results
 
-    # TODO: needs unit test
-    def get_objects(self, limit, marker, end_marker, prefix, delimiter,
-                    path=None, storage_policy_index=0, reverse=False,
-                    include_deleted=False):
+    def get_objects(self, limit=None, marker='', end_marker='', prefix=None,
+                    delimiter=None, path=None, storage_policy_index=0,
+                    reverse=False, include_deleted=False):
         """
         Return a list of objects.
 
@@ -1051,7 +1051,7 @@ class ContainerBroker(DatabaseBroker):
             result = self._record_to_dict(record)
             result['storage_policy_index'] = policy_index
             return result
-
+        limit = CONTAINER_LISTING_LIMIT if limit is None else limit
         return self.list_objects_iter(
             limit, marker, end_marker, prefix, delimiter, path=path,
             storage_policy_index=storage_policy_index, reverse=reverse,
