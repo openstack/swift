@@ -463,15 +463,14 @@ class TestContainerSharding(ReplProbeTest):
             client.put_object(self.url, self.token, self.container_name, obj)
 
         # The listing includes new object...
-        headers, with_alphas_listing = client.get_container(
-            self.url, self.token, self.container_name)
-        self.assertEqual(more_obj_names + obj_names, [
-            x['name'].encode('utf-8') for x in with_alphas_listing])
-        self.assertEqual(pre_sharding_listing,
-                         with_alphas_listing[len(more_obj_names):])
+        headers, listing = self.assert_container_listing(
+            more_obj_names + obj_names)
+        self.assertEqual(pre_sharding_listing, listing[len(more_obj_names):])
 
-        # ...but object count is out of date until the sharders run and
+        # ...but root object count is out of date until the sharders run and
         # update the root
+        headers = client.head_container(
+            self.url, self.token, self.container_name)
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(headers['x-container-object-count'],
                          str(len(obj_names)))
@@ -828,11 +827,15 @@ class TestContainerSharding(ReplProbeTest):
         # date until we run the object updater :(
         self.updaters.once()
 
-        # listing has new object but root object counts not updated...
+        # listing has new object
         second_shard_objects = [obj_name for obj_name in obj_names
                                 if obj_name > orig_shard_ranges[1].lower]
-        self.assert_container_listing(['alpha'] + second_shard_objects,
-                                      expected_obj_count=len(obj_names))
+        self.assert_container_listing(['alpha'] + second_shard_objects)
+        # but root object count is not updated...
+        headers = client.head_container(
+            self.url, self.token, self.container_name)
+        self.assertEqual(headers['x-container-object-count'],
+                         str(len(obj_names)))
         root_nodes_data = self.direct_get_container_shard_ranges()
         self.assertEqual(3, len(root_nodes_data))
         for node_id, node_data in root_nodes_data.items():
@@ -846,6 +849,10 @@ class TestContainerSharding(ReplProbeTest):
         # ...until the sharders run
         self.sharders.once()
         exp_obj_count = len(second_shard_objects) + 1
+        headers = client.head_container(
+            self.url, self.token, self.container_name)
+        self.assertEqual(headers['x-container-object-count'],
+                         str(exp_obj_count))
 
         # we may then need sharders to run once or more to find the donor
         # shard, shrink and replicate it to the acceptor
@@ -984,9 +991,7 @@ class TestContainerSharding(ReplProbeTest):
             self.sharders.once(number=number)
         # ...which does not include the 'alpha' object, so that does not appear
         # in listing composed from shard containers
-        # TODO: obj count is anomalous, should be fixed to equal listing length
-        self.assert_container_listing(
-            obj_names, expected_obj_count=len(obj_names) + 1)
+        self.assert_container_listing(obj_names)
 
         # ...but still in sharding state, because hash.db changed
         self.assert_container_state(node_numbers[0], DB_STATE_SHARDING, 3)

@@ -160,13 +160,14 @@ class ContainerController(Controller):
             return resp
 
         objects = []
-        limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
+        req_limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
         params = req.params.copy()
         reverse = config_true_value(params.get('reverse'))
         marker = params.get('marker')
         end_marker = params.get('end_marker')
         params['scope'] = 'root'  # avoid fetching shards again
 
+        limit = req_limit
         for shard_range in ranges:
             params['limit'] = limit
             # always set marker and end_marker to ensure that misplaced objects
@@ -213,6 +214,17 @@ class ContainerController(Controller):
                 break
 
         resp.body = json.dumps(objects)
+        constrained = any(req.params.get(constraint) for constraint in (
+            'marker', 'end_marker', 'path', 'prefix', 'delimiter'))
+        if not constrained and len(objects) < req_limit:
+            self.app.logger.debug('Setting object count to %s' % len(objects))
+            # prefer the actual listing length over the potentially outdated
+            # root object count. This condition is only likely when a sharded
+            # container is shrinking or in tests; typically a sharded container
+            # will have more than CONTAINER_LISTING_LIMIT objects so any
+            # unconstrained listing will be capped by the limit and object
+            # count cannot be inferred from the listing length.
+            resp.headers['X-Container-Object-Count'] = len(objects)
         return resp
 
     @public

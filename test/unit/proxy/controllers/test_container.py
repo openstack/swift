@@ -489,14 +489,30 @@ class TestContainerController(TestRingBase):
         size_all_objects = sum([obj['bytes'] for obj in all_objects])
         num_all_objects = len(all_objects)
 
-        # GET all objects
+        def check_response(resp, expected_obj_count=None):
+            info_hdrs = dict(root_resp_hdrs)
+            if expected_obj_count is None:
+                # defaut is to expect whatever the root container sent
+                expected_obj_count = root_resp_hdrs['X-Container-Object-Count']
+            else:
+                info_hdrs['X-Container-Object-Count'] = expected_obj_count
+            self.assertEqual(expected_obj_count,
+                             int(resp.headers['X-Container-Object-Count']))
+            self.assertEqual('3', resp.headers['X-Backend-Sharding-State'])
+            # check that info cache is correct for root container
+            info = get_container_info(resp.request.environ, self.app)
+            self.assertEqual(headers_to_container_info(info_hdrs), info)
+
         limit = CONTAINER_LISTING_LIMIT
         expected_objects = all_objects
         root_resp_hdrs = {'X-Backend-Sharding-State': '3',
-                          'X-Container-Object-Count': num_all_objects,
+                          # pretend root object count is not yet updated
+                          'X-Container-Object-Count': num_all_objects - 1,
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+
+        # GET all objects
         # include some failed responses
         mock_responses = [
             # status, body, headers
@@ -526,17 +542,43 @@ class TestContainerController(TestRingBase):
              dict(marker='pie', end_marker='', scope='root',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
         ]
+
         resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests)
+        # root object count will overridden by actual length of listing
+        check_response(resp, expected_obj_count=58)
 
-        def check_response(resp):
-            self.assertEqual(len(all_objects),
-                             int(resp.headers['X-Container-Object-Count']))
-            self.assertEqual('3', resp.headers['X-Backend-Sharding-State'])
-            # check that info cache is correct for root container
-            info = get_container_info(resp.request.environ, self.app)
-            self.assertEqual(headers_to_container_info(root_resp_hdrs), info)
-        check_response(resp)
+        # GET all objects in reverse
+        mock_responses = [
+            # status, body, headers
+            (200, {}, root_resp_hdrs),
+            (200, list(reversed(sr_dicts)), root_resp_hdrs),
+            (200, list(reversed(sr_objs[2])), shard_resp_hdrs[2]),
+            (200, list(reversed(sr_objs[1])), shard_resp_hdrs[1]),
+            (200, list(reversed(sr_objs[0])), shard_resp_hdrs[0]),
+        ]
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {}, dict(reverse='true')),  # 200
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(state='active', reverse='true')),  # 404
+            (shard_ranges[2].name, {},
+             dict(marker='', end_marker='pie', scope='root', reverse='true',
+                  limit=str(limit))),  # 200
+            (shard_ranges[1].name, {},
+             dict(marker='pie\x00', end_marker='ham', scope='root',
+                  reverse='true', limit=str(limit - len(sr_objs[2])))),  # 200
+            (shard_ranges[0].name, {},
+             dict(marker='ham\x00', end_marker='', scope='root',
+                  reverse='true',
+                  limit=str(limit - len(sr_objs[2] + sr_objs[1])))),  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, list(reversed(expected_objects)),
+            expected_requests, query_string='?reverse=true')
+        # root object count will overridden by actual length of listing
+        check_response(resp, expected_obj_count=58)
 
         # GET with limit param
         limit = len(sr_objs[0]) + len(sr_objs[1]) + 1
@@ -567,7 +609,7 @@ class TestContainerController(TestRingBase):
              dict(marker='pie', end_marker='', scope='root',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]))))
         ]
-        self._check_GET_shard_listing(
+        resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
             query_string='?limit=%s' % limit)
         check_response(resp)
@@ -600,7 +642,7 @@ class TestContainerController(TestRingBase):
              dict(marker='pie', end_marker='', scope='root',
                   limit=str(limit - len(sr_objs[1][2:])))),
         ]
-        self._check_GET_shard_listing(
+        resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
             query_string='?marker=%s' % marker)
         check_response(resp)
@@ -632,7 +674,7 @@ class TestContainerController(TestRingBase):
              dict(marker='ham', end_marker=end_marker, scope='root',
                   limit=str(limit - len(sr_objs[0])))),
         ]
-        self._check_GET_shard_listing(
+        resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
             query_string='?end_marker=%s' % end_marker)
         check_response(resp)
@@ -664,13 +706,13 @@ class TestContainerController(TestRingBase):
              dict(marker=marker, end_marker=end_marker, scope='root',
                   limit=str(limit))),
         ]
-        self._check_GET_shard_listing(
+        resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
             query_string='?marker=%s&end_marker=%s&limit=%s'
             % (marker, end_marker, limit))
         check_response(resp)
 
-        # reverse
+        # reverse with marker, end_marker
         expected_objects.reverse()
         mock_responses = [
             (404, '', {}),
@@ -681,25 +723,25 @@ class TestContainerController(TestRingBase):
         ]
         expected_requests = [
             ('a/c', {},
-             dict(marker=marker, reverse='true', end_marker=end_marker,
+             dict(marker=end_marker, reverse='true', end_marker=marker,
                   limit=str(limit))),  # 404
             ('a/c', {},
-             dict(marker=marker, reverse='true', end_marker=end_marker,
+             dict(marker=end_marker, reverse='true', end_marker=marker,
                   limit=str(limit))),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(limit=str(limit), state='active', marker=marker,
-                  end_marker=end_marker, reverse='true')),  # 404
+             dict(limit=str(limit), state='active', marker=end_marker,
+                  end_marker=marker, reverse='true')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(limit=str(limit), state='active', marker=marker,
-                  end_marker=end_marker, reverse='true')),  # 200
+             dict(limit=str(limit), state='active', marker=end_marker,
+                  end_marker=marker, reverse='true')),  # 200
             (shard_ranges[1].name, {},  # 200
-             dict(marker=marker, end_marker=end_marker, scope='root',
+             dict(marker=end_marker, end_marker=marker, scope='root',
                   limit=str(limit), reverse='true')),
         ]
         self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
             query_string='?marker=%s&end_marker=%s&limit=%s&reverse=true'
-            % (marker, end_marker, limit))
+            % (end_marker, marker, limit))
         check_response(resp)
 
     def test_GET_sharded_container_bad_params(self):
