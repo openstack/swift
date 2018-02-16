@@ -110,7 +110,7 @@ def roundrobin_datadirs(datadirs):
                         try:
                             os.rmdir(hash_dir)
                         except OSError as e:
-                            if e.errno is not errno.ENOTEMPTY:
+                            if e.errno != errno.ENOTEMPTY:
                                 raise
 
     its = [walk_datadir(datadir, node_id) for datadir, node_id in datadirs]
