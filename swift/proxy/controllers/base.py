@@ -2011,7 +2011,7 @@ class Controller(object):
         :param container: container from listing should be fetched.
         :param headers: headers to be included with the request
         :param params: query string parameters to be used.
-        :return: deserialized json data structure
+        :return: a tuple of (deserialized json data structure, swob Response)
         """
         params = params or {}
         version, _a, _c, _other = req.split_path(3, 4, True)
