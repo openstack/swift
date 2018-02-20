@@ -22,8 +22,7 @@ from nose import SkipTest
 from swift.common import direct_client
 from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange
-from swift.container.backend import ContainerBroker, DB_STATE, \
-    DB_STATE_SHARDING, DB_STATE_SHARDED
+from swift.container.backend import ContainerBroker, SHARDED, SHARDING
 from swift.common import utils
 from swift.common.manager import Manager
 from swiftclient import client, get_auth, ClientException
@@ -367,7 +366,7 @@ class TestContainerSharding(ReplProbeTest):
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
-            self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
+            self.assertEqual('unsharded', broker.get_db_state_text())
             self.assertLengthEqual(broker.get_shard_ranges(), 0)
 
         headers, pre_sharding_listing = client.get_container(
@@ -393,7 +392,7 @@ class TestContainerSharding(ReplProbeTest):
         broker = ContainerBroker(found['shard_dbs'][0])
         # TODO: assert the shard db is on replica 0
         self.assertIs(True, broker.is_root_container())
-        self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
+        self.assertEqual('sharded', broker.get_db_state_text())
         expected_shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
         self.assertLengthEqual(expected_shard_ranges, 2)
         self.assert_total_object_count(len(obj_names), expected_shard_ranges)
@@ -404,7 +403,7 @@ class TestContainerSharding(ReplProbeTest):
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
-            self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
+            self.assertEqual('unsharded', broker.get_db_state_text())
             # the sharded db had shard range meta_timestamps and state updated
             # during cleaving, so we do not expect those to be equal on other
             # nodes
@@ -430,7 +429,7 @@ class TestContainerSharding(ReplProbeTest):
         for db_file in found['shard_dbs']:
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
-            self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
+            self.assertEqual('sharded', broker.get_db_state_text())
             # Well, except for meta_timestamps, since the shards each reported
             self.assert_shard_range_lists_equal(
                 expected_shard_ranges, broker.get_shard_ranges(),
@@ -494,7 +493,7 @@ class TestContainerSharding(ReplProbeTest):
         for db_file in found['shard_dbs']:
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
-            self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
+            self.assertEqual('sharded', broker.get_db_state_text())
             if new_shard_ranges is None:
                 new_shard_ranges = broker.get_shard_ranges(
                     include_deleted=True)
@@ -602,7 +601,7 @@ class TestContainerSharding(ReplProbeTest):
         broker = ContainerBroker(node_index_zero_db)
         # TODO: assert the shard db is on replica 0
         self.assertIs(True, broker.is_root_container())
-        self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
+        self.assertEqual('sharding', broker.get_db_state_text())
         expected_shard_ranges = broker.get_shard_ranges()
         self.assertLengthEqual(expected_shard_ranges, 3)
         self.assertEqual(
@@ -621,11 +620,11 @@ class TestContainerSharding(ReplProbeTest):
                 expected_shard_ranges, broker.get_shard_ranges(),
                 excludes=['meta_timestamp', 'state_timestamp', 'state'])
             if db_file.startswith(os.path.dirname(node_index_zero_db)):
-                self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
+                self.assertEqual('sharding', broker.get_db_state_text())
                 self.assertEqual(len(obj_names) * 3 // 5,
                                  broker.get_info()['object_count'])
             else:
-                self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
+                self.assertEqual('unsharded', broker.get_db_state_text())
                 # The rows that only replica 0 knew about got shipped to the
                 # other replicas as part of sharding
                 self.assertEqual(len(obj_names) * 4 // 5,
@@ -639,7 +638,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assertLengthEqual(found['normal_dbs'], 3)
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
-            self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
+            self.assertEqual('sharding', broker.get_db_state_text())
             # no new rows
             if db_file.startswith(os.path.dirname(node_index_zero_db)):
                 self.assertEqual(len(obj_names) * 3 // 5,
@@ -927,8 +926,8 @@ class TestContainerSharding(ReplProbeTest):
         # eventually cleaved to shards
         obj_names = self._setup_replication_scenario(3)
         node_numbers = self.brain.node_numbers
-        self.assert_container_state(node_numbers[0], DB_STATE_SHARDING, 3)
-        self.assert_container_state(node_numbers[1], DB_STATE_SHARDING, 3)
+        self.assert_container_state(node_numbers[0], SHARDING, 3)
+        self.assert_container_state(node_numbers[1], SHARDING, 3)
 
         # bring third server back up, run replicator
         self.brain.servers.start(number=node_numbers[2])
@@ -951,14 +950,14 @@ class TestContainerSharding(ReplProbeTest):
                     'Node number %s in %s' % (number, node_numbers[:2])):
                 self.assertEqual(1, len(misplaced))
                 self.assertEqual('alpha', misplaced[0]['name'])
-                self.assert_container_state(number, DB_STATE_SHARDING, 3)
+                self.assert_container_state(number, SHARDING, 3)
 
         # complete cleaving third shard range...
         for number in node_numbers[:2]:
             self.sharders.once(number=number)
         # ...and now in sharded state
-        self.assert_container_state(node_numbers[0], DB_STATE_SHARDED, 3)
-        self.assert_container_state(node_numbers[1], DB_STATE_SHARDED, 3)
+        self.assert_container_state(node_numbers[0], SHARDED, 3)
+        self.assert_container_state(node_numbers[1], SHARDED, 3)
         # ...misplaced objects including the 'alpha' object also get moved
         self.assert_container_listing(['alpha'] + obj_names)  # sanity check
 
@@ -967,8 +966,8 @@ class TestContainerSharding(ReplProbeTest):
         # replica merges to the shard db and does not re-create a hash.db
         obj_names = self._setup_replication_scenario(2)
         node_numbers = self.brain.node_numbers
-        self.assert_container_state(node_numbers[0], DB_STATE_SHARDED, 2)
-        self.assert_container_state(node_numbers[1], DB_STATE_SHARDED, 2)
+        self.assert_container_state(node_numbers[0], SHARDED, 2)
+        self.assert_container_state(node_numbers[1], SHARDED, 2)
 
         # sanity check
         for number in node_numbers[:2]:
@@ -1009,7 +1008,7 @@ class TestContainerSharding(ReplProbeTest):
                     'Node number %s in %s' % (number, node_numbers[:2])):
                 self.assertEqual(1, len(misplaced))
                 self.assertEqual('alpha', misplaced[0]['name'])
-                self.assert_container_state(number, DB_STATE_SHARDED, 2)
+                self.assert_container_state(number, SHARDED, 2)
 
         # misplaced objects get moved on next sharder cycle...
         for number in node_numbers[:2]:

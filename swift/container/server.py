@@ -25,7 +25,7 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
-    RECORD_TYPE_SHARD_NODE, DB_STATE_UNSHARDED
+    RECORD_TYPE_SHARD_NODE, UNSHARDED
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
@@ -76,8 +76,7 @@ def gen_resp_headers(info, is_deleted=False):
             'X-Timestamp': Timestamp(info.get('created_at', 0)).normal,
             'X-PUT-Timestamp': Timestamp(
                 info.get('put_timestamp', 0)).normal,
-            'X-Backend-Sharding-State': info.get('db_state',
-                                                 DB_STATE_UNSHARDED),
+            'X-Backend-Sharding-State': info.get('db_state', UNSHARDED),
         })
     return headers
 

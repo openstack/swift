@@ -1502,12 +1502,13 @@ class TestContainerController(unittest.TestCase):
 
         def mock_exists(db_path):
             rv = _real_exists(db_path)
+            if db_path != db._db_file:
+                return rv
             if not mock_called:
                 # be as careful as we might hope backend replication can be...
                 with lock_parent_directory(db_path, timeout=1):
                     os.rename(other_path, db_path)
-            if not db_path.endswith('_shard.db'):
-                mock_called.append((rv, db_path))
+            mock_called.append((rv, db_path))
             return rv
 
         req = Request.blank(path, method='PUT',
@@ -1521,7 +1522,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(False, db.is_deleted())
         # mock proves the race
         self.assertEqual(mock_called[:2],
-                         [(exists, db._db_file) for exists in (False, True)])
+                         [(exists, db.db_file) for exists in (False, True)])
         # info was updated
         info = db.get_info()
         self.assertEqual(info['put_timestamp'], Timestamp('4').internal)

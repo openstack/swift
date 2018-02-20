@@ -63,7 +63,7 @@ from swift.common.request_helpers import strip_sys_meta_prefix, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
     strip_object_transient_sysmeta_prefix
 from swift.common.storage_policy import POLICIES
-from swift.container.backend import DB_STATE_UNSHARDED
+from swift.container.backend import UNSHARDED
 
 DEFAULT_RECHECK_ACCOUNT_EXISTENCE = 60  # seconds
 DEFAULT_RECHECK_CONTAINER_EXISTENCE = 60  # seconds
@@ -190,7 +190,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'meta': meta,
         'sysmeta': sysmeta,
         'sharding_state': int(headers.get('x-backend-sharding-state',
-                                          DB_STATE_UNSHARDED))
+                                          UNSHARDED))
     }
 
 
@@ -379,7 +379,7 @@ def get_container_info(env, app, swift_source=None):
             info[field] = int(info[field])
 
     if info.get('sharding_state') is None:
-        info['sharding_state'] = DB_STATE_UNSHARDED
+        info['sharding_state'] = UNSHARDED
 
     return info
 

@@ -24,8 +24,7 @@ from eventlet import Timeout
 
 from swift.container.replicator import ContainerReplicator
 from swift.container.backend import ContainerBroker, \
-    RECORD_TYPE_SHARD_NODE, DB_STATE_NOTFOUND, \
-    DB_STATE_UNSHARDED, DB_STATE_SHARDING, DB_STATE_SHARDED, DB_STATE
+    RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARDING, SHARDED
 from swift.common import internal_client, db_replicator
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import DeviceUnavailable, ConnectionTimeout, \
@@ -394,8 +393,6 @@ class ContainerSharder(ContainerReplicator):
             return
 
         state = broker.get_db_state()
-        if state == DB_STATE_NOTFOUND:
-            return
 
         def make_query(lower, upper):
             # each misplaced object namespace is represented by a shard range
@@ -405,11 +402,11 @@ class ContainerSharder(ContainerReplicator):
         policy_index = broker.storage_policy_index
         # TODO: what about records for objects in the wrong storage policy?
 
-        if state == DB_STATE_SHARDED:
+        if state == SHARDED:
             # Anything in the object table is treated as a misplaced object.
             queries.append(make_query('', ''))
 
-        if not queries and state == DB_STATE_SHARDING:
+        if not queries and state == SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
             last_upper = get_sharding_info(broker, 'Last', node)
@@ -438,6 +435,9 @@ class ContainerSharder(ContainerReplicator):
                     if broker.is_root_container():
                         ranges = broker.get_shard_ranges()
                     else:
+                        # TODO: the root may not yet know about shard ranges to
+                        # which a shard is sharding - those need to come from
+                        # the broker
                         ranges = self._get_shard_ranges(broker, newest=True)
                     outer['ranges'] = iter(ranges)
                 return outer['ranges']
@@ -580,7 +580,7 @@ class ContainerSharder(ContainerReplicator):
         state = broker.get_db_state()
         self.logger.info('Starting processing %s/%s state %s',
                          broker.account, broker.container,
-                         DB_STATE[broker.get_db_state()])
+                         broker.get_db_state_text(state))
 
         # Before we do any heavy lifting, lets do an audit on the shard
         # container. We grab the root's view of the shard_points and make
@@ -601,25 +601,22 @@ class ContainerSharder(ContainerReplicator):
             # have new objects sitting in them that may need to move.
             return
 
-        if state == DB_STATE_NOTFOUND:
-            return
-
         self.shard_cleanups = dict()
         # TODO: bring back leader election (maybe?); if so make it
         # on-demand since we may not need to know if we are leader for all
         # states
         is_leader = node['index'] == 0
         try:
-            if state == DB_STATE_UNSHARDED:
+            if state == UNSHARDED:
                 if ((is_leader and broker.get_info()['object_count'] >=
                         self.shard_container_size) or
                         broker.get_shard_ranges()):
                     # container may have been given shard ranges rather
                     # than found them e.g. via replication or a shrink event
                     broker.set_sharding_state()
-                    state = DB_STATE_SHARDING
+                    state = SHARDING
 
-            if state == DB_STATE_SHARDING:
+            if state == SHARDING:
                 num_found = num_created = 0
                 scan_complete = config_true_value(
                     get_sharding_info(broker, 'Scan-Done'))
@@ -686,13 +683,13 @@ class ContainerSharder(ContainerReplicator):
 
                     context = get_sharding_info(broker, 'Context', node)
                     if broker.set_sharded_state(context):
-                        state = DB_STATE_SHARDED
+                        state = SHARDED
                         self.logger.increment('sharding_complete')
                     else:
                         self.logger.debug('Remaining in sharding state %s/%s',
                                           broker.account, broker.container)
 
-            if (state == DB_STATE_SHARDED and broker.is_root_container() and
+            if (state == SHARDED and broker.is_root_container() and
                     is_leader):
                 self._find_shrinks(broker, node, part)
 
@@ -700,7 +697,7 @@ class ContainerSharder(ContainerReplicator):
                 # update the root container with this shard's usage stats; do
                 # this even when sharded in case previous attempts failed
                 own_shard_range = broker.get_own_shard_range()
-                if state == DB_STATE_SHARDED:
+                if state == SHARDED:
                     own_shard_range.state = ShardRange.SHARDED
                     own_shard_range.deleted = 1
                 else:
@@ -715,7 +712,7 @@ class ContainerSharder(ContainerReplicator):
                     [own_shard_range])
             self.logger.info('Finished processing %s/%s state %s',
                              broker.account, broker.container,
-                             DB_STATE[broker.get_db_state()])
+                             broker.get_db_state_text())
         finally:
             self.logger.increment('scanned')
             self.stats['containers_scanned'] += 1
@@ -992,7 +989,7 @@ class ContainerSharder(ContainerReplicator):
         # large number of deleted object rows that will need to be merged with
         # a neighbour. We may need to expose row count as well as object count.
         state = broker.get_db_state()
-        if state != DB_STATE_SHARDED:
+        if state != SHARDED:
             self.logger.warning(
                 'Cannot shrink a not yet sharded container %s/%s',
                 broker.account, broker.container)
@@ -1073,7 +1070,7 @@ class ContainerSharder(ContainerReplicator):
         # Returns True if all available shard ranges are successfully cleaved,
         # False otherwise
         state = broker.get_db_state()
-        if state == DB_STATE_SHARDED:
+        if state == SHARDED:
             self.logger.debug('Passing over already sharded container %s/%s',
                               broker.account, broker.container)
             return True

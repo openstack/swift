@@ -31,7 +31,8 @@ import sqlite3
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, ShardRange, renamer, \
-    find_shard_range, MD5_OF_EMPTY_STRING, mkdirs
+    find_shard_range, MD5_OF_EMPTY_STRING, mkdirs, get_db_files, \
+    parse_db_filename
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT
 
 
@@ -42,15 +43,20 @@ DATADIR = 'containers'
 RECORD_TYPE_OBJECT = 'object'
 RECORD_TYPE_SHARD_NODE = 'shard'
 
-DB_STATE_NOTFOUND = 0
-DB_STATE_UNSHARDED = 1
-DB_STATE_SHARDING = 2
-DB_STATE_SHARDED = 3
-DB_STATE = [
-    'notfound',
-    'unsharded',
-    'sharding',
-    'sharded']
+NOTFOUND = 0
+UNSHARDED = 1
+SHARDING = 2
+SHARDED = 3
+COLLAPSED = 4
+DB_STATES = ['not_found', 'unsharded', 'sharding', 'sharded', 'collapsed']
+
+
+def db_state_text(state):
+    try:
+        return DB_STATES[state]
+    except (TypeError, IndexError):
+        return 'unknown'
+
 
 # attribute names in order used when transforming shard ranges from dicts to
 # tuples and vice-versa
@@ -312,7 +318,12 @@ class ContainerBroker(DatabaseBroker):
                  account=None, container=None, pending_timeout=None,
                  stale_reads_ok=False, force_db_file=False):
         self._init_db_file = db_file
-        base_db_file = db_file.replace('_shard', '')
+        if db_file == ':memory:':
+            base_db_file = db_file
+        else:
+            db_dir = os.path.dirname(db_file)
+            hash_, other, ext = parse_db_filename(db_file)
+            base_db_file = os.path.join(db_dir, hash_ + ext)
         super(ContainerBroker, self).__init__(
             base_db_file, timeout, logger, account, container, pending_timeout,
             stale_reads_ok)
@@ -323,31 +334,68 @@ class ContainerBroker(DatabaseBroker):
         # the root account and container are populated on demand
         self._root_account = self._root_container = None
         self._force_db_file = force_db_file
+        self._db_files = None
 
     def get_db_state(self):
         if self._db_file == ':memory:':
-            return DB_STATE_UNSHARDED
-        db_exists = os.path.exists(self._db_file)
-        shard_exists = os.path.exists(self._shard_db_file)
-        if db_exists and not shard_exists:
-            return DB_STATE_UNSHARDED
-        elif db_exists and shard_exists:
-            return DB_STATE_SHARDING
-        elif not db_exists and shard_exists:
-            return DB_STATE_SHARDED
-        else:
-            # Neither db nor shard db exists
-            return DB_STATE_NOTFOUND
+            return UNSHARDED
+        if not self.db_files:
+            return NOTFOUND
+        if len(self.db_files) > 1:
+            return SHARDING
+        hash_, epoch, ext = parse_db_filename(self.db_files[0])
+        sharding_epoch = 'shard'
+        if epoch != sharding_epoch:
+            return UNSHARDED
+        if not self.get_shard_ranges():
+            return COLLAPSED
+        return SHARDED
+
+    def get_db_state_text(self, state=None):
+        if state is None:
+            state = self.get_db_state()
+        return db_state_text(state)
+
+    def reload_db_files(self):
+        """
+        Reloads the cached list of valid on disk db files for this broker.
+        :return:
+        """
+        self._db_files = get_db_files(self._init_db_file)
+
+    @property
+    def db_files(self):
+        """
+        Gets the cached list of valid db files that exist on disk for this
+        broker.
+
+        The cached list may be refreshed by calling
+            :meth:`~swift.container.backend.ContainerBroker.reload_db_files`.
+
+        :return: A list of paths to db files ordered by ascending epoch;
+            the list may be empty.
+        """
+        if not self._db_files:
+            self.reload_db_files()
+        return self._db_files
 
     @property
     def db_file(self):
+        """
+        Get the path to the primary db file for this broker. This is typically
+        the db file for the most recent sharding epoch. However, if no db files
+        exist on disk, or if ``force_db_file`` was True when the broker was
+        constructed, then the primary db file is the file passed to the broker
+        constructor.
+
+        :return: A path to a db file; the file does not necessarily exist.
+        """
         if self._force_db_file:
             return self._init_db_file
-        db_state = self.get_db_state()
-        if db_state in (DB_STATE_NOTFOUND, DB_STATE_UNSHARDED):
-            return self._db_file
-        elif db_state in (DB_STATE_SHARDING, DB_STATE_SHARDED):
-            return self._shard_db_file
+        if self.db_files:
+            return self.db_files[-1]
+        # TODO: maybe this should be _init_db_file, _db_file may not even exist
+        return self._db_file
 
     @property
     def storage_policy_index(self):
@@ -373,6 +421,7 @@ class ContainerBroker(DatabaseBroker):
         self.create_container_info_table(conn, put_timestamp,
                                          storage_policy_index)
         self.create_shard_ranges_table(conn)
+        self._db_files = None
 
     def create_object_table(self, conn):
         """
@@ -539,7 +588,8 @@ class ContainerBroker(DatabaseBroker):
         self._commit_puts_stale_ok()
         with self.get() as conn:
             try:
-                if self.get_db_state() == DB_STATE_SHARDED:
+                # TODO: this does not check misplaced objects table is empty!
+                if self.get_db_state() == SHARDED:
                     row = conn.execute(
                         'SELECT max(object_count) from shard_ranges where '
                         'deleted = 0').fetchone()
@@ -722,9 +772,6 @@ class ContainerBroker(DatabaseBroker):
             self._storage_policy_index = data['storage_policy_index']
             self.account = data['account']
             self.container = data['container']
-
-            data['db_state'] = self.get_db_state()
-
             return data
 
     def get_info(self):
@@ -740,16 +787,17 @@ class ContainerBroker(DatabaseBroker):
                   db_state.
         """
         data = self._get_info()
+        state = self.get_db_state()
         # TODO: unit test sharding states including with no shard ranges
-        if data['db_state'] == DB_STATE_SHARDING:
+        if state == SHARDING:
             # grab the obj_count, bytes used from locked DB. We need
             # obj_count for sharding.
             other_info = self.get_brokers()[0]._get_info()
             data.update({'object_count': other_info.get('object_count', 0),
                          'bytes_used': other_info.get('bytes_used', 0)})
-        elif data['db_state'] == DB_STATE_SHARDED:
+        elif state == SHARDED:
             data.update(self.get_shard_usage())
-
+        data['db_state'] = state
         return data
 
     def set_x_container_sync_points(self, sync_point1, sync_point2):
@@ -1503,11 +1551,11 @@ class ContainerBroker(DatabaseBroker):
         return os.path.exists(lockpath)
 
     def set_sharding_state(self):
-        db_state = self.get_db_state()
-        if not db_state == DB_STATE_UNSHARDED:
+        state = self.get_db_state()
+        if not state == UNSHARDED:
             self.logger.warn("Container '%s/%s' cannot be set to sharding "
                              "state while in %s state", self.account,
-                             self.container, DB_STATE[db_state])
+                             self.container, self.get_db_state_text(state))
             return False
 
         # firstly lets ensure we have a connection, otherwise we could start
@@ -1528,7 +1576,7 @@ class ContainerBroker(DatabaseBroker):
         tmp_dir = os.path.join(self.get_device_path(), 'tmp')
         if not os.path.exists(tmp_dir):
             mkdirs(tmp_dir)
-        tmp_db_file = os.path.join(tmp_dir, "preshard_%s.db" % str(uuid4()))
+        tmp_db_file = os.path.join(tmp_dir, "preshard%s.db" % str(uuid4()))
         sub_broker = ContainerBroker(tmp_db_file, self.timeout,
                                      self.logger, self.account, self.container,
                                      self.pending_timeout, self.stale_reads_ok)
@@ -1590,6 +1638,7 @@ class ContainerBroker(DatabaseBroker):
         # Now we need to reset the connection so next time the correct database
         # will be in use.
         self.conn = None
+        self.reload_db_files()
 
         return True
 
@@ -1607,11 +1656,11 @@ class ContainerBroker(DatabaseBroker):
         return json.dumps(self._sharding_context())
 
     def set_sharded_state(self, sharding_context):
-        db_state = self.get_db_state()
-        if not db_state == DB_STATE_SHARDING:
+        state = self.get_db_state()
+        if not state == SHARDING:
             self.logger.warn("Container '%s/%s' cannot be set to sharded "
                              "state while in %s state", self.account,
-                             self.container, DB_STATE[db_state])
+                             self.container, self.get_db_state_text(state))
             return False
 
         # TODO add some checks to see if we are ready to unlink the old db
@@ -1625,7 +1674,8 @@ class ContainerBroker(DatabaseBroker):
             return False
 
         try:
-            os.unlink(self._db_file)
+            assert len(self.db_files) > 1
+            os.unlink(self.db_files[0])
         except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
@@ -1633,6 +1683,7 @@ class ContainerBroker(DatabaseBroker):
         # now reset the connection so next time the correct database will
         # be used
         self.conn = None
+        self.reload_db_files()
         return True
 
     def get_brokers(self):
@@ -1641,17 +1692,13 @@ class ContainerBroker(DatabaseBroker):
 
         :return: a list of :class:`~swift.container.backend.ContainerBroker`
         """
-        # TODO: could the first item just be self?
-        brokers = [ContainerBroker(
-            self.db_file, self.timeout, self.logger, self.account,
-            self.container, self.pending_timeout, self.stale_reads_ok)]
-        state = self.get_db_state()
-        if state == DB_STATE_SHARDING:
-            # TODO: check if order actually matters, if not then append
-            brokers.insert(0, ContainerBroker(
-                self._db_file, self.timeout, self.logger, self.account,
+        brokers = [
+            ContainerBroker(
+                db_file, self.timeout, self.logger, self.account,
                 self.container, self.pending_timeout, self.stale_reads_ok,
-                force_db_file=True))
+                force_db_file=True)
+            for db_file in self.db_files[:-1]]
+        brokers.append(self)
         return brokers
 
     def get_items_since(self, start, count, include_sharding=False):
@@ -1764,8 +1811,7 @@ class ContainerBroker(DatabaseBroker):
         return (self.root_account == self.account and
                 self.root_container == self.container)
 
-    def _get_next_shard_range_upper(self, shard_size, last_upper=None,
-                                    connection=None):
+    def _get_next_shard_range_upper(self, shard_size, last_upper=None):
         """
         Finds the next entry in the shards table to use as a shard range
         when sharding.
@@ -1775,8 +1821,8 @@ class ContainerBroker(DatabaseBroker):
 
         :return: The middle object in the container.
         """
-
-        def do_query():
+        self._commit_puts_stale_ok()
+        with self.get() as connection:
             sql = 'SELECT name FROM object WHERE deleted=0 '
             args = []
             if last_upper:
@@ -1785,18 +1831,6 @@ class ContainerBroker(DatabaseBroker):
             sql += "ORDER BY name LIMIT 1 OFFSET %d" % (shard_size - 1)
             row = connection.execute(sql, args).fetchone()
             return row['name'] if row else None
-
-        self._commit_puts_stale_ok()
-        if connection:
-            return do_query()
-        else:
-            try:
-                if self.get_db_state() == DB_STATE_SHARDING:
-                    self._create_connection(self._db_file)
-                with self.get() as connection:
-                    return do_query()
-            finally:
-                self._create_connection()
 
     def find_shard_ranges(self, shard_size, limit=-1):
         """
@@ -1841,6 +1875,8 @@ class ContainerBroker(DatabaseBroker):
             last_shard_upper = own_shard_range.lower
 
         found_ranges = []
+        sub_broker = self.get_brokers()[0]
+
         while limit < 0 or len(found_ranges) < limit:
             if progress + shard_size >= object_count:
                 # next shard point is at or beyond final object name so don't
@@ -1851,7 +1887,7 @@ class ContainerBroker(DatabaseBroker):
                 next_shard_upper = None
             else:
                 try:
-                    next_shard_upper = self._get_next_shard_range_upper(
+                    next_shard_upper = sub_broker._get_next_shard_range_upper(
                         shard_size, last_shard_upper)
                 except sqlite3.OperationalError as err:
                     self.logger.exception("Problem finding shard point: ", err)

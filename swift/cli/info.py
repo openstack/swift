@@ -26,7 +26,7 @@ from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     is_object_transient_sysmeta
 from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
 from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR, \
-    DB_STATE
+    db_state_text
 from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
     extract_policy
 from swift.common.storage_policy import POLICIES
@@ -295,7 +295,7 @@ def print_db_info_metadata(db_type, info, metadata):
         print('Sharding Metadata:')
         shard_type = 'root' if info['is_root'] else 'shard'
         print('  Type: %s' % shard_type)
-        print('  State: %s' % DB_STATE[info['db_state']])
+        print('  State: %s' % db_state_text(info['db_state']))
     if info.get('shard_ranges'):
         print('Shard Ranges:')
         for srange in info['shard_ranges']:

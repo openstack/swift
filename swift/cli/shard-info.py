@@ -20,7 +20,7 @@ from swift.common import utils
 from swift.common.db_replicator import roundrobin_datadirs
 from swift.common.ring import ring
 from swift.common.utils import Timestamp
-from swift.container.backend import ContainerBroker, DATADIR, DB_STATE
+from swift.container.backend import ContainerBroker, DATADIR
 from swift.container.sharder import get_sharding_info
 
 TAB = '    '
@@ -61,9 +61,8 @@ def print_broker_info(node, broker, indent_level=0):
     else:
         deleted_at = ' - '
     print('%s%s, objs: %s, bytes: %s, put: %s, deleted: %s (%s)' %
-          (indent, DB_STATE[broker.get_db_state()],
-           info['object_count'], info['bytes_used'],
-           Timestamp(info['put_timestamp']).isoformat,
+          (indent, broker.get_db_state_text(), info['object_count'],
+           info['bytes_used'], Timestamp(info['put_timestamp']).isoformat,
            deleted_at, node))
 
 

@@ -4957,3 +4957,52 @@ def get_redirect_data(response):
     # timestamp to be missing?
     return ('%s/%s' % (account, container),
             Timestamp(headers.get('X-Backend-Redirect-Timestamp')))
+
+
+# TODO: unit test
+def parse_db_filename(filename):
+    """
+    Splits a db filename into three parts: the hash, anything following the
+    hash and the extension.
+
+    e.g. given a filename "ab2134.db", returns ("ab2134", None, "db")
+    e.g. given a filename "ab2134_shard.db", returns ("ab2134", "shard", "db")
+
+    :param filename: A file basename.
+    :return: A tuple of (hash part, other part, extension). ``other part``
+        may be None.
+    """
+    filename = os.path.basename(filename)
+    name, ext = os.path.splitext(filename)
+    parts = name.split('_')
+    hash_ = parts.pop(0)
+    other = parts[0] if parts else None
+    return hash_, other, ext
+
+
+# TODO: unit test
+def get_db_files(db_path):
+    """
+    Given the path to a db file, return a sorted list of all valid db files
+    that actually exist in that path's dir.
+
+    :param db_path: Path to a db file that does not necessarily exist.
+    :return: List of valid db files that do exist in the dir of the
+        ``db_path``. This list may be empty.
+    """
+    db_dir, db_file = os.path.split(db_path)
+    if not os.path.exists(db_dir):
+        return []
+    files = os.listdir(db_dir)
+    if not files:
+        return []
+    match_hash, other, ext = parse_db_filename(db_file)
+    results = []
+    for f in files:
+        hash_, other, ext = parse_db_filename(f)
+        if ext != '.db':
+            continue
+        if hash_ != match_hash:
+            continue
+        results.append(os.path.join(db_dir, f))
+    return sorted(results)

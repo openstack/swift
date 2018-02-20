@@ -36,8 +36,7 @@ import weakref
 import operator
 import functools
 
-from swift.container.backend import DB_STATE_UNSHARDED, DB_STATE_SHARDED, \
-    DB_STATE_SHARDING
+from swift.container.backend import UNSHARDED, SHARDED, SHARDING
 from swift.obj import diskfile
 import re
 import random
@@ -3321,7 +3320,7 @@ class TestReplicatedObjectController(
 
         resp_headers = {'X-Backend-Storage-Policy-Index': 1}
         do_test(resp_headers)
-        resp_headers['X-Backend-Sharding-State'] = DB_STATE_UNSHARDED
+        resp_headers['X-Backend-Sharding-State'] = UNSHARDED
         do_test(resp_headers)
 
     @patch_policies([
@@ -3409,12 +3408,12 @@ class TestReplicatedObjectController(
                 expected[device] = '10.0.0.%d:100%d' % (i, i)
             self.assertEqual(container_headers, expected)
 
-        do_test('POST', DB_STATE_SHARDING)
-        do_test('POST', DB_STATE_SHARDED)
-        do_test('DELETE', DB_STATE_SHARDING)
-        do_test('DELETE', DB_STATE_SHARDED)
-        do_test('PUT', DB_STATE_SHARDING)
-        do_test('PUT', DB_STATE_SHARDED)
+        do_test('POST', SHARDING)
+        do_test('POST', SHARDED)
+        do_test('DELETE', SHARDING)
+        do_test('DELETE', SHARDED)
+        do_test('PUT', SHARDING)
+        do_test('PUT', SHARDED)
 
     def test_DELETE(self):
         with save_globals():

@@ -33,7 +33,7 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, Timestamp
+    json, Timestamp, get_db_files, parse_db_filename
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
@@ -67,52 +67,6 @@ def quarantine_db(object_file, server_type):
             raise
         quarantine_dir = "%s-%s" % (quarantine_dir, uuid.uuid4().hex)
         renamer(object_dir, quarantine_dir, fsync=False)
-
-
-def parse_db_filename(filename):
-    """
-    Splits a db filename into three parts: the hash, anything following the
-    hash and the extension.
-
-    e.g. given a filename "ab2134.db", returns ("ab2134", None, "db")
-    e.g. given a filename "ab2134_shard.db", returns ("ab2134", "shard", "db")
-
-    :param filename: A file basename.
-    :return: A tuple of (hash part, other part, extension). ``other part``
-        may be None.
-    """
-    name, ext = os.path.splitext(filename)
-    parts = name.split('_')
-    hash_ = parts.pop(0)
-    other = parts[0] if parts else None
-    return hash_, other, ext
-
-
-def get_db_files(db_path):
-    """
-    Given the path to a db file, return a sorted list of all valid db files
-    that actually exist in that path's dir.
-
-    :param db_path: Path to a db file that does not necessarily exist.
-    :return: List of valid db files that do exist in the dir of the
-        ``db_path``. This list may be empty.
-    """
-    db_dir, db_file = os.path.split(db_path)
-    if not os.path.exists(db_dir):
-        return []
-    files = os.listdir(db_dir)
-    if not files:
-        return []
-    match_hash, other, ext = parse_db_filename(db_file)
-    results = []
-    for f in files:
-        hash_, other, ext = parse_db_filename(f)
-        if ext != '.db':
-            continue
-        if hash_ != match_hash:
-            continue
-        results.append(os.path.join(db_dir, f))
-    return sorted(results)
 
 
 def roundrobin_datadirs(datadirs):
