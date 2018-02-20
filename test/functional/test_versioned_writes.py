@@ -45,13 +45,14 @@ class TestObjectVersioningEnv(BaseEnv):
     @classmethod
     def setUp(cls):
         super(TestObjectVersioningEnv, cls).setUp()
-        # Second connection for ACL tests
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.conn2.authenticate()
+        if not tf.skip2:
+            # Second connection for ACL tests
+            config2 = deepcopy(tf.config)
+            config2['account'] = tf.config['account2']
+            config2['username'] = tf.config['username2']
+            config2['password'] = tf.config['password2']
+            cls.conn2 = Connection(config2)
+            cls.conn2.authenticate()
 
         # avoid getting a prefix that stops halfway through an encoded
         # character
@@ -74,24 +75,26 @@ class TestObjectVersioningEnv(BaseEnv):
         # if versioning is off, then cls.location_header_key won't persist
         cls.versioning_enabled = 'versions' in container_info
 
-        # setup another account to test ACLs
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
-        cls.account2 = cls.conn2.get_account()
-        cls.account2.delete_containers()
+        if not tf.skip2:
+            # setup another account to test ACLs
+            config2 = deepcopy(tf.config)
+            config2['account'] = tf.config['account2']
+            config2['username'] = tf.config['username2']
+            config2['password'] = tf.config['password2']
+            cls.conn2 = Connection(config2)
+            cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
+            cls.account2 = cls.conn2.get_account()
+            cls.account2.delete_containers()
 
-        # setup another account with no access to anything to test ACLs
-        config3 = deepcopy(tf.config)
-        config3['account'] = tf.config['account']
-        config3['username'] = tf.config['username3']
-        config3['password'] = tf.config['password3']
-        cls.conn3 = Connection(config3)
-        cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
-        cls.account3 = cls.conn3.get_account()
+        if not tf.skip3:
+            # setup another account with no access to anything to test ACLs
+            config3 = deepcopy(tf.config)
+            config3['account'] = tf.config['account']
+            config3['username'] = tf.config['username3']
+            config3['password'] = tf.config['password3']
+            cls.conn3 = Connection(config3)
+            cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
+            cls.account3 = cls.conn3.get_account()
 
     @classmethod
     def tearDown(cls):
@@ -131,13 +134,14 @@ class TestCrossPolicyObjectVersioningEnv(BaseEnv):
         policy = cls.policies.select()
         version_policy = cls.policies.exclude(name=policy['name']).select()
 
-        # Second connection for ACL tests
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.conn2.authenticate()
+        if not tf.skip2:
+            # Second connection for ACL tests
+            config2 = deepcopy(tf.config)
+            config2['account'] = tf.config['account2']
+            config2['username'] = tf.config['username2']
+            config2['password'] = tf.config['password2']
+            cls.conn2 = Connection(config2)
+            cls.conn2.authenticate()
 
         # avoid getting a prefix that stops halfway through an encoded
         # character
@@ -161,24 +165,26 @@ class TestCrossPolicyObjectVersioningEnv(BaseEnv):
         # if versioning is off, then X-Versions-Location won't persist
         cls.versioning_enabled = 'versions' in container_info
 
-        # setup another account to test ACLs
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
-        cls.account2 = cls.conn2.get_account()
-        cls.account2.delete_containers()
+        if not tf.skip2:
+            # setup another account to test ACLs
+            config2 = deepcopy(tf.config)
+            config2['account'] = tf.config['account2']
+            config2['username'] = tf.config['username2']
+            config2['password'] = tf.config['password2']
+            cls.conn2 = Connection(config2)
+            cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
+            cls.account2 = cls.conn2.get_account()
+            cls.account2.delete_containers()
 
-        # setup another account with no access to anything to test ACLs
-        config3 = deepcopy(tf.config)
-        config3['account'] = tf.config['account']
-        config3['username'] = tf.config['username3']
-        config3['password'] = tf.config['password3']
-        cls.conn3 = Connection(config3)
-        cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
-        cls.account3 = cls.conn3.get_account()
+        if not tf.skip3:
+            # setup another account with no access to anything to test ACLs
+            config3 = deepcopy(tf.config)
+            config3['account'] = tf.config['account']
+            config3['username'] = tf.config['username3']
+            config3['password'] = tf.config['password3']
+            cls.conn3 = Connection(config3)
+            cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
+            cls.account3 = cls.conn3.get_account()
 
     @classmethod
     def tearDown(cls):
@@ -485,6 +491,8 @@ class TestObjectVersioning(Base):
         self.assertEqual("old content", man_file.read())
 
     def test_versioning_container_acl(self):
+        if tf.skip2:
+            raise SkipTest('Account2 not set')
         # create versions container and DO NOT give write access to account2
         versions_container = self.env.account.container(Utils.create_name())
         location_header_val = quote(str(versions_container))
@@ -623,6 +631,8 @@ class TestObjectVersioning(Base):
         return versioned_obj
 
     def test_versioning_check_acl(self):
+        if tf.skip2:
+            raise SkipTest('Account2 not set')
         versioned_obj = self._test_versioning_check_acl_setup()
         versioned_obj.delete()
         self.assertEqual("aaaaa", versioned_obj.read())
@@ -896,6 +906,8 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         self.assertEqual(expected, bodies)
 
     def test_versioning_check_acl(self):
+        if tf.skip2:
+            raise SkipTest('Account2 not set')
         versioned_obj = self._test_versioning_check_acl_setup()
         versioned_obj.delete()
         with self.assertRaises(ResponseError) as cm:

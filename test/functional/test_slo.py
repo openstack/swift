@@ -64,19 +64,21 @@ class TestSloEnv(BaseEnv):
 
         super(TestSloEnv, cls).setUp()
 
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.conn2.authenticate()
-        cls.account2 = cls.conn2.get_account()
-        cls.account2.delete_containers()
-        config3 = tf.config.copy()
-        config3['username'] = tf.config['username3']
-        config3['password'] = tf.config['password3']
-        cls.conn3 = Connection(config3)
-        cls.conn3.authenticate()
+        if not tf.skip2:
+            config2 = deepcopy(tf.config)
+            config2['account'] = tf.config['account2']
+            config2['username'] = tf.config['username2']
+            config2['password'] = tf.config['password2']
+            cls.conn2 = Connection(config2)
+            cls.conn2.authenticate()
+            cls.account2 = cls.conn2.get_account()
+            cls.account2.delete_containers()
+        if not tf.skip3:
+            config3 = tf.config.copy()
+            config3['username'] = tf.config['username3']
+            config3['password'] = tf.config['password3']
+            cls.conn3 = Connection(config3)
+            cls.conn3.authenticate()
 
         cls.container = cls.account.container(Utils.create_name())
         cls.container2 = cls.account.container(Utils.create_name())
@@ -651,18 +653,19 @@ class TestSlo(Base):
         copied_contents = copied.read(parms={'multipart-manifest': 'get'})
         self.assertEqual(4 * 1024 * 1024 + 1, len(copied_contents))
 
-        # copy to different account
-        acct = self.env.conn2.account_name
-        dest_cont = self.env.account2.container(Utils.create_name())
-        self.assertTrue(dest_cont.create(hdrs={
-            'X-Container-Write': self.env.conn.user_acl
-        }))
-        file_item = self.env.container.file("manifest-abcde")
-        file_item.copy_account(acct, dest_cont, "copied-abcde")
+        if not tf.skip2:
+            # copy to different account
+            acct = self.env.conn2.account_name
+            dest_cont = self.env.account2.container(Utils.create_name())
+            self.assertTrue(dest_cont.create(hdrs={
+                'X-Container-Write': self.env.conn.user_acl
+            }))
+            file_item = self.env.container.file("manifest-abcde")
+            file_item.copy_account(acct, dest_cont, "copied-abcde")
 
-        copied = dest_cont.file("copied-abcde")
-        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual(4 * 1024 * 1024 + 1, len(copied_contents))
+            copied = dest_cont.file("copied-abcde")
+            copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+            self.assertEqual(4 * 1024 * 1024 + 1, len(copied_contents))
 
     def test_slo_copy_the_manifest(self):
         source = self.env.container.file("manifest-abcde")
@@ -797,6 +800,8 @@ class TestSlo(Base):
         self.assertEqual(slo_etag, actual['slo_etag'])
 
     def test_slo_copy_the_manifest_account(self):
+        if tf.skip2:
+            raise SkipTest('Account2 not set')
         acct = self.env.conn.account_name
         # same account
         file_item = self.env.container.file("manifest-abcde")
@@ -1148,6 +1153,8 @@ class TestSlo(Base):
         self.assert_status(200)
 
     def test_slo_referer_on_segment_container(self):
+        if tf.skip3:
+            raise SkipTest('Username3 not set')
         # First the account2 (test3) should fail
         headers = {'X-Auth-Token': self.env.conn3.storage_token,
                    'Referer': 'http://blah.example.com'}

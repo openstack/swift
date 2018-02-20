@@ -410,24 +410,31 @@ class TestContainerTempurlEnv(BaseEnv):
         cls.tempurl_key = Utils.create_name()
         cls.tempurl_key2 = Utils.create_name()
 
-        # creating another account and connection
-        # for ACL tests
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.conn2.authenticate()
-        cls.account2 = Account(
-            cls.conn2, config2.get('account', config2['username']))
-        cls.account2 = cls.conn2.get_account()
+        if not tf.skip2:
+            # creating another account and connection
+            # for ACL tests
+            config2 = deepcopy(tf.config)
+            config2['account'] = tf.config['account2']
+            config2['username'] = tf.config['username2']
+            config2['password'] = tf.config['password2']
+            cls.conn2 = Connection(config2)
+            cls.conn2.authenticate()
+            cls.account2 = Account(
+                cls.conn2, config2.get('account', config2['username']))
+            cls.account2 = cls.conn2.get_account()
 
         cls.container = cls.account.container(Utils.create_name())
-        if not cls.container.create({
-                'x-container-meta-temp-url-key': cls.tempurl_key,
-                'x-container-meta-temp-url-key-2': cls.tempurl_key2,
-                'x-container-read': cls.account2.name}):
-            raise ResponseError(cls.conn.response)
+        if not tf.skip2:
+            if not cls.container.create({
+                    'x-container-meta-temp-url-key': cls.tempurl_key,
+                    'x-container-meta-temp-url-key-2': cls.tempurl_key2,
+                    'x-container-read': cls.account2.name}):
+                raise ResponseError(cls.conn.response)
+        else:
+            if not cls.container.create({
+                    'x-container-meta-temp-url-key': cls.tempurl_key,
+                    'x-container-meta-temp-url-key-2': cls.tempurl_key2}):
+                raise ResponseError(cls.conn.response)
 
         cls.obj = cls.container.file(Utils.create_name())
         cls.obj.write("obj contents")
@@ -583,6 +590,8 @@ class TestContainerTempurl(Base):
 
     @requires_acls
     def test_tempurl_keys_hidden_from_acl_readonly(self):
+        if tf.skip2:
+            raise SkipTest('Account2 not set')
         metadata = self.env.container.info(cfg={
             'use_token': self.env.conn2.storage_token})
 
