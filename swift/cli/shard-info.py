@@ -21,7 +21,6 @@ from swift.common.db_replicator import roundrobin_datadirs
 from swift.common.ring import ring
 from swift.common.utils import Timestamp
 from swift.container.backend import ContainerBroker, DATADIR
-from swift.container.sharder import get_sharding_info
 
 TAB = '    '
 
@@ -94,7 +93,7 @@ def print_shard_range_info(node, shard_ranges, indent_level=0):
 
 def print_sharding_info(node, broker, indent_level=0):
     indent = indent_level * TAB
-    print('%s%s (%s)' % (indent, get_sharding_info(broker), node))
+    print('%s%s (%s)' % (indent, broker.get_sharding_info(), node))
 
 
 def print_container(name, name2nodes2brokers, expect_type='ROOT',

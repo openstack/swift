@@ -397,6 +397,52 @@ class ContainerBroker(DatabaseBroker):
         # TODO: maybe this should be _init_db_file, _db_file may not even exist
         return self._db_file
 
+    # TODO: needs unit test
+    def update_sharding_info(self, info, node=None):
+        """
+        Updates the broker's metadata with the given ``info``. Each key in
+        ``info`` is prefixed with a sharding specific namespace.
+
+        :param info: a dict of info to be persisted
+        :param node: an optional dict describing a node; if given the node's
+            index will be appended to each key in ``info``
+        """
+        prefix = 'X-Container-Sysmeta-Shard-'
+        suffix = '-%d' % node['index'] if node else ''
+        timestamp = Timestamp.now()
+        metadata = dict(
+            ('%s%s%s' % (prefix, key, suffix),
+             (value, timestamp.internal))
+            for key, value in info.items()
+        )
+        self.update_metadata(metadata)
+
+    # TODO: needs unit test
+    def get_sharding_info(self, key=None, node=None, default=None):
+        """
+        Returns sharding specific info from the broker's metadata.
+
+        :param key: if given the value stored under ``key`` in the sharding
+            info will be returned. If ``key`` is not found in the info then the
+            value of ``default`` will be returned or None if ``default`` is not
+            given.
+        :param node: an optional dict describing a node; if given the node's
+            index will be appended to ``key``
+        :param default: a default value to return is ``key`` is given but not
+            found in the sharding info.
+        :return: either a dict of sharding info or the value stored under
+            ``key`` in that dict.
+        """
+        prefix = 'X-Container-Sysmeta-Shard-'
+        metadata = self.metadata
+        info = dict((k[len(prefix):], v[0]) for
+                    k, v in metadata.items() if k.startswith(prefix))
+        if key:
+            if node:
+                key += '-%s' % node['index']
+            return info.get(key, default)
+        return info
+
     @property
     def storage_policy_index(self):
         if not hasattr(self, '_storage_policy_index'):

@@ -22,8 +22,7 @@ import unittest
 
 
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
-from swift.container.sharder import ContainerSharder, RangeAnalyser, \
-    update_sharding_info
+from swift.container.sharder import ContainerSharder, RangeAnalyser
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps
 from test import annotate_failure
@@ -694,7 +693,7 @@ class TestSharder(unittest.TestCase):
         # add final shard range
         shard_ranges[4].update_state(ShardRange.CREATED)
         broker.merge_shard_ranges(shard_ranges[4:])
-        update_sharding_info(broker, {'Scan-Done': 'True'})
+        broker.update_sharding_info({'Scan-Done': 'True'})
 
         with self._mock_sharder() as sharder:
             self.assertTrue(sharder._cleave(broker, node))
@@ -970,7 +969,7 @@ class TestSharder(unittest.TestCase):
             sharder.logger.get_increment_counts().get('misplaced_items_found'))
 
         # pretend we cleaved up to end of second shard range
-        update_sharding_info(broker, {'Last': 'there'}, node)
+        broker.update_sharding_info({'Last': 'there'}, node)
         with self._mock_sharder() as sharder:
             sharder._misplaced_objects(broker, node, own_sr)
         sharder._replicate_object.assert_not_called()
@@ -982,7 +981,7 @@ class TestSharder(unittest.TestCase):
         for obj in objects:
             broker.put_object(*obj)
         # pretend we have not cleaved any ranges
-        update_sharding_info(broker, {'Last': None}, node)
+        broker.update_sharding_info({'Last': None}, node)
         with self._mock_sharder() as sharder:
             sharder._misplaced_objects(broker, node, own_sr)
         sharder._replicate_object.assert_not_called()
@@ -996,7 +995,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
 
         # pretend we cleaved up to end of second shard range
-        update_sharding_info(broker, {'Last': 'there'}, node)
+        broker.update_sharding_info({'Last': 'there'}, node)
         with self._mock_sharder() as sharder:
             sharder._misplaced_objects(broker, node, own_sr)
 
@@ -1016,7 +1015,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
 
         # pretend we cleaved up to end of fourth shard range
-        update_sharding_info(broker, {'Last': 'yonder'}, node)
+        broker.update_sharding_info({'Last': 'yonder'}, node)
         # and some new misplaced updates arrived in the first shard range
         new_objects = [
             ['b', self.ts_encoded(), 10, 'text/plain', 'etag_b', 0],
@@ -1048,7 +1047,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
 
         # pretend we cleaved all ranges - sharded state
-        update_sharding_info(broker, {'Last': ''}, node)
+        broker.update_sharding_info({'Last': ''}, node)
         broker.set_sharded_state(broker.get_sharding_context())
         with self._mock_sharder() as sharder:
             sharder._misplaced_objects(broker, node, own_sr)
@@ -1094,10 +1093,10 @@ class TestSharder(unittest.TestCase):
         broker = self._make_broker(account='.sharded_a', container='.shard_c')
         ts_shard = next(self.ts_iter)
         own_sr = ShardRange('.sharded_a/shard_c', ts_shard, 'here', 'there')
-        update_sharding_info(broker, {'Lower': own_sr.lower,
-                                      'Upper': own_sr.upper,
-                                      'Timestamp': own_sr.timestamp.internal,
-                                      'Root': 'a/c'})
+        broker.update_sharding_info({'Lower': own_sr.lower,
+                                     'Upper': own_sr.upper,
+                                     'Timestamp': own_sr.timestamp.internal,
+                                     'Root': 'a/c'})
         self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
         self.assertEqual(UNSHARDED, broker.get_db_state())
         node = {'id': 2, 'index': 1}
@@ -1248,10 +1247,10 @@ class TestSharder(unittest.TestCase):
         ts_shard = next(self.ts_iter)
         # note that own_sr spans two root shard ranges
         own_sr = ShardRange('.sharded_a/shard_c', ts_shard, 'here', 'where')
-        update_sharding_info(broker, {'Lower': own_sr.lower,
-                                      'Upper': own_sr.upper,
-                                      'Timestamp': own_sr.timestamp.internal,
-                                      'Root': 'a/c'})
+        broker.update_sharding_info({'Lower': own_sr.lower,
+                                     'Upper': own_sr.upper,
+                                     'Timestamp': own_sr.timestamp.internal,
+                                     'Root': 'a/c'})
         self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
         self.assertEqual(UNSHARDED, broker.get_db_state())
         node = {'id': 2, 'index': 1}
@@ -1336,7 +1335,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
 
         # pretend first shard has been cleaved
-        update_sharding_info(broker, {'Last': 'there'}, node)
+        broker.update_sharding_info({'Last': 'there'}, node)
         # and then more misplaced updates arrive
         new_objects = [
             ['a', self.ts_encoded(), 51, 'text/plain', 'etag_a', 0],
@@ -1408,7 +1407,7 @@ class TestSharder(unittest.TestCase):
         broker.get_info()
         self._check_objects(objects, broker.db_file)  # sanity check
         # pretend we cleaved all ranges - sharded state
-        update_sharding_info(broker, {'Last': ''}, node)
+        broker.update_sharding_info({'Last': ''}, node)
         broker.set_sharded_state(broker.get_sharding_context())
 
         with self._mock_sharder() as sharder:

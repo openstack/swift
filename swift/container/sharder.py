@@ -37,52 +37,6 @@ from swift.common.utils import get_logger, config_true_value, \
 from swift.common.storage_policy import POLICIES
 
 
-# TODO: needs unit test
-def update_sharding_info(broker, info, node=None):
-    """
-    Updates the broker's metadata with the given ``info``. Each key in ``info``
-    is prefixed with a sharding specific namespace.
-
-    :param broker: an instance of :class:`swift.common.db.DatabaseBroker`
-    :param info: a dict of info to be persisted
-    :param node: an optional dict describing a node; if given the node's index
-        will be appended to each key in ``info``
-    """
-    prefix = 'X-Container-Sysmeta-Shard-'
-    suffix = '-%d' % node['index'] if node else ''
-    timestamp = Timestamp.now()
-    metadata = dict(
-        ('%s%s%s' % (prefix, key, suffix),
-         (value, timestamp.internal))
-        for key, value in info.items()
-    )
-    broker.update_metadata(metadata)
-
-
-# TODO: needs unit test
-def get_sharding_info(broker, key=None, node=None):
-    """
-    Returns sharding specific info from the broker's metadata.
-
-    :param broker: an instance of :class:`swift.common.db.DatabaseBroker`.
-    :param key: if given the value stored under ``key`` in the sharding info
-        will be returned, or None if ``key`` is not found in the info.
-    :param node: an optional dict describing a node; if given the node's index
-        will be appended to ``key``
-    :return: either a dict of sharding info or the value stored under ``key``
-        in that dict.
-    """
-    prefix = 'X-Container-Sysmeta-Shard-'
-    metadata = broker.metadata
-    info = dict((k[len(prefix):], v[0]) for
-                k, v in metadata.items() if k.startswith(prefix))
-    if key:
-        if node:
-            key += '-%s' % node['index']
-        return info.get(key)
-    return info
-
-
 class ContainerSharder(ContainerReplicator):
     """Shards containers."""
 
@@ -216,9 +170,8 @@ class ContainerSharder(ContainerReplicator):
         # Get the valid info into the broker.container, etc
         shard_broker.get_info()
 
-        if not get_sharding_info(shard_broker, 'Root') or force:
-            update_sharding_info(
-                shard_broker,
+        if not shard_broker.get_sharding_info('Root') or force:
+            shard_broker.update_sharding_info(
                 {'Root': root_path,
                  'Lower': str(shard_range.lower),
                  'Upper': str(shard_range.upper),
@@ -409,7 +362,7 @@ class ContainerSharder(ContainerReplicator):
         if not queries and state == SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
-            last_upper = get_sharding_info(broker, 'Last', node)
+            last_upper = broker.get_sharding_info('Last', node)
             if last_upper:
                 queries.append(make_query('', last_upper))
                 if own_shard_range.upper:
@@ -608,18 +561,21 @@ class ContainerSharder(ContainerReplicator):
         is_leader = node['index'] == 0
         try:
             if state == UNSHARDED:
-                if ((is_leader and broker.get_info()['object_count'] >=
-                        self.shard_container_size) or
-                        broker.get_shard_ranges()):
+                if broker.get_shard_ranges():
                     # container may have been given shard ranges rather
                     # than found them e.g. via replication or a shrink event
+                    broker.set_sharding_state()
+                    state = SHARDING
+                elif (is_leader and broker.get_info()['object_count'] >=
+                      self.shard_container_size):
+                    broker.update_sharding_info({'Scan-Done': 'False'})
                     broker.set_sharding_state()
                     state = SHARDING
 
             if state == SHARDING:
                 num_found = num_created = 0
                 scan_complete = config_true_value(
-                    get_sharding_info(broker, 'Scan-Done'))
+                    broker.get_sharding_info('Scan-Done'))
                 if is_leader and not scan_complete:
                     scan_complete, num_found = self._find_shard_ranges(broker)
 
@@ -670,8 +626,8 @@ class ContainerSharder(ContainerReplicator):
                         # should prevent these updates undoing any newer
                         # updates at the root from the actual shards. *It would
                         # be good to have a test to verify that.*
-                        update_sharding_info(
-                            broker, {'Timestamp': Timestamp.now().internal}
+                        broker.update_sharding_info(
+                            {'Timestamp': Timestamp.now().internal}
                         )
                         own_shard_range = broker.get_own_shard_range()
                         # TODO: maybe differentiate SHARDED vs SHRUNK?
@@ -681,7 +637,7 @@ class ContainerSharder(ContainerReplicator):
                             broker.root_account, broker.root_container,
                             [own_shard_range] + broker.get_shard_ranges())
 
-                    context = get_sharding_info(broker, 'Context', node)
+                    context = broker.get_sharding_info('Context', node)
                     if broker.set_sharded_state(context):
                         state = SHARDED
                         self.logger.increment('sharding_complete')
@@ -904,7 +860,7 @@ class ContainerSharder(ContainerReplicator):
             if last_found:
                 self.logger.info("Already found all shard ranges")
                 # set scan done in case it's missing
-                update_sharding_info(broker, {'Scan-Done': 'True'})
+                broker.update_sharding_info({'Scan-Done': 'True'})
             else:
                 # we didn't find anything
                 self.logger.warning("No shard ranges found, something went "
@@ -924,7 +880,7 @@ class ContainerSharder(ContainerReplicator):
             "Completed scan for shard ranges: %d found", len(found_ranges))
         if last_found:
             # We've found the last shard range, so mark that in metadata
-            update_sharding_info(broker, {'Scan-Done': 'True'})
+            broker.update_sharding_info({'Scan-Done': 'True'})
             self.logger.info("Final shard range reached.")
         return last_found, len(found_ranges)
 
@@ -1075,7 +1031,7 @@ class ContainerSharder(ContainerReplicator):
                               broker.account, broker.container)
             return True
 
-        last_upper = get_sharding_info(broker, 'Last', node) or ''
+        last_upper = broker.get_sharding_info('Last', node) or ''
         ranges_todo = broker.get_shard_ranges(
             marker=last_upper + '\x00',
             state=[ShardRange.CREATED, ShardRange.ACTIVE])
@@ -1090,7 +1046,7 @@ class ContainerSharder(ContainerReplicator):
             # entire namespace was cleaved. In either case, while in state
             # sharding, reset sharding context and restart cleaving.
             context = broker.get_sharding_context()
-            update_sharding_info(broker, {'Context': context}, node)
+            broker.update_sharding_info({'Context': context}, node)
 
         self.logger.debug('%s to cleave %s/%s',
                           'Continuing' if last_upper else 'Starting',
@@ -1168,7 +1124,7 @@ class ContainerSharder(ContainerReplicator):
                 last_upper = ''
             else:
                 last_upper = str(ranges_done[-1].upper)
-            update_sharding_info(broker, {'Last': last_upper}, node)
+            broker.update_sharding_info({'Last': last_upper}, node)
         else:
             self.logger.warning('No progress made in _cleave()!')
 
