@@ -1263,7 +1263,7 @@ class Response(object):
                 # is 0, then that means we got a suffix-byte-range request
                 # (e.g. "bytes=-512"). This is asking for *up to* the last N
                 # bytes of the file. If we had any bytes to send at all,
-                # we'd return a 206 with an apropriate Content-Range header,
+                # we'd return a 206 with an appropriate Content-Range header,
                 # but we can't construct a Content-Range header because we
                 # have no byte indices because we have no bytes.
                 #
