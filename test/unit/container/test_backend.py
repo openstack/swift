@@ -3206,6 +3206,51 @@ class TestContainerBroker(unittest.TestCase):
         assert_shard_ranges(broker, [sr_b_2_2_deleted, sr_c_10_10_deleted])
         # TODO: add unit tests for state and state_timestamp changes
 
+    def _check_object_stats_when_sharded(self, a, c, root_a, root_c, tempdir):
+        # common setup and assertions for root and shard containers
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(
+            db_path, account=a, container=c)
+        broker.initialize(next(ts_iter).internal, 0)
+        broker.update_sharding_info({'Root': '%s/%s' % (root_a, root_c)})
+        broker.merge_objects([{'name': 'obj', 'size': 14, 'etag': 'blah',
+                               'content_type': 'text/plain', 'deleted': 0,
+                               'created_at': Timestamp.now().internal}])
+        self.assertEqual(1, broker.get_info()['object_count'])
+        self.assertEqual(14, broker.get_info()['bytes_used'])
+
+        broker.set_sharding_state()
+        sr_1 = ShardRange.create(
+            root_a, root_c, lower='', upper='m', object_count=99,
+            bytes_used=999, state=ShardRange.ACTIVE)
+        sr_2 = ShardRange.create(
+            root_a, root_c, lower='m', upper='', object_count=21,
+            bytes_used=1000, state=ShardRange.ACTIVE)
+        broker.merge_shard_ranges([sr_1, sr_2])
+        self.assertEqual(1, broker.get_info()['object_count'])
+        self.assertEqual(14, broker.get_info()['bytes_used'])
+        return broker
+
+    @with_tempdir
+    def test_object_stats_root_container(self, tempdir):
+        broker = self._check_object_stats_when_sharded(
+            'a', 'c', 'a', 'c', tempdir)
+        self.assertTrue(broker.is_root_container())  # sanity
+        broker.set_sharded_state(broker.get_sharding_context())
+        self.assertEqual(120, broker.get_info()['object_count'])
+        self.assertEqual(1999, broker.get_info()['bytes_used'])
+
+    @with_tempdir
+    def test_object_stats_shard_container(self, tempdir):
+        broker = self._check_object_stats_when_sharded(
+            '.shard_a', 'c-blah', 'a', 'c', tempdir)
+        self.assertFalse(broker.is_root_container())  # sanity
+        broker.set_sharded_state(broker.get_sharding_context())
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_info()['bytes_used'])
+
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):
 

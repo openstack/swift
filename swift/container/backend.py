@@ -841,7 +841,7 @@ class ContainerBroker(DatabaseBroker):
             other_info = self.get_brokers()[0]._get_info()
             data.update({'object_count': other_info.get('object_count', 0),
                          'bytes_used': other_info.get('bytes_used', 0)})
-        elif state == SHARDED:
+        elif state == SHARDED and self.is_root_container():
             data.update(self.get_shard_usage())
         data['db_state'] = state
         return data
