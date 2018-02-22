@@ -42,8 +42,8 @@ class TestCliInfoBase(unittest.TestCase):
     def setUp(self):
         skip_if_no_xattrs()
         self.orig_hp = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
-        utils.HASH_PATH_PREFIX = 'info'
-        utils.HASH_PATH_SUFFIX = 'info'
+        utils.HASH_PATH_PREFIX = b'info'
+        utils.HASH_PATH_SUFFIX = b'info'
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_cli_info')
         utils.mkdirs(self.testdir)
         rmtree(self.testdir)
@@ -875,7 +875,7 @@ class TestPrintObj(TestCliInfoBase):
         self.assertRaises(InfoSystemExit, print_obj, datafile)
 
         with open(datafile, 'wb') as fp:
-            fp.write('1234')
+            fp.write(b'1234')
 
         out = StringIO()
         with mock.patch('sys.stdout', out):

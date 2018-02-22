@@ -326,7 +326,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             check_metadata()
 
         # simulate a legacy diskfile that might have persisted unicode metadata
-        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
+        with mock.patch.object(diskfile, '_decode_metadata', lambda x: x):
             with open(path, 'wb') as fd:
                 diskfile.write_metadata(fd, metadata)
             # sanity check, while still mocked, that we did persist unicode
@@ -334,8 +334,8 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 actual = diskfile.read_metadata(fd)
                 for k, v in actual.items():
                     if k == u'X-Object-Meta-Strange':
-                        self.assertIsInstance(k, six.text_type)
-                        self.assertIsInstance(v, six.text_type)
+                        self.assertIsInstance(k, str)
+                        self.assertIsInstance(v, str)
                         break
                 else:
                     self.fail('Did not find X-Object-Meta-Strange')
