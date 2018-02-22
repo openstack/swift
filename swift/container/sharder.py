@@ -364,8 +364,7 @@ class ContainerSharder(ContainerReplicator):
             self.cpool.spawn(
                 self._replicate_object, part, dest_broker.db_file, node_id)
 
-        # wait for one of these to error, or all to complete successfully
-        any(self.cpool)
+        self.cpool.waitall(None)
         # TODO: we need to be confident that replication succeeded before
         # removing misplaced items from source - if not then just leave the
         # misplaced items in source, but do not mark them as deleted, and
@@ -461,7 +460,7 @@ class ContainerSharder(ContainerReplicator):
                          len(cleanups))
         for container in cleanups.values():
             self.cpool.spawn(self.delete_db, container)
-        any(self.cpool)
+        self.cpool.waitall(None)
         self.logger.info('Finished misplaced shard replication')
 
     def _post_replicate_hook(self, broker, info, responses):
@@ -647,7 +646,7 @@ class ContainerSharder(ContainerReplicator):
                     self.cpool.spawn(
                         self._replicate_object, part, broker.db_file,
                         node['id'])
-                    any(self.cpool)
+                    self.cpool.waitall(None)
 
                 # always try to cleave any pending shard ranges
                 cleave_complete = self._cleave(broker, node)
@@ -787,8 +786,7 @@ class ContainerSharder(ContainerReplicator):
                 self.cpool.spawn(self.delete_db, container)
 
         # Now we wait for all threads to finish.
-        # TODO: wait, we used any() above... which is right?
-        all(self.cpool)
+        self.cpool.waitall(None)
         self.logger.info('Finished container sharding pass')
 
     def _send_request(self, ip, port, contdevice, partition, op, path,
@@ -837,7 +835,7 @@ class ContainerSharder(ContainerReplicator):
             self.cpool.spawn(
                 self._send_request, node['ip'], node['port'], node['device'],
                 part, 'PUT', path, headers, body, node['index'])
-        all(self.cpool)
+        self.cpool.waitall(None)
 
     @staticmethod
     def check_complete_ranges(ranges):
@@ -1177,10 +1175,8 @@ class ContainerSharder(ContainerReplicator):
         else:
             self.logger.warning('No progress made in _cleave()!')
 
-        # since _replicate_object returns None, any() is effectively a wait for
-        # all results
-        # TODO: why not use waitall? plus a timeout might be a good idea
-        any(self.cpool)
+        # TODO: a finite timeout might be a good idea
+        self.cpool.waitall(None)
         return len(ranges_done) == len(ranges_todo)
 
     def run_forever(self, *args, **kwargs):
