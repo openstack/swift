@@ -324,43 +324,93 @@ class TestObjectExpirer(TestCase):
             'so far' in str(x.logger.get_lines_for_level('info')))
 
     def test_round_robin_order(self):
+        def make_task(delete_at, target):
+            return {
+                'task_container': delete_at,
+                'task_object': delete_at + '-' + target,
+                'delete_timestamp': Timestamp(delete_at),
+                'target_path': target,
+            }
+
         x = expirer.ObjectExpirer(self.conf, logger=self.logger)
         task_con_obj_list = [
             # objects in 0000 timestamp container
-            {'task_container': '0000', 'task_object': '0000-a/c0/o0',
-             'delete_timestamp': Timestamp('0000'), 'target_path': 'a/c0/o0'},
-            {'task_container': '0000', 'task_object': '0000-a/c0/o1',
-             'delete_timestamp': Timestamp('0000'), 'target_path': 'a/c0/o1'},
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
             # objects in 0001 timestamp container
-            {'task_container': '0001', 'task_object': '0001-a/c1/o0',
-             'delete_timestamp': Timestamp('0001'), 'target_path': 'a/c1/o0'},
-            {'task_container': '0001', 'task_object': '0001-a/c1/o1',
-             'delete_timestamp': Timestamp('0001'), 'target_path': 'a/c1/o1'},
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'a/c1/o1'),
             # objects in 0002 timestamp container
-            {'task_container': '0002', 'task_object': '0002-a/c2/o0',
-             'delete_timestamp': Timestamp('0002'), 'target_path': 'a/c2/o0'},
-            {'task_container': '0002', 'task_object': '0002-a/c2/o1',
-             'delete_timestamp': Timestamp('0002'), 'target_path': 'a/c2/o1'},
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
         ]
         result = list(x.round_robin_order(task_con_obj_list))
 
-        # sorted by poping one object to delete for each target_container
+        # sorted by popping one object to delete for each target_container
         expected = [
-            # objects in 0000 timestamp container
-            {'task_container': '0000', 'task_object': '0000-a/c0/o0',
-             'delete_timestamp': Timestamp('0000'), 'target_path': 'a/c0/o0'},
-            {'task_container': '0001', 'task_object': '0001-a/c1/o0',
-             'delete_timestamp': Timestamp('0001'), 'target_path': 'a/c1/o0'},
-            {'task_container': '0002', 'task_object': '0002-a/c2/o0',
-             'delete_timestamp': Timestamp('0002'), 'target_path': 'a/c2/o0'},
-            {'task_container': '0000', 'task_object': '0000-a/c0/o1',
-             'delete_timestamp': Timestamp('0000'), 'target_path': 'a/c0/o1'},
-            {'task_container': '0001', 'task_object': '0001-a/c1/o1',
-             'delete_timestamp': Timestamp('0001'), 'target_path': 'a/c1/o1'},
-            {'task_container': '0002', 'task_object': '0002-a/c2/o1',
-             'delete_timestamp': Timestamp('0002'), 'target_path': 'a/c2/o1'},
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0002', 'a/c2/o1'),
         ]
         self.assertEqual(expected, result)
+
+        # for a given target container, tasks won't necessarily all go in
+        # the same timestamp container
+        task_con_obj_list = [
+            # objects in 0000 timestamp container
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0000', 'a/c2/o2'),
+            make_task('0000', 'a/c2/o3'),
+            # objects in 0001 timestamp container
+            make_task('0001', 'a/c0/o2'),
+            make_task('0001', 'a/c0/o3'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'a/c1/o1'),
+            # objects in 0002 timestamp container
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
+        ]
+        result = list(x.round_robin_order(task_con_obj_list))
+
+        # so we go around popping by *target* container, not *task* container
+        expected = [
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0000', 'a/c2/o2'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0000', 'a/c2/o3'),
+            make_task('0001', 'a/c0/o2'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0001', 'a/c0/o3'),
+            make_task('0002', 'a/c2/o1'),
+        ]
+        self.assertEqual(expected, result)
+
+        # all of the work to be done could be for different target containers
+        task_con_obj_list = [
+            # objects in 0000 timestamp container
+            make_task('0000', 'a/c0/o'),
+            make_task('0000', 'a/c1/o'),
+            make_task('0000', 'a/c2/o'),
+            make_task('0000', 'a/c3/o'),
+            # objects in 0001 timestamp container
+            make_task('0001', 'a/c4/o'),
+            make_task('0001', 'a/c5/o'),
+            make_task('0001', 'a/c6/o'),
+            make_task('0001', 'a/c7/o'),
+            # objects in 0002 timestamp container
+            make_task('0002', 'a/c8/o'),
+            make_task('0002', 'a/c9/o'),
+        ]
+        result = list(x.round_robin_order(task_con_obj_list))
+
+        # in which case, we kind of hammer the task containers
+        self.assertEqual(task_con_obj_list, result)
 
     def test_run_once_nothing_to_do(self):
         x = expirer.ObjectExpirer(self.conf, logger=self.logger)
