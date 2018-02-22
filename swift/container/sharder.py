@@ -1048,10 +1048,12 @@ class ContainerSharder(ContainerReplicator):
             acceptor = acceptor.copy(timestamp=Timestamp.now())
             acceptor.object_count += donor.object_count
             acceptor.bytes_used += donor.bytes_used
-            # Set donor state to shrinking so that next cycle won't use it as
-            # an acceptor
-            donor.update_state(ShardRange.SHRINKING)
-            broker.merge_shard_ranges([donor])
+            if donor.state != ShardRange.SHRINKING:
+                # TODO: unit test
+                # Set donor state to shrinking so that next cycle won't use it
+                # as an acceptor
+                donor.update_state(ShardRange.SHRINKING)
+                broker.merge_shard_ranges([donor])
             # PUT the acceptor shard range to the donor shard container; this
             # forces the donor to asynchronously cleave its entire contents to
             # the acceptor; the donor's version of the acceptor shard range has

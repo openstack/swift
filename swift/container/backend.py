@@ -1406,7 +1406,7 @@ class ContainerBroker(DatabaseBroker):
                 conditions = []
                 if not include_deleted:
                     conditions.append('deleted=0')
-                if isinstance(state, list):
+                if isinstance(state, (list, tuple)):
                     state_list = ','.join([str(st) for st in state])
                     conditions.append('state in (%s)' % state_list)
                 elif state is not None:

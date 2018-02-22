@@ -4280,13 +4280,11 @@ class ShardRange(object):
     ACTIVE = 2
     SHRINKING = 3
     SHARDED = 4
-    SHRUNK = 5
     STATES = {FOUND: 'found',
               CREATED: 'created',
               ACTIVE: 'active',
               SHRINKING: 'shrinking',
-              SHARDED: 'sharded',
-              SHRUNK: 'shrunk'}
+              SHARDED: 'sharded'}
     STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
 
     class OuterBound(object):

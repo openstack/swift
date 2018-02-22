@@ -588,7 +588,7 @@ class ContainerController(BaseStorageServer):
                 for alias, aliased_states in aliases.items():
                     if alias in states:
                         states.remove(alias)
-                        states = states | aliased_states
+                        states |= aliased_states
                 try:
                     states = [ShardRange.STATES_BY_NAME[st] for st in states]
                 except KeyError:
