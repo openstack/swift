@@ -117,16 +117,15 @@ class TestContainerSharding(ReplProbeTest):
             self.fail('Unexpected responses: %s' % unexpected_responses)
         return shard_ranges
 
-    def direct_delete_container(self, account=None, container=None,
-                                expect_failure=False):
+    def direct_container_op(self, func, account=None, container=None,
+                            expect_failure=False):
         account = account if account else self.account
         container = container if container else self.container_name
         cpart, cnodes = self.container_ring.get_nodes(account, container)
         unexpected_responses = []
         for cnode in cnodes:
             try:
-                direct_client.direct_delete_container(
-                    cnode, cpart, account, container)
+                func(cnode, cpart, account, container)
             except DirectClientException as err:
                 if not expect_failure:
                     unexpected_responses.append((cnode, err))
@@ -135,6 +134,16 @@ class TestContainerSharding(ReplProbeTest):
                     unexpected_responses.append((cnode, 'success'))
         if unexpected_responses:
             self.fail('Unexpected responses: %s' % unexpected_responses)
+
+    def direct_delete_container(self, account=None, container=None,
+                                expect_failure=False):
+        self.direct_container_op(direct_client.direct_delete_container,
+                                 account, container, expect_failure)
+
+    def direct_head_container(self, account=None, container=None,
+                              expect_failure=False):
+        self.direct_container_op(direct_client.direct_head_container,
+                                 account, container, expect_failure)
 
     def get_storage_dir(self, part, node, account=None, container=None):
         account = account or self.brain.account
@@ -715,7 +724,7 @@ class TestContainerSharding(ReplProbeTest):
             self.assert_shard_ranges_contiguous(exp_shards, range_data)
             self.assert_total_object_count(exp_obj_count, range_data)
 
-        def check_shard_nodes_data(node_data, expected_state=1,
+        def check_shard_nodes_data(node_data, expected_state=UNSHARDED,
                                    expected_shards=0, exp_obj_count=0):
             # checks that shard range is consistent on all nodes
             root_path = '%s/%s' % (self.account, self.container_name)
@@ -737,10 +746,19 @@ class TestContainerSharding(ReplProbeTest):
                 self.fail('Inconsistent bytes used: %s' % bytes_used)
             return object_counts[0], bytes_used[0]
 
-        def do_shard_then_shrink(obj_names, start_state, repeat):
+        repeat = [0]
+
+        def do_shard_then_shrink():
+            repeat[0] += 1
+            start_state = UNSHARDED
+            obj_names = ['obj-%s-%03d' % (repeat, x)
+                         for x in range(self.max_shard_size)]
             for obj in obj_names:
                 client.put_object(
                     self.url, self.token, self.container_name, obj)
+            # these two object names will fall at start of first shard range...
+            alpha = 'alpha-%s' % repeat[0]
+            beta = 'beta-%s' % repeat[0]
 
             # Enable sharding
             client.post_container(
@@ -771,7 +789,7 @@ class TestContainerSharding(ReplProbeTest):
                 root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
 
             # only one that ran sharder is in sharded state
-            exp_hdrs['X-Backend-Sharding-State'] = '3'
+            exp_hdrs['X-Backend-Sharding-State'] = str(SHARDED)
             node_id = self.brain.node_numbers[0] - 1
             check_node_data(
                 root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
@@ -808,7 +826,7 @@ class TestContainerSharding(ReplProbeTest):
             self.updaters.once()
             shard_cont_count, shard_obj_count = int_client.get_account_info(
                 orig_shard_ranges[0].account, [204])
-            self.assertEqual(2 * repeat, shard_cont_count)
+            self.assertEqual(2 * repeat[0], shard_cont_count)
             self.assertEqual(len(obj_names), shard_obj_count)
 
             # delete objects from first shard range
@@ -823,7 +841,7 @@ class TestContainerSharding(ReplProbeTest):
 
             # put another obj
             client.put_object(
-                self.url, self.token, self.container_name, 'alpha')
+                self.url, self.token, self.container_name, alpha)
 
             # proxy container info cache has not been refreshed with
             # container's sharding state so all object updates will have been
@@ -834,8 +852,23 @@ class TestContainerSharding(ReplProbeTest):
             # listing has new object
             second_shard_objects = [obj_name for obj_name in obj_names
                                     if obj_name > orig_shard_ranges[1].lower]
-            self.assert_container_listing(['alpha'] + second_shard_objects)
-            # but root object count is not updated...
+            self.assert_container_listing([alpha] + second_shard_objects)
+
+            # while container servers are down, but proxy has container info in
+            # cache from recent listing, put another object; this update will
+            # lurk in async pending until the updaters run again
+            # TODO: because all the container servers are down the object
+            # update will default to being targeted at the root container; can
+            # we provoke an object update that does get targeted to the shard,
+            # but fails to update shard, so that the async pending will first
+            # be directed to the shard when the updaters run?
+            self.brain.servers.stop()
+            time.sleep(2)
+            client.put_object(
+                self.url, self.token, self.container_name, beta)
+            self.brain.servers.start()
+
+            # root object count is not updated...
             headers = client.head_container(
                 self.url, self.token, self.container_name)
             self.assertEqual(headers['x-container-object-count'],
@@ -872,7 +905,7 @@ class TestContainerSharding(ReplProbeTest):
                     # NB now only *one* shard range in root
                     check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
 
-            self.assert_container_listing(['alpha'] + second_shard_objects)
+            self.assert_container_listing([alpha] + second_shard_objects)
 
             # the acceptor shard is intact..
             shard_nodes_data = self.direct_get_container_shard_ranges(
@@ -884,24 +917,31 @@ class TestContainerSharding(ReplProbeTest):
             # the donor shard is also still intact
             # TODO: once we have figured out when these redundant donors are
             # deleted, test for deletion/clean up
-            self.direct_get_container_shard_ranges(
+            shard_nodes_data = self.direct_get_container_shard_ranges(
                 orig_shard_ranges[0].account, orig_shard_ranges[0].container)
+            # the donor's shard range will have the acceptor's projected stats
+            obj_count, bytes_used = check_shard_nodes_data(
+                shard_nodes_data, expected_state=SHARDED, expected_shards=1,
+                exp_obj_count=len(second_shard_objects) + 1)
+            # but the donor is empty and so reports zero stats
+            self.assertEqual(0, obj_count)
+            self.assertEqual(0, bytes_used)
 
             # delete all the second shard's object apart from 'alpha'
             for obj in second_shard_objects:
                 client.delete_object(
                     self.url, self.token, self.container_name, obj)
 
-            self.assert_container_listing(['alpha'])
+            self.assert_container_listing([alpha])
 
             # runs sharders so second range shrinks away, requires up to 3
             # cycles
             self.sharders.once()  # shard updates root stats
-            self.assert_container_listing(['alpha'])
+            self.assert_container_listing([alpha])
             self.sharders.once()  # root finds shrinkable shard
-            self.assert_container_listing(['alpha'])
+            self.assert_container_listing([alpha])
             self.sharders.once()  # shards shrink themselves
-            self.assert_container_listing(['alpha'])
+            self.assert_container_listing([alpha])
 
             # the second shard range has sharded and is empty
             shard_nodes_data = self.direct_get_container_shard_ranges(
@@ -910,14 +950,28 @@ class TestContainerSharding(ReplProbeTest):
                 shard_nodes_data, expected_state=3, expected_shards=1,
                 exp_obj_count=1)
 
-        obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
-        do_shard_then_shrink(obj_names, UNSHARDED, 1)
+            # delete the alpha object
+            client.delete_object(
+                self.url, self.token, self.container_name, alpha)
+            # should now be able to delete the *apparently* empty container
+            client.delete_container(self.url, self.token, self.container_name)
+            with self.assertRaises(ClientException) as cm:
+                client.get_container(self.url, self.token, self.container_name)
+            self.assertEqual(404, cm.exception.http_status)
+            self.direct_head_container(expect_failure=True)
 
-        # now put some more objects to grow the container again
-        client.delete_object(
-            self.url, self.token, self.container_name, 'alpha')
-        new_obj_names = ['new_obj%03d' % x for x in range(self.max_shard_size)]
-        do_shard_then_shrink(new_obj_names, UNSHARDED, 2)
+            # now run updaters to deal with the async pending for the beta
+            # object, targeted at the now retired first shard...
+            self.updaters.once()
+            # and the container is revived!
+            self.assert_container_listing([beta])
+            # finally, clear out the container
+            client.delete_object(
+                self.url, self.token, self.container_name, beta)
+
+        do_shard_then_shrink()
+        # repeat from starting point of a collapsed container
+        do_shard_then_shrink()
 
     def _setup_replication_scenario(self, num_shards):
         # Get cluster to state where 2 replicas are sharding or sharded but 3rd

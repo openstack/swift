@@ -4320,7 +4320,7 @@ class ShardRange(object):
 
     def __init__(self, name, created_at, lower=MIN, upper=MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
-                 deleted=0, state=None, state_timestamp=None, **kwargs):
+                 deleted=0, state=None, state_timestamp=None):
         """
         A ShardRange encapsulates state related to a container shard.
 
@@ -4613,7 +4613,7 @@ class ShardRange(object):
         yield 'state', self.state
         yield 'state_timestamp', self.state_timestamp.internal
 
-    def copy(self, timestamp=None):
+    def copy(self, timestamp=None, **kwargs):
         """
         Creates a copy of the ShardRange.
 
@@ -4622,7 +4622,7 @@ class ShardRange(object):
             returned ShardRange will have the original timestamps.
         :return: an instance of :class:`~swift.common.utils.ShardRange`
         """
-        new = ShardRange.from_dict(dict(self))
+        new = ShardRange.from_dict(dict(self, **kwargs))
         if timestamp:
             new.timestamp = timestamp
             new.meta_timestamp = new.state_timestamp = None
@@ -4960,6 +4960,7 @@ def get_redirect_data(response):
 
 
 # TODO: unit test
+
 def parse_db_filename(filename):
     """
     Splits a db filename into three parts: the hash, the epoch, and the

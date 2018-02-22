@@ -7226,6 +7226,9 @@ class TestShardRange(unittest.TestCase):
         new = sr.copy()
         self.assertEqual(dict(sr), dict(new))
 
+        new = sr.copy(deleted=1)
+        self.assertEqual(dict(sr, deleted=1), dict(new))
+
         new_timestamp = next(self.ts_iter)
         new = sr.copy(timestamp=new_timestamp)
         self.assertEqual(dict(sr, created_at=new_timestamp.internal,
@@ -7233,6 +7236,12 @@ class TestShardRange(unittest.TestCase):
                               state_timestamp=new_timestamp.internal),
                          dict(new))
 
+        new = sr.copy(timestamp=new_timestamp, object_count=99)
+        self.assertEqual(dict(sr, created_at=new_timestamp.internal,
+                              meta_timestamp=new_timestamp.internal,
+                              state_timestamp=new_timestamp.internal,
+                              object_count=99),
+                         dict(new))
 
 if __name__ == '__main__':
     unittest.main()

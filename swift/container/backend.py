@@ -337,9 +337,12 @@ class ContainerBroker(DatabaseBroker):
             return NOTFOUND
         if len(self.db_files) > 1:
             return SHARDING
-        hash_, epoch, ext = parse_db_filename(self.db_files[0])
-        sharding_epoch = self.get_sharding_info('Epoch', default='unknown')
-        if epoch != sharding_epoch:
+        hash_, filename_epoch, ext = parse_db_filename(self.db_files[0])
+        if filename_epoch is None:
+            # never been sharded
+            return UNSHARDED
+        sharding_info_epoch = self.get_sharding_info('Epoch')
+        if sharding_info_epoch and sharding_info_epoch != filename_epoch:
             return UNSHARDED
         if not self.get_shard_ranges():
             return COLLAPSED
@@ -1731,6 +1734,7 @@ class ContainerBroker(DatabaseBroker):
         # be used
         self.conn = None
         self.reload_db_files()
+
         return True
 
     def get_brokers(self):
@@ -1773,6 +1777,7 @@ class ContainerBroker(DatabaseBroker):
         return objs
 
     def get_own_shard_range(self):
+        # TODO: can we use self.get_sharding_info here?
         metadata = self.metadata  # Single DB hit
         created_at, ts = metadata.get(
             'X-Container-Sysmeta-Shard-Timestamp', (None, None))
@@ -1793,6 +1798,13 @@ class ContainerBroker(DatabaseBroker):
 
         return shard_range
 
+    def update_own_shard_range(self, shard_range):
+        self.update_sharding_info({
+            'Timestamp': shard_range.timestamp.internal,
+            'Lower': str(shard_range.lower),
+            'Upper': str(shard_range.upper),
+        })
+
     def _get_root_info(self):
         """
         Attempt to get the root shard container name and account for the
@@ -1809,19 +1821,12 @@ class ContainerBroker(DatabaseBroker):
         """
         path, ts = self.metadata.get('X-Container-Sysmeta-Shard-Root',
                                      (None, None))
-        if path is None:
+        if not path:
             if self.container is None:
                 # Ensure account/container get populated
                 self.get_info()
             self._root_account = self.account
             self._root_container = self.container
-            return
-
-        # this is a horrible hack to workaround X-Container-Sysmeta-Shard-Root
-        # being set to '' when a shard container is deleted. We still want
-        # is_root_container to be False.
-        if not path:
-            self._root_account = self._root_container = ''
             return
 
         if path.count('/') != 1 or path.strip('/').count('/') == 0:

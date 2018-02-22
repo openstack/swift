@@ -2681,29 +2681,46 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual('root_c', broker.root_container)
         self.assertEqual('root_a/root_c', broker.root_path)
         self.assertTrue(broker.is_root_container())
+        self.assertEqual('root_a', broker.account)  # sanity check
+        self.assertEqual('root_c', broker.container)  # sanity check
 
-        # we don't expect root containers to ever have this sysmeta set but if
-        # it is the broker should still behave like a root container
+        # we don't expect root containers to have this sysmeta set but if it is
+        # the broker should still behave like a root container
         metadata = {
             'X-Container-Sysmeta-Shard-Root':
                 ('root_a/root_c', next(ts_iter).internal)}
+        broker = ContainerBroker(
+            db_path, account='root_a', container='root_c')
         broker.update_metadata(metadata)
-        # make sure we can cope with unitialized account and container
         broker.account = broker.container = None
         self.assertEqual('root_a', broker.root_account)
         self.assertEqual('root_c', broker.root_container)
         self.assertEqual('root_a/root_c', broker.root_path)
         self.assertTrue(broker.is_root_container())
 
+        # if root is marked deleted, it still considers itself to be a root
+        broker.delete_db(next(ts_iter).internal)
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertTrue(broker.is_root_container())
+        # check the values are not just being cached
+        broker = ContainerBroker(db_path)
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertTrue(broker.is_root_container())
+
+        # check a shard container
         db_path = os.path.join(tempdir, 'shard_container.db')
         broker = ContainerBroker(
             db_path, account='.sharded_root_a', container='c_shard')
         broker.initialize(next(ts_iter).internal, 1)
+        # now the metadata is significant...
         metadata = {
             'X-Container-Sysmeta-Shard-Root':
                 ('root_a/root_c', next(ts_iter).internal)}
         broker.update_metadata(metadata)
-        # make sure we can cope with unitialized account and container
         broker.account = broker.container = None
 
         self.assertEqual('root_a', broker.root_account)
@@ -2767,6 +2784,35 @@ class TestContainerBroker(unittest.TestCase):
         actual = broker.get_own_shard_range()
         self.assertIsInstance(actual, ShardRange)
         self.assertTrue(actual.entire_namespace())
+
+    @with_tempdir
+    def test_update_own_shard_range(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(
+            db_path, account='.sharded_a', container='shard_c')
+        broker.initialize(next(ts_iter).internal, 0)
+
+        sr = ShardRange.create(
+            'a', 'c', lower=ShardRange.MIN, upper=ShardRange.MAX)
+        broker.update_own_shard_range(sr)
+        expected = {
+            'X-Container-Sysmeta-Shard-Timestamp': sr.timestamp.internal,
+            'X-Container-Sysmeta-Shard-Lower': '',
+            'X-Container-Sysmeta-Shard-Upper': '',
+        }
+        actual = dict((k, v[0]) for k, v in broker.metadata.items())
+        self.assertEqual(expected, actual)
+
+        sr = ShardRange.create('a', 'c', lower='l', upper='u')
+        broker.update_own_shard_range(sr)
+        expected = {
+            'X-Container-Sysmeta-Shard-Timestamp': sr.timestamp.internal,
+            'X-Container-Sysmeta-Shard-Lower': 'l',
+            'X-Container-Sysmeta-Shard-Upper': 'u',
+        }
+        actual = dict((k, v[0]) for k, v in broker.metadata.items())
+        self.assertEqual(expected, actual)
 
     @with_tempdir
     def _check_find_shard_ranges(self, c_lower, c_upper, tempdir):
@@ -2930,7 +2976,7 @@ class TestContainerBroker(unittest.TestCase):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
             tempdir, 'part', 'suffix', 'hash', 'container.db')
-        ts_epoch = Timestamp.now()
+        ts_epoch = next(ts_iter)
         new_db_path = os.path.join(tempdir, 'part', 'suffix', 'hash',
                                    'container_%s.db' % ts_epoch.normal)
         broker = ContainerBroker(
@@ -3014,6 +3060,7 @@ class TestContainerBroker(unittest.TestCase):
         # now set sharding state and make sure everything moves.
         broker.set_sharding_state(epoch=ts_epoch.normal)
         epoch = broker.metadata['X-Container-Sysmeta-Shard-Epoch']
+        self.assertEqual(ts_epoch.normal, epoch[0])
         meta['X-Container-Sysmeta-Shard-Epoch'] = epoch
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
@@ -3066,6 +3113,50 @@ class TestContainerBroker(unittest.TestCase):
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
         check_sharded_state(broker)
+
+        # delete the container - sharding sysmeta gets erased
+        broker.delete_db(next(ts_iter).internal)
+        self.assertTrue(broker.is_deleted())
+        self.assertEqual(
+            '', broker.metadata['X-Container-Sysmeta-Shard-Epoch'][0])
+        check_sharded_state(broker)
+
+        def do_revive_shard_delete(shard_ranges):
+            # delete all shard ranges
+            deleted_shard_ranges = [sr.copy(timestamp=next(ts_iter), deleted=1)
+                                    for sr in shard_ranges]
+            broker.merge_shard_ranges(deleted_shard_ranges)
+            self.assertEqual(COLLAPSED, broker.get_db_state())
+
+            # add new shard ranges and go to sharding state - need to force
+            # broker time to be after the delete time in order to write new
+            # sysmeta
+            shard_ranges = [sr.copy(timestamp=next(ts_iter))
+                            for sr in shard_ranges]
+            broker.merge_shard_ranges(shard_ranges)
+            with mock.patch('swift.common.db.time.time',
+                            lambda: float(next(ts_iter))):
+                new_epoch = next(ts_iter)
+                self.assertTrue(broker.set_sharding_state(epoch=new_epoch))
+            self.assertEqual(SHARDING, broker.get_db_state())
+            self.assertEqual(
+                new_epoch.normal,
+                broker.metadata['X-Container-Sysmeta-Shard-Epoch'][0])
+
+            # go to sharded
+            self.assertTrue(
+                broker.set_sharded_state(broker.get_sharding_context()))
+            self.assertEqual(SHARDED, broker.get_db_state())
+
+            # delete again
+            broker.delete_db(next(ts_iter).internal)
+            self.assertTrue(broker.is_deleted())
+            self.assertEqual(SHARDED, broker.get_db_state())
+            self.assertEqual(
+                '', broker.metadata['X-Container-Sysmeta-Shard-Epoch'][0])
+
+        do_revive_shard_delete(shard_ranges)
+        do_revive_shard_delete(shard_ranges)
 
     @with_tempdir
     def test_get_sharding_context(self, tempdir):

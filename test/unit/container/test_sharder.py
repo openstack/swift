@@ -22,7 +22,8 @@ import unittest
 
 
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
-from swift.container.sharder import ContainerSharder, RangeAnalyser
+from swift.container.sharder import ContainerSharder, RangeAnalyser, \
+    sharding_enabled
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps
 from test import annotate_failure
@@ -1542,3 +1543,22 @@ class TestSharder(unittest.TestCase):
         expected = ('b', ts_expected, 20, 'text/newer', 'etag_newer', 0)
         self._check_objects([expected], expected_shard_dbs[0])
         self._check_objects([], broker.db_file)
+
+    def test_sharding_enabled(self):
+        logger = debug_logger()
+        db_file = os.path.join(self.tempdir, 'test.db')
+        broker = ContainerBroker(
+            db_file, account='a', container='c', logger=logger)
+        broker.initialize()
+        self.assertFalse(sharding_enabled(broker))
+        broker.update_metadata(
+            {'X-Container-Sysmeta-Sharding':
+             ('yes', Timestamp.now().internal)})
+        self.assertTrue(sharding_enabled(broker))
+        # deleting broker clears sharding sysmeta
+        broker.delete_db(Timestamp.now().internal)
+        self.assertFalse(sharding_enabled(broker))
+        # but if broker has a shard range then sharding is enabled
+        broker.update_shard_range(
+            ShardRange('acc/a_shard', Timestamp.now(), 'l', 'u'))
+        self.assertTrue(sharding_enabled(broker))

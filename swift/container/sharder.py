@@ -37,6 +37,21 @@ from swift.common.utils import get_logger, config_true_value, \
 from swift.common.storage_policy import POLICIES
 
 
+def sharding_enabled(broker):
+    # NB all shards will by default have been created with
+    # X-Container-Sysmeta-Sharding set and will therefore be candidates for
+    # sharding, along with explicitly configured root containers.
+    sharding = broker.metadata.get('X-Container-Sysmeta-Sharding')
+    if sharding and config_true_value(sharding[0]):
+        return True
+    # if broker has been marked deleted it will have lost sysmeta, but we still
+    # need to process the broker (for example, to shrink any shard ranges) so
+    # fallback to checking if it has any shard ranges
+    if broker.get_shard_ranges():
+        return True
+    return False
+
+
 class ContainerSharder(ContainerReplicator):
     """Shards containers."""
 
@@ -313,6 +328,8 @@ class ContainerSharder(ContainerReplicator):
             return False
 
         for dest_shard_range, (part, dest_broker, node_id) in brokers.items():
+            self.logger.debug('moving misplaced objects found in range %s' %
+                              dest_shard_range)
             self.cpool.spawn(
                 self._replicate_object, part, dest_broker.db_file, node_id)
 
@@ -572,7 +589,7 @@ class ContainerSharder(ContainerReplicator):
                 elif (is_leader and broker.get_info()['object_count'] >=
                       self.shard_container_size):
                     broker.update_sharding_info({'Scan-Done': 'False'})
-                    broker.set_sharding_state(epoch=Timestamp.now().normal)
+                    broker.set_sharding_state(epoch=Timestamp.now())
                     state = SHARDING
 
             if state == SHARDING:
@@ -639,13 +656,13 @@ class ContainerSharder(ContainerReplicator):
                         # should prevent these updates undoing any newer
                         # updates at the root from the actual shards. *It would
                         # be good to have a test to verify that.*
-                        broker.update_sharding_info(
-                            {'Timestamp': Timestamp.now().internal}
-                        )
                         own_shard_range = broker.get_own_shard_range()
-                        # TODO: maybe differentiate SHARDED vs SHRUNK?
-                        own_shard_range.state = ShardRange.SHARDED
                         own_shard_range.deleted = 1
+                        if own_shard_range.state != ShardRange.SHARDED:
+                            own_shard_range = own_shard_range.copy(
+                                timestamp=Timestamp.now(),
+                                state=ShardRange.SHARDED)
+                            broker.update_own_shard_range(own_shard_range)
                         self._update_shard_ranges(
                             broker.root_account, broker.root_container,
                             [own_shard_range] + shard_ranges)
@@ -733,12 +750,7 @@ class ContainerSharder(ContainerReplicator):
                 continue
 
             broker = ContainerBroker(path, logger=self.logger)
-            sharding = broker.metadata.get('X-Container-Sysmeta-Sharding')
-            if sharding and config_true_value(sharding[0]):
-                # NB all shards will by default have been created with
-                # X-Container-Sysmeta-Sharding set and will therefore be
-                # candidates for sharding, along with explicitly configured
-                # root containers.
+            if sharding_enabled(broker):
                 self._process_broker(broker, node, part)
 
         # wipe out the cache do disable bypass in delete_db
@@ -1002,8 +1014,15 @@ class ContainerSharder(ContainerReplicator):
         # TODO: think long and hard about the correct order for these remaining
         # operations and what happens when one fails...
         for acceptor, donor in merge_pairs.items():
+            # TODO: unit test to verify idempotent nature of this procedure
             self.logger.debug('shrinking shard range %s into %s in %s' %
                               (donor, acceptor, broker.db_file))
+            if donor.state != ShardRange.SHRINKING:
+                # Set donor state to shrinking so that next cycle won't use it
+                # as an acceptor; state_timestamp defines new epoch for donor
+                # and new timestamp for acceptor.
+                donor.update_state(ShardRange.SHRINKING)
+                broker.merge_shard_ranges([donor])
             if acceptor != dummy_shard_range:
                 # Update the acceptor shard container with its expanded shard
                 # range but leave its timestamp unchanged; this means that the
@@ -1027,21 +1046,15 @@ class ContainerSharder(ContainerReplicator):
                 # timestamp, to the donor. The donor will pass this newer
                 # timestamp to the acceptor when cleaving, so that subsequent
                 # updates from the acceptor will update the root to have the
-                # expended acceptor namespace.
-                acceptor = acceptor.copy(timestamp=Timestamp.now())
+                # expanded acceptor namespace.
+                acceptor = acceptor.copy(timestamp=donor.state_timestamp)
             acceptor.object_count += donor.object_count
             acceptor.bytes_used += donor.bytes_used
-            if donor.state != ShardRange.SHRINKING:
-                # TODO: unit test
-                # Set donor state to shrinking so that next cycle won't use it
-                # as an acceptor
-                donor.update_state(ShardRange.SHRINKING)
-                broker.merge_shard_ranges([donor])
             # Set Scan-Done so that the donor will not scan itself and will
             # transition to SHARDED state once it has cleaved to the acceptor;
             headers = {
                 'X-Container-Sysmeta-Shard-Scan-Done': True,
-                'X-Container-Sysmeta-Shard-Epoch': Timestamp.now().normal
+                'X-Container-Sysmeta-Shard-Epoch': donor.state_timestamp.normal
             }
             # PUT the acceptor shard range to the donor shard container; this
             # forces the donor to asynchronously cleave its entire contents to
@@ -1113,14 +1126,19 @@ class ContainerSharder(ContainerReplicator):
                             source_broker, shard_range, policy_index):
                         new_broker.merge_items(objects)
 
-                # TODO: when shrinking, include deleted own (donor) shard range
-                # in the replicated db so that when acceptor next updates root
-                # it will atomically update its namespace and delete the donor
-                # Do not do the same when sharding a shard because we're not
-                # ready to handover donor namespace until all shards are
-                # cleaved.
-            if (shard_range.state != ShardRange.ACTIVE and
-                    own_shard_range.includes(shard_range)):
+            if not own_shard_range.includes(shard_range):
+                # When shrinking, include deleted own (donor) shard range in
+                # the replicated db so that when acceptor next updates root it
+                # will atomically update its namespace and delete the donor.
+                # Don't do this when sharding a shard because the donor
+                # namespace should not be deleted until all shards are cleaved.
+                own_shard_range.deleted = 1
+                if own_shard_range.state != ShardRange.SHARDED:
+                    own_shard_range = own_shard_range.copy(
+                        timestamp=Timestamp.now(), state=ShardRange.SHARDED)
+                    broker.update_own_shard_range(own_shard_range)
+                new_broker.merge_shard_ranges([own_shard_range])
+            elif shard_range.state != ShardRange.ACTIVE:
                 # TODO: unit test scenario when this condition is not met
                 # The shard range object stats may have changed since the shard
                 # range was found, so update with stats of objects actually
