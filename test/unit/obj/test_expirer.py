@@ -16,7 +16,6 @@
 from time import time
 from unittest import main, TestCase
 from test.unit import FakeRing, mocked_http_conn, debug_logger
-from copy import deepcopy
 from tempfile import mkdtemp
 from shutil import rmtree
 from collections import defaultdict
@@ -232,12 +231,15 @@ class TestObjectExpirer(TestCase):
         fake_swift = FakeInternalClient(aco_dict)
         x = ObjectExpirer(self.conf, swift=fake_swift)
 
-        deleted_objects = {}
+        deleted_objects = defaultdict(set)
         for i in range(3):
             x.process = i
+            # reset progress so we know we don't double-up work among processes
+            x.deleted_objects = defaultdict(set)
             x.run_once()
-            self.assertNotEqual(deleted_objects, x.deleted_objects)
-            deleted_objects = deepcopy(x.deleted_objects)
+            for task_container, deleted in x.deleted_objects.items():
+                self.assertFalse(deleted_objects[task_container] & deleted)
+                deleted_objects[task_container] |= deleted
         self.assertEqual(aco_dict['.expiring_objects']['3'].pop(),
                          deleted_objects['3'].pop().decode('utf8'))
         self.assertEqual(aco_dict['.expiring_objects'], deleted_objects)
