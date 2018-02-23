@@ -2800,16 +2800,20 @@ class TestContainerBroker(unittest.TestCase):
             'X-Container-Sysmeta-Shard-Timestamp': sr.timestamp.internal,
             'X-Container-Sysmeta-Shard-Lower': '',
             'X-Container-Sysmeta-Shard-Upper': '',
+            'X-Container-Sysmeta-Shard-Meta-Timestamp': sr.timestamp.internal,
         }
         actual = dict((k, v[0]) for k, v in broker.metadata.items())
         self.assertEqual(expected, actual)
 
-        sr = ShardRange.create('a', 'c', lower='l', upper='u')
+        sr = ShardRange.create('a', 'c', lower='l', upper='u',
+                               meta_timestamp=next(ts_iter).internal)
         broker.update_own_shard_range(sr)
         expected = {
             'X-Container-Sysmeta-Shard-Timestamp': sr.timestamp.internal,
             'X-Container-Sysmeta-Shard-Lower': 'l',
             'X-Container-Sysmeta-Shard-Upper': 'u',
+            'X-Container-Sysmeta-Shard-Meta-Timestamp':
+                sr.meta_timestamp.internal,
         }
         actual = dict((k, v[0]) for k, v in broker.metadata.items())
         self.assertEqual(expected, actual)

@@ -995,7 +995,8 @@ class TestContainerSharding(ReplProbeTest):
                 self.url, self.token, self.container_name, beta)
 
         do_shard_then_shrink()
-        # repeat from starting point of a collapsed container
+        # repeat from starting point of a collapsed and previously deleted
+        # container
         do_shard_then_shrink()
 
     def _setup_replication_scenario(self, num_shards):

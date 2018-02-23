@@ -486,6 +486,9 @@ class Replicator(Daemon):
             # successfully sync'd all its rows so we could force diffs to zero
             # and as a consequence allow the subsequent broker to choose any
             # sync method.
+            # TODO: if a sub-broker has sync'd with peers then its *outgoing*
+            # sync point table should probably be merged into subsequent
+            # broker, just like when we first created the shard broker.
         sub_success, _ = self._repl_db_to_node(
             node, broker, partition, info, different_region=different_region,
             diffs=diffs)

@@ -1777,32 +1777,27 @@ class ContainerBroker(DatabaseBroker):
         return objs
 
     def get_own_shard_range(self):
-        # TODO: can we use self.get_sharding_info here?
-        metadata = self.metadata  # Single DB hit
-        created_at, ts = metadata.get(
-            'X-Container-Sysmeta-Shard-Timestamp', (None, None))
-        lower, ts = metadata.get(
-            'X-Container-Sysmeta-Shard-Lower', ('', None))
-        upper, ts = metadata.get(
-            'X-Container-Sysmeta-Shard-Upper', ('', None))
-        if created_at in (None, ''):
-            created_at = Timestamp.now()
+        metadata = self.get_sharding_info()
+        timestamp = metadata.get('Timestamp')
+        lower = metadata.get('Lower', ShardRange.MIN)
+        upper = metadata.get('Upper', ShardRange.MAX)
+        if timestamp in (None, ''):
+            timestamp = Timestamp.now()
             lower = ShardRange.MIN
             upper = ShardRange.MAX
 
         info = self.get_info()  # Also ensures self.container is not None
-        shard_range = ShardRange(
-            '%s/%s' % (self.account, self.container), created_at, lower, upper,
+        return ShardRange(
+            '%s/%s' % (self.account, self.container), timestamp, lower, upper,
             info.get('object_count', 0), info.get('bytes_used', 0),
             Timestamp.now())
-
-        return shard_range
 
     def update_own_shard_range(self, shard_range):
         self.update_sharding_info({
             'Timestamp': shard_range.timestamp.internal,
             'Lower': str(shard_range.lower),
             'Upper': str(shard_range.upper),
+            'Meta-Timestamp': shard_range.meta_timestamp.internal,
         })
 
     def _get_root_info(self):

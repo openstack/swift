@@ -186,12 +186,8 @@ class ContainerSharder(ContainerReplicator):
         shard_broker.get_info()
 
         if not shard_broker.get_sharding_info('Root') or force:
-            shard_broker.update_sharding_info(
-                {'Root': root_path,
-                 'Lower': str(shard_range.lower),
-                 'Upper': str(shard_range.upper),
-                 'Timestamp': shard_range.timestamp.internal,
-                 'Meta-Timestamp': shard_range.meta_timestamp.internal})
+            shard_broker.update_own_shard_range(shard_range)
+            shard_broker.update_sharding_info({'Root': root_path})
             shard_broker.update_metadata({
                 'X-Container-Sysmeta-Sharding':
                     ('True', Timestamp.now().internal)})
@@ -640,10 +636,11 @@ class ContainerSharder(ContainerReplicator):
                         # never try to update the root with its own shard
                         # range, it's probably only here as a dummy to prompt
                         # final shard to shrink to root isn't meant to exist
-                        # for real. TODO: perhaps we can parameterize
-                        # get_shard_ranges to filter out root? or maybe root
-                        # will start to maintain a persisted shard range for
-                        # itself and it's ok to send the update
+                        # for real.
+                        # TODO: perhaps we can parameterize get_shard_ranges to
+                        # filter out root? or maybe root will start to maintain
+                        # a persisted shard range for itself and it's ok to
+                        # send the update
                         shard_ranges = [sr for sr in shard_ranges
                                         if sr.name != broker.root_path]
                         # TODO: the new shard ranges may have existed for some
@@ -683,6 +680,8 @@ class ContainerSharder(ContainerReplicator):
                 # update the root container with this shard's usage stats; do
                 # this even when sharded in case previous attempts failed
                 own_shard_range = broker.get_own_shard_range()
+                # persist the reported meta-timestamp
+                broker.update_own_shard_range(own_shard_range)
                 if state == SHARDED:
                     own_shard_range.state = ShardRange.SHARDED
                     own_shard_range.deleted = 1
