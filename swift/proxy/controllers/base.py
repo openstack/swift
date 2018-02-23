@@ -2023,7 +2023,8 @@ class Controller(object):
         if headers:
             subreq.headers.update(headers)
         subreq.params = params
-        self.app.logger.debug('Get listing from %s' % subreq.path_qs)
+        self.app.logger.debug(
+            'Get listing from %s %s' % (subreq.path_qs, headers))
         response = self.app.handle_request(subreq)
 
         if not is_success(response.status_int):

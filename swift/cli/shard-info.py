@@ -87,6 +87,7 @@ def print_shard_range(node, sr, indent_level):
 
 
 def print_shard_range_info(node, shard_ranges, indent_level=0):
+    shard_ranges.sort(key=lambda x: x.deleted)
     for sr in shard_ranges:
         print_shard_range(node, sr, indent_level)
 

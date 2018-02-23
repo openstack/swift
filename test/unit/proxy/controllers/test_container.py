@@ -23,7 +23,7 @@ from six.moves import urllib
 
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.swob import Request
-from swift.common.utils import ShardRange
+from swift.common.utils import ShardRange, Timestamp
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info, Controller, \
     get_container_info
@@ -533,13 +533,42 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'shard'},
              dict(state='listing')),  # 404
             (shard_ranges[0].name, {},
-             dict(marker='', end_marker='ham\x00', scope='root',
-                  limit=str(limit))),  # 200
+             dict(marker='', end_marker='ham\x00', limit=str(limit))),  # 200
             (shard_ranges[1].name, {},
-             dict(marker='ham', end_marker='pie\x00', scope='root',
+             dict(marker='ham', end_marker='pie\x00',
                   limit=str(limit - len(sr_objs[0])))),  # 200
             (shard_ranges[2].name, {},
-             dict(marker='pie', end_marker='', scope='root',
+             dict(marker='pie', end_marker='',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests)
+        # root object count will overridden by actual length of listing
+        check_response(resp, expected_obj_count=58)
+
+        # GET all objects - sharding, final shard range points back to root
+        root_range = ShardRange('a/c', Timestamp.now(), 'pie', '')
+        mock_responses = [
+            # status, body, headers
+            (200, {}, root_resp_hdrs),
+            (200, sr_dicts[:2] + [dict(root_range)], root_resp_hdrs),
+            (200, sr_objs[0], shard_resp_hdrs[0]),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2], root_resp_hdrs)
+        ]
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {}, {}),  # 200
+            ('a/c', {'X-Backend-Record-Type': 'shard'},
+             dict(state='listing')),
+            (shard_ranges[0].name, {},
+             dict(marker='', end_marker='ham\x00', limit=str(limit))),  # 200
+            (shard_ranges[1].name, {},
+             dict(marker='ham', end_marker='pie\x00',
+                  limit=str(limit - len(sr_objs[0])))),  # 200
+            (root_range.name, {'X-Backend-Record-Type': 'object'},
+             dict(marker='pie', end_marker='',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
         ]
 
@@ -563,13 +592,13 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'shard'},
              dict(state='listing', reverse='true')),  # 404
             (shard_ranges[2].name, {},
-             dict(marker='', end_marker='pie', scope='root', reverse='true',
+             dict(marker='', end_marker='pie', reverse='true',
                   limit=str(limit))),  # 200
             (shard_ranges[1].name, {},
-             dict(marker='pie\x00', end_marker='ham', scope='root',
+             dict(marker='pie\x00', end_marker='ham',
                   reverse='true', limit=str(limit - len(sr_objs[2])))),  # 200
             (shard_ranges[0].name, {},
-             dict(marker='ham\x00', end_marker='', scope='root',
+             dict(marker='ham\x00', end_marker='',
                   reverse='true',
                   limit=str(limit - len(sr_objs[2] + sr_objs[1])))),  # 200
         ]
@@ -600,13 +629,13 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'shard'},
              dict(limit=str(limit), state='listing')),  # 200
             (shard_ranges[0].name, {},  # 200
-             dict(marker='', end_marker='ham\x00', scope='root',
+             dict(marker='', end_marker='ham\x00',
                   limit=str(limit))),
             (shard_ranges[1].name, {},  # 200
-             dict(marker='ham', end_marker='pie\x00', scope='root',
+             dict(marker='ham', end_marker='pie\x00',
                   limit=str(limit - len(sr_objs[0])))),
             (shard_ranges[2].name, {},   # 200
-             dict(marker='pie', end_marker='', scope='root',
+             dict(marker='pie', end_marker='',
                   limit=str(limit - len(sr_objs[0] + sr_objs[1]))))
         ]
         resp = self._check_GET_shard_listing(
@@ -633,13 +662,13 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'shard'},
              dict(marker=marker, state='listing')),  # 200
             (shard_ranges[1].name, {},  # 404
-             dict(marker=marker, end_marker='pie\x00', scope='root',
+             dict(marker=marker, end_marker='pie\x00',
                   limit=str(limit))),
             (shard_ranges[1].name, {},  # 200
-             dict(marker=marker, end_marker='pie\x00', scope='root',
+             dict(marker=marker, end_marker='pie\x00',
                   limit=str(limit))),
             (shard_ranges[2].name, {},  # 200
-             dict(marker='pie', end_marker='', scope='root',
+             dict(marker='pie', end_marker='',
                   limit=str(limit - len(sr_objs[1][2:])))),
         ]
         resp = self._check_GET_shard_listing(
@@ -665,13 +694,13 @@ class TestContainerController(TestRingBase):
             ('a/c', {'X-Backend-Record-Type': 'shard'},
              dict(end_marker=end_marker, state='listing')),  # 200
             (shard_ranges[0].name, {},  # 200
-             dict(marker='', end_marker='ham\x00', scope='root',
+             dict(marker='', end_marker='ham\x00',
                   limit=str(limit))),
             (shard_ranges[1].name, {},  # 404
-             dict(marker='ham', end_marker=end_marker, scope='root',
+             dict(marker='ham', end_marker=end_marker,
                   limit=str(limit - len(sr_objs[0])))),
             (shard_ranges[1].name, {},  # 200
-             dict(marker='ham', end_marker=end_marker, scope='root',
+             dict(marker='ham', end_marker=end_marker,
                   limit=str(limit - len(sr_objs[0])))),
         ]
         resp = self._check_GET_shard_listing(
@@ -703,7 +732,7 @@ class TestContainerController(TestRingBase):
              dict(limit=str(limit), state='listing',
                   marker=marker, end_marker=end_marker)),  # 200
             (shard_ranges[1].name, {},  # 200
-             dict(marker=marker, end_marker=end_marker, scope='root',
+             dict(marker=marker, end_marker=end_marker,
                   limit=str(limit))),
         ]
         resp = self._check_GET_shard_listing(
@@ -735,7 +764,7 @@ class TestContainerController(TestRingBase):
              dict(limit=str(limit), state='listing', marker=end_marker,
                   end_marker=marker, reverse='true')),  # 200
             (shard_ranges[1].name, {},  # 200
-             dict(marker=end_marker, end_marker=marker, scope='root',
+             dict(marker=end_marker, end_marker=marker,
                   limit=str(limit), reverse='true')),
         ]
         self._check_GET_shard_listing(

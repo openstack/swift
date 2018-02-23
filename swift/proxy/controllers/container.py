@@ -115,9 +115,9 @@ class ContainerController(Controller):
             int(resp.headers.get('X-Backend-Sharding-State',
                                  UNSHARDED))
         record_type = req.headers.get('X-Backend-Record-Type', '').lower()
-        if (req.method == "GET" and record_type != 'shard' and
-                params.get('scope') != 'root' and
-                sharding_state in (SHARDING, SHARDED)):
+        self.app.logger.debug('GET for container in state %s' % sharding_state)
+        if (req.method == "GET" and sharding_state in (SHARDING, SHARDED) and
+                record_type not in ('object', 'shard')):
             resp = self._get_from_shards(req, resp)
 
         # Cache this. We just made a request to a storage node and got
@@ -163,7 +163,6 @@ class ContainerController(Controller):
         reverse = config_true_value(params.get('reverse'))
         marker = params.get('marker')
         end_marker = params.get('end_marker')
-        params['scope'] = 'root'  # avoid fetching shards again
 
         limit = req_limit
         for shard_range in ranges:
@@ -188,8 +187,14 @@ class ContainerController(Controller):
                 if params['end_marker'] and not reverse:
                     params['end_marker'] += '\x00'
 
+            if (shard_range.account == self.account_name and
+                    shard_range.container == self.container_name):
+                headers = {'X-Backend-Record-Type': 'object'}
+            else:
+                headers = None
             objs, shard_resp = self._get_container_listing(
-                req, shard_range.account, shard_range.container, params=params)
+                req, shard_range.account, shard_range.container,
+                headers=headers, params=params)
 
             if objs is None:
                 # TODO: unit tests failed shard GET scenario
