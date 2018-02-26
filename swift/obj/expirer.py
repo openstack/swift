@@ -147,8 +147,8 @@ class ObjectExpirer(Daemon):
                 cache_key = '%s/%s' % (target_account, target_container)
             # sanity
             except ValueError:
-                self.logger.exception('Unexcepted error handling task %r' %
-                                      delete_task)
+                self.logger.error('Unexcepted error handling task %r' %
+                                  delete_task)
                 continue
 
             obj_cache[cache_key].append(delete_task)
