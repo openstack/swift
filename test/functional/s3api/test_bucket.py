@@ -33,9 +33,9 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestSwift3Bucket(S3ApiBase):
+class TestS3ApiBucket(S3ApiBase):
     def setUp(self):
-        super(TestSwift3Bucket, self).setUp()
+        super(TestS3ApiBucket, self).setUp()
 
     def _gen_location_xml(self, location):
         elem = Element('CreateBucketConfiguration')
@@ -469,7 +469,7 @@ class TestSwift3Bucket(S3ApiBase):
         self.assertEqual(get_error_code(body), 'MethodNotAllowed')
 
 
-class TestSwift3BucketSigV4(TestSwift3Bucket):
+class TestS3ApiBucketSigV4(TestS3ApiBucket):
     @classmethod
     def setUpClass(cls):
         os.environ['S3_USE_SIGV4'] = "True"
@@ -479,7 +479,7 @@ class TestSwift3BucketSigV4(TestSwift3Bucket):
         del os.environ['S3_USE_SIGV4']
 
     def setUp(self):
-        super(TestSwift3Bucket, self).setUp()
+        super(TestS3ApiBucket, self).setUp()
 
 
 if __name__ == '__main__':

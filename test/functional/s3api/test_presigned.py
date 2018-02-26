@@ -34,7 +34,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestSwift3PresignedUrls(S3ApiBase):
+class TestS3ApiPresignedUrls(S3ApiBase):
     def test_bucket(self):
         bucket = 'test-bucket'
         req_objects = ('object', 'object2')
@@ -223,7 +223,7 @@ class TestSwift3PresignedUrls(S3ApiBase):
         self.assertEqual(status, 204)
 
 
-class TestSwift3PresignedUrlsSigV4(TestSwift3PresignedUrls):
+class TestS3ApiPresignedUrlsSigV4(TestS3ApiPresignedUrls):
     @classmethod
     def setUpClass(cls):
         os.environ['S3_USE_SIGV4'] = "True"
@@ -233,4 +233,4 @@ class TestSwift3PresignedUrlsSigV4(TestSwift3PresignedUrls):
         del os.environ['S3_USE_SIGV4']
 
     def setUp(self):
-        super(TestSwift3PresignedUrlsSigV4, self).setUp()
+        super(TestS3ApiPresignedUrlsSigV4, self).setUp()

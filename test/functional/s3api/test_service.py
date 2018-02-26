@@ -33,9 +33,9 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestSwift3Service(S3ApiBase):
+class TestS3ApiService(S3ApiBase):
     def setUp(self):
-        super(TestSwift3Service, self).setUp()
+        super(TestS3ApiService, self).setUp()
 
     def test_service(self):
         # GET Service(without bucket)
@@ -84,7 +84,7 @@ class TestSwift3Service(S3ApiBase):
                       'or x-amz-date header', body)
 
 
-class TestSwift3ServiceSigV4(TestSwift3Service):
+class TestS3ApiServiceSigV4(TestS3ApiService):
     @classmethod
     def setUpClass(cls):
         os.environ['S3_USE_SIGV4'] = "True"
@@ -94,7 +94,7 @@ class TestSwift3ServiceSigV4(TestSwift3Service):
         del os.environ['S3_USE_SIGV4']
 
     def setUp(self):
-        super(TestSwift3ServiceSigV4, self).setUp()
+        super(TestS3ApiServiceSigV4, self).setUp()
 
 if __name__ == '__main__':
     unittest2.main()

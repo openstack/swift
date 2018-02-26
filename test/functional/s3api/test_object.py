@@ -46,9 +46,9 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestSwift3Object(S3ApiBase):
+class TestS3ApiObject(S3ApiBase):
     def setUp(self):
-        super(TestSwift3Object, self).setUp()
+        super(TestS3ApiObject, self).setUp()
         self.bucket = 'bucket'
         self.conn.make_request('PUT', self.bucket)
 
@@ -827,7 +827,7 @@ class TestSwift3Object(S3ApiBase):
         self.assertCommonResponseHeaders(headers)
 
 
-class TestSwift3ObjectSigV4(TestSwift3Object):
+class TestS3ApiObjectSigV4(TestS3ApiObject):
     @classmethod
     def setUpClass(cls):
         os.environ['S3_USE_SIGV4'] = "True"
@@ -837,35 +837,35 @@ class TestSwift3ObjectSigV4(TestSwift3Object):
         del os.environ['S3_USE_SIGV4']
 
     def setUp(self):
-        super(TestSwift3ObjectSigV4, self).setUp()
+        super(TestS3ApiObjectSigV4, self).setUp()
 
     @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
                       'This stuff got the signing issue of boto<=2.x')
     def test_put_object_metadata(self):
-        super(TestSwift3ObjectSigV4, self).test_put_object_metadata()
+        super(TestS3ApiObjectSigV4, self).test_put_object_metadata()
 
     @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
                       'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_modified_since(self):
-        super(TestSwift3ObjectSigV4, self).\
+        super(TestS3ApiObjectSigV4, self).\
             test_put_object_copy_source_if_modified_since()
 
     @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
                       'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_unmodified_since(self):
-        super(TestSwift3ObjectSigV4, self).\
+        super(TestS3ApiObjectSigV4, self).\
             test_put_object_copy_source_if_unmodified_since()
 
     @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
                       'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_match(self):
-        super(TestSwift3ObjectSigV4,
+        super(TestS3ApiObjectSigV4,
               self).test_put_object_copy_source_if_match()
 
     @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
                       'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_none_match(self):
-        super(TestSwift3ObjectSigV4,
+        super(TestS3ApiObjectSigV4,
               self).test_put_object_copy_source_if_none_match()
 
 

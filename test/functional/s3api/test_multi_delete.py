@@ -34,9 +34,9 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestSwift3MultiDelete(S3ApiBase):
+class TestS3ApiMultiDelete(S3ApiBase):
     def setUp(self):
-        super(TestSwift3MultiDelete, self).setUp()
+        super(TestS3ApiMultiDelete, self).setUp()
 
     def _prepare_test_delete_multi_objects(self, bucket, objects):
         self.conn.make_request('PUT', bucket)
@@ -231,7 +231,7 @@ class TestSwift3MultiDelete(S3ApiBase):
         self.assertEqual(len(resp_objects), 1)
 
 
-class TestSwift3MultiDeleteSigV4(TestSwift3MultiDelete):
+class TestS3ApiMultiDeleteSigV4(TestS3ApiMultiDelete):
     @classmethod
     def setUpClass(cls):
         os.environ['S3_USE_SIGV4'] = "True"
@@ -241,7 +241,7 @@ class TestSwift3MultiDeleteSigV4(TestSwift3MultiDelete):
         del os.environ['S3_USE_SIGV4']
 
     def setUp(self):
-        super(TestSwift3MultiDeleteSigV4, self).setUp()
+        super(TestS3ApiMultiDeleteSigV4, self).setUp()
 
 
 if __name__ == '__main__':
