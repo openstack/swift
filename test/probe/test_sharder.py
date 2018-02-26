@@ -37,6 +37,16 @@ MIN_SHARD_CONTAINER_SIZE = 4
 MAX_SHARD_CONTAINER_SIZE = 100
 
 
+class ShardCollector(object):
+    def __init__(self):
+        self.ranges = {}
+
+    def __call__(self, cnode, cpart, account, container):
+        self.ranges[cnode['id']] = direct_client.direct_get_container(
+            cnode, cpart, account, container,
+            headers={'X-Backend-Record-Type': 'shard'})
+
+
 class TestContainerSharding(ReplProbeTest):
     def setUp(self):
         client.logger.setLevel(client.logging.WARNING)
@@ -95,28 +105,6 @@ class TestContainerSharding(ReplProbeTest):
             [200])
         return json.loads(resp.body)
 
-    def direct_get_container_shard_ranges(self, account=None, container=None,
-                                          expect_failure=False):
-        account = account if account else self.account
-        container = container if container else self.container_name
-        cpart, cnodes = self.container_ring.get_nodes(account, container)
-        shard_ranges = {}
-        unexpected_responses = []
-        for cnode in cnodes:
-            try:
-                shard_ranges[cnode['id']] = direct_client.direct_get_container(
-                    cnode, cpart, account, container,
-                    headers={'X-Backend-Record-Type': 'shard'})
-            except DirectClientException as err:
-                if not expect_failure:
-                    unexpected_responses.append((cnode, err))
-            else:
-                if expect_failure:
-                    unexpected_responses.append((cnode, 'success'))
-        if unexpected_responses:
-            self.fail('Unexpected responses: %s' % unexpected_responses)
-        return shard_ranges
-
     def direct_container_op(self, func, account=None, container=None,
                             expect_failure=False):
         account = account if account else self.account
@@ -134,6 +122,13 @@ class TestContainerSharding(ReplProbeTest):
                     unexpected_responses.append((cnode, 'success'))
         if unexpected_responses:
             self.fail('Unexpected responses: %s' % unexpected_responses)
+
+    def direct_get_container_shard_ranges(self, account=None, container=None,
+                                          expect_failure=False):
+        collector = ShardCollector()
+        self.direct_container_op(
+            collector, account, container, expect_failure)
+        return collector.ranges
 
     def direct_delete_container(self, account=None, container=None,
                                 expect_failure=False):
