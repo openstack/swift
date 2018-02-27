@@ -58,6 +58,14 @@ Or via the swift client::
 
   swift post <container> -H 'X-Container-Sharding: on'
 
+.. note::
+
+  Turning on sharding requires reseller_admin permissions.  On a
+  swift-all-in-one default configuration you can use:
+
+  swift post test --os-storage-url http://saio:8080/v1/AUTH_test \
+      -U admin:admin -K admin -H 'X-Container-Sharding: on'
+
 This process cannot be undone. Once turned on, the container will be sharded as
 required by the sharding daemon. The user will not notice anything else, they
 will only ever see the one container and as they interact with it, it will
