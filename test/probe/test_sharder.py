@@ -96,6 +96,10 @@ class TestContainerSharding(ReplProbeTest):
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
 
+    def put_objects(self, obj_names):
+        for obj in obj_names:
+            client.put_object(self.url, self.token, self.container_name, obj)
+
     def get_container_shard_ranges(self, account=None, container=None):
         account = account if account else self.account
         container = container if container else self.container_name
@@ -268,8 +272,7 @@ class TestContainerSharding(ReplProbeTest):
         # verify parameterised listing of a container during sharding
         all_obj_names = ['obj%03d' % x for x in range(4 * self.max_shard_size)]
         obj_names = all_obj_names[::2]
-        for obj in obj_names:
-            client.put_object(self.url, self.token, self.container_name, obj)
+        self.put_objects(obj_names)
         # choose some names approx in middle of each expected shard range
         markers = [
             obj_names[i] for i in range(self.max_shard_size / 4,
@@ -340,8 +343,7 @@ class TestContainerSharding(ReplProbeTest):
 
         # put some new objects spread through entire namespace
         new_obj_names = all_obj_names[1::4]
-        for obj in new_obj_names:
-            client.put_object(self.url, self.token, self.container_name, obj)
+        self.put_objects(new_obj_names)
 
         # new objects that fell into the first two cleaved shard ranges are
         # reported in listing, new objects in the yet-to-be-cleaved shard
@@ -366,9 +368,7 @@ class TestContainerSharding(ReplProbeTest):
 
     def _test_sharded_listing(self, run_replicators=False):
         obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
-
-        for obj in obj_names:
-            client.put_object(self.url, self.token, self.container_name, obj)
+        self.put_objects(obj_names)
 
         # Verify that we start out with normal DBs, no shards
         found = self.categorize_container_dir_content()
@@ -468,9 +468,7 @@ class TestContainerSharding(ReplProbeTest):
         # 3 shard ranges' worth
         more_obj_names = [
             'beta%03d' % x for x in range(self.max_shard_size)]
-
-        for obj in more_obj_names:
-            client.put_object(self.url, self.token, self.container_name, obj)
+        self.put_objects(more_obj_names)
 
         # The listing includes new object...
         headers, listing = self.assert_container_listing(
@@ -495,7 +493,7 @@ class TestContainerSharding(ReplProbeTest):
             self.sharders.once(number=node_number)
         self.assert_container_listing(more_obj_names + obj_names)
         # add another object that lands in the first of the new sub-shards
-        client.put_object(self.url, self.token, self.container_name, 'alpha')
+        self.put_objects(['alpha'])
         # TODO: assert existence of 2 new shards with alpha object in first
         # ... and this should appear in container listing
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
@@ -579,21 +577,18 @@ class TestContainerSharding(ReplProbeTest):
         obj_names = ['obj%03d' % x for x in range(self.max_shard_size * 2)]
 
         # There are some updates *everyone* gets
-        for obj in obj_names[::5]:
-            client.put_object(self.url, self.token, self.container_name, obj)
+        self.put_objects(obj_names[::5])
         # But roll some outages so each container only get ~2/5 more object
         # records i.e. total of 3/5 updates per container; and async pendings
         # pile up
         for i, n in enumerate(self.brain.node_numbers, start=1):
             self.brain.servers.stop(number=n)
-            for o in obj_names[i::5]:
-                client.put_object(self.url, self.token, self.container_name, o)
+            self.put_objects(obj_names[i::5])
             self.brain.servers.start(number=n)
 
         # But there are also 1/5 updates *no one* gets
         self.brain.servers.stop()
-        for obj in obj_names[4::5]:
-            client.put_object(self.url, self.token, self.container_name, obj)
+        self.put_objects(obj_names[4::5])
         self.brain.servers.start()
 
         # Shard it
@@ -762,9 +757,7 @@ class TestContainerSharding(ReplProbeTest):
             start_state = UNSHARDED
             obj_names = ['obj-%s-%03d' % (repeat, x)
                          for x in range(self.max_shard_size)]
-            for obj in obj_names:
-                client.put_object(
-                    self.url, self.token, self.container_name, obj)
+            self.put_objects(obj_names)
             # these two object names will fall at start of first shard range...
             alpha = 'alpha-%s' % repeat[0]
             beta = 'beta-%s' % repeat[0]
@@ -849,8 +842,7 @@ class TestContainerSharding(ReplProbeTest):
                         self.url, self.token, self.container_name, obj)
 
             # put another obj
-            client.put_object(
-                self.url, self.token, self.container_name, alpha)
+            self.put_objects([alpha])
 
             # proxy container info cache has not been refreshed with
             # container's sharding state so all object updates will have been
@@ -873,8 +865,7 @@ class TestContainerSharding(ReplProbeTest):
             # be directed to the shard when the updaters run?
             self.brain.servers.stop()
             time.sleep(2)
-            client.put_object(
-                self.url, self.token, self.container_name, beta)
+            self.put_objects([beta])
             self.brain.servers.start()
 
             # root object count is not updated...
@@ -988,8 +979,7 @@ class TestContainerSharding(ReplProbeTest):
         # put objects while all servers are up
         obj_names = ['obj%03d' % x
                      for x in range(num_shards * self.max_shard_size / 2)]
-        for obj in obj_names:
-            client.put_object(self.url, self.token, self.container_name, obj)
+        self.put_objects(obj_names)
 
         client.post_container(self.url, self.admin_token, self.container_name,
                               headers={'X-Container-Sharding': 'on'})
@@ -1004,7 +994,7 @@ class TestContainerSharding(ReplProbeTest):
             self.brain.servers.stop(number=number)
 
         # ...then put one more object in first shard range namespace
-        client.put_object(self.url, self.token, self.container_name, 'alpha')
+        self.put_objects(['alpha'])
 
         # start leader and first other server, stop third server
         for number in node_numbers[:2]:
