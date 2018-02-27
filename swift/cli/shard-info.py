@@ -34,8 +34,8 @@ def container_type(broker):
     return 'ROOT' if broker.is_root_container() else 'SHARD'
 
 
-def collect_brokers(conf_file, names2nodes):
-    conf = utils.readconf(conf_file, 'container-replicator')
+def collect_brokers(conf_path, names2nodes):
+    conf = utils.readconf(conf_path, 'container-replicator')
     root = conf.get('devices', '/srv/node')
     swift_dir = conf.get('swift_dir', '/etc/swift')
     c_ring = ring.Ring(swift_dir, ring_name='container')
@@ -134,10 +134,10 @@ def print_container(name, name2nodes2brokers, expect_type='ROOT',
     print('\n')
 
 
-def run(conf_files):
+def run(conf_paths):
     name2nodes2brokers = defaultdict(dict)
-    for conf_file in conf_files:
-        collect_brokers(conf_file, name2nodes2brokers)
+    for conf_path in conf_paths:
+        collect_brokers(conf_path, name2nodes2brokers)
 
     for name, node2broker in name2nodes2brokers.items():
         expect_root = False
@@ -149,6 +149,6 @@ def run(conf_files):
 
 if __name__ == '__main__':
     conf_dir = '/etc/swift/container-server'
-    conf_files = [os.path.join(conf_dir, f) for f in os.listdir(conf_dir)
-                  if f.endswith('.conf')]
-    run(conf_files)
+    conf_paths = [os.path.join(conf_dir, p) for p in os.listdir(conf_dir)
+                  if p.endswith(('conf', 'conf.d'))]
+    run(conf_paths)
