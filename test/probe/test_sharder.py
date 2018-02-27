@@ -107,7 +107,7 @@ class TestContainerSharding(ReplProbeTest):
         resp = self.internal_client.make_request(
             'GET', path + '?format=json', {'X-Backend-Record-Type': 'shard'},
             [200])
-        return json.loads(resp.body)
+        return [ShardRange.from_dict(sr) for sr in json.loads(resp.body)]
 
     def direct_container_op(self, func, account=None, container=None,
                             expect_failure=False):
@@ -334,7 +334,6 @@ class TestContainerSharding(ReplProbeTest):
 
         # sanity check shard range states
         shard_ranges = self.get_container_shard_ranges()
-        shard_ranges = [ShardRange.from_dict(d) for d in shard_ranges]
         for shard_range in shard_ranges[:2]:
             self.assertEqual(ShardRange.ACTIVE, shard_range.state)
         for shard_range in shard_ranges[2:]:
@@ -360,7 +359,6 @@ class TestContainerSharding(ReplProbeTest):
         # run all the sharders again and the last two shard ranges get cleaved
         self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
         shard_ranges = self.get_container_shard_ranges()
-        shard_ranges = [ShardRange.from_dict(d) for d in shard_ranges]
         for shard_range in shard_ranges:
             self.assertEqual(ShardRange.ACTIVE, shard_range.state)
 
@@ -556,20 +554,22 @@ class TestContainerSharding(ReplProbeTest):
             client.delete_object(
                 self.url, self.token, self.container_name, obj['name'])
 
-        # root container will not yet be aware of the deletions
+        # the objects won't be listed anymore
+        self.assert_container_listing([])
+        # but root container stats will not yet be aware of the deletions
         with self.assertRaises(ClientException) as cm:
             client.delete_container(self.url, self.token, self.container_name)
         self.assertEqual(409, cm.exception.http_status)
-        # but once the sharders run and shards update the root...
-        self.sharders.once()
-        # TODO: this extra cycle of the sharders is currently needed because
-        # sometimes (one of) the emptied shards are shrunk during previous
-        # cycle and the shrink process in root copies the old non-zero object
-        # count from the acceptor shard range to a newly time-stamped version
-        # of the acceptor shard range in competition with the old timestamp
-        # acceptor being updated to object count of zero. Hopefully we'll fix
-        # that race and not need this next cycle...
-        self.sharders.once()
+
+        # Run sharder so that shard containers update the root. Do not run
+        # sharder on root container because that triggers shrinks which can
+        # cause root object count to temporarily be non-zero and prevent the
+        # final delete.
+        partitions = ','.join(
+            str(self.get_part_and_node_numbers(sr.account, sr.container)[0])
+            for sr in self.get_container_shard_ranges())
+        self.sharders.once(additional_args='--partitions=%s' % partitions)
+        # then root is empty and can be deleted
         self.assert_container_listing([])
         client.delete_container(self.url, self.token, self.container_name)
 
