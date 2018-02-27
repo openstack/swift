@@ -161,6 +161,11 @@ class ReplHttp(object):
         self.set_status = set_status
     replicated = False
     host = 'localhost'
+    node = {
+        'ip': '127.0.0.1',
+        'port': '6000',
+        'device': 'sdb',
+    }
 
     def replicate(self, *args):
         self.replicated = True
