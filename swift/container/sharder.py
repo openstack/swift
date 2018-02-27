@@ -999,8 +999,9 @@ class ContainerSharder(ContainerReplicator):
                 # all the small ranges will be retired (except possibly the
                 # uppermost).
                 continue
-            if acceptor.state == ShardRange.SHRINKING:
-                # this range was selected as a donor on a previous cycle
+            if acceptor.state != ShardRange.ACTIVE:
+                # don't shrink into a range that is not yet ACTIVE or was
+                # selected as a donor on a previous cycle
                 continue
             if donor.state not in (ShardRange.ACTIVE, ShardRange.SHRINKING):
                 # found? created? sharded? don't touch it
