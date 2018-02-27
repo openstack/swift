@@ -164,11 +164,13 @@ class TestContainerSharding(ReplProbeTest):
         self.assertTrue(get_db_files(db_file))  # sanity check
         return ContainerBroker(db_file)
 
-    def categorize_container_dir_content(self, container=None):
+    def categorize_container_dir_content(self, account=None, container=None):
+        account = account or self.brain.account
         container = container or self.container_name
-        part, nodes = self.brain.ring.get_nodes(self.brain.account, container)
+        part, nodes = self.brain.ring.get_nodes(account, container)
         storage_dirs = [
-            self.get_storage_dir(part, node, container=container)[0]
+            self.get_storage_dir(part, node, account=account,
+                                 container=container)[0]
             for node in nodes]
         result = {
             'shard_dbs': [],
@@ -497,11 +499,22 @@ class TestContainerSharding(ReplProbeTest):
             self.sharders.once(
                 number=node_number,
                 additional_args='--partitions=%s' % shard_part)
+
+        found = self.categorize_container_dir_content(
+            shard.account, shard.container)
+        self.assertLengthEqual(found['shard_dbs'], 3)
+        self.assertLengthEqual(found['normal_dbs'], 3)
+        for db_file in found['shard_dbs']:
+            broker = ContainerBroker(db_file)
+            self.assertIs(False, broker.is_root_container())
+            self.assertEqual('sharding', broker.get_db_state_text())
+            # TODO: assert existence of 3 new shards: 2 ACTIVE, 1 FOUND
+
         self.assert_container_listing(more_obj_names + obj_names)
         # add another object that lands in the first of the new sub-shards
         self.put_objects(['alpha'])
-        # TODO: assert existence of 2 new shards with alpha object in first
-        # ... and this should appear in container listing
+
+        # TODO: assert that alpha is in the first new shard
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
         # Run sharders again so things settle.
         self.sharders.once(additional_args='--partitions=%s' % shard_part)
