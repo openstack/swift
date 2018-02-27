@@ -1002,6 +1002,9 @@ class ContainerSharder(ContainerReplicator):
             if acceptor.state == ShardRange.SHRINKING:
                 # this range was selected as a donor on a previous cycle
                 continue
+            if donor.state not in (ShardRange.ACTIVE, ShardRange.SHRINKING):
+                # found? created? sharded? don't touch it
+                continue
 
             proposed_object_count = donor.object_count + acceptor.object_count
             if (donor.state == ShardRange.SHRINKING or
