@@ -25,6 +25,7 @@ from collections import Counter, defaultdict
 from math import ceil
 from tempfile import mkdtemp
 from shutil import rmtree
+import sys
 import random
 import uuid
 import itertools
@@ -446,110 +447,6 @@ class TestRingBuilder(unittest.TestCase):
         # maybe not *perfect*, but should be close
         self.assertLessEqual(balance, 1)
 
-    def test_validate_replicate_by_tier(self):
-        rb = ring.RingBuilder(5, 3, 0)
-        # replicas 3.0 and three devices with two weight 10 and one weight 5
-        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 10,
-                    'ip': '127.0.0.1', 'port': 6000, 'device': 'object1'})
-        rb.add_dev({'id': 1, 'region': 1, 'zone': 1, 'weight': 10,
-                    'ip': '127.0.0.1', 'port': 6000, 'device': 'object2'})
-        rb.add_dev({'id': 2, 'region': 2, 'zone': 2, 'weight': 5,
-                    'ip': '127.0.0.1', 'port': 6000, 'device': 'object3'})
-        rb.rebalance()
-
-        # validate weighted_replicas
-        weighted_replicas = \
-            defaultdict(float,
-                        {(0, 0): 1.0, (1,): 1.0,
-                         (2,): 0.9999999999999999,
-                         (0, 0, '127.0.0.1', 0): 1.0,
-                         (1, 1, '127.0.0.1', 1): 1.0,
-                         (0, 0, '127.0.0.1'): 1.0,
-                         (1, 1, '127.0.0.1'): 1.0, (): 3.0,
-                         (2, 2, '127.0.0.1'): 0.9999999999999999,
-                         (2, 2): 0.9999999999999999,
-                         (2, 2, '127.0.0.1', 2): 0.9999999999999999,
-                         (1, 1): 1.0, (0,): 1.0
-                         })
-        try:
-            rb._validate_replicas_at_tier(weighted_replicas)
-        except Exception as e:
-            self.fail('weighted_replicas is invalid for %s' % e)
-
-        # validate wanted_replicas
-        wanted_replicas = \
-            defaultdict(float,
-                        {(0, 0): 1.0, (1,): 1.0, (2,): 1.0,
-                         (0, 0, '127.0.0.1', 0): 1.0,
-                         (1, 1, '127.0.0.1', 1): 1.0,
-                         (0, 0, '127.0.0.1'): 1.0,
-                         (1, 1, '127.0.0.1'): 1.0, (): 3.0,
-                         (2, 2, '127.0.0.1'): 1.0,
-                         (2, 2): 1.0, (2, 2, '127.0.0.1', 2): 1.0,
-                         (1, 1): 1.0, (0,): 1.0
-                         })
-        try:
-            rb._validate_replicas_at_tier(wanted_replicas)
-        except Exception as e:
-            self.fail('wanted_replicas is invalid for %s' % e)
-
-        # validate target_replicas
-        target_replicas = \
-            defaultdict(float,
-                        {(0, 0): 1.0, (1,): 1.0,
-                         (2,): 0.9999999999999999,
-                         (0, 0, '127.0.0.1', 0): 1.0,
-                         (1, 1, '127.0.0.1', 1): 1.0,
-                         (0, 0, '127.0.0.1'): 1.0,
-                         (1, 1, '127.0.0.1'): 1.0,
-                         (2, 2, '127.0.0.1'): 0.9999999999999999,
-                         (2, 2): 0.9999999999999999, (): 3.0,
-                         (2, 2, '127.0.0.1', 2): 0.9999999999999999,
-                         (1, 1): 1.0, (0,): 1.0
-                         })
-        try:
-            rb._validate_replicas_at_tier(target_replicas)
-        except Exception as e:
-            self.fail('target_replicas is invalid for %s' % e)
-
-        # set overload to 10%
-        rb.set_overload(0.1)
-        rb.rebalance()
-        # validate target_replicas
-        target_replicas = \
-            defaultdict(float,
-                        {(0, 0): 1.0, (1,): 1.0, (2,): 1.0,
-                         (0, 0, '127.0.0.1', 0): 1.0,
-                         (1, 1, '127.0.0.1', 1): 1.0,
-                         (0, 0, '127.0.0.1'): 1.0,
-                         (1, 1, '127.0.0.1'): 1.0,
-                         (2, 2, '127.0.0.1'): 1.0, (2, 2): 1.0, (): 3.0,
-                         (2, 2, '127.0.0.1', 2): 1.0,
-                         (1, 1): 1.0, (0,): 1.0
-                         })
-        try:
-            rb._validate_replicas_at_tier(target_replicas)
-        except Exception as e:
-            self.fail('target_replicas is invalid after overload for %s'
-                      % e)
-
-        # invalidate case
-        pseudo_replicas = \
-            defaultdict(float,
-                        {(0, 0): 1.1, (1,): 1.0, (2,): 1.0,
-                         (0, 0, '127.0.0.1', 0): 1.0,
-                         (1, 1, '127.0.0.1', 1): 1.0,
-                         (0, 0, '127.0.0.1'): 1.0,
-                         (1, 1, '127.0.0.1'): 1.0,
-                         (2, 2, '127.0.0.1'): 1.0,
-                         (2, 2): 1.0, (): 3.0,
-                         (2, 2, '127.0.0.1', 2): 1.0,
-                         (1, 1): 1.0, (0,): 1.0
-                         })
-        with self.assertRaises(exceptions.RingValidationError) as ctx:
-            rb._validate_replicas_at_tier(pseudo_replicas)
-        self.assertEqual('3.1 != 3 at tier zones', str(ctx.exception))
-
     def test_multitier_partial(self):
         # Multitier test, nothing full
         rb = ring.RingBuilder(8, 3, 1)
@@ -753,7 +650,7 @@ class TestRingBuilder(unittest.TestCase):
 
             self.assertEqual({0: 2, 1: 2, 2: 2}, dict(counts['zone']))
             # each part is assigned once to six unique devices
-            self.assertEqual((counts['dev_id'].values()), [1] * 6)
+            self.assertEqual(list(counts['dev_id'].values()), [1] * 6)
             self.assertEqual(len(set(counts['dev_id'].keys())), 6)
 
     def test_multitier_part_moves_with_0_min_part_hours(self):
@@ -2218,7 +2115,7 @@ class TestRingBuilder(unittest.TestCase):
             with self.assertRaises(AttributeError) as cm:
                 rb.id
             self.assertIn('id attribute has not been initialised',
-                          cm.exception.message)
+                          cm.exception.args[0])
 
         builder_file = os.path.join(self.testdir, 'test_save.builder')
         orig_rb.save(builder_file)
@@ -2235,7 +2132,7 @@ class TestRingBuilder(unittest.TestCase):
             with self.assertRaises(AttributeError) as cm:
                 loaded_rb.id
             self.assertIn('id attribute has not been initialised',
-                          cm.exception.message)
+                          cm.exception.args[0])
 
             # check saving assigns an id, and that it is persisted
             loaded_rb.save(builder_file)
@@ -2273,7 +2170,7 @@ class TestRingBuilder(unittest.TestCase):
         with self.assertRaises(AttributeError) as cm:
             rb.id
         self.assertIn('id attribute has not been initialised',
-                      cm.exception.message)
+                      cm.exception.args[0])
         # save must succeed for id to be assigned
         with self.assertRaises(IOError):
             rb.save(os.path.join(
@@ -2281,7 +2178,7 @@ class TestRingBuilder(unittest.TestCase):
         with self.assertRaises(AttributeError) as cm:
             rb.id
         self.assertIn('id attribute has not been initialised',
-                      cm.exception.message)
+                      cm.exception.args[0])
 
     def test_search_devs(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -2584,6 +2481,8 @@ class TestRingBuilder(unittest.TestCase):
             (0, 0, '127.0.0.1', 3): [0, 256, 0, 0],
         })
 
+    @unittest.skipIf(sys.version_info >= (3,),
+                     "Seed-specific tests don't work well on py3")
     def test_undispersable_zone_converge_on_balance(self):
         rb = ring.RingBuilder(8, 6, 0)
         dev_id = 0
@@ -2639,6 +2538,8 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb.get_balance(), 0.390625)
         self.assertEqual(rb.dispersion, 16.6015625)
 
+    @unittest.skipIf(sys.version_info >= (3,),
+                     "Seed-specific tests don't work well on py3")
     def test_undispersable_server_converge_on_balance(self):
         rb = ring.RingBuilder(8, 6, 0)
         dev_id = 0

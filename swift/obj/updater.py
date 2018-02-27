@@ -36,6 +36,47 @@ from swift.obj.diskfile import get_tmp_dir, ASYNCDIR_BASE
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
 
+class SweepStats(object):
+    """
+    Stats bucket for an update sweep
+    """
+    def __init__(self, errors=0, failures=0, quarantines=0, successes=0,
+                 unlinks=0):
+        self.errors = errors
+        self.failures = failures
+        self.quarantines = quarantines
+        self.successes = successes
+        self.unlinks = unlinks
+
+    def copy(self):
+        return type(self)(self.errors, self.failures, self.quarantines,
+                          self.successes, self.unlinks)
+
+    def since(self, other):
+        return type(self)(self.errors - other.errors,
+                          self.failures - other.failures,
+                          self.quarantines - other.quarantines,
+                          self.successes - other.successes,
+                          self.unlinks - other.unlinks)
+
+    def reset(self):
+        self.errors = 0
+        self.failures = 0
+        self.quarantines = 0
+        self.successes = 0
+        self.unlinks = 0
+
+    def __str__(self):
+        keys = (
+            (self.successes, 'successes'),
+            (self.failures, 'failures'),
+            (self.quarantines, 'quarantines'),
+            (self.unlinks, 'unlinks'),
+            (self.errors, 'errors'),
+        )
+        return ', '.join('%d %s' % pair for pair in keys)
+
+
 class ObjectUpdater(Daemon):
     """Update object information in container listings."""
 
@@ -63,16 +104,18 @@ class ObjectUpdater(Daemon):
                            objects_per_second))
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
-        self.successes = 0
-        self.failures = 0
+        self.report_interval = float(conf.get('report_interval', 300))
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, 'object.recon')
+        self.stats = SweepStats()
 
     def _listdir(self, path):
         try:
             return os.listdir(path)
         except OSError as e:
+            self.stats.errors += 1
+            self.logger.increment('errors')
             self.logger.error(_('ERROR: Unable to access %(path)s: '
                                 '%(error)s') %
                               {'path': path, 'error': e})
@@ -95,7 +138,9 @@ class ObjectUpdater(Daemon):
             self.get_container_ring().get_nodes('')
             for device in self._listdir(self.devices):
                 if not check_drive(self.devices, device, self.mount_check):
-                    self.logger.increment('errors')
+                    # We don't count this as an error. The occasional
+                    # unmounted drive is part of normal cluster operations,
+                    # so a simple warning is sufficient.
                     self.logger.warning(
                         _('Skipping %s as it is not mounted'), device)
                     continue
@@ -107,17 +152,15 @@ class ObjectUpdater(Daemon):
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
                     eventlet_monkey_patch()
-                    self.successes = 0
-                    self.failures = 0
+                    self.stats.reset()
                     forkbegin = time.time()
                     self.object_sweep(os.path.join(self.devices, device))
                     elapsed = time.time() - forkbegin
                     self.logger.info(
-                        _('Object update sweep of %(device)s'
-                          ' completed: %(elapsed).02fs, %(success)s successes'
-                          ', %(fail)s failures'),
+                        ('Object update sweep of %(device)s '
+                         'completed: %(elapsed).02fs, %(stats)s'),
                         {'device': device, 'elapsed': elapsed,
-                         'success': self.successes, 'fail': self.failures})
+                         'stats': self.stats})
                     sys.exit()
             while pids:
                 pids.remove(os.wait()[0])
@@ -133,21 +176,21 @@ class ObjectUpdater(Daemon):
         """Run the updater once."""
         self.logger.info(_('Begin object update single threaded sweep'))
         begin = time.time()
-        self.successes = 0
-        self.failures = 0
+        self.stats.reset()
         for device in self._listdir(self.devices):
             if not check_drive(self.devices, device, self.mount_check):
-                self.logger.increment('errors')
+                # We don't count this as an error. The occasional unmounted
+                # drive is part of normal cluster operations, so a simple
+                # warning is sufficient.
                 self.logger.warning(
                     _('Skipping %s as it is not mounted'), device)
                 continue
             self.object_sweep(os.path.join(self.devices, device))
         elapsed = time.time() - begin
         self.logger.info(
-            _('Object update single threaded sweep completed: '
-              '%(elapsed).02fs, %(success)s successes, %(fail)s failures'),
-            {'elapsed': elapsed, 'success': self.successes,
-             'fail': self.failures})
+            ('Object update single-threaded sweep completed: '
+             '%(elapsed).02fs, %(stats)s'),
+            {'elapsed': elapsed, 'stats': self.stats})
         dump_recon_cache({'object_updater_sweep': elapsed},
                          self.rcache, self.logger)
 
@@ -158,6 +201,12 @@ class ObjectUpdater(Daemon):
         :param device: path to device
         """
         start_time = time.time()
+        last_status_update = start_time
+        start_stats = self.stats.copy()
+        my_pid = os.getpid()
+        self.logger.info("Object update sweep starting on %s (pid: %d)",
+                         device, my_pid)
+
         # loop through async pending dirs for all policies
         for asyncdir in self._listdir(device):
             # we only care about directories
@@ -170,6 +219,8 @@ class ObjectUpdater(Daemon):
             try:
                 base, policy = split_policy_string(asyncdir)
             except PolicyError as e:
+                # This isn't an error, but a misconfiguration. Logging a
+                # warning should be sufficient.
                 self.logger.warning(_('Directory %(directory)r does not map '
                                       'to a valid policy (%(error)s)') % {
                                     'directory': asyncdir, 'error': e})
@@ -186,6 +237,7 @@ class ObjectUpdater(Daemon):
                     try:
                         obj_hash, timestamp = update.split('-')
                     except ValueError:
+                        self.stats.errors += 1
                         self.logger.increment('errors')
                         self.logger.error(
                             _('ERROR async pending file with unexpected '
@@ -193,7 +245,8 @@ class ObjectUpdater(Daemon):
                             % (update_path))
                         continue
                     if obj_hash == last_obj_hash:
-                        self.logger.increment("unlinks")
+                        self.stats.unlinks += 1
+                        self.logger.increment('unlinks')
                         os.unlink(update_path)
                     else:
                         self.process_object_update(update_path, device,
@@ -203,11 +256,39 @@ class ObjectUpdater(Daemon):
                     self.objects_running_time = ratelimit_sleep(
                         self.objects_running_time,
                         self.max_objects_per_second)
+
+                    now = time.time()
+                    if now - last_status_update >= self.report_interval:
+                        this_sweep = self.stats.since(start_stats)
+                        self.logger.info(
+                            ('Object update sweep progress on %(device)s: '
+                             '%(elapsed).02fs, %(stats)s (pid: %(pid)d)'),
+                            {'device': device,
+                             'elapsed': now - start_time,
+                             'pid': my_pid,
+                             'stats': this_sweep})
+                        last_status_update = now
                 try:
                     os.rmdir(prefix_path)
                 except OSError:
                     pass
             self.logger.timing_since('timing', start_time)
+            sweep_totals = self.stats.since(start_stats)
+            self.logger.info(
+                ('Object update sweep completed on %(device)s '
+                 'in %(elapsed).02fs seconds:, '
+                 '%(successes)d successes, %(failures)d failures, '
+                 '%(quarantines)d quarantines, '
+                 '%(unlinks)d unlinks, %(errors)d errors '
+                 '(pid: %(pid)d)'),
+                {'device': device,
+                 'elapsed': time.time() - start_time,
+                 'pid': my_pid,
+                 'successes': sweep_totals.successes,
+                 'failures': sweep_totals.failures,
+                 'quarantines': sweep_totals.quarantines,
+                 'unlinks': sweep_totals.unlinks,
+                 'errors': sweep_totals.errors})
 
     def process_object_update(self, update_path, device, policy):
         """
@@ -222,6 +303,7 @@ class ObjectUpdater(Daemon):
         except Exception:
             self.logger.exception(
                 _('ERROR Pickle problem, quarantining %s'), update_path)
+            self.stats.quarantines += 1
             self.logger.increment('quarantines')
             target_path = os.path.join(device, 'quarantined', 'objects',
                                        os.path.basename(update_path))
@@ -249,14 +331,15 @@ class ObjectUpdater(Daemon):
             else:
                 success = False
         if success:
-            self.successes += 1
+            self.stats.successes += 1
             self.logger.increment('successes')
             self.logger.debug('Update sent for %(obj)s %(path)s',
                               {'obj': obj, 'path': update_path})
-            self.logger.increment("unlinks")
+            self.stats.unlinks += 1
+            self.logger.increment('unlinks')
             os.unlink(update_path)
         else:
-            self.failures += 1
+            self.stats.failures += 1
             self.logger.increment('failures')
             self.logger.debug('Update failed for %(obj)s %(path)s',
                               {'obj': obj, 'path': update_path})

@@ -18,7 +18,7 @@ The Object Storage services (swift) work together to provide
 object storage and retrieval through a REST API.
 
 This chapter assumes a working setup of OpenStack following the
-`OpenStack Installation Tutorial <http://docs.openstack.org/#install-guides>`_.
+`OpenStack Installation Tutorial <https://docs.openstack.org/latest/install/>`_.
 
 Your environment must at least include the Identity service (keystone)
 prior to deploying Object Storage.

@@ -678,8 +678,13 @@ class Server(object):
         """
         status = 0
         for proc in self.procs:
-            # wait for process to close its stdout
-            output = proc.stdout.read()
+            # wait for process to close its stdout (if we haven't done that)
+            if proc.stdout.closed:
+                output = ''
+            else:
+                output = proc.stdout.read()
+                proc.stdout.close()
+
             if kwargs.get('once', False):
                 # if you don't want once to wait you can send it to the
                 # background on the command line, I generally just run with
@@ -703,7 +708,7 @@ class Server(object):
         status = 0
         for proc in self.procs:
             # wait for process to terminate
-            proc.communicate()
+            proc.communicate()  # should handle closing pipes
             if proc.returncode:
                 status += 1
         return status

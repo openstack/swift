@@ -475,7 +475,6 @@ class TestWSGI(unittest.TestCase):
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt, \
-                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
                     mock.patch('swift.common.wsgi.inspect'):
                 conf = wsgi.appconfig(conf_file)
                 logger = logging.getLogger('test')
@@ -485,10 +484,6 @@ class TestWSGI(unittest.TestCase):
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
-        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
-                                                           socket=True,
-                                                           select=True,
-                                                           thread=True)
         _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
@@ -562,7 +557,6 @@ class TestWSGI(unittest.TestCase):
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt, \
-                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
                     mock.patch.dict('os.environ', {'TZ': ''}), \
                     mock.patch('swift.common.wsgi.inspect'), \
                     mock.patch('time.tzset'):
@@ -576,10 +570,6 @@ class TestWSGI(unittest.TestCase):
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
-        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
-                                                           socket=True,
-                                                           select=True,
-                                                           thread=True)
         _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
@@ -617,7 +607,6 @@ class TestWSGI(unittest.TestCase):
             with mock.patch('swift.proxy.server.Application.'
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
-                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt:
                 mock_server = _wsgi.server
                 _wsgi.server = lambda *args, **kwargs: mock_server(
@@ -630,10 +619,6 @@ class TestWSGI(unittest.TestCase):
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
-        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
-                                                           socket=True,
-                                                           select=True,
-                                                           thread=True)
         _wsgi_evt.debug.hub_exceptions.assert_called_with(True)
         self.assertTrue(mock_server.called)
         args, kwargs = mock_server.call_args
@@ -777,12 +762,17 @@ class TestWSGI(unittest.TestCase):
                 mock.patch.object(wsgi, 'drop_privileges'), \
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
-                mock.patch.object(wsgi, 'run_server'):
+                mock.patch.object(wsgi, 'run_server'), \
+                mock.patch('swift.common.utils.eventlet') as _utils_evt:
             wsgi.run_wsgi('conf_file', 'app_section',
                           global_conf_callback=_global_conf_callback)
 
         self.assertEqual(calls['_global_conf_callback'], 1)
         self.assertEqual(calls['_loadapp'], 1)
+        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
+                                                           socket=True,
+                                                           select=True,
+                                                           thread=True)
 
     def test_run_server_success(self):
         calls = defaultdict(lambda: 0)
@@ -802,11 +792,16 @@ class TestWSGI(unittest.TestCase):
                 mock.patch.object(wsgi, 'drop_privileges'), \
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
-                mock.patch.object(wsgi, 'run_server'):
+                mock.patch.object(wsgi, 'run_server'), \
+                mock.patch('swift.common.utils.eventlet') as _utils_evt:
             rc = wsgi.run_wsgi('conf_file', 'app_section')
         self.assertEqual(calls['_initrp'], 1)
         self.assertEqual(calls['_loadapp'], 1)
         self.assertEqual(rc, 0)
+        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
+                                                           socket=True,
+                                                           select=True,
+                                                           thread=True)
 
     @mock.patch('swift.common.wsgi.run_server')
     @mock.patch('swift.common.wsgi.WorkersStrategy')
@@ -1610,6 +1605,170 @@ class TestPipelineModification(unittest.TestCase):
                           'swift.common.middleware.versioned_writes',
                           'swift.common.middleware.healthcheck',
                           'swift.proxy.server'])
+
+    def test_proxy_modify_wsgi_pipeline_recommended_pipelines(self):
+        to_test = [
+            # Version, filter-only pipeline, expected final pipeline
+            ('1.4.1',
+             'catch_errors healthcheck cache ratelimit tempauth',
+             'catch_errors gatekeeper healthcheck memcache'
+             ' listing_formats ratelimit tempauth copy dlo versioned_writes'),
+            ('1.5.0',
+             'catch_errors healthcheck cache ratelimit tempauth proxy-logging',
+             'catch_errors gatekeeper healthcheck memcache ratelimit tempauth'
+             ' proxy_logging listing_formats copy dlo versioned_writes'),
+            ('1.8.0',
+             'catch_errors healthcheck proxy-logging cache slo ratelimit'
+             ' tempauth container-quotas account-quotas proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats slo ratelimit tempauth copy dlo'
+             ' versioned_writes container_quotas account_quotas'
+             ' proxy_logging'),
+            ('1.9.1',
+             'catch_errors healthcheck proxy-logging cache bulk slo ratelimit'
+             ' tempauth container-quotas account-quotas proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats bulk slo ratelimit tempauth copy dlo'
+             ' versioned_writes container_quotas account_quotas'
+             ' proxy_logging'),
+            ('1.12.0',
+             'catch_errors gatekeeper healthcheck proxy-logging cache'
+             ' container_sync bulk slo ratelimit tempauth container-quotas'
+             ' account-quotas proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats container_sync bulk slo ratelimit tempauth'
+             ' copy dlo versioned_writes container_quotas account_quotas'
+             ' proxy_logging'),
+            ('1.13.0',
+             'catch_errors gatekeeper healthcheck proxy-logging cache'
+             ' container_sync bulk slo dlo ratelimit tempauth'
+             ' container-quotas account-quotas proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats container_sync bulk slo dlo ratelimit'
+             ' tempauth copy versioned_writes container_quotas account_quotas'
+             ' proxy_logging'),
+            ('1.13.1',
+             'catch_errors gatekeeper healthcheck proxy-logging cache'
+             ' container_sync bulk tempurl slo dlo ratelimit tempauth'
+             ' container-quotas account-quotas proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats container_sync bulk tempurl slo dlo ratelimit'
+             ' tempauth copy versioned_writes container_quotas account_quotas'
+             ' proxy_logging'),
+            ('2.0.0',
+             'catch_errors gatekeeper healthcheck proxy-logging cache'
+             ' container_sync bulk tempurl ratelimit tempauth container-quotas'
+             ' account-quotas slo dlo proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats container_sync bulk tempurl ratelimit tempauth'
+             ' copy container_quotas account_quotas slo dlo versioned_writes'
+             ' proxy_logging'),
+            ('2.4.0',
+             'catch_errors gatekeeper healthcheck proxy-logging cache'
+             ' container_sync bulk tempurl ratelimit tempauth container-quotas'
+             ' account-quotas slo dlo versioned_writes proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats container_sync bulk tempurl ratelimit tempauth'
+             ' copy container_quotas account_quotas slo dlo versioned_writes'
+             ' proxy_logging'),
+            ('2.8.0',
+             'catch_errors gatekeeper healthcheck proxy-logging cache'
+             ' container_sync bulk tempurl ratelimit tempauth copy'
+             ' container-quotas account-quotas slo dlo versioned_writes'
+             ' proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats container_sync bulk tempurl ratelimit tempauth'
+             ' copy container_quotas account_quotas slo dlo versioned_writes'
+             ' proxy_logging'),
+            ('2.16.0',
+             'catch_errors gatekeeper healthcheck proxy-logging cache'
+             ' listing_formats container_sync bulk tempurl ratelimit'
+             ' tempauth copy container-quotas account-quotas slo dlo'
+             ' versioned_writes proxy-logging',
+             'catch_errors gatekeeper healthcheck proxy_logging memcache'
+             ' listing_formats container_sync bulk tempurl ratelimit'
+             ' tempauth copy container_quotas account_quotas slo dlo'
+             ' versioned_writes proxy_logging'),
+        ]
+
+        config = """
+            [DEFAULT]
+            swift_dir = %s
+
+            [pipeline:main]
+            pipeline = %s proxy-server
+
+            [app:proxy-server]
+            use = egg:swift#proxy
+            conn_timeout = 0.2
+
+            [filter:catch_errors]
+            use = egg:swift#catch_errors
+
+            [filter:gatekeeper]
+            use = egg:swift#gatekeeper
+
+            [filter:healthcheck]
+            use = egg:swift#healthcheck
+
+            [filter:proxy-logging]
+            use = egg:swift#proxy_logging
+
+            [filter:cache]
+            use = egg:swift#memcache
+
+            [filter:listing_formats]
+            use = egg:swift#listing_formats
+
+            [filter:container_sync]
+            use = egg:swift#container_sync
+
+            [filter:bulk]
+            use = egg:swift#bulk
+
+            [filter:tempurl]
+            use = egg:swift#tempurl
+
+            [filter:ratelimit]
+            use = egg:swift#ratelimit
+
+            [filter:tempauth]
+            use = egg:swift#tempauth
+
+            [filter:copy]
+            use = egg:swift#copy
+
+            [filter:container-quotas]
+            use = egg:swift#container_quotas
+
+            [filter:account-quotas]
+            use = egg:swift#account_quotas
+
+            [filter:slo]
+            use = egg:swift#slo
+
+            [filter:dlo]
+            use = egg:swift#dlo
+
+            [filter:versioned_writes]
+            use = egg:swift#versioned_writes
+        """
+        contents = dedent(config)
+
+        with temptree(['proxy-server.conf']) as t:
+            _fake_rings(t)
+            for version, pipeline, expected in to_test:
+                conf_file = os.path.join(t, 'proxy-server.conf')
+                with open(conf_file, 'w') as f:
+                    f.write(contents % (t, pipeline))
+                app = wsgi.loadapp(conf_file, global_conf={})
+
+                actual = ' '.join(m.rsplit('.', 1)[1]
+                                  for m in self.pipeline_modules(app)[:-1])
+                self.assertEqual(
+                    expected, actual,
+                    'Pipeline mismatch for version %s: got\n    %s\n'
+                    'but expected\n    %s' % (version, actual, expected))
 
     def test_proxy_modify_wsgi_pipeline_inserts_versioned_writes(self):
         config = """

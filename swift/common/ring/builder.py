@@ -35,7 +35,7 @@ from time import time
 from swift.common import exceptions
 from swift.common.ring import RingData
 from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
-    validate_and_normalize_address, pretty_dev
+    validate_and_normalize_address, validate_replicas_by_tier, pretty_dev
 
 # we can't store None's in the replica2part2dev array, so we high-jack
 # the max value for magic to represent the part is not currently
@@ -696,7 +696,7 @@ class RingBuilder(object):
                     (dev['id'], dev['port']))
 
         int_replicas = int(math.ceil(self.replicas))
-        rep2part_len = map(len, self._replica2part2dev)
+        rep2part_len = list(map(len, self._replica2part2dev))
         # check the assignments of each part's replicas
         for part in range(self.parts):
             devs_for_part = []
@@ -872,7 +872,7 @@ class RingBuilder(object):
         device is "overweight" and wishes to give partitions away if possible.
 
         :param replica_plan: a dict of dicts, as returned from
-                             _build_replica_plan, that that maps
+                             _build_replica_plan, that maps
                              each tier to it's target replicanths.
         """
         tier2children = self._build_tier2children()
@@ -932,7 +932,7 @@ class RingBuilder(object):
         more recently than min_part_hours.
         """
         self._part_moved_bitmap = bytearray(max(2 ** (self.part_power - 3), 1))
-        elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
+        elapsed_hours = int(time() - self._last_part_moves_epoch) // 3600
         if elapsed_hours <= 0:
             return
         for part in range(self.parts):
@@ -1182,7 +1182,7 @@ class RingBuilder(object):
         """
         # pick a random starting point on the other side of the ring
         quarter_turn = (self.parts // 4)
-        random_half = random.randint(0, self.parts / 2)
+        random_half = random.randint(0, self.parts // 2)
         start = (self._last_part_gather_start + quarter_turn +
                  random_half) % self.parts
         self.logger.debug('Gather start is %(start)s '
@@ -1369,16 +1369,6 @@ class RingBuilder(object):
     def _sort_key_for(dev):
         return (dev['parts_wanted'], random.randint(0, 0xFFFF), dev['id'])
 
-    def _validate_replicas_at_tier(self, replicas_by_tier):
-        tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
-        for i, tier_name in enumerate(tiers):
-            replicas_at_tier = sum(replicas_by_tier[t] for t in
-                                   replicas_by_tier if len(t) == i)
-            if abs(self.replicas - replicas_at_tier) > 1e-10:
-                raise exceptions.RingValidationError(
-                    '%s != %s at tier %s' % (
-                        replicas_at_tier, self.replicas, tier_name))
-
     def _build_max_replicas_by_tier(self, bound=math.ceil):
         """
         Returns a defaultdict of (tier: replica_count) for all tiers in the
@@ -1493,7 +1483,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # weighted_replicas should be very close to the total number of
         # replicas for the ring
-        self._validate_replicas_at_tier(weighted_replicas_by_tier)
+        validate_replicas_by_tier(self.replicas, weighted_replicas_by_tier)
 
         return weighted_replicas_by_tier
 
@@ -1596,7 +1586,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # wanted_replicas should be very close to the total number of
         # replicas for the ring
-        self._validate_replicas_at_tier(wanted_replicas)
+        validate_replicas_by_tier(self.replicas, wanted_replicas)
 
         return wanted_replicas
 
@@ -1625,7 +1615,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # target_replicas should be very close to the total number
         # of replicas for the ring
-        self._validate_replicas_at_tier(target_replicas)
+        validate_replicas_by_tier(self.replicas, target_replicas)
 
         return target_replicas
 

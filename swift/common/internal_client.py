@@ -26,7 +26,8 @@ from time import gmtime, strftime, time
 from zlib import compressobj
 
 from swift.common.exceptions import ClientException
-from swift.common.http import HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES
+from swift.common.http import (HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES,
+                               is_server_error)
 from swift.common.swob import Request
 from swift.common.utils import quote, closing_if_possible
 from swift.common.wsgi import loadapp, pipeline_property
@@ -179,8 +180,8 @@ class InternalClient(object):
 
         headers = dict(headers)
         headers['user-agent'] = self.user_agent
-        resp = exc_type = exc_value = exc_traceback = None
         for attempt in range(self.request_tries):
+            resp = exc_type = exc_value = exc_traceback = None
             req = Request.blank(
                 path, environ={'REQUEST_METHOD': method}, headers=headers)
             if body_file is not None:
@@ -191,11 +192,15 @@ class InternalClient(object):
                 req.params = params
             try:
                 resp = req.get_response(self.app)
+            except (Exception, Timeout):
+                exc_type, exc_value, exc_traceback = exc_info()
+            else:
                 if resp.status_int in acceptable_statuses or \
                         resp.status_int // 100 in acceptable_statuses:
                     return resp
-            except (Exception, Timeout):
-                exc_type, exc_value, exc_traceback = exc_info()
+                elif not is_server_error(resp.status_int):
+                    # No sense retrying when we expect the same result
+                    break
             # sleep only between tries, not after each one
             if attempt < self.request_tries - 1:
                 if resp:

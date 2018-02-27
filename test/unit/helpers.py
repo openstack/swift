@@ -75,7 +75,7 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
         "orig_POLICIES": storage_policy._POLICIES,
         "orig_SysLogHandler": utils.SysLogHandler}
 
-    utils.HASH_PATH_SUFFIX = 'endcap'
+    utils.HASH_PATH_SUFFIX = b'endcap'
     utils.SysLogHandler = mock.MagicMock()
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of

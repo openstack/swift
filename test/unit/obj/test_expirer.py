@@ -16,15 +16,16 @@
 from time import time
 from unittest import main, TestCase
 from test.unit import FakeRing, mocked_http_conn, debug_logger
-from copy import deepcopy
 from tempfile import mkdtemp
 from shutil import rmtree
+from collections import defaultdict
 
 import mock
 import six
 from six.moves import urllib
 
 from swift.common import internal_client, utils, swob
+from swift.common.utils import Timestamp
 from swift.obj import expirer
 
 
@@ -38,6 +39,48 @@ last_not_sleep = 0
 def not_sleep(seconds):
     global last_not_sleep
     last_not_sleep = seconds
+
+
+class FakeInternalClient(object):
+    container_ring = FakeRing()
+
+    def __init__(self, aco_dict):
+        """
+        :param aco_dict: A dict of account ,container, object that
+            FakeInternalClient can return when each method called. Each account
+            has container name dict, and each container dict has object name
+            list in the container.
+            e.g. {'account1': {
+                      'container1: ['obj1', 'obj2', 'obj3'],
+                      'container2: [],
+                      },
+                  'account2': {},
+                 }
+        """
+        self.aco_dict = defaultdict(dict)
+        self.aco_dict.update(aco_dict)
+
+    def get_account_info(self, account):
+        acc_dict = self.aco_dict[account]
+        container_count = len(acc_dict)
+        obj_count = sum(len(objs) for objs in acc_dict.values())
+        return container_count, obj_count
+
+    def iter_containers(self, account, prefix=''):
+        acc_dict = self.aco_dict[account]
+        return [{'name': six.text_type(container)} for container in
+                acc_dict if container.startswith(prefix)]
+
+    def delete_container(*a, **kw):
+        pass
+
+    def iter_objects(self, account, container):
+        acc_dict = self.aco_dict[account]
+        obj_iter = acc_dict.get(container, [])
+        return [{'name': six.text_type(obj)} for obj in obj_iter]
+
+    def make_request(*a, **kw):
+        pass
 
 
 class TestObjectExpirer(TestCase):
@@ -166,57 +209,40 @@ class TestObjectExpirer(TestCase):
 
         class ObjectExpirer(expirer.ObjectExpirer):
 
-            def __init__(self, conf):
-                super(ObjectExpirer, self).__init__(conf)
+            def __init__(self, conf, swift):
+                super(ObjectExpirer, self).__init__(conf, swift=swift)
                 self.processes = 3
                 self.deleted_objects = {}
-                self.obj_containers_in_order = []
 
-            def delete_object(self, actual_obj, timestamp, container, obj):
-                if container not in self.deleted_objects:
-                    self.deleted_objects[container] = set()
-                self.deleted_objects[container].add(obj)
-                self.obj_containers_in_order.append(container)
+            def delete_object(self, target_path, delete_timestamp,
+                              task_container, task_object):
+                if task_container not in self.deleted_objects:
+                    self.deleted_objects[task_container] = set()
+                self.deleted_objects[task_container].add(task_object)
 
-        class InternalClient(object):
-
-            def __init__(self, containers):
-                self.containers = containers
-
-            def get_account_info(self, *a, **kw):
-                return len(self.containers.keys()), \
-                    sum([len(self.containers[x]) for x in self.containers])
-
-            def iter_containers(self, *a, **kw):
-                return [{'name': six.text_type(x)}
-                        for x in self.containers.keys()]
-
-            def iter_objects(self, account, container):
-                return [{'name': six.text_type(x)}
-                        for x in self.containers[container]]
-
-            def delete_container(*a, **kw):
-                pass
-
-        containers = {
-            '0': set('1-one 2-two 3-three'.split()),
-            '1': set('2-two 3-three 4-four'.split()),
-            '2': set('5-five 6-six'.split()),
-            '3': set(u'7-seven\u2661'.split()),
+        aco_dict = {
+            '.expiring_objects': {
+                '0': set('1-a/c/one 2-a/c/two 3-a/c/three'.split()),
+                '1': set('2-a/c/two 3-a/c/three 4-a/c/four'.split()),
+                '2': set('5-a/c/five 6-a/c/six'.split()),
+                '3': set(u'7-a/c/seven\u2661'.split()),
+            },
         }
-        x = ObjectExpirer(self.conf)
-        x.swift = InternalClient(containers)
+        fake_swift = FakeInternalClient(aco_dict)
+        x = ObjectExpirer(self.conf, swift=fake_swift)
 
-        deleted_objects = {}
+        deleted_objects = defaultdict(set)
         for i in range(3):
             x.process = i
+            # reset progress so we know we don't double-up work among processes
+            x.deleted_objects = defaultdict(set)
             x.run_once()
-            self.assertNotEqual(deleted_objects, x.deleted_objects)
-            deleted_objects = deepcopy(x.deleted_objects)
-        self.assertEqual(containers['3'].pop(),
+            for task_container, deleted in x.deleted_objects.items():
+                self.assertFalse(deleted_objects[task_container] & deleted)
+                deleted_objects[task_container] |= deleted
+        self.assertEqual(aco_dict['.expiring_objects']['3'].pop(),
                          deleted_objects['3'].pop().decode('utf8'))
-        self.assertEqual(containers, deleted_objects)
-        self.assertEqual(len(set(x.obj_containers_in_order[:4])), 4)
+        self.assertEqual(aco_dict['.expiring_objects'], deleted_objects)
 
     def test_delete_object(self):
         x = expirer.ObjectExpirer({}, logger=self.logger)
@@ -296,6 +322,123 @@ class TestObjectExpirer(TestCase):
         self.assertTrue(
             'so far' in str(x.logger.get_lines_for_level('info')))
 
+    def test_round_robin_order(self):
+        def make_task(delete_at, target):
+            return {
+                'task_container': delete_at,
+                'task_object': delete_at + '-' + target,
+                'delete_timestamp': Timestamp(delete_at),
+                'target_path': target,
+            }
+
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger)
+        task_con_obj_list = [
+            # objects in 0000 timestamp container
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
+            # objects in 0001 timestamp container
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'a/c1/o1'),
+            # objects in 0002 timestamp container
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
+        ]
+        result = list(x.round_robin_order(task_con_obj_list))
+
+        # sorted by popping one object to delete for each target_container
+        expected = [
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0002', 'a/c2/o1'),
+        ]
+        self.assertEqual(expected, result)
+
+        # task containers have some task objects with invalid target paths
+        task_con_obj_list = [
+            # objects in 0000 timestamp container
+            make_task('0000', 'invalid0'),
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
+            # objects in 0001 timestamp container
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'invalid1'),
+            make_task('0001', 'a/c1/o1'),
+            # objects in 0002 timestamp container
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
+            make_task('0002', 'invalid2'),
+        ]
+        result = list(x.round_robin_order(task_con_obj_list))
+
+        # the invalid task objects are ignored
+        expected = [
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0002', 'a/c2/o1'),
+        ]
+        self.assertEqual(expected, result)
+
+        # for a given target container, tasks won't necessarily all go in
+        # the same timestamp container
+        task_con_obj_list = [
+            # objects in 0000 timestamp container
+            make_task('0000', 'a/c0/o0'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0000', 'a/c2/o2'),
+            make_task('0000', 'a/c2/o3'),
+            # objects in 0001 timestamp container
+            make_task('0001', 'a/c0/o2'),
+            make_task('0001', 'a/c0/o3'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0001', 'a/c1/o1'),
+            # objects in 0002 timestamp container
+            make_task('0002', 'a/c2/o0'),
+            make_task('0002', 'a/c2/o1'),
+        ]
+        result = list(x.round_robin_order(task_con_obj_list))
+
+        # so we go around popping by *target* container, not *task* container
+        expected = [
+            make_task('0000', 'a/c0/o0'),
+            make_task('0001', 'a/c1/o0'),
+            make_task('0000', 'a/c2/o2'),
+            make_task('0000', 'a/c0/o1'),
+            make_task('0001', 'a/c1/o1'),
+            make_task('0000', 'a/c2/o3'),
+            make_task('0001', 'a/c0/o2'),
+            make_task('0002', 'a/c2/o0'),
+            make_task('0001', 'a/c0/o3'),
+            make_task('0002', 'a/c2/o1'),
+        ]
+        self.assertEqual(expected, result)
+
+        # all of the work to be done could be for different target containers
+        task_con_obj_list = [
+            # objects in 0000 timestamp container
+            make_task('0000', 'a/c0/o'),
+            make_task('0000', 'a/c1/o'),
+            make_task('0000', 'a/c2/o'),
+            make_task('0000', 'a/c3/o'),
+            # objects in 0001 timestamp container
+            make_task('0001', 'a/c4/o'),
+            make_task('0001', 'a/c5/o'),
+            make_task('0001', 'a/c6/o'),
+            make_task('0001', 'a/c7/o'),
+            # objects in 0002 timestamp container
+            make_task('0002', 'a/c8/o'),
+            make_task('0002', 'a/c9/o'),
+        ]
+        result = list(x.round_robin_order(task_con_obj_list))
+
+        # in which case, we kind of hammer the task containers
+        self.assertEqual(task_con_obj_list, result)
+
     def test_run_once_nothing_to_do(self):
         x = expirer.ObjectExpirer(self.conf, logger=self.logger)
         x.swift = 'throw error because a string does not have needed methods'
@@ -307,159 +450,101 @@ class TestObjectExpirer(TestCase):
                          "'str' object has no attribute 'get_account_info'")
 
     def test_run_once_calls_report(self):
-        class InternalClient(object):
-            def get_account_info(*a, **kw):
-                return 1, 2
-
-            def iter_containers(*a, **kw):
-                return []
-
-        x = expirer.ObjectExpirer(self.conf, logger=self.logger)
-        x.swift = InternalClient()
+        fake_swift = FakeInternalClient({})
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
         x.run_once()
         self.assertEqual(
             x.logger.get_lines_for_level('info'), [
-                'Pass beginning; 1 possible containers; 2 possible objects',
+                'Pass beginning; 0 possible containers; 0 possible objects',
                 'Pass completed in 0s; 0 objects expired',
             ])
 
     def test_run_once_unicode_problem(self):
-        class InternalClient(object):
-
-            container_ring = FakeRing()
-
-            def get_account_info(*a, **kw):
-                return 1, 2
-
-            def iter_containers(*a, **kw):
-                return [{'name': u'1234'}]
-
-            def iter_objects(*a, **kw):
-                return [{'name': u'1234-troms\xf8'}]
-
-            def make_request(*a, **kw):
-                pass
-
-            def delete_container(*a, **kw):
-                pass
-
-        x = expirer.ObjectExpirer(self.conf, logger=self.logger)
-        x.swift = InternalClient()
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {u'1234': [u'1234-a/c/troms\xf8']}
+        })
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
 
         requests = []
 
         def capture_requests(ipaddr, port, method, path, *args, **kwargs):
             requests.append((method, path))
 
-        with mocked_http_conn(
-                200, 200, 200, give_connect=capture_requests):
+        with mocked_http_conn(200, 200, 200, give_connect=capture_requests):
             x.run_once()
         self.assertEqual(len(requests), 3)
 
     def test_container_timestamp_break(self):
-        class InternalClient(object):
-            def __init__(self, containers):
-                self.containers = containers
+        def fail_to_iter_objects(*a, **kw):
+            raise Exception('This should not have been called')
 
-            def get_account_info(*a, **kw):
-                return 1, 2
-
-            def iter_containers(self, *a, **kw):
-                return self.containers
-
-            def iter_objects(*a, **kw):
-                raise Exception('This should not have been called')
-
-        x = expirer.ObjectExpirer(self.conf,
-                                  logger=self.logger)
-        x.swift = InternalClient([{'name': str(int(time() + 86400))}])
-        x.run_once()
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {str(int(time() + 86400)): []}
+        })
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
+        with mock.patch.object(fake_swift, 'iter_objects',
+                               fail_to_iter_objects):
+            x.run_once()
         logs = x.logger.all_log_lines()
         self.assertEqual(logs['info'], [
-            'Pass beginning; 1 possible containers; 2 possible objects',
+            'Pass beginning; 1 possible containers; 0 possible objects',
             'Pass completed in 0s; 0 objects expired',
         ])
         self.assertNotIn('error', logs)
 
         # Reverse test to be sure it still would blow up the way expected.
-        fake_swift = InternalClient([{'name': str(int(time() - 86400))}])
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {str(int(time() - 86400)): []}
+        })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
-        x.run_once()
+        with mock.patch.object(fake_swift, 'iter_objects',
+                               fail_to_iter_objects):
+            x.run_once()
         self.assertEqual(
-            x.logger.get_lines_for_level('error'), [
-                'Unhandled exception: '])
+            x.logger.get_lines_for_level('error'), ['Unhandled exception: '])
         log_args, log_kwargs = x.logger.log_dict['error'][-1]
         self.assertEqual(str(log_kwargs['exc_info'][1]),
                          'This should not have been called')
 
     def test_object_timestamp_break(self):
-        class InternalClient(object):
-            def __init__(self, containers, objects):
-                self.containers = containers
-                self.objects = objects
-
-            def get_account_info(*a, **kw):
-                return 1, 2
-
-            def iter_containers(self, *a, **kw):
-                return self.containers
-
-            def delete_container(*a, **kw):
-                pass
-
-            def iter_objects(self, *a, **kw):
-                return self.objects
-
         def should_not_be_called(*a, **kw):
             raise Exception('This should not have been called')
 
-        fake_swift = InternalClient(
-            [{'name': str(int(time() - 86400))}],
-            [{'name': '%d-actual-obj' % int(time() + 86400)}])
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {
+                str(int(time() - 86400)): [
+                    '%d-a/c/actual-obj' % int(time() + 86400)],
+            },
+        })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
         x.run_once()
         self.assertNotIn('error', x.logger.all_log_lines())
         self.assertEqual(x.logger.get_lines_for_level('info'), [
-            'Pass beginning; 1 possible containers; 2 possible objects',
+            'Pass beginning; 1 possible containers; 1 possible objects',
             'Pass completed in 0s; 0 objects expired',
         ])
         # Reverse test to be sure it still would blow up the way expected.
         ts = int(time() - 86400)
-        fake_swift = InternalClient(
-            [{'name': str(int(time() - 86400))}],
-            [{'name': '%d-actual-obj' % ts}])
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {
+                str(int(time() - 86400)): ['%d-a/c/actual-obj' % ts],
+            },
+        })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
         x.delete_actual_object = should_not_be_called
         x.run_once()
         self.assertEqual(
             x.logger.get_lines_for_level('error'),
-            ['Exception while deleting object %d %d-actual-obj '
+            ['Exception while deleting object %d %d-a/c/actual-obj '
              'This should not have been called: ' % (ts, ts)])
 
     def test_failed_delete_keeps_entry(self):
-        class InternalClient(object):
-
-            container_ring = None
-
-            def __init__(self, containers, objects):
-                self.containers = containers
-                self.objects = objects
-
-            def get_account_info(*a, **kw):
-                return 1, 2
-
-            def iter_containers(self, *a, **kw):
-                return self.containers
-
-            def delete_container(*a, **kw):
-                pass
-
-            def iter_objects(self, *a, **kw):
-                return self.objects
-
         def deliberately_blow_up(actual_obj, timestamp):
             raise Exception('failed to delete actual object')
 
@@ -467,31 +552,33 @@ class TestObjectExpirer(TestCase):
             raise Exception('This should not have been called')
 
         ts = int(time() - 86400)
-        fake_swift = InternalClient(
-            [{'name': str(int(time() - 86400))}],
-            [{'name': '%d-actual-obj' % ts}])
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {
+                str(int(time() - 86400)): ['%d-a/c/actual-obj' % ts],
+            },
+        })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
-        x.iter_containers = lambda: [str(int(time() - 86400))]
         x.delete_actual_object = deliberately_blow_up
         x.pop_queue = should_not_get_called
         x.run_once()
-        error_lines = x.logger.get_lines_for_level('error')
         self.assertEqual(
-            error_lines,
-            ['Exception while deleting object %d %d-actual-obj '
+            x.logger.get_lines_for_level('error'),
+            ['Exception while deleting object %d %d-a/c/actual-obj '
              'failed to delete actual object: ' % (ts, ts)])
         self.assertEqual(
             x.logger.get_lines_for_level('info'), [
-                'Pass beginning; 1 possible containers; 2 possible objects',
+                'Pass beginning; 1 possible containers; 1 possible objects',
                 'Pass completed in 0s; 0 objects expired',
             ])
 
         # Reverse test to be sure it still would blow up the way expected.
         ts = int(time() - 86400)
-        fake_swift = InternalClient(
-            [{'name': str(int(time() - 86400))}],
-            [{'name': '%d-actual-obj' % ts}])
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {
+                str(int(time() - 86400)): ['%d-a/c/actual-obj' % ts],
+            },
+        })
         self.logger._clear()
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
@@ -500,36 +587,16 @@ class TestObjectExpirer(TestCase):
         x.run_once()
         self.assertEqual(
             self.logger.get_lines_for_level('error'),
-            ['Exception while deleting object %d %d-actual-obj This should '
-             'not have been called: ' % (ts, ts)])
+            ['Exception while deleting object %d %d-a/c/actual-obj This '
+             'should not have been called: ' % (ts, ts)])
 
     def test_success_gets_counted(self):
-        class InternalClient(object):
-
-            container_ring = None
-
-            def __init__(self, containers, objects):
-                self.containers = containers
-                self.objects = objects
-
-            def get_account_info(*a, **kw):
-                return 1, 2
-
-            def iter_containers(self, *a, **kw):
-                return self.containers
-
-            def delete_container(*a, **kw):
-                pass
-
-            def delete_object(*a, **kw):
-                pass
-
-            def iter_objects(self, *a, **kw):
-                return self.objects
-
-        fake_swift = InternalClient(
-            [{'name': str(int(time() - 86400))}],
-            [{'name': '%d-acc/c/actual-obj' % int(time() - 86400)}])
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {
+                str(int(time() - 86400)): [
+                    '%d-acc/c/actual-obj' % int(time() - 86400)],
+            },
+        })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
         x.delete_actual_object = lambda o, t: None
@@ -540,42 +607,22 @@ class TestObjectExpirer(TestCase):
             self.assertEqual(x.report_objects, 1)
             self.assertEqual(
                 x.logger.get_lines_for_level('info'),
-                ['Pass beginning; 1 possible containers; 2 possible objects',
+                ['Pass beginning; 1 possible containers; 1 possible objects',
                  'Pass completed in 0s; 1 objects expired'])
 
     def test_delete_actual_object_does_not_get_unicode(self):
-        class InternalClient(object):
-
-            container_ring = None
-
-            def __init__(self, containers, objects):
-                self.containers = containers
-                self.objects = objects
-
-            def get_account_info(*a, **kw):
-                return 1, 2
-
-            def iter_containers(self, *a, **kw):
-                return self.containers
-
-            def delete_container(*a, **kw):
-                pass
-
-            def delete_object(*a, **kw):
-                pass
-
-            def iter_objects(self, *a, **kw):
-                return self.objects
-
         got_unicode = [False]
 
         def delete_actual_object_test_for_unicode(actual_obj, timestamp):
             if isinstance(actual_obj, six.text_type):
                 got_unicode[0] = True
 
-        fake_swift = InternalClient(
-            [{'name': str(int(time() - 86400))}],
-            [{'name': u'%d-actual-obj' % int(time() - 86400)}])
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {
+                str(int(time() - 86400)): [
+                    '%d-a/c/actual-obj' % int(time() - 86400)],
+            },
+        })
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
         x.delete_actual_object = delete_actual_object_test_for_unicode
@@ -585,72 +632,51 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(x.report_objects, 1)
         self.assertEqual(
             x.logger.get_lines_for_level('info'), [
-                'Pass beginning; 1 possible containers; 2 possible objects',
+                'Pass beginning; 1 possible containers; 1 possible objects',
                 'Pass completed in 0s; 1 objects expired',
             ])
         self.assertFalse(got_unicode[0])
 
     def test_failed_delete_continues_on(self):
-        class InternalClient(object):
-
-            container_ring = None
-
-            def __init__(self, containers, objects):
-                self.containers = containers
-                self.objects = objects
-
-            def get_account_info(*a, **kw):
-                return 1, 2
-
-            def iter_containers(self, *a, **kw):
-                return self.containers
-
-            def delete_container(*a, **kw):
-                raise Exception('failed to delete container')
-
-            def delete_object(*a, **kw):
-                pass
-
-            def iter_objects(self, *a, **kw):
-                return self.objects
+        def fail_delete_container(*a, **kw):
+            raise Exception('failed to delete container')
 
         def fail_delete_actual_object(actual_obj, timestamp):
             raise Exception('failed to delete actual object')
 
-        x = expirer.ObjectExpirer(self.conf, logger=self.logger)
-
         cts = int(time() - 86400)
         ots = int(time() - 86400)
 
-        containers = [
-            {'name': str(cts)},
-            {'name': str(cts + 1)},
-        ]
-
-        objects = [
-            {'name': '%d-actual-obj' % ots},
-            {'name': '%d-next-obj' % ots}
-        ]
-
-        x.swift = InternalClient(containers, objects)
+        fake_swift = FakeInternalClient({
+            '.expiring_objects': {
+                str(cts): [
+                    '%d-a/c/actual-obj' % ots, '%d-a/c/next-obj' % ots],
+                str(cts + 1): [
+                    '%d-a/c/actual-obj' % ots, '%d-a/c/next-obj' % ots],
+            },
+        })
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=fake_swift)
         x.delete_actual_object = fail_delete_actual_object
-        x.run_once()
+        with mock.patch.object(fake_swift, 'delete_container',
+                               fail_delete_container):
+            x.run_once()
         error_lines = x.logger.get_lines_for_level('error')
         self.assertEqual(sorted(error_lines), sorted([
-            'Exception while deleting object %d %d-actual-obj failed to '
+            'Exception while deleting object %d %d-a/c/actual-obj failed to '
             'delete actual object: ' % (cts, ots),
-            'Exception while deleting object %d %d-next-obj failed to '
+            'Exception while deleting object %d %d-a/c/next-obj failed to '
             'delete actual object: ' % (cts, ots),
-            'Exception while deleting object %d %d-actual-obj failed to '
+            'Exception while deleting object %d %d-a/c/actual-obj failed to '
             'delete actual object: ' % (cts + 1, ots),
-            'Exception while deleting object %d %d-next-obj failed to '
+            'Exception while deleting object %d %d-a/c/next-obj failed to '
             'delete actual object: ' % (cts + 1, ots),
             'Exception while deleting container %d failed to delete '
             'container: ' % (cts,),
             'Exception while deleting container %d failed to delete '
             'container: ' % (cts + 1,)]))
         self.assertEqual(x.logger.get_lines_for_level('info'), [
-            'Pass beginning; 1 possible containers; 2 possible objects',
+            'Pass beginning; 2 possible containers; 4 possible objects',
             'Pass completed in 0s; 0 objects expired',
         ])
 
@@ -715,7 +741,7 @@ class TestObjectExpirer(TestCase):
         internal_client.loadapp = lambda *a, **kw: fake_app
 
         x = expirer.ObjectExpirer({})
-        ts = '1234'
+        ts = Timestamp('1234')
         x.delete_actual_object('/path/to/object', ts)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
         self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
@@ -734,37 +760,41 @@ class TestObjectExpirer(TestCase):
         internal_client.loadapp = lambda *a, **kw: fake_app
 
         x = expirer.ObjectExpirer({})
-        ts = '1234'
+        ts = Timestamp('1234')
         x.delete_actual_object('/path/to/object name', ts)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
         self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
                          got_env[0]['HTTP_X_IF_DELETE_AT'])
         self.assertEqual(got_env[0]['PATH_INFO'], '/v1/path/to/object name')
 
-    def test_delete_actual_object_raises_404(self):
+    def test_delete_actual_object_returns_expected_error(self):
+        def do_test(test_status, should_raise):
+            calls = [0]
 
-        def fake_app(env, start_response):
-            start_response('404 Not Found', [('Content-Length', '0')])
-            return []
+            def fake_app(env, start_response):
+                calls[0] += 1
+                start_response(test_status, [('Content-Length', '0')])
+                return []
 
-        internal_client.loadapp = lambda *a, **kw: fake_app
+            internal_client.loadapp = lambda *a, **kw: fake_app
 
-        x = expirer.ObjectExpirer({})
-        self.assertRaises(internal_client.UnexpectedResponse,
-                          x.delete_actual_object, '/path/to/object', '1234')
+            x = expirer.ObjectExpirer({})
+            ts = Timestamp('1234')
+            if should_raise:
+                with self.assertRaises(internal_client.UnexpectedResponse):
+                    x.delete_actual_object('/path/to/object', ts)
+            else:
+                x.delete_actual_object('/path/to/object', ts)
+            self.assertEqual(calls[0], 1)
 
-    def test_delete_actual_object_raises_412(self):
-
-        def fake_app(env, start_response):
-            start_response('412 Precondition Failed',
-                           [('Content-Length', '0')])
-            return []
-
-        internal_client.loadapp = lambda *a, **kw: fake_app
-
-        x = expirer.ObjectExpirer({})
-        self.assertRaises(internal_client.UnexpectedResponse,
-                          x.delete_actual_object, '/path/to/object', '1234')
+        # object was deleted and tombstone reaped
+        do_test('404 Not Found', True)
+        # object was overwritten *after* the original expiration, or
+        do_test('409 Conflict', False)
+        # object was deleted but tombstone still exists, or
+        # object was overwritten ahead of the original expiration, or
+        # object was POSTed to with a new (or no) expiration, or ...
+        do_test('412 Precondition Failed', True)
 
     def test_delete_actual_object_does_not_handle_odd_stuff(self):
 
@@ -779,7 +809,7 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         exc = None
         try:
-            x.delete_actual_object('/path/to/object', '1234')
+            x.delete_actual_object('/path/to/object', Timestamp('1234'))
         except Exception as err:
             exc = err
         finally:
@@ -788,19 +818,30 @@ class TestObjectExpirer(TestCase):
 
     def test_delete_actual_object_quotes(self):
         name = 'this name should get quoted'
-        timestamp = '1366063156.863045'
+        timestamp = Timestamp('1366063156.863045')
         x = expirer.ObjectExpirer({})
-        x.swift.make_request = mock.MagicMock()
+        x.swift.make_request = mock.Mock()
+        x.swift.make_request.return_value.status_int = 204
         x.delete_actual_object(name, timestamp)
         self.assertEqual(x.swift.make_request.call_count, 1)
         self.assertEqual(x.swift.make_request.call_args[0][1],
                          '/v1/' + urllib.parse.quote(name))
 
+    def test_delete_actual_object_queue_cleaning(self):
+        name = 'something'
+        timestamp = Timestamp('1515544858.80602')
+        x = expirer.ObjectExpirer({})
+        x.swift.make_request = mock.MagicMock()
+        x.delete_actual_object(name, timestamp)
+        self.assertEqual(x.swift.make_request.call_count, 1)
+        header = 'X-Backend-Clean-Expiring-Object-Queue'
+        self.assertEqual(
+            x.swift.make_request.call_args[0][2].get(header),
+            'no')
+
     def test_pop_queue(self):
-        class InternalClient(object):
-            container_ring = FakeRing()
         x = expirer.ObjectExpirer({}, logger=self.logger,
-                                  swift=InternalClient())
+                                  swift=FakeInternalClient({}))
         requests = []
 
         def capture_requests(ipaddr, port, method, path, *args, **kwargs):

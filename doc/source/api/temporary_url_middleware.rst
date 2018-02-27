@@ -57,7 +57,7 @@ or ISO 8601 UTC timestamp. For example, ``1390852007`` or
 ``Mon, 27 Jan 2014 19:46:47 GMT``.
 
 For more information, see `Epoch & Unix Timestamp Conversion
-Tools <http://www.epochconverter.com/>`__.
+Tools <https://www.epochconverter.com/>`__.
 
 **filename**: Optional. Overrides the default file name. Object Storage
 generates a default file name for **GET** temporary URLs that is based on the

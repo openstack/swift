@@ -54,10 +54,18 @@ Client Usage
 ------------
 
 To create temporary URLs, first an ``X-Account-Meta-Temp-URL-Key``
-header must be set on the Swift account. Then, an HMAC-SHA1 (RFC 2104)
+header must be set on the Swift account. Then, an HMAC (RFC 2104)
 signature is generated using the HTTP method to allow (``GET``, ``PUT``,
-``DELETE``, etc.), the Unix timestamp the access should be allowed until,
+``DELETE``, etc.), the Unix timestamp until which the access should be allowed,
 the full path to the object, and the key set on the account.
+
+The digest algorithm to be used may be configured by the operator. By default,
+HMAC-SHA1, HMAC-SHA256, and HMAC-SHA512 are supported. Check the
+``tempurl.allowed_digests`` entry in the cluster's capabilities response to
+see which algorithms are supported by your deployment; see
+:doc:`api/discoverability` for more information. On older clusters,
+the ``tempurl`` key may be present while the ``allowed_digests`` subkey
+is not; in this case, only HMAC-SHA1 is supported.
 
 For example, here is code generating the signature for a ``GET`` for 60
 seconds on ``/v1/AUTH_account/container/object``::
@@ -82,10 +90,37 @@ Let's say ``sig`` ends up equaling
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
     temp_url_expires=1323479485
 
+For longer hashes, a hex encoding becomes unwieldy. Base64 encoding is also
+supported, and indicated by prefixing the signature with ``"<digest name>:"``.
+This is *required* for HMAC-SHA512 signatures. For example, comparable code
+for generating a HMAC-SHA512 signature would be::
+
+    import base64
+    import hmac
+    from hashlib import sha512
+    from time import time
+    method = 'GET'
+    expires = int(time() + 60)
+    path = '/v1/AUTH_account/container/object'
+    key = 'mykey'
+    hmac_body = '%s\n%s\n%s' % (method, expires, path)
+    sig = 'sha512:' + base64.urlsafe_b64encode(hmac.new(
+        key, hmac_body, sha512).digest())
+
+Supposing that ``sig`` ends up equaling
+``sha512:ZrSijn0GyDhsv1ltIj9hWUTrbAeE45NcKXyBaz7aPbSMvROQ4jtYH4nRAmm
+5ErY2X11Yc1Yhy2OMCyN3yueeXg==`` and ``expires`` ends up
+``1516741234``, then the website could provide a link to::
+
+    https://swift-cluster.example.com/v1/AUTH_account/container/object?
+    temp_url_sig=sha512:ZrSijn0GyDhsv1ltIj9hWUTrbAeE45NcKXyBaz7aPbSMvRO
+    Q4jtYH4nRAmm5ErY2X11Yc1Yhy2OMCyN3yueeXg==&
+    temp_url_expires=1516741234
+
 You may also use ISO 8601 UTC timestamps with the format
 ``"%Y-%m-%dT%H:%M:%SZ"`` instead of UNIX timestamps in the URL
 (but NOT in the code above for generating the signature!).
-So, the latter URL could also be formulated as::
+So, the above HMAC-SHA1 URL could also be formulated as::
 
     https://swift-cluster.example.com/v1/AUTH_account/container/object?
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
@@ -199,6 +234,12 @@ This middleware understands the following configuration settings:
 
     Default: ``GET HEAD PUT POST DELETE``
 
+``allowed_digests``
+    A whitespace delimited list of digest algorithms that are allowed
+    to be used when calculating the signature for a temporary URL.
+
+    Default: ``sha1 sha256 sha512``
+
 """
 
 __all__ = ['TempURL', 'filter_factory',
@@ -207,7 +248,10 @@ __all__ = ['TempURL', 'filter_factory',
            'DEFAULT_OUTGOING_REMOVE_HEADERS',
            'DEFAULT_OUTGOING_ALLOW_HEADERS']
 
+import binascii
 from calendar import timegm
+import functools
+import hashlib
 from os.path import basename
 from time import time, strftime, strptime, gmtime
 
@@ -219,7 +263,8 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
     HTTPBadRequest
 from swift.common.utils import split_path, get_valid_utf8_str, \
-    register_swift_info, get_hmac, streq_const_time, quote
+    register_swift_info, get_hmac, streq_const_time, quote, get_logger, \
+    strict_b64decode
 
 
 DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
@@ -246,6 +291,8 @@ DEFAULT_OUTGOING_REMOVE_HEADERS = 'x-object-meta-*'
 #: '*' to indicate a prefix match.
 DEFAULT_OUTGOING_ALLOW_HEADERS = 'x-object-meta-public-*'
 
+DEFAULT_ALLOWED_DIGESTS = 'sha1 sha256 sha512'
+SUPPORTED_DIGESTS = set(DEFAULT_ALLOWED_DIGESTS.split())
 
 CONTAINER_SCOPE = 'container'
 ACCOUNT_SCOPE = 'account'
@@ -330,6 +377,9 @@ class TempURL(object):
         #: The filter configuration dict.
         self.conf = conf
 
+        self.allowed_digests = conf.get(
+            'allowed_digests', DEFAULT_ALLOWED_DIGESTS.split())
+
         self.disallowed_headers = set(
             header_to_environ_key(h)
             for h in DISALLOWED_INCOMING_HEADERS.split())
@@ -401,6 +451,26 @@ class TempURL(object):
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
             return self._invalid(env, start_response)
+
+        if ':' in temp_url_sig:
+            hash_algorithm, temp_url_sig = temp_url_sig.split(':', 1)
+            if ('-' in temp_url_sig or '_' in temp_url_sig) and not (
+                    '+' in temp_url_sig or '/' in temp_url_sig):
+                temp_url_sig = temp_url_sig.replace('-', '+').replace('_', '/')
+            try:
+                temp_url_sig = binascii.hexlify(strict_b64decode(
+                    temp_url_sig + '=='))
+            except ValueError:
+                return self._invalid(env, start_response)
+        elif len(temp_url_sig) == 40:
+            hash_algorithm = 'sha1'
+        elif len(temp_url_sig) == 64:
+            hash_algorithm = 'sha256'
+        else:
+            return self._invalid(env, start_response)
+        if hash_algorithm not in self.allowed_digests:
+            return self._invalid(env, start_response)
+
         account, container, obj = self._get_path_parts(env)
         if not account:
             return self._invalid(env, start_response)
@@ -415,16 +485,14 @@ class TempURL(object):
             path = 'prefix:/v1/%s/%s/%s' % (account, container,
                                             temp_url_prefix)
         if env['REQUEST_METHOD'] == 'HEAD':
-            hmac_vals = (
-                self._get_hmacs(env, temp_url_expires, path, keys) +
-                self._get_hmacs(env, temp_url_expires, path, keys,
-                                request_method='GET') +
-                self._get_hmacs(env, temp_url_expires, path, keys,
-                                request_method='POST') +
-                self._get_hmacs(env, temp_url_expires, path, keys,
-                                request_method='PUT'))
+            hmac_vals = [
+                hmac for method in ('HEAD', 'GET', 'POST', 'PUT')
+                for hmac in self._get_hmacs(
+                    env, temp_url_expires, path, keys, hash_algorithm,
+                    request_method=method)]
         else:
-            hmac_vals = self._get_hmacs(env, temp_url_expires, path, keys)
+            hmac_vals = self._get_hmacs(
+                env, temp_url_expires, path, keys, hash_algorithm)
 
         is_valid_hmac = False
         hmac_scope = None
@@ -589,7 +657,7 @@ class TempURL(object):
         return ([(ak, ACCOUNT_SCOPE) for ak in account_keys] +
                 [(ck, CONTAINER_SCOPE) for ck in container_keys])
 
-    def _get_hmacs(self, env, expires, path, scoped_keys,
+    def _get_hmacs(self, env, expires, path, scoped_keys, hash_algorithm,
                    request_method=None):
         """
         :param env: The WSGI environment for the request.
@@ -597,6 +665,7 @@ class TempURL(object):
                         expires.
         :param path: The path which is used for hashing.
         :param scoped_keys: (key, scope) tuples like _get_keys() returns
+        :param hash_algorithm: The hash algorithm to use.
         :param request_method: Optional override of the request in
                                the WSGI env. For example, if a HEAD
                                does not match, you may wish to
@@ -608,8 +677,9 @@ class TempURL(object):
         if not request_method:
             request_method = env['REQUEST_METHOD']
 
+        digest = functools.partial(hashlib.new, hash_algorithm)
         return [
-            (get_hmac(request_method, path, expires, key), scope)
+            (get_hmac(request_method, path, expires, key, digest), scope)
             for (key, scope) in scoped_keys]
 
     def _invalid(self, env, start_response):
@@ -706,8 +776,23 @@ def filter_factory(global_conf, **local_conf):
         'incoming_allow_headers': DEFAULT_INCOMING_ALLOW_HEADERS,
         'outgoing_remove_headers': DEFAULT_OUTGOING_REMOVE_HEADERS,
         'outgoing_allow_headers': DEFAULT_OUTGOING_ALLOW_HEADERS,
+        'allowed_digests': DEFAULT_ALLOWED_DIGESTS,
     }
     info_conf = {k: conf.get(k, v).split() for k, v in defaults.items()}
+
+    allowed_digests = set(digest.lower()
+                          for digest in info_conf['allowed_digests'])
+    not_supported = allowed_digests - SUPPORTED_DIGESTS
+    if not_supported:
+        logger = get_logger(conf, log_route='tempurl')
+        logger.warning('The following digest algorithms are configured but '
+                       'not supported: %s', ', '.join(not_supported))
+        allowed_digests -= not_supported
+    if not allowed_digests:
+        raise ValueError('No valid digest algorithms are configured '
+                         'for tempurls')
+    info_conf['allowed_digests'] = sorted(allowed_digests)
+
     register_swift_info('tempurl', **info_conf)
     conf.update(info_conf)
 

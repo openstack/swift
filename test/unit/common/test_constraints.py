@@ -360,13 +360,13 @@ class TestConstraints(unittest.TestCase):
         self.assertEqual(req.headers['X-Delete-At'], str(int(ts) + 42))
 
     def test_check_delete_headers_sets_delete_at(self):
-        t = time.time()
-        expected = str(int(t) + 1000)
+        ts = utils.Timestamp.now()
+        expected = str(int(ts) + 1000)
         # check delete-at is passed through
         headers = {'Content-Length': '0',
                    'Content-Type': 'text/plain',
                    'X-Delete-At': expected,
-                   'X-Timestamp': str(t)}
+                   'X-Timestamp': ts.internal}
         req = Request.blank('/', headers=headers)
         constraints.check_delete_headers(req)
         self.assertIn('X-Delete-At', req.headers)
@@ -376,19 +376,19 @@ class TestConstraints(unittest.TestCase):
         headers = {'Content-Length': '0',
                    'Content-Type': 'text/plain',
                    'X-Delete-After': '42',
-                   'X-Timestamp': str(t)}
+                   'X-Timestamp': ts.internal}
         req = Request.blank('/', headers=headers)
         constraints.check_delete_headers(req)
         self.assertIn('X-Delete-At', req.headers)
-        expected = str(int(t) + 42)
+        expected = str(int(ts) + 42)
         self.assertEqual(req.headers['X-Delete-At'], expected)
 
         # check delete-after takes precedence over delete-at
         headers = {'Content-Length': '0',
                    'Content-Type': 'text/plain',
                    'X-Delete-After': '42',
-                   'X-Delete-At': str(int(t) + 40),
-                   'X-Timestamp': str(t)}
+                   'X-Delete-At': str(int(ts) + 40),
+                   'X-Timestamp': ts.internal}
         req = Request.blank('/', headers=headers)
         constraints.check_delete_headers(req)
         self.assertIn('X-Delete-At', req.headers)
@@ -397,8 +397,8 @@ class TestConstraints(unittest.TestCase):
         headers = {'Content-Length': '0',
                    'Content-Type': 'text/plain',
                    'X-Delete-After': '42',
-                   'X-Delete-At': str(int(t) + 44),
-                   'X-Timestamp': str(t)}
+                   'X-Delete-At': str(int(ts) + 44),
+                   'X-Timestamp': ts.internal}
         req = Request.blank('/', headers=headers)
         constraints.check_delete_headers(req)
         self.assertIn('X-Delete-At', req.headers)

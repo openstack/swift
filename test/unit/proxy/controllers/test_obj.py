@@ -479,6 +479,43 @@ class BaseObjectControllerMixin(object):
             None: 0,
         })
 
+    def test_expirer_DELETE_suppresses_expirer_queue_updates(self):
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='DELETE', headers={
+                'X-Backend-Clean-Expiring-Object-Queue': 'no'})
+        codes = [204] * self.replicas()
+        captured_headers = []
+
+        def capture_headers(ip, port, device, part, method, path,
+                            headers=None, **kwargs):
+            captured_headers.append(headers)
+
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)  # sanity check
+
+        counts = {True: 0, False: 0, None: 0}
+        for headers in captured_headers:
+            v = headers.get('X-Backend-Clean-Expiring-Object-Queue')
+            norm_v = None if v is None else utils.config_true_value(v)
+            counts[norm_v] += 1
+
+        o_replicas = self.replicas()
+        self.assertEqual(counts, {
+            True: 0,
+            False: o_replicas,
+            None: 0,
+        })
+
+        # Make sure we're not sending any expirer-queue update headers here.
+        # Since we're not updating the expirer queue, these headers would be
+        # superfluous.
+        for headers in captured_headers:
+            self.assertNotIn('X-Delete-At-Container', headers)
+            self.assertNotIn('X-Delete-At-Partition', headers)
+            self.assertNotIn('X-Delete-At-Host', headers)
+            self.assertNotIn('X-Delete-At-Device', headers)
+
     def test_DELETE_write_affinity_before_replication(self):
         policy_conf = self.app.get_policy_options(self.policy)
         policy_conf.write_affinity_handoff_delete_count = self.replicas() / 2

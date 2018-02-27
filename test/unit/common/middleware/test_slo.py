@@ -16,12 +16,15 @@
 
 from six.moves import range
 
+import base64
 import hashlib
 import json
 import time
 import unittest
+
 from mock import patch
 from StringIO import StringIO
+
 from swift.common import swob, utils
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import slo
@@ -59,6 +62,9 @@ class SloTestCase(unittest.TestCase):
         slo_conf = {'rate_limit_under_size': '0'}
         self.slo = slo.filter_factory(slo_conf)(self.app)
         self.slo.logger = self.app.logger
+        self.manifest_abcd_etag = md5hex(
+            md5hex("a" * 5) + md5hex(md5hex("b" * 10) + md5hex("c" * 15)) +
+            md5hex("d" * 20))
 
     def call_app(self, req, app=None):
         if app is None:
@@ -703,6 +709,29 @@ class TestSloPutManifest(SloTestCase):
                             method='PUT', body=test_json_data)
         status, headers, body = self.call_slo(req)
         self.assertEqual(status, '201 Created')
+
+    def test_handle_multipart_put_invalid_data(self):
+        def do_test(bad_data):
+            test_json_data = json.dumps([{'path': '/cont/object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': 100},
+                                         {'data': bad_data}])
+            req = Request.blank('/v1/a/c/o', body=test_json_data)
+            with self.assertRaises(HTTPException) as catcher:
+                self.slo.handle_multipart_put(req, fake_start_response)
+            self.assertEqual(catcher.exception.status_int, 400)
+
+        do_test('invalid')  # insufficient padding
+        do_test(12345)
+        do_test(0)
+        do_test(True)
+        do_test(False)
+        do_test(None)
+        do_test({})
+        do_test([])
+        # Empties are no good, either
+        do_test('')
+        do_test('====')
 
     def test_handle_multipart_put_success_unicode(self):
         test_json_data = json.dumps([{'path': u'/cont/object\u2661',
@@ -1683,10 +1712,6 @@ class TestSloGetManifest(SloTestCase):
                 'Etag': md5hex(_abcdefghijkl_manifest_json)},
             _abcdefghijkl_manifest_json)
 
-        self.manifest_abcd_etag = md5hex(
-            md5hex("a" * 5) + md5hex(md5hex("b" * 10) + md5hex("c" * 15)) +
-            md5hex("d" * 20))
-
         _bc_ranges_manifest_json = json.dumps(
             [{'name': '/gettest/b_10', 'hash': md5hex('b' * 10),
               'content_type': 'text/plain', 'bytes': '10',
@@ -1986,7 +2011,7 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '15')
-        self.assertNotIn('Etag', headers)
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
         self.assertEqual(body, 'aabbbbbbbbbbccc')
 
         self.assertEqual(
@@ -2231,7 +2256,7 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '25')
-        self.assertNotIn('Etag', headers)
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
         self.assertEqual(body, 'bbbbbbbbbbccccccccccccccc')
 
         self.assertEqual(
@@ -2368,8 +2393,10 @@ class TestSloGetManifest(SloTestCase):
             'bytes=0-3,8-11'])
         # we set swift.source for everything but the first request
         self.assertIsNone(self.app.swift_sources[0])
-        self.assertEqual(self.app.swift_sources[1:],
-                         ['SLO'] * (len(self.app.swift_sources) - 1))
+        self.assertEqual(
+            self.app.swift_sources[1:],
+            ['SLO'] * (len(self.app.swift_sources) - 1)
+        )
         self.assertEqual(md5hex(''.join([
             md5hex('a' * 5), ':0-3;',
             md5hex('a' * 5), ':1-4;',
@@ -2434,7 +2461,7 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '20')
         self.assertEqual(headers['Content-Type'], 'application/json')
-        self.assertNotIn('Etag', headers)
+        self.assertIn('Etag', headers)
         self.assertEqual(body, 'accccccccbbbbbbbbddd')
 
         self.assertEqual(
@@ -2655,18 +2682,21 @@ class TestSloGetManifest(SloTestCase):
                           'Etag': 'man%d' % i},
             manifest_json)
 
+        submanifest_bytes = 6
         for i in range(19, 0, -1):
             manifest_data = [
                 {'name': '/gettest/obj%d' % i,
                  'hash': md5hex('body%02d' % i),
                  'bytes': '6',
                  'content_type': 'text/plain'},
+                {'data': base64.b64encode('-' * 3)},
                 {'name': '/gettest/man%d' % (i + 1),
                  'hash': 'man%d' % (i + 1),
                  'sub_slo': True,
-                 'bytes': len(manifest_json),
+                 'bytes': submanifest_bytes,
                  'content_type': 'application/json'}]
 
+            submanifest_bytes += 9
             manifest_json = json.dumps(manifest_data)
             self.app.register(
                 'GET', '/v1/AUTH_test/gettest/man%d' % i,
@@ -2684,8 +2714,10 @@ class TestSloGetManifest(SloTestCase):
         # we don't know at header-sending time that things are going to go
         # wrong, so we end up with a 200 and a truncated body
         self.assertEqual(status, '200 OK')
-        self.assertEqual(body, ('body01body02body03body04body05' +
-                                'body06body07body08body09body10'))
+        self.assertEqual(headers['Content-Length'], str(9 * 19 + 6))
+        self.assertEqual(body, (
+            'body01---body02---body03---body04---body05---' +
+            'body06---body07---body08---body09---body10---'))
         # but the error shows up in logs
         self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
             "While processing manifest '/v1/AUTH_test/gettest/man1', "
@@ -3058,6 +3090,275 @@ class TestSloGetManifest(SloTestCase):
             'gettest/not_exists_obj'
         ])
 
+    def test_leading_data_segment(self):
+        slo_etag = md5hex(
+            md5hex('preamble') +
+            md5hex('a' * 5)
+        )
+        preamble = base64.b64encode('preamble')
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-single-preamble',
+            swob.HTTPOk,
+            {
+                'Content-Type': 'application/json',
+                'X-Static-Large-Object': 'true'
+            },
+            json.dumps([{
+                'data': preamble
+            }, {
+                'name': '/gettest/a_5',
+                'hash': md5hex('a' * 5),
+                'content_type': 'text/plain',
+                'bytes': '5',
+            }])
+        )
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-preamble',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('200 OK', status)
+        self.assertEqual(body, 'preambleaaaaa')
+        self.assertIn(('Etag', '"%s"' % slo_etag), headers)
+        self.assertIn(('Content-Length', '13'), headers)
+
+    def test_trailing_data_segment(self):
+        slo_etag = md5hex(
+            md5hex('a' * 5) +
+            md5hex('postamble')
+        )
+        postamble = base64.b64encode('postamble')
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-single-postamble',
+            swob.HTTPOk,
+            {
+                'Content-Type': 'application/json',
+                'X-Static-Large-Object': 'true'
+            },
+            json.dumps([{
+                'name': '/gettest/a_5',
+                'hash': md5hex('a' * 5),
+                'content_type': 'text/plain',
+                'bytes': '5',
+            }, {
+                'data': postamble
+            }])
+        )
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-postamble',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('200 OK', status)
+        self.assertEqual(body, 'aaaaapostamble')
+        self.assertIn(('Etag', '"%s"' % slo_etag), headers)
+        self.assertIn(('Content-Length', '14'), headers)
+
+    def test_data_segment_sandwich(self):
+        slo_etag = md5hex(
+            md5hex('preamble') +
+            md5hex('a' * 5) +
+            md5hex('postamble')
+        )
+        preamble = base64.b64encode('preamble')
+        postamble = base64.b64encode('postamble')
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-single-prepostamble',
+            swob.HTTPOk,
+            {
+                'Content-Type': 'application/json',
+                'X-Static-Large-Object': 'true'
+            },
+            json.dumps([{
+                'data': preamble,
+            }, {
+                'name': '/gettest/a_5',
+                'hash': md5hex('a' * 5),
+                'content_type': 'text/plain',
+                'bytes': '5',
+            }, {
+                'data': postamble
+            }])
+        )
+
+        # Test the whole SLO
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('200 OK', status)
+        self.assertEqual(body, 'preambleaaaaapostamble')
+        self.assertIn(('Etag', '"%s"' % slo_etag), headers)
+        self.assertIn(('Content-Length', '22'), headers)
+
+        # Test complete preamble only
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=0-7'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, 'preamble')
+
+        # Test range within preamble only
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=1-5'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, 'reamb')
+
+        # Test complete postamble only
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=13-21'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, 'postamble')
+
+        # Test partial pre and postamble
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=4-16'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, 'mbleaaaaapost')
+
+        # Test partial preamble and first byte of data
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=1-8'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, 'reamblea')
+
+        # Test last byte of segment data and partial postamble
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-single-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=12-16'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, 'apost')
+
+    def test_bunches_of_data_segments(self):
+        slo_etag = md5hex(
+            md5hex('ABCDEF') +
+            md5hex('a' * 5) +
+            md5hex('123456') +
+            md5hex('GHIJKL') +
+            md5hex('b' * 10) +
+            md5hex('7890@#')
+        )
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-multi-prepostamble',
+            swob.HTTPOk,
+            {
+                'Content-Type': 'application/json',
+                'X-Static-Large-Object': 'true'
+            },
+            json.dumps([
+                {
+                    'data': base64.b64encode('ABCDEF'),
+                },
+                {
+                    'name': '/gettest/a_5',
+                    'hash': md5hex('a' * 5),
+                    'content_type': 'text/plain',
+                    'bytes': '5',
+                },
+                {
+                    'data': base64.b64encode('123456')
+                },
+                {
+                    'data': base64.b64encode('GHIJKL'),
+                },
+                {
+                    'name': '/gettest/b_10',
+                    'hash': md5hex('b' * 10),
+                    'content_type': 'text/plain',
+                    'bytes': '10',
+                },
+                {
+                    'data': base64.b64encode('7890@#')
+                }
+            ])
+        )
+
+        # Test the whole SLO
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-multi-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('200 OK', status)
+        self.assertEqual(body, 'ABCDEFaaaaa123456GHIJKLbbbbbbbbbb7890@#')
+        self.assertIn(('Etag', '"%s"' % slo_etag), headers)
+        self.assertIn(('Content-Length', '39'), headers)
+
+        # Test last byte first pre-amble to first byte of second postamble
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-multi-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=5-33'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, 'Faaaaa123456GHIJKLbbbbbbbbbb7')
+
+        # Test only second complete preamble
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-multi-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=17-22'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, 'GHIJKL')
+
+        # Test only first complete postamble
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-multi-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=11-16'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, '123456')
+
+        # Test only range within first postamble
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-multi-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=12-15'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, '2345')
+
+        # Test only range within first postamble and second preamble
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-multi-prepostamble',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=12-18'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('206 Partial Content', status)
+        self.assertEqual(body, '23456GH')
+
 
 class TestSloConditionalGetOldManifest(SloTestCase):
     slo_data = [
@@ -3235,9 +3536,7 @@ class TestSloConditionalGetOldManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertIn(('Content-Length', '4'), headers)
-        # We intentionally drop Etag for ranged requests.
-        # Presumably because of broken clients?
-        self.assertNotIn('etag', [h.lower() for h, v in headers])
+        self.assertIn(('Etag', '"%s"' % self.manifest_abcd_etag), headers)
         self.assertEqual(body, 'aabb')
 
         expected_app_calls = [
@@ -3327,7 +3626,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(swift_info['slo'].get('max_manifest_size'),
                          mware.max_manifest_size)
         self.assertEqual(1000, mware.max_manifest_segments)
-        self.assertEqual(2097152, mware.max_manifest_size)
+        self.assertEqual(8388608, mware.max_manifest_size)
         self.assertEqual(1048576, mware.rate_limit_under_size)
         self.assertEqual(10, mware.rate_limit_after_segment)
         self.assertEqual(1, mware.rate_limit_segments_per_sec)

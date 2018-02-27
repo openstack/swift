@@ -70,7 +70,10 @@ class FakeStoragePolicy(BaseStoragePolicy):
 class TestStoragePolicies(unittest.TestCase):
     def _conf(self, conf_str):
         conf_str = "\n".join(line.strip() for line in conf_str.split("\n"))
-        conf = ConfigParser()
+        if six.PY2:
+            conf = ConfigParser()
+        else:
+            conf = ConfigParser(strict=False)
         conf.readfp(six.StringIO(conf_str))
         return conf
 
@@ -679,7 +682,7 @@ class TestStoragePolicies(unittest.TestCase):
         with capture_logging('swift.common.storage_policy') as records, \
                 self.assertRaises(PolicyError) as exc_mgr:
             parse_storage_policies(bad_conf)
-        self.assertEqual(exc_mgr.exception.message,
+        self.assertEqual(exc_mgr.exception.args[0],
                          'Storage policy bad-policy uses an EC '
                          'configuration known to harm data durability. This '
                          'policy MUST be deprecated.')
@@ -1048,7 +1051,7 @@ class TestStoragePolicies(unittest.TestCase):
         [storage-policy:00]
         name = double-zero
         """)
-        with NamedTemporaryFile() as f:
+        with NamedTemporaryFile(mode='w+t') as f:
             conf.write(f)
             f.flush()
             with mock.patch('swift.common.utils.SWIFT_CONF_FILE',
@@ -1299,25 +1302,31 @@ class TestStoragePolicies(unittest.TestCase):
                             ec_ndata=4, ec_nparity=2,
                             ec_duplication_factor=2)
         ]
-        actual_load_ring_replicas = [8, 10, 7, 11]
         policies = StoragePolicyCollection(test_policies)
 
         class MockRingData(object):
             def __init__(self, num_replica):
-                self._replica2part2dev_id = [0] * num_replica
+                self.replica_count = num_replica
 
-        for policy, ring_replicas in zip(policies, actual_load_ring_replicas):
-            with mock.patch('swift.common.ring.ring.RingData.load',
-                            return_value=MockRingData(ring_replicas)):
-                necessary_replica_num = \
-                    policy.ec_n_unique_fragments * policy.ec_duplication_factor
-                with mock.patch(
-                        'swift.common.ring.ring.validate_configuration'):
-                    msg = 'EC ring for policy %s needs to be configured with ' \
-                          'exactly %d replicas.' % \
-                          (policy.name, necessary_replica_num)
-                    self.assertRaisesWithMessage(RingLoadError, msg,
-                                                 policy.load_ring, 'mock')
+        def do_test(actual_load_ring_replicas):
+            for policy, ring_replicas in zip(policies,
+                                             actual_load_ring_replicas):
+                with mock.patch('swift.common.ring.ring.RingData.load',
+                                return_value=MockRingData(ring_replicas)):
+                    necessary_replica_num = (policy.ec_n_unique_fragments *
+                                             policy.ec_duplication_factor)
+                    with mock.patch(
+                            'swift.common.ring.ring.validate_configuration'):
+                        msg = 'EC ring for policy %s needs to be configured ' \
+                              'with exactly %d replicas.' % \
+                              (policy.name, necessary_replica_num)
+                        self.assertRaisesWithMessage(RingLoadError, msg,
+                                                     policy.load_ring, 'mock')
+
+        # first, do somethign completely different
+        do_test([8, 10, 7, 11])
+        # then again, closer to true, but fractional
+        do_test([9.9, 14.1, 5.99999, 12.000000001])
 
     def test_storage_policy_get_info(self):
         test_policies = [

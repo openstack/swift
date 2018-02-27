@@ -230,7 +230,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
         with self.assertRaises(ValueError) as cm:
             compose_rings(builders)
         self.assertIn('Same region found in different rings',
-                      cm.exception.message)
+                      cm.exception.args[0])
 
     def test_composite_only_one_ring_in_the_args_error(self):
         builders = self.create_sample_ringbuilders(1)
@@ -238,7 +238,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
             compose_rings(builders)
         self.assertIn(
             'Two or more component builders are required.',
-            cm.exception.message)
+            cm.exception.args[0])
 
     def test_composite_same_device_in_the_different_rings_error(self):
         builders = self.create_sample_ringbuilders(2)
@@ -267,7 +267,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
         self.assertIn(
             'Duplicate ip/port/device combination %(ip)s/%(port)s/%(device)s '
             'found in builders at indexes 0 and 2' %
-            same_device, cm.exception.message)
+            same_device, cm.exception.args[0])
 
     def test_different_part_power_error(self):
         # create a ring builder
@@ -296,7 +296,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
         with self.assertRaises(ValueError) as cm:
             compose_rings(builders)
         self.assertIn("All builders must have same value for 'part_power'",
-                      cm.exception.message)
+                      cm.exception.args[0])
 
     def test_compose_rings_float_replica_count_builder_error(self):
         builders = self.create_sample_ringbuilders(1)
@@ -322,8 +322,8 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
 
         with self.assertRaises(ValueError) as cm:
             compose_rings(builders)
-        self.assertIn("Problem with builders", cm.exception.message)
-        self.assertIn("Non integer replica count", cm.exception.message)
+        self.assertIn("Problem with builders", cm.exception.args[0])
+        self.assertIn("Non integer replica count", cm.exception.args[0])
 
     def test_compose_rings_rebalance_needed(self):
         builders = self.create_sample_ringbuilders(2)
@@ -334,8 +334,8 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
         self.assertTrue(builders[1].devs_changed)  # sanity check
         with self.assertRaises(ValueError) as cm:
             compose_rings(builders)
-        self.assertIn("Problem with builders", cm.exception.message)
-        self.assertIn("Builder needs rebalance", cm.exception.message)
+        self.assertIn("Problem with builders", cm.exception.args[0])
+        self.assertIn("Builder needs rebalance", cm.exception.args[0])
         # after rebalance, that works (sanity)
         builders[1].rebalance()
         compose_rings(builders)
@@ -367,7 +367,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
 
     def test_ring_swap(self):
         # sanity
-        builders = sorted(self.create_sample_ringbuilders(2))
+        builders = self.create_sample_ringbuilders(2)
         rd = compose_rings(builders)
         rd.save(self.output_ring)
         got_ring = Ring(self.output_ring)
@@ -377,7 +377,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
         self.assertDevices(got_ring, builders)
 
         # even if swapped, it works
-        reverse_builders = sorted(builders, reverse=True)
+        reverse_builders = builders[::-1]
         self.assertNotEqual(reverse_builders, builders)
         rd = compose_rings(reverse_builders)
         rd.save(self.output_ring)
@@ -396,7 +396,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
             self.assertDevices(got_ring, builders)
 
         self.assertIn("composite ring is not ordered by ring order",
-                      cm.exception.message)
+                      cm.exception.args[0])
 
 
 class TestCompositeRingBuilder(BaseTestCompositeBuilder):
@@ -429,7 +429,7 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
         with self.assertRaises(ValueError) as cm:
             cb.compose(require_modified=True)
         self.assertIn('None of the component builders has been modified',
-                      cm.exception.message)
+                      cm.exception.args[0])
         self.assertEqual(1, cb.version)
         # ...but by default will compose again despite no changes to components
         cb.compose(force=True).save(self.output_ring)
@@ -530,12 +530,12 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
                     CompositeRingBuilder.load(bad_file)
                 self.assertIn(
                     "File does not contain valid composite ring data",
-                    cm.exception.message)
+                    cm.exception.args[0])
             except AssertionError as err:
                 raise AssertionError('With content %r: %s' % (content, err))
 
         for content in ('', 'not json', json.dumps({}), json.dumps([])):
-            check_bad_content(content)
+            check_bad_content(content.encode('ascii'))
 
         good_content = {
             'components': [
@@ -548,7 +548,7 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
         for missing in good_content:
             bad_content = dict(good_content)
             bad_content.pop(missing)
-            check_bad_content(json.dumps(bad_content))
+            check_bad_content(json.dumps(bad_content).encode('ascii'))
 
     def test_save_errors(self):
         cb_file = os.path.join(self.tmpdir, 'test-composite-ring.json')
@@ -556,7 +556,7 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
         def do_test(cb):
             with self.assertRaises(ValueError) as cm:
                 cb.save(cb_file)
-            self.assertIn("No composed ring to save", cm.exception.message)
+            self.assertIn("No composed ring to save", cm.exception.args[0])
 
         do_test(CompositeRingBuilder())
         do_test(CompositeRingBuilder([]))
@@ -635,7 +635,7 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
         with self.assertRaises(ValueError) as cm:
             cb.rebalance()
         self.assertIn('Two or more component builders are required',
-                      cm.exception.message)
+                      cm.exception.args[0])
 
         builders = self.create_sample_ringbuilders(2)
         cb, builder_files = self._make_composite_builder(builders)
@@ -668,7 +668,7 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
         # sanity, it is impossible to compose un-rebalanced component rings
         with self.assertRaises(ValueError) as cm:
             cb.compose()
-        self.assertIn("Builder needs rebalance", cm.exception.message)
+        self.assertIn("Builder needs rebalance", cm.exception.args[0])
         # but ok to compose after rebalance
         cb.rebalance()
         rd = cb.compose()
@@ -727,14 +727,14 @@ class TestLoadComponents(BaseTestCompositeBuilder):
                 self._call_method_under_test(cb, builder_files,
                                              force=force)
             self.assertIn('Two or more component builders are required',
-                          cm.exception.message)
+                          cm.exception.args[0])
 
             cb = CompositeRingBuilder()
             with self.assertRaises(ValueError) as cm:
                 self._call_method_under_test(cb, builder_files,
                                              force=force)
             self.assertIn('Two or more component builders are required',
-                          cm.exception.message)
+                          cm.exception.args[0])
 
         builders = self.create_sample_ringbuilders(3)
         builder_files = self.save_builders(builders)
@@ -755,7 +755,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
                 with self.assertRaises(ValueError) as cm:
                     self._call_method_under_test(cb, builder_files,
                                                  force=force)
-                error_lines = cm.exception.message.split('\n')
+                error_lines = cm.exception.args[0].split('\n')
                 self.assertIn("Problem with builder at index %s" % no_id,
                               error_lines[0])
                 self.assertIn("id attribute has not been initialised",
@@ -785,7 +785,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
         def do_check(force):
             with self.assertRaises(ValueError) as cm:
                 self._call_method_under_test(cb, force=force)
-            error_lines = cm.exception.message.split('\n')
+            error_lines = cm.exception.args[0].split('\n')
             self.assertIn("Builder id %r used at indexes 0, 2" %
                           builders[0].id, error_lines[0])
             self.assertFalse(error_lines[1:])
@@ -799,7 +799,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
             orig_version = cb.version
             with self.assertRaises(ValueError) as cm:
                 self._call_method_under_test(cb, builder_files, **kwargs)
-            error_lines = cm.exception.message.split('\n')
+            error_lines = cm.exception.args[0].split('\n')
             self.assertIn("None of the component builders has been modified",
                           error_lines[0])
             self.assertFalse(error_lines[1:])
@@ -839,7 +839,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
         self.save_builders([old_builders[0], builders[1]])
         with self.assertRaises(ValueError) as cm:
             self._call_method_under_test(cb)
-        error_lines = cm.exception.message.split('\n')
+        error_lines = cm.exception.args[0].split('\n')
         self.assertIn("Invalid builder change at index 0", error_lines[0])
         self.assertIn("Older builder version", error_lines[0])
         self.assertFalse(error_lines[1:])
@@ -849,7 +849,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
         self.save_builders([old_builders[0], builders[1]])
         with self.assertRaises(ValueError) as cm:
             self._call_method_under_test(cb)
-        error_lines = cm.exception.message.split('\n')
+        error_lines = cm.exception.args[0].split('\n')
         self.assertIn("Invalid builder change at index 0", error_lines[0])
         self.assertIn("Older builder version", error_lines[0])
         self.assertFalse(error_lines[1:])
@@ -869,7 +869,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
             with self.assertRaises(ValueError) as cm:
                 self._call_method_under_test(
                     cb, self.save_builders(bad_builders))
-            error_lines = cm.exception.message.split('\n')
+            error_lines = cm.exception.args[0].split('\n')
             self.assertFalse(error_lines[1:])
             self.assertEqual(1, cb.version)
             # unless we ignore errors
@@ -892,7 +892,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
         different_files = self.save_builders([builders[0], builders[2]])
         with self.assertRaises(ValueError) as cm:
             self._call_method_under_test(cb, different_files)
-        error_lines = cm.exception.message.split('\n')
+        error_lines = cm.exception.args[0].split('\n')
         self.assertIn("Invalid builder change at index 1", error_lines[0])
         self.assertIn("Attribute mismatch for id", error_lines[0])
         self.assertFalse(error_lines[1:])
@@ -908,7 +908,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
         builder_files.reverse()
         with self.assertRaises(ValueError) as cm:
             self._call_method_under_test(cb, builder_files)
-        error_lines = cm.exception.message.split('\n')
+        error_lines = cm.exception.args[0].split('\n')
         for i, line in enumerate(error_lines):
             self.assertIn("Invalid builder change at index %s" % i, line)
             self.assertIn("Attribute mismatch for id", line)
@@ -925,7 +925,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
         self.save_builders(builders)
         with self.assertRaises(ValueError) as cm:
             self._call_method_under_test(cb)
-        error_lines = cm.exception.message.split('\n')
+        error_lines = cm.exception.args[0].split('\n')
         for i, line in enumerate(error_lines):
             self.assertIn("Invalid builder change at index 0", line)
             self.assertIn("Attribute mismatch for replicas", line)
@@ -949,7 +949,7 @@ class TestComposeLoadComponents(TestLoadComponents):
         self.save_builders(builders)
         with self.assertRaises(ValueError) as cm:
             self._call_method_under_test(cb)
-        error_lines = cm.exception.message.split('\n')
+        error_lines = cm.exception.args[0].split('\n')
         for i, line in enumerate(error_lines):
             self.assertIn("Invalid builder change at index 0", line)
             self.assertIn("Attribute mismatch for replicas", line)
@@ -958,7 +958,7 @@ class TestComposeLoadComponents(TestLoadComponents):
         # validate will fail because the builder needs rebalancing
         with self.assertRaises(ValueError) as cm:
             self._call_method_under_test(cb, force=True)
-        error_lines = cm.exception.message.split('\n')
+        error_lines = cm.exception.args[0].split('\n')
         self.assertIn("Problem with builders", error_lines[0])
         self.assertIn("Builder needs rebalance", error_lines[1])
         self.assertFalse(error_lines[2:])
@@ -976,17 +976,18 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         if rebalance:
             rb.rebalance()
             self.assertEqual(self._partition_counts(rb),
-                             {0: 256, 1: 256, 2: 256})  # sanity check
+                             [256, 256, 256])  # sanity check
         return rb
 
     def _partition_counts(self, builder):
         """
-        Returns a dictionary mapping device id's to (number of
+        Returns an array mapping device id's to (number of
         partitions assigned to that device).
         """
-        return Counter(builder.devs[dev_id]['id']
-                       for part2dev_id in builder._replica2part2dev
-                       for dev_id in part2dev_id)
+        c = Counter(builder.devs[dev_id]['id']
+                    for part2dev_id in builder._replica2part2dev
+                    for dev_id in part2dev_id)
+        return [c[d['id']] for d in builder.devs]
 
     def get_moved_parts(self, after, before):
         def uniqueness(dev):
@@ -1020,7 +1021,7 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
 
         # all cobuilders can perform initial rebalance
         cb.rebalance()
-        exp = {0: 256, 1: 256, 2: 256}
+        exp = [256, 256, 256]
         self.assertEqual(exp, self._partition_counts(builders[0]))
         self.assertEqual(exp, self._partition_counts(builders[1]))
         self.assertEqual(exp, self._partition_counts(builders[2]))
@@ -1057,13 +1058,13 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         rb1_parts_moved = self.get_moved_parts(builders[0], old_builders[0])
         self.assertEqual(192, len(rb1_parts_moved))
         self.assertEqual(self._partition_counts(builders[0]),
-                         {0: 192, 1: 192, 2: 192, 3: 192})
+                         [192, 192, 192, 192])
 
         rb2_parts_moved = self.get_moved_parts(builders[1], old_builders[1])
         self.assertEqual(64, len(rb2_parts_moved))
         counts = self._partition_counts(builders[1])
         self.assertEqual(counts[3], 64)
-        self.assertEqual([234, 235, 235], sorted(counts.values()[:3]))
+        self.assertEqual([234, 235, 235], sorted(counts[:3]))
         self.assertFalse(rb2_parts_moved.intersection(rb1_parts_moved))
 
         # rb3 can't rebalance - all parts moved while rebalancing rb1 and rb2
@@ -1191,7 +1192,7 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         rb1_parts_moved = self.get_moved_parts(rb1s[1], rb1s[0])
         self.assertEqual(192, len(rb1_parts_moved))
         self.assertEqual(self._partition_counts(rb1s[1]),
-                         {0: 192, 1: 192, 2: 192, 3: 192})
+                         [192, 192, 192, 192])
 
         # rebalancing rb2 - rb2 in isolation could potentially move all parts
         # so would move 192 parts to new device, but it is constrained by rb1
@@ -1200,7 +1201,7 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         self.assertEqual(64, len(rb2_parts_moved))
         counts = self._partition_counts(rb2s[3])
         self.assertEqual(counts[3], 64)
-        self.assertEqual([234, 235, 235], sorted(counts.values()[:3]))
+        self.assertEqual([234, 235, 235], sorted(counts[:3]))
         self.assertFalse(rb2_parts_moved.intersection(rb1_parts_moved))
         self.assertEqual(192, self.num_parts_can_move(rb2s[3]))
         self.assertEqual(64, self.num_parts_can_move(rb1s[3]))
@@ -1255,7 +1256,7 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         # rebalance - after that expect no more updates
         with mock_update_last_part_moves() as update_calls:
             cb.update_last_part_moves()
-        self.assertEqual(sorted([rb1, rb2]), sorted(update_calls))
+        self.assertEqual({rb1, rb2}, set(update_calls))
 
         with mock_update_last_part_moves() as update_calls:
             with mock_can_part_move() as can_part_move_calls:
@@ -1263,14 +1264,14 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         self.assertFalse(update_calls)
         # rb1 has never been rebalanced so no calls propagate from its
         # can_part_move method to its superclass _can_part_move method
-        self.assertEqual([rb2], can_part_move_calls.keys())
+        self.assertEqual({rb2}, set(can_part_move_calls))
 
         with mock_update_last_part_moves() as update_calls:
             with mock_can_part_move() as can_part_move_calls:
                 rb1.rebalance()
         self.assertFalse(update_calls)
         # rb1 is being rebalanced so gets checked, and rb2 also gets checked
-        self.assertEqual(sorted([rb1, rb2]), sorted(can_part_move_calls))
+        self.assertEqual({rb1, rb2}, set(can_part_move_calls))
         self.assertEqual(768, len(can_part_move_calls[rb1]))
         self.assertEqual(768, len(can_part_move_calls[rb2]))
 

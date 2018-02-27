@@ -843,11 +843,13 @@ class Request(object):
                            'https': 443}.get(parsed_path.scheme, 80)
         if parsed_path.scheme and parsed_path.scheme not in ['http', 'https']:
             raise TypeError('Invalid scheme: %s' % parsed_path.scheme)
+        path_info = urllib.parse.unquote(
+            parsed_path.path.decode('utf8') if six.PY3 else parsed_path.path)
         env = {
             'REQUEST_METHOD': 'GET',
             'SCRIPT_NAME': '',
             'QUERY_STRING': parsed_path.query,
-            'PATH_INFO': urllib.parse.unquote(parsed_path.path),
+            'PATH_INFO': path_info,
             'SERVER_NAME': server_name,
             'SERVER_PORT': str(server_port),
             'HTTP_HOST': '%s:%d' % (server_name, server_port),
@@ -1256,6 +1258,20 @@ class Response(object):
                 # body text from RESPONSE_REASONS.
                 body = None
                 app_iter = None
+            elif self.content_length == 0:
+                # If ranges_for_length found ranges but our content length
+                # is 0, then that means we got a suffix-byte-range request
+                # (e.g. "bytes=-512"). This is asking for *up to* the last N
+                # bytes of the file. If we had any bytes to send at all,
+                # we'd return a 206 with an appropriate Content-Range header,
+                # but we can't construct a Content-Range header because we
+                # have no byte indices because we have no bytes.
+                #
+                # The only reasonable thing to do is to return a 200 with
+                # the whole object (all zero bytes of it). This is also what
+                # Apache and Nginx do, so if we're wrong, at least we're in
+                # good company.
+                pass
             elif ranges:
                 range_size = len(ranges)
                 if range_size > 0:

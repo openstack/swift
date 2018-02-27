@@ -372,8 +372,8 @@ class BaseObjectController(Controller):
         # small.
         n_desired_queue_updates = 2
         for i in range(len(headers)):
-            headers[i]['X-Backend-Clean-Expiring-Object-Queue'] = (
-                't' if i < n_desired_queue_updates else 'f')
+            headers[i].setdefault('X-Backend-Clean-Expiring-Object-Queue',
+                                  't' if i < n_desired_queue_updates else 'f')
 
         return headers
 
@@ -2263,7 +2263,7 @@ class ECObjectController(BaseObjectController):
         for client_start, client_end in req.range.ranges:
             # TODO: coalesce ranges that overlap segments. For
             # example, "bytes=0-10,20-30,40-50" with a 64 KiB
-            # segment size will result in a a Range header in the
+            # segment size will result in a Range header in the
             # object request of "bytes=0-65535,0-65535,0-65535",
             # which is wasteful. We should be smarter and only
             # request that first segment once.

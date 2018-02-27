@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.15.2.dev9\n"
+"Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2017-08-24 21:08+0000\n"
+"POT-Creation-Date: 2018-01-31 06:08+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -445,9 +445,6 @@ msgid "ERROR:  Failed to get paths to drive partitions: %s"
 msgstr ""
 "ERREUR : Echec de l'obtention des chemins d'accès aux partitions d'unité : %s"
 
-msgid "ERROR: An error occurred while retrieving segments"
-msgstr "ERREUR : Une erreur s'est produite lors de l'extraction de segments"
-
 #, python-format
 msgid "ERROR: Unable to access %(path)s: %(error)s"
 msgstr "ERREUR : Impossible d'accéder à %(path)s : %(error)s"
@@ -716,24 +713,8 @@ msgid "Object servers returned %s mismatched etags"
 msgstr "Des serveurs d'objets ont renvoyé %s en-têtes Etag non concordants"
 
 #, python-format
-msgid ""
-"Object update single threaded sweep completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures"
-msgstr ""
-"Le balayage des mises à jour d'objet (unité d'exécution unique) est "
-"terminé : %(elapsed).02fs, %(success)s succès, %(fail)s échec(s)"
-
-#, python-format
 msgid "Object update sweep completed: %.02fs"
 msgstr "Le balayage des mises à jour d'objet est terminé : %.02fs"
-
-#, python-format
-msgid ""
-"Object update sweep of %(device)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures"
-msgstr ""
-"Le balayage des mises à jour d'objet (%(device)s) est terminé : "
-"%(elapsed).02fs, %(success)s succès, %(fail)s échec(s)"
 
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr "Paramètres, requêtes et fragments interdits dans X-Container-Sync-To"
@@ -954,10 +935,6 @@ msgstr "Impossible de lire le fichier de configuration depuis %s"
 #, python-format
 msgid "Unauth %(sync_from)r => %(sync_to)r"
 msgstr "Non autorisé : %(sync_from)r => %(sync_to)r"
-
-#, python-format
-msgid "Unexpected response: %s"
-msgstr "Réponse inattendue : %s"
 
 msgid "Unhandled exception"
 msgstr "Exception non prise en charge"

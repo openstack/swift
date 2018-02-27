@@ -791,6 +791,29 @@ class TestDatabaseBroker(unittest.TestCase):
                 'Quarantined %s to %s due to corrupted database' %
                 (dbpath, qpath))
 
+    def test_get_raw_metadata_missing_container_info(self):
+        # Test missing container_info/container_stat row
+        dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
+        mkdirs(dbpath)
+        qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'containers',
+                             'db')
+        copy(os.path.join(os.path.dirname(__file__),
+                          'missing_container_info.db'),
+             os.path.join(dbpath, '1.db'))
+
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+        broker.db_type = 'container'
+
+        exc = None
+        try:
+            broker.get_raw_metadata()
+        except Exception as err:
+            exc = err
+        self.assertEqual(
+            str(exc),
+            'Quarantined %s to %s due to missing row in container_stat table' %
+            (dbpath, qpath))
+
     def test_lock(self):
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'), timeout=.1)
         got_exc = False
@@ -1132,6 +1155,55 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
         self.assertNotIn('Second', broker.metadata)
+
+    def test_update_metadata_missing_container_info(self):
+        # Test missing container_info/container_stat row
+        dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
+        mkdirs(dbpath)
+        qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'containers',
+                             'db')
+        copy(os.path.join(os.path.dirname(__file__),
+                          'missing_container_info.db'),
+             os.path.join(dbpath, '1.db'))
+
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+        broker.db_type = 'container'
+
+        exc = None
+        try:
+            first_timestamp = normalize_timestamp(1)
+            first_value = '1'
+            broker.update_metadata({'First': [first_value, first_timestamp]})
+        except Exception as err:
+            exc = err
+        self.assertEqual(
+            str(exc),
+            'Quarantined %s to %s due to missing row in container_stat table' %
+            (dbpath, qpath))
+
+    def test_reclaim_missing_container_info(self):
+        # Test missing container_info/container_stat row
+        dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
+        mkdirs(dbpath)
+        qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'containers',
+                             'db')
+        copy(os.path.join(os.path.dirname(__file__),
+                          'missing_container_info.db'),
+             os.path.join(dbpath, '1.db'))
+
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+        broker.db_type = 'container'
+
+        exc = None
+        try:
+            with broker.get() as conn:
+                broker._reclaim(conn, 0)
+        except Exception as err:
+            exc = err
+        self.assertEqual(
+            str(exc),
+            'Quarantined %s to %s due to missing row in container_stat table' %
+            (dbpath, qpath))
 
     @patch.object(DatabaseBroker, 'validate_metadata')
     def test_validate_metadata_is_called_from_update_metadata(self, mock):

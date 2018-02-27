@@ -462,48 +462,65 @@ class TestInternalClient(unittest.TestCase):
                 mock.patch('swift.common.internal_client.sleep'):
             client.make_request('DELETE', '/container', {}, (200,))
 
-        for logline in client.logger.get_lines_for_level('info'):
-            # add spaces before/after 409 because it can match with
-            # something like timestamp
-            self.assertIn(' 409 ', logline)
+        # Since we didn't provide an X-Timestamp, retrying gives us a chance to
+        # succeed (assuming the failure was due to clock skew between servers)
+        expected = (' HTTP/1.0 409 ',)
+        loglines = client.logger.get_lines_for_level('info')
+        for expected, logline in izip_longest(expected, loglines):
+            if not expected:
+                self.fail('Unexpected extra log line: %r' % logline)
+            self.assertIn(expected, logline)
 
     def test_make_request_acceptable_status_not_2xx(self):
-        closed_paths = []
-
-        def mark_closed(path):
-            closed_paths.append(path)
-
         class InternalClient(internal_client.InternalClient):
-            def __init__(self):
+            def __init__(self, resp_status):
                 self.logger = DebugLogger()
                 # wrap the fake app with ProxyLoggingMiddleware
                 self.app = ProxyLoggingMiddleware(
                     self.fake_app, {}, self.logger)
                 self.user_agent = 'some_agent'
+                self.resp_status = resp_status
                 self.request_tries = 3
+                self.closed_paths = []
 
             def fake_app(self, env, start_response):
                 body = 'fake error response'
-                start_response('200 Ok', [('Content-Length', str(len(body)))])
-                return LeakTrackingIter((c for c in body),
-                                        mark_closed, env['PATH_INFO'])
+                start_response(self.resp_status,
+                               [('Content-Length', str(len(body)))])
+                return LeakTrackingIter(body, self.closed_paths.append,
+                                        env['PATH_INFO'])
 
-        client = InternalClient()
-        with self.assertRaises(internal_client.UnexpectedResponse) as ctx, \
-                mock.patch('swift.common.internal_client.sleep'):
-            # This is obvious strange tests to expect only 400 Bad Request
-            # but this test intended to avoid extra body drain if it's
-            # correct object body with 2xx.
-            client.make_request('GET', '/cont/obj', {}, (400,))
-        self.assertEqual(closed_paths, ['/cont/obj'] * 2)
-        # swob's body resp property will call close
-        self.assertEqual(ctx.exception.resp.body, 'fake error response')
+        def do_test(resp_status):
+            client = InternalClient(resp_status)
+            with self.assertRaises(internal_client.UnexpectedResponse) as ctx, \
+                    mock.patch('swift.common.internal_client.sleep'):
+                # This is obvious strange tests to expect only 400 Bad Request
+                # but this test intended to avoid extra body drain if it's
+                # correct object body with 2xx.
+                client.make_request('GET', '/cont/obj', {}, (400,))
+            loglines = client.logger.get_lines_for_level('info')
+            return client.closed_paths, ctx.exception.resp, loglines
+
+        closed_paths, resp, loglines = do_test('200 OK')
+        # Since the 200 is considered "properly handled", it won't be retried
+        self.assertEqual(closed_paths, [])
+        # ...and it'll be on us (the caller) to close (for example, by using
+        # swob.Response's body property)
+        self.assertEqual(resp.body, 'fake error response')
+        self.assertEqual(closed_paths, ['/cont/obj'])
+
+        expected = (' HTTP/1.0 200 ', )
+        for expected, logline in izip_longest(expected, loglines):
+            if not expected:
+                self.fail('Unexpected extra log line: %r' % logline)
+            self.assertIn(expected, logline)
+
+        closed_paths, resp, loglines = do_test('503 Service Unavailable')
+        # But since 5xx is neither "properly handled" not likely to include
+        # a large body, it will be retried and responses will already be closed
         self.assertEqual(closed_paths, ['/cont/obj'] * 3)
 
-        # Retries like this will cause 499 because internal_client won't
-        # automatically consume (potentially large) 2XX responses.
-        expected = (' 499 ', ' 499 ', ' 200 ')
-        loglines = client.logger.get_lines_for_level('info')
+        expected = (' HTTP/1.0 503 ', ' HTTP/1.0 503 ', ' HTTP/1.0 503 ', )
         for expected, logline in izip_longest(expected, loglines):
             if not expected:
                 self.fail('Unexpected extra log line: %r' % logline)
@@ -562,30 +579,33 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(0, whence)
 
         class InternalClient(internal_client.InternalClient):
-            def __init__(self):
+            def __init__(self, status):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.status = status
+                self.call_count = 0
 
             def fake_app(self, env, start_response):
-                start_response('404 Not Found', [('Content-Length', '0')])
+                self.call_count += 1
+                start_response(self.status, [('Content-Length', '0')])
                 return []
 
-        fobj = FileObject(self)
-        client = InternalClient()
+        def do_test(status, expected_calls):
+            fobj = FileObject(self)
+            client = InternalClient(status)
 
-        try:
-            old_sleep = internal_client.sleep
-            internal_client.sleep = not_sleep
-            try:
-                client.make_request('PUT', '/', {}, (2,), fobj)
-            except Exception as err:
-                pass
-            self.assertEqual(404, err.resp.status_int)
-        finally:
-            internal_client.sleep = old_sleep
+            with mock.patch.object(internal_client, 'sleep', not_sleep):
+                with self.assertRaises(Exception) as exc_mgr:
+                    client.make_request('PUT', '/', {}, (2,), fobj)
+                self.assertEqual(int(status[:3]),
+                                 exc_mgr.exception.resp.status_int)
 
-        self.assertEqual(client.request_tries, fobj.seek_called)
+            self.assertEqual(client.call_count, fobj.seek_called)
+            self.assertEqual(client.call_count, expected_calls)
+
+        do_test('404 Not Found', 1)
+        do_test('503 Service Unavailable', 3)
 
     def test_make_request_request_exception(self):
         class InternalClient(internal_client.InternalClient):
@@ -650,17 +670,15 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, client.make_request_called)
 
     def test_get_metadata_invalid_status(self):
-        class FakeApp(object):
-
-            def __call__(self, environ, start_response):
-                start_response('404 Not Found', [('x-foo', 'bar')])
-                return ['nope']
-
         class InternalClient(internal_client.InternalClient):
             def __init__(self):
                 self.user_agent = 'test'
                 self.request_tries = 1
-                self.app = FakeApp()
+                self.app = self.fake_app
+
+            def fake_app(self, environ, start_response):
+                start_response('404 Not Found', [('x-foo', 'bar')])
+                return ['nope']
 
         client = InternalClient()
         self.assertRaises(internal_client.UnexpectedResponse,

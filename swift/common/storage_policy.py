@@ -203,8 +203,17 @@ class BaseStoragePolicy(object):
     def __int__(self):
         return self.idx
 
-    def __cmp__(self, other):
-        return cmp(self.idx, int(other))
+    def __eq__(self, other):
+        return self.idx == int(other)
+
+    def __ne__(self, other):
+        return self.idx != int(other)
+
+    def __lt__(self, other):
+        return self.idx < int(other)
+
+    def __gt__(self, other):
+        return self.idx > int(other)
 
     def __repr__(self):
         return ("%s(%d, %r, is_default=%s, "
@@ -617,13 +626,13 @@ class ECStoragePolicy(BaseStoragePolicy):
             considering the number of nodes in the primary list from the ring.
             """
 
-            configured_fragment_count = len(ring_data._replica2part2dev_id)
+            configured_fragment_count = ring_data.replica_count
             required_fragment_count = \
                 (self.ec_n_unique_fragments) * self.ec_duplication_factor
             if configured_fragment_count != required_fragment_count:
                 raise RingLoadError(
                     'EC ring for policy %s needs to be configured with '
-                    'exactly %d replicas. Got %d.' % (
+                    'exactly %d replicas. Got %s.' % (
                         self.name, required_fragment_count,
                         configured_fragment_count))
 
@@ -923,7 +932,12 @@ def reload_storage_policies():
     Reload POLICIES from ``swift.conf``.
     """
     global _POLICIES
-    policy_conf = ConfigParser()
+    if six.PY2:
+        policy_conf = ConfigParser()
+    else:
+        # Python 3.2 disallows section or option duplicates by default
+        # strict=False allows us to preserve the older behavior
+        policy_conf = ConfigParser(strict=False)
     policy_conf.read(utils.SWIFT_CONF_FILE)
     try:
         _POLICIES = parse_storage_policies(policy_conf)

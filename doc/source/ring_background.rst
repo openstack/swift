@@ -12,11 +12,11 @@ so I've gathered them all here on one page for easier reading.
 
 Part 1
 ======
-“Consistent Hashing” is a term used to describe a process where data is
+"Consistent Hashing" is a term used to describe a process where data is
 distributed using a hashing algorithm to determine its location. Using
 only the hash of the id of the data you can determine exactly where that
 data should be. This mapping of hashes to locations is usually termed a
-“ring”.
+"ring".
 
 Probably the simplest hash is just a modulus of the id. For instance, if
 all ids are numbers and you have two machines you wish to distribute data
@@ -26,11 +26,11 @@ numbered ids, and a balanced data size per id, your data would be balanced
 between the two machines.
 
 Since data ids are often textual names and not numbers, like paths for
-files or URLs, it makes sense to use a “real” hashing algorithm to convert
+files or URLs, it makes sense to use a "real" hashing algorithm to convert
 the names to numbers first. Using MD5 for instance, the hash of the name
-‘mom.png’ is ‘4559a12e3e8da7c2186250c2f292e3af’ and the hash of ‘dad.png’
-is ‘096edcc4107e9e18d6a03a43b3853bea’. Now, using the modulus, we can
-place ‘mom.jpg’ on the odd machine and ‘dad.png’ on the even one. Another
+'mom.png' is '4559a12e3e8da7c2186250c2f292e3af' and the hash of 'dad.png'
+is '096edcc4107e9e18d6a03a43b3853bea'. Now, using the modulus, we can
+place 'mom.jpg' on the odd machine and 'dad.png' on the even one. Another
 benefit of using a hashing algorithm like MD5 is that the resulting hashes
 have a known even distribution, meaning your ids will be evenly distributed
 without worrying about keeping the id values themselves evenly distributed.
@@ -69,25 +69,25 @@ Here is a simple example of this in action:
   100695: Most data ids on one node, 0.69% over
   99073: Least data ids on one node, 0.93% under
 
-So that’s not bad at all; less than a percent over/under for distribution
-per node. In the next part of this series we’ll examine where modulus
+So that's not bad at all; less than a percent over/under for distribution
+per node. In the next part of this series we'll examine where modulus
 distribution causes problems and how to improve our ring to overcome them.
 
 Part 2
 ======
 In Part 1 of this series, we did a simple test of using the modulus of a
-hash to locate data. We saw very good distribution, but that’s only part
+hash to locate data. We saw very good distribution, but that's only part
 of the story. Distributed systems not only need to distribute load, but
 they often also need to grow as more and more data is placed in it.
 
-So let’s imagine we have a 100 node system up and running using our
-previous algorithm, but it’s starting to get full so we want to add
+So let's imagine we have a 100 node system up and running using our
+previous algorithm, but it's starting to get full so we want to add
 another node. When we add that 101st node to our algorithm we notice
 that many ids now map to different nodes than they previously did.
-We’re going to have to shuffle a ton of data around our system to get
+We're going to have to shuffle a ton of data around our system to get
 it all into place again.
 
-Let’s examine what’s happened on a much smaller scale: just 2 nodes
+Let's examine what's happened on a much smaller scale: just 2 nodes
 again, node 0 gets even ids and node 1 gets odd ids. So data id 100
 would map to node 0, data id 101 to node 1, data id 102 to node 0, etc.
 This is simply node = id % 2. Now we add a third node (node 2) for more
@@ -95,7 +95,7 @@ space, so we want node = id % 3. So now data id 100 maps to node id 1,
 data id 101 to node 2, and data id 102 to node 0. So we have to move
 data for 2 of our 3 ids so they can be found again.
 
-Let’s examine this at a larger scale:
+Let's examine this at a larger scale:
 
 .. code-block:: python
 
@@ -121,19 +121,19 @@ Let’s examine this at a larger scale:
 
   9900989 ids moved, 99.01%
 
-Wow, that’s severe. We’d have to shuffle around 99% of our data just
+Wow, that's severe. We'd have to shuffle around 99% of our data just
 to increase our capacity 1%! We need a new algorithm that combats this
 behavior.
 
-This is where the “ring” really comes in. We can assign ranges of hashes
+This is where the "ring" really comes in. We can assign ranges of hashes
 directly to nodes and then use an algorithm that minimizes the changes
-to those ranges. Back to our small scale, let’s say our ids range from 0
-to 999. We have two nodes and we’ll assign data ids 0–499 to node 0 and
+to those ranges. Back to our small scale, let's say our ids range from 0
+to 999. We have two nodes and we'll assign data ids 0–499 to node 0 and
 500–999 to node 1. Later, when we add node 2, we can take half the data
 ids from node 0 and half from node 1, minimizing the amount of data that
 needs to move.
 
-Let’s examine this at a larger scale:
+Let's examine this at a larger scale:
 
 .. code-block:: python
 
@@ -171,14 +171,14 @@ Let’s examine this at a larger scale:
   4901707 ids moved, 49.02%
 
 Okay, that is better. But still, moving 50% of our data to add 1% capacity
-is not very good. If we examine what happened more closely we’ll see what
-is an “accordion effect”. We shrunk node 0’s range a bit to give to the
-new node, but that shifted all the other node’s ranges by the same amount.
+is not very good. If we examine what happened more closely we'll see what
+is an "accordion effect". We shrunk node 0's range a bit to give to the
+new node, but that shifted all the other node's ranges by the same amount.
 
-We can minimize the change to a node’s assigned range by assigning several
+We can minimize the change to a node's assigned range by assigning several
 smaller ranges instead of the single broad range we were before. This can
-be done by creating “virtual nodes” for each node. So 100 nodes might have
-1000 virtual nodes. Let’s examine how that might work.
+be done by creating "virtual nodes" for each node. So 100 nodes might have
+1000 virtual nodes. Let's examine how that might work.
 
 .. code-block:: python
 
@@ -228,7 +228,7 @@ be done by creating “virtual nodes” for each node. So 100 nodes might have
 
 There we go, we added 1% capacity and only moved 0.9% of existing data.
 The vnode_range_starts list seems a bit out of place though. Its values
-are calculated and never change for the lifetime of the cluster, so let’s
+are calculated and never change for the lifetime of the cluster, so let's
 optimize that out.
 
 .. code-block:: python
@@ -273,7 +273,7 @@ optimize that out.
   89841 ids moved, 0.90%
 
 There we go. In the next part of this series, will further examine the
-algorithm’s limitations and how to improve on it.
+algorithm's limitations and how to improve on it.
 
 Part 3
 ======
@@ -284,7 +284,7 @@ the amount of data moved when a node was added.
 
 The number of virtual nodes puts a cap on how many real nodes you can
 have. For example, if you have 1000 virtual nodes and you try to add a
-1001st real node, you can’t assign a virtual node to it without leaving
+1001st real node, you can't assign a virtual node to it without leaving
 another real node with no assignment, leaving you with just 1000 active
 real nodes still.
 
@@ -292,57 +292,57 @@ Unfortunately, the number of virtual nodes created at the beginning can
 never change for the life of the cluster without a lot of careful work.
 For example, you could double the virtual node count by splitting each
 existing virtual node in half and assigning both halves to the same real
-node. However, if the real node uses the virtual node’s id to optimally
+node. However, if the real node uses the virtual node's id to optimally
 store the data (for example, all data might be stored in /[virtual node
 id]/[data id]) it would have to move data around locally to reflect the
 change. And it would have to resolve data using both the new and old
 locations while the moves were taking place, making atomic operations
 difficult or impossible.
 
-Let’s continue with this assumption that changing the virtual node
-count is more work than it’s worth, but keep in mind that some applications
+Let's continue with this assumption that changing the virtual node
+count is more work than it's worth, but keep in mind that some applications
 might be fine with this.
 
 The easiest way to deal with this limitation is to make the limit high
-enough that it won’t matter. For instance, if we decide our cluster will
+enough that it won't matter. For instance, if we decide our cluster will
 never exceed 60,000 real nodes, we can just make 60,000 virtual nodes.
 
 Also, we should include in our calculations the relative size of our
 nodes. For instance, a year from now we might have real nodes that can
-handle twice the capacity of our current nodes. So we’d want to assign
+handle twice the capacity of our current nodes. So we'd want to assign
 twice the virtual nodes to those future nodes, so maybe we should raise
 our virtual node estimate to 120,000.
 
 A good rule to follow might be to calculate 100 virtual nodes to each
 real node at maximum capacity. This would allow you to alter the load
 on any given node by 1%, even at max capacity, which is pretty fine
-tuning. So now we’re at 6,000,000 virtual nodes for a max capacity cluster
+tuning. So now we're at 6,000,000 virtual nodes for a max capacity cluster
 of 60,000 real nodes.
 
-6 million virtual nodes seems like a lot, and it might seem like we’d
+6 million virtual nodes seems like a lot, and it might seem like we'd
 use up way too much memory. But the only structure this affects is the
 virtual node to real node mapping. The base amount of memory required
 would be 6 million times 2 bytes (to store a real node id from 0 to
-65,535). 12 megabytes of memory just isn’t that much to use these days.
+65,535). 12 megabytes of memory just isn't that much to use these days.
 
-Even with all the overhead of flexible data types, things aren’t that
+Even with all the overhead of flexible data types, things aren't that
 bad. I changed the code from the previous part in this series to have
-60,000 real and 6,000,000 virtual nodes, changed the list to an array(‘H’),
+60,000 real and 6,000,000 virtual nodes, changed the list to an array('H'),
 and python topped out at 27m of resident memory – and that includes two
 rings.
 
-To change terminology a bit, we’re going to start calling these virtual
-nodes “partitions”. This will make it a bit easier to discern between the
-two types of nodes we’ve been talking about so far. Also, it makes sense
+To change terminology a bit, we're going to start calling these virtual
+nodes "partitions". This will make it a bit easier to discern between the
+two types of nodes we've been talking about so far. Also, it makes sense
 to talk about partitions as they are really just unchanging sections
 of the hash space.
 
-We’re also going to always keep the partition count a power of two. This
+We're also going to always keep the partition count a power of two. This
 makes it easy to just use bit manipulation on the hash to determine the
-partition rather than modulus. It isn’t much faster, but it is a little.
-So, here’s our updated ring code, using 8,388,608 (2 ** 23) partitions
-and 65,536 nodes. We’ve upped the sample data id set and checked the
-distribution to make sure we haven’t broken anything.
+partition rather than modulus. It isn't much faster, but it is a little.
+So, here's our updated ring code, using 8,388,608 (2 ** 23) partitions
+and 65,536 nodes. We've upped the sample data id set and checked the
+distribution to make sure we haven't broken anything.
 
 .. code-block:: python
 
@@ -383,20 +383,20 @@ distribution to make sure we haven’t broken anything.
   1360: Least data ids on one node, 10.82% under
 
 Hmm. +–10% seems a bit high, but I reran with 65,536 partitions and
-256 nodes and got +–0.4% so it’s just that our sample size (100m) is
-too small for our number of partitions (8m). It’ll take way too long
-to run experiments with an even larger sample size, so let’s reduce
+256 nodes and got +–0.4% so it's just that our sample size (100m) is
+too small for our number of partitions (8m). It'll take way too long
+to run experiments with an even larger sample size, so let's reduce
 back down to these lesser numbers. (To be certain, I reran at the full
 version with a 10 billion data id sample set and got +–1%, but it took
 6.5 hours to run.)
 
-In the next part of this series, we’ll talk about how to increase the
+In the next part of this series, we'll talk about how to increase the
 durability of our data in the cluster.
 
 Part 4
 ======
 In Part 3 of this series, we just further discussed partitions (virtual
-nodes) and cleaned up our code a bit based on that. Now, let’s talk
+nodes) and cleaned up our code a bit based on that. Now, let's talk
 about how to increase the durability and availability of our data in the
 cluster.
 
@@ -410,17 +410,17 @@ still be available while we repair the broken machine.
 
 An easy way to gain this multiple copy durability/availability is to
 just use multiple rings and groups of nodes. For instance, to achieve
-the industry standard of three copies, you’d split the nodes into three
+the industry standard of three copies, you'd split the nodes into three
 groups and each group would have its own ring and each would receive a
 copy of each data item. This can work well enough, but has the drawback
 that expanding capacity requires adding three nodes at a time and that
-losing one node essentially lowers capacity by three times that node’s
+losing one node essentially lowers capacity by three times that node's
 capacity.
 
-Instead, let’s use a different, but common, approach of meeting our
+Instead, let's use a different, but common, approach of meeting our
 requirements with a single ring. This can be done by walking the ring
 from the starting point and looking for additional distinct nodes.
-Here’s code that supports a variable number of replicas (set to 3 for
+Here's code that supports a variable number of replicas (set to 3 for
 testing):
 
 .. code-block:: python
@@ -470,19 +470,19 @@ testing):
   118133: Most data ids on one node, 0.81% over
   116093: Least data ids on one node, 0.93% under
 
-That’s pretty good; less than 1% over/under. While this works well,
+That's pretty good; less than 1% over/under. While this works well,
 there are a couple of problems.
 
-First, because of how we’ve initially assigned the partitions to nodes,
+First, because of how we've initially assigned the partitions to nodes,
 all the partitions for a given node have their extra copies on the same
 other two nodes. The problem here is that when a machine fails, the load
-on these other nodes will jump by that amount. It’d be better if we
+on these other nodes will jump by that amount. It'd be better if we
 initially shuffled the partition assignment to distribute the failover
 load better.
 
 The other problem is a bit harder to explain, but deals with physical
 separation of machines. Imagine you can only put 16 machines in a rack
-in your datacenter. The 256 nodes we’ve been using would fill 16 racks.
+in your datacenter. The 256 nodes we've been using would fill 16 racks.
 With our current code, if a rack goes out (power problem, network issue,
 etc.) there is a good chance some data will have all three copies in that
 rack, becoming inaccessible. We can fix this shortcoming by adding the
@@ -568,8 +568,8 @@ So the shuffle and zone distinctions affected our distribution some,
 but still definitely good enough. This test took about 64 seconds to
 run on my machine.
 
-There’s a completely alternate, and quite common, way of accomplishing
-these same requirements. This alternate method doesn’t use partitions
+There's a completely alternate, and quite common, way of accomplishing
+these same requirements. This alternate method doesn't use partitions
 at all, but instead just assigns anchors to the nodes within the hash
 space. Finding the first node for a given hash just involves walking
 this anchor ring for the next node, and finding additional nodes works
@@ -661,18 +661,18 @@ gives much less control over the distribution. To get better distribution,
 you have to add more virtual nodes, which eats up more memory and takes
 even more time to build the ring and perform distinct node lookups. The
 most common operation, data id lookup, can be improved (by predetermining
-each virtual nodes’ failover nodes, for instance) but it starts off so
-far behind our first approach that we’ll just stick with that.
+each virtual node's failover nodes, for instance) but it starts off so
+far behind our first approach that we'll just stick with that.
 
-In the next part of this series, we’ll start to wrap all this up into
+In the next part of this series, we'll start to wrap all this up into
 a useful Python module.
 
 Part 5
 ======
 In Part 4 of this series, we ended up with a multiple copy, distinctly
-zoned ring. Or at least the start of it. In this final part we’ll package
+zoned ring. Or at least the start of it. In this final part we'll package
 the code up into a useable Python module and then add one last feature.
-First, let’s separate the ring itself from the building of the data for
+First, let's separate the ring itself from the building of the data for
 the ring and its testing.
 
 .. code-block:: python
@@ -790,19 +790,19 @@ the ring and its testing.
   1878339: Most data ids in one zone, 0.18% over
   1869914: Least data ids in one zone, 0.27% under
 
-It takes a bit longer to test our ring, but that’s mostly because of
+It takes a bit longer to test our ring, but that's mostly because of
 the switch to dictionaries from arrays for various items. Having node
 dictionaries is nice because you can attach any node information you
 want directly there (ip addresses, tcp ports, drive paths, etc.). But
-we’re still on track for further testing; our distribution is still good.
+we're still on track for further testing; our distribution is still good.
 
-Now, let’s add our one last feature to our ring: the concept of weights.
-Weights are useful because the nodes you add later in a ring’s life are
+Now, let's add our one last feature to our ring: the concept of weights.
+Weights are useful because the nodes you add later in a ring's life are
 likely to have more capacity than those you have at the outset. For this
-test, we’ll make half our nodes have twice the weight. We’ll have to
+test, we'll make half our nodes have twice the weight. We'll have to
 change build_ring to give more partitions to the nodes with more weight
-and we’ll change test_ring to take into account these weights. Since
-we’ve changed so much I’ll just post the entire module again:
+and we'll change test_ring to take into account these weights. Since
+we've changed so much I'll just post the entire module again:
 
 .. code-block:: python
 
@@ -952,6 +952,6 @@ Summary
 =======
 Hopefully this series has been a good introduction to building a ring.
 This code is essentially how the OpenStack Swift ring works, except that
-Swift’s ring has lots of additional optimizations, such as storing each
+Swift's ring has lots of additional optimizations, such as storing each
 replica assignment separately, and lots of extra features for building,
 validating, and otherwise working with rings.

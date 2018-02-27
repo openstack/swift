@@ -40,8 +40,8 @@ class TestRingBase(unittest.TestCase):
     def setUp(self):
         self._orig_hash_suffix = utils.HASH_PATH_SUFFIX
         self._orig_hash_prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b''
 
     def tearDown(self):
         utils.HASH_PATH_SUFFIX = self._orig_hash_suffix
@@ -150,8 +150,8 @@ class TestRingData(unittest.TestCase):
             [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
         rd.save(ring_fname1)
         rd.save(ring_fname2)
-        with open(ring_fname1) as ring1:
-            with open(ring_fname2) as ring2:
+        with open(ring_fname1, 'rb') as ring1:
+            with open(ring_fname2, 'rb') as ring2:
                 self.assertEqual(ring1.read(), ring2.read())
 
     def test_permissions(self):
@@ -160,8 +160,27 @@ class TestRingData(unittest.TestCase):
             [array.array('H', [0, 1, 0, 1]), array.array('H', [0, 1, 0, 1])],
             [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
         rd.save(ring_fname)
-        self.assertEqual(oct(stat.S_IMODE(os.stat(ring_fname).st_mode)),
-                         '0644')
+        ring_mode = stat.S_IMODE(os.stat(ring_fname).st_mode)
+        expected_mode = (stat.S_IRUSR | stat.S_IWUSR |
+                         stat.S_IRGRP | stat.S_IROTH)
+        self.assertEqual(
+            ring_mode, expected_mode,
+            'Ring has mode 0%o, expected 0%o' % (ring_mode, expected_mode))
+
+    def test_replica_count(self):
+        rd = ring.RingData(
+            [[0, 1, 0, 1], [0, 1, 0, 1]],
+            [{'id': 0, 'zone': 0, 'ip': '10.1.1.0', 'port': 7000},
+             {'id': 1, 'zone': 1, 'ip': '10.1.1.1', 'port': 7000}],
+            30)
+        self.assertEqual(rd.replica_count, 2)
+
+        rd = ring.RingData(
+            [[0, 1, 0, 1], [0, 1, 0]],
+            [{'id': 0, 'zone': 0, 'ip': '10.1.1.0', 'port': 7000},
+             {'id': 1, 'zone': 1, 'ip': '10.1.1.1', 'port': 7000}],
+            30)
+        self.assertEqual(rd.replica_count, 1.75)
 
 
 class TestRing(TestRingBase):
@@ -212,10 +231,15 @@ class TestRing(TestRingBase):
         self.assertEqual(self.ring.reload_time, self.intended_reload_time)
         self.assertEqual(self.ring.serialized_path, self.testgz)
         # test invalid endcap
-        with mock.patch.object(utils, 'HASH_PATH_SUFFIX', ''), \
-                mock.patch.object(utils, 'HASH_PATH_PREFIX', ''), \
+        with mock.patch.object(utils, 'HASH_PATH_SUFFIX', b''), \
+                mock.patch.object(utils, 'HASH_PATH_PREFIX', b''), \
                 mock.patch.object(utils, 'SWIFT_CONF_FILE', ''):
             self.assertRaises(SystemExit, ring.Ring, self.testdir, 'whatever')
+
+    def test_replica_count(self):
+        self.assertEqual(self.ring.replica_count, 3)
+        self.ring._replica2part2dev_id.append([0])
+        self.assertEqual(self.ring.replica_count, 3.25)
 
     def test_has_changed(self):
         self.assertFalse(self.ring.has_changed())
@@ -470,6 +494,8 @@ class TestRing(TestRingBase):
         self.ring.devs.append(new_dev)
         self.ring._rebuild_tier_data()
 
+    @unittest.skipIf(sys.version_info >= (3,),
+                     "Seed-specific tests don't work well on py3")
     def test_get_more_nodes(self):
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someone changes the results the ring produces, they know it.

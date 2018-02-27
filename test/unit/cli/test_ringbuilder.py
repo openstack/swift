@@ -34,6 +34,11 @@ from swift.common.ring import RingBuilder
 
 from test.unit import Timeout
 
+try:
+    from itertools import zip_longest
+except ImportError:
+    from itertools import izip_longest as zip_longest
+
 
 class RunSwiftRingBuilderMixin(object):
 
@@ -115,8 +120,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         output = output.replace(self.tempfile, '__RINGFILE__')
         stub = stub.replace('__BUILDER_ID__', builder_id)
         for i, (value, expected) in enumerate(
-                itertools.izip_longest(
-                    output.splitlines(), stub.splitlines())):
+                zip_longest(output.splitlines(), stub.splitlines())):
             # N.B. differences in trailing whitespace are ignored!
             value = (value or '').rstrip()
             expected = (expected or '').rstrip()
@@ -133,7 +137,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                     msg += '%3d: %s\n' % (i, line)
                 self.fail(msg)
 
-    def create_sample_ring(self, part_power=6, overload=None, empty=False):
+    def create_sample_ring(self, part_power=6, replicas=3, overload=None,
+                           empty=False):
         """
         Create a sample ring with four devices
 
@@ -149,7 +154,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         except OSError:
             pass
 
-        ring = RingBuilder(part_power, 3, 1)
+        ring = RingBuilder(part_power, replicas, 1)
         if overload is not None:
             ring.set_overload(overload)
         if not empty:
@@ -2204,6 +2209,25 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "write_builder"]
         exp_results = {'valid_exit_codes': [2]}
         self.run_srb(*argv, exp_results=exp_results)
+
+    def test_write_builder_fractional_replicas(self):
+        # Test builder file already exists
+        self.create_sample_ring(replicas=1.2)
+        argv = ["", self.tmpfile, "rebalance"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        ring_file = os.path.join(os.path.dirname(self.tmpfile),
+                                 os.path.basename(self.tmpfile) + ".ring.gz")
+        os.remove(self.tmpfile)  # loses file...
+
+        argv = ["", ring_file, "write_builder", "24"]
+        self.assertIsNone(ringbuilder.main(argv))
+
+        # Note that we've picked up an extension
+        builder = RingBuilder.load(self.tmpfile + '.builder')
+        # Note that this is different from the original! But it more-closely
+        # reflects the reality that we have an extra replica for 12 of 64 parts
+        self.assertEqual(builder.replicas, 1.1875)
 
     def test_write_builder_after_device_removal(self):
         # Test regenerating builder file after having removed a device

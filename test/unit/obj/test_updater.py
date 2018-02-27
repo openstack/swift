@@ -25,7 +25,8 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from test import listen_zero
 from test.unit import (
-    make_timestamp_iter, debug_logger, patch_policies, mocked_http_conn)
+    make_timestamp_iter, debug_logger, patch_policies, mocked_http_conn,
+    FakeLogger)
 from time import time
 from distutils.dir_util import mkpath
 
@@ -248,6 +249,72 @@ class TestObjectUpdater(unittest.TestCase):
         # a warning indicating that the '99' policy isn't valid
         check_with_idx('99', 1, should_skip=True)
 
+    def test_sweep_logs(self):
+        asyncdir = os.path.join(self.sda1, ASYNCDIR_BASE)
+        prefix_dir = os.path.join(asyncdir, 'abc')
+        mkpath(prefix_dir)
+
+        for o, t in [('abc', 123), ('def', 234), ('ghi', 345),
+                     ('jkl', 456), ('mno', 567)]:
+            ohash = hash_path('account', 'container', o)
+            o_path = os.path.join(prefix_dir, ohash + '-' +
+                                  normalize_timestamp(t))
+            write_pickle({}, o_path)
+
+        class MockObjectUpdater(object_updater.ObjectUpdater):
+            def process_object_update(self, update_path, device, policy):
+                os.unlink(update_path)
+                self.stats.successes += 1
+                self.stats.unlinks += 1
+
+        logger = FakeLogger()
+        ou = MockObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'report_interval': '10.0',
+            'node_timeout': '5'}, logger=logger)
+
+        now = [time()]
+
+        def mock_time_function():
+            rv = now[0]
+            now[0] += 5
+            return rv
+
+        # With 10s between updates, time() advancing 5s every time we look,
+        # and 5 async_pendings on disk, we should get at least two progress
+        # lines.
+        with mock.patch('swift.obj.updater.time',
+                        mock.MagicMock(time=mock_time_function)):
+            ou.object_sweep(self.sda1)
+
+        info_lines = logger.get_lines_for_level('info')
+        self.assertEqual(4, len(info_lines))
+        self.assertIn("sweep starting", info_lines[0])
+        self.assertIn(self.sda1, info_lines[0])
+
+        self.assertIn("sweep progress", info_lines[1])
+        # the space ensures it's a positive number
+        self.assertIn(
+            "2 successes, 0 failures, 0 quarantines, 2 unlinks, 0 error",
+            info_lines[1])
+        self.assertIn(self.sda1, info_lines[1])
+
+        self.assertIn("sweep progress", info_lines[2])
+        self.assertIn(
+            "4 successes, 0 failures, 0 quarantines, 4 unlinks, 0 error",
+            info_lines[2])
+        self.assertIn(self.sda1, info_lines[2])
+
+        self.assertIn("sweep complete", info_lines[3])
+        self.assertIn(
+            "5 successes, 0 failures, 0 quarantines, 5 unlinks, 0 error",
+            info_lines[3])
+        self.assertIn(self.sda1, info_lines[3])
+
     @mock.patch.object(object_updater, 'check_drive')
     def test_run_once_with_disk_unmounted(self, mock_check_drive):
         mock_check_drive.return_value = False
@@ -286,7 +353,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual([
             mock.call(self.devices_dir, 'sda1', True),
         ], mock_check_drive.mock_calls)
-        self.assertEqual(ou.logger.get_increment_counts(), {'errors': 1})
+        self.assertEqual(ou.logger.get_increment_counts(), {})
 
     @mock.patch.object(object_updater, 'check_drive')
     def test_run_once(self, mock_check_drive):
