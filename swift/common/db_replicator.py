@@ -325,8 +325,10 @@ class Replicator(Daemon):
         """
         self.stats['diff'] += 1
         self.logger.increment('diffs')
-        self.logger.debug('Syncing chunks with %s, starting at %s',
-                          http.host, point)
+        self.logger.debug('%s synced chunks to %s, starting at %s',
+                          broker.db_file,
+                          '%(ip)s:%(port)s/%(device)s' % http.node,
+                          point)
         sync_table = broker.get_syncs()
         objects = broker.get_items_since(point, self.per_diff)
         while len(objects) and diffs < self.max_diffs:
@@ -502,7 +504,9 @@ class Replicator(Daemon):
             rinfo = json.loads(response.data)
             local_sync = broker.get_sync(rinfo['id'], incoming=False)
             if self._in_sync(rinfo, info, broker, local_sync):
-                self.logger.debug('in sync, nothing to do')
+                self.logger.debug('%s in sync with %s, nothing to do',
+                                  broker.db_file,
+                                  '%(ip)s:%(port)s/%(device)s' % node)
                 return True, diffs
             # if the difference in rowids between the two differs by
             # more than 50% and the difference is greater than per_diff,
