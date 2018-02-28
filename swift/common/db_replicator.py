@@ -33,7 +33,7 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, Timestamp
+    json, Timestamp, list_from_csv
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
@@ -45,6 +45,20 @@ from swift.common.swob import Response, HTTPNotFound, HTTPNoContent, \
 
 
 DEBUG_TIMINGS_THRESHOLD = 10
+
+
+def parse_overrides(daemon_kwargs):
+    devices = list_from_csv(daemon_kwargs.get('devices', ''))
+    if not devices:
+        devices = Everything()
+
+    partitions = [
+        int(part) for part in
+        list_from_csv(daemon_kwargs.get('partitions', ''))]
+    if not partitions:
+        partitions = Everything()
+
+    return devices, partitions
 
 
 def quarantine_db(object_file, server_type):
@@ -93,8 +107,7 @@ def roundrobin_datadirs(datadirs):
 
     def walk_datadir(datadir, node_id, part_filter):
         partitions = [pd for pd in os.listdir(datadir)
-                      if looks_like_partition(pd)
-                      and (part_filter is None or part_filter(pd))]
+                      if looks_like_partition(pd) and part_filter(pd)]
         random.shuffle(partitions)
         for partition in partitions:
             part_dir = os.path.join(datadir, partition)
@@ -134,6 +147,15 @@ def roundrobin_datadirs(datadirs):
                 yield next(it)
             except StopIteration:
                 its.remove(it)
+
+
+class Everything(object):
+    """
+    A container that contains everything. If "e" is an instance of
+    Everything, then "x in e" is true for all x.
+    """
+    def __contains__(self, element):
+        return True
 
 
 class ReplConnection(BufferedHTTPConnection):
@@ -634,12 +656,22 @@ class Replicator(Daemon):
             return match.groups()[0]
         return "UNKNOWN"
 
-    def handoffs_only_filter(self, device_id):
+    def _partition_dir_filter(self, device_id, handoffs_only,
+                              partitions_to_replicate):
+
         def filt(partition_dir):
             partition = int(partition_dir)
-            primary_node_ids = [
-                d['id'] for d in self.ring.get_part_nodes(partition)]
-            return device_id not in primary_node_ids
+            if handoffs_only:
+                primary_node_ids = [
+                    d['id'] for d in self.ring.get_part_nodes(partition)]
+                if device_id in primary_node_ids:
+                    return False
+
+            if partition not in partitions_to_replicate:
+                return False
+
+            return True
+
         return filt
 
     def report_up_to_date(self, full_info):
@@ -647,6 +679,8 @@ class Replicator(Daemon):
 
     def run_once(self, *args, **kwargs):
         """Run a replication pass once."""
+        devices_to_replicate, partitions_to_replicate = parse_overrides(kwargs)
+
         self._zero_stats()
         dirs = []
         ips = whataremyips(self.bind_ip)
@@ -676,15 +710,21 @@ class Replicator(Daemon):
                     self.logger.warning(
                         _('Skipping %(device)s as it is not mounted') % node)
                     continue
+                if node['device'] not in devices_to_replicate:
+                    self.logger.debug(
+                        'Skipping device %s due to given arguments',
+                        node['device'])
+                    continue
                 unlink_older_than(
                     os.path.join(self.root, node['device'], 'tmp'),
                     time.time() - self.reclaim_age)
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
                     self._local_device_ids.add(node['id'])
-                    filt = (self.handoffs_only_filter(node['id'])
-                            if self.handoffs_only else None)
-                    dirs.append((datadir, node['id'], filt))
+                    part_filt = self._partition_dir_filter(
+                        node['id'], self.handoffs_only,
+                        partitions_to_replicate)
+                    dirs.append((datadir, node['id'], part_filt))
         if not found_local:
             self.logger.error("Can't find itself %s with port %s in ring "
                               "file, not replicating",
