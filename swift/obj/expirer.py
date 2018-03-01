@@ -382,6 +382,7 @@ class ObjectExpirer(Daemon):
                 '%(account)s %(container)s %(obj)s: %(err)s' % {
                     'account': task_account, 'container': task_container,
                     'obj': task_object, 'err': str(err.resp.status_int)})
+            self.logger.debug(err.resp.body)
         except (Exception, Timeout) as err:
             self.logger.increment('errors')
             self.logger.exception(
