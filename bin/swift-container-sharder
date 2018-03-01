@@ -17,7 +17,17 @@
 from swift.container.sharder import ContainerSharder
 from swift.common.utils import parse_options
 from swift.common.daemon import run_daemon
+from optparse import OptionParser
 
 if __name__ == '__main__':
-    conf_file, options = parse_options(once=True)
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('-d', '--devices',
+                      help='Shard containers only on given devices. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    parser.add_option('-p', '--partitions',
+                      help='Shard containers only in given partitions. '
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
+    conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ContainerSharder, conf_file, **options)
