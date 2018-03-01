@@ -20,7 +20,6 @@ import posix
 import unittest
 from tempfile import mkdtemp
 from shutil import rmtree
-from time import gmtime
 from test.unit import FakeLogger
 import itertools
 import random
@@ -2003,16 +2002,15 @@ class TestAccountController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
         self.controller.logger = FakeLogger()
         with mock.patch(
-                'time.gmtime', mock.MagicMock(side_effect=[gmtime(10001.0)])):
+                'time.time',
+                mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0,
+                                            10002.0])):
             with mock.patch(
-                    'time.time',
-                    mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0])):
-                with mock.patch(
-                        'os.getpid', mock.MagicMock(return_value=1234)):
-                    req.get_response(self.controller)
+                    'os.getpid', mock.MagicMock(return_value=1234)):
+                req.get_response(self.controller)
         self.assertEqual(
             self.controller.logger.log_dict['info'],
-            [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a" 404 '
+            [(('1.2.3.4 - - [01/Jan/1970:02:46:42 +0000] "HEAD /sda1/p/a" 404 '
              '- "-" "-" "-" 2.0000 "-" 1234 -',), {})])
 
     def test_policy_stats_with_legacy(self):

@@ -321,7 +321,9 @@ class AccountController(BaseStorageServer):
             if res.headers.get('x-container-timestamp') is not None:
                 additional_info += 'x-container-timestamp: %s' % \
                     res.headers['x-container-timestamp']
-            log_msg = get_log_line(req, res, trans_time, additional_info)
+            log_msg = get_log_line(req, res, trans_time, additional_info,
+                                   self.log_format, self.anonymization_method,
+                                   self.anonymization_salt)
             if req.method.upper() == 'REPLICATE':
                 self.logger.debug(log_msg)
             else:

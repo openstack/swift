@@ -882,6 +882,17 @@ use = egg:swift#proxy_logging
 # middleware and never made it through to the right-most middleware (and
 # proxy server). Double logging is prevented for normal requests. See
 # proxy-logging docs.
+#
+# Hashing algorithm for log anonymization. Must be one of algorithms supported
+# by Python's hashlib.
+# log_anonymization_method = MD5
+#
+# Salt added during log anonymization
+# log_anonymization_salt = 
+#
+# Template used to format access logs. All words surrounded by curly brackets
+# will be substituted with the appropriate values
+# log_msg_template = {client_ip} {remote_addr} {end_time.datetime} {method} {path} {protocol} {status_int} {referer} {user_agent} {auth_token} {bytes_recvd} {bytes_sent} {client_etag} {transaction_id} {headers} {request_time} {source} {log_info} {start_time} {end_time} {policy_index}
 
 # Note: Put before both ratelimit and auth in the pipeline.
 [filter:bulk]

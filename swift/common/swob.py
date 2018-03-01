@@ -38,7 +38,7 @@ needs to change.
 from collections import defaultdict, MutableMapping
 import time
 from functools import partial
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime
 from email.utils import parsedate
 import re
 import random
@@ -51,7 +51,7 @@ from six import StringIO
 from six.moves import urllib
 
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
+from swift.common.utils import UTC, reiterate, split_path, Timestamp, pairs, \
     close_if_possible, closing_if_possible
 from swift.common.exceptions import InvalidTimestamp
 
@@ -116,21 +116,6 @@ RESPONSE_REASONS = {
 MAX_RANGE_OVERLAPS = 2
 MAX_NONASCENDING_RANGES = 8
 MAX_RANGES = 50
-
-
-class _UTC(tzinfo):
-    """
-    A tzinfo class for datetime objects that returns a 0 timedelta (UTC time)
-    """
-    def dst(self, dt):
-        return timedelta(0)
-    utcoffset = dst
-
-    def tzname(self, dt):
-        return 'UTC'
-
-
-UTC = _UTC()
 
 
 class WsgiBytesIO(BytesIO):

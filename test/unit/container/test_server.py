@@ -24,7 +24,6 @@ from contextlib import contextmanager
 from shutil import rmtree
 from tempfile import mkdtemp
 from test.unit import make_timestamp_iter, mock_timestamp_now
-from time import gmtime
 from xml.dom import minidom
 import time
 import random
@@ -4564,16 +4563,14 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
-        with mock.patch('time.gmtime',
-                        mock.MagicMock(side_effect=[gmtime(10001.0)])), \
-                mock.patch('time.time',
-                           mock.MagicMock(side_effect=[
-                               10000.0, 10001.0, 10002.0])), \
+        with mock.patch('time.time',
+                        mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0,
+                                                    10002.0])), \
                 mock.patch('os.getpid', mock.MagicMock(return_value=1234)):
             req.get_response(self.controller)
         info_lines = self.controller.logger.get_lines_for_level('info')
         self.assertEqual(info_lines, [
-            '1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c" '
+            '1.2.3.4 - - [01/Jan/1970:02:46:42 +0000] "HEAD /sda1/p/a/c" '
             '404 - "-" "-" "-" 2.0000 "-" 1234 0',
         ])
 

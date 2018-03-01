@@ -798,7 +798,10 @@ class ContainerController(BaseStorageServer):
                 res = HTTPInternalServerError(body=traceback.format_exc())
         if self.log_requests:
             trans_time = time.time() - start_time
-            log_message = get_log_line(req, res, trans_time, '')
+            log_message = get_log_line(req, res, trans_time, '',
+                                       self.log_format,
+                                       self.anonymization_method,
+                                       self.anonymization_salt)
             if req.method.upper() == 'REPLICATE':
                 self.logger.debug(log_message)
             else:

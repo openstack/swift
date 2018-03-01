@@ -407,6 +407,48 @@ class TestProxyLogging(unittest.TestCase):
         self._log_parts(app, should_be_empty=True)
         self.assertEqual(resp_body, b'FAKE APP')
 
+    def test_log_msg_template(self):
+        # Access logs configuration should override the default one
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+            'log_anonymization_salt': 'secret_salt',
+            'log_msg_template': (
+                'template which can be edited in config: '
+                '{protocol} {path} {method} '
+                '{path.anonymized} {container.anonymized} '
+                '{request_time} {start_time.datetime} {end_time} ')})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        with mock.patch('time.time',
+                        mock.MagicMock(
+                            side_effect=[10000000.0, 10000001.0])):
+                resp = app(req.environ, start_response)
+                resp_body = b''.join(resp)
+        # exhaust generator
+        [x for x in resp]
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[0], 'template')
+        self.assertEqual(log_parts[7], 'HTTP/1.0')
+        self.assertEqual(log_parts[8], '/')
+        self.assertEqual(log_parts[9], 'GET')
+        self.assertEqual(log_parts[10],
+                         '{SMD5}c65475e457fea0951fbb9ec9596b2177')
+        self.assertEqual(log_parts[11], '-')
+        self.assertEqual(log_parts[13], '26/Apr/1970/17/46/40')
+        self.assertEqual(log_parts[14], '10000001.000000000')
+        self.assertEqual(resp_body, b'FAKE APP')
+
+    def test_invalid_log_config(self):
+        with self.assertRaises(ValueError):
+            proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+                'log_anonymization_salt': 'secret_salt',
+                'log_msg_template': '{invalid_field}'})
+
+        with self.assertRaises(ValueError):
+            proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+                'log_anonymization_method': 'invalid_hash_method',
+                'log_anonymization_salt': 'secret_salt',
+                'log_msg_template': '{protocol}'})
+
     def test_multi_segment_resp(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(
             [b'some', b'chunks', b'of data']), {})
