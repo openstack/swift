@@ -1,0 +1,8 @@
+#!/bin/bash
+
+mkdir -p /var/cache/swift /var/cache/swift2 /var/cache/swift3 /var/cache/swift4
+chown {{ ansible_user_id }}:{{ ansible_user_gid }} /var/cache/swift*
+mkdir -p /var/run/swift
+chown {{ ansible_user_id }}:{{ ansible_user_gid }} /var/run/swift
+
+exit 0
