@@ -183,6 +183,7 @@ class TestTimestamp(unittest.TestCase):
 
     def test_invalid_input(self):
         self.assertRaises(ValueError, utils.Timestamp, time.time(), offset=-1)
+        self.assertRaises(ValueError, utils.Timestamp, '123.456_78_90')
 
     def test_invalid_string_conversion(self):
         t = utils.Timestamp.now()
@@ -390,6 +391,8 @@ class TestTimestamp(unittest.TestCase):
         expected = '1402436408.91203_00000000000000f0'
         test_values = (
             '1402436408.91203_000000f0',
+            u'1402436408.91203_000000f0',
+            b'1402436408.91203_000000f0',
             '1402436408.912030000_0000000000f0',
             '1402436408.912029_000000f0',
             '1402436408.91202999999_0000000000f0',
