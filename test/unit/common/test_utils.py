@@ -6730,8 +6730,8 @@ class TestShardRange(unittest.TestCase):
             sr = utils.ShardRange.create('acc', 'con', 'l', 'u')
 
         expected_account = '.sharded_acc'
-        expected_container = 'con-%s' % hashlib.md5(
-            ('u-%s' % ts0.internal).encode('ascii')).hexdigest()
+        expected_container = ('con-%s-%s-%s' % (hashlib.md5(
+            b'con').hexdigest(), ts0.internal, 'u'))
         self.assertEqual(expected_account, sr.account)
         self.assertEqual(expected_container, sr.container)
         expected_name = '%s/%s' % (expected_account, expected_container)
@@ -7230,6 +7230,23 @@ class TestShardRange(unittest.TestCase):
                               state_timestamp=new_timestamp.internal,
                               object_count=99),
                          dict(new))
+
+    def test_make_path(self):
+        ts = utils.Timestamp.now()
+        actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, 0)
+        parent_hash = hashlib.md5(b'parent').hexdigest()
+        self.assertEqual('a/root-%s-%s-0' % (parent_hash, ts.internal), actual)
+        actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, 3)
+        self.assertEqual('a/root-%s-%s-3' % (parent_hash, ts.internal), actual)
+        actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, '3')
+        self.assertEqual('a/root-%s-%s-3' % (parent_hash, ts.internal), actual)
+        actual = utils.ShardRange.make_path(
+            'a', 'root', 'parent', ts.internal, '3')
+        self.assertEqual('a/root-%s-%s-3' % (parent_hash, ts.internal), actual)
+        with self.assertRaises(ValueError):
+            utils.ShardRange.make_path(
+                'a', 'root', 'parent', ts.internal, None)
+
 
 if __name__ == '__main__':
     unittest.main()

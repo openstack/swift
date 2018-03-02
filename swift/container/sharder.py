@@ -60,6 +60,9 @@ class ContainerSharder(ContainerReplicator):
         super(ContainerReplicator, self).__init__(conf, logger=logger)
         self.rcache = os.path.join(self.recon_cache_path,
                                    "container-sharder.recon")
+        self.shards_account_prefix = (
+            (conf.get('auto_create_account_prefix') or '.') + 'shards_')
+
         try:
             self.shard_shrink_point = config_float_value(
                 conf.get('shard_shrink_point', 25), 0, 100) / 100.0
@@ -908,19 +911,28 @@ class ContainerSharder(ContainerReplicator):
         # TODO: if we bring back leader election, this is about the spot where
         # we should confirm we're still the scanner
 
-        broker.merge_shard_ranges(found_ranges)
+        timestamp = Timestamp.now()
+        shard_ranges = [
+            ShardRange(ShardRange.make_path(
+                self.shards_account_prefix + broker.account,
+                broker.root_container, broker.container,
+                timestamp, found_range.pop('index')),
+                timestamp, **found_range)
+            for found_range in found_ranges]
+
+        broker.merge_shard_ranges(shard_ranges)
         if not broker.is_root_container():
             # TODO: check for success and do not proceed otherwise
             self._update_shard_ranges(
-                broker.root_account, broker.root_container, found_ranges)
+                broker.root_account, broker.root_container, shard_ranges)
 
         self.logger.info(
-            "Completed scan for shard ranges: %d found", len(found_ranges))
+            "Completed scan for shard ranges: %d found", len(shard_ranges))
         if last_found:
             # We've found the last shard range, so mark that in metadata
             broker.update_sharding_info({'Scan-Done': 'True'})
             self.logger.info("Final shard range reached.")
-        return last_found, len(found_ranges)
+        return last_found, len(shard_ranges)
 
     def _create_shard_containers(self, broker):
         # Create shard containers that are ready to receive redirected object

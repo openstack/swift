@@ -312,6 +312,10 @@ use = egg:swift#xprofile
 # log_level = INFO
 # log_address = /dev/log
 #
+# The prefix used for the hidden account in which shard containers will be
+# created. Defaults to '.'.
+# auto_create_account_prefix = .
+
 # Container sharder specific settings
 #
 # shard_container_size defines the size at which a container with

@@ -23,6 +23,7 @@ import bisect
 import errno
 import fcntl
 import grp
+import hashlib
 import hmac
 import json
 import math
@@ -4372,7 +4373,7 @@ class ShardRange(object):
         :param state_timestamp: the timestamp at which the shard state was last
             updated; defaults to the value of ``created_at``.
         """
-        self.account, self.container = self.validate_name(name)
+        self.account, self.container = self._validate_path(name)
         self.name = name
         self._lower = ShardRange.MIN
         self._upper = ShardRange.MAX
@@ -4391,29 +4392,47 @@ class ShardRange(object):
         self.state_timestamp = state_timestamp
 
     @classmethod
-    def validate_name(cls, name):
-        if not name or name.count('/') != 1 or name.strip('/').count('/') == 0:
+    def _validate_path(cls, path):
+        if not path or path.count('/') != 1 or path.strip('/').count('/') == 0:
             raise ValueError(
                 "Name must be of the form '<account>/<container>', got %r" %
-                name)
-        return tuple(name.split('/'))
+                path)
+        return tuple(path.split('/'))
 
     @classmethod
-    def _generate_name(cls, root_container, timestamp, upper):
-        to_hash = "%s-%s" % (upper, timestamp.internal)
-        md5sum = md5(to_hash.encode('utf-8')).hexdigest()
-        return "%s-%s" % (root_container, md5sum)
+    def _make_container_name(cls, root_container, parent_container, timestamp,
+                             index):
+        if index is None:
+            raise ValueError('index must not be None')
+        if not isinstance(parent_container, bytes):
+            parent_container = parent_container.encode('utf-8')
+        return "%s-%s-%s-%s" % (root_container,
+                                hashlib.md5(parent_container).hexdigest(),
+                                cls._to_timestamp(timestamp).internal,
+                                index)
+
+    @classmethod
+    def make_path(cls, shards_account, root_container, parent_container,
+                  timestamp, index):
+        shard_container = cls._make_container_name(
+            root_container, parent_container, timestamp, index)
+        return '%s/%s' % (shards_account, shard_container)
 
     @classmethod
     def create(cls, root_account, root_container, lower='', upper='',
-               **kwargs):
+               parent_container=None, index=None, **kwargs):
+        # avoid using this method other than for convenience in tests because
+        # these defaults shouldn't be generally used
+        parent_container = parent_container or root_container
+        index = index or upper
         timestamp = kwargs.pop('created_at', Timestamp.now())
         shard_account = ".sharded_%s" % root_account
-        shard_container = cls._generate_name(root_container, timestamp, upper)
-        return cls('%s/%s' % (shard_account, shard_container), timestamp,
-                   lower, upper, **kwargs)
+        shard_path = cls.make_path(
+            shard_account, root_container, parent_container, timestamp, index)
+        return cls(shard_path, timestamp, lower, upper, **kwargs)
 
-    def _to_timestamp(self, timestamp):
+    @classmethod
+    def _to_timestamp(cls, timestamp):
         if timestamp:
             if not isinstance(timestamp, Timestamp):
                 return Timestamp(timestamp)

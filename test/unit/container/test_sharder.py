@@ -362,7 +362,9 @@ class TestSharder(unittest.TestCase):
             'split_size': 5000000,
             'shard_batch_size': 2,
             'scanner_batch_size': 10,
-            'rcache': '/var/cache/swift/container-sharder.recon'}
+            'rcache': '/var/cache/swift/container-sharder.recon',
+            'shards_account_prefix': '.shards_',
+        }
         mock_ic = do_test({}, expected)
         mock_ic.assert_called_once_with(
             '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3,
@@ -382,7 +384,9 @@ class TestSharder(unittest.TestCase):
             'shard_scanner_batch_size': 8,
             'request_tries': 2,
             'internal_client_conf_path': '/etc/swift/my-sharder-ic.conf',
-            'rcache': '/var/cache/swift/container-sharder.recon'}
+            'rcache': '/var/cache/swift/container-sharder.recon',
+            'auto_create_account_prefix': '...',
+        }
         expected = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'port': 62010,
             'per_diff': 2000, 'max_diffs': 200, 'interval': 60,
@@ -396,7 +400,9 @@ class TestSharder(unittest.TestCase):
             'split_size': 10000000,
             'shard_batch_size': 4,
             'scanner_batch_size': 8,
-            'rcache': '/var/cache/swift/container-sharder.recon'}
+            'rcache': '/var/cache/swift/container-sharder.recon',
+            'shards_account_prefix': '...shards_',
+        }
         mock_ic = do_test(conf, expected)
         mock_ic.assert_called_once_with(
             '/etc/swift/my-sharder-ic.conf', 'Swift Container Sharder', 2,

@@ -2824,24 +2824,21 @@ class TestContainerBroker(unittest.TestCase):
         ts_now = Timestamp.now()
         container_name = 'test_container'
 
-        def do_test(expected_bounds, expected_last_found, shard_size, limit):
+        def do_test(expected_bounds, expected_last_found, shard_size, limit,
+                    start_index=0):
             # expected_bounds is a list of tuples (lower, upper, object_count)
             # build expected shard ranges
             expected_shard_ranges = [
-                ShardRange.create('a', container_name, lower, upper,
-                                  created_at=ts_now, object_count=object_count,
-                                  state=ShardRange.FOUND)
-                for lower, upper, object_count in expected_bounds]
+                dict(lower=lower, upper=upper, index=index,
+                     object_count=object_count)
+                for index, (lower, upper, object_count)
+                in enumerate(expected_bounds, start_index)]
 
-            # call the method under test
             with mock.patch('swift.common.utils.time.time',
                             return_value=float(ts_now.normal)):
                 ranges, last_found = broker.find_shard_ranges(shard_size,
                                                               limit)
-            # verify results
-            self.assertEqual(
-                [dict(shard_range) for shard_range in expected_shard_ranges],
-                [dict(shard_range) for shard_range in ranges])
+            self.assertEqual(expected_shard_ranges, ranges)
             self.assertEqual(expected_last_found, last_found)
 
         db_path = os.path.join(tempdir, 'test_container.db')
@@ -2905,18 +2902,18 @@ class TestContainerBroker(unittest.TestCase):
         broker.merge_shard_ranges([shard_range])
 
         expected = [('obj03', 'obj07', 4), ('obj07', c_upper, 3)]
-        do_test(expected, True, shard_size=4, limit=None)
+        do_test(expected, True, shard_size=4, limit=None, start_index=1)
         expected = [('obj03', 'obj07', 4)]
-        do_test(expected, False, shard_size=4, limit=1)
+        do_test(expected, False, shard_size=4, limit=1, start_index=1)
 
         # add another...
         shard_range = ShardRange(
             '.sharded_a/srange-1', Timestamp.now(), '', 'obj07')
         broker.merge_shard_ranges([shard_range])
         expected = [('obj07', c_upper, 3)]
-        do_test(expected, True, shard_size=4, limit=None)
+        do_test(expected, True, shard_size=4, limit=None, start_index=2)
 
-        # add last shard range...
+        # add last shard range so there's none left to find
         shard_range = ShardRange(
             '.sharded_a/srange-2', Timestamp.now(), 'obj07', c_upper)
         broker.merge_shard_ranges([shard_range])
@@ -2961,19 +2958,15 @@ class TestContainerBroker(unittest.TestCase):
             ('q', 'u', 3)   # contains r; object count distorted by 2 misplaced
         )
         expected_shard_ranges = [
-            ShardRange.create('a', container_name, lower, upper,
-                              created_at=ts_now, object_count=object_count,
-                              state=ShardRange.FOUND)
-            for lower, upper, object_count in expected_bounds]
+            dict(lower=lower, upper=upper, index=index,
+                 object_count=object_count)
+            for index, (lower, upper, object_count)
+            in enumerate(expected_bounds)]
 
-        # call the method under test
         with mock.patch('swift.common.utils.time.time',
                         return_value=float(ts_now.normal)):
-            ranges, last_found = broker.find_shard_ranges(2, -1)
-        # verify results
-        self.assertEqual(
-            [dict(shard_range) for shard_range in expected_shard_ranges],
-            [dict(shard_range) for shard_range in ranges])
+            actual_shard_ranges, last_found = broker.find_shard_ranges(2, -1)
+        self.assertEqual(expected_shard_ranges, actual_shard_ranges)
 
     @with_tempdir
     def test_set_sharding_states(self, tempdir):

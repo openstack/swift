@@ -1892,9 +1892,10 @@ class ContainerBroker(DatabaseBroker):
         :param limit: the maximum number of shard points to be found; a
             negative value (default) implies no limit.
         :return:  a tuple; the first value in the tuple is a list of
-            :class:`~swift.common.utils.ShardRange` instances in object name
-            order, the second value is a boolean which is True if the last
-            shard range has been found, False otherwise.
+            dicts each having keys {'index', 'lower', 'upper', 'object_count'}
+            in order of ascending 'upper'; the second value in the tuple is a
+            boolean which is True if the last shard range has been found, False
+            otherwise.
         """
         object_count = self.get_info().get('object_count', 0)
         if shard_size >= object_count:
@@ -1923,7 +1924,7 @@ class ContainerBroker(DatabaseBroker):
 
         found_ranges = []
         sub_broker = self.get_brokers()[0]
-
+        index = len(existing_ranges)
         while limit < 0 or len(found_ranges) < limit:
             if progress + shard_size >= object_count:
                 # next shard point is at or beyond final object name so don't
@@ -1956,16 +1957,16 @@ class ContainerBroker(DatabaseBroker):
             # container is non-deletable while shards have been found but not
             # yet cleaved
             found_ranges.append(
-                ShardRange.create(self.root_account, self.root_container,
-                                  last_shard_upper, next_shard_upper,
-                                  object_count=shard_size,
-                                  state=ShardRange.FOUND)
-            )
+                {'index': index,
+                 'lower': last_shard_upper,
+                 'upper': next_shard_upper,
+                 'object_count': shard_size})
 
             if next_shard_upper == own_shard_range.upper:
                 return found_ranges, True
 
             progress += shard_size
             last_shard_upper = next_shard_upper
+            index += 1
 
         return found_ranges, False
