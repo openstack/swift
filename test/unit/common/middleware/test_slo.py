@@ -3040,14 +3040,9 @@ class TestSloGetManifest(SloTestCase):
     def test_download_takes_too_long(self, mock_time):
         mock_time.time.side_effect = [
             0,  # start time
-            1,  # just building the first segment request; purely local
-            2,  # build the second segment request object, too, so we know we
-                # can't coalesce and should instead go fetch the first segment
-            7 * 3600,  # that takes a while, but gets serviced; we build the
-                       # third request and service the second
-            21 * 3600,  # which takes *even longer* (ostensibly something to
-                        # do with submanifests), but we build the fourth...
-            28 * 3600,  # and before we go to service it we time out
+            10 * 3600,  # a_5
+            20 * 3600,  # b_10
+            30 * 3600,  # c_15, but then we time out
         ]
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
