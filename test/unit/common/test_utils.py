@@ -4823,6 +4823,13 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(mock_controller.args[0], 'METHOD.timing')
         self.assertTrue(mock_controller.args[1] > 0)
 
+        mock_controller = MockController(400)
+        METHOD(mock_controller)
+        self.assertEqual(len(mock_controller.args), 2)
+        self.assertEqual(mock_controller.called, 'timing')
+        self.assertEqual(mock_controller.args[0], 'METHOD.timing')
+        self.assertTrue(mock_controller.args[1] > 0)
+
         mock_controller = MockController(404)
         METHOD(mock_controller)
         self.assertEqual(len(mock_controller.args), 2)
@@ -4844,7 +4851,14 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(mock_controller.args[0], 'METHOD.timing')
         self.assertTrue(mock_controller.args[1] > 0)
 
-        mock_controller = MockController(401)
+        mock_controller = MockController(500)
+        METHOD(mock_controller)
+        self.assertEqual(len(mock_controller.args), 2)
+        self.assertEqual(mock_controller.called, 'timing')
+        self.assertEqual(mock_controller.args[0], 'METHOD.errors.timing')
+        self.assertTrue(mock_controller.args[1] > 0)
+
+        mock_controller = MockController(507)
         METHOD(mock_controller)
         self.assertEqual(len(mock_controller.args), 2)
         self.assertEqual(mock_controller.called, 'timing')

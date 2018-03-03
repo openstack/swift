@@ -78,8 +78,7 @@ from six.moves.urllib.parse import urlparse as stdlib_urlparse
 
 from swift import gettext_ as _
 import swift.common.exceptions
-from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
-    HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+from swift.common.http import is_server_error
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.linkat import linkat
 
@@ -1661,24 +1660,6 @@ class StatsdClient(object):
                                sample_rate)
 
 
-def server_handled_successfully(status_int):
-    """
-    True for successful responses *or* error codes that are not Swift's fault,
-    False otherwise. For example, 500 is definitely the server's fault, but
-    412 is an error code (4xx are all errors) that is due to a header the
-    client sent.
-
-    If one is tracking error rates to monitor server health, one would be
-    advised to use a function like this one, lest a client cause a flurry of
-    404s or 416s and make a spurious spike in your errors graph.
-    """
-    return (is_success(status_int) or
-            is_redirection(status_int) or
-            status_int == HTTP_NOT_FOUND or
-            status_int == HTTP_PRECONDITION_FAILED or
-            status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
-
-
 def timing_stats(**dec_kwargs):
     """
     Returns a decorator that logs timing events or errors for public methods in
@@ -1691,7 +1672,15 @@ def timing_stats(**dec_kwargs):
         def _timing_stats(ctrl, *args, **kwargs):
             start_time = time.time()
             resp = func(ctrl, *args, **kwargs)
-            if server_handled_successfully(resp.status_int):
+            # .timing is for successful responses *or* error codes that are
+            # not Swift's fault. For example, 500 is definitely the server's
+            # fault, but 412 is an error code (4xx are all errors) that is
+            # due to a header the client sent.
+            #
+            # .errors.timing is for failures that *are* Swift's fault.
+            # Examples include 507 for an unmounted drive or 500 for an
+            # unhandled exception.
+            if not is_server_error(resp.status_int):
                 ctrl.logger.timing_since(method + '.timing',
                                          start_time, **dec_kwargs)
             else:
