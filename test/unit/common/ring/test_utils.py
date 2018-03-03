@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 import unittest
 from collections import defaultdict
 
@@ -663,6 +664,8 @@ class TestUtils(unittest.TestCase):
         }
         self.assertEqual(device, expected)
 
+    @unittest.skipIf(sys.version_info >= (3,),
+                     "Seed-specific tests don't work well on py3")
     def test_dispersion_report(self):
         rb = ring.RingBuilder(8, 3, 0)
         rb.add_dev({'id': 0, 'region': 1, 'zone': 0, 'weight': 100,

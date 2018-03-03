@@ -1102,10 +1102,10 @@ class ObjectController(BaseStorageServer):
             else:
                 response_class = HTTPConflict
         response_timestamp = max(orig_timestamp, req_timestamp)
-        orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
+        orig_delete_at = Timestamp(orig_metadata.get('X-Delete-At') or 0)
         try:
             req_if_delete_at_val = request.headers['x-if-delete-at']
-            req_if_delete_at = int(req_if_delete_at_val)
+            req_if_delete_at = Timestamp(req_if_delete_at_val)
         except KeyError:
             pass
         except ValueError:

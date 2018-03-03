@@ -1067,7 +1067,7 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
             print('Worst tier is %.06f (%s)' % (report['max_dispersion'],
                                                 report['worst_tier']))
         if report['graph']:
-            replica_range = range(int(math.ceil(builder.replicas + 1)))
+            replica_range = list(range(int(math.ceil(builder.replicas + 1))))
             part_count_width = '%%%ds' % max(len(str(builder.parts)), 5)
             replica_counts_tmpl = ' '.join(part_count_width for i in
                                            replica_range)

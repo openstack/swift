@@ -66,6 +66,9 @@ import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
 import six
+if not six.PY2:
+    utf16_decoder = codecs.getdecoder('utf-16')
+    utf16_encoder = codecs.getencoder('utf-16')
 from six.moves import cPickle as pickle
 from six.moves.configparser import (ConfigParser, NoSectionError,
                                     NoOptionError, RawConfigParser)
@@ -77,8 +80,7 @@ from six import string_types
 
 from swift import gettext_ as _
 import swift.common.exceptions
-from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
-    HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+from swift.common.http import is_server_error
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.linkat import linkat
 
@@ -163,8 +165,8 @@ def IOPRIO_PRIO_VALUE(class_, data):
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
-HASH_PATH_SUFFIX = ''
-HASH_PATH_PREFIX = ''
+HASH_PATH_SUFFIX = b''
+HASH_PATH_PREFIX = b''
 
 SWIFT_CONF_FILE = '/etc/swift/swift.conf'
 
@@ -217,17 +219,29 @@ def validate_hash_conf():
     global HASH_PATH_PREFIX
     if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
         hash_conf = ConfigParser()
-        if hash_conf.read(SWIFT_CONF_FILE):
+
+        if six.PY3:
+            # Use Latin1 to accept arbitrary bytes in the hash prefix/suffix
+            confs_read = hash_conf.read(SWIFT_CONF_FILE, encoding='latin1')
+        else:
+            confs_read = hash_conf.read(SWIFT_CONF_FILE)
+
+        if confs_read:
             try:
                 HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
                                                  'swift_hash_path_suffix')
+                if six.PY3:
+                    HASH_PATH_SUFFIX = HASH_PATH_SUFFIX.encode('latin1')
             except (NoSectionError, NoOptionError):
                 pass
             try:
                 HASH_PATH_PREFIX = hash_conf.get('swift-hash',
                                                  'swift_hash_path_prefix')
+                if six.PY3:
+                    HASH_PATH_PREFIX = HASH_PATH_PREFIX.encode('latin1')
             except (NoSectionError, NoOptionError):
                 pass
+
         if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
             raise InvalidHashPathConfigError()
 
@@ -255,9 +269,13 @@ def get_hmac(request_method, path, expires, key, digest=sha1):
     :returns: hexdigest str of the HMAC for the request using the specified
               digest algorithm.
     """
+    parts = (request_method, str(expires), path)
+    if not isinstance(key, six.binary_type):
+        key = key.encode('utf8')
     return hmac.new(
-        key,
-        '%s\n%s\n%s' % (request_method, expires, path),
+        key, b'\n'.join(
+            x if isinstance(x, six.binary_type) else x.encode('utf8')
+            for x in parts),
         digest).hexdigest()
 
 
@@ -383,13 +401,13 @@ def config_positive_int_value(value):
     integer > 0. (not including zero) Raises ValueError otherwise.
     """
     try:
-        value = int(value)
-        if value < 1:
+        result = int(value)
+        if result < 1:
             raise ValueError()
     except (TypeError, ValueError):
         raise ValueError(
             'Config option must be an positive int number, not "%s".' % value)
-    return value
+    return result
 
 
 def config_float_value(value, minimum=None, maximum=None):
@@ -547,7 +565,7 @@ def load_libc_function(func_name, log_error=True,
 
 def generate_trans_id(trans_id_suffix):
     return 'tx%s-%010x%s' % (
-        uuid.uuid4().hex[:21], time.time(), quote(trans_id_suffix))
+        uuid.uuid4().hex[:21], int(time.time()), quote(trans_id_suffix))
 
 
 def get_policy_index(req_headers, res_headers):
@@ -562,6 +580,8 @@ def get_policy_index(req_headers, res_headers):
     """
     header = 'X-Backend-Storage-Policy-Index'
     policy_index = res_headers.get(header, req_headers.get(header))
+    if isinstance(policy_index, six.binary_type) and not six.PY2:
+        policy_index = policy_index.decode('ascii')
     return str(policy_index) if policy_index is not None else None
 
 
@@ -769,7 +789,7 @@ class FallocateWrapper(object):
                 if float(free) <= float(FALLOCATE_RESERVE):
                     raise OSError(
                         errno.ENOSPC,
-                        'FALLOCATE_RESERVE fail %s <= %s' %
+                        'FALLOCATE_RESERVE fail %g <= %g' %
                         (free, FALLOCATE_RESERVE))
         args = {
             'fallocate': (fd, mode, offset, length),
@@ -1657,24 +1677,6 @@ class StatsdClient(object):
                                sample_rate)
 
 
-def server_handled_successfully(status_int):
-    """
-    True for successful responses *or* error codes that are not Swift's fault,
-    False otherwise. For example, 500 is definitely the server's fault, but
-    412 is an error code (4xx are all errors) that is due to a header the
-    client sent.
-
-    If one is tracking error rates to monitor server health, one would be
-    advised to use a function like this one, lest a client cause a flurry of
-    404s or 416s and make a spurious spike in your errors graph.
-    """
-    return (is_success(status_int) or
-            is_redirection(status_int) or
-            status_int == HTTP_NOT_FOUND or
-            status_int == HTTP_PRECONDITION_FAILED or
-            status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
-
-
 def timing_stats(**dec_kwargs):
     """
     Returns a decorator that logs timing events or errors for public methods in
@@ -1687,7 +1689,15 @@ def timing_stats(**dec_kwargs):
         def _timing_stats(ctrl, *args, **kwargs):
             start_time = time.time()
             resp = func(ctrl, *args, **kwargs)
-            if server_handled_successfully(resp.status_int):
+            # .timing is for successful responses *or* error codes that are
+            # not Swift's fault. For example, 500 is definitely the server's
+            # fault, but 412 is an error code (4xx are all errors) that is
+            # due to a header the client sent.
+            #
+            # .errors.timing is for failures that *are* Swift's fault.
+            # Examples include 507 for an unmounted drive or 500 for an
+            # unhandled exception.
+            if not is_server_error(resp.status_int):
                 ctrl.logger.timing_since(method + '.timing',
                                          start_time, **dec_kwargs)
             else:
@@ -2291,16 +2301,19 @@ def hash_path(account, container=None, object=None, raw_digest=False):
     """
     if object and not container:
         raise ValueError('container is required if object is provided')
-    paths = [account]
+    paths = [account if isinstance(account, six.binary_type)
+             else account.encode('utf8')]
     if container:
-        paths.append(container)
+        paths.append(container if isinstance(container, six.binary_type)
+                     else container.encode('utf8'))
     if object:
-        paths.append(object)
+        paths.append(object if isinstance(object, six.binary_type)
+                     else object.encode('utf8'))
     if raw_digest:
-        return md5(HASH_PATH_PREFIX + '/' + '/'.join(paths)
+        return md5(HASH_PATH_PREFIX + b'/' + b'/'.join(paths)
                    + HASH_PATH_SUFFIX).digest()
     else:
-        return md5(HASH_PATH_PREFIX + '/' + '/'.join(paths)
+        return md5(HASH_PATH_PREFIX + b'/' + b'/'.join(paths)
                    + HASH_PATH_SUFFIX).hexdigest()
 
 
@@ -2408,9 +2421,9 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
     flags = os.O_CREAT | os.O_RDWR
     if append:
         flags |= os.O_APPEND
-        mode = 'a+'
+        mode = 'a+b'
     else:
-        mode = 'r+'
+        mode = 'r+b'
     while True:
         fd = os.open(filename, flags)
         file_obj = os.fdopen(fd, mode)
@@ -3231,7 +3244,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
             try:
                 existing_entry = cf.readline()
                 if existing_entry:
-                    cache_entry = json.loads(existing_entry)
+                    cache_entry = json.loads(existing_entry.decode('utf8'))
             except ValueError:
                 # file doesn't have a valid entry, we'll recreate it
                 pass
@@ -3241,7 +3254,9 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
             try:
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
-                    tf.write(json.dumps(cache_entry, sort_keys=True) + '\n')
+                    cache_data = json.dumps(cache_entry, ensure_ascii=True,
+                                            sort_keys=True)
+                    tf.write(cache_data.encode('ascii') + b'\n')
                 if set_owner:
                     os.chown(tf.name, pwd.getpwnam(set_owner).pw_uid, -1)
                 renamer(tf.name, cache_file, fsync=False)
@@ -3389,10 +3404,22 @@ def get_valid_utf8_str(str_or_unicode):
 
     :param str_or_unicode: a string or an unicode which can be invalid utf-8
     """
-    if isinstance(str_or_unicode, six.text_type):
-        (str_or_unicode, _len) = utf8_encoder(str_or_unicode, 'replace')
-    (valid_utf8_str, _len) = utf8_decoder(str_or_unicode, 'replace')
-    return valid_utf8_str.encode('utf-8')
+    if six.PY2:
+        if isinstance(str_or_unicode, six.text_type):
+            (str_or_unicode, _len) = utf8_encoder(str_or_unicode, 'replace')
+        (valid_unicode_str, _len) = utf8_decoder(str_or_unicode, 'replace')
+    else:
+        # Apparently under py3 we need to go to utf-16 to collapse surrogates?
+        if isinstance(str_or_unicode, six.binary_type):
+            try:
+                (str_or_unicode, _len) = utf8_decoder(str_or_unicode,
+                                                      'surrogatepass')
+            except UnicodeDecodeError:
+                (str_or_unicode, _len) = utf8_decoder(str_or_unicode,
+                                                      'replace')
+        (str_or_unicode, _len) = utf16_encoder(str_or_unicode, 'surrogatepass')
+        (valid_unicode_str, _len) = utf16_decoder(str_or_unicode, 'replace')
+    return valid_unicode_str.encode('utf-8')
 
 
 def list_from_csv(comma_separated_str):
@@ -3849,7 +3876,10 @@ def quote(value, safe='/'):
     """
     Patched version of urllib.quote that encodes utf-8 strings before quoting
     """
-    return _quote(get_valid_utf8_str(value), safe)
+    quoted = _quote(get_valid_utf8_str(value), safe)
+    if isinstance(value, six.binary_type):
+        quoted = quoted.encode('utf-8')
+    return quoted
 
 
 def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
@@ -3954,11 +3984,11 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     :returns: A generator of file-like objects for each part.
     :raises MimeInvalid: if the document is malformed
     """
-    boundary = '--' + boundary
+    boundary = b'--' + boundary
     blen = len(boundary) + 2  # \r\n
     try:
         got = wsgi_input.readline(blen)
-        while got == '\r\n':
+        while got == b'\r\n':
             got = wsgi_input.readline(blen)
     except (IOError, ValueError) as e:
         raise swift.common.exceptions.ChunkReadError(str(e))
@@ -3966,8 +3996,8 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     if got.strip() != boundary:
         raise swift.common.exceptions.MimeInvalid(
             'invalid starting boundary: wanted %r, got %r', (boundary, got))
-    boundary = '\r\n' + boundary
-    input_buffer = ''
+    boundary = b'\r\n' + boundary
+    input_buffer = b''
     done = False
     while not done:
         it = _MultipartMimeFileLikeObject(wsgi_input, boundary, input_buffer,
@@ -4370,7 +4400,8 @@ class ShardRange(object):
 
     @classmethod
     def _generate_name(cls, root_container, timestamp, upper):
-        md5sum = md5("%s-%s" % (upper, timestamp.internal)).hexdigest()
+        to_hash = "%s-%s" % (upper, timestamp.internal)
+        md5sum = md5(to_hash.encode('utf-8')).hexdigest()
         return "%s-%s" % (root_container, md5sum)
 
     @classmethod
@@ -4762,7 +4793,12 @@ def strict_b64decode(value, allow_line_breaks=False):
     :raises ValueError: if ``value`` is not a string, contains invalid
                         characters, or has insufficient padding
     '''
-    if not isinstance(value, six.string_types):
+    if isinstance(value, bytes):
+        try:
+            value = value.decode('ascii')
+        except UnicodeDecodeError:
+            raise ValueError
+    if not isinstance(value, six.text_type):
         raise ValueError
     # b64decode will silently discard bad characters, but we want to
     # treat them as an error
@@ -4791,7 +4827,7 @@ def md5_hash_for_file(fname):
     """
     with open(fname, 'rb') as f:
         md5sum = md5()
-        for block in iter(lambda: f.read(MD5_BLOCK_READ_BYTES), ''):
+        for block in iter(lambda: f.read(MD5_BLOCK_READ_BYTES), b''):
             md5sum.update(block)
     return md5sum.hexdigest()
 

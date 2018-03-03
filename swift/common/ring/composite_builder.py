@@ -455,7 +455,7 @@ class CompositeRingBuilder(object):
                             metadata
         """
         try:
-            with open(path_to_file, 'rb') as fp:
+            with open(path_to_file, 'rt') as fp:
                 metadata = json.load(fp)
             builder_files = [metadata['component_builder_files'][comp['id']]
                              for comp in metadata['components']]
@@ -494,7 +494,7 @@ class CompositeRingBuilder(object):
         if not self.components or not self._builder_files:
             raise ValueError("No composed ring to save.")
         # persist relative paths to builder files
-        with open(path_to_file, 'wb') as fp:
+        with open(path_to_file, 'wt') as fp:
             metadata = self.to_dict()
             # future-proofing:
             # - saving abs path to component builder files and this file should
@@ -640,7 +640,7 @@ class CompositeRingBuilder(object):
         """
         self._load_components()
         self.update_last_part_moves()
-        component_builders = zip(self._builder_files, self._builders)
+        component_builders = list(zip(self._builder_files, self._builders))
         # don't let the same builder go first each time
         shuffle(component_builders)
         results = {}
