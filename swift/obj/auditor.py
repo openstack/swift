@@ -319,7 +319,8 @@ class ObjectAuditor(Daemon):
                                zero_byte_only_at_fps=zero_byte_only_at_fps)
         worker.audit_all_objects(mode=mode, device_dirs=device_dirs)
 
-    def fork_child(self, zero_byte_fps=False, **kwargs):
+    def fork_child(self, zero_byte_fps=False, sleep_between_zbf_scanner=False,
+                   **kwargs):
         """Child execution"""
         pid = os.fork()
         if pid:
@@ -328,6 +329,8 @@ class ObjectAuditor(Daemon):
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             if zero_byte_fps:
                 kwargs['zero_byte_fps'] = self.conf_zero_byte_fps
+                if sleep_between_zbf_scanner:
+                    self._sleep()
             try:
                 self.run_audit(**kwargs)
             except Exception as e:
@@ -391,8 +394,9 @@ class ObjectAuditor(Daemon):
                    len(pids) > 1 and not once:
                     kwargs['device_dirs'] = override_devices
                     # sleep between ZBF scanner forks
-                    self._sleep()
-                    zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
+                    zbf_pid = self.fork_child(zero_byte_fps=True,
+                                              sleep_between_zbf_scanner=True,
+                                              **kwargs)
                     pids.add(zbf_pid)
                 pids.discard(pid)
 
