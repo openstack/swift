@@ -27,7 +27,7 @@ from collections import defaultdict
 from errno import ENOENT, ENOTEMPTY, ENOTDIR
 
 from eventlet.green import subprocess
-from eventlet import Timeout
+from eventlet import Timeout, sleep
 
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
                        mocked_http_conn, mock_check_drive, skip_if_no_xattrs)
@@ -2009,6 +2009,38 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertIn(
             "next_part_power set in policy 'one'. Skipping", warnings)
 
+    def test_replicate_lockup_detector(self):
+        cur_part = '0'
+        df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
+                                      policy=POLICIES[0])
+        mkdirs(df._datadir)
+        f = open(os.path.join(df._datadir,
+                              normalize_timestamp(time.time()) + '.data'),
+                 'wb')
+        f.write('1234567890')
+        f.close()
+
+        kill_coros_call_count = [0]
+
+        class MockPopen(object):
+            def __init__(self, *args, **kwargs):
+                class MockStdout(object):
+                    def read(self):
+                        pass
+                self.stdout = MockStdout()
+
+            def wait(self):
+                sleep(1)
+
+            def terminate(self):
+                kill_coros_call_count[0] += 1
+
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)), \
+                mock.patch.object(self.replicator, 'lockup_timeout', 0.01):
+            with mock.patch('eventlet.green.subprocess.Popen', MockPopen):
+                self.replicator.replicate()
+            self.assertEqual(kill_coros_call_count[0], 1)
 
 if __name__ == '__main__':
     unittest.main()

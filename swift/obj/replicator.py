@@ -177,6 +177,12 @@ class ObjectReplicator(Daemon):
                                         stderr=subprocess.STDOUT)
                 results = proc.stdout.read()
                 ret_val = proc.wait()
+        except GreenletExit:
+            self.logger.error(_("Killing by lockup detector"))
+            # or we should wait again the process finished?
+            proc.terminate()
+            proc.wait()
+            raise
         except Timeout:
             self.logger.error(_("Killing long-running rsync: %s"), str(args))
             proc.kill()
