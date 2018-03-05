@@ -394,28 +394,30 @@ class ContainerBroker(DatabaseBroker):
         # TODO: maybe this should be _init_db_file, _db_file may not even exist
         return self._db_file
 
+    @property
+    def epoch(self):
+        hash_, epoch, ext = parse_db_filename(self.db_file)
+        return epoch
+
     # TODO: needs unit test
-    def update_sharding_info(self, info, node=None):
+    def update_sharding_info(self, info):
         """
         Updates the broker's metadata with the given ``info``. Each key in
         ``info`` is prefixed with a sharding specific namespace.
 
         :param info: a dict of info to be persisted
-        :param node: an optional dict describing a node; if given the node's
-            index will be appended to each key in ``info``
         """
         prefix = 'X-Container-Sysmeta-Shard-'
-        suffix = '-%d' % node['index'] if node else ''
         timestamp = Timestamp.now()
         metadata = dict(
-            ('%s%s%s' % (prefix, key, suffix),
+            ('%s%s' % (prefix, key),
              (value, timestamp.internal))
             for key, value in info.items()
         )
         self.update_metadata(metadata)
 
     # TODO: needs unit test
-    def get_sharding_info(self, key=None, node=None, default=None):
+    def get_sharding_info(self, key=None, default=None):
         """
         Returns sharding specific info from the broker's metadata.
 
@@ -423,9 +425,7 @@ class ContainerBroker(DatabaseBroker):
             info will be returned. If ``key`` is not found in the info then the
             value of ``default`` will be returned or None if ``default`` is not
             given.
-        :param node: an optional dict describing a node; if given the node's
-            index will be appended to ``key``
-        :param default: a default value to return is ``key`` is given but not
+        :param default: a default value to return if ``key`` is given but not
             found in the sharding info.
         :return: either a dict of sharding info or the value stored under
             ``key`` in that dict.
@@ -435,10 +435,39 @@ class ContainerBroker(DatabaseBroker):
         info = dict((k[len(prefix):], v[0]) for
                     k, v in metadata.items() if k.startswith(prefix))
         if key:
-            if node:
-                key += '-%s' % node['index']
             return info.get(key, default)
         return info
+
+    # TODO: unit test
+    def load_cleave_context(self):
+        """
+        Returns a context dict for tracking the progress of cleaving this
+        broker's retiring DB. The context is persisted in sysmeta using a key
+        that is based off the retiring db epoch and the db hash. This form of
+        key ensures that a cleaving context is only loaded for a db that
+        matches the epoch and hash when the context was created; if a db is
+        modified such that its hash changes then a different context, or no
+        context, will be loaded.
+
+        :return: A dict to which cleave progress metadata may be added. The
+            dict initially has keys {'epoch', 'db_hash'} which should not be
+            modified by any caller.
+        """
+        brokers = self.get_brokers()
+        db_hash = brokers[0].get_info()['hash']
+        cleave_ref = '%s-%s' % (brokers[0].epoch, db_hash)
+        cleave_context = brokers[-1].get_sharding_info('Cursor-' + cleave_ref)
+        cleave_context = json.loads(cleave_context) if cleave_context else {}
+        cleave_context['db_hash'] = db_hash
+        cleave_context['epoch'] = brokers[0].epoch
+        return cleave_context
+
+    # TODO: unit test
+    def dump_cleave_context(self, cleave_context):
+        cleave_ref = '%s-%s' % (cleave_context.pop('epoch'),
+                                cleave_context.pop('db_hash'))
+        self.update_sharding_info(
+            {'Cursor-' + cleave_ref: json.dumps(cleave_context)})
 
     @property
     def storage_policy_index(self):
@@ -1601,9 +1630,9 @@ class ContainerBroker(DatabaseBroker):
             epoch = self.get_sharding_info('Epoch')
         state = self.get_db_state()
         if not state == UNSHARDED:
-            self.logger.warn("Container '%s/%s' cannot be set to sharding "
-                             "state while in %s state", self.account,
-                             self.container, self.get_db_state_text(state))
+            self.logger.warning("Container '%s/%s' cannot be set to sharding "
+                                "state while in %s state", self.account,
+                                self.container, self.get_db_state_text(state))
             return False
 
         # firstly lets ensure we have a connection, otherwise we could start
@@ -1691,39 +1720,31 @@ class ContainerBroker(DatabaseBroker):
 
         return True
 
-    def _sharding_context(self):
-        return {'max_row': self.get_brokers()[0].get_max_row()}
-
-    def get_sharding_context(self):
-        """
-        Returns a string that represents the current state of the db file that
-        is being sharded.
-
-        :return: a string
-        """
-        # use a dict to allow for future extension
-        return json.dumps(self._sharding_context())
-
-    def set_sharded_state(self, sharding_context):
+    def set_sharded_state(self):
         state = self.get_db_state()
         if not state == SHARDING:
-            self.logger.warn("Container '%s/%s' cannot be set to sharded "
-                             "state while in %s state", self.account,
-                             self.container, self.get_db_state_text(state))
+            self.logger.warning("Container '%s/%s' cannot be set to sharded "
+                                "state while in %s state", self.account,
+                                self.container, self.get_db_state_text(state))
             return False
 
-        # TODO add some checks to see if we are ready to unlink the old db
-        sharding_context = json.loads(sharding_context)
-        current_sharding_context = self._sharding_context()
-        if current_sharding_context['max_row'] != sharding_context['max_row']:
-            # the db_file has been modified, let's not delete it
-            self.logger.debug(
-                'refusing to go to sharded state, current context %s != %s' %
-                (current_sharding_context, sharding_context))
+        # TODO: wrap following checks and the unlink in a lock
+        brokers = self.get_brokers()
+        # look for a cleave context for the retiring db's epoch and db hash
+        context = self.load_cleave_context()
+        if not context or not context.get('done', False):
+            self.logger.warning(
+                'Refusing to delete db %r with cleaving context: %s'
+                % (brokers[0].db_file, context))
+            return False
+
+        if len(brokers) < 2:
+            self.logger.warning(
+                'Refusing to delete db %r: no fresher db file.'
+                % brokers[0].db_file)
             return False
 
         try:
-            assert len(self.db_files) > 1
             os.unlink(self.db_files[0])
         except OSError as err:
             if err.errno != errno.ENOENT:
@@ -1739,16 +1760,21 @@ class ContainerBroker(DatabaseBroker):
 
     def get_brokers(self):
         """
-        Return a list of brokers for each component db, ordered by age.
+        Return a list of brokers for each component db, ordered by age. The
+        list will have two entries while in sharding state, otherwise one
+        entry.
 
         :return: a list of :class:`~swift.container.backend.ContainerBroker`
         """
+        if len(self.db_files) > 2:
+            self.logger.warning('Unexpected db files will be ignored: %s' %
+                                self.db_files[:-2])
         brokers = [
             ContainerBroker(
                 db_file, self.timeout, self.logger, self.account,
                 self.container, self.pending_timeout, self.stale_reads_ok,
                 force_db_file=True)
-            for db_file in self.db_files[:-1]]
+            for db_file in self.db_files[-2:-1]]
         brokers.append(self)
         return brokers
 

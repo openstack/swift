@@ -378,9 +378,13 @@ class ContainerSharder(ContainerReplicator):
         if not queries and state == SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
-            last_upper = broker.get_sharding_info('Last', node)
-            if last_upper:
-                queries.append(make_query('', last_upper))
+            # TODO: if we redirect new udpates to CREATED shards then should we
+            # also treat objects in CREATED shards as misplaced, as well as
+            # ACTIVE shards?
+            cleave_context = broker.load_cleave_context()
+            cleave_cursor = cleave_context.get('cursor')
+            if cleave_cursor:
+                queries.append(make_query('', cleave_cursor))
                 if own_shard_range.upper:
                     queries.append(make_query(own_shard_range.upper, ''))
 
@@ -621,7 +625,7 @@ class ContainerSharder(ContainerReplicator):
                     self.cpool.waitall(None)
 
                 # always try to cleave any pending shard ranges
-                cleave_complete = self._cleave(broker, node)
+                cleave_complete = self._cleave(broker)
 
                 if scan_complete and cleave_complete:
                     # we've finished cleaving this container.
@@ -667,8 +671,7 @@ class ContainerSharder(ContainerReplicator):
                             broker.root_account, broker.root_container,
                             [own_shard_range] + shard_ranges)
 
-                    context = broker.get_sharding_info('Context', node)
-                    if broker.set_sharded_state(context):
+                    if broker.set_sharded_state():
                         state = SHARDED
                         self.logger.increment('sharding_complete')
                     else:
@@ -1101,39 +1104,38 @@ class ContainerSharder(ContainerReplicator):
             self._update_shard_ranges(
                 donor.account, donor.container, [acceptor], headers=headers)
 
-    def _cleave(self, broker, node):
-        # Returns True if all available shard ranges are successfully cleaved,
-        # False otherwise
+    def _cleave(self, broker):
+        # Returns True if all available shard ranges have been successfully
+        # cleaved, False otherwise
         state = broker.get_db_state()
         if state == SHARDED:
             self.logger.debug('Passing over already sharded container %s/%s',
                               broker.account, broker.container)
             return True
 
-        last_upper = broker.get_sharding_info('Last', node) or ''
+        cleave_context = broker.load_cleave_context()
+        if cleave_context.get('done', False):
+            self.logger.debug('Passing over already cleaved container %s/%s',
+                              broker.account, broker.container)
+            return True
+
+        cleave_cursor = cleave_context.get('cursor') or ''
         ranges_todo = broker.get_shard_ranges(
-            marker=last_upper + '\x00',
+            marker=cleave_cursor + '\x00',
             state=[ShardRange.CREATED, ShardRange.ACTIVE])
         if not ranges_todo:
             self.logger.debug('No uncleaved shard ranges for %s/%s',
                               broker.account, broker.container)
             return True
 
-        if not last_upper:
-            # last_upper might be '' if there has been no previous cleaving
-            # or if cleaving previously completed, i.e. the
-            # entire namespace was cleaved. In either case, while in state
-            # sharding, reset sharding context and restart cleaving.
-            context = broker.get_sharding_context()
-            broker.update_sharding_info({'Context': context}, node)
-
         self.logger.debug('%s to cleave %s/%s',
-                          'Continuing' if last_upper else 'Starting',
+                          'Continuing' if cleave_cursor else 'Starting',
                           broker.account, broker.container)
 
         own_shard_range = broker.get_own_shard_range()
         ranges_done = []
         policy_index = broker.storage_policy_index
+        brokers = broker.get_brokers()
         for shard_range in ranges_todo[:self.shard_batch_size]:
             self.logger.info(
                 "Cleaving '%s/%s': %r",
@@ -1150,7 +1152,7 @@ class ContainerSharder(ContainerReplicator):
                 return False
 
             with new_broker.sharding_lock():
-                for source_broker in broker.get_brokers():
+                for source_broker in brokers:
                     for objects in self.yield_objects(
                             source_broker, shard_range, policy_index):
                         new_broker.merge_items(objects)
@@ -1193,22 +1195,18 @@ class ContainerSharder(ContainerReplicator):
                              new_broker.get_raw_metadata())
             self.cpool.spawn(
                 self._replicate_object, new_part, new_broker.db_file, node_id)
-            self.logger.info('Node %d cleaved %s/%s for shard range %s.',
-                             node['id'], broker.account, broker.container,
-                             shard_range)
+            self.logger.info('Cleaved %s/%s for shard range %s.',
+                             broker.account, broker.container, shard_range)
             self.logger.increment('sharded')
             self.stats['containers_sharded'] += 1
 
         if ranges_done:
             broker.merge_shard_ranges(ranges_done)
-            final_upper = (own_shard_range.upper if own_shard_range
-                           else ShardRange.MAX)
-            if ranges_done[-1].upper >= final_upper:
-                # cleaving complete, reset last_upper
-                last_upper = ''
-            else:
-                last_upper = str(ranges_done[-1].upper)
-            broker.update_sharding_info({'Last': last_upper}, node)
+            cleave_context['cursor'] = str(ranges_done[-1].upper)
+            if ranges_done[-1].upper >= own_shard_range.upper:
+                # cleaving complete, reset cursor
+                cleave_context['done'] = True
+            broker.dump_cleave_context(cleave_context)
         else:
             self.logger.warning('No progress made in _cleave()!')
 

@@ -1416,6 +1416,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     def _merge_shard_range(self, broker, shard_ranges, index, **kwargs):
         broker.merge_shard_ranges(shard_ranges[index:index + 1])
 
+    def _goto_sharded_state(self, broker):
+        broker.dump_cleave_context(
+            dict(broker.load_cleave_context(), done=True))
+        broker.set_sharded_state()
+
     def _assert_local_sharding_in_sync(self, local_broker, old_id, new_id):
         daemon, repl_calls, rsync_calls = self.check_replicate(local_broker, 1)
         self.assertEqual(['sync', 'sync', 'merge_items', 'merge_syncs'],
@@ -1487,7 +1492,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **remote_context)
         self._merge_object(index=5, **remote_context)
-        remote_broker.set_sharded_state(remote_broker.get_sharding_context())
+        self._goto_sharded_state(remote_broker)
 
         daemon, repl_calls, rsync_calls = self.check_replicate(local_broker, 1)
 
@@ -2117,7 +2122,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(0, 3), **local_context)
-        local_broker.set_sharded_state(local_broker.get_sharding_context())
+        self._goto_sharded_state(local_broker)
         objs = local_context['objects']
 
         daemon, repl_calls, rsync_calls = self.check_replicate(local_broker, 1)
@@ -2172,7 +2177,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(0, 3), **local_context)
-        local_broker.set_sharded_state(local_broker.get_sharding_context())
+        self._goto_sharded_state(local_broker)
 
         remote_context = self._setup_replication_test(1)
         self._merge_object(index=4, **remote_context)
@@ -2234,7 +2239,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(0, 3), **local_context)
-        local_broker.set_sharded_state(local_broker.get_sharding_context())
+        self._goto_sharded_state(local_broker)
 
         remote_context = self._setup_replication_test(1)
         self._merge_object(index=4, **remote_context)
@@ -2294,7 +2299,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(0, 3), **local_context)
-        local_broker.set_sharded_state(local_broker.get_sharding_context())
+        self._goto_sharded_state(local_broker)
 
         remote_context = self._setup_replication_test(1)
         self._merge_object(index=4, **remote_context)
@@ -2365,7 +2370,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(0, 5), **local_context)
-        local_broker.set_sharded_state(local_broker.get_sharding_context())
+        self._goto_sharded_state(local_broker)
 
         remote_context = self._setup_replication_test(1)
         self._merge_object(index=6, **remote_context)
@@ -2433,7 +2438,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(0, 3), **local_context)
-        local_broker.set_sharded_state(local_broker.get_sharding_context())
+        self._goto_sharded_state(local_broker)
 
         remote_context = self._setup_replication_test(1)
         self._merge_object(index=4, **remote_context)
@@ -2444,7 +2449,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **remote_context)
         self._merge_object(index=5, **remote_context)
-        remote_broker.set_sharded_state(remote_broker.get_sharding_context())
+        self._goto_sharded_state(remote_broker)
 
         daemon, repl_calls, rsync_calls = self.check_replicate(local_broker, 1)
 
@@ -2499,7 +2504,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(0, 5), **local_context)
-        local_broker.set_sharded_state(local_broker.get_sharding_context())
+        self._goto_sharded_state(local_broker)
 
         remote_context = self._setup_replication_test(1)
         self._merge_object(index=5, **remote_context)
@@ -2510,7 +2515,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_context['shard_ranges'][0].state = ShardRange.ACTIVE
         self._merge_shard_range(index=0, **remote_context)
         self._merge_object(index=6, **remote_context)
-        remote_broker.set_sharded_state(remote_broker.get_sharding_context())
+        self._goto_sharded_state(remote_broker)
 
         daemon, repl_calls, rsync_calls = self.check_replicate(
             local_broker, 1, repl_conf={'per_diff': 1})
