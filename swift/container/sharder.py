@@ -365,7 +365,7 @@ class ContainerSharder(ContainerReplicator):
 
         def make_query(lower, upper):
             # each misplaced object namespace is represented by a shard range
-            return ShardRange.create('dont', 'care', lower, upper)
+            return ShardRange('dont/care', Timestamp.now(), lower, upper)
 
         queries = []
         policy_index = broker.storage_policy_index

@@ -921,7 +921,7 @@ class TestContainerBroker(unittest.TestCase):
         shard_broker = ContainerBroker(db_shard_path, account=acct,
                                        container=cont, force_db_file=True)
         shard_broker.initialize(ts.internal, 0)
-        shard_range = ShardRange.create(acct, cont)
+        shard_range = ShardRange('%s/%s' % (acct, cont), Timestamp.now())
         shard_broker.merge_shard_ranges([shard_range])
         shard_broker.update_sharding_info({'Epoch': ts_now.normal})
         self.assertEqual(shard_broker.get_db_state(), SHARDING)
@@ -2793,8 +2793,7 @@ class TestContainerBroker(unittest.TestCase):
             db_path, account='.sharded_a', container='shard_c')
         broker.initialize(next(ts_iter).internal, 0)
 
-        sr = ShardRange.create(
-            'a', 'c', lower=ShardRange.MIN, upper=ShardRange.MAX)
+        sr = ShardRange('a/c', Timestamp.now(), ShardRange.MIN, ShardRange.MAX)
         broker.update_own_shard_range(sr)
         expected = {
             'X-Container-Sysmeta-Shard-Timestamp': sr.timestamp.internal,
@@ -2805,8 +2804,8 @@ class TestContainerBroker(unittest.TestCase):
         actual = dict((k, v[0]) for k, v in broker.metadata.items())
         self.assertEqual(expected, actual)
 
-        sr = ShardRange.create('a', 'c', lower='l', upper='u',
-                               meta_timestamp=next(ts_iter).internal)
+        sr = ShardRange('a/c', next(ts_iter), lower='l', upper='u',
+                        meta_timestamp=next(ts_iter))
         broker.update_own_shard_range(sr)
         expected = {
             'X-Container-Sysmeta-Shard-Timestamp': sr.timestamp.internal,
@@ -3317,12 +3316,12 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(14, broker.get_info()['bytes_used'])
 
         broker.set_sharding_state(epoch=Timestamp.now())
-        sr_1 = ShardRange.create(
-            root_a, root_c, lower='', upper='m', object_count=99,
-            bytes_used=999, state=ShardRange.ACTIVE)
-        sr_2 = ShardRange.create(
-            root_a, root_c, lower='m', upper='', object_count=21,
-            bytes_used=1000, state=ShardRange.ACTIVE)
+        sr_1 = ShardRange(
+            '%s/%s1' % (root_a, root_c), Timestamp.now(), lower='', upper='m',
+            object_count=99, bytes_used=999, state=ShardRange.ACTIVE)
+        sr_2 = ShardRange(
+            '%s/%s2' % (root_a, root_c), Timestamp.now(), lower='m', upper='',
+            object_count=21, bytes_used=1000, state=ShardRange.ACTIVE)
         broker.merge_shard_ranges([sr_1, sr_2])
         self.assertEqual(1, broker.get_info()['object_count'])
         self.assertEqual(14, broker.get_info()['bytes_used'])

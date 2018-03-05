@@ -4419,19 +4419,6 @@ class ShardRange(object):
         return '%s/%s' % (shards_account, shard_container)
 
     @classmethod
-    def create(cls, root_account, root_container, lower='', upper='',
-               parent_container=None, index=None, **kwargs):
-        # avoid using this method other than for convenience in tests because
-        # these defaults shouldn't be generally used
-        parent_container = parent_container or root_container
-        index = index or upper
-        timestamp = kwargs.pop('created_at', Timestamp.now())
-        shard_account = ".sharded_%s" % root_account
-        shard_path = cls.make_path(
-            shard_account, root_container, parent_container, timestamp, index)
-        return cls(shard_path, timestamp, lower, upper, **kwargs)
-
-    @classmethod
     def _to_timestamp(cls, timestamp):
         if timestamp:
             if not isinstance(timestamp, Timestamp):

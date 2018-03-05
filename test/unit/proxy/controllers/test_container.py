@@ -470,7 +470,7 @@ class TestContainerController(TestRingBase):
 
     def test_GET_sharded_container(self):
         shard_bounds = (('', 'ham'), ('ham', 'pie'), ('pie', ''))
-        shard_ranges = [ShardRange.create('a', 'c', lower, upper)
+        shard_ranges = [ShardRange('a/c', Timestamp.now(), lower, upper)
                         for lower, upper in shard_bounds]
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
