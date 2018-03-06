@@ -1,0 +1,16 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Ensure swift logs are readable before syncing
+      file:
+        path: '/var/log/swift'
+        mode: u=rwX,g=rX,o=rX
+        state: directory
+        recurse: yes
+    - name: Copy swift logs from worker nodes to executor node
+      synchronize:
+        src: '/var/log/swift'
+        dest: '{{ zuul.executor.log_root }}'
+        mode: pull
+        copy_links: true
+        verify_host: true
