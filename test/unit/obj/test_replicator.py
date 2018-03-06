@@ -30,7 +30,8 @@ from eventlet.green import subprocess
 from eventlet import Timeout, sleep
 
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       mocked_http_conn, mock_check_drive, skip_if_no_xattrs)
+                       mocked_http_conn, mock_check_drive, skip_if_no_xattrs,
+                       SkipTest)
 from swift.common import utils
 from swift.common.utils import (hash_path, mkdirs, normalize_timestamp,
                                 storage_directory)
@@ -2036,6 +2037,7 @@ class TestObjectReplicator(unittest.TestCase):
             "next_part_power set in policy 'one'. Skipping", warnings)
 
     def test_replicate_lockup_detector(self):
+        raise SkipTest("this is not a reliable test and must be fixed")
         cur_part = '0'
         df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
                                       policy=POLICIES[0])
