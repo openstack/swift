@@ -543,7 +543,7 @@ class Container(Base):
     def delete_files(self):
         for f in listing_items(self.files):
             file_item = self.file(f)
-            if not file_item.delete():
+            if not file_item.delete(tolerate_missing=True):
                 return False
 
         return listing_empty(self.files)
@@ -764,14 +764,19 @@ class File(Base):
                                 self.conn.make_path(self.path))
         return True
 
-    def delete(self, hdrs=None, parms=None, cfg=None):
+    def delete(self, hdrs=None, parms=None, cfg=None, tolerate_missing=False):
         if hdrs is None:
             hdrs = {}
         if parms is None:
             parms = {}
-        if self.conn.make_request('DELETE', self.path, hdrs=hdrs,
-                                  cfg=cfg, parms=parms) != 204:
+        if tolerate_missing:
+            allowed_statuses = (204, 404)
+        else:
+            allowed_statuses = (204,)
 
+        if self.conn.make_request(
+                'DELETE', self.path, hdrs=hdrs, cfg=cfg,
+                parms=parms) not in allowed_statuses:
             raise ResponseError(self.conn.response, 'DELETE',
                                 self.conn.make_path(self.path))
 
