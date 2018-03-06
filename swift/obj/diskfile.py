@@ -83,8 +83,8 @@ PICKLE_PROTOCOL = 2
 DEFAULT_RECLAIM_AGE = timedelta(weeks=1).total_seconds()
 HASH_FILE = 'hashes.pkl'
 HASH_INVALIDATIONS_FILE = 'hashes.invalid'
-METADATA_KEY = 'user.swift.metadata'
-METADATA_CHECKSUM_KEY = 'user.swift.metadata_checksum'
+METADATA_KEY = b'user.swift.metadata'
+METADATA_CHECKSUM_KEY = b'user.swift.metadata_checksum'
 DROP_CACHE_WINDOW = 1024 * 1024
 # These are system-set metadata keys that cannot be changed with a POST.
 # They should be lowercase.
@@ -131,6 +131,26 @@ def _encode_metadata(metadata):
     return dict(((encode_str(k), encode_str(v)) for k, v in metadata.items()))
 
 
+def _decode_metadata(metadata):
+    """
+    Given a metadata dict from disk, convert keys and values to native strings.
+
+    :param metadata: a dict
+    """
+    if six.PY2:
+        def to_str(item):
+            if isinstance(item, six.text_type):
+                return item.encode('utf8')
+            return item
+    else:
+        def to_str(item):
+            if isinstance(item, six.binary_type):
+                return item.decode('utf8', 'surrogateescape')
+            return item
+
+    return dict(((to_str(k), to_str(v)) for k, v in metadata.items()))
+
+
 def read_metadata(fd, add_missing_checksum=False):
     """
     Helper function to read the pickled metadata from an object file.
@@ -144,8 +164,8 @@ def read_metadata(fd, add_missing_checksum=False):
     key = 0
     try:
         while True:
-            metadata += xattr.getxattr(fd, '%s%s' % (METADATA_KEY,
-                                                     (key or '')))
+            metadata += xattr.getxattr(
+                fd, METADATA_KEY + str(key or '').encode('ascii'))
             key += 1
     except (IOError, OSError) as e:
         if errno.errorcode.get(e.errno) in ('ENOTSUP', 'EOPNOTSUPP'):
@@ -173,7 +193,7 @@ def read_metadata(fd, add_missing_checksum=False):
                 logging.error("Error adding metadata: %s" % e)
 
     if metadata_checksum:
-        computed_checksum = hashlib.md5(metadata).hexdigest()
+        computed_checksum = hashlib.md5(metadata).hexdigest().encode('ascii')
         if metadata_checksum != computed_checksum:
             raise DiskFileBadMetadataChecksum(
                 "Metadata checksum mismatch for %s: "
@@ -183,7 +203,11 @@ def read_metadata(fd, add_missing_checksum=False):
     # strings are utf-8 encoded when written, but have not always been
     # (see https://bugs.launchpad.net/swift/+bug/1678018) so encode them again
     # when read
-    return _encode_metadata(pickle.loads(metadata))
+    if six.PY2:
+        metadata = pickle.loads(metadata)
+    else:
+        metadata = pickle.loads(metadata, encoding='bytes')
+    return _decode_metadata(metadata)
 
 
 def write_metadata(fd, metadata, xattr_size=65536):
@@ -194,11 +218,11 @@ def write_metadata(fd, metadata, xattr_size=65536):
     :param metadata: metadata to write
     """
     metastr = pickle.dumps(_encode_metadata(metadata), PICKLE_PROTOCOL)
-    metastr_md5 = hashlib.md5(metastr).hexdigest()
+    metastr_md5 = hashlib.md5(metastr).hexdigest().encode('ascii')
     key = 0
     try:
         while metastr:
-            xattr.setxattr(fd, '%s%s' % (METADATA_KEY, key or ''),
+            xattr.setxattr(fd, METADATA_KEY + str(key or '').encode('ascii'),
                            metastr[:xattr_size])
             metastr = metastr[xattr_size:]
             key += 1
@@ -368,9 +392,10 @@ def invalidate_hash(suffix_dir):
     suffix = basename(suffix_dir)
     partition_dir = dirname(suffix_dir)
     invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
-    with lock_path(partition_dir):
-        with open(invalidations_file, 'ab') as inv_fh:
-            inv_fh.write(suffix + "\n")
+    if not isinstance(suffix, bytes):
+        suffix = suffix.encode('utf-8')
+    with lock_path(partition_dir), open(invalidations_file, 'ab') as inv_fh:
+        inv_fh.write(suffix + b"\n")
 
 
 def relink_paths(target_path, new_target_path, check_existing=False):

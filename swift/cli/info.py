@@ -352,8 +352,8 @@ def print_obj_metadata(metadata):
     def print_metadata(title, items):
         print(title)
         if items:
-            for meta_key in sorted(items):
-                print('  %s: %s' % (meta_key, items[meta_key]))
+            for key, value in sorted(items.items()):
+                print('  %s: %s' % (key, value))
         else:
             print('  No metadata found')
 
