@@ -189,7 +189,7 @@ class ContainerSharder(ContainerReplicator):
         shard_broker.get_info()
 
         if not shard_broker.get_sharding_info('Root') or force:
-            shard_broker.update_own_shard_range(shard_range)
+            shard_broker.merge_shard_ranges([shard_range])
             shard_broker.update_sharding_info({'Root': root_path})
             shard_broker.update_metadata({
                 'X-Container-Sysmeta-Sharding':
@@ -661,15 +661,17 @@ class ContainerSharder(ContainerReplicator):
                         # updates at the root from the actual shards. *It would
                         # be good to have a test to verify that.*
                         own_shard_range = broker.get_own_shard_range()
-                        own_shard_range.deleted = 1
                         if own_shard_range.state != ShardRange.SHARDED:
                             own_shard_range = own_shard_range.copy(
                                 timestamp=Timestamp.now(),
-                                state=ShardRange.SHARDED)
-                            broker.update_own_shard_range(own_shard_range)
+                                state=ShardRange.SHARDED,
+                                deleted=1)
+                            broker.merge_shard_ranges([own_shard_range])
                         self._update_shard_ranges(
                             broker.root_account, broker.root_container,
                             [own_shard_range] + shard_ranges)
+                        # TODO: check update to root succeeded before moving to
+                        # SHARDED
 
                     if broker.set_sharded_state():
                         state = SHARDED
@@ -683,24 +685,16 @@ class ContainerSharder(ContainerReplicator):
                 self._find_shrinks(broker, node, part)
 
             if not broker.is_root_container():
-                # update the root container with this shard's usage stats; do
-                # this even when sharded in case previous attempts failed
-                own_shard_range = broker.get_own_shard_range()
-                # persist the reported meta-timestamp
-                broker.update_own_shard_range(own_shard_range)
-                if state == SHARDED:
-                    own_shard_range.state = ShardRange.SHARDED
-                    own_shard_range.deleted = 1
-                else:
-                    # TODO: yuk, need to send ACTIVE state to root to avoid
-                    # resetting it to CREATED when a donor has cleaved an
-                    # expanded namespace and *new timestamp* to this shard, but
-                    # should we be persisting the actual state rather than hard
-                    # code it?
-                    own_shard_range.state = ShardRange.ACTIVE
-                self._update_shard_ranges(
-                    broker.root_account, broker.root_container,
-                    [own_shard_range])
+                # update the root container with this container's shard range
+                # info; do this even when sharded in case previous attempts
+                # failed; don't do this if there is no shard range info.
+                own_shard_range = broker.get_own_shard_range(no_default=True)
+                # TODO: persist the reported meta-timestamp?
+                # broker.merge_shard_ranges([own_shard_range])
+                if own_shard_range:
+                    self._update_shard_ranges(
+                        broker.root_account, broker.root_container,
+                        [own_shard_range])
             self.logger.info('Finished processing %s/%s state %s',
                              broker.account, broker.container,
                              broker.get_db_state_text())
@@ -863,15 +857,9 @@ class ContainerSharder(ContainerReplicator):
         policy = POLICIES.get_by_index(broker.storage_policy_index)
         headers = {
             'X-Storage-Policy': policy.name,
-            'X-Container-Sysmeta-Shard-Root':
-                '%s' % broker.root_path,
+            'X-Container-Sysmeta-Shard-Root': broker.root_path,
             'X-Container-Sysmeta-Sharding': True,
-            'X-Container-Sysmeta-Shard-Lower': str(shard_range.lower),
-            'X-Container-Sysmeta-Shard-Upper': str(shard_range.upper),
-            'X-Container-Sysmeta-Shard-Timestamp':
-                shard_range.timestamp.internal,
-            'X-Container-Sysmeta-Shard-Meta-Timestamp':
-                shard_range.meta_timestamp.internal}
+            'X-Backend-Record-Type': 'shard'}
         if extra_headers:
             headers.update(extra_headers)
         try:
@@ -969,12 +957,18 @@ class ContainerSharder(ContainerReplicator):
                 # do not want any subsequent shard ranges to be in created
                 # state while this one is still in found state
                 break
-            else:
-                self.logger.debug('PUT new shard range container for %s',
-                                  older_shard_range)
-                shard_range.update_state(ShardRange.CREATED)
-                created_ranges.append(shard_range)
-                self.logger.increment('shard_ranges_created')
+            # TODO: we had to use internal client to create the container
+            # because that support account autocreate, but now we have to send
+            # the shard container its shard range separately because we can't
+            # send a body through the proxy :( can we unify these requests?
+            self._update_shard_ranges(
+                shard_range.account, shard_range.container,
+                [older_shard_range])
+            self.logger.debug('PUT new shard range container for %s',
+                              older_shard_range)
+            shard_range.update_state(ShardRange.CREATED)
+            created_ranges.append(shard_range)
+            self.logger.increment('shard_ranges_created')
 
         broker.merge_shard_ranges(created_ranges)
         if not broker.is_root_container():
@@ -1010,10 +1004,8 @@ class ContainerSharder(ContainerReplicator):
             # Note: currently this dummy shard range is not persisted in root
             # shard_ranges table; the donor shard does not include it when
             # updating the root after cleaving itself.
-            # TODO: broker.get_own_shard_range() would be more elegant but it
-            # returns None for the root container!
-            dummy_shard_range = ShardRange(broker.root_path, Timestamp.now(),
-                                           state=ShardRange.ACTIVE)
+            dummy_shard_range = broker.get_own_shard_range()
+            dummy_shard_range.state = ShardRange.ACTIVE
             shard_ranges.append(dummy_shard_range)
 
         merge_pairs = {}
@@ -1057,31 +1049,32 @@ class ContainerSharder(ContainerReplicator):
                 broker.merge_shard_ranges([donor])
             if acceptor != dummy_shard_range:
                 # Update the acceptor shard container with its expanded shard
-                # range but leave its timestamp unchanged; this means that the
-                # acceptor will accept any object updates that the donor might
-                # redirect to it while the donor is in sharding state
-                # (equivalent to when a new shard has been found but not yet
-                # cleaved).
-                # Note that the acceptor namespace is not yet changed in the
-                # root; and any updates from the acceptor to root will not
-                # change the acceptor namespace because its created_at
-                # timestamp has not advanced.
-                # TODO: OR we could skip this step and wait for the act of
-                # cleaving from the donor to update the acceptor lower range -
-                # between now and that happening, updates redirected to the
-                # shrinking range would either land there and become misplaced
-                # or get redirected from the donor to the acceptor and become
-                # misplaced until cleaving happens.
+                # range so that the acceptor will accept any object updates
+                # that the donor might redirect to it while the donor is in
+                # sharding state (equivalent to when a new shard has been
+                # created but not yet cleaved).
+                # Note that the new acceptor timestamp is stored in the root
+                # but its namespace is not yet expanded in the root; any
+                # update from the acceptor to root will not change the acceptor
+                # namespace until the acceptor gets a future timestamp via the
+                # donor cleaving to it.
+                # TODO: using an offset to allow for still accepting stats
+                # updates from the acceptor - the float timestamps are equal.
+                # TODO: note that offset accumulates, should we force it to
+                # always be 1? or pick a real timestamp < donor.state_timestamp
+                acceptor.timestamp = Timestamp(acceptor.timestamp, offset=1)
+                broker.merge_shard_ranges([acceptor])
                 acceptor.lower = donor.lower
-                self._put_shard_container(broker, acceptor)
+                self._update_shard_ranges(
+                    acceptor.account, acceptor.container, [acceptor])
                 # Now send a copy of the expanded acceptor, with an updated
                 # timestamp, to the donor. The donor will pass this newer
                 # timestamp to the acceptor when cleaving, so that subsequent
                 # updates from the acceptor will update the root to have the
                 # expanded acceptor namespace.
                 acceptor = acceptor.copy(timestamp=donor.state_timestamp)
-            acceptor.object_count += donor.object_count
-            acceptor.bytes_used += donor.bytes_used
+                acceptor.object_count += donor.object_count
+                acceptor.bytes_used += donor.bytes_used
             # Set Scan-Done so that the donor will not scan itself and will
             # transition to SHARDED state once it has cleaved to the acceptor;
             headers = {
@@ -1140,11 +1133,22 @@ class ContainerSharder(ContainerReplicator):
             self.logger.info(
                 "Cleaving '%s/%s': %r",
                 broker.account, broker.container, shard_range)
+            shrinking = shard_range.includes(own_shard_range)
+            if not shrinking and not broker.is_root_container():
+                # when sharding a shard don't advertise *any* shard range as
+                # being ACTIVE until *all* shard ranges are ACTIVE
+                replicated_shard_range = shard_range.copy(
+                    state=ShardRange.CREATED,
+                    state_timestamp=shard_range.timestamp)
+            else:
+                replicated_shard_range = shard_range
+
             try:
                 # use force here because we may want to update existing shard
                 # metadata timestamps
                 new_part, new_broker, node_id = self._get_shard_broker(
-                    shard_range, broker.root_path, policy_index, force=True)
+                    replicated_shard_range, broker.root_path, policy_index,
+                    force=True)
             except DeviceUnavailable as duex:
                 self.logger.warning(str(duex))
                 self.logger.increment('failure')
@@ -1157,17 +1161,17 @@ class ContainerSharder(ContainerReplicator):
                             source_broker, shard_range, policy_index):
                         new_broker.merge_items(objects)
 
-            if not own_shard_range.includes(shard_range):
+            if shrinking:
                 # When shrinking, include deleted own (donor) shard range in
                 # the replicated db so that when acceptor next updates root it
-                # will atomically update its namespace and delete the donor.
+                # will atomically update its namespace *and* delete the donor.
                 # Don't do this when sharding a shard because the donor
                 # namespace should not be deleted until all shards are cleaved.
-                own_shard_range.deleted = 1
                 if own_shard_range.state != ShardRange.SHARDED:
                     own_shard_range = own_shard_range.copy(
-                        timestamp=Timestamp.now(), state=ShardRange.SHARDED)
-                    broker.update_own_shard_range(own_shard_range)
+                        timestamp=Timestamp.now(), state=ShardRange.SHARDED,
+                        deleted=1)
+                    broker.merge_shard_ranges([own_shard_range])
                 new_broker.merge_shard_ranges([own_shard_range])
             elif shard_range.state != ShardRange.ACTIVE:
                 # The shard range object stats may have changed since the shard
@@ -1180,17 +1184,19 @@ class ContainerSharder(ContainerReplicator):
                 info = new_broker.get_info()
                 shard_range.update_meta(
                     info['object_count'], info['bytes_used'])
-                # NB: set state to ACTIVE here but this must not be sent to
-                # root until *all* shard ranges have been cleaved and we are
-                # ready to transfer responsibility for the namespace from the
-                # original shards to the complete set of new shards.
+                # NB: set state to ACTIVE here so this shard is ready to use in
+                # listings, but when sharding a shard this state must not be
+                # advertised to the root until *all* shard ranges have been
+                # cleaved and we are ready to transfer responsibility for the
+                # namespace from the original shard to the complete set of new
+                # shards.
                 shard_range.update_state(ShardRange.ACTIVE)
 
             ranges_done.append(shard_range)
 
-            self.logger.info('Replicating new shard container %s/%s with %s',
+            self.logger.info('Replicating new shard container %s/%s for %s',
                              new_broker.account, new_broker.container,
-                             new_broker.get_raw_metadata())
+                             new_broker.get_own_shard_range())
             self.cpool.spawn(
                 self._replicate_object, new_part, new_broker.db_file, node_id)
             self.logger.info('Cleaved %s/%s for shard range %s.',

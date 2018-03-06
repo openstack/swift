@@ -610,7 +610,7 @@ class TestSharder(unittest.TestCase):
             0, expected_shard_dbs[0], 0)
         shard_broker = ContainerBroker(expected_shard_dbs[0])
         self.assertEqual(
-            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+            ShardRange.CREATED, shard_broker.get_own_shard_range().state)
         shard_info = shard_broker.get_info()
         total_shard_stats['object_count'] += shard_info['object_count']
         total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -652,7 +652,7 @@ class TestSharder(unittest.TestCase):
         for db in expected_shard_dbs[1:3]:
             shard_broker = ContainerBroker(db)
             self.assertEqual(
-                ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+                ShardRange.CREATED, shard_broker.get_own_shard_range().state)
             shard_info = shard_broker.get_info()
             total_shard_stats['object_count'] += shard_info['object_count']
             total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -698,7 +698,7 @@ class TestSharder(unittest.TestCase):
             0, expected_shard_dbs[3], 0)
         shard_broker = ContainerBroker(expected_shard_dbs[3])
         self.assertEqual(
-            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+            ShardRange.CREATED, shard_broker.get_own_shard_range().state)
         shard_info = shard_broker.get_info()
         total_shard_stats['object_count'] += shard_info['object_count']
         total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -752,10 +752,10 @@ class TestSharder(unittest.TestCase):
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[4], 0)
         shard_broker = ContainerBroker(expected_shard_dbs[4])
-        # NB the state of the *shard broker's own shard range* should be
-        # FOUND regardless of the shard range being ACTIVE
+        # NB. This is a root container so expect the shard broker's own shard
+        # range to be ACTIVE when the cleaved shard range is ACTIVE
         self.assertEqual(
-            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+            ShardRange.ACTIVE, shard_broker.get_own_shard_range().state)
         shard_info = shard_broker.get_info()
         total_shard_stats['object_count'] += shard_info['object_count']
         total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -900,14 +900,11 @@ class TestSharder(unittest.TestCase):
                          json.loads(metadata[cursor_key][0]))
 
     def test_cleave_shard(self):
-        broker = self._make_broker(account='.sharded_a', container='.shard_c')
-        ts_int = next(self.ts_iter).internal
-        shard_metadata = {
-            'X-Container-Sysmeta-Shard-Root': ('a/c', ts_int),
-            'X-Container-Sysmeta-Shard-Lower': ('here', ts_int),
-            'X-Container-Sysmeta-Shard-Upper': ('where', ts_int),
-            'X-Container-Sysmeta-Shard-Timestamp': (ts_int, ts_int)}
-        broker.update_metadata(shard_metadata)
+        broker = self._make_broker(account='.sharded_a', container='shard_c')
+        own_shard_range = ShardRange(
+            broker.path, Timestamp.now(), 'here', 'where')
+        broker.merge_shard_ranges([own_shard_range])
+        broker.update_sharding_info({'Root': 'a/c'})
         self.assertFalse(broker.is_root_container())  # sanity check
 
         objects = [
@@ -942,6 +939,7 @@ class TestSharder(unittest.TestCase):
         sharder_conf = {'shard_batch_size': 1}
         with self._mock_sharder(sharder_conf) as sharder:
             self.assertFalse(sharder._cleave(broker))
+
         cursor_key = 'X-Container-Sysmeta-Shard-Cursor-%s' % cleaving_ref
         metadata = broker.metadata
         self.assertIn(cursor_key, metadata)
@@ -953,7 +951,7 @@ class TestSharder(unittest.TestCase):
             [mock.call(0, expected_shard_dbs[0], 0)])
         shard_broker = ContainerBroker(expected_shard_dbs[0])
         self.assertEqual(
-            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+            ShardRange.CREATED, shard_broker.get_own_shard_range().state)
 
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(2, len(updated_shard_ranges))
@@ -986,9 +984,9 @@ class TestSharder(unittest.TestCase):
             [mock.call(0, expected_shard_dbs[1], 0)])
         shard_broker = ContainerBroker(expected_shard_dbs[1])
         # NB the state of the *shard broker's own shard range* should be
-        # FOUND regardless of the shard range being ACTIVE
+        # CREATED regardless of the shard range being ACTIVE
         self.assertEqual(
-            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+            ShardRange.CREATED, shard_broker.get_own_shard_range().state)
 
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(2, len(updated_shard_ranges))
@@ -998,6 +996,61 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(dict(shard_ranges[1]), dict(updated_shard_ranges[1]))
         self._check_objects(objects[3:], expected_shard_dbs[1])
         self.assertFalse(os.path.exists(expected_shard_dbs[0]))
+
+    def test_cleave_shard_shrinking(self):
+        broker = self._make_broker(account='.shards_a', container='shard_c')
+        own_shard_range = ShardRange(
+            broker.path, Timestamp.now(), 'here', 'where')
+        broker.merge_shard_ranges([own_shard_range])
+        broker.update_sharding_info({'Root': 'a/c'})
+        self.assertFalse(broker.is_root_container())  # sanity check
+
+        objects = [
+            ('there', self.ts_encoded(), 3, 'text/plain', 'etag_there', 0),
+            ('where', self.ts_encoded(), 100, 'text/plain', 'etag_where', 0),
+        ]
+        for obj in objects:
+            broker.put_object(*obj)
+
+        acceptor = ShardRange('.shards_a/acceptor', Timestamp.now(),
+                              'here', 'yonder', '1000', '11111',
+                              state=ShardRange.ACTIVE)
+        db_hash = hash_path(acceptor.account, acceptor.container)
+        expected_shard_db = os.path.join(
+            self.tempdir, 'sda', 'containers', '0', db_hash[-3:], db_hash,
+            db_hash + '.db')
+
+        broker.merge_shard_ranges([acceptor])
+        broker.set_sharding_state(epoch=Timestamp.now())
+
+        # run cleave
+        with self._mock_sharder() as sharder:
+            self.assertTrue(sharder._cleave(broker))
+
+        cleaving_ref = 'None-' + broker.get_info()['hash']
+        cursor_key = 'X-Container-Sysmeta-Shard-Cursor-%s' % cleaving_ref
+        metadata = broker.metadata
+        self.assertIn(cursor_key, metadata)
+        self.assertEqual({'cursor': acceptor.upper, 'done': True},
+                         json.loads(metadata[cursor_key][0]))
+
+        self.assertEqual(SHARDING, broker.get_db_state())
+        sharder._replicate_object.assert_has_calls(
+            [mock.call(0, expected_shard_db, 0)])
+        shard_broker = ContainerBroker(expected_shard_db)
+        # NB when cleaving a shard container to a larger acceptor namespace
+        # then expect the shard broker's own shard range to reflect that of the
+        # acceptor shard range rather than being force to CREATED.
+        self.assertEqual(
+            ShardRange.ACTIVE, shard_broker.get_own_shard_range().state)
+
+        updated_shard_ranges = broker.get_shard_ranges()
+        self.assertEqual(1, len(updated_shard_ranges))
+        self.assertEqual(dict(acceptor), dict(updated_shard_ranges[0]))
+
+        # shard range should have unmodified acceptor, bytes used and
+        # meta_timestamp
+        self._check_objects(objects, expected_shard_db)
 
     def test_misplaced_objects_root_container(self):
         broker = self._make_broker()
@@ -1179,11 +1232,9 @@ class TestSharder(unittest.TestCase):
     def _check_misplaced_objects_shard_container_unsharded(self):
         broker = self._make_broker(account='.sharded_a', container='.shard_c')
         ts_shard = next(self.ts_iter)
-        own_sr = ShardRange('.sharded_a/shard_c', ts_shard, 'here', 'there')
-        broker.update_sharding_info({'Lower': own_sr.lower,
-                                     'Upper': own_sr.upper,
-                                     'Timestamp': own_sr.timestamp.internal,
-                                     'Root': 'a/c'})
+        own_sr = ShardRange(broker.path, ts_shard, 'here', 'where')
+        broker.merge_shard_ranges([own_sr])
+        broker.update_sharding_info({'Root': 'a/c'})
         self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
         self.assertEqual(UNSHARDED, broker.get_db_state())
         node = {'id': 2, 'index': 1}
@@ -1330,14 +1381,12 @@ class TestSharder(unittest.TestCase):
             self._check_misplaced_objects_shard_container_unsharded()
 
     def test_misplaced_objects_shard_container_sharding(self):
-        broker = self._make_broker(account='.sharded_a', container='.shard_c')
+        broker = self._make_broker(account='.sharded_a', container='shard_c')
         ts_shard = next(self.ts_iter)
         # note that own_sr spans two root shard ranges
-        own_sr = ShardRange('.sharded_a/shard_c', ts_shard, 'here', 'where')
-        broker.update_sharding_info({'Lower': own_sr.lower,
-                                     'Upper': own_sr.upper,
-                                     'Timestamp': own_sr.timestamp.internal,
-                                     'Root': 'a/c'})
+        own_sr = ShardRange(broker.path, ts_shard, 'here', 'where')
+        broker.merge_shard_ranges([own_sr])
+        broker.update_sharding_info({'Root': 'a/c'})
         self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
         self.assertEqual(UNSHARDED, broker.get_db_state())
         node = {'id': 2, 'index': 1}

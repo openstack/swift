@@ -1519,7 +1519,32 @@ class ContainerBroker(DatabaseBroker):
             'COMMIT;')
 
     def _get_shard_range_rows(self, connection=None, include_deleted=False,
-                              state=None):
+                              state=None, include_own=False,
+                              exclude_others=False):
+        """
+        Returns a list of shard range rows.
+
+        To get all shard ranges use ``include_own=True``. To get only the
+        broker's own shard range use ``include_own=True`` and
+        ``exclude_others=True``.
+
+        :param connection: db connection
+        :param include_deleted: include rows marked as deleted
+        :param state: include only rows matching the given state(s); can be an
+            int or a list of ints.
+        :param include_own: boolean that governs whether the row whose name
+            matches the broker's path is included in the returned list. If
+            True, that row is included, otherwise it is not included. Default
+            is False.
+        :param exclude_others: boolean that governs whether the rows whose
+            names do not match the broker's path are included in the returned
+            list. If True, those rows are not includesd, otherwise they are
+            included. Default is False.
+        :return: a list of tuples.
+        """
+
+        if exclude_others and not include_own:
+            return []
 
         def do_query(conn):
             try:
@@ -1532,6 +1557,10 @@ class ContainerBroker(DatabaseBroker):
                     conditions.append('state in (%s)' % state_list)
                 elif state is not None:
                     conditions.append('state=%s' % state)
+                if not include_own:
+                    conditions.append('name!="%s"' % self.path)
+                if exclude_others:
+                    conditions.append('name="%s"' % self.path)
                 if conditions:
                     condition = ' WHERE ' + ' AND '.join(conditions)
                 sql = '''
@@ -1554,9 +1583,9 @@ class ContainerBroker(DatabaseBroker):
             with self.get() as conn:
                 return do_query(conn)
 
-    # TODO: add unit test
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
-                         reverse=False, include_deleted=False, state=None):
+                         reverse=False, include_deleted=False, state=None,
+                         include_own=False, exclude_others=False):
         """
         Returns a list of persisted shard ranges.
 
@@ -1572,12 +1601,21 @@ class ContainerBroker(DatabaseBroker):
         :param state: if specified, restricts the returned list to shard
             ranges that have the given state(s); can be a list of ints or a
             single int.
+        :param include_own: boolean that governs whether the row whose name
+            matches the broker's path is included in the returned list. If
+            True, that row is included, otherwise it is not included. Default
+            is False.
+        :param exclude_others: boolean that governs whether the rows whose
+            names do not match the broker's path are included in the returned
+            list. If True, those rows are not includesd, otherwise they are
+            included. Default is False.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
         shard_ranges = [
             ShardRange(*row)
             for row in self._get_shard_range_rows(
-                include_deleted=include_deleted, state=state)]
+                include_deleted=include_deleted, state=state,
+                include_own=include_own, exclude_others=exclude_others)]
         if includes:
             shard_range = find_shard_range(includes, shard_ranges)
             return [shard_range] if shard_range else []
@@ -1597,6 +1635,38 @@ class ContainerBroker(DatabaseBroker):
             shard_ranges = list(filter(shard_range_filter, shard_ranges))
         return shard_ranges
 
+    def get_own_shard_range(self, no_default=False):
+        """
+        Returns a shard range representing this broker's own shard range. If no
+        such range has been persisted in the broker's shard ranges table then a
+        default shard range representing the entire namespace will be returned.
+
+        The returned shard range will be updated with the current object stats
+        for this broker and a meta timestamp set to the current time. For these
+        values to be persisted the caller must merge the shard range.
+
+        :param no_default: if True and the broker's own shard range is not
+            found in the shard ranges table then None is returned, otherwise a
+            default shard range is returned.
+        :return: an instance of :class:`~swift.common.utils.ShardRange`
+        """
+        shard_ranges = self.get_shard_ranges(include_own=True,
+                                             include_deleted=True,
+                                             exclude_others=True)
+        now = Timestamp.now()
+        if shard_ranges:
+            own_shard_range = shard_ranges[0]
+        elif no_default:
+            return None
+        else:
+            own_shard_range = ShardRange(
+                self.path, now, ShardRange.MIN, ShardRange.MAX)
+
+        info = self.get_info()
+        own_shard_range.update_meta(
+            info.get('object_count', 0), info.get('bytes_used', 0), now)
+        return own_shard_range
+
     # TODO: add unit test
     def get_shard_usage(self):
         shard_ranges = self.get_shard_ranges(
@@ -1605,8 +1675,10 @@ class ContainerBroker(DatabaseBroker):
                 'object_count': sum([sr.object_count for sr in shard_ranges])}
 
     def get_other_replication_items(self):
+        shard_ranges = self.get_shard_ranges(include_deleted=True,
+                                             include_own=True)
         return [dict(sr, record_type=RECORD_TYPE_SHARD_NODE)
-                for sr in self.get_shard_ranges(include_deleted=True)]
+                for sr in shard_ranges]
 
     @contextmanager
     def sharding_lock(self):
@@ -1666,7 +1738,7 @@ class ContainerBroker(DatabaseBroker):
         # who are still in the UNSHARDED state.
         # TODO: should we include deleted shard ranges here...just in case it
         # ever happened and mattered?
-        sub_broker.merge_shard_ranges(self.get_shard_ranges())
+        sub_broker.merge_shard_ranges(self.get_shard_ranges(include_own=True))
 
         # We also need to sync the sync tables as we have no idea how long
         # sharding will take and we want to be able to continue replication
@@ -1802,30 +1874,6 @@ class ContainerBroker(DatabaseBroker):
                     break
         return objs
 
-    def get_own_shard_range(self):
-        metadata = self.get_sharding_info()
-        timestamp = metadata.get('Timestamp')
-        lower = metadata.get('Lower', ShardRange.MIN)
-        upper = metadata.get('Upper', ShardRange.MAX)
-        if timestamp in (None, ''):
-            timestamp = Timestamp.now()
-            lower = ShardRange.MIN
-            upper = ShardRange.MAX
-
-        info = self.get_info()  # Also ensures self.container is not None
-        return ShardRange(
-            '%s/%s' % (self.account, self.container), timestamp, lower, upper,
-            info.get('object_count', 0), info.get('bytes_used', 0),
-            Timestamp.now())
-
-    def update_own_shard_range(self, shard_range):
-        self.update_sharding_info({
-            'Timestamp': shard_range.timestamp.internal,
-            'Lower': str(shard_range.lower),
-            'Upper': str(shard_range.upper),
-            'Meta-Timestamp': shard_range.meta_timestamp.internal,
-        })
-
     def _get_root_info(self):
         """
         Attempt to get the root shard container name and account for the
@@ -1854,6 +1902,13 @@ class ContainerBroker(DatabaseBroker):
             raise ValueError('Expected X-Container-Sysmeta-Shard-Root to be '
                              "of the form 'account/container', got %r" % path)
         self._root_account, self._root_container = tuple(path.split('/'))
+
+    @property
+    def path(self):
+        if self.container is None:
+            # Ensure account/container get populated
+            self.get_info()
+        return '%s/%s' % (self.account, self.container)
 
     @property
     def root_account(self):

@@ -921,7 +921,8 @@ class TestContainerBroker(unittest.TestCase):
         shard_broker = ContainerBroker(db_shard_path, account=acct,
                                        container=cont, force_db_file=True)
         shard_broker.initialize(ts.internal, 0)
-        shard_range = ShardRange('%s/%s' % (acct, cont), Timestamp.now())
+        shard_range = ShardRange(
+            '.shards_%s/%s' % (acct, cont), Timestamp.now())
         shard_broker.merge_shard_ranges([shard_range])
         shard_broker.update_sharding_info({'Epoch': ts_now.normal})
         self.assertEqual(shard_broker.get_db_state(), SHARDING)
@@ -2729,6 +2730,83 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(broker.is_root_container())
 
     @with_tempdir
+    def test_get_shard_ranges(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(
+            db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+
+        # no rows
+        self.assertFalse(broker.get_shard_ranges())
+        # check that a default own shard range is not generated
+        self.assertFalse(broker.get_shard_ranges(include_own=True))
+
+        # merge row for own shard range
+        own_shard_range = ShardRange(broker.path, next(ts_iter), 'l', 'u')
+        broker.merge_shard_ranges([own_shard_range])
+        self.assertFalse(broker.get_shard_ranges())
+        self.assertFalse(broker.get_shard_ranges(include_own=False))
+
+        actual = broker.get_shard_ranges(include_own=True)
+        self.assertEqual([dict(sr) for sr in [own_shard_range]],
+                         [dict(sr) for sr in actual])
+
+        # merge rows for other shard ranges
+        shard_ranges = [
+            ShardRange('.a/c1', next(ts_iter), 'b', 'd'),
+            ShardRange('.a/c2', next(ts_iter), 'd', 'f',
+                       state=ShardRange.ACTIVE),
+            ShardRange('.a/c3', next(ts_iter), 'e', 'f', deleted=1),
+            ShardRange('.a/c4', next(ts_iter), 'f', 'h'),
+            ShardRange('.a/c5', next(ts_iter), 'h', 'j', deleted=1)
+        ]
+        broker.merge_shard_ranges(shard_ranges)
+        actual = broker.get_shard_ranges()
+        undeleted = shard_ranges[:2] + shard_ranges[3:4]
+        self.assertEqual([dict(sr) for sr in undeleted],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(include_deleted=True)
+        self.assertEqual([dict(sr) for sr in shard_ranges],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(reverse=True)
+        self.assertEqual([dict(sr) for sr in reversed(undeleted)],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(marker='c', end_marker='e')
+        self.assertEqual([dict(sr) for sr in shard_ranges[:2]],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(marker='c', end_marker='e',
+                                         state=ShardRange.ACTIVE)
+        self.assertEqual([dict(sr) for sr in shard_ranges[1:2]],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(includes='f')
+        self.assertEqual([dict(sr) for sr in shard_ranges[1:2]],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(includes='i')
+        self.assertFalse(actual)
+
+        # get everything
+        actual = broker.get_shard_ranges(include_own=True)
+        self.assertEqual([dict(sr) for sr in undeleted + [own_shard_range]],
+                         [dict(sr) for sr in actual])
+
+        # get just own range
+        actual = broker.get_shard_ranges(include_own=True, exclude_others=True)
+        self.assertEqual([dict(sr) for sr in [own_shard_range]],
+                         [dict(sr) for sr in actual])
+
+        # if you ask for nothing you'll get nothing
+        actual = broker.get_shard_ranges(
+            include_own=False, exclude_others=True)
+        self.assertFalse(actual)
+
+    @with_tempdir
     def test_get_own_shard_range(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
@@ -2736,6 +2814,7 @@ class TestContainerBroker(unittest.TestCase):
             db_path, account='.sharded_a', container='shard_c')
         broker.initialize(next(ts_iter).internal, 0)
 
+        # no row for own shard range - expect entire namespace default
         now = Timestamp.now()
         expected = ShardRange('.sharded_a/shard_c', now, '', '', 0, 0, now)
         with mock.patch('swift.container.backend.Timestamp.now',
@@ -2743,20 +2822,22 @@ class TestContainerBroker(unittest.TestCase):
             actual = broker.get_own_shard_range()
         self.assertEqual(expected, actual)
 
-        ts_1 = next(ts_iter)
-        metadata = {
-            'X-Container-Sysmeta-Shard-Timestamp':
-                (ts_1.internal, next(ts_iter).internal),
-            'X-Container-Sysmeta-Shard-Lower': ('l', next(ts_iter).internal),
-            'X-Container-Sysmeta-Shard-Upper': ('u', next(ts_iter).internal)}
+        actual = broker.get_own_shard_range(no_default=True)
+        self.assertIsNone(actual)
 
-        broker.update_metadata(metadata)
+        # row for own shard range and others
+        ts_1 = next(ts_iter)
+        broker.merge_shard_ranges(
+            [ShardRange(broker.path, ts_1, 'l', 'u'),
+             ShardRange('.a/c1', next(ts_iter), 'b', 'c'),
+             ShardRange('.a/c2', next(ts_iter), 'c', 'd')])
         expected = ShardRange('.sharded_a/shard_c', ts_1, 'l', 'u', 0, 0, now)
         with mock.patch('swift.container.backend.Timestamp.now',
                         return_value=now):
             actual = broker.get_own_shard_range()
         self.assertEqual(dict(expected), dict(actual))
 
+        # check stats get updated
         broker.put_object(
             'o1', next(ts_iter).internal, 100, 'text/plain', 'etag1')
         broker.put_object(
@@ -2768,54 +2849,25 @@ class TestContainerBroker(unittest.TestCase):
             actual = broker.get_own_shard_range()
         self.assertEqual(dict(expected), dict(actual))
 
-        # Shards shrink to the point that there's a single shard left
-        metadata = {
-            'X-Container-Sysmeta-Shard-Lower': ('', next(ts_iter).internal),
-            'X-Container-Sysmeta-Shard-Upper': ('', next(ts_iter).internal)}
-        broker.update_metadata(metadata)
-        actual = broker.get_own_shard_range()
-        self.assertIsInstance(actual, ShardRange)
-        self.assertTrue(actual.entire_namespace())
-
-        # This still holds after reclaim_age
+        # still in table after reclaim_age; this assertion may change when
+        # shard range reclaiming is implemented but is included as a heads-up
+        # to consider the fate of own shard range after reclaim age
         broker.reclaim(next(ts_iter).internal, next(ts_iter).internal)
-        self.assertNotIn('X-Container-Sysmeta-Shard-Lower', broker.metadata)
-        self.assertNotIn('X-Container-Sysmeta-Shard-Upper', broker.metadata)
-        actual = broker.get_own_shard_range()
-        self.assertIsInstance(actual, ShardRange)
-        self.assertTrue(actual.entire_namespace())
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=now):
+            actual = broker.get_own_shard_range()
+        self.assertEqual(dict(expected), dict(actual))
 
-    @with_tempdir
-    def test_update_own_shard_range(self, tempdir):
-        ts_iter = make_timestamp_iter()
-        db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(
-            db_path, account='.sharded_a', container='shard_c')
-        broker.initialize(next(ts_iter).internal, 0)
-
-        sr = ShardRange('a/c', Timestamp.now(), ShardRange.MIN, ShardRange.MAX)
-        broker.update_own_shard_range(sr)
-        expected = {
-            'X-Container-Sysmeta-Shard-Timestamp': sr.timestamp.internal,
-            'X-Container-Sysmeta-Shard-Lower': '',
-            'X-Container-Sysmeta-Shard-Upper': '',
-            'X-Container-Sysmeta-Shard-Meta-Timestamp': sr.timestamp.internal,
-        }
-        actual = dict((k, v[0]) for k, v in broker.metadata.items())
-        self.assertEqual(expected, actual)
-
-        sr = ShardRange('a/c', next(ts_iter), lower='l', upper='u',
-                        meta_timestamp=next(ts_iter))
-        broker.update_own_shard_range(sr)
-        expected = {
-            'X-Container-Sysmeta-Shard-Timestamp': sr.timestamp.internal,
-            'X-Container-Sysmeta-Shard-Lower': 'l',
-            'X-Container-Sysmeta-Shard-Upper': 'u',
-            'X-Container-Sysmeta-Shard-Meta-Timestamp':
-                sr.meta_timestamp.internal,
-        }
-        actual = dict((k, v[0]) for k, v in broker.metadata.items())
-        self.assertEqual(expected, actual)
+        # entire namespace
+        ts_2 = next(ts_iter)
+        broker.merge_shard_ranges(
+            [ShardRange(broker.path, ts_2, '', '')])
+        expected = ShardRange(
+            '.sharded_a/shard_c', ts_2, '', '', 2, 199, now)
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=now):
+            actual = broker.get_own_shard_range()
+        self.assertEqual(dict(expected), dict(actual))
 
     @with_tempdir
     def _check_find_shard_ranges(self, c_lower, c_upper, tempdir):
@@ -2848,12 +2900,9 @@ class TestContainerBroker(unittest.TestCase):
 
         ts = next(ts_iter)
         if c_lower or c_upper:
-            # testing a shard, so update it's metadata
-            broker.update_metadata({
-                'X-Container-Sysmeta-Shard-Lower': (c_lower, ts.internal),
-                'X-Container-Sysmeta-Shard-Upper': (c_upper, ts.internal),
-                'X-Container-Sysmeta-Shard-Timestamp':
-                    (ts.internal, ts.internal)})
+            # testing a shard, so set its own shard range
+            own_shard_range = ShardRange(broker.path, ts, c_lower, c_upper)
+            broker.merge_shard_ranges([own_shard_range])
 
         self.assertEqual(([], False), broker.find_shard_ranges(10))
 
@@ -2939,11 +2988,8 @@ class TestContainerBroker(unittest.TestCase):
         broker.initialize(next(ts_iter).internal, 0)
 
         ts = next(ts_iter)
-        broker.update_metadata({
-            'X-Container-Sysmeta-Shard-Lower': ('l', ts.internal),
-            'X-Container-Sysmeta-Shard-Upper': ('u', ts.internal),
-            'X-Container-Sysmeta-Shard-Timestamp':
-                (ts.internal, ts.internal)})
+        own_shard_range = ShardRange(broker.path, ts, 'l', 'u')
+        broker.merge_shard_ranges([own_shard_range])
 
         self.assertEqual(([], False), broker.find_shard_ranges(10))
 

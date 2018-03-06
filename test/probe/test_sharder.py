@@ -777,7 +777,7 @@ class TestContainerSharding(ReplProbeTest):
         def do_shard_then_shrink():
             repeat[0] += 1
             start_state = UNSHARDED
-            obj_names = ['obj-%s-%03d' % (repeat, x)
+            obj_names = ['obj-%s-%03d' % (repeat[0], x)
                          for x in range(self.max_shard_size)]
             self.put_objects(obj_names)
             # these two object names will fall at start of first shard range...
@@ -931,6 +931,10 @@ class TestContainerSharding(ReplProbeTest):
                     check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
 
             self.assert_container_listing([alpha] + second_shard_objects)
+            headers = client.head_container(
+                self.url, self.token, self.container_name)
+            self.assertEqual(headers['x-container-object-count'],
+                             str(len(second_shard_objects) + 1))
 
             # the acceptor shard is intact..
             shard_nodes_data = self.direct_get_container_shard_ranges(
