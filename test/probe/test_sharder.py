@@ -59,8 +59,8 @@ class TestContainerSharding(ReplProbeTest):
             cont_configs = [utils.readconf(p, 'container-sharder')
                             for p in self.configs['container-server'].values()]
         except ValueError:
-            self.fail('No [container-sharder] section found in '
-                      'container-server configs!')
+            raise SkipTest('No [container-sharder] section found in '
+                           'container-server configs')
 
         skip_reasons = []
         if cont_configs:
@@ -338,11 +338,11 @@ class TestContainerSharding(ReplProbeTest):
 
         # sanity check shard range states
         shard_ranges = self.get_container_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 4)
         for shard_range in shard_ranges[:2]:
             self.assertEqual(ShardRange.ACTIVE, shard_range.state)
         for shard_range in shard_ranges[2:]:
             self.assertEqual(ShardRange.CREATED, shard_range.state)
-        self.assertFalse(shard_ranges[4:])
 
         do_listing_checks(obj_names)
 
@@ -619,6 +619,16 @@ class TestContainerSharding(ReplProbeTest):
                                         self.container_name)
         self.assertEqual('True', headers.get('x-container-sharding'))
 
+        # sanity check
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['shard_dbs'], 0)
+        self.assertLengthEqual(found['normal_dbs'], 3)
+        for db_file in found['normal_dbs']:
+            broker = ContainerBroker(db_file)
+            self.assertIs(True, broker.is_root_container())
+            self.assertEqual(len(obj_names) * 3 // 5,
+                             broker.get_info()['object_count'])
+
         # Only run the 'leader' in charge of scanning.
         # Each container has ~2 * max * 3/5 objects
         # which are distributed from obj000 to obj<2 * max - 1>,
@@ -641,6 +651,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assertIs(True, broker.is_root_container())
         self.assertEqual('sharding', broker.get_db_state_text())
         expected_shard_ranges = broker.get_shard_ranges()
+        expected_epoch = broker.get_sharding_info('Epoch')
         self.assertLengthEqual(expected_shard_ranges, 3)
         self.assertEqual(
             [ShardRange.ACTIVE, ShardRange.ACTIVE, ShardRange.CREATED],
@@ -652,6 +663,8 @@ class TestContainerSharding(ReplProbeTest):
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
+            self.assertEqual(expected_epoch,
+                             broker.get_sharding_info('Epoch'))
             # the sharded db had shard range meta_timestamps updated during
             # cleaving, so we do not expect those to be equal on other nodes
             self.assert_shard_range_lists_equal(

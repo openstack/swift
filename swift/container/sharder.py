@@ -745,6 +745,8 @@ class ContainerSharder(ContainerReplicator):
                 # handoffs for shards later
                 self._local_device_ids.add(node['id'])
                 dirs.append((datadir, node['id']))
+        if not dirs:
+            self.logger.warning('Found no data dirs!')
         for part, path, node_id in db_replicator.roundrobin_datadirs(dirs):
             # NB: get_part_nodes always provides an 'index' key
             if override_partitions and part not in override_partitions:
@@ -767,6 +769,8 @@ class ContainerSharder(ContainerReplicator):
                     self.logger.exception(
                         'Unhandled exception while processing %s: %s',
                         path, err)
+            else:
+                self.logger.info('Skipping %s; sharding is not enabled', path)
 
         # wipe out the cache do disable bypass in delete_db
         cleanups = self.shard_cleanups
