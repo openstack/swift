@@ -917,7 +917,7 @@ class ContainerSharder(ContainerReplicator):
         timestamp = Timestamp.now()
         shard_ranges = [
             ShardRange(ShardRange.make_path(
-                self.shards_account_prefix + broker.account,
+                self.shards_account_prefix + broker.root_account,
                 broker.root_container, broker.container,
                 timestamp, found_range.pop('index')),
                 timestamp, **found_range)
