@@ -624,16 +624,7 @@ class TestTimestamp(unittest.TestCase):
                             '%r is not greater than %r given %r' % (
                                 timestamp, int(other), value))
 
-    def test_greater_with_offset(self):
-        now = time.time()
-        older = now - 1
-        test_values = (
-            0, '0', 0.0, '0.0', '0000.0000', '000.000_000',
-            1, '1', 1.1, '1.1', '1111.1111', '111.111_111',
-            1402443346.935174, '1402443346.93517', '1402443346.935169_ffff',
-            older, '%f' % older, '%f_0000ffff' % older,
-            now, '%f' % now, '%f_00000000' % now,
-        )
+    def _test_greater_with_offset(self, now, test_values):
         for offset in range(1, 1000, 100):
             timestamp = utils.Timestamp(now, offset=offset)
             for value in test_values:
@@ -657,6 +648,43 @@ class TestTimestamp(unittest.TestCase):
                 self.assertTrue(timestamp > int(other),
                                 '%r is not greater than %r given %r' % (
                                     timestamp, int(other), value))
+
+    def test_greater_with_offset(self):
+        # Part 1: use the natural time of the Python. This is deliciously
+        # unpredictable, but completely legitimate and realistic. Finds bugs!
+        now = time.time()
+        older = now - 1
+        test_values = (
+            0, '0', 0.0, '0.0', '0000.0000', '000.000_000',
+            1, '1', 1.1, '1.1', '1111.1111', '111.111_111',
+            1402443346.935174, '1402443346.93517', '1402443346.935169_ffff',
+            older, now,
+        )
+        self._test_greater_with_offset(now, test_values)
+        # Part 2: Same as above, but with fixed time values that reproduce
+        # specific corner cases.
+        now = 1519830570.6949348
+        older = now - 1
+        test_values = (
+            0, '0', 0.0, '0.0', '0000.0000', '000.000_000',
+            1, '1', 1.1, '1.1', '1111.1111', '111.111_111',
+            1402443346.935174, '1402443346.93517', '1402443346.935169_ffff',
+            older, now,
+        )
+        self._test_greater_with_offset(now, test_values)
+        # Part 3: The '%f' problem. Timestamps cannot be converted to %f
+        # strings, then back to timestamps, then compared with originals.
+        # You can only "import" a floating point representation once.
+        now = 1519830570.6949348
+        now = float('%f' % now)
+        older = now - 1
+        test_values = (
+            0, '0', 0.0, '0.0', '0000.0000', '000.000_000',
+            1, '1', 1.1, '1.1', '1111.1111', '111.111_111',
+            older, '%f' % older, '%f_0000ffff' % older,
+            now, '%f' % now, '%s_00000000' % now,
+        )
+        self._test_greater_with_offset(now, test_values)
 
     def test_smaller_no_offset(self):
         now = time.time()

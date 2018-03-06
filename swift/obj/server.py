@@ -15,6 +15,7 @@
 
 """ Object Server for Swift """
 
+import six
 import six.moves.cPickle as pickle
 import json
 import os
@@ -170,7 +171,9 @@ class ObjectController(BaseStorageServer):
         # disk_chunk_size parameter. However, it affects all created sockets
         # using this class so we have chosen to tie it to the
         # network_chunk_size parameter value instead.
-        socket._fileobject.default_bufsize = self.network_chunk_size
+        if six.PY2:
+            socket._fileobject.default_bufsize = self.network_chunk_size
+        # TODO: find a way to enable similar functionality in py3
 
         # Provide further setup specific to an object server implementation.
         self.setup(conf)

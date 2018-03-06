@@ -69,6 +69,17 @@ def quarantine_db(object_file, server_type):
         renamer(object_dir, quarantine_dir, fsync=False)
 
 
+def looks_like_partition(dir_name):
+    """
+    True if the directory name is a valid partition number, False otherwise.
+    """
+    try:
+        part = int(dir_name)
+        return part >= 0
+    except ValueError:
+        return False
+
+
 def roundrobin_datadirs(datadirs):
     """
     Generator to walk the data dirs in a round robin manner, evenly
@@ -81,7 +92,8 @@ def roundrobin_datadirs(datadirs):
     """
 
     def walk_datadir(datadir, node_id):
-        partitions = os.listdir(datadir)
+        partitions = [pd for pd in os.listdir(datadir)
+                      if looks_like_partition(pd)]
         random.shuffle(partitions)
         for partition in partitions:
             part_dir = os.path.join(datadir, partition)

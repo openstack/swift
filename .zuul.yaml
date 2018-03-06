@@ -93,6 +93,19 @@
     parent: swift-tox-func-ec
     nodeset: centos-7
 
+- job:
+    name: swift-probetests-centos-7
+    parent: unittests
+    nodeset: centos-7
+    voting: false
+    description: |
+      Setup a SAIO dev environment and run Swift's probe tests
+    pre-run:
+      - playbooks/saio_single_node_setup/install_dependencies.yaml
+      - playbooks/saio_single_node_setup/setup_saio.yaml
+      - playbooks/saio_single_node_setup/make_rings.yaml
+    run: playbooks/probetests/run.yaml
+
 - project:
     check:
       jobs:
@@ -101,6 +114,7 @@
         - swift-tox-func
         - swift-tox-func-encryption
         - swift-tox-func-ec
+        - swift-probetests-centos-7
     gate:
       jobs:
         - swift-tox-py27

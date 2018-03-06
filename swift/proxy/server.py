@@ -276,7 +276,10 @@ class Application(object):
         #
         # ** Because it affects the client as well, currently, we use the
         # client chunk size as the govenor and not the object chunk size.
-        socket._fileobject.default_bufsize = self.client_chunk_size
+        if sys.version_info < (3,):
+            socket._fileobject.default_bufsize = self.client_chunk_size
+        # TODO: find a way to enable similar functionality in py3
+
         self.expose_info = config_true_value(
             conf.get('expose_info', 'yes'))
         self.disallowed_sections = list_from_csv(

@@ -169,7 +169,8 @@ class ObjectReplicator(Daemon):
         :returns: return code of rsync process. 0 is successful
         """
         start_time = time.time()
-        ret_val = None
+        proc = ret_val = None
+
         try:
             with Timeout(self.rsync_timeout):
                 proc = subprocess.Popen(args,
@@ -177,9 +178,24 @@ class ObjectReplicator(Daemon):
                                         stderr=subprocess.STDOUT)
                 results = proc.stdout.read()
                 ret_val = proc.wait()
+        except GreenletExit:
+            self.logger.error(_("Killing by lockup detector"))
+            if proc:
+                # Assume rsync is still responsive and give it a chance
+                # to shut down gracefully
+                proc.terminate()
+                # Final good-faith effort to clean up the process table.
+                # Note that this blocks, but worst-case we wait for the
+                # lockup detector to come around and kill us. This can
+                # happen if the process is stuck down in kernel-space
+                # waiting on I/O or something.
+                proc.wait()
+            raise
         except Timeout:
             self.logger.error(_("Killing long-running rsync: %s"), str(args))
-            proc.kill()
+            if proc:
+                proc.kill()
+                proc.wait()
             return 1  # failure response code
         total_time = time.time() - start_time
         for result in results.split('\n'):
