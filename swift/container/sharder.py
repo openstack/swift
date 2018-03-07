@@ -344,14 +344,13 @@ class ContainerSharder(ContainerReplicator):
 
         return True
 
-    def _misplaced_objects(self, broker, node, own_shard_range):
+    def _misplaced_objects(self, broker, own_shard_range):
         """
         Search for objects in the given broker that do not belong in that
         broker's namespace and move those objects to their correct shard
         container.
 
         :param broker: An instance of :class:`swift.container.ContainerBroker`
-        :param node: The node being processed
         :param own_shard_range: A ShardRange describing the namespace for this
             broker
         """
@@ -566,7 +565,7 @@ class ContainerSharder(ContainerReplicator):
         #     continue
 
         # now look and deal with misplaced objects.
-        self._misplaced_objects(broker, node, own_shard_range)
+        self._misplaced_objects(broker, own_shard_range)
 
         if broker.is_deleted():
             # This container is deleted so we can skip it. We still want
@@ -682,7 +681,7 @@ class ContainerSharder(ContainerReplicator):
 
             if (state == SHARDED and broker.is_root_container() and
                     is_leader):
-                self._find_shrinks(broker, node, part)
+                self._find_shrinks(broker, part)
 
             if not broker.is_root_container():
                 # update the root container with this container's shard range
@@ -979,7 +978,7 @@ class ContainerSharder(ContainerReplicator):
             len(created_ranges))
         return len(created_ranges)
 
-    def _find_shrinks(self, broker, node, part):
+    def _find_shrinks(self, broker, part):
         # this should only execute on root containers; the goal is to find
         # small shard containers that could be retired by merging with a
         # neighbour.
