@@ -6753,27 +6753,27 @@ class TestShardRange(unittest.TestCase):
         ts_1 = next(self.ts_iter)
         ts_2 = next(self.ts_iter)
         ts_3 = next(self.ts_iter)
-        pr = utils.ShardRange('a/test', ts_1, lower, upper, 10, 100, ts_2,
+        sr = utils.ShardRange('a/test', ts_1, lower, upper, 10, 100, ts_2,
                               state=1, state_timestamp=ts_3)
-        pr_dict = dict(pr)
+        sr_dict = dict(sr)
         expected = {
             'name': 'a/test', 'created_at': ts_1.internal, 'lower': lower,
             'upper': upper, 'object_count': 10, 'bytes_used': 100,
             'meta_timestamp': ts_2.internal, 'deleted': 0,
             'state': 1, 'state_timestamp': ts_3.internal}
-        self.assertEqual(expected, pr_dict)
-        self.assertIsInstance(pr_dict['lower'], six.string_types)
-        self.assertIsInstance(pr_dict['upper'], six.string_types)
-        pr_new = utils.ShardRange.from_dict(pr_dict)
-        self.assertEqual(pr, pr_new)
-        self.assertEqual(pr_dict, dict(pr_new))
+        self.assertEqual(expected, sr_dict)
+        self.assertIsInstance(sr_dict['lower'], six.string_types)
+        self.assertIsInstance(sr_dict['upper'], six.string_types)
+        sr_new = utils.ShardRange.from_dict(sr_dict)
+        self.assertEqual(sr, sr_new)
+        self.assertEqual(sr_dict, dict(sr_new))
 
-        pr_new = utils.ShardRange(**pr_dict)
-        self.assertEqual(pr, pr_new)
-        self.assertEqual(pr_dict, dict(pr_new))
+        sr_new = utils.ShardRange(**sr_dict)
+        self.assertEqual(sr, sr_new)
+        self.assertEqual(sr_dict, dict(sr_new))
 
-        for key in pr_dict:
-            bad_dict = dict(pr_dict)
+        for key in sr_dict:
+            bad_dict = dict(sr_dict)
             bad_dict.pop(key)
             with self.assertRaises(KeyError):
                 utils.ShardRange.from_dict(bad_dict)
@@ -6790,43 +6790,76 @@ class TestShardRange(unittest.TestCase):
 
     def test_timestamp_setter(self):
         ts_1 = next(self.ts_iter)
-        pr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
-        self.assertEqual(ts_1, pr.timestamp)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
+        self.assertEqual(ts_1, sr.timestamp)
 
         ts_2 = next(self.ts_iter)
-        pr.timestamp = ts_2
-        self.assertEqual(ts_2, pr.timestamp)
+        sr.timestamp = ts_2
+        self.assertEqual(ts_2, sr.timestamp)
 
         with self.assertRaises(TypeError):
-            pr.timestamp = None
+            sr.timestamp = None
 
     def test_meta_timestamp_setter(self):
         ts_1 = next(self.ts_iter)
-        pr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
-        self.assertEqual(ts_1, pr.timestamp)
-        self.assertEqual(ts_1, pr.meta_timestamp)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
+        self.assertEqual(ts_1, sr.timestamp)
+        self.assertEqual(ts_1, sr.meta_timestamp)
 
         ts_2 = next(self.ts_iter)
-        pr.meta_timestamp = ts_2
-        self.assertEqual(ts_1, pr.timestamp)
-        self.assertEqual(ts_2, pr.meta_timestamp)
+        sr.meta_timestamp = ts_2
+        self.assertEqual(ts_1, sr.timestamp)
+        self.assertEqual(ts_2, sr.meta_timestamp)
 
         ts_3 = next(self.ts_iter)
-        pr.timestamp = ts_3
-        self.assertEqual(ts_3, pr.timestamp)
-        self.assertEqual(ts_2, pr.meta_timestamp)
+        sr.timestamp = ts_3
+        self.assertEqual(ts_3, sr.timestamp)
+        self.assertEqual(ts_2, sr.meta_timestamp)
 
         # meta_timestamp default to tracking timestamp
-        pr.meta_timestamp = None
-        self.assertEqual(ts_3, pr.timestamp)
-        self.assertEqual(ts_3, pr.meta_timestamp)
+        sr.meta_timestamp = None
+        self.assertEqual(ts_3, sr.timestamp)
+        self.assertEqual(ts_3, sr.meta_timestamp)
         ts_4 = next(self.ts_iter)
-        pr.timestamp = ts_4
-        self.assertEqual(ts_4, pr.timestamp)
-        self.assertEqual(ts_4, pr.meta_timestamp)
+        sr.timestamp = ts_4
+        self.assertEqual(ts_4, sr.timestamp)
+        self.assertEqual(ts_4, sr.meta_timestamp)
+
+    def test_update_meta(self):
+        ts_1 = next(self.ts_iter)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
+        now = next(self.ts_iter)
+        with mock.patch('swift.common.utils.time.time', lambda: now):
+            sr.update_meta(9, 99)
+        self.assertEqual(9, sr.object_count)
+        self.assertEqual(99, sr.bytes_used)
+        self.assertEqual(now, sr.meta_timestamp)
+
+        now = next(self.ts_iter)
+        with mock.patch('swift.common.utils.time.time', lambda: now):
+            sr.update_meta(99, 999, None)
+        self.assertEqual(99, sr.object_count)
+        self.assertEqual(999, sr.bytes_used)
+        self.assertEqual(now, sr.meta_timestamp)
+
+        ts_2 = next(self.ts_iter)
+        sr.update_meta(21, 2112, ts_2)
+        self.assertEqual(21, sr.object_count)
+        self.assertEqual(2112, sr.bytes_used)
+        self.assertEqual(ts_2, sr.meta_timestamp)
+
+        sr.update_meta('11', '12')
+        self.assertEqual(11, sr.object_count)
+        self.assertEqual(12, sr.bytes_used)
+
+        def check_bad_args(*args):
+            with self.assertRaises(ValueError):
+                sr.update_meta(*args)
+        check_bad_args('bad', 10)
+        check_bad_args(10, 'bad')
+        check_bad_args(10, 11, 'bad')
 
     def test_state_setter(self):
-
         for state in utils.ShardRange.STATES:
             for test_value in (state, str(state)):
                 sr = utils.ShardRange('a/test', next(self.ts_iter), 'l', 'u')

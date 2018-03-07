@@ -1179,9 +1179,8 @@ class ContainerSharder(ContainerReplicator):
                 # is smaller than the existing acceptor shard range to which we
                 # are cleaving and the source stats are therefore incomplete.
                 info = new_broker.get_info()
-                shard_range.object_count = info['object_count']
-                shard_range.bytes_used = info['bytes_used']
-                shard_range.meta_timestamp = Timestamp.now()
+                shard_range.update_meta(
+                    info['object_count'], info['bytes_used'])
                 # NB: set state to ACTIVE here but this must not be sent to
                 # root until *all* shard ranges have been cleaved and we are
                 # ready to transfer responsibility for the namespace from the

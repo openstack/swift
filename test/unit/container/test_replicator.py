@@ -1211,8 +1211,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         check_replicate(broker_ranges, broker, remote_broker)
 
         # update one shard range
-        shard_ranges[1].object_count = 99
-        shard_ranges[1].meta_timestamp = Timestamp.now()
+        shard_ranges[1].update_meta(99, 0)
         broker.update_shard_range(shard_ranges[1])
         # sanity check
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
