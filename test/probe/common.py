@@ -15,6 +15,7 @@
 
 from __future__ import print_function
 
+import errno
 import os
 from subprocess import Popen, PIPE
 import sys
@@ -489,6 +490,49 @@ class ProbeTest(unittest.TestCase):
             return internal_client.InternalClient(conf_path, 'test', 1)
         finally:
             shutil.rmtree(tempdir)
+
+    def get_all_object_nodes(self):
+        """
+        Returns a list of all nodes in all object storage policies.
+
+        :return: a list of node dicts.
+        """
+        all_obj_nodes = {}
+        for policy in ENABLED_POLICIES:
+            for dev in policy.object_ring.devs:
+                all_obj_nodes[dev['device']] = dev
+        return all_obj_nodes.values()
+
+    def gather_async_pendings(self, onodes):
+        """
+        Returns a list of paths to async pending files found on given nodes.
+
+        :param onodes: a list of nodes.
+        :return: a list of file paths.
+        """
+        async_pendings = []
+        for onode in onodes:
+            device_dir = self.device_dir('', onode)
+            for ap_pol_dir in os.listdir(device_dir):
+                if not ap_pol_dir.startswith('async_pending'):
+                    # skip 'objects', 'containers', etc.
+                    continue
+                async_pending_dir = os.path.join(device_dir, ap_pol_dir)
+                try:
+                    ap_dirs = os.listdir(async_pending_dir)
+                except OSError as err:
+                    if err.errno == errno.ENOENT:
+                        pass
+                    else:
+                        raise
+                else:
+                    for ap_dir in ap_dirs:
+                        ap_dir_fullpath = os.path.join(
+                            async_pending_dir, ap_dir)
+                        async_pendings.extend([
+                            os.path.join(ap_dir_fullpath, ent)
+                            for ent in os.listdir(ap_dir_fullpath)])
+        return async_pendings
 
 
 class ReplProbeTest(ProbeTest):

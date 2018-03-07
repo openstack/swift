@@ -21,13 +21,15 @@ from nose import SkipTest
 
 from swift.common import direct_client
 from swift.common.direct_client import DirectClientException
-from swift.common.utils import ShardRange, parse_db_filename, get_db_files
+from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
+    quorum_size
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDED, \
     SHARDING
 from swift.common import utils
 from swift.common.manager import Manager
 from swiftclient import client, get_auth, ClientException
 
+from swift.proxy.controllers.obj import num_container_updates
 from test import annotate_failure
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number
@@ -91,7 +93,7 @@ class TestContainerSharding(ReplProbeTest):
         self.container_name = 'container-%s' % uuid.uuid4()
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
                                    None, 'container')
-        self.brain.put_container()
+        self.brain.put_container(policy_index=int(self.policy))
 
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
@@ -883,21 +885,35 @@ class TestContainerSharding(ReplProbeTest):
             # while container servers are down, but proxy has container info in
             # cache from recent listing, put another object; this update will
             # lurk in async pending until the updaters run again
-            # TODO: because all the container servers are down the object
-            # update will default to being targeted at the root container; can
-            # we provoke an object update that does get targeted to the shard,
-            # but fails to update shard, so that the async pending will first
-            # be directed to the shard when the updaters run?
+            # TODO: because all the root container servers are down and
+            # therefore cannot respond to a GET for a redirect target, the
+            # object update will default to being targeted at the root
+            # container; can we provoke an object update that does get targeted
+            # to the shard, but fails to update shard, so that the async
+            # pending will first be directed to the shard when the updaters
+            # run?
             self.brain.servers.stop()
-            time.sleep(2)
+            time.sleep(2)  # why?
             self.put_objects([beta])
             self.brain.servers.start()
+            async_pendings = self.gather_async_pendings(
+                self.get_all_object_nodes())
+            num_container_replicas = len(self.brain.nodes)
+            num_obj_replicas = self.policy.object_ring.replica_count
+            expected_num_updates = num_container_updates(
+                num_container_replicas, quorum_size(num_container_replicas),
+                num_obj_replicas, self.policy.quorum)
+            expected_num_pendings = min(expected_num_updates, num_obj_replicas)
+            # sanity check
+            with annotate_failure('policy %s. ' % self.policy):
+                self.assertLengthEqual(async_pendings, expected_num_pendings)
 
             # root object count is not updated...
             headers = client.head_container(
                 self.url, self.token, self.container_name)
             self.assertEqual(headers['x-container-object-count'],
                              str(len(obj_names)))
+            self.assert_container_listing([alpha] + second_shard_objects)
             root_nodes_data = self.direct_get_container_shard_ranges()
             self.assertEqual(3, len(root_nodes_data))
             for node_id, node_data in root_nodes_data.items():
@@ -915,11 +931,18 @@ class TestContainerSharding(ReplProbeTest):
                 self.url, self.token, self.container_name)
             self.assertEqual(headers['x-container-object-count'],
                              str(exp_obj_count))
+            self.assert_container_listing([alpha] + second_shard_objects)
 
             # we may then need sharders to run once or more to find the donor
             # shard, shrink and replicate it to the acceptor
             self.sharders.once()
+            self.assert_container_listing([alpha] + second_shard_objects)
             self.sharders.once()
+            self.assert_container_listing([alpha] + second_shard_objects)
+            headers = client.head_container(
+                self.url, self.token, self.container_name)
+            self.assertEqual(headers['x-container-object-count'],
+                             str(len(second_shard_objects) + 1))
 
             # check root container
             root_nodes_data = self.direct_get_container_shard_ranges()
@@ -929,12 +952,6 @@ class TestContainerSharding(ReplProbeTest):
                 with annotate_failure('Node id %s.' % node_id):
                     # NB now only *one* shard range in root
                     check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
-
-            self.assert_container_listing([alpha] + second_shard_objects)
-            headers = client.head_container(
-                self.url, self.token, self.container_name)
-            self.assertEqual(headers['x-container-object-count'],
-                             str(len(second_shard_objects) + 1))
 
             # the acceptor shard is intact..
             shard_nodes_data = self.direct_get_container_shard_ranges(
