@@ -120,12 +120,9 @@ def print_container(name, name2nodes2brokers, expect_type='ROOT',
     for node, broker in node2broker.items():
         print_sharding_info(node, broker, indent_level=indent_level + 1)
     print(indent + 'Own shard range:')
-    shard_names = set()
     for node, broker in node2broker.items():
         shard_ranges = broker.get_shard_ranges(
             include_deleted=True, include_own=True, exclude_others=True)
-        for sr_name in shard_ranges:
-            shard_names.add(sr_name.name)
         print_shard_range_info(node, shard_ranges,
                                indent_level=indent_level + 1)
     print(indent + 'Shard ranges:')

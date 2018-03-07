@@ -689,12 +689,12 @@ class ContainerSharder(ContainerReplicator):
                 # info; do this even when sharded in case previous attempts
                 # failed; don't do this if there is no shard range info.
                 own_shard_range = broker.get_own_shard_range(no_default=True)
-                # TODO: persist the reported meta-timestamp?
-                # broker.merge_shard_ranges([own_shard_range])
                 if own_shard_range:
                     self._update_shard_ranges(
                         broker.root_account, broker.root_container,
                         [own_shard_range])
+                    # persist the reported shard metadata
+                    broker.merge_shard_ranges([own_shard_range])
             self.logger.info('Finished processing %s/%s state %s',
                              broker.account, broker.container,
                              broker.get_db_state_text())
@@ -858,8 +858,7 @@ class ContainerSharder(ContainerReplicator):
         headers = {
             'X-Storage-Policy': policy.name,
             'X-Container-Sysmeta-Shard-Root': broker.root_path,
-            'X-Container-Sysmeta-Sharding': True,
-            'X-Backend-Record-Type': 'shard'}
+            'X-Container-Sysmeta-Sharding': True}
         if extra_headers:
             headers.update(extra_headers)
         try:
