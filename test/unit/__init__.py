@@ -1314,3 +1314,12 @@ def skip_if_no_xattrs():
     if not xattr_supported_check():
         raise SkipTest('Large xattrs not supported in `%s`. Skipping test' %
                        gettempdir())
+
+
+def unlink_files(paths):
+    for path in paths:
+        try:
+            os.unlink(path)
+        except OSError as err:
+            if err == errno.ENOENT:
+                pass

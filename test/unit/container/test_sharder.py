@@ -30,7 +30,8 @@ from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps
 from test import annotate_failure
 
-from test.unit import FakeLogger, debug_logger, FakeRing, make_timestamp_iter
+from test.unit import FakeLogger, debug_logger, FakeRing, make_timestamp_iter, \
+    unlink_files
 
 
 class TestRangeAnalyser(unittest.TestCase):
@@ -570,6 +571,8 @@ class TestSharder(unittest.TestCase):
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
 
+        # used to accumulate stats from sharded dbs
+        total_shard_stats = {'object_count': 0, 'bytes_used': 0}
         # run cleave - no shard ranges, nothing happens
         with self._mock_sharder() as sharder:
             self.assertTrue(sharder._cleave(broker))
@@ -605,6 +608,13 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[0], 0)
+        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        self.assertEqual(
+            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+        shard_info = shard_broker.get_info()
+        total_shard_stats['object_count'] += shard_info['object_count']
+        total_shard_stats['bytes_used'] += shard_info['bytes_used']
+
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(4, len(updated_shard_ranges))
         # update expected state and metadata, check cleaved shard range
@@ -626,8 +636,9 @@ class TestSharder(unittest.TestCase):
         self.assertIn(cursor_key, metadata)
         self.assertEqual(
             {'cursor': 'here'}, json.loads(metadata[cursor_key][0]))
+        unlink_files(expected_shard_dbs)
 
-        # move more shard ranges to found state
+        # move more shard ranges to created state
         for i in range(1, 4):
             shard_ranges[i].update_state(ShardRange.CREATED)
         broker.merge_shard_ranges(shard_ranges[1:4])
@@ -638,6 +649,14 @@ class TestSharder(unittest.TestCase):
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in expected_shard_dbs[1:3]]
         )
+        for db in expected_shard_dbs[1:3]:
+            shard_broker = ContainerBroker(db)
+            self.assertEqual(
+                ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+            shard_info = shard_broker.get_info()
+            total_shard_stats['object_count'] += shard_info['object_count']
+            total_shard_stats['bytes_used'] += shard_info['bytes_used']
+
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(4, len(updated_shard_ranges))
 
@@ -653,21 +672,22 @@ class TestSharder(unittest.TestCase):
             with annotate_failure(i):
                 self._check_shard_range(
                     shard_ranges[i], updated_shard_ranges[i])
-        self._check_objects(objects[:2], expected_shard_dbs[0])
         self._check_objects(objects[2:5], expected_shard_dbs[1])
         self._check_objects(objects[5:6], expected_shard_dbs[2])
         # other shard ranges should be unchanged
-        for i in range(3, len(shard_ranges)):
+        self.assertFalse(os.path.exists(expected_shard_dbs[0]))
+        for i, db in enumerate(expected_shard_dbs[3:], 3):
             with annotate_failure(i):
-                self.assertFalse(os.path.exists(expected_shard_dbs[i]))
-        for i in range(3, len(updated_shard_ranges)):
+                self.assertFalse(os.path.exists(db))
+        for i, updated_shard_range in enumerate(updated_shard_ranges[3:], 3):
             with annotate_failure(i):
                 self.assertEqual(dict(shard_ranges[i]),
-                                 dict(updated_shard_ranges[i]))
+                                 dict(updated_shard_range))
         metadata = broker.metadata
         self.assertIn(cursor_key, metadata)
         self.assertEqual(
             {'cursor': 'where'}, json.loads(metadata[cursor_key][0]))
+        unlink_files(expected_shard_dbs)
 
         # run cleave again - should process the fourth range
         with self._mock_sharder() as sharder:
@@ -676,6 +696,13 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[3], 0)
+        shard_broker = ContainerBroker(expected_shard_dbs[3])
+        self.assertEqual(
+            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+        shard_info = shard_broker.get_info()
+        total_shard_stats['object_count'] += shard_info['object_count']
+        total_shard_stats['bytes_used'] += shard_info['bytes_used']
+
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(4, len(updated_shard_ranges))
 
@@ -686,17 +713,24 @@ class TestSharder(unittest.TestCase):
             with annotate_failure(i):
                 self._check_shard_range(
                     shard_ranges[i], updated_shard_ranges[i])
-        self._check_objects(objects[:2], expected_shard_dbs[0])
-        self._check_objects(objects[2:5], expected_shard_dbs[1])
-        self._check_objects(objects[5:6], expected_shard_dbs[2])
         # NB includes the deleted object
         self._check_objects(objects[6:8], expected_shard_dbs[3])
+        # other shard ranges should be unchanged
+        for i, db in enumerate(expected_shard_dbs[:3]):
+            with annotate_failure(i):
+                self.assertFalse(os.path.exists(db))
+        self.assertFalse(os.path.exists(expected_shard_dbs[4]))
+        for i, updated_shard_range in enumerate(updated_shard_ranges[4:], 4):
+            with annotate_failure(i):
+                self.assertEqual(dict(shard_ranges[i]),
+                                 dict(updated_shard_range))
 
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
         metadata = broker.metadata
         self.assertIn(cursor_key, metadata)
         self.assertEqual(
             {'cursor': 'yonder'}, json.loads(metadata[cursor_key][0]))
+        unlink_files(expected_shard_dbs)
 
         # run cleave - should be a no-op, all existing ranges have been cleaved
         with self._mock_sharder() as sharder:
@@ -705,8 +739,10 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_not_called()
 
-        # add final shard range
-        shard_ranges[4].update_state(ShardRange.CREATED)
+        # add final shard range - move this to ACTIVE state and update stats to
+        # simulate another replica having cleaved it and replicated it state
+        shard_ranges[4].update_state(ShardRange.ACTIVE)
+        shard_ranges[4].update_meta(2, 15)
         broker.merge_shard_ranges(shard_ranges[4:])
         broker.update_sharding_info({'Scan-Done': 'True'})
 
@@ -715,28 +751,35 @@ class TestSharder(unittest.TestCase):
 
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[4], 0)
+        shard_broker = ContainerBroker(expected_shard_dbs[4])
+        # NB the state of the *shard broker's own shard range* should be
+        # FOUND regardless of the shard range being ACTIVE
+        self.assertEqual(
+            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
+        shard_info = shard_broker.get_info()
+        total_shard_stats['object_count'] += shard_info['object_count']
+        total_shard_stats['bytes_used'] += shard_info['bytes_used']
+
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(5, len(updated_shard_ranges))
-        shard_ranges[4].bytes_used = 14
-        shard_ranges[4].object_count = 1
-        shard_ranges[4].state = ShardRange.ACTIVE
-        for i in range(0, 5):
+        # NB stats of the ACTIVE shard range should not be reset by cleaving
+        for i in range(0, 4):
             with annotate_failure(i):
                 self._check_shard_range(
                     shard_ranges[i], updated_shard_ranges[i])
-        # all objects in their shards
-        self._check_objects(objects[:2], expected_shard_dbs[0])
-        self._check_objects(objects[2:5], expected_shard_dbs[1])
-        self._check_objects(objects[5:6], expected_shard_dbs[2])
-        self._check_objects(objects[6:8], expected_shard_dbs[3])
-        self._check_objects(objects[8:], expected_shard_dbs[4])
+        self.assertEqual(dict(shard_ranges[4]), dict(updated_shard_ranges[4]))
 
-        shard_infos = [ContainerBroker(shard_db_file).get_info()
-                       for shard_db_file in expected_shard_dbs]
-        self.assertEqual(initial_root_info['bytes_used'],
-                         sum(info['bytes_used'] for info in shard_infos))
+        # object copied to shard
+        self._check_objects(objects[8:], expected_shard_dbs[4])
+        # other shard ranges should be unchanged
+        for i, db in enumerate(expected_shard_dbs[:4]):
+            with annotate_failure(i):
+                self.assertFalse(os.path.exists(db))
+
         self.assertEqual(initial_root_info['object_count'],
-                         sum(info['object_count'] for info in shard_infos))
+                         total_shard_stats['object_count'])
+        self.assertEqual(initial_root_info['bytes_used'],
+                         total_shard_stats['bytes_used'])
 
         metadata = broker.metadata
         self.assertIn(cursor_key, metadata)
@@ -865,6 +908,8 @@ class TestSharder(unittest.TestCase):
             'X-Container-Sysmeta-Shard-Upper': ('where', ts_int),
             'X-Container-Sysmeta-Shard-Timestamp': (ts_int, ts_int)}
         broker.update_metadata(shard_metadata)
+        self.assertFalse(broker.is_root_container())  # sanity check
+
         objects = [
             ('m', self.ts_encoded(), 1, 'text/plain', 'etag_m', 0),
             ('n', self.ts_encoded(), 2, 'text/plain', 'etag_n', 0),
@@ -906,6 +951,9 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, expected_shard_dbs[0], 0)])
+        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        self.assertEqual(
+            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
 
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(2, len(updated_shard_ranges))
@@ -916,9 +964,16 @@ class TestSharder(unittest.TestCase):
         shard_ranges[0].object_count = 3
         shard_ranges[0].state = ShardRange.ACTIVE
         self._check_shard_range(shard_ranges[0], updated_shard_ranges[0])
+        self._check_objects(objects[:3], expected_shard_dbs[0])
         self.assertFalse(os.path.exists(expected_shard_dbs[1]))
+        unlink_files(expected_shard_dbs)
 
-        # run cleave - second (final) range is cleaved
+        # run cleave - second (final) range is cleaved; move this range to
+        # ACTIVE state and update stats to simulate another replica having
+        # cleaved it and replicated it state
+        shard_ranges[1].update_state(ShardRange.ACTIVE)
+        shard_ranges[1].update_meta(2, 15)
+        broker.merge_shard_ranges(shard_ranges[1:2])
         with self._mock_sharder(sharder_conf) as sharder:
             self.assertTrue(sharder._cleave(broker))
         metadata = broker.metadata
@@ -929,18 +984,20 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, expected_shard_dbs[1], 0)])
+        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        # NB the state of the *shard broker's own shard range* should be
+        # FOUND regardless of the shard range being ACTIVE
+        self.assertEqual(
+            ShardRange.FOUND, shard_broker.get_own_shard_range().state)
 
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(2, len(updated_shard_ranges))
 
         # second shard range should have updated object count, bytes used and
         # meta_timestamp
-        shard_ranges[1].bytes_used = 100
-        shard_ranges[1].object_count = 1
-        shard_ranges[1].state = ShardRange.ACTIVE
-        self._check_shard_range(shard_ranges[1], updated_shard_ranges[1])
-        self._check_objects(objects[:3], expected_shard_dbs[0])
+        self.assertEqual(dict(shard_ranges[1]), dict(updated_shard_ranges[1]))
         self._check_objects(objects[3:], expected_shard_dbs[1])
+        self.assertFalse(os.path.exists(expected_shard_dbs[0]))
 
     def test_misplaced_objects_root_container(self):
         broker = self._make_broker()

@@ -1170,7 +1170,6 @@ class ContainerSharder(ContainerReplicator):
                     broker.update_own_shard_range(own_shard_range)
                 new_broker.merge_shard_ranges([own_shard_range])
             elif shard_range.state != ShardRange.ACTIVE:
-                # TODO: unit test scenario when this condition is not met
                 # The shard range object stats may have changed since the shard
                 # range was found, so update with stats of objects actually
                 # copied to the shard broker. Only do this the first time each
