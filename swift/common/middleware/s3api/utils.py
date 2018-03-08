@@ -26,8 +26,6 @@ import uuid
 from swift.common import utils
 from swift.common.swob import HTTPPreconditionFailed
 
-from swift.common.middleware.s3api.cfg import CONF
-
 MULTIUPLOAD_SUFFIX = '+segments'
 
 
@@ -114,22 +112,22 @@ def is_valid_ipv6(ip):
     return True
 
 
-def validate_bucket_name(name):
+def validate_bucket_name(name, dns_compliant_bucket_names):
         """
         Validates the name of the bucket against S3 criteria,
         http://docs.amazonwebservices.com/AmazonS3/latest/BucketRestrictions.html
         True is valid, False is invalid.
         """
         valid_chars = '-.a-z0-9'
-        if not CONF.dns_compliant_bucket_names:
+        if not dns_compliant_bucket_names:
             valid_chars += 'A-Z_'
-        max_len = 63 if CONF.dns_compliant_bucket_names else 255
+        max_len = 63 if dns_compliant_bucket_names else 255
 
         if len(name) < 3 or len(name) > max_len or not name[0].isalnum():
             # Bucket names should be between 3 and 63 (or 255) characters long
             # Bucket names must start with a letter or a number
             return False
-        elif CONF.dns_compliant_bucket_names and (
+        elif dns_compliant_bucket_names and (
                 '.-' in name or '-.' in name or '..' in name or
                 not name[-1].isalnum()):
             # Bucket names cannot contain dashes next to periods
@@ -197,3 +195,41 @@ def mktime(timestamp_str, time_format='%Y-%m-%dT%H:%M:%S'):
     epoch_time = calendar.timegm(time_tuple) - time_tuple[9]
 
     return epoch_time
+
+
+class Config(dict):
+    def __init__(self, base=None):
+        if base is not None:
+            self.update(base)
+
+    def __getattr__(self, name):
+        if name not in self:
+            raise AttributeError("No attribute '%s'" % name)
+
+        return self[name]
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+    def __delattr__(self, name):
+        del self[name]
+
+    def update(self, other):
+        if hasattr(other, 'keys'):
+            for key in other.keys():
+                self[key] = other[key]
+        else:
+            for key, value in other:
+                self[key] = value
+
+    def __setitem__(self, key, value):
+        if isinstance(self.get(key), bool):
+            dict.__setitem__(self, key, utils.config_true_value(value))
+        elif isinstance(self.get(key), int):
+            try:
+                dict.__setitem__(self, key, int(value))
+            except ValueError:
+                if value:  # No need to raise the error if value is ''
+                    raise
+        else:
+            dict.__setitem__(self, key, value)

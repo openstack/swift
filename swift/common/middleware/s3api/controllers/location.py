@@ -19,7 +19,6 @@ from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
 from swift.common.middleware.s3api.etree import Element, tostring
 from swift.common.middleware.s3api.response import HTTPOk
-from swift.common.middleware.s3api.cfg import CONF
 
 
 class LocationController(Controller):
@@ -36,8 +35,8 @@ class LocationController(Controller):
         req.get_response(self.app, method='HEAD')
 
         elem = Element('LocationConstraint')
-        if CONF.location != 'US':
-            elem.text = CONF.location
+        if self.conf.location != 'US':
+            elem.text = self.conf.location
         body = tostring(elem)
 
         return HTTPOk(body=body, content_type='application/xml')

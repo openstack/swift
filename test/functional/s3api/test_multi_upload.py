@@ -26,7 +26,6 @@ from hashlib import md5
 from itertools import izip, izip_longest
 
 import test.functional as tf
-from swift.common.middleware.s3api.cfg import CONF
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
     SubElement
 from swift.common.middleware.s3api.utils import mktime
@@ -34,8 +33,6 @@ from swift.common.middleware.s3api.utils import mktime
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
 from test.functional.s3api.utils import get_error_code, get_error_msg
-
-MIN_SEGMENT_SIZE = CONF.min_segment_size
 
 
 def setUpModule():
@@ -51,6 +48,9 @@ class TestS3ApiMultiUpload(S3ApiBase):
         super(TestS3ApiMultiUpload, self).setUp()
         if not tf.cluster_info['s3api'].get('allow_multipart_uploads', False):
             raise tf.SkipTest('multipart upload is not enebled')
+
+        self.min_segment_size = int(tf.cluster_info['s3api'].get(
+            'min_segment_size', 5242880))
 
     def _gen_comp_xml(self, etags):
         elem = Element('CompleteMultipartUpload')
@@ -75,7 +75,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
     def _upload_part(self, bucket, key, upload_id, content=None, part_num=1):
         query = 'partNumber=%s&uploadId=%s' % (part_num, upload_id)
-        content = content if content else 'a' * MIN_SEGMENT_SIZE
+        content = content if content else 'a' * self.min_segment_size
         status, headers, body = \
             self.conn.make_request('PUT', bucket, key, body=content,
                                    query=query)
@@ -173,7 +173,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # Upload Part
         key, upload_id = uploads[0]
-        content = 'a' * MIN_SEGMENT_SIZE
+        content = 'a' * self.min_segment_size
         etag = md5(content).hexdigest()
         status, headers, body = \
             self._upload_part(bucket, key, upload_id, content)
@@ -189,7 +189,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         key, upload_id = uploads[1]
         src_bucket = 'bucket2'
         src_obj = 'obj3'
-        src_content = 'b' * MIN_SEGMENT_SIZE
+        src_content = 'b' * self.min_segment_size
         etag = md5(src_content).hexdigest()
 
         # prepare src obj
@@ -277,7 +277,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
             # self.assertEqual(expected_date,
             #                   last_modified_from_xml)
             self.assertEqual(expected_etag, p.find('ETag').text)
-            self.assertEqual(MIN_SEGMENT_SIZE, int(p.find('Size').text))
+            self.assertEqual(self.min_segment_size, int(p.find('Size').text))
             etags.append(p.find('ETag').text)
 
         # Abort Multipart Uploads
@@ -617,7 +617,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         upload_id = elem.find('UploadId').text
 
         etags = []
-        body_size = [MIN_SEGMENT_SIZE, MIN_SEGMENT_SIZE - 1, 2]
+        body_size = [self.min_segment_size, self.min_segment_size - 1, 2]
         for i in xrange(1, 3):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
@@ -641,7 +641,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         upload_id = elem.find('UploadId').text
 
         etags = []
-        body_size = [MIN_SEGMENT_SIZE, MIN_SEGMENT_SIZE, 2]
+        body_size = [self.min_segment_size, self.min_segment_size, 2]
         for i in xrange(1, 3):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
@@ -712,9 +712,10 @@ class TestS3ApiMultiUpload(S3ApiBase):
         key, upload_id = uploads[0]
         src_bucket = 'bucket2'
         src_obj = 'obj4'
-        src_content = 'y' * (MIN_SEGMENT_SIZE / 2) + 'z' * MIN_SEGMENT_SIZE
-        src_range = 'bytes=0-%d' % (MIN_SEGMENT_SIZE - 1)
-        etag = md5(src_content[:MIN_SEGMENT_SIZE]).hexdigest()
+        src_content = 'y' * (self.min_segment_size / 2) + 'z' * \
+            self.min_segment_size
+        src_range = 'bytes=0-%d' % (self.min_segment_size - 1)
+        etag = md5(src_content[:self.min_segment_size]).hexdigest()
 
         # prepare src obj
         self.conn.make_request('PUT', src_bucket)
@@ -813,7 +814,7 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
 
         # Upload Part
         key, upload_id = uploads[0]
-        content = 'a' * MIN_SEGMENT_SIZE
+        content = 'a' * self.min_segment_size
         status, headers, body = \
             self._upload_part(bucket, key, upload_id, content)
         self.assertEqual(status, 200)

@@ -15,7 +15,7 @@
 
 import unittest
 
-from swift.common.middleware.s3api.cfg import Config
+from swift.common.middleware.s3api.utils import Config
 
 
 class TestS3ApiCfg(unittest.TestCase):

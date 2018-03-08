@@ -64,7 +64,6 @@ from swift.common.middleware.s3api.utils import unique_id, \
     MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
-from swift.common.middleware.s3api.cfg import CONF
 
 DEFAULT_MAX_PARTS_LISTING = 1000
 DEFAULT_MAX_UPLOADS = 1000
@@ -111,11 +110,11 @@ class PartController(Controller):
 
         try:
             part_number = int(req.params['partNumber'])
-            if part_number < 1 or CONF.max_upload_part_num < part_number:
+            if part_number < 1 or self.conf.max_upload_part_num < part_number:
                 raise Exception()
         except Exception:
             err_msg = 'Part number must be an integer between 1 and %d,' \
-                      ' inclusive' % CONF.max_upload_part_num
+                      ' inclusive' % self.conf.max_upload_part_num
             raise InvalidArgument('partNumber', req.params['partNumber'],
                                   err_msg)
 
@@ -399,7 +398,8 @@ class UploadController(Controller):
         _check_upload_info(req, self.app, upload_id)
 
         maxparts = req.get_validated_param(
-            'max-parts', DEFAULT_MAX_PARTS_LISTING, CONF.max_parts_listing)
+            'max-parts', DEFAULT_MAX_PARTS_LISTING,
+            self.conf.max_parts_listing)
         part_num_marker = req.get_validated_param(
             'part-number-marker', 0)
 
@@ -601,13 +601,14 @@ class UploadController(Controller):
             # We'll check the sizes of all except the last segment below, but
             # since we just popped off a zero-byte segment, we should check
             # that last segment, too.
-            if manifest and manifest[-1]['size_bytes'] < CONF.min_segment_size:
+            if manifest and \
+                    manifest[-1]['size_bytes'] < self.conf.min_segment_size:
                 raise EntityTooSmall()
 
         # Check the size of each segment except the last and make sure they are
         # all more than the minimum upload chunk size
         for info in manifest[:-1]:
-            if info['size_bytes'] < CONF.min_segment_size:
+            if info['size_bytes'] < self.conf.min_segment_size:
                 raise EntityTooSmall()
 
         try:

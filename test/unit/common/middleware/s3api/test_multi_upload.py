@@ -31,7 +31,6 @@ from swift.common.middleware.s3api.etree import fromstring, tostring
 from swift.common.middleware.s3api.subresource import Owner, Grant, User, ACL, \
     encode_acl, decode_acl, ACLPublicRead
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
-from swift.common.middleware.s3api.cfg import CONF
 from swift.common.middleware.s3api.utils import sysmeta_header, mktime, \
     S3Timestamp
 from swift.common.middleware.s3api.request import MAX_32BIT_INT
@@ -78,7 +77,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
         put_headers = {'etag': self.etag, 'last-modified': self.last_modified}
 
-        CONF.min_segment_size = 1
+        self.swift3.conf.min_segment_size = 1
 
         objects = map(lambda item: {'name': item[0], 'last_modified': item[1],
                                     'hash': item[2], 'bytes': item[3]},
@@ -756,7 +755,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_message(body), msg)
 
         self.swift.clear_calls()
-        CONF.min_segment_size = 5242880
+        self.swift3.conf.min_segment_size = 5242880
         req = Request.blank(
             '/bucket/object?uploadId=X',
             environ={'REQUEST_METHOD': 'POST'},
@@ -963,9 +962,10 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         _, _, headers = self.swift.calls_with_headers[-2]
         self.assertEqual(headers.get('X-Object-Meta-Foo'), 'bar')
         self.assertEqual(headers.get('Content-Type'), 'baz/quux')
-        self.assertEqual(tostring(ACLPublicRead(Owner('test:tester',
-                                                      'test:tester')).elem()),
-                         tostring(decode_acl('object', headers).elem()))
+        self.assertEqual(
+            tostring(ACLPublicRead(Owner('test:tester',
+                                         'test:tester')).elem()),
+            tostring(decode_acl('object', headers, True, False).elem()))
 
     @s3acl
     def test_object_multipart_upload_abort_error(self):
@@ -1175,7 +1175,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
     def test_object_list_parts_over_max_parts(self):
         req = Request.blank('/bucket/object?uploadId=X&max-parts=%d' %
-                            (CONF.max_parts_listing + 1),
+                            (self.swift3.conf.max_parts_listing + 1),
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
@@ -1244,7 +1244,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'InvalidArgument')
 
     def test_object_list_parts_over_part_number_marker(self):
-        part_number_marker = str(CONF.max_upload_part_num + 1)
+        part_number_marker = str(self.swift3.conf.max_upload_part_num + 1)
         req = Request.blank('/bucket/object?uploadId=X&'
                             'part-number-marker=%s' % part_number_marker,
                             environ={'REQUEST_METHOD': 'GET'},

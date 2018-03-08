@@ -25,7 +25,6 @@ from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
     SubElement
-from swift.common.middleware.s3api.cfg import CONF
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
 
 
@@ -181,7 +180,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
     @s3acl
     def test_object_multi_DELETE_too_many_keys(self):
         elem = Element('Delete')
-        for i in range(CONF.max_multi_delete_objects + 1):
+        for i in range(self.conf.max_multi_delete_objects + 1):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = str(i)
         body = tostring(elem, use_s3ns=False)

@@ -18,7 +18,6 @@ import os
 import requests
 
 from swift.common.middleware.s3api.etree import fromstring
-from swift.common.middleware.s3api.cfg import CONF
 
 import test.functional as tf
 
@@ -38,6 +37,8 @@ class TestS3ApiPresignedUrls(S3ApiBase):
     def test_bucket(self):
         bucket = 'test-bucket'
         req_objects = ('object', 'object2')
+        max_bucket_listing = tf.cluster_info['s3api'].get(
+            'max_bucket_listing', 1000)
 
         # GET Bucket (Without Object)
         status, _junk, _junk = self.conn.make_request('PUT', bucket)
@@ -57,7 +58,7 @@ class TestS3ApiPresignedUrls(S3ApiBase):
         self.assertIsNone(elem.find('Prefix').text)
         self.assertIsNone(elem.find('Marker').text)
         self.assertEqual(elem.find('MaxKeys').text,
-                         str(CONF.max_bucket_listing))
+                         str(max_bucket_listing))
         self.assertEqual(elem.find('IsTruncated').text, 'false')
         objects = elem.findall('./Contents')
         self.assertEqual(list(objects), [])
@@ -82,7 +83,7 @@ class TestS3ApiPresignedUrls(S3ApiBase):
         self.assertIsNone(elem.find('Prefix').text)
         self.assertIsNone(elem.find('Marker').text)
         self.assertEqual(elem.find('MaxKeys').text,
-                         str(CONF.max_bucket_listing))
+                         str(max_bucket_listing))
         self.assertEqual(elem.find('IsTruncated').text, 'false')
         resp_objects = elem.findall('./Contents')
         self.assertEqual(len(list(resp_objects)), 2)

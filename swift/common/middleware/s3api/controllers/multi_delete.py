@@ -24,7 +24,6 @@ from swift.common.middleware.s3api.etree import Element, SubElement, \
 from swift.common.middleware.s3api.response import HTTPOk, S3NotImplemented, \
     NoSuchKey, ErrorResponse, MalformedXML, UserKeyMustBeSpecified, \
     AccessDenied, MissingRequestBodyError
-from swift.common.middleware.s3api.cfg import CONF
 
 MAX_MULTI_DELETE_BODY_SIZE = 61365
 
@@ -79,7 +78,7 @@ class MultiObjectDeleteController(Controller):
                 self.quiet = False
 
             delete_list = list(object_key_iter(elem))
-            if len(delete_list) > CONF.max_multi_delete_objects:
+            if len(delete_list) > self.conf.max_multi_delete_objects:
                 raise MalformedXML()
         except (XMLSyntaxError, DocumentInvalid):
             raise MalformedXML()

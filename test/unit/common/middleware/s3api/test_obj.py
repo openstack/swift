@@ -780,9 +780,8 @@ class TestS3ApiObj(S3ApiTestCase):
             self.assertEqual(code, 'NoSuchBucket')
 
     @s3acl
-    @patch('swift.common.middleware.s3api.cfg.CONF.allow_multipart_uploads',
-           False)
     def test_object_DELETE_no_multipart(self):
+        self.swift3.conf.allow_multipart_uploads = False
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'Authorization': 'AWS test:tester:hmac',

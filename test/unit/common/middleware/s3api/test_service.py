@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import unittest
-from mock import patch
 
 from swift.common import swob
 from swift.common.swob import Request
@@ -136,9 +135,8 @@ class TestS3ApiService(S3ApiTestCase):
         for i in expected:
             self.assertTrue(i[0] in names)
 
-    @patch('swift.common.middleware.s3api.cfg.CONF.check_bucket_owner', True)
     def _test_service_GET_for_check_bucket_owner(self, buckets):
-
+        self.swift3.conf.check_bucket_owner = True
         bucket_list = create_bucket_list_json(buckets)
         self.swift.register('GET', '/v1/AUTH_test', swob.HTTPOk, {},
                             bucket_list)

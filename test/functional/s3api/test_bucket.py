@@ -19,7 +19,6 @@ import os
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
     SubElement
-from swift.common.middleware.s3api.cfg import CONF
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
 from test.functional.s3api.utils import get_error_code
@@ -44,6 +43,8 @@ class TestS3ApiBucket(S3ApiBase):
 
     def test_bucket(self):
         bucket = 'bucket'
+        max_bucket_listing = tf.cluster_info['s3api'].get(
+            'max_bucket_listing', 1000)
 
         # PUT Bucket
         status, headers, body = self.conn.make_request('PUT', bucket)
@@ -86,8 +87,8 @@ class TestS3ApiBucket(S3ApiBase):
         self.assertEqual(elem.find('Name').text, bucket)
         self.assertIsNone(elem.find('Prefix').text)
         self.assertIsNone(elem.find('Marker').text)
-        self.assertEqual(elem.find('MaxKeys').text,
-                         str(CONF.max_bucket_listing))
+        self.assertEqual(
+            elem.find('MaxKeys').text, str(max_bucket_listing))
         self.assertEqual(elem.find('IsTruncated').text, 'false')
         objects = elem.findall('./Contents')
         self.assertEqual(list(objects), [])
@@ -104,7 +105,7 @@ class TestS3ApiBucket(S3ApiBase):
         self.assertIsNone(elem.find('Prefix').text)
         self.assertIsNone(elem.find('Marker').text)
         self.assertEqual(elem.find('MaxKeys').text,
-                         str(CONF.max_bucket_listing))
+                         str(max_bucket_listing))
         self.assertEqual(elem.find('IsTruncated').text, 'false')
         resp_objects = elem.findall('./Contents')
         self.assertEqual(len(list(resp_objects)), 2)

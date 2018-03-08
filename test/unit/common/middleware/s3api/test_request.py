@@ -23,7 +23,6 @@ from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
     Grant, encode_acl
 from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
-from swift.common.middleware.s3api.cfg import CONF
 from swift.common.middleware.s3api.request import Request as S3_Request
 from swift.common.middleware.s3api.request import S3AclRequest, SigV4Request, \
     SIGV4_X_AMZ_DATE_FORMAT
@@ -90,10 +89,12 @@ class TestRequest(S3ApiTestCase):
 
     def setUp(self):
         super(TestRequest, self).setUp()
-        CONF.s3_acl = True
+        self.swift3.conf.s3_acl = True
+        self.swift.s3_acl = True
 
     def tearDown(self):
-        CONF.s3_acl = False
+        self.swift3.conf.s3_acl = False
+        self.swift.s3_acl = False
 
     @patch('swift.common.middleware.s3api.acl_handlers.ACL_MAP', Fake_ACL_MAP)
     @patch('swift.common.middleware.s3api.request.S3AclRequest.authenticate',
@@ -107,9 +108,9 @@ class TestRequest(S3ApiTestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         if issubclass(req_klass, S3AclRequest):
-            s3_req = req_klass(req.environ, MagicMock())
+            s3_req = req_klass(req.environ, self.conf, MagicMock())
         else:
-            s3_req = req_klass(req.environ)
+            s3_req = req_klass(req.environ, self.conf)
         s3_req.set_acl_handler(
             get_acl_handler(s3_req.controller_name)(s3_req, DebugLogger()))
         with patch('swift.common.middleware.s3api.request.Request.'
@@ -117,14 +118,15 @@ class TestRequest(S3ApiTestCase):
                 patch('swift.common.middleware.s3api.subresource.ACL.'
                       'check_permission') as m_check_permission:
             mock_get_resp.return_value = fake_swift_resp \
-                or FakeResponse(CONF.s3_acl)
+                or FakeResponse(self.conf.s3_acl)
             return mock_get_resp, m_check_permission,\
                 s3_req.get_response(self.swift3)
 
     def test_get_response_without_s3_acl(self):
-        with patch('swift.common.middleware.s3api.cfg.CONF.s3_acl', False):
-            mock_get_resp, m_check_permission, s3_resp = \
-                self._test_get_response('HEAD')
+        self.swift3.conf.s3_acl = False
+        self.swift.s3_acl = False
+        mock_get_resp, m_check_permission, s3_resp = \
+            self._test_get_response('HEAD')
         self.assertFalse(hasattr(s3_resp, 'bucket_acl'))
         self.assertFalse(hasattr(s3_resp, 'object_acl'))
         self.assertEqual(mock_get_resp.call_count, 1)
@@ -190,7 +192,7 @@ class TestRequest(S3ApiTestCase):
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'Authorization': 'AWS test:tester:hmac',
                          'Date': self.get_date_header()})
-            return S3_Request(req.environ, True)
+            return S3_Request(req.environ, self.conf)
 
         s3req = create_s3request_with_param('max-keys', '1')
 
@@ -237,7 +239,7 @@ class TestRequest(S3ApiTestCase):
                 patch.object(Request, 'remote_user', 'authorized'):
 
             m_swift_resp.return_value = FakeSwiftResponse()
-            s3_req = S3AclRequest(req.environ, MagicMock())
+            s3_req = S3AclRequest(req.environ, self.conf, MagicMock())
             self.assertNotIn('swift3.auth_details', s3_req.environ)
             self.assertNotIn('HTTP_AUTHORIZATION', s3_req.environ)
             self.assertNotIn('Authorization', s3_req.headers)
@@ -255,7 +257,7 @@ class TestRequest(S3ApiTestCase):
                 patch.object(Request, 'remote_user', 'authorized'):
 
             m_swift_resp.return_value = FakeSwiftResponse()
-            s3_req = S3AclRequest(req.environ, MagicMock())
+            s3_req = S3AclRequest(req.environ, self.conf, MagicMock())
             sw_req = s3_req.to_swift_req(method, container, obj)
             self.assertNotIn('swift3.auth_details', sw_req.environ)
             self.assertNotIn('HTTP_AUTHORIZATION', sw_req.environ)
@@ -274,12 +276,10 @@ class TestRequest(S3ApiTestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         with patch.object(Request, 'get_response') as m_swift_resp, \
-                patch.object(Request, 'remote_user', 'authorized'), \
-                patch('swift.common.middleware.s3api.cfg.CONF.'
-                      'force_swift_request_proxy_log', True):
-
+                patch.object(Request, 'remote_user', 'authorized'):
+            self.conf.force_swift_request_proxy_log = True
             m_swift_resp.return_value = FakeSwiftResponse()
-            s3_req = S3AclRequest(req.environ, MagicMock())
+            s3_req = S3AclRequest(req.environ, self.conf, MagicMock())
             sw_req = s3_req.to_swift_req(method, container, obj)
             self.assertFalse(sw_req.environ['swift.proxy_access_log_made'])
 
@@ -291,9 +291,9 @@ class TestRequest(S3ApiTestCase):
                                      'Date': self.get_date_header()})
         with patch.object(Request, 'get_response') as m_swift_resp, \
                 patch.object(Request, 'remote_user', 'authorized'):
-
+            self.conf.force_swift_request_proxy_log = False
             m_swift_resp.return_value = FakeSwiftResponse()
-            s3_req = S3AclRequest(req.environ, MagicMock())
+            s3_req = S3AclRequest(req.environ, self.conf, MagicMock())
             sw_req = s3_req.to_swift_req(method, container, obj)
             self.assertTrue(sw_req.environ['swift.proxy_access_log_made'])
 
@@ -305,7 +305,7 @@ class TestRequest(S3ApiTestCase):
         req = Request.blank('/bucket', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
-        s3_req = S3_Request(req.environ, True)
+        s3_req = S3_Request(req.environ, self.conf)
         # first, call get_response('HEAD')
         info = s3_req.get_container_info(self.app)
         self.assertTrue('status' in info)  # sanity
@@ -401,7 +401,7 @@ class TestRequest(S3ApiTestCase):
 
         headers.update(date_header)
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ)
+        sigv4_req = SigV4Request(req.environ, self.conf)
 
         if 'X-Amz-Date' in date_header:
             timestamp = mktime(
@@ -472,7 +472,7 @@ class TestRequest(S3ApiTestCase):
         headers = {'Authorization': 'AWS test:tester:hmac'}
         headers.update(date_header)
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv2_req = S3_Request(req.environ)
+        sigv2_req = S3_Request(req.environ, self.conf)
 
         if 'X-Amz-Date' in date_header:
             timestamp = mktime(req.headers.get('X-Amz-Date'))
@@ -552,7 +552,7 @@ class TestRequest(S3ApiTestCase):
             'X-Amz-Date': x_amz_date}
 
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ)
+        sigv4_req = SigV4Request(req.environ, self.conf)
 
         headers_to_sign = sigv4_req._headers_to_sign()
         self.assertEqual(headers_to_sign, [
@@ -571,7 +571,7 @@ class TestRequest(S3ApiTestCase):
             'Date': self.get_date_header()}
 
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ)
+        sigv4_req = SigV4Request(req.environ, self.conf)
 
         headers_to_sign = sigv4_req._headers_to_sign()
         self.assertEqual(headers_to_sign, [
@@ -591,7 +591,7 @@ class TestRequest(S3ApiTestCase):
 
         req = Request.blank('/', environ=environ, headers=headers)
         with self.assertRaises(SignatureDoesNotMatch):
-            sigv4_req = SigV4Request(req.environ)
+            sigv4_req = SigV4Request(req.environ, self.conf)
             sigv4_req._headers_to_sign()
 
     def test_canonical_uri_sigv2(self):
@@ -603,41 +603,39 @@ class TestRequest(S3ApiTestCase):
                    'X-Amz-Date': self.get_date_header()}
 
         # Virtual hosted-style
-        with patch('swift.common.middleware.s3api.cfg.CONF.storage_domain',
-                   's3.test.com'):
-            req = Request.blank('/', environ=environ, headers=headers)
-            sigv2_req = S3_Request(req.environ)
-            uri = sigv2_req._canonical_uri()
-            self.assertEqual(uri, '/bucket1/')
-            self.assertEqual(req.environ['PATH_INFO'], '/')
+        self.conf.storage_domain = 's3.test.com'
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv2_req = S3_Request(req.environ, self.conf)
+        uri = sigv2_req._canonical_uri()
+        self.assertEqual(uri, '/bucket1/')
+        self.assertEqual(req.environ['PATH_INFO'], '/')
 
-            req = Request.blank('/obj1', environ=environ, headers=headers)
-            sigv2_req = S3_Request(req.environ)
-            uri = sigv2_req._canonical_uri()
-            self.assertEqual(uri, '/bucket1/obj1')
-            self.assertEqual(req.environ['PATH_INFO'], '/obj1')
+        req = Request.blank('/obj1', environ=environ, headers=headers)
+        sigv2_req = S3_Request(req.environ, self.conf)
+        uri = sigv2_req._canonical_uri()
+        self.assertEqual(uri, '/bucket1/obj1')
+        self.assertEqual(req.environ['PATH_INFO'], '/obj1')
 
         environ = {
             'HTTP_HOST': 's3.test.com',
             'REQUEST_METHOD': 'GET'}
 
         # Path-style
-        with patch('swift.common.middleware.s3api.cfg.CONF.storage_domain',
-                   ''):
-            req = Request.blank('/', environ=environ, headers=headers)
-            sigv2_req = S3_Request(req.environ)
-            uri = sigv2_req._canonical_uri()
+        self.conf.storage_domain = ''
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv2_req = S3_Request(req.environ, self.conf)
+        uri = sigv2_req._canonical_uri()
 
-            self.assertEqual(uri, '/')
-            self.assertEqual(req.environ['PATH_INFO'], '/')
+        self.assertEqual(uri, '/')
+        self.assertEqual(req.environ['PATH_INFO'], '/')
 
-            req = Request.blank('/bucket1/obj1',
-                                environ=environ,
-                                headers=headers)
-            sigv2_req = S3_Request(req.environ)
-            uri = sigv2_req._canonical_uri()
-            self.assertEqual(uri, '/bucket1/obj1')
-            self.assertEqual(req.environ['PATH_INFO'], '/bucket1/obj1')
+        req = Request.blank('/bucket1/obj1',
+                            environ=environ,
+                            headers=headers)
+        sigv2_req = S3_Request(req.environ, self.conf)
+        uri = sigv2_req._canonical_uri()
+        self.assertEqual(uri, '/bucket1/obj1')
+        self.assertEqual(req.environ['PATH_INFO'], '/bucket1/obj1')
 
     def test_canonical_uri_sigv4(self):
         environ = {
@@ -657,48 +655,46 @@ class TestRequest(S3ApiTestCase):
             'X-Amz-Date': x_amz_date}
 
         # Virtual hosted-style
-        with patch('swift.common.middleware.s3api.cfg.CONF.storage_domain',
-                   's3.test.com'):
-            req = Request.blank('/', environ=environ, headers=headers)
-            sigv4_req = SigV4Request(req.environ)
-            uri = sigv4_req._canonical_uri()
+        self.conf.storage_domain = 's3.test.com'
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ, self.conf)
+        uri = sigv4_req._canonical_uri()
 
-            self.assertEqual(uri, '/')
-            self.assertEqual(req.environ['PATH_INFO'], '/')
+        self.assertEqual(uri, '/')
+        self.assertEqual(req.environ['PATH_INFO'], '/')
 
-            req = Request.blank('/obj1', environ=environ, headers=headers)
-            sigv4_req = SigV4Request(req.environ)
-            uri = sigv4_req._canonical_uri()
+        req = Request.blank('/obj1', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ, self.conf)
+        uri = sigv4_req._canonical_uri()
 
-            self.assertEqual(uri, '/obj1')
-            self.assertEqual(req.environ['PATH_INFO'], '/obj1')
+        self.assertEqual(uri, '/obj1')
+        self.assertEqual(req.environ['PATH_INFO'], '/obj1')
 
         environ = {
             'HTTP_HOST': 's3.test.com',
             'REQUEST_METHOD': 'GET'}
 
         # Path-style
-        with patch('swift.common.middleware.s3api.cfg.CONF.storage_domain',
-                   ''):
-            req = Request.blank('/', environ=environ, headers=headers)
-            sigv4_req = SigV4Request(req.environ)
-            uri = sigv4_req._canonical_uri()
+        self.conf.storage_domain = ''
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ, self.conf)
+        uri = sigv4_req._canonical_uri()
 
-            self.assertEqual(uri, '/')
-            self.assertEqual(req.environ['PATH_INFO'], '/')
+        self.assertEqual(uri, '/')
+        self.assertEqual(req.environ['PATH_INFO'], '/')
 
-            req = Request.blank('/bucket/obj1',
-                                environ=environ,
-                                headers=headers)
-            sigv4_req = SigV4Request(req.environ)
-            uri = sigv4_req._canonical_uri()
+        req = Request.blank('/bucket/obj1',
+                            environ=environ,
+                            headers=headers)
+        sigv4_req = SigV4Request(req.environ, self.conf)
+        uri = sigv4_req._canonical_uri()
 
-            self.assertEqual(uri, '/bucket/obj1')
-            self.assertEqual(req.environ['PATH_INFO'], '/bucket/obj1')
+        self.assertEqual(uri, '/bucket/obj1')
+        self.assertEqual(req.environ['PATH_INFO'], '/bucket/obj1')
 
-    @patch.object(CONF, 'storage_domain', 's3.amazonaws.com')
     @patch.object(S3_Request, '_validate_headers', lambda *a: None)
     def test_check_signature_sigv2(self):
+        self.conf.storage_domain = 's3.amazonaws.com'
         # See https://web.archive.org/web/20151226025049/http://
         # docs.aws.amazon.com//AmazonS3/latest/dev/RESTAuthentication.html
         req = Request.blank('/photos/puppy.jpg', headers={
@@ -707,7 +703,7 @@ class TestRequest(S3ApiTestCase):
             'Authorization': ('AWS AKIAIOSFODNN7EXAMPLE:'
                               'bWq2s1WEIj+Ydj0vQ697zp+IXMU='),
         })
-        sigv2_req = S3_Request(req.environ)
+        sigv2_req = S3_Request(req.environ, self.conf)
         expected_sts = '\n'.join([
             'GET',
             '',
@@ -727,7 +723,7 @@ class TestRequest(S3ApiTestCase):
             'Authorization': ('AWS AKIAIOSFODNN7EXAMPLE:'
                               'MyyxeRY7whkBe+bq8fHCL/2kKUg='),
         })
-        sigv2_req = S3_Request(req.environ)
+        sigv2_req = S3_Request(req.environ, self.conf)
         expected_sts = '\n'.join([
             'PUT',
             '',
@@ -748,7 +744,7 @@ class TestRequest(S3ApiTestCase):
                 'Authorization': ('AWS AKIAIOSFODNN7EXAMPLE:'
                                   'htDYFYduRNen8P9ZfE/s9SuKy0U='),
             })
-        sigv2_req = S3_Request(req.environ)
+        sigv2_req = S3_Request(req.environ, self.conf)
         expected_sts = '\n'.join([
             'GET',
             '',

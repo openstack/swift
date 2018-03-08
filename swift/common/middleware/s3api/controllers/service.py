@@ -20,7 +20,6 @@ from swift.common.middleware.s3api.etree import Element, SubElement, tostring
 from swift.common.middleware.s3api.response import HTTPOk, AccessDenied, \
     NoSuchBucket
 from swift.common.middleware.s3api.utils import validate_bucket_name
-from swift.common.middleware.s3api.cfg import CONF
 
 
 class ServiceController(Controller):
@@ -37,7 +36,9 @@ class ServiceController(Controller):
         containers = json.loads(resp.body)
 
         containers = filter(
-            lambda item: validate_bucket_name(item['name']), containers)
+            lambda item: validate_bucket_name(
+                item['name'], self.conf.dns_compliant_bucket_names),
+            containers)
 
         # we don't keep the creation time of a bucket (s3cmd doesn't
         # work without that) so we use something bogus.
@@ -49,7 +50,7 @@ class ServiceController(Controller):
 
         buckets = SubElement(elem, 'Buckets')
         for c in containers:
-            if CONF.s3_acl and CONF.check_bucket_owner:
+            if self.conf.s3_acl and self.conf.check_bucket_owner:
                 try:
                     req.get_response(self.app, 'HEAD', c['name'])
                 except AccessDenied:

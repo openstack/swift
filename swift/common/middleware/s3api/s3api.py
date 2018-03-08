@@ -46,8 +46,9 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
 from swift.common.middleware.s3api.request import get_request_class
 from swift.common.middleware.s3api.response import ErrorResponse, \
     InternalError, MethodNotAllowed, ResponseBase, S3NotImplemented
-from swift.common.middleware.s3api.cfg import CONF
-from swift.common.utils import get_logger, register_swift_info
+from swift.common.utils import get_logger, register_swift_info, \
+    config_true_value, config_positive_int_value
+from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 
 
@@ -55,16 +56,45 @@ class S3ApiMiddleware(object):
     """S3Api: S3 compatibility middleware"""
     def __init__(self, app, conf, *args, **kwargs):
         self.app = app
-        self.conf = conf
+        self.conf = Config()
+
+        # Set default values if they are not configured
+        self.conf.allow_no_owner = config_true_value(
+            conf.get('allow_no_owner', False))
+        self.conf.location = conf.get('location', 'US')
+        self.conf.dns_compliant_bucket_names = config_true_value(
+            conf.get('dns_compliant_bucket_names', True))
+        self.conf.max_bucket_listing = config_positive_int_value(
+            conf.get('max_bucket_listing', 1000))
+        self.conf.max_parts_listing = config_positive_int_value(
+            conf.get('max_parts_listing', 1000))
+        self.conf.max_multi_delete_objects = config_positive_int_value(
+            conf.get('max_multi_delete_objects', 1000))
+        self.conf.s3_acl = config_true_value(
+            conf.get('s3_acl', False))
+        self.conf.storage_domain = conf.get('storage_domain', '')
+        self.conf.auth_pipeline_check = config_true_value(
+            conf.get('auth_pipeline_check', True))
+        self.conf.max_upload_part_num = config_positive_int_value(
+            conf.get('max_upload_part_num', 1000))
+        self.conf.check_bucket_owner = config_true_value(
+            conf.get('check_bucket_owner', False))
+        self.conf.force_swift_request_proxy_log = config_true_value(
+            conf.get('force_swift_request_proxy_log', False))
+        self.conf.allow_multipart_uploads = config_true_value(
+            conf.get('allow_multipart_uploads', True))
+        self.conf.min_segment_size = config_positive_int_value(
+            conf.get('min_segment_size', 5242880))
+
         self.logger = get_logger(
             conf, log_route=conf.get('log_name', 's3api'))
-        self.slo_enabled = conf['allow_multipart_uploads']
-        self.check_pipeline(conf)
+        self.slo_enabled = self.conf.allow_multipart_uploads
+        self.check_pipeline(self.conf)
 
     def __call__(self, env, start_response):
         try:
-            req_class = get_request_class(env)
-            req = req_class(env, self.app, self.slo_enabled)
+            req_class = get_request_class(env, self.conf.s3_acl)
+            req = req_class(env, self.conf, self.app, self.slo_enabled)
             resp = self.handle_request(req)
         except NotS3Request:
             resp = self.app
@@ -173,19 +203,21 @@ class S3ApiMiddleware(object):
 
 def filter_factory(global_conf, **local_conf):
     """Standard filter factory to use the middleware with paste.deploy"""
-    CONF.update(global_conf)
-    CONF.update(local_conf)
+    conf = global_conf.copy()
+    conf.update(local_conf)
 
     register_swift_info(
         's3api',
-        max_bucket_listing=CONF['max_bucket_listing'],
-        max_parts_listing=CONF['max_parts_listing'],
-        max_upload_part_num=CONF['max_upload_part_num'],
-        max_multi_delete_objects=CONF['max_multi_delete_objects'],
-        allow_multipart_uploads=CONF['allow_multipart_uploads'],
+        # TODO: make default values as variables
+        max_bucket_listing=conf.get('max_bucket_listing', 1000),
+        max_parts_listing=conf.get('max_parts_listing', 1000),
+        max_upload_part_num=conf.get('max_upload_part_num', 1000),
+        max_multi_delete_objects=conf.get('max_multi_delete_objects', 1000),
+        allow_multipart_uploads=conf.get('allow_multipart_uploads', True),
+        min_segment_size=conf.get('min_segment_size', 5242880),
     )
 
     def s3api_filter(app):
-        return S3ApiMiddleware(app, CONF)
+        return S3ApiMiddleware(app, conf)
 
     return s3api_filter

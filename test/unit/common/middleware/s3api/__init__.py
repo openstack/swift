@@ -23,7 +23,7 @@ from swift.common import swob
 from swift.common.middleware.s3api.s3api import S3ApiMiddleware
 from helpers import FakeSwift
 from swift.common.middleware.s3api.etree import fromstring
-from swift.common.middleware.s3api.cfg import CONF
+from swift.common.middleware.s3api.utils import Config
 
 
 class FakeApp(object):
@@ -55,13 +55,34 @@ class S3ApiTestCase(unittest.TestCase):
     def __init__(self, name):
         unittest.TestCase.__init__(self, name)
 
-        CONF.log_level = 'debug'
-        CONF.storage_domain = 'localhost'
+        # CONF.log_level = 'debug'
+        # CONF.storage_domain = 'localhost'
 
     def setUp(self):
+        # setup default config
+        self.conf = Config({
+            'allow_no_owner': False,
+            'location': 'US',
+            'dns_compliant_bucket_names': True,
+            'max_bucket_listing': 1000,
+            'max_parts_listing': 1000,
+            'max_multi_delete_objects': 1000,
+            's3_acl': False,
+            'storage_domain': '',
+            'auth_pipeline_check': True,
+            'max_upload_part_num': 1000,
+            'check_bucket_owner': False,
+            'force_swift_request_proxy_log': False,
+            'allow_multipart_uploads': True,
+            'min_segment_size': 5242880,
+        })
+        # those 2 settings has existed the original test setup
+        self.conf.log_level = 'debug'
+        self.conf.storage_domain = 'localhost'
+
         self.app = FakeApp()
         self.swift = self.app.swift
-        self.swift3 = S3ApiMiddleware(self.app, CONF)
+        self.swift3 = S3ApiMiddleware(self.app, self.conf)
 
         self.swift.register('HEAD', '/v1/AUTH_test',
                             swob.HTTPOk, {}, None)

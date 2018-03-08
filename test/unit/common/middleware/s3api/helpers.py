@@ -20,7 +20,6 @@ from hashlib import md5
 from swift.common import swob
 from swift.common.utils import split_path
 from swift.common.request_helpers import is_sys_meta
-from swift.common.middleware.s3api.cfg import CONF
 
 
 class FakeSwift(object):
@@ -28,13 +27,14 @@ class FakeSwift(object):
     A good-enough fake Swift proxy server to use in testing middleware.
     """
 
-    def __init__(self):
+    def __init__(self, s3_acl=False):
         self._calls = []
         self.req_method_paths = []
         self.swift_sources = []
         self.uploaded = {}
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
+        self.s3_acl = s3_acl
 
     def _fake_auth_middleware(self, env):
         if 'swift.authorize_override' in env:
@@ -60,7 +60,7 @@ class FakeSwift(object):
             env['swift.authorize'] = lambda req: None
 
     def __call__(self, env, start_response):
-        if CONF.s3_acl:
+        if self.s3_acl:
             self._fake_auth_middleware(env)
 
         req = swob.Request(env)

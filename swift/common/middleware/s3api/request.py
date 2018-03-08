@@ -54,7 +54,6 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
     BadSwiftRequest
 from swift.common.middleware.s3api.utils import utf8encode, \
     check_path_header, S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
-from swift.common.middleware.s3api.cfg import CONF
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
     validate_bucket_name
@@ -364,7 +363,7 @@ class SigV4Mixin(object):
     @property
     def scope(self):
         return [self.timestamp.amz_date_format.split('T')[0],
-                CONF.location, SERVICE, 'aws4_request']
+                self.conf.location, SERVICE, 'aws4_request']
 
     def _string_to_sign(self):
         """
@@ -376,11 +375,11 @@ class SigV4Mixin(object):
                           sha256(self._canonical_request()).hexdigest()])
 
 
-def get_request_class(env):
+def get_request_class(env, s3_acl):
     """
     Helper function to find a request class to use from Map
     """
-    if CONF.s3_acl:
+    if s3_acl:
         request_classes = (S3AclRequest, SigV4S3AclRequest)
     else:
         request_classes = (Request, SigV4Request)
@@ -404,9 +403,10 @@ class Request(swob.Request):
     bucket_acl = _header_acl_property('container')
     object_acl = _header_acl_property('object')
 
-    def __init__(self, env, app=None, slo_enabled=True):
+    def __init__(self, env, conf, app=None, slo_enabled=True):
         # NOTE: app is not used by this class, need for compatibility of S3acl
         swob.Request.__init__(self, env)
+        self.conf = conf
         self._timestamp = None
         self.access_key, self.signature = self._parse_auth_info()
         self.bucket_in_host = self._parse_host()
@@ -487,7 +487,7 @@ class Request(swob.Request):
         return 'AWSAccessKeyId' in self.params
 
     def _parse_host(self):
-        storage_domain = CONF.storage_domain
+        storage_domain = self.conf.storage_domain
         if not storage_domain:
             return None
 
@@ -519,7 +519,8 @@ class Request(swob.Request):
 
         bucket, obj = self.split_path(0, 2, True)
 
-        if bucket and not validate_bucket_name(bucket):
+        if bucket and not validate_bucket_name(
+                bucket, self.conf.dns_compliant_bucket_names):
             # Ignore GET service case
             raise InvalidBucketName(bucket)
         return (bucket, obj)
@@ -973,7 +974,7 @@ class Request(swob.Request):
             del env['HTTP_X_AMZ_COPY_SOURCE']
             env['CONTENT_LENGTH'] = '0'
 
-        if CONF.force_swift_request_proxy_log:
+        if self.conf.force_swift_request_proxy_log:
             env['swift.proxy_access_log_made'] = False
         env['swift.source'] = 'S3'
         if method is not None:
@@ -1267,7 +1268,7 @@ class Request(swob.Request):
                 resp.sw_headers, resp.status_int)  # pylint: disable-msg=E1101
 
     def gen_multipart_manifest_delete_query(self, app, obj=None):
-        if not CONF.allow_multipart_uploads:
+        if not self.conf.allow_multipart_uploads:
             return None
         query = {'multipart-manifest': 'delete'}
         if not obj:
@@ -1283,8 +1284,8 @@ class S3AclRequest(Request):
     """
     S3Acl request object.
     """
-    def __init__(self, env, app, slo_enabled=True):
-        super(S3AclRequest, self).__init__(env, slo_enabled)
+    def __init__(self, env, conf, app, slo_enabled=True):
+        super(S3AclRequest, self).__init__(env, conf, slo_enabled)
         self.authenticate(app)
         self.acl_handler = None
 
@@ -1348,8 +1349,12 @@ class S3AclRequest(Request):
 
         resp = self._get_response(
             app, method, container, obj, headers, body, query)
-        resp.bucket_acl = decode_acl('container', resp.sysmeta_headers)
-        resp.object_acl = decode_acl('object', resp.sysmeta_headers)
+        resp.bucket_acl = decode_acl(
+            'container', resp.sysmeta_headers,
+            self.conf.s3_acl, self.conf.allow_no_owner)
+        resp.object_acl = decode_acl(
+            'object', resp.sysmeta_headers,
+            self.conf.s3_acl, self.conf.allow_no_owner)
 
         return resp
 
