@@ -23,7 +23,7 @@ def main(args=None):
     parser = argparse.ArgumentParser('Find and display shard ranges')
     parser.add_argument('container_db')
     parser.add_argument('rows_per_shard', nargs='?', type=int, default=500000)
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     broker = ContainerBroker(args.container_db)
 
@@ -31,7 +31,7 @@ def main(args=None):
     ranges = broker.find_shard_ranges(args.rows_per_shard)[0]
     delta_t = time.time() - start
 
-    print(json.dumps([dict(r) for r in ranges], indent=2))
+    print(json.dumps([dict(r) for r in ranges], sort_keys=True, indent=2))
     print('Found %d ranges in %gs' % (len(ranges), delta_t), file=sys.stderr)
     return 0
 
