@@ -537,25 +537,31 @@ class Replicator(Daemon):
                                   broker.db_file,
                                   '%(ip)s:%(port)s/%(device)s' % node)
                 return True, diffs
-            # if the difference in rowids between the two differs by
-            # more than 50% and the difference is greater than per_diff,
-            # rsync then do a remote merge.
-            # NOTE: difference > per_diff stops us from dropping to rsync
-            # on smaller containers, who have only a few rows to sync.
-            if (rinfo['max_row'] / float(info['max_row']) < 0.5 and
-                    info['max_row'] - rinfo['max_row'] > self.per_diff and
-                    not diffs):
-                self.stats['remote_merge'] += 1
-                self.logger.increment('remote_merges')
-                return self._rsync_db(broker, node, http, info['id'],
-                                      replicate_method='rsync_then_merge',
-                                      replicate_timeout=(info['count'] / 2000),
-                                      different_region=different_region), diffs
-            # else send diffs over to the remote server
-            return self._usync_db(max(rinfo['point'], local_sync),
-                                  broker, http, rinfo['id'], info['id'],
-                                  diffs=diffs)
+            return self._choose_replication_mode(
+                node, rinfo, info, local_sync, broker, http,
+                different_region, diffs)
         return False, diffs
+
+    def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
+                                 http, different_region, diffs):
+        # if the difference in rowids between the two differs by
+        # more than 50% and the difference is greater than per_diff,
+        # rsync then do a remote merge.
+        # NOTE: difference > per_diff stops us from dropping to rsync
+        # on smaller containers, who have only a few rows to sync.
+        if (rinfo['max_row'] / float(info['max_row']) < 0.5 and
+                info['max_row'] - rinfo['max_row'] > self.per_diff and
+                not diffs):
+            self.stats['remote_merge'] += 1
+            self.logger.increment('remote_merges')
+            return self._rsync_db(broker, node, http, info['id'],
+                                  replicate_method='rsync_then_merge',
+                                  replicate_timeout=(info['count'] / 2000),
+                                  different_region=different_region), diffs
+        # else send diffs over to the remote server
+        return self._usync_db(max(rinfo['point'], local_sync),
+                              broker, http, rinfo['id'], info['id'],
+                              diffs=diffs)
 
     def _post_replicate_hook(self, broker, info, responses):
         """
