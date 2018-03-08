@@ -745,11 +745,6 @@ class ObjectReplicator(Daemon):
                                      override_policies=override_policies)
             for job in jobs:
                 current_nodes = job['nodes']
-                if override_devices and job['device'] not in override_devices:
-                    continue
-                if override_partitions and \
-                        job['partition'] not in override_partitions:
-                    continue
                 dev_path = check_drive(self.devices_dir, job['device'],
                                        self.mount_check)
                 if not dev_path:
