@@ -936,7 +936,6 @@ class ContainerSharder(ContainerReplicator):
 
             if num_found or num_created:
                 # share updated shard range state with  other nodes
-                # TODO: only replicate shard ranges, not objects
                 self._replicate_object(part, broker.db_file, node['id'])
 
             # always try to cleave any pending shard ranges

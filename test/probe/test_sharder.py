@@ -14,6 +14,7 @@
 # limitations under the License.
 import json
 import os
+import shutil
 import uuid
 
 from nose import SkipTest
@@ -280,6 +281,9 @@ class TestContainerSharding(ReplProbeTest):
             self.assert_shard_range_equal(expected, actual, excludes=excludes)
 
     def assert_shard_range_state(self, expected_state, shard_ranges):
+        if shard_ranges and not isinstance(shard_ranges[0], ShardRange):
+            shard_ranges = [ShardRange.from_dict(data)
+                            for data in shard_ranges]
         self.assertEqual([expected_state] * len(shard_ranges),
                          [sr.state for sr in shard_ranges])
 
@@ -339,7 +343,10 @@ class TestContainerSharding(ReplProbeTest):
 
     def assert_container_state(self, node_number, expected_state,
                                num_shard_ranges):
-        node = self.brain.nodes_by_number[node_number]
+        if isinstance(node_number, dict):
+            node = node_number
+        else:
+            node = self.brain.nodes_by_number[node_number]
         headers, shard_ranges = direct_client.direct_get_container(
             node, self.brain.part, self.account, self.container_name,
             headers={'X-Backend-Record-Type': 'shard'})
@@ -363,9 +370,12 @@ class TestContainerSharding(ReplProbeTest):
                               for sr in shard_ranges)
         self.sharders.once(additional_args='--partitions=%s' % partitions)
 
-    def run_sharder_sequentially(self, shard_range):
+    def run_sharder_sequentially(self, shard_range=None):
         """Run sharder node by node on partition for given shard range."""
-        part, node_numbers = self.get_part_and_node_numbers(shard_range)
+        if shard_range:
+            part, node_numbers = self.get_part_and_node_numbers(shard_range)
+        else:
+            part, node_numbers = self.brain.part, self.brain.node_numbers
         for node_number in node_numbers:
             self.sharders.once(number=node_number,
                                additional_args='--partitions=%s' % part)
@@ -909,11 +919,9 @@ class TestContainerSharding(ReplProbeTest):
         self.assertLengthEqual(found['shard_dbs'], 1)
         node_index_zero_db = found['shard_dbs'][0]
         broker = ContainerBroker(node_index_zero_db)
-        # TODO: assert the shard db is on replica 0
         self.assertIs(True, broker.is_root_container())
-        self.assertEqual('sharding', broker.get_db_state_text())
+        self.assertEqual(SHARDING, broker.get_db_state())
         expected_shard_ranges = broker.get_shard_ranges()
-        expected_epoch = broker.get_sharding_info('Epoch')
         self.assertLengthEqual(expected_shard_ranges, 3)
         self.assertEqual(
             [ShardRange.CLEAVED, ShardRange.CLEAVED, ShardRange.CREATED],
@@ -922,26 +930,19 @@ class TestContainerSharding(ReplProbeTest):
         # Still have all three big DBs -- we've only cleaved 2 of the 3 shard
         # ranges that got defined
         self.assertLengthEqual(found['normal_dbs'], 3)
+        db_states = []
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
-            self.assertEqual(expected_epoch,
-                             broker.get_sharding_info('Epoch'))
+            db_states.append(broker.get_db_state())
             # the sharded db had shard range meta_timestamps updated during
             # cleaving, so we do not expect those to be equal on other nodes
             self.assert_shard_range_lists_equal(
                 expected_shard_ranges, broker.get_shard_ranges(),
                 excludes=['meta_timestamp', 'state_timestamp', 'state'])
-            if db_file.startswith(os.path.dirname(node_index_zero_db)):
-                self.assertEqual('sharding', broker.get_db_state_text())
-                self.assertEqual(len(obj_names) * 3 // 5,
-                                 broker.get_info()['object_count'])
-            else:
-                self.assertEqual('unsharded', broker.get_db_state_text())
-                # The rows that only replica 0 knew about got shipped to the
-                # other replicas as part of sharding
-                self.assertEqual(len(obj_names) * 4 // 5,
-                                 broker.get_info()['object_count'])
+            self.assertEqual(len(obj_names) * 3 // 5,
+                             broker.get_info()['object_count'])
+        self.assertEqual([UNSHARDED, UNSHARDED, SHARDING], sorted(db_states))
 
         # Run the other sharders so we're all in (roughly) the same state
         for n in self.brain.node_numbers[1:]:
@@ -953,14 +954,10 @@ class TestContainerSharding(ReplProbeTest):
         self.assertLengthEqual(found['normal_dbs'], 3)
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
-            self.assertEqual('sharding', broker.get_db_state_text())
+            self.assertEqual(SHARDING, broker.get_db_state())
             # no new rows
-            if db_file.startswith(os.path.dirname(node_index_zero_db)):
-                self.assertEqual(len(obj_names) * 3 // 5,
-                                 broker.get_info()['object_count'])
-            else:
-                self.assertEqual(len(obj_names) * 4 // 5,
-                                 broker.get_info()['object_count'])
+            self.assertEqual(len(obj_names) * 3 // 5,
+                             broker.get_info()['object_count'])
 
         # Run updaters to clear the async pendings
         Manager(['object-updater']).once()
@@ -968,12 +965,8 @@ class TestContainerSharding(ReplProbeTest):
         # Our "big" dbs didn't take updates
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
-            if db_file.startswith(os.path.dirname(node_index_zero_db)):
-                self.assertEqual(len(obj_names) * 3 // 5,
-                                 broker.get_info()['object_count'])
-            else:
-                self.assertEqual(len(obj_names) * 4 // 5,
-                                 broker.get_info()['object_count'])
+            self.assertEqual(len(obj_names) * 3 // 5,
+                             broker.get_info()['object_count'])
 
         # TODO: confirm that the updates got redirected to the shards
 
@@ -1307,7 +1300,7 @@ class TestContainerSharding(ReplProbeTest):
         # container
         do_shard_then_shrink()
 
-    def _setup_replication_scenario(self, num_shards):
+    def _setup_replication_scenario(self, num_shards, extra_objs=('alpha',)):
         # Get cluster to state where 2 replicas are sharding or sharded but 3rd
         # replica is unsharded and has an object that the first 2 are missing.
 
@@ -1327,7 +1320,7 @@ class TestContainerSharding(ReplProbeTest):
         self.stop_container_servers(slice(0, 2))
 
         # ...then put one more object in first shard range namespace
-        self.put_objects(['alpha'])
+        self.put_objects(extra_objs)
 
         # start leader and first other server, stop third server
         for number in node_numbers[:2]:
@@ -1345,9 +1338,8 @@ class TestContainerSharding(ReplProbeTest):
         return obj_names
 
     def test_replication_to_sharding_container(self):
-        # verify that, while sharding, if an usync replication adds objects to
-        # hash_shard.db in already cleaved namespace then those objects are
-        # eventually cleaved to shards
+        # verify that replication from an unsharded replica to a sharding
+        # replica does not replicate rows but does replicate shard ranges
         obj_names = self._setup_replication_scenario(3)
         node_numbers = self.brain.node_numbers
         self.assert_container_state(node_numbers[0], SHARDING, 3)
@@ -1355,27 +1347,35 @@ class TestContainerSharding(ReplProbeTest):
 
         # bring third server back up, run replicator
         self.brain.servers.start(number=node_numbers[2])
+        self.assert_container_state(node_numbers[2], UNSHARDED, 0)  # sanity
         self.replicators.once(number=node_numbers[2])
+        # check db files unchanged
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['shard_dbs'], 2)
+        self.assertLengthEqual(found['normal_dbs'], 3)
 
-        # now third server stops forever...
-        self.brain.servers.stop(number=node_numbers[2])
-        # ...but the .db file has been usync replicated to 2 other servers'
-        # _shard.db dbs
+        # the 'alpha' object is NOT replicated to the two sharded nodes
         for number in node_numbers[:2]:
             broker = self.get_broker(
                 self.brain.part, self.brain.nodes_by_number[number])
-            info = broker.get_info()
-            # while sharding the 'stale' object count is taken from hash.db
-            self.assertEqual(len(obj_names), info['object_count'])
-            policy = info['storage_policy_index']
+            policy = broker.get_info()['storage_policy_index']
             misplaced = broker.get_objects(storage_policy_index=int(policy))
             with annotate_failure(
                     'Node number %s in %s' % (number, node_numbers[:2])):
-                self.assertEqual(1, len(misplaced))
-                self.assertEqual('alpha', misplaced[0]['name'])
+                self.assertFalse(misplaced)
                 self.assert_container_state(number, SHARDING, 3)
+        self.brain.servers.stop(number=node_numbers[2])
+        self.assert_container_listing(obj_names)
 
-        # complete cleaving third shard range...
+        # all nodes now have shard ranges
+        self.brain.servers.start(number=node_numbers[2])
+        node_data = self.direct_get_container_shard_ranges()
+        for node, (hdrs, shard_ranges) in node_data.items():
+            with annotate_failure(node):
+                self.assert_shard_ranges_contiguous(3, shard_ranges)
+
+        # complete cleaving third shard range on first two nodes
+        self.brain.servers.stop(number=node_numbers[2])
         for number in node_numbers[:2]:
             self.sharders.once(
                 number=number,
@@ -1383,23 +1383,34 @@ class TestContainerSharding(ReplProbeTest):
         # ...and now in sharded state
         self.assert_container_state(node_numbers[0], SHARDED, 3)
         self.assert_container_state(node_numbers[1], SHARDED, 3)
-        # ...misplaced objects including the 'alpha' object also get moved
-        self.assert_container_listing(['alpha'] + obj_names)  # sanity check
+        # ...still no 'alpha' object in listing
+        self.assert_container_listing(obj_names)
+
+        # run the sharder on the third server, alpha object is included in
+        # shards that it cleaves
+        self.brain.servers.start(number=node_numbers[2])
+        self.assert_container_state(node_numbers[2], UNSHARDED, 3)
+        self.sharders.once(number=node_numbers[2],
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(node_numbers[2], SHARDING, 3)
+        self.sharders.once(number=node_numbers[2],
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(node_numbers[2], SHARDED, 3)
+        self.assert_container_listing(['alpha'] + obj_names)
 
     def test_replication_to_sharded_container(self):
         # verify that replication from an unsharded replica to a sharded
-        # replica merges to the shard db and does not re-create a hash.db
+        # replica does not replicate rows but does replicate shard ranges
         obj_names = self._setup_replication_scenario(2)
         node_numbers = self.brain.node_numbers
         self.assert_container_state(node_numbers[0], SHARDED, 2)
         self.assert_container_state(node_numbers[1], SHARDED, 2)
 
         # sanity check
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['shard_dbs'], 2)
+        self.assertLengthEqual(found['normal_dbs'], 1)
         for number in node_numbers[:2]:
-            container_dir, container_hash = self.get_storage_dir(
-                self.brain.part, self.brain.nodes_by_number[number])
-            db_file = os.path.join(container_dir, container_hash + '.db')
-            self.assertFalse(os.path.exists(db_file))
             broker = self.get_broker(
                 self.brain.part, self.brain.nodes_by_number[number])
             info = broker.get_info()
@@ -1408,36 +1419,43 @@ class TestContainerSharding(ReplProbeTest):
             with annotate_failure(
                     'Node number %s in %s' % (number, node_numbers[:2])):
                 self.assertEqual(len(obj_names), info['object_count'])
-                self.assertEqual(0, len(misplaced))
+                self.assertFalse(misplaced)
 
         # bring third server back up, run replicator
         self.brain.servers.start(number=node_numbers[2])
+        self.assert_container_state(node_numbers[2], UNSHARDED, 0)  # sanity
         self.replicators.once(number=node_numbers[2])
+        # check db files unchanged
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['shard_dbs'], 2)
+        self.assertLengthEqual(found['normal_dbs'], 1)
 
-        # now third server stops forever...
-        self.brain.servers.stop(number=node_numbers[2])
-        # ...but the content of the hash.db file has been replicated to 2 other
-        # servers' *shard db*
+        # the 'alpha' object is NOT replicated to the two sharded nodes
         for number in node_numbers[:2]:
-            container_dir, container_hash = self.get_storage_dir(
-                self.brain.part, self.brain.nodes_by_number[number])
-            db_file = os.path.join(container_dir, container_hash + '.db')
-            self.assertFalse(os.path.exists(db_file))
             broker = self.get_broker(
                 self.brain.part, self.brain.nodes_by_number[number])
             policy = broker.get_info()['storage_policy_index']
             misplaced = broker.get_objects(storage_policy_index=int(policy))
             with annotate_failure(
                     'Node number %s in %s' % (number, node_numbers[:2])):
-                self.assertEqual(1, len(misplaced))
-                self.assertEqual('alpha', misplaced[0]['name'])
+                self.assertFalse(misplaced)
                 self.assert_container_state(number, SHARDED, 2)
+        self.brain.servers.stop(number=node_numbers[2])
+        self.assert_container_listing(obj_names)
 
-        # misplaced objects get moved on next sharder cycle...
-        for number in node_numbers[:2]:
-            self.sharders.once(
-                number=number,
-                additional_args='--partitions=%s' % self.brain.part)
+        # all nodes now have shard ranges
+        self.brain.servers.start(number=node_numbers[2])
+        node_data = self.direct_get_container_shard_ranges()
+        for node, (hdrs, shard_ranges) in node_data.items():
+            with annotate_failure(node):
+                self.assert_shard_ranges_contiguous(2, shard_ranges)
+
+        # run the sharder on the third server, alpha object is included in
+        # shards that it cleaves
+        self.assert_container_state(node_numbers[2], UNSHARDED, 2)
+        self.sharders.once(number=node_numbers[2],
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(node_numbers[2], SHARDED, 2)
         self.assert_container_listing(['alpha'] + obj_names)
 
     def test_sharding_requires_sufficient_replication(self):
@@ -1687,3 +1705,193 @@ class TestContainerSharding(ReplProbeTest):
         self.assert_container_listing(['beta'])
         self.assert_container_object_count(1)
         self.assert_container_delete_fails()
+
+    def test_replication_to_sharded_container_from_unsharded_old_primary(self):
+        primary_ids = [n['id'] for n in self.brain.nodes]
+        handoff_node = next(n for n in self.brain.ring.devs
+                            if n['id'] not in primary_ids)
+
+        # start with two sharded replicas and one unsharded with extra object
+        obj_names = self._setup_replication_scenario(2)
+        node_numbers = self.brain.node_numbers
+        self.assert_container_state(node_numbers[0], SHARDED, 2)
+        self.assert_container_state(node_numbers[1], SHARDED, 2)
+
+        # Fake a ring change - copy unsharded db which has no shard ranges to a
+        # handoff to create illusion of a new unpopulated primary node
+        new_primary_node = self.brain.nodes[2]
+        new_primary_node_number = node_numbers[2]
+        new_primary_dir, container_hash = self.get_storage_dir(
+            self.brain.part, new_primary_node)
+        old_primary_dir, container_hash = self.get_storage_dir(
+            self.brain.part, handoff_node)
+        utils.mkdirs(os.path.dirname(old_primary_dir))
+        os.rename(new_primary_dir, old_primary_dir)
+
+        # make the cluster more or less "healthy" again
+        self.brain.servers.start(number=new_primary_node_number)
+
+        # get a db on every node...
+        client.put_container(self.url, self.token, self.container_name)
+        self.assertTrue(os.path.exists(os.path.join(
+            new_primary_dir, container_hash + '.db')))
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['normal_dbs'], 1)  # "new" primary
+        self.assertLengthEqual(found['shard_dbs'], 2)  # existing primaries
+
+        # catastrophic failure! drive dies and is replaced on unchanged primary
+        failed_node = self.brain.nodes[0]
+        failed_dir, _container_hash = self.get_storage_dir(
+            self.brain.part, failed_node)
+        shutil.rmtree(failed_dir)
+
+        # replicate the "old primary" to everybody except the "new primary"
+        self.brain.servers.stop(number=new_primary_node_number)
+        self.replicators.once(number=handoff_node['id'] + 1)
+
+        # We're willing to rsync the retiring db to the failed primary.
+        # This may or may not have shard ranges, depending on the order in
+        # which we hit the primaries, but it definitely *doesn't* have an
+        # epoch in its name yet. All objects are replicated.
+        self.assertTrue(os.path.exists(os.path.join(
+            failed_dir, container_hash + '.db')))
+        self.assertLengthEqual(os.listdir(failed_dir), 1)
+        broker = self.get_broker(self.brain.part, failed_node)
+        info = broker.get_info()
+        policy = info['storage_policy_index']
+        objs = broker.get_objects(storage_policy_index=int(policy))
+        self.assertLengthEqual(objs, len(obj_names) + 1)
+
+        # The other out-of-date primary is within usync range but objects are
+        # not replicated to it because the handoff db learns about shard ranges
+        broker = self.get_broker(self.brain.part, self.brain.nodes[1])
+        misplaced_objs = broker.get_objects(storage_policy_index=int(policy))
+        self.assertLengthEqual(misplaced_objs, 0)
+
+        # Handoff db still exists and now has shard ranges!
+        self.assertTrue(os.path.exists(os.path.join(
+            old_primary_dir, container_hash + '.db')))
+        broker = self.get_broker(self.brain.part, handoff_node)
+        shard_ranges = broker.get_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 2)
+        self.assert_container_state(handoff_node, UNSHARDED, 2)
+
+        # Replicate again, this time *including* "new primary"
+        self.brain.servers.start(number=new_primary_node_number)
+        self.replicators.once(number=handoff_node['id'] + 1)
+
+        # Ordinarily, we would have rsync_then_merge'd to "new primary"
+        # but instead we wait
+        broker = self.get_broker(self.brain.part, new_primary_node)
+        info = broker.get_info()
+        policy = info['storage_policy_index']
+        objs = broker.get_objects(storage_policy_index=int(policy))
+        self.assertLengthEqual(objs, 0)
+        shard_ranges = broker.get_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 2)
+
+        # so the next time the sharder comes along, it can push rows out
+        # and delete the big db
+        self.sharders.once(number=handoff_node['id'] + 1,
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(handoff_node, SHARDED, 2)
+        self.assertFalse(os.path.exists(os.path.join(
+            old_primary_dir, container_hash + '.db')))
+        # the sharded db hangs around until replication confirms durability
+        # first attempt is not sufficiently successful
+        self.brain.servers.stop(number=node_numbers[0])
+        self.replicators.once(number=handoff_node['id'] + 1)
+        self.assertTrue(os.path.exists(old_primary_dir))
+        self.assert_container_state(handoff_node, SHARDED, 2)
+        # second attempt is successful and handoff db is deleted
+        self.brain.servers.start(number=node_numbers[0])
+        self.replicators.once(number=handoff_node['id'] + 1)
+        self.assertFalse(os.path.exists(old_primary_dir))
+
+        # run all the sharders, get us into a consistent state
+        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_listing(['alpha'] + obj_names)
+
+    def test_replication_to_empty_new_primary_from_sharding_old_primary(self):
+        primary_ids = [n['id'] for n in self.brain.nodes]
+        handoff_node = next(n for n in self.brain.ring.devs
+                            if n['id'] not in primary_ids)
+        num_shards = 3
+        obj_names = ['obj%03d' % x
+                     for x in range(num_shards * self.max_shard_size / 2)]
+        self.put_objects(obj_names)
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+
+        # run replicators first time to get sync points set
+        self.replicators.once()
+        # start sharding on only the leader node
+        leader_node = self.brain.nodes[0]
+        leader_node_number = self.brain.node_numbers[0]
+        self.sharders.once(number=leader_node_number)
+        self.assert_container_state(leader_node_number, SHARDING, 3)
+        for number in self.brain.node_numbers[1:]:
+            self.assert_container_state(number, UNSHARDED, 3)
+
+        # Fake a ring change - copy leader node db to a handoff to create
+        # illusion of a new unpopulated primary leader node
+        new_primary_dir, container_hash = self.get_storage_dir(
+            self.brain.part, leader_node)
+        old_primary_dir, container_hash = self.get_storage_dir(
+            self.brain.part, handoff_node)
+        utils.mkdirs(os.path.dirname(old_primary_dir))
+        os.rename(new_primary_dir, old_primary_dir)
+        self.assert_container_state(handoff_node, SHARDING, 3)
+
+        # run replicator on handoff node to create a fresh db on new primary
+        self.assertFalse(os.path.exists(new_primary_dir))
+        self.replicators.once(number=handoff_node['id'] + 1)
+        self.assertTrue(os.path.exists(new_primary_dir))
+        self.assert_container_state(leader_node, SHARDED, 3)
+        broker = self.get_broker(self.brain.part, leader_node)
+        shard_ranges = broker.get_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 3)
+        self.assertEqual(
+            [ShardRange.CLEAVED, ShardRange.CLEAVED, ShardRange.CREATED],
+            [sr.state for sr in shard_ranges])
+
+        # db still exists on handoff
+        self.assertTrue(os.path.exists(old_primary_dir))
+        self.assert_container_state(handoff_node, SHARDING, 3)
+        # continue sharding it...
+        self.sharders.once(number=handoff_node['id'] + 1)
+        self.assert_container_state(leader_node, SHARDED, 3)
+        # now handoff is fully sharded the replicator will delete it
+        self.replicators.once(number=handoff_node['id'] + 1)
+        self.assertFalse(os.path.exists(old_primary_dir))
+
+        # all primaries now have active shard ranges but only one is in sharded
+        # state
+        self.assert_container_state(leader_node_number, SHARDED, 3)
+        for number in self.brain.node_numbers[1:]:
+            self.assert_container_state(number, UNSHARDED, 3)
+        node_data = self.direct_get_container_shard_ranges()
+        for node_id, (hdrs, shard_ranges) in node_data.items():
+            with annotate_failure(
+                    'node id %s from %s' % (node_id, node_data.keys)):
+                self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges)
+
+        # check handoff cleaved all objects before it was deleted - stop all
+        # but leader node so that listing is fetched from shards
+        for number in self.brain.node_numbers[1:3]:
+            self.brain.servers.stop(number=number)
+
+        self.assert_container_listing(obj_names)
+
+        for number in self.brain.node_numbers[1:3]:
+            self.brain.servers.start(number=number)
+
+        self.sharders.once()
+        self.assert_container_state(leader_node_number, SHARDED, 3)
+        for number in self.brain.node_numbers[1:]:
+            self.assert_container_state(number, SHARDING, 3)
+        self.sharders.once()
+        for number in self.brain.node_numbers:
+            self.assert_container_state(number, SHARDED, 3)
+
+        self.assert_container_listing(obj_names)

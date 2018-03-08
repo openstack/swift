@@ -305,6 +305,7 @@ class TestDBReplicator(unittest.TestCase):
 
     def stub_delete_db(self, broker):
         self.delete_db_calls.append('/path/to/file')
+        return True
 
     def test_creation(self):
         # later config should be extended to assert more config options
@@ -599,15 +600,13 @@ class TestDBReplicator(unittest.TestCase):
     def test_usync_http_error_above_300(self):
         fake_http = ReplHttp(set_status=301)
         replicator = TestReplicator({})
-        self.assertEqual(
-            (False, 0),
+        self.assertFalse(
             replicator._usync_db(0, FakeBroker(), fake_http, '12345', '67890'))
 
     def test_usync_http_error_below_200(self):
         fake_http = ReplHttp(set_status=101)
         replicator = TestReplicator({})
-        self.assertEqual(
-            (False, 0),
+        self.assertFalse(
             replicator._usync_db(0, FakeBroker(), fake_http, '12345', '67890'))
 
     @mock.patch('swift.common.db_replicator.dump_recon_cache')
@@ -807,8 +806,77 @@ class TestDBReplicator(unittest.TestCase):
         replicator.brokerclass = FakeAccountBroker
         replicator._repl_to_node = lambda *args: True
         replicator.delete_db = self.stub_delete_db
-        replicator._replicate_object('0', '/path/to/file', 'node_id')
+        orig_cleanup = replicator.cleanup_post_replicate
+        with mock.patch.object(replicator, 'cleanup_post_replicate',
+                               side_effect=orig_cleanup) as mock_cleanup:
+            replicator._replicate_object('0', '/path/to/file', 'node_id')
+        mock_cleanup.assert_called_once_with(mock.ANY, False, [True] * 3)
+        self.assertIsInstance(mock_cleanup.call_args[0][0],
+                              replicator.brokerclass)
         self.assertEqual(['/path/to/file'], self.delete_db_calls)
+        self.assertEqual(0, replicator.stats['failure'])
+
+    def test_replicate_object_delete_delegated_to_cleanup_post_replicate(self):
+        replicator = TestReplicator({})
+        replicator.ring = FakeRingWithNodes().Ring('path')
+        replicator.brokerclass = FakeAccountBroker
+        replicator._repl_to_node = lambda *args: True
+        replicator.delete_db = self.stub_delete_db
+
+        # cleanup succeeds
+        with mock.patch.object(replicator, 'cleanup_post_replicate',
+                               return_value=True) as mock_cleanup:
+            replicator._replicate_object('0', '/path/to/file', 'node_id')
+        mock_cleanup.assert_called_once_with(mock.ANY, False, [True] * 3)
+        self.assertIsInstance(mock_cleanup.call_args[0][0],
+                              replicator.brokerclass)
+        self.assertFalse(self.delete_db_calls)
+        self.assertEqual(0, replicator.stats['failure'])
+
+        # cleanup fails
+        with mock.patch.object(replicator, 'cleanup_post_replicate',
+                               return_value=False) as mock_cleanup:
+            replicator._replicate_object('0', '/path/to/file', 'node_id')
+        mock_cleanup.assert_called_once_with(mock.ANY, False, [True] * 3)
+        self.assertIsInstance(mock_cleanup.call_args[0][0],
+                              replicator.brokerclass)
+        self.assertFalse(self.delete_db_calls)
+        self.assertEqual(3, replicator.stats['failure'])
+
+    def test_cleanup_post_replicate(self):
+        replicator = TestReplicator({})
+        replicator.ring = FakeRingWithNodes().Ring('path')
+        broker = FakeBroker()
+        replicator._repl_to_node = lambda *args: True
+
+        with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
+            res = replicator.cleanup_post_replicate(broker, True, [True] * 3)
+        mock_delete_db.assert_not_called()
+        self.assertTrue(res)
+
+        with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
+            res = replicator.cleanup_post_replicate(broker, False, [False] * 3)
+        mock_delete_db.assert_not_called()
+        self.assertTrue(res)
+
+        with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
+            res = replicator.cleanup_post_replicate(
+                broker, False, [True, False, True])
+        mock_delete_db.assert_not_called()
+        self.assertTrue(res)
+
+        with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
+            res = replicator.cleanup_post_replicate(
+                broker, False, [True] * 3)
+        mock_delete_db.assert_called_once_with(broker)
+        self.assertTrue(res)
+
+        with mock.patch.object(replicator, 'delete_db',
+                               return_value=False) as mock_delete_db:
+            res = replicator.cleanup_post_replicate(
+                broker, False, [True] * 3)
+        mock_delete_db.assert_called_once_with(broker)
+        self.assertFalse(res)
 
     def test_replicate_object_with_exception(self):
         replicator = TestReplicator({})
@@ -1819,7 +1887,7 @@ class TestReplToNode(unittest.TestCase):
                               'Test': ('Value', normalize_timestamp(1))})}
         self.replicator.logger = mock.Mock()
         self.replicator._rsync_db = mock.Mock(return_value=True)
-        self.replicator._usync_db = mock.Mock(return_value=(True, 1))
+        self.replicator._usync_db = mock.Mock(return_value=True)
         self.http = ReplHttp('{"id": 3, "point": -1}')
         self.replicator._http_connect = lambda *args: self.http
 
@@ -1831,7 +1899,7 @@ class TestReplToNode(unittest.TestCase):
             self.fake_node, self.broker, '0', self.fake_info), True)
         self.replicator._usync_db.assert_has_calls([
             mock.call(max(rinfo['point'], local_sync), self.broker,
-                      self.http, rinfo['id'], self.fake_info['id'], diffs=0)
+                      self.http, rinfo['id'], self.fake_info['id'])
         ])
 
     def test_repl_to_node_rsync_success(self):
@@ -1913,15 +1981,14 @@ class TestReplToNode(unittest.TestCase):
         for r, l in ((5, 20), (40, 100), (450, 1000), (550, 1500)):
             rinfo['max_row'] = r
             self.fake_info['max_row'] = l
-            self.replicator._usync_db = mock.Mock(return_value=(True, 1000))
+            self.replicator._usync_db = mock.Mock(return_value=True)
             self.http = ReplHttp(json.dumps(rinfo))
             local_sync = self.broker.get_sync()
             self.assertEqual(self.replicator._repl_to_node(
                 self.fake_node, self.broker, '0', self.fake_info), True)
             self.replicator._usync_db.assert_has_calls([
                 mock.call(max(rinfo['point'], local_sync), self.broker,
-                          self.http, rinfo['id'], self.fake_info['id'],
-                          diffs=0)
+                          self.http, rinfo['id'], self.fake_info['id'])
             ])
 
 
