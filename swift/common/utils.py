@@ -939,11 +939,16 @@ class Timestamp(object):
         :param delta: deca-microsecond difference from the base timestamp
                       param, an int
         """
+        if isinstance(timestamp, bytes):
+            timestamp = timestamp.decode('ascii')
         if isinstance(timestamp, six.string_types):
-            parts = timestamp.split('_', 1)
-            self.timestamp = float(parts.pop(0))
-            if parts:
-                self.offset = int(parts[0], 16)
+            base, base_offset = timestamp.partition('_')[::2]
+            self.timestamp = float(base)
+            if '_' in base_offset:
+                raise ValueError('invalid literal for int() with base 16: '
+                                 '%r' % base_offset)
+            if base_offset:
+                self.offset = int(base_offset, 16)
             else:
                 self.offset = 0
         else:
