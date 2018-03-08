@@ -1040,20 +1040,19 @@ class ContainerSharder(ContainerReplicator):
                 part_filt = self._partition_dir_filter(
                     node['id'],
                     partitions_to_shard)
-                dirs.append((datadir, node['id'], part_filt))
+                dirs.append((datadir, node, part_filt))
         if not dirs:
             self.logger.warning('Found no data dirs!')
-        for part, path, node_id in db_replicator.roundrobin_datadirs(dirs):
-            # NB: get_part_nodes always provides an 'index' key
-            for node in self.ring.get_part_nodes(int(part)):
-                if node['id'] == node_id:
+        for part, path, node in db_replicator.roundrobin_datadirs(dirs):
+            # NB: get_part_nodes always provides an 'index' key;
+            # this will be used in leader selection
+            for primary in self.ring.get_part_nodes(int(part)):
+                if node['id'] == primary['id']:
+                    node = primary
                     break
             else:
-                # TODO: this would be a bug, a warning log may be too soft
-                # tburke: or is it just a handoff? doesn't seem exceptional...
-                self.logger.warning("Failed to find node to match id %s" %
-                                    node_id)
-                continue
+                # Set index such that we'll *never* be selected as a leader
+                node['index'] = 'handoff'
 
             broker = ContainerBroker(path, logger=self.logger,
                                      timeout=self.broker_timeout)
