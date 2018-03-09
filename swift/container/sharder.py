@@ -143,8 +143,8 @@ class ContainerSharder(ContainerReplicator):
 
     def _get_shard_ranges(self, broker, newest=False):
         path = self.swift.make_path(broker.root_account, broker.root_container)
-        path += '?items=shard&format=json'
-        headers = dict()
+        path += '?format=json'
+        headers = {'X-Backend-Record-Type': 'shard'}
         if newest:
             headers['X-Newest'] = 'true'
         try:
