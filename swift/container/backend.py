@@ -2039,8 +2039,8 @@ class ContainerBroker(DatabaseBroker):
             # yet cleaved
             found_ranges.append(
                 {'index': index,
-                 'lower': last_shard_upper,
-                 'upper': next_shard_upper,
+                 'lower': str(last_shard_upper),
+                 'upper': str(next_shard_upper),
                  'object_count': shard_size})
 
             if next_shard_upper == own_shard_range.upper:
