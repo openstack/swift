@@ -593,7 +593,7 @@ class ContainerController(BaseStorageServer):
                 except KeyError:
                     return HTTPBadRequest(request=req, body='Bad state')
             container_list = broker.get_shard_ranges(
-                marker, end_marker, includes, reverse, state=states)
+                marker, end_marker, includes, reverse, states=states)
             if states and ShardRange.ACTIVE in states:
                 # we might not get all required shard ranges if the container
                 # is part way through sharding, in which case add a filler

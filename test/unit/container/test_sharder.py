@@ -30,8 +30,8 @@ from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps
 from test import annotate_failure
 
-from test.unit import FakeLogger, debug_logger, FakeRing, make_timestamp_iter, \
-    unlink_files
+from test.unit import FakeLogger, debug_logger, FakeRing, \
+    make_timestamp_iter, unlink_files
 
 
 class TestRangeAnalyser(unittest.TestCase):

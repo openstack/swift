@@ -2758,7 +2758,8 @@ class TestContainerBroker(unittest.TestCase):
             ShardRange('.a/c2', next(ts_iter), 'd', 'f',
                        state=ShardRange.ACTIVE),
             ShardRange('.a/c3', next(ts_iter), 'e', 'f', deleted=1),
-            ShardRange('.a/c4', next(ts_iter), 'f', 'h'),
+            ShardRange('.a/c4', next(ts_iter), 'f', 'h',
+                       state=ShardRange.CREATED),
             ShardRange('.a/c5', next(ts_iter), 'h', 'j', deleted=1)
         ]
         broker.merge_shard_ranges(shard_ranges)
@@ -2780,7 +2781,7 @@ class TestContainerBroker(unittest.TestCase):
                          [dict(sr) for sr in actual])
 
         actual = broker.get_shard_ranges(marker='c', end_marker='e',
-                                         state=ShardRange.ACTIVE)
+                                         states=ShardRange.ACTIVE)
         self.assertEqual([dict(sr) for sr in shard_ranges[1:2]],
                          [dict(sr) for sr in actual])
 
@@ -2790,6 +2791,26 @@ class TestContainerBroker(unittest.TestCase):
 
         actual = broker.get_shard_ranges(includes='i')
         self.assertFalse(actual)
+
+        actual = broker.get_shard_ranges(
+            states=[ShardRange.CREATED, ShardRange.ACTIVE])
+        self.assertEqual(
+            [dict(sr) for sr in [shard_ranges[1], shard_ranges[3]]],
+            [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(exclude_states=ShardRange.CREATED)
+        self.assertEqual([dict(sr) for sr in shard_ranges[:2]],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(
+            exclude_states=[ShardRange.CREATED, ShardRange.ACTIVE])
+        self.assertEqual([dict(sr) for sr in shard_ranges[:1]],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(states=[ShardRange.CREATED],
+                                         exclude_states=[ShardRange.ACTIVE])
+        self.assertEqual([dict(sr) for sr in shard_ranges[3:4]],
+                         [dict(sr) for sr in actual])
 
         # get everything
         actual = broker.get_shard_ranges(include_own=True)

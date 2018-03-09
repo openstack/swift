@@ -1519,8 +1519,8 @@ class ContainerBroker(DatabaseBroker):
             'COMMIT;')
 
     def _get_shard_range_rows(self, connection=None, include_deleted=False,
-                              state=None, include_own=False,
-                              exclude_others=False):
+                              states=None, exclude_states=None,
+                              include_own=False, exclude_others=False):
         """
         Returns a list of shard range rows.
 
@@ -1530,15 +1530,17 @@ class ContainerBroker(DatabaseBroker):
 
         :param connection: db connection
         :param include_deleted: include rows marked as deleted
-        :param state: include only rows matching the given state(s); can be an
+        :param states: include only rows matching the given state(s); can be an
             int or a list of ints.
+        :param exclude_states: exclude rows matching the given state(s); can be
+            an int or a list of ints; takes precedence over ``state``.
         :param include_own: boolean that governs whether the row whose name
             matches the broker's path is included in the returned list. If
             True, that row is included, otherwise it is not included. Default
             is False.
         :param exclude_others: boolean that governs whether the rows whose
             names do not match the broker's path are included in the returned
-            list. If True, those rows are not includesd, otherwise they are
+            list. If True, those rows are not included, otherwise they are
             included. Default is False.
         :return: a list of tuples.
         """
@@ -1546,17 +1548,30 @@ class ContainerBroker(DatabaseBroker):
         if exclude_others and not include_own:
             return []
 
+        def prep_states(states):
+            state_set = set()
+            if isinstance(states, (list, tuple)):
+                state_set.update(set(states))
+            elif states is not None:
+                state_set.add(states)
+            return state_set
+
+        excluded_states = prep_states(exclude_states)
+        included_states = prep_states(states)
+        included_states -= excluded_states
+
         def do_query(conn):
             try:
                 condition = ''
                 conditions = []
                 if not include_deleted:
                     conditions.append('deleted=0')
-                if isinstance(state, (list, tuple)):
-                    state_list = ','.join([str(st) for st in state])
+                if included_states:
+                    state_list = ','.join([str(st) for st in included_states])
                     conditions.append('state in (%s)' % state_list)
-                elif state is not None:
-                    conditions.append('state=%s' % state)
+                if excluded_states:
+                    state_list = ','.join([str(st) for st in excluded_states])
+                    conditions.append('state not in (%s)' % state_list)
                 if not include_own:
                     conditions.append('name!="%s"' % self.path)
                 if exclude_others:
@@ -1584,8 +1599,9 @@ class ContainerBroker(DatabaseBroker):
                 return do_query(conn)
 
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
-                         reverse=False, include_deleted=False, state=None,
-                         include_own=False, exclude_others=False):
+                         reverse=False, include_deleted=False, states=None,
+                         exclude_states=None, include_own=False,
+                         exclude_others=False):
         """
         Returns a list of persisted shard ranges.
 
@@ -1598,9 +1614,11 @@ class ContainerBroker(DatabaseBroker):
             ``marker`` and ``end_marker`` are ignored.
         :param reverse: reverse the result order.
         :param include_deleted: include items that have the delete marker set
-        :param state: if specified, restricts the returned list to shard
+        :param states: if specified, restricts the returned list to shard
             ranges that have the given state(s); can be a list of ints or a
             single int.
+        :param exclude_states: exclude rows matching the given state(s); can be
+            an int or a list of ints; takes precedence over ``state``.
         :param include_own: boolean that governs whether the row whose name
             matches the broker's path is included in the returned list. If
             True, that row is included, otherwise it is not included. Default
@@ -1614,8 +1632,9 @@ class ContainerBroker(DatabaseBroker):
         shard_ranges = [
             ShardRange(*row)
             for row in self._get_shard_range_rows(
-                include_deleted=include_deleted, state=state,
-                include_own=include_own, exclude_others=exclude_others)]
+                include_deleted=include_deleted, states=states,
+                exclude_states=exclude_states, include_own=include_own,
+                exclude_others=exclude_others)]
         if includes:
             shard_range = find_shard_range(includes, shard_ranges)
             return [shard_range] if shard_range else []
@@ -1670,7 +1689,7 @@ class ContainerBroker(DatabaseBroker):
     # TODO: add unit test
     def get_shard_usage(self):
         shard_ranges = self.get_shard_ranges(
-            state=[ShardRange.ACTIVE, ShardRange.SHRINKING])
+            states=[ShardRange.ACTIVE, ShardRange.SHRINKING])
         return {'bytes_used': sum([sr.bytes_used for sr in shard_ranges]),
                 'object_count': sum([sr.object_count for sr in shard_ranges])}
 

@@ -932,7 +932,7 @@ class ContainerSharder(ContainerReplicator):
         # Create shard containers that are ready to receive redirected object
         # updates. Do this now, so that redirection can begin immediately
         # without waiting for cleaving to complete.
-        found_ranges = broker.get_shard_ranges(state=ShardRange.FOUND)
+        found_ranges = broker.get_shard_ranges(states=ShardRange.FOUND)
         created_ranges = []
         for shard_range in found_ranges:
             # Create newly found shard containers with a timestamp that is
@@ -1117,7 +1117,7 @@ class ContainerSharder(ContainerReplicator):
         cleave_cursor = cleave_context.get('cursor') or ''
         ranges_todo = broker.get_shard_ranges(
             marker=cleave_cursor + '\x00',
-            state=[ShardRange.CREATED, ShardRange.ACTIVE])
+            states=[ShardRange.CREATED, ShardRange.ACTIVE])
         if not ranges_todo:
             self.logger.debug('No uncleaved shard ranges for %s/%s',
                               broker.account, broker.container)
