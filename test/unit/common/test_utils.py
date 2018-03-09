@@ -6879,13 +6879,15 @@ class TestShardRange(unittest.TestCase):
             self.assertIn('Invalid state', str(cm.exception))
 
     def test_update_state(self):
-        sr = utils.ShardRange('a/c', utils.Timestamp.now())
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
         old_sr = sr.copy()
         self.assertEqual(0, sr.state)
         self.assertEqual(dict(sr), dict(old_sr))  # sanity check
-        sr.update_state(utils.ShardRange.ACTIVE)
-        self.assertGreater(sr.state_timestamp, old_sr.state_timestamp)
-        self.assertEqual(utils.ShardRange.ACTIVE, sr.state)
+        now = next(self.ts_iter)
+        with mock.patch('swift.common.utils.time.time', lambda: float(now)):
+            self.assertTrue(sr.update_state(utils.ShardRange.CREATED))
+        self.assertEqual(now, sr.state_timestamp)
+        self.assertEqual(utils.ShardRange.CREATED, sr.state)
         old_sr_dict = dict(old_sr)
         old_sr_dict.pop('state')
         old_sr_dict.pop('state_timestamp')
@@ -6893,6 +6895,22 @@ class TestShardRange(unittest.TestCase):
         sr_dict.pop('state')
         sr_dict.pop('state_timestamp')
         self.assertEqual(old_sr_dict, sr_dict)
+
+        self.assertFalse(sr.update_state(utils.ShardRange.CREATED))
+        self.assertEqual(now, sr.state_timestamp)
+        self.assertEqual(utils.ShardRange.CREATED, sr.state)
+
+        now = next(self.ts_iter)
+        with mock.patch('swift.common.utils.time.time', lambda: float(now)):
+            self.assertTrue(sr.update_state(utils.ShardRange.ACTIVE))
+        self.assertEqual(now, sr.state_timestamp)
+        self.assertEqual(utils.ShardRange.ACTIVE, sr.state)
+
+        now = next(self.ts_iter)
+        self.assertTrue(
+            sr.update_state(utils.ShardRange.ACTIVE, state_timestamp=now))
+        self.assertEqual(now, sr.state_timestamp)
+        self.assertEqual(utils.ShardRange.ACTIVE, sr.state)
 
     def test_lower_setter(self):
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', '')

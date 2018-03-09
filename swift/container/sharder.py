@@ -1044,11 +1044,10 @@ class ContainerSharder(ContainerReplicator):
             # TODO: unit test to verify idempotent nature of this procedure
             self.logger.debug('shrinking shard range %s into %s in %s' %
                               (donor, acceptor, broker.db_file))
-            if donor.state != ShardRange.SHRINKING:
+            if donor.update_state(ShardRange.SHRINKING):
                 # Set donor state to shrinking so that next cycle won't use it
                 # as an acceptor; state_timestamp defines new epoch for donor
                 # and new timestamp for acceptor.
-                donor.update_state(ShardRange.SHRINKING)
                 broker.merge_shard_ranges([donor])
             if acceptor != dummy_shard_range:
                 # Update the acceptor shard container with its expanded shard
