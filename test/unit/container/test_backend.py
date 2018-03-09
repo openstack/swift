@@ -2743,7 +2743,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(broker.get_shard_ranges(include_own=True))
 
         # merge row for own shard range
-        own_shard_range = ShardRange(broker.path, next(ts_iter), 'l', 'u')
+        own_shard_range = ShardRange(broker.path, next(ts_iter), 'l', 'u',
+                                     state=ShardRange.CLEAVED)
         broker.merge_shard_ranges([own_shard_range])
         self.assertFalse(broker.get_shard_ranges())
         self.assertFalse(broker.get_shard_ranges(include_own=False))
@@ -2821,6 +2822,12 @@ class TestContainerBroker(unittest.TestCase):
         actual = broker.get_shard_ranges(include_own=True, exclude_others=True)
         self.assertEqual([dict(sr) for sr in [own_shard_range]],
                          [dict(sr) for sr in actual])
+
+        # exclude_states overrides include_own
+        actual = broker.get_shard_ranges(include_own=True,
+                                         exclude_states=ShardRange.CLEAVED,
+                                         exclude_others=True)
+        self.assertFalse(actual)
 
         # if you ask for nothing you'll get nothing
         actual = broker.get_shard_ranges(

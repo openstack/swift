@@ -88,7 +88,7 @@ class TestContainerController(unittest.TestCase):
         """
         pass
 
-    def _put_shard_range(self, shard_range):
+    def _put_shard_range(self, shard_range, path='a/c'):
         headers = {
             'x-timestamp': shard_range.timestamp.normal,
             'x-backend-shard-objects': shard_range.object_count,
@@ -103,7 +103,8 @@ class TestContainerController(unittest.TestCase):
             'x-backend-record-type': 'shard',
             'x-size': 0,
         }
-        req = Request.blank('/sda1/p/a/c/%s' % shard_range.name, method='PUT',
+        req = Request.blank('/sda1/p/%s/%s' % (path, shard_range.name),
+                            method='PUT',
                             headers=headers)
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
@@ -2209,7 +2210,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(201, resp.status_int)
         # PUT some shard ranges
         shard_bounds = [('', 'apple', ShardRange.SHRINKING),
-                        ('apple', 'ham', ShardRange.ACTIVE),
+                        ('apple', 'ham', ShardRange.CLEAVED),
                         ('ham', 'salami', ShardRange.ACTIVE),
                         ('salami', 'yoghurt', ShardRange.CREATED),
                         ('yoghurt', '', ShardRange.FOUND),
@@ -2224,6 +2225,7 @@ class TestContainerController(unittest.TestCase):
             self._put_shard_range(shard_range)
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertTrue(broker.is_root_container())  # sanity
         self._assertShardRangesEqual(shard_ranges, broker.get_shard_ranges())
 
         # sanity check - no shard ranges when GET is only for objects
@@ -2263,29 +2265,34 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(shard_ranges[3:4], 'a/c', params='&state=created')
         # only found shards
         check_shard_GET(shard_ranges[4:5], 'a/c', params='&state=found')
+        # only cleaved shards
+        check_shard_GET(shard_ranges[1:2], 'a/c',
+                        params='&state=cleaved')
         # only active shards
-        check_shard_GET(shard_ranges[1:3], 'a/c',
+        check_shard_GET(shard_ranges[2:3], 'a/c',
                         params='&state=active&end_marker=pickle')
-        check_shard_GET(reversed(shard_ranges[1:3]), 'a/c',
-                        params='&state=active&reverse=true&marker=pickle')
+        # only cleaved or active shards, reversed
+        check_shard_GET(
+            reversed(shard_ranges[1:3]), 'a/c',
+            params='&state=cleaved,active&reverse=true&marker=pickle')
         # only shrinking shards
         check_shard_GET(shard_ranges[:1], 'a/c',
                         params='&state=shrinking&end_marker=pickle')
         check_shard_GET(shard_ranges[:1], 'a/c',
                         params='&state=shrinking&reverse=true&marker=pickle')
         # only active or shrinking shards
-        check_shard_GET(shard_ranges[:3], 'a/c',
+        check_shard_GET([shard_ranges[0], shard_ranges[2]], 'a/c',
                         params='&state=shrinking,active&end_marker=pickle')
         check_shard_GET(
-            reversed(shard_ranges[:3]), 'a/c',
+            [shard_ranges[2], shard_ranges[0]], 'a/c',
             params='&state=active,shrinking&reverse=true&marker=pickle')
         # only active or shrinking shards using listing alias
-        check_shard_GET(shard_ranges[:3], 'a/c',
+        check_shard_GET([shard_ranges[0], shard_ranges[2]], 'a/c',
                         params='&state=listing&end_marker=pickle')
         check_shard_GET(
-            reversed(shard_ranges[:3]), 'a/c',
+            [shard_ranges[2], shard_ranges[0]], 'a/c',
             params='&state=listing&reverse=true&marker=pickle')
-        # only created, active or shrinking shards using updating alias
+        # only created, cleaved, active, shrinking shards using updating alias
         check_shard_GET(shard_ranges[:4], 'a/c',
                         params='&state=updating&end_marker=treacle')
         check_shard_GET(
@@ -2296,7 +2303,7 @@ class TestContainerController(unittest.TestCase):
         extra_shard_range = ShardRange(
             'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX,
             state=ShardRange.ACTIVE)
-        expected = shard_ranges[1:3] + [extra_shard_range]
+        expected = shard_ranges[2:3] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&state=active')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=active&reverse=true')
@@ -2305,7 +2312,7 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=active&reverse=true&end_marker=pickle')
         # listing shards don't cover entire namespace so expect an extra filler
-        expected = shard_ranges[:3] + [extra_shard_range]
+        expected = [shard_ranges[0], shard_ranges[2], extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&state=listing')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=listing&reverse=true')
@@ -2437,6 +2444,83 @@ class TestContainerController(unittest.TestCase):
 
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
         self.assertFalse(self.controller.logger.get_lines_for_level('error'))
+
+    def test_GET_shard_ranges_using_state_aliases(self):
+        # make a shard container
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        shard_ranges = []
+        lower = ''
+        for state in sorted(ShardRange.STATES.keys()):
+            upper = str(state)
+            shard_ranges.append(
+                ShardRange('.shards_a/c_%s' % upper, next(ts_iter),
+                           lower, upper, state * 100, state * 1000,
+                           meta_timestamp=next(ts_iter),
+                           state=state, state_timestamp=next(ts_iter)))
+            lower = upper
+
+        def do_test(root_path, path, params, expected_states):
+            expected = [
+                sr for sr in shard_ranges if sr.state in expected_states]
+            expected.append(ShardRange(path, ts_now, expected[-1].upper, '',
+                                       state=ShardRange.ACTIVE))
+            expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
+                        for p in expected]
+            headers = {'X-Timestamp': next(ts_iter).normal}
+
+            # create container
+            req = Request.blank(
+                '/sda1/p/%s' % path, method='PUT', headers=headers)
+            self.assertIn(
+                req.get_response(self.controller).status_int, (201, 202))
+            # PUT some shard ranges
+            headers = {'X-Timestamp': next(ts_iter).normal,
+                       'X-Container-Sysmeta-Shard-Root': root_path,
+                       'X-Backend-Record-Type': 'shard'}
+            own_shard_range = ShardRange(path, next(ts_iter), 'apple', '')
+            body = json.dumps(
+                [dict(sr) for sr in shard_ranges + [own_shard_range]])
+            req = Request.blank(
+                '/sda1/p/%s' % path, method='PUT', headers=headers, body=body)
+            self.assertEqual(202, req.get_response(self.controller).status_int)
+
+            req = Request.blank('/sda1/p/%s?format=json%s' %
+                                (path, params), method='GET',
+                                headers={'X-Backend-Record-Type': 'shard'})
+            with mock.patch('swift.common.utils.Timestamp.now',
+                            classmethod(lambda ts_cls: ts_now)):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(expected, json.loads(resp.body))
+
+        # root's shard ranges for listing
+        root_path = container_path = 'a/c'
+        params = '&state=listing'
+        expected_states = [
+            ShardRange.ACTIVE, ShardRange.SHRINKING, ShardRange.EXPANDING]
+        do_test(root_path, container_path, params, expected_states)
+
+        # shard's shard ranges for listing
+        container_path = '.shards_a/c'
+        params = '&state=listing'
+        expected_states = [
+            ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHRINKING, ShardRange.EXPANDING]
+        do_test(root_path, container_path, params, expected_states)
+
+        # root's shard ranges for updating
+        params = '&state=updating'
+        expected_states = [
+            ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHRINKING, ShardRange.EXPANDING]
+        container_path = root_path
+        do_test(root_path, container_path, params, expected_states)
+
+        # shard's shard ranges for updating
+        container_path = '.shards_a/c'
+        do_test(root_path, container_path, params, expected_states)
 
     def test_PUT_object_update_redirected_to_shard(self):
         ts_iter = make_timestamp_iter()
