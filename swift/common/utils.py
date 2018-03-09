@@ -205,8 +205,8 @@ def set_swift_dir(swift_dir):
             swift_dir != os.path.dirname(SWIFT_CONF_FILE)):
         SWIFT_CONF_FILE = os.path.join(
             swift_dir, os.path.basename(SWIFT_CONF_FILE))
-        HASH_PATH_PREFIX = ''
-        HASH_PATH_SUFFIX = ''
+        HASH_PATH_PREFIX = b''
+        HASH_PATH_SUFFIX = b''
         validate_configuration()
         return True
     return False
