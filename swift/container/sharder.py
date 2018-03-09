@@ -763,7 +763,12 @@ class ContainerSharder(ContainerReplicator):
 
             broker = ContainerBroker(path, logger=self.logger)
             if sharding_enabled(broker):
-                self._process_broker(broker, node, part)
+                try:
+                    self._process_broker(broker, node, part)
+                except Exception as err:
+                    self.logger.exception(
+                        'Unhandled exception while processing %s: %s',
+                        path, err)
 
         # wipe out the cache do disable bypass in delete_db
         cleanups = self.shard_cleanups
