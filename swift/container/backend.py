@@ -1941,13 +1941,14 @@ class ContainerBroker(DatabaseBroker):
 
     def _get_next_shard_range_upper(self, shard_size, last_upper=None):
         """
-        Finds the next entry in the shards table to use as a shard range
-        when sharding.
+        Returns the name of the object that is ``shard_size`` rows beyond
+        ``last_upper`` in the object table ordered by name. If ``last_upper``
+        is not given then it defaults to the start of object table ordered by
+        name.
 
-        If there is an error or no objects in the container it will return an
-        empty string ('').
-
-        :return: The middle object in the container.
+        :param last_upper: the upper bound of the last found shard range.
+        :return: an object name, or None if the number of rows beyond
+            ``last_upper`` is less than ``shard_size``.
         """
         self._commit_puts_stale_ok()
         with self.get() as connection:
