@@ -27,7 +27,7 @@ TAB = '    '
 
 def broker_key(broker):
     broker.get_info()
-    return '%s/%s' % (broker.account, broker.container)
+    return broker.path
 
 
 def container_type(broker):
@@ -47,27 +47,36 @@ def collect_brokers(conf_path, names2nodes):
             dirs.append((datadir, node['id']))
     for part, object_file, node_id in roundrobin_datadirs(dirs):
         broker = ContainerBroker(object_file)
-        names2nodes[broker_key(broker)][node_id] = broker
+        for node in c_ring.get_part_nodes(int(part)):
+            if node['id'] == node_id:
+                node_index = str(node['index'])
+                break
+        else:
+            node_index = 'handoff'
+        names2nodes[broker_key(broker)][(node_id, node_index)] = broker
     return brokers
 
 
 def print_broker_info(node, broker, indent_level=0):
     indent = indent_level * TAB
     info = broker.get_info()
+    raw_info = broker._get_info()
     deleted_at = float(info['delete_timestamp'])
     if deleted_at:
         deleted_at = Timestamp(info['delete_timestamp']).isoformat
     else:
         deleted_at = ' - '
-    print('%s%s, objs: %s, bytes: %s, put: %s, deleted: %s (%s)' %
-          (indent, broker.get_db_state_text(), info['object_count'],
-           info['bytes_used'], Timestamp(info['put_timestamp']).isoformat,
-           deleted_at, node))
+    print('%s(%s) %s, objs: %s, bytes: %s, actual_objs: %s, put: %s, '
+          'deleted: %s' %
+          (indent, node[1][0], broker.get_db_state_text(),
+           info['object_count'], info['bytes_used'], raw_info['object_count'],
+           Timestamp(info['put_timestamp']).isoformat, deleted_at))
 
 
 def print_db(node, broker, expect_type='ROOT', indent_level=0):
     indent = indent_level * TAB
-    print('%s%s (%s)' % (indent, broker.db_file, node))
+    print('%s(%s) %s node id: %s, node index: %s' %
+          (indent, node[1][0], broker.db_file, node[0], node[1]))
     actual_type = container_type(broker)
     if actual_type != expect_type:
         print('%s        ERROR expected %s but found %s' %
@@ -77,13 +86,13 @@ def print_db(node, broker, expect_type='ROOT', indent_level=0):
 def print_shard_range(node, sr, indent_level):
     indent = indent_level * TAB
     range = '%r - %r' % (sr.lower, sr.upper)
-    print('%s%23s, objs: %3s, bytes: %3s, timestamp: %s (%s), '
-          'modified: %s (%s), %7s: %s (%s), deleted: %s (%s) %s' %
-          (indent, range, sr.object_count, sr.bytes_used,
+    print('%s(%s) %23s, objs: %3s, bytes: %3s, timestamp: %s (%s), '
+          'modified: %s (%s), %7s: %s (%s), deleted: %s %s' %
+          (indent, node[1][0], range, sr.object_count, sr.bytes_used,
            Timestamp(sr.timestamp).isoformat, sr.timestamp.internal,
            Timestamp(sr.meta_timestamp).isoformat, sr.meta_timestamp.internal,
            sr.state_text, sr.state_timestamp.isoformat,
-           sr.state_timestamp.internal, sr.deleted, node, sr.name))
+           sr.state_timestamp.internal, sr.deleted, sr.name))
 
 
 def print_shard_range_info(node, shard_ranges, indent_level=0):
@@ -94,7 +103,7 @@ def print_shard_range_info(node, shard_ranges, indent_level=0):
 
 def print_sharding_info(node, broker, indent_level=0):
     indent = indent_level * TAB
-    print('%s%s (%s)' % (indent, broker.get_sharding_info(), node))
+    print('%s(%s) %s' % (indent, node[1][0], broker.get_sharding_info()))
 
 
 def print_container(name, name2nodes2brokers, expect_type='ROOT',
@@ -102,6 +111,9 @@ def print_container(name, name2nodes2brokers, expect_type='ROOT',
     used_names = used_names or set()
     indent = indent_level * TAB
     node2broker = name2nodes2brokers[name]
+    ordered_by_index = sorted(node2broker.keys(), key=lambda x: x[1])
+    brokers = [(node, node2broker[node]) for node in ordered_by_index]
+
     print('%sName: %s' % (indent, name))
     if name in used_names:
         print('%s  (Details already listed)\n' % indent)
@@ -109,25 +121,25 @@ def print_container(name, name2nodes2brokers, expect_type='ROOT',
 
     used_names.add(name)
     print(indent + 'DB files:')
-    for node, broker in node2broker.items():
+    for node, broker in brokers:
         print_db(node, broker, expect_type, indent_level=indent_level + 1)
 
     print(indent + 'Info:')
-    for node, broker in node2broker.items():
+    for node, broker in brokers:
         print_broker_info(node, broker, indent_level=indent_level + 1)
 
     print(indent + 'Sharding info:')
-    for node, broker in node2broker.items():
+    for node, broker in brokers:
         print_sharding_info(node, broker, indent_level=indent_level + 1)
     print(indent + 'Own shard range:')
-    for node, broker in node2broker.items():
+    for node, broker in brokers:
         shard_ranges = broker.get_shard_ranges(
             include_deleted=True, include_own=True, exclude_others=True)
         print_shard_range_info(node, shard_ranges,
                                indent_level=indent_level + 1)
     print(indent + 'Shard ranges:')
     shard_names = set()
-    for node, broker in node2broker.items():
+    for node, broker in brokers:
         shard_ranges = broker.get_shard_ranges(include_deleted=True)
         for sr_name in shard_ranges:
             shard_names.add(sr_name.name)
@@ -141,10 +153,12 @@ def print_container(name, name2nodes2brokers, expect_type='ROOT',
 
 
 def run(conf_paths):
+    # container_name -> (node id, node index) -> broker
     name2nodes2brokers = defaultdict(dict)
     for conf_path in conf_paths:
         collect_brokers(conf_path, name2nodes2brokers)
 
+    print('First column on each line is (node index)\n')
     for name, node2broker in name2nodes2brokers.items():
         expect_root = False
         for node, broker in node2broker.items():
