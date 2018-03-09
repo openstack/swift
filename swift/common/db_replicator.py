@@ -337,7 +337,7 @@ class Replicator(Daemon):
         """
         self.stats['diff'] += 1
         self.logger.increment('diffs')
-        self.logger.debug('%s synced chunks to %s, starting at %s',
+        self.logger.debug('%s usyncing chunks to %s, starting at %s',
                           broker.db_file,
                           '%(ip)s:%(port)s/%(device)s' % http.node,
                           point)
@@ -358,6 +358,11 @@ class Replicator(Daemon):
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
             diffs += 1
+
+        self.logger.debug('%s usyncing chunks to %s, finished at %s',
+                          broker.db_file,
+                          '%(ip)s:%(port)s/%(device)s' % http.node,
+                          point)
 
         self._sync_other_items(broker, http, local_id)
         if objects:
@@ -399,6 +404,9 @@ class Replicator(Daemon):
                 # TODO: we probably should pass this back so the replication
                 # marked as a failure.
                 return False
+            self.logger.debug('%s usynced %s other items to %s',
+                              broker.db_file, len(other_items),
+                              '%(ip)s:%(port)s/%(device)s' % http.node)
 
     def _other_items_hook(self, broker):
         return []
