@@ -94,6 +94,18 @@
     nodeset: centos-7
 
 - job:
+    name: swift-tox-func-domain-remap-staticweb
+    parent: swift-tox-base
+    description: |
+      Run functional tests for swift under cPython version 2.7.
+
+      Uses tox with the ``func-domain-remap-staticweb`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-domain-remap-staticweb
+
+- job:
     name: swift-probetests-centos-7
     parent: unittests
     nodeset: centos-7
@@ -113,6 +125,7 @@
         - swift-tox-py35
         - swift-tox-func
         - swift-tox-func-encryption
+        - swift-tox-func-domain-remap-staticweb
         - swift-tox-func-ec
         - swift-probetests-centos-7
     gate:
@@ -121,6 +134,7 @@
         - swift-tox-py35
         - swift-tox-func
         - swift-tox-func-encryption
+        - swift-tox-func-domain-remap-staticweb
         - swift-tox-func-ec
     experimental:
       jobs:
