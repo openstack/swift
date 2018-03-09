@@ -582,8 +582,10 @@ class ContainerController(BaseStorageServer):
             states = get_param(req, 'state') or None
             if states:
                 states = set(list_from_csv(states))
-                aliases = {'listing': {'active', 'shrinking'},
-                           'updating': {'created', 'active', 'shrinking'}}
+                aliases = {
+                    'listing': {'active', 'shrinking', 'expanding'},
+                    'updating': {'created', 'active', 'shrinking', 'expanding'}
+                }
                 for alias, aliased_states in aliases.items():
                     if alias in states:
                         states.remove(alias)

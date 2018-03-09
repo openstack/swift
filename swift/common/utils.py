@@ -4309,11 +4309,13 @@ class ShardRange(object):
     FOUND = 0
     CREATED = 1
     ACTIVE = 2
-    SHRINKING = 3
-    SHARDED = 4
+    EXPANDING = 3
+    SHRINKING = 4
+    SHARDED = 5
     STATES = {FOUND: 'found',
               CREATED: 'created',
               ACTIVE: 'active',
+              EXPANDING: 'expanding',
               SHRINKING: 'shrinking',
               SHARDED: 'sharded'}
     STATES_BY_NAME = dict((v, k) for k, v in STATES.items())

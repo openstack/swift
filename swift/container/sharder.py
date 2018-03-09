@@ -296,7 +296,7 @@ class ContainerSharder(ContainerReplicator):
                                 dest_shard_ranges):
         # map shard range -> broker
         brokers = {}
-        unplaced = 0
+        placed = unplaced = 0
         for objs, dest_shard_range in self.yield_objects_to_shard_range(
                 broker, src_shard_range, policy_index, dest_shard_ranges):
             if not dest_shard_range:
@@ -317,6 +317,7 @@ class ContainerSharder(ContainerReplicator):
             else:
                 part, dest_broker, node_id = brokers[dest_shard_range]
             dest_broker.merge_items(objs)
+            placed += len(objs)
 
         if unplaced:
             self.logger.warning(
@@ -342,6 +343,7 @@ class ContainerSharder(ContainerReplicator):
                 str(dest_shard_range.lower), str(dest_shard_range.upper),
                 policy_index)
 
+        self.logger.debug('Moved %s misplaced objects' % placed)
         return True
 
     def _misplaced_objects(self, broker, own_shard_range):
@@ -354,13 +356,18 @@ class ContainerSharder(ContainerReplicator):
         :param own_shard_range: A ShardRange describing the namespace for this
             broker
         """
-        self.logger.info('Scanning %s/%s (%s) for misplaced objects',
-                         broker.account, broker.container, broker.db_file)
 
         if broker.is_deleted():
+            self.logger.debug('Not looking for misplaced objects in deleted '
+                              'container %s (%s)', broker.path, broker.db_file)
+            return
+        if own_shard_range.state == ShardRange.EXPANDING:
+            self.logger.debug('Not looking for misplaced objects in expanding '
+                              'container %s (%s)', broker.path, broker.db_file)
             return
 
-        state = broker.get_db_state()
+        self.logger.debug('Looking for misplaced objects in %s (%s)',
+                          broker.path, broker.db_file)
 
         def make_query(lower, upper):
             # each misplaced object namespace is represented by a shard range
@@ -370,6 +377,7 @@ class ContainerSharder(ContainerReplicator):
         policy_index = broker.storage_policy_index
         # TODO: what about records for objects in the wrong storage policy?
 
+        state = broker.get_db_state()
         if state == SHARDED:
             # Anything in the object table is treated as a misplaced object.
             queries.append(make_query('', ''))
@@ -639,16 +647,6 @@ class ContainerSharder(ContainerReplicator):
                         # there may be repeated cleaving if the hash.db was
                         # changed by replication during cleaving.
                         shard_ranges = broker.get_shard_ranges()
-                        # never try to update the root with its own shard
-                        # range, it's probably only here as a dummy to prompt
-                        # final shard to shrink to root isn't meant to exist
-                        # for real.
-                        # TODO: perhaps we can parameterize get_shard_ranges to
-                        # filter out root? or maybe root will start to maintain
-                        # a persisted shard range for itself and it's ok to
-                        # send the update
-                        shard_ranges = [sr for sr in shard_ranges
-                                        if sr.name != broker.root_path]
                         # TODO: the new shard ranges may have existed for some
                         # time and already be updating the root with their
                         # usage e.g. multiple cycles before we finished
@@ -1019,10 +1017,9 @@ class ContainerSharder(ContainerReplicator):
                 # this range and its donor(s) could all be merged with the next
                 # range. In practice it is much easier to reason about a single
                 # donor merging into a single acceptor. Don't fret - eventually
-                # all the small ranges will be retired (except possibly the
-                # uppermost).
+                # all the small ranges will be retired.
                 continue
-            if acceptor.state != ShardRange.ACTIVE:
+            if acceptor.state not in (ShardRange.ACTIVE, ShardRange.EXPANDING):
                 # don't shrink into a range that is not yet ACTIVE or was
                 # selected as a donor on a previous cycle
                 continue
@@ -1044,51 +1041,34 @@ class ContainerSharder(ContainerReplicator):
             # TODO: unit test to verify idempotent nature of this procedure
             self.logger.debug('shrinking shard range %s into %s in %s' %
                               (donor, acceptor, broker.db_file))
+            modified_shard_ranges = []
+            if acceptor.update_state(ShardRange.EXPANDING):
+                modified_shard_ranges.append(acceptor)
             if donor.update_state(ShardRange.SHRINKING):
                 # Set donor state to shrinking so that next cycle won't use it
                 # as an acceptor; state_timestamp defines new epoch for donor
-                # and new timestamp for acceptor.
-                broker.merge_shard_ranges([donor])
+                # and new timestamp for the expanded acceptor below.
+                modified_shard_ranges.append(donor)
+            broker.merge_shard_ranges(modified_shard_ranges)
             if acceptor != dummy_shard_range:
-                # Update the acceptor shard container with its expanded shard
-                # range so that the acceptor will accept any object updates
-                # that the donor might redirect to it while the donor is in
-                # sharding state (equivalent to when a new shard has been
-                # created but not yet cleaved).
-                # Note that the new acceptor timestamp is stored in the root
-                # but its namespace is not yet expanded in the root; any
-                # update from the acceptor to root will not change the acceptor
-                # namespace until the acceptor gets a future timestamp via the
-                # donor cleaving to it.
-                # TODO: using an offset to allow for still accepting stats
-                # updates from the acceptor - the float timestamps are equal.
-                # TODO: note that offset accumulates, should we force it to
-                # always be 1? or pick a real timestamp < donor.state_timestamp
-                acceptor.timestamp = Timestamp(acceptor.timestamp, offset=1)
-                broker.merge_shard_ranges([acceptor])
-                acceptor.lower = donor.lower
+                # Update the acceptor container with its expanding state to
+                # prevent it treating object updates redirected from the donor
+                # as misplaced.
                 self._update_shard_ranges(
                     acceptor.account, acceptor.container, [acceptor])
-                # Now send a copy of the expanded acceptor, with an updated
-                # timestamp, to the donor. The donor will pass this newer
-                # timestamp to the acceptor when cleaving, so that subsequent
-                # updates from the acceptor will update the root to have the
-                # expanded acceptor namespace.
-                acceptor = acceptor.copy(timestamp=donor.state_timestamp)
+                # Make a copy the acceptor shard range to send to the donor
+                # container with new timestamp and expanded namespace. Note
+                # that the new acceptor namespace is not yet saved in the root.
+                acceptor = acceptor.copy(timestamp=donor.state_timestamp,
+                                         lower=donor.lower,
+                                         state=ShardRange.ACTIVE)
                 acceptor.object_count += donor.object_count
                 acceptor.bytes_used += donor.bytes_used
+            else:
+                # no need to change namespace or stats
+                acceptor.update_state(ShardRange.ACTIVE)
             # Set Scan-Done so that the donor will not scan itself and will
             # transition to SHARDED state once it has cleaved to the acceptor;
-            headers = {
-                'X-Container-Sysmeta-Shard-Scan-Done': True,
-                'X-Container-Sysmeta-Shard-Epoch': donor.state_timestamp.normal
-            }
-            # PUT the acceptor shard range to the donor shard container; this
-            # forces the donor to asynchronously cleave its entire contents to
-            # the acceptor; the donor's version of the acceptor shard range has
-            # the fresh timestamp.
-            # Set Scan-Done so that the donor will not scan itself and will
-            # transition to SHARDED state once it has cleaved to the acceptor.
             # TODO: if the PUT request successfully write the Scan-Done sysmeta
             # but fails to write the acceptor shard range, then the shard is
             # left with Scan-Done set, and if it was to then grow in size to
@@ -1096,6 +1076,20 @@ class ContainerSharder(ContainerReplicator):
             # set. This is an argument for basing 'scan done condition' on the
             # existence of a shard range whose upper >= shard own range, rather
             # than using sysmeta Scan-Done.
+            headers = {
+                'X-Container-Sysmeta-Shard-Scan-Done': True,
+                'X-Container-Sysmeta-Shard-Epoch': donor.state_timestamp.normal
+            }
+            # Now send a copy of the expanded acceptor, with an updated
+            # timestamp, to the donor container. This forces the donor to
+            # asynchronously cleave its entire contents to the acceptor. The
+            # donor will pass a deleted copy of its own shard range and the
+            # newer expended acceptor shard range to the acceptor when
+            # cleaving. Subsequent updates from the acceptor will then update
+            # the root to have the expanded acceptor namespace and deleted
+            # donor shard range. Once cleaved, the donor will also update the
+            # root directly with its deleted own shard range and the expanded
+            # acceptor shard range.
             self._update_shard_ranges(
                 donor.account, donor.container, [acceptor], headers=headers)
 

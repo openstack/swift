@@ -1689,7 +1689,8 @@ class ContainerBroker(DatabaseBroker):
     # TODO: add unit test
     def get_shard_usage(self):
         shard_ranges = self.get_shard_ranges(
-            states=[ShardRange.ACTIVE, ShardRange.SHRINKING])
+            states=[ShardRange.ACTIVE, ShardRange.SHRINKING,
+                    ShardRange.EXPANDING])
         return {'bytes_used': sum([sr.bytes_used for sr in shard_ranges]),
                 'object_count': sum([sr.object_count for sr in shard_ranges])}
 
