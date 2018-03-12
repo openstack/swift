@@ -556,6 +556,22 @@ class TestContainerSharding(ReplProbeTest):
                     3, shard_shards,
                     first_lower=orig_root_shard_ranges[0]['lower'],
                     last_upper=orig_root_shard_ranges[0]['upper'])
+
+        # check third sub-shard is in created state
+        sub_shard = shard_shards[2]
+        found_for_sub_shard = self.categorize_container_dir_content(
+            sub_shard.account, sub_shard.container)
+        self.assertFalse(found_for_sub_shard['shard_dbs'])
+        self.assertLengthEqual(found_for_sub_shard['normal_dbs'], 3)
+        for db_file in found_for_sub_shard['normal_dbs']:
+            broker = ContainerBroker(db_file)
+            with annotate_failure('sub shard db file %s. ' % db_file):
+                self.assertIs(False, broker.is_root_container())
+                self.assertEqual('unsharded', broker.get_db_state_text())
+                self.assertEqual(
+                    ShardRange.CREATED, broker.get_own_shard_range().state)
+                self.assertFalse(broker.get_shard_ranges())
+
         # check root shard ranges
         root_shard_ranges = self.direct_get_container_shard_ranges()
         for node, (hdrs, root_shards) in root_shard_ranges.items():

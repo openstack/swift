@@ -675,19 +675,14 @@ class ContainerSharder(ContainerReplicator):
                     state = SHARDING
 
             if state == SHARDING:
-                num_found = num_created = 0
+                num_found = 0
                 scan_complete = config_true_value(
                     broker.get_sharding_info('Scan-Done'))
                 if is_leader and not scan_complete:
                     scan_complete, num_found = self._find_shard_ranges(broker)
 
-                if is_leader:
-                    # create shard containers for newly found ranges
-                    # TODO: the current messing with timestamps when creating
-                    # the shard container makes it safer to restrict this to
-                    # the leader; an improved container creation strategy might
-                    # allow this to run on any node
-                    num_created = self._create_shard_containers(broker)
+                # create shard containers for newly found ranges
+                num_created = self._create_shard_containers(broker)
 
                 # TODO: what if this replication attempt fails? if we wrote the
                 # db then replicator should eventually find it, but what if we
@@ -971,35 +966,22 @@ class ContainerSharder(ContainerReplicator):
         created_ranges = []
         for shard_range in found_ranges:
             self._increment_stat('created', 'attempted')
-            # Create newly found shard containers with a timestamp that is
-            # slightly older that the persisted shard range. Why? The new shard
-            # container will initially be empty. As a result, any shard range
-            # updates received at the root from the shard container are likely
-            # to make the new shard range mistakenly appear ready for
-            # shrinking. Creating the shard container with an older timestamp
-            # means that updates from it will be ignored until cleaving
-            # replicates objects to it and simultaneously updates timestamps to
-            # the persisted shard range timestamps.
-            # TODO: avoid these timestamp shenanigans by sending state to the
-            # shard container and have it not send updates until in active
-            # state
-            older_shard_range = shard_range.copy(
-                timestamp=Timestamp(float(shard_range.timestamp) - 1))
+            shard_range.update_state(ShardRange.CREATED)
             headers = {
                 'X-Backend-Storage-Policy-Index': broker.storage_policy_index,
                 'X-Container-Sysmeta-Shard-Root': broker.root_path,
                 'X-Container-Sysmeta-Sharding': True}
             success = self._send_shard_ranges(
                 shard_range.account, shard_range.container,
-                [older_shard_range], headers=headers)
+                [shard_range], headers=headers)
             if success:
                 self.logger.debug('PUT new shard range container for %s',
-                                  older_shard_range)
+                                  shard_range)
                 self._increment_stat('created', 'success')
             else:
                 self.logger.error(
                     'PUT of new shard container %r failed for %s.',
-                    older_shard_range, broker.path)
+                    shard_range, broker.path)
                 self._increment_stat('created', 'failure')
                 # break, not continue, because elsewhere it is assumed that
                 # finding and cleaving shard ranges progresses linearly, so we
