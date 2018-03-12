@@ -446,6 +446,8 @@ class Replicator(Daemon):
         elif 200 <= response.status < 300:
             rinfo = json.loads(response.data)
             local_sync = broker.get_sync(rinfo['id'], incoming=False)
+            if rinfo.get('metadata', ''):
+                broker.update_metadata(json.loads(rinfo['metadata']))
             if self._in_sync(rinfo, info, broker, local_sync):
                 return True
             # if the difference in rowids between the two differs by
