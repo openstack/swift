@@ -501,19 +501,35 @@ class TestContainerSharding(ReplProbeTest):
 
         # ...but root object count is out of date until the sharders run and
         # update the root
-        headers = client.head_container(
-            self.url, self.token, self.container_name)
-        self.assertIn('x-container-object-count', headers)
-        self.assertEqual(headers['x-container-object-count'],
-                         str(len(obj_names)))
+        self.assert_container_object_count(len(obj_names))
 
-        # ... but, we've added enough that we need to shard *again* into three
-        # new shards which takes two sharder cycles to cleave in batches of 2
+        # run sharders on the shard to get root updated
         shard = ShardRange.from_dict(orig_root_shard_ranges[0])
-        # run first cycle of sharders in order, leader first, to get to
-        # predictable state where all nodes have cleaved 2 out of 3 ranges
         shard_part, shard_nodes = self.get_part_and_node_numbers(
             shard.account, shard.container)
+        self.sharders.once(additional_args='--partitions=%s' % shard_part)
+        self.assert_container_object_count(len(more_obj_names + obj_names))
+
+        # we've added objects enough that we need to shard *again* into three
+        # new shards, but nothing happens until the root leader identifies
+        # shard candidate...
+        root_shard_ranges = self.direct_get_container_shard_ranges()
+        for node, (hdrs, root_shards) in root_shard_ranges.items():
+            self.assertLengthEqual(root_shards, 2)
+            with annotate_failure('node %s. ' % node):
+                self.assertEqual(
+                    [ShardRange.ACTIVE] * 2,
+                    [sr['state'] for sr in root_shards])
+                # orig shards 0, 1 should be contiguous
+                self.assert_shard_ranges_contiguous(2, root_shards)
+
+        # Now run the root leader to identify shard candidate...
+        self.sharders.once(number=self.brain.node_numbers[0],
+                           additional_args='--partitions=%s' % self.brain.part)
+
+        # ...then run first cycle of shard sharders in order, leader first, to
+        # get to predictable state where all nodes have cleaved 2 out of 3
+        # ranges
         for node_number in shard_nodes:
             self.sharders.once(
                 number=node_number,
@@ -529,6 +545,8 @@ class TestContainerSharding(ReplProbeTest):
             with annotate_failure('shard db file %s. ' % db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('sharding', broker.get_db_state_text())
+                self.assertEqual(
+                    ShardRange.SHARDING, broker.get_own_shard_range().state)
                 shard_shards = broker.get_shard_ranges()
                 self.assertEqual(
                     [ShardRange.CLEAVED, ShardRange.CLEAVED,
@@ -546,8 +564,9 @@ class TestContainerSharding(ReplProbeTest):
                 # shard ranges are sorted by lower, upper, so expect:
                 # sub-shard 0, orig shard 0, sub-shards 1 & 2, orig shard 1
                 self.assertEqual(
-                    [ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.CLEAVED,
-                     ShardRange.CREATED, ShardRange.ACTIVE],
+                    [ShardRange.CLEAVED, ShardRange.SHARDING,
+                     ShardRange.CLEAVED, ShardRange.CREATED,
+                     ShardRange.ACTIVE],
                     [sr['state'] for sr in root_shards])
                 # sub-shards 0, 1, 2, orig shard 1 should be contiguous
                 self.assert_shard_ranges_contiguous(
@@ -654,6 +673,7 @@ class TestContainerSharding(ReplProbeTest):
         self.sharders.once(additional_args='--partitions=%s' % partitions)
         # then root is empty and can be deleted
         self.assert_container_listing([])
+        self.assert_container_object_count(0)
         client.delete_container(self.url, self.token, self.container_name)
 
     def test_sharded_listing_no_replicators(self):

@@ -2499,14 +2499,15 @@ class TestContainerController(unittest.TestCase):
         root_path = container_path = 'a/c'
         params = '&state=listing'
         expected_states = [
-            ShardRange.ACTIVE, ShardRange.SHRINKING, ShardRange.EXPANDING]
+            ShardRange.ACTIVE, ShardRange.SHARDING,
+            ShardRange.SHRINKING, ShardRange.EXPANDING]
         do_test(root_path, container_path, params, expected_states)
 
         # shard's shard ranges for listing
         container_path = '.shards_a/c'
         params = '&state=listing'
         expected_states = [
-            ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
             ShardRange.SHRINKING, ShardRange.EXPANDING]
         do_test(root_path, container_path, params, expected_states)
 
@@ -2514,7 +2515,7 @@ class TestContainerController(unittest.TestCase):
         params = '&state=updating'
         expected_states = [
             ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
-            ShardRange.SHRINKING, ShardRange.EXPANDING]
+            ShardRange.SHARDING, ShardRange.SHRINKING, ShardRange.EXPANDING]
         container_path = root_path
         do_test(root_path, container_path, params, expected_states)
 
