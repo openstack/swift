@@ -679,7 +679,7 @@ class ContainerSharder(ContainerReplicator):
 
             if (state == SHARDED and broker.is_root_container() and
                     is_leader):
-                self._find_shrinks(broker, part)
+                self._find_shrinks(broker)
 
             if not broker.is_root_container():
                 # update the root container with this container's shard range
@@ -981,10 +981,10 @@ class ContainerSharder(ContainerReplicator):
             len(created_ranges))
         return len(created_ranges)
 
-    def _find_shrinks(self, broker, part):
-        # this should only execute on root containers; the goal is to find
-        # small shard containers that could be retired by merging with a
-        # neighbour.
+    def _find_shrinks(self, broker):
+        # this should only execute on root containers that have sharded; the
+        # goal is to find small shard containers that could be retired by
+        # merging with a neighbour.
         # First cut is simple: assume root container shard usage stats are good
         # enough to make decision; only merge with upper neighbour so that
         # upper bounds never change (shard names include upper bound).
@@ -999,15 +999,15 @@ class ContainerSharder(ContainerReplicator):
                 broker.account, broker.container)
 
         shard_ranges = broker.get_shard_ranges()
-        dummy_shard_range = None
+        own_shard_range = broker.get_own_shard_range()
         if len(shard_ranges) == 1:
             # special case to enable final shard to shrink into root
-            # Note: currently this dummy shard range is not persisted in root
-            # shard_ranges table; the donor shard does not include it when
-            # updating the root after cleaving itself.
-            dummy_shard_range = broker.get_own_shard_range()
-            dummy_shard_range.state = ShardRange.ACTIVE
-            shard_ranges.append(dummy_shard_range)
+            # TODO: in future own_shard_range will exist and have sharded state
+            # but for now this could be first time own_shard_range is touched
+            # and so we need to make it active in order to satisfy the
+            # conditions for an acceptor
+            own_shard_range.state = ShardRange.ACTIVE
+            shard_ranges.append(own_shard_range)
 
         merge_pairs = {}
         for donor, acceptor in zip(shard_ranges, shard_ranges[1:]):
@@ -1050,9 +1050,9 @@ class ContainerSharder(ContainerReplicator):
                 # and new timestamp for the expanded acceptor below.
                 modified_shard_ranges.append(donor)
             broker.merge_shard_ranges(modified_shard_ranges)
-            if acceptor != dummy_shard_range:
+            if acceptor is not own_shard_range:
                 # Update the acceptor container with its expanding state to
-                # prevent it treating object updates redirected from the donor
+                # prevent it treating objects cleaved from the donor
                 # as misplaced.
                 self._update_shard_ranges(
                     acceptor.account, acceptor.container, [acceptor])

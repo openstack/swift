@@ -277,6 +277,8 @@ class ContainerController(BaseStorageServer):
         :return: an instance of :class:`swift.common.swob.HTTPMovedPermanently`
             if a shard range exists for the given ``obj_name``, otherwise None.
         """
+        # TODO: do we need to restrict the shard range states used here w.r.t.
+        # shrinking?
         shard_ranges = broker.get_shard_ranges(includes=obj_name)
         if shard_ranges:
             containing_range = shard_ranges[0]
