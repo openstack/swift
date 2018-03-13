@@ -117,6 +117,7 @@
       - playbooks/saio_single_node_setup/setup_saio.yaml
       - playbooks/saio_single_node_setup/make_rings.yaml
     run: playbooks/probetests/run.yaml
+    post-run: playbooks/probetests/post.yaml
 
 - project:
     check:
