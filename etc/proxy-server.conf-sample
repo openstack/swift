@@ -445,19 +445,26 @@ user_test5_tester5 = testing5 service
 [filter:s3api]
 use = egg:swift#s3api
 
+# s3api setup:
+#
+# With either tempauth or your custom auth:
+# - Put s3api just before your auth filter(s) in the pipeline
+# With keystone:
+# - Put s3api and s3token before keystoneauth in the pipeline
+#
 # Swift has no concept of the S3's resource owner; the resources
 # (i.e. containers and objects) created via the Swift API have no owner
 # information. This option specifies how the s3api middleware handles them
 # with the S3 API.  If this option is 'false', such kinds of resources will be
 # invisible and no users can access them with the S3 API.  If set to 'true',
-# the resource without owner is belong to everyone and everyone can access it
+# a resource without an owner belongs to everyone and everyone can access it
 # with the S3 API.  If you care about S3 compatibility, set 'false' here.  This
 # option makes sense only when the s3_acl option is set to 'true' and your
 # Swift cluster has the resources created via the Swift API.
 # allow_no_owner = false
 #
-# Set a region name of your Swift cluster.  Note that s3api doesn't choose a
-# region of the newly created bucket actually.  This value is used for the
+# Set a region name of your Swift cluster.  Note that the s3api doesn't choose
+# a region of the newly created bucket.  This value is used for the
 # GET Bucket location API and v4 signatures calculation.
 # location = US
 #
@@ -470,32 +477,31 @@ use = egg:swift#s3api
 # max_bucket_listing = 1000
 #
 # Set the maximum number of parts returned in the List Parts operation.
-# (default: 1000)
-# When setting it to be larger than 10000, set to be larger
-# container_listing_limit in swift.conf.(specification of S3: 1000)
+# (default: 1000 as well as S3 specification)
+# If setting it larger than 10000 (swift container_listing_limit default)
+# make sure you also increase the container_listing_limit in swift.conf.
 # max_parts_listing = 1000
 #
 # Set the maximum number of objects we can delete with the Multi-Object Delete
 # operation.
 # max_multi_delete_objects = 1000
 #
-# If set to 'true', s3api uses its own metadata for ACL
+# If set to 'true', s3api uses its own metadata for ACLs
 # (e.g. X-Container-Sysmeta-S3Api-Acl) to achieve the best S3 compatibility.
-# If set to 'false', s3api tries to use Swift ACL (e.g. X-Container-Read)
-# instead of S3 ACL as far as possible.  If you want to keep backward
-# compatibility with Swift3 1.7 or earlier, set false here
-# If set to 'false' after set to 'true' and put some container/object,
-# all users will be able to access container/object.
-# Note that s3_acl doesn't keep the acl consistency between S3 API and Swift
-# API. (e.g. when set s3acl to true and PUT acl, we won't get the acl
-# information via Swift API at all and the acl won't be applied against to
-# Swift API even if it is for a bucket currently supported.)
+# If set to 'false', s3api tries to use Swift ACLs (e.g. X-Container-Read)
+# instead of S3 ACLs as far as possible.
+# There are some caveats that one should know about this setting. Firstly,
+# if set to 'false' after being previously set to 'true' any new objects or
+# containers stored while 'true' setting will be accessible to all users
+# because the s3 ACLs will be ignored under s3_acl=False setting. Secondly,
+# s3_acl True mode don't keep ACL consistency between both the S3 and Swift
+# API. Meaning with s3_acl enabled S3 ACLs only effect objects and buckets
+# via the S3 API. As this ACL information wont be available via the Swift API
+# and so the ACL wont be applied.
 # Note that s3_acl currently supports only keystone and tempauth.
 # DON'T USE THIS for production before enough testing for your use cases.
 # This stuff is still under development and it might cause something
 # you don't expect.
-# TODO: consider if we can decide s3_acl is true in default
-# TODO: consider if we need to skip some acl tests if s3_acl is off
 # s3_acl = false
 #
 # Specify a host name of your Swift cluster.  This enables virtual-hosted style
@@ -530,7 +536,7 @@ use = egg:swift#s3api
 # If you set this to false, s3api returns all buckets.
 # check_bucket_owner = false
 #
-# In default, Swift reports only S3 style access log.
+# By default, Swift reports only S3 style access log.
 # (e.g. PUT /bucket/object) If set force_swift_request_proxy_log
 # to be 'true', Swift will become to output Swift style log
 # (e.g. PUT /v1/account/container/object) in addition to S3 style log.
@@ -548,7 +554,9 @@ use = egg:swift#s3api
 # log_name = s3api
 
 [filter:s3token]
-# See swift manual for more details.
+# s3token middleware authenticates with keystone using the s3 credentials
+# provided in the request header. Please put s3token between s3api
+# and keystoneauth if you're using keystoneauth.
 use = egg:swift#s3token
 
 # Prefix that will be prepended to the tenant to form the account

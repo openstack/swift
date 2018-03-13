@@ -25,10 +25,10 @@ class S3AclController(Controller):
     """
     Handles the following APIs:
 
-     - GET Bucket acl
-     - PUT Bucket acl
-     - GET Object acl
-     - PUT Object acl
+    * GET Bucket acl
+    * PUT Bucket acl
+    * GET Object acl
+    * PUT Object acl
 
     Those APIs are logged as ACL operations in the S3 server log.
     """

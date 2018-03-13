@@ -12,7 +12,43 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+------------
+Acl Handlers
+------------
 
+Why do we need this
+^^^^^^^^^^^^^^^^^^^
+
+To make controller classes clean, we need these handlers.
+It is really useful for customizing acl checking algorithms for
+each controller.
+
+Basic Information
+^^^^^^^^^^^^^^^^^
+
+BaseAclHandler wraps basic Acl handling.
+(i.e. it will check acl from ACL_MAP by using HEAD)
+
+How to extend
+^^^^^^^^^^^^^
+
+Make a handler with the name of the controller.
+(e.g. BucketAclHandler is for BucketController)
+It consists of method(s) for actual S3 method on controllers as follows.
+
+Example::
+
+   class BucketAclHandler(BaseAclHandler):
+       def PUT:
+           << put acl handling algorithms here for PUT bucket >>
+
+.. note::
+  If the method DON'T need to recall _get_response in outside of
+  acl checking, the method have to return the response it needs at
+  the end of method.
+
+"""
 import sys
 
 from swift.common.middleware.s3api.subresource import ACL, Owner, encode_acl
@@ -23,34 +59,6 @@ from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
 from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
     sysmeta_header
 from contextlib import contextmanager
-
-"""
-Acl Handlers:
-
-Why do we need this:
-To make controller classes clean, we need these handlers.
-It is really useful for customizing acl checking algorithms for
-each controller.
-
-Basic Information:
-BaseAclHandler wraps basic Acl handling.
-(i.e. it will check acl from ACL_MAP by using HEAD)
-
-How to extend:
-Make a handler with the name of the controller.
-(e.g. BucketAclHandler is for BucketController)
-It consists of method(s) for actual S3 method on controllers as follows.
-
-e.g.:
-class BucketAclHandler(BaseAclHandler):
-   def PUT:
-       << put acl handling algorithms here for PUT bucket >>
-
-NOTE:
-If the method DON'T need to recall _get_response in outside of
-acl checking, the method have to return the response it needs at
-the end of method.
-"""
 
 
 def get_acl_handler(controller_name):
@@ -315,18 +323,19 @@ class MultiUploadAclHandler(BaseAclHandler):
     request to backend Swift at incoming request.
 
     Basic Rules:
-    - BASE container name is always w/o 'MULTIUPLOAD_SUFFIX'
-    - Any check timing is ok but we should check it as soon as possible.
+      - BASE container name is always w/o 'MULTIUPLOAD_SUFFIX'
+      - Any check timing is ok but we should check it as soon as possible.
 
-     Controller | Verb   | CheckResource | Permission
-    --------------------------------------------------
-     Part       | PUT    | Container     | WRITE
-     Uploads    | GET    | Container     | READ
-     Uploads    | POST   | Container     | WRITE
-     Upload     | GET    | Container     | READ
-     Upload     | DELETE | Container     | WRITE
-     Upload     | POST   | Container     | WRITE
-     -------------------------------------------------
+    ========== ====== ============= ==========
+    Controller Verb   CheckResource Permission
+    ========== ====== ============= ==========
+    Part       PUT    Container     WRITE
+    Uploads    GET    Container     READ
+    Uploads    POST   Container     WRITE
+    Upload     GET    Container     READ
+    Upload     DELETE Container     WRITE
+    Upload     POST   Container     WRITE
+    ========== ====== ============= ==========
 
     """
     def __init__(self, req, logger):

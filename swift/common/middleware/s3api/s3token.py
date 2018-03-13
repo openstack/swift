@@ -20,13 +20,15 @@
 # See them for their copyright.
 
 """
+-------------------
 S3 Token Middleware
-
-This WSGI component:
+-------------------
+s3token middleware is for authentication with s3api + keystone.
+This middleware:
 
 * Gets a request from the s3api middleware with an S3 Authorization
   access key.
-* Validates s3 token in Keystone.
+* Validates s3 token with Keystone.
 * Transforms the account name to AUTH_%(tenant_name).
 
 """

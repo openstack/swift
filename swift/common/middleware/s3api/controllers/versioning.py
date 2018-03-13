@@ -25,8 +25,8 @@ class VersioningController(Controller):
     """
     Handles the following APIs:
 
-     - GET Bucket versioning
-     - PUT Bucket versioning
+    * GET Bucket versioning
+    * PUT Bucket versioning
 
     Those APIs are logged as VERSIONING operations in the S3 server log.
     """

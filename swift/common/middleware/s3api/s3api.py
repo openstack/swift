@@ -35,6 +35,59 @@ An example client using the python boto library is as follows::
         is_secure=False,
         calling_format=boto.s3.connection.OrdinaryCallingFormat())
 
+----------
+Deployment
+----------
+
+Proxy-Server Setting
+^^^^^^^^^^^^^^^^^^^^
+
+Set s3api before your auth in your pipeline in ``proxy-server.conf`` file.
+To enable all compatiblity currently supported, you should make sure that
+bulk, slo, and your auth middleware are also included in your proxy
+pipeline setting.
+
+Minimum example config is::
+
+    [pipeline:main]
+    pipeline = proxy-logging cache s3api tempauth bulk slo proxy-logging
+    proxy-server
+
+When using keystone, the config will be::
+
+    [pipeline:main]
+    pipeline = proxy-logging cache s3api s3token keystoneauth bulk slo
+    proxy-logging proxy-server
+
+.. note::
+    ``keystonemiddleware.authtoken`` can be located before/after s3api but
+    we recommend to put it before s3api because when authtoken is after s3api,
+    both authtoken and s3token will issue the acceptable token to keystone
+    (i.e. authenticate twice).
+
+Object-Server Setting
+^^^^^^^^^^^^^^^^^^^^^
+
+To get better compatibility, you may add S3 supported headers (
+Cache-Control, Content-Language, Expires, and X-Robots-Tag), that are
+not supporeted in Swift by default, into allowed_headers option in
+``object-server.conf`` Please see ``object-server.conf`` for more detail.
+
+-----------
+Constraints
+-----------
+Currently, the s3api is being ported from https://github.com/openstack/swift3
+so any existing issues in swift3 are still remaining. Please make sure
+descriptions in the example ``proxy-server.conf`` and what happens with the
+config, before enabling the options.
+
+-------------
+Supported API
+-------------
+The compatibility will continue to be improved upstream, you can keep and
+eye on compatibility via a check tool build by SwiftStack. See
+https://github.com/swiftstack/s3compat in detail.
+
 """
 
 from paste.deploy import loadwsgi

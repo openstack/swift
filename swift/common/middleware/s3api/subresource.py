@@ -12,7 +12,35 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+---------------------------
+s3api's ACLs implementation
+---------------------------
+s3api uses a different implementation approach to achieve S3 ACLs.
 
+First, we should understand what we have to design to achieve real S3 ACLs.
+Current s3api(real S3)'s ACLs Model is as follows::
+
+    AccessControlPolicy:
+        Owner:
+        AccessControlList:
+            Grant[n]:
+                (Grantee, Permission)
+
+Each bucket or object has its own acl consisting of Owner and
+AcessControlList. AccessControlList can contain some Grants.
+By default, AccessControlList has only one Grant to allow FULL
+CONTROLL to owner. Each Grant includes single pair with Grantee,
+Permission. Grantee is the user (or user group) allowed the given permission.
+
+This module defines the groups and the relation tree.
+
+If you wanna get more information about S3's ACLs model in detail,
+please see official documentation here,
+
+http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html
+
+"""
 from functools import partial
 
 from swift.common.utils import json
@@ -27,30 +55,6 @@ from swift.common.middleware.s3api.exception import InvalidSubresource
 XMLNS_XSI = 'http://www.w3.org/2001/XMLSchema-instance'
 PERMISSIONS = ['FULL_CONTROL', 'READ', 'WRITE', 'READ_ACP', 'WRITE_ACP']
 LOG_DELIVERY_USER = '.log_delivery'
-
-"""
-An entry point of this approach is here.
-We should understand what we have to design to achieve real S3 ACL.
-S3's ACL Model is as follows:
-
-AccessControlPolicy:
-    Owner:
-    AccessControlList:
-        Grant[n]:
-            (Grantee, Permission)
-
-Each bucket or object has its own acl consists of Owner and
-AcessControlList. AccessControlList can contain some Grants.
-By default, AccessControlList has only one Grant to allow FULL
-CONTROLL to owner. Each Grant includes single pair with Grantee,
-Permission. Grantee is the user (or user group) allowed the given permission.
-
-If you wanna get more information about S3's ACL model in detail,
-please see official documentation here,
-
-http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html
-
-"""
 
 
 def encode_acl(resource, acl):
@@ -125,22 +129,24 @@ class Grantee(object):
     """
     Base class for grantee.
 
-    :Definition (methods):
-    init -> create a Grantee instance
-    elem -> create an ElementTree from itself
+    Methods:
 
-    :Definition (static methods):
-    from_header -> convert a grantee string in the HTTP header
+    * init: create a Grantee instance
+    * elem: create an ElementTree from itself
+
+    Static Methods:
+
+    * from_header: convert a grantee string in the HTTP header
                    to an Grantee instance.
-    from_elem -> convert a ElementTree to an Grantee instance.
+    * from_elem: convert a ElementTree to an Grantee instance.
 
-    TODO (not yet):
-    NOTE: Needs confirmation whether we really need these methods or not.
-    encode (method) -> create a JSON which includes whole own elements
-    encode_from_elem (static method) -> convert from an ElementTree to a JSON
-    elem_from_json (static method) -> convert from a JSON to an ElementTree
-    from_json (static method) -> convert a Json string to an Grantee instance.
     """
+    # Needs confirmation whether we really need these methods or not.
+    # * encode (method): create a JSON which includes whole own elements
+    # * encode_from_elem (static method): convert from an ElementTree to a JSON
+    # * elem_from_json (static method): convert from a JSON to an ElementTree
+    # * from_json (static method): convert a Json string to an Grantee
+    #                              instance.
 
     def __contains__(self, key):
         """

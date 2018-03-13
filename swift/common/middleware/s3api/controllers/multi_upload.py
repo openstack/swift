@@ -12,34 +12,51 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """
 Implementation of S3 Multipart Upload.
 
 This module implements S3 Multipart Upload APIs with the Swift SLO feature.
-The following explains how s3api uses swift container and objects to store S3
+The following explains how S3api uses swift container and objects to store S3
 upload information:
 
- - [bucket]+segments
+-----------------
+[bucket]+segments
+-----------------
 
-   A container to store upload information.  [bucket] is the original bucket
-   where multipart upload is initiated.
+A container to store upload information. [bucket] is the original bucket
+where multipart upload is initiated.
 
- - [bucket]+segments/[upload_id]
+-----------------------------
+[bucket]+segments/[upload_id]
+-----------------------------
 
-   A object of the ongoing upload id.  The object is empty and used for
-   checking the target upload status.  If the object exists, it means that the
-   upload is initiated but not either completed or aborted.
+A object of the ongoing upload id. The object is empty and used for
+checking the target upload status. If the object exists, it means that the
+upload is initiated but not either completed or aborted.
 
+-------------------------------------------
+[bucket]+segments/[upload_id]/[part_number]
+-------------------------------------------
 
- - [bucket]+segments/[upload_id]/1
-   [bucket]+segments/[upload_id]/2
-   [bucket]+segments/[upload_id]/3
+The last suffix is the part number under the upload id. When the client uploads
+the parts, they will be stored in the namespace with
+[bucket]+segments/[upload_id]/[part_number].
+
+Example listing result in the [bucket]+segments container::
+
+  [bucket]+segments/[upload_id1]  # upload id object for upload_id1
+  [bucket]+segments/[upload_id1]/1  # part object for upload_id1
+  [bucket]+segments/[upload_id1]/2  # part object for upload_id1
+  [bucket]+segments/[upload_id1]/3  # part object for upload_id1
+  [bucket]+segments/[upload_id2]  # upload id object for upload_id2
+  [bucket]+segments/[upload_id2]/1  # part object for upload_id2
+  [bucket]+segments/[upload_id2]/2  # part object for upload_id2
      .
      .
 
-   Uploaded part objects.  Those objects are directly used as segments of Swift
-   Static Large Object.
+Those part objects are directly used as segments of a Swift
+Static Large Object when the multipart upload is completed.
+
 """
 
 import os
@@ -91,8 +108,8 @@ class PartController(Controller):
     """
     Handles the following APIs:
 
-     - Upload Part
-     - Upload Part - Copy
+    * Upload Part
+    * Upload Part - Copy
 
     Those APIs are logged as PART operations in the S3 server log.
     """
@@ -168,8 +185,8 @@ class UploadsController(Controller):
     """
     Handles the following APIs:
 
-     - List Multipart Uploads
-     - Initiate Multipart Upload
+    * List Multipart Uploads
+    * Initiate Multipart Upload
 
     Those APIs are logged as UPLOADS operations in the S3 server log.
     """
@@ -369,9 +386,9 @@ class UploadController(Controller):
     """
     Handles the following APIs:
 
-     - List Parts
-     - Abort Multipart Upload
-     - Complete Multipart Upload
+    * List Parts
+    * Abort Multipart Upload
+    * Complete Multipart Upload
 
     Those APIs are logged as UPLOAD operations in the S3 server log.
     """

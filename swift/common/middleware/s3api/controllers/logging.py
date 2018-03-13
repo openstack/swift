@@ -26,8 +26,8 @@ class LoggingStatusController(Controller):
     """
     Handles the following APIs:
 
-     - GET Bucket logging
-     - PUT Bucket logging
+    * GET Bucket logging
+    * PUT Bucket logging
 
     Those APIs are logged as LOGGING_STATUS operations in the S3 server log.
     """
