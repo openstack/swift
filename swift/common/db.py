@@ -56,12 +56,19 @@ def utf8encode(*args):
             for s in args]
 
 
-def utf8encodekeys(metadata):
-    uni_keys = [k for k in metadata if isinstance(k, six.text_type)]
-    for k in uni_keys:
-        sv = metadata[k]
-        del metadata[k]
-        metadata[k.encode('utf-8')] = sv
+def native_str_keys(metadata):
+    if six.PY2:
+        uni_keys = [k for k in metadata if isinstance(k, six.text_type)]
+        for k in uni_keys:
+            sv = metadata[k]
+            del metadata[k]
+            metadata[k.encode('utf-8')] = sv
+    else:
+        bin_keys = [k for k in metadata if isinstance(k, six.binary_type)]
+        for k in bin_keys:
+            sv = metadata[k]
+            del metadata[k]
+            metadata[k.decode('utf-8')] = sv
 
 
 def _db_timeout(timeout, db_file, call):
@@ -777,7 +784,7 @@ class DatabaseBroker(object):
         metadata = self.get_raw_metadata()
         if metadata:
             metadata = json.loads(metadata)
-            utf8encodekeys(metadata)
+            native_str_keys(metadata)
         else:
             metadata = {}
         return metadata
@@ -839,7 +846,7 @@ class DatabaseBroker(object):
                                     self.db_type)
                 md = row[0]
                 md = json.loads(md) if md else {}
-                utf8encodekeys(md)
+                native_str_keys(md)
             except sqlite3.OperationalError as err:
                 if 'no such column: metadata' not in str(err):
                     raise

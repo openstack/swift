@@ -1560,7 +1560,9 @@ class TestReplToNode(unittest.TestCase):
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
         metadata = self.broker.metadata
-        self.assertEqual({}, metadata)
+        self.assertIn("X-Container-Sysmeta-Test", metadata)
+        self.assertEqual("XYZ", metadata["X-Container-Sysmeta-Test"][0])
+        self.assertEqual(now, metadata["X-Container-Sysmeta-Test"][1])
 
     def test_repl_to_node_not_found(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=404)

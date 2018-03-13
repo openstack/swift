@@ -1292,7 +1292,7 @@ def xattr_supported_check():
     # assume the worst -- xattrs aren't supported
     supports_xattr_cached_val = False
 
-    big_val = 'x' * (4096 + 1)  # more than 4k of metadata
+    big_val = b'x' * (4096 + 1)  # more than 4k of metadata
     try:
         fd, tmppath = mkstemp()
         xattr.setxattr(fd, 'user.swift.testing_key', big_val)

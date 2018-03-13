@@ -290,8 +290,8 @@ def _resp_status_property():
         else:
             if isinstance(value, six.text_type):
                 value = value.encode('utf-8')
-            self.status_int = int(value.split(' ', 1)[0])
-            self.explanation = self.title = value.split(' ', 1)[1]
+            self.status_int = int(value.split(b' ', 1)[0])
+            self.explanation = self.title = value.split(b' ', 1)[1]
 
     return property(getter, setter,
                     doc="Retrieve and set the Response status, e.g. '200 OK'")
