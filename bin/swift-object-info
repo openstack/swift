@@ -40,6 +40,9 @@ if __name__ == '__main__':
         '-d', '--swift-dir', default='/etc/swift', dest='swift_dir',
         help="Pass location of swift directory")
     parser.add_option(
+        '--drop-prefixes', default=False, action="store_true",
+        help="When outputting metadata, drop the per-section common prefixes")
+    parser.add_option(
         '-P', '--policy-name', dest='policy_name',
         help="Specify storage policy name")
 

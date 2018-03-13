@@ -23,7 +23,7 @@ from swift.common.utils import hash_path, storage_directory, \
 from swift.common.ring import Ring
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     strip_sys_meta_prefix, strip_user_meta_prefix, \
-    is_object_transient_sysmeta
+    is_object_transient_sysmeta, strip_object_transient_sysmeta_prefix
 from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
 from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
 from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
@@ -191,13 +191,17 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
           'real value is set in the config file on each storage node.')
 
 
-def print_db_info_metadata(db_type, info, metadata):
+def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False):
     """
     print out data base info/metadata based on its type
 
     :param db_type: database type, account or container
     :param info: dict of data base info
     :param metadata: dict of data base metadata
+    :param drop_prefixes: if True, strip "X-Account-Meta-",
+                          "X-Container-Meta-", "X-Account-Sysmeta-", and
+                          "X-Container-Sysmeta-" when displaying
+                          User Metadata and System Metadata dicts
     """
     if info is None:
         raise ValueError('DB info is None')
@@ -274,9 +278,13 @@ def print_db_info_metadata(db_type, info, metadata):
     sys_metadata = {}
     for key, (value, timestamp) in metadata.items():
         if is_user_meta(db_type, key):
-            user_metadata[strip_user_meta_prefix(db_type, key)] = value
+            if drop_prefixes:
+                key = strip_user_meta_prefix(db_type, key)
+            user_metadata[key] = value
         elif is_sys_meta(db_type, key):
-            sys_metadata[strip_sys_meta_prefix(db_type, key)] = value
+            if drop_prefixes:
+                key = strip_sys_meta_prefix(db_type, key)
+            sys_metadata[key] = value
         else:
             title = key.replace('_', '-').title()
             print('  %s: %s' % (title, value))
@@ -291,7 +299,7 @@ def print_db_info_metadata(db_type, info, metadata):
         print('No user metadata found in db file')
 
 
-def print_obj_metadata(metadata):
+def print_obj_metadata(metadata, drop_prefixes=False):
     """
     Print out basic info and metadata from object, as returned from
     :func:`swift.obj.diskfile.read_metadata`.
@@ -302,6 +310,10 @@ def print_obj_metadata(metadata):
     Additional metadata is displayed unmodified.
 
     :param metadata: dict of object metadata
+    :param drop_prefixes: if True, strip "X-Object-Meta-", "X-Object-Sysmeta-",
+                          and "X-Object-Transient-Sysmeta-" when displaying
+                          User Metadata, System Metadata, and Transient
+                          System Metadata entries
 
     :raises ValueError:
     """
@@ -341,10 +353,16 @@ def print_obj_metadata(metadata):
 
     for key, value in metadata.items():
         if is_user_meta('Object', key):
+            if drop_prefixes:
+                key = strip_user_meta_prefix('Object', key)
             user_metadata[key] = value
         elif is_sys_meta('Object', key):
+            if drop_prefixes:
+                key = strip_sys_meta_prefix('Object', key)
             sys_metadata[key] = value
         elif is_object_transient_sysmeta(key):
+            if drop_prefixes:
+                key = strip_object_transient_sysmeta_prefix(key)
             transient_sys_metadata[key] = value
         else:
             other_metadata[key] = value
@@ -363,7 +381,8 @@ def print_obj_metadata(metadata):
     print_metadata('Other Metadata:', other_metadata)
 
 
-def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False):
+def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
+               drop_prefixes=False):
     if db_type not in ('account', 'container'):
         print("Unrecognized DB type: internal error")
         raise InfoSystemExit()
@@ -388,7 +407,7 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False):
         raise
     account = info['account']
     container = info['container'] if db_type == 'container' else None
-    print_db_info_metadata(db_type, info, broker.metadata)
+    print_db_info_metadata(db_type, info, broker.metadata, drop_prefixes)
     try:
         ring = Ring(swift_dir, ring_name=db_type)
     except Exception:
@@ -398,7 +417,7 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False):
 
 
 def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
-              policy_name=''):
+              policy_name='', drop_prefixes=False):
     """
     Display information about an object read from the datafile.
     Optionally verify the datafile content matches the ETag metadata.
@@ -409,6 +428,10 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
                        metadata.
     :param swift_dir: the path on disk to rings
     :param policy_name: optionally the name to use when finding the ring
+    :param drop_prefixes: if True, strip "X-Object-Meta-", "X-Object-Sysmeta-",
+                          and "X-Object-Transient-Sysmeta-" when displaying
+                          User Metadata, System Metadata, and Transient
+                          System Metadata entries
     """
     if not os.path.exists(datafile):
         print("Data file doesn't exist")
@@ -458,7 +481,7 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
         etag = metadata.pop('ETag', '')
         length = metadata.pop('Content-Length', '')
         path = metadata.get('name', '')
-        print_obj_metadata(metadata)
+        print_obj_metadata(metadata, drop_prefixes)
 
         # Optional integrity check; it's useful, but slow.
         file_len = None
