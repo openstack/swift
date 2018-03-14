@@ -87,13 +87,14 @@ def roundrobin_datadirs(datadirs):
     found (in their proper places). The partitions within each data
     dir are walked randomly, however.
 
-    :param datadirs: a list of (path, node_id) to walk
+    :param datadirs: a list of (path, node_id, partition_filter) to walk
     :returns: A generator of (partition, path_to_db_file, node_id)
     """
 
-    def walk_datadir(datadir, node_id):
+    def walk_datadir(datadir, node_id, part_filter):
         partitions = [pd for pd in os.listdir(datadir)
-                      if looks_like_partition(pd)]
+                      if looks_like_partition(pd)
+                      and (part_filter is None or part_filter(pd))]
         random.shuffle(partitions)
         for partition in partitions:
             part_dir = os.path.join(datadir, partition)
@@ -125,7 +126,8 @@ def roundrobin_datadirs(datadirs):
                             if e.errno != errno.ENOTEMPTY:
                                 raise
 
-    its = [walk_datadir(datadir, node_id) for datadir, node_id in datadirs]
+    its = [walk_datadir(datadir, node_id, filt)
+           for datadir, node_id, filt in datadirs]
     while its:
         for it in its:
             try:
@@ -206,6 +208,7 @@ class Replicator(Daemon):
                                    self.recon_replicator)
         self.extract_device_re = re.compile('%s%s([^%s]+)' % (
             self.root, os.path.sep, os.path.sep))
+        self.handoffs_only = config_true_value(conf.get('handoffs_only', 'no'))
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -633,6 +636,14 @@ class Replicator(Daemon):
             return match.groups()[0]
         return "UNKNOWN"
 
+    def handoffs_only_filter(self, device_id):
+        def filt(partition_dir):
+            partition = int(partition_dir)
+            primary_node_ids = [
+                d['id'] for d in self.ring.get_part_nodes(partition)]
+            return device_id not in primary_node_ids
+        return filt
+
     def report_up_to_date(self, full_info):
         return True
 
@@ -644,6 +655,13 @@ class Replicator(Daemon):
         if not ips:
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
+
+        if self.handoffs_only:
+            self.logger.warning(
+                'Starting replication pass with handoffs_only enabled. '
+                'This mode is not intended for normal '
+                'operation; use handoffs_only with care.')
+
         self._local_device_ids = set()
         found_local = False
         for node in self.ring.devs:
@@ -666,7 +684,9 @@ class Replicator(Daemon):
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
                     self._local_device_ids.add(node['id'])
-                    dirs.append((datadir, node['id']))
+                    filt = (self.handoffs_only_filter(node['id'])
+                            if self.handoffs_only else None)
+                    dirs.append((datadir, node['id'], filt))
         if not found_local:
             self.logger.error("Can't find itself %s with port %s in ring "
                               "file, not replicating",
@@ -677,6 +697,10 @@ class Replicator(Daemon):
                 self._replicate_object, part, object_file, node_id)
         self.cpool.waitall()
         self.logger.info(_('Replication run OVER'))
+        if self.handoffs_only:
+            self.logger.warning(
+                'Finished replication pass with handoffs_only enabled. '
+                'If handoffs_only is no longer required, disable it.')
         self._report_stats()
 
     def run_forever(self, *args, **kwargs):
