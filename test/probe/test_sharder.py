@@ -243,14 +243,11 @@ class TestContainerSharding(ReplProbeTest):
         actual = sum([sr['object_count'] for sr in shard_ranges])
         self.assertEqual(expected_object_count, actual)
 
-    def assert_container_listing(self, expected_listing,
-                                 expected_obj_count=None):
+    def assert_container_listing(self, expected_listing):
         headers, actual_listing = client.get_container(
             self.url, self.token, self.container_name)
         self.assertIn('x-container-object-count', headers)
-        if expected_obj_count is None:
-            expected_obj_count = len(expected_listing)
-
+        expected_obj_count = len(expected_listing)
         self.assertEqual(expected_listing, [
             x['name'].encode('utf-8') for x in actual_listing])
         self.assertEqual(str(expected_obj_count),
@@ -475,7 +472,7 @@ class TestContainerSharding(ReplProbeTest):
             'beta%03d' % x for x in range(self.max_shard_size)]
         self.put_objects(more_obj_names)
 
-        # The listing includes new object...
+        # The listing includes new objects...
         headers, listing = self.assert_container_listing(
             more_obj_names + obj_names)
         self.assertEqual(pre_sharding_listing, listing[len(more_obj_names):])
