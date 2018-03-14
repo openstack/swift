@@ -724,7 +724,7 @@ class ContainerSharder(ContainerReplicator):
                              ', '.join(override_partitions))
         dirs = []
         self.shard_cleanups = dict()
-        self.ips = whataremyips()
+        self.ips = whataremyips(bind_ip=self.bind_ip)
         for node in self.ring.devs:
             if not node:
                 continue
