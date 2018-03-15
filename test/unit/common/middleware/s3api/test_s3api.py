@@ -117,7 +117,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
             with patch('swift.common.middleware.s3api.request.'
                        'Request._validate_headers'):
-                req = S3Request(env, self.conf)
+                req = S3Request(env)
             return req.environ['swift3.auth_details']['string_to_sign']
 
         def verify(hash, path, headers):
@@ -711,7 +711,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             env.update(environ)
             with patch('swift.common.middleware.s3api.request.'
                        'Request._validate_headers'):
-                req = SigV4Request(env, self.conf)
+                req = SigV4Request(env, location=self.conf.location)
             return req
 
         def canonical_string(path, environ):

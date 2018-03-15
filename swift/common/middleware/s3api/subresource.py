@@ -74,7 +74,7 @@ def encode_acl(resource, acl):
     return headers
 
 
-def decode_acl(resource, headers, s3_acl, allow_no_owner):
+def decode_acl(resource, headers, allow_no_owner):
     """
     Decode Swift metadata to an ACL instance.
 
@@ -92,12 +92,12 @@ def decode_acl(resource, headers, s3_acl, allow_no_owner):
         # I want an instance of Owner as None.
         # However, in the above process would occur error in reference
         # to an instance variable of Owner.
-        return ACL(Owner(None, None), [], s3_acl, allow_no_owner)
+        return ACL(Owner(None, None), [], True, allow_no_owner)
 
     try:
         encode_value = json.loads(value)
         if not isinstance(encode_value, dict):
-            return ACL(Owner(None, None), [], s3_acl, allow_no_owner)
+            return ACL(Owner(None, None), [], True, allow_no_owner)
 
         id = None
         name = None
@@ -116,7 +116,7 @@ def decode_acl(resource, headers, s3_acl, allow_no_owner):
                     grantee = User(grant['Grantee'])
                 permission = grant['Permission']
                 grants.append(Grant(grantee, permission))
-        return ACL(Owner(id, name), grants, s3_acl, allow_no_owner)
+        return ACL(Owner(id, name), grants, True, allow_no_owner)
     except Exception as e:
         raise InvalidSubresource((resource, 'acl', value), e)
 
@@ -444,7 +444,7 @@ class ACL(object):
         Check that the user is an owner.
         """
         if not self.s3_acl:
-            # Ignore Swift3 ACL.
+            # Ignore S3api ACL.
             return
 
         if not self.owner.id:
@@ -461,7 +461,7 @@ class ACL(object):
         Check that the user has a permission.
         """
         if not self.s3_acl:
-            # Ignore Swift3 ACL.
+            # Ignore S3api ACL.
             return
 
         try:

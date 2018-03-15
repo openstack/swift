@@ -94,7 +94,11 @@ class S3ApiMiddleware(object):
     def __call__(self, env, start_response):
         try:
             req_class = get_request_class(env, self.conf.s3_acl)
-            req = req_class(env, self.conf, self.app, self.slo_enabled)
+            req = req_class(
+                env, self.app, self.slo_enabled, self.conf.storage_domain,
+                self.conf.location, self.conf.force_swift_request_proxy_log,
+                self.conf.dns_compliant_bucket_names,
+                self.conf.allow_multipart_uploads, self.conf.allow_no_owner)
             resp = self.handle_request(req)
         except NotS3Request:
             resp = self.app
