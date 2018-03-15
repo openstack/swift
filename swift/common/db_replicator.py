@@ -569,12 +569,19 @@ class Replicator(Daemon):
         :param partition: partition to be replicated to
         :param object_file: DB file name to be replicated
         :param node_id: node id of the node to be replicated to
+        :returns: a tuple (success, responses). ``success`` is a boolean that
+            is True if the method completed successfully, False otherwise.
+            ``responses`` is a list of booleans each of which indicates the
+            success or not of replicating to a peer node if replication has
+            been attempted. ``responses`` may be empty; ``success`` is False
+            if any of ``responses`` is False.
         """
         start_time = now = time.time()
         self.logger.debug('Replicating db %s', object_file)
         self.stats['attempted'] += 1
         self.logger.increment('attempts')
         shouldbehere = True
+        responses = []
         try:
             broker = self.brokerclass(object_file, pending_timeout=30)
             if self._is_locked(broker):
@@ -607,7 +614,7 @@ class Replicator(Daemon):
                                       failure_dev['device'])
                                      for failure_dev in nodes])
             self.logger.increment('failures')
-            return
+            return False, responses
         # The db is considered deleted if the delete_timestamp value is greater
         # than the put_timestamp, and there are no objects.
         delete_timestamp = Timestamp(info.get('delete_timestamp') or 0)
@@ -617,8 +624,7 @@ class Replicator(Daemon):
             if self.report_up_to_date(info):
                 self.delete_db(broker)
             self.logger.timing_since('timing', start_time)
-            return
-        responses = []
+            return True, responses
         failure_devs_info = set()
         nodes = self.ring.get_part_nodes(int(partition))
         local_dev = None
@@ -691,6 +697,9 @@ class Replicator(Daemon):
         self._add_failure_stats(failure_devs_info)
 
         self.logger.timing_since('timing', start_time)
+        if shouldbehere:
+            responses.append(True)
+        return all(responses), responses
 
     def delete_db(self, broker):
         object_file = broker.db_file

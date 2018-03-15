@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
+import random
 
 import eventlet
 import os
@@ -29,7 +30,7 @@ from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
 from swift.container.sharder import ContainerSharder, RangeAnalyser, \
     sharding_enabled
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
-    encode_timestamps, parse_db_filename
+    encode_timestamps, parse_db_filename, quorum_size
 from test import annotate_failure
 
 from test.unit import FakeLogger, debug_logger, FakeRing, \
@@ -566,7 +567,8 @@ class TestSharder(unittest.TestCase):
                     lambda *args, **kwargs: FakeRing(replicas=replicas)):
                 sharder = ContainerSharder(conf, logger=debug_logger())
                 sharder._local_device_ids = {0, 1, 2}
-                sharder._replicate_object = mock.MagicMock()
+                sharder._replicate_object = mock.MagicMock(
+                    return_value=(True, [True] * sharder.ring.replica_count))
                 sharder.shard_cleanups = dict()  # TODO: try to eliminate this
                 yield sharder
 
@@ -704,7 +706,41 @@ class TestSharder(unittest.TestCase):
         for i in range(1, 4):
             shard_ranges[i].update_state(ShardRange.CREATED)
         broker.merge_shard_ranges(shard_ranges[1:4])
+
+        # replication of next shard range is not sufficiently successful
         with self._mock_sharder() as sharder:
+            quorum = quorum_size(sharder.ring.replica_count)
+            successes = [True] * (quorum - 1)
+            fails = [False] * (sharder.ring.replica_count - len(successes))
+            responses = successes + fails
+            random.shuffle(responses)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=((False, responses),))
+            self.assertFalse(sharder._cleave(broker))
+        sharder._replicate_object.assert_called_once_with(
+            0, expected_shard_dbs[1], 0)
+
+        # cleaving state is unchanged
+        updated_shard_ranges = broker.get_shard_ranges()
+        self.assertEqual(4, len(updated_shard_ranges))
+        for i in range(1, len(updated_shard_ranges)):
+            with annotate_failure(i):
+                self.assertEqual(dict(shard_ranges[i]),
+                                 dict(updated_shard_ranges[i]))
+        metadata = broker.metadata
+        cursor_key = 'X-Container-Sysmeta-Shard-Cursor-%s' % cleaving_ref
+        self.assertIn(cursor_key, metadata)
+        self.assertEqual(
+            {'cursor': 'here'}, json.loads(metadata[cursor_key][0]))
+
+        # try again, this time replication is sufficiently successful
+        with self._mock_sharder() as sharder:
+            successes = [True] * quorum
+            fails = [False] * (sharder.ring.replica_count - len(successes))
+            responses1 = successes + fails
+            responses2 = fails + successes
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=((False, responses1), (False, responses2)))
             self.assertFalse(sharder._cleave(broker))
 
         expected = {'attempted': 2, 'success': 2, 'failure': 0,

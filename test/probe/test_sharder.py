@@ -284,10 +284,11 @@ class TestContainerSharding(ReplProbeTest):
         self.assertIn('X-Backend-Sharding-State', headers)
         self.assertEqual(
             str(expected_state), headers['X-Backend-Sharding-State'])
+        return [ShardRange.from_dict(sr) for sr in shard_ranges]
 
     def get_part_and_node_numbers(self, account, container):
         part, nodes = self.brain.ring.get_nodes(account, container)
-        return part, (n['id'] + 1 for n in nodes)
+        return part, [n['id'] + 1 for n in nodes]
 
     def test_sharding_listing(self):
         # verify parameterised listing of a container during sharding
@@ -1140,6 +1141,7 @@ class TestContainerSharding(ReplProbeTest):
     def _setup_replication_scenario(self, num_shards):
         # Get cluster to state where 2 replicas are sharding or sharded but 3rd
         # replica is unsharded and has an object that the first 2 are missing.
+
         # put objects while all servers are up
         obj_names = ['obj%03d' % x
                      for x in range(num_shards * self.max_shard_size / 2)]
@@ -1270,3 +1272,84 @@ class TestContainerSharding(ReplProbeTest):
                 number=number,
                 additional_args='--partitions=%s' % self.brain.part)
         self.assert_container_listing(['alpha'] + obj_names)
+
+    def test_sharding_requires_sufficient_replication(self):
+        # verify that cleaving only progresses if each cleaved shard range is
+        # sufficiently replicated
+
+        # put enough objects for 4 shard ranges
+        obj_names = ['obj%03d' % x for x in range(2 * self.max_shard_size)]
+        self.put_objects(obj_names)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        node_numbers = self.brain.node_numbers
+        leader_num = node_numbers[0]
+
+        # run replicators first time to get sync points set
+        self.replicators.once()
+
+        # start sharding on the leader node
+        self.sharders.once(number=leader_num,
+                           additional_args='--partitions=%s' % self.brain.part)
+        shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
+        self.assertEqual([ShardRange.ACTIVE] * 2 + [ShardRange.CREATED] * 2,
+                         [sr.state for sr in shard_ranges])
+
+        # stop *all* container servers for third shard range
+        sr_part, sr_node_nums = self.get_part_and_node_numbers(
+            shard_ranges[2].account, shard_ranges[2].container)
+        for node_num in sr_node_nums:
+            self.brain.servers.stop(number=node_num)
+
+        # attempt to continue sharding on the leader node
+        self.sharders.once(number=leader_num,
+                           additional_args='--partitions=%s' % self.brain.part)
+
+        # no cleaving progress was made
+        for node_num in sr_node_nums:
+            self.brain.servers.start(number=node_num)
+        shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
+        self.assertEqual([ShardRange.ACTIVE] * 2 + [ShardRange.CREATED] * 2,
+                         [sr.state for sr in shard_ranges])
+
+        # stop two of the servers for third shard range, not including any
+        # server that happens to be the leader node
+        stopped = []
+        for node_num in sr_node_nums:
+            if node_num != leader_num:
+                self.brain.servers.stop(number=node_num)
+                stopped.append(node_num)
+                if len(stopped) >= 2:
+                    break
+        self.assertLengthEqual(stopped, 2)  # sanity check
+
+        # attempt to continue sharding on the leader node
+        self.sharders.once(number=leader_num,
+                           additional_args='--partitions=%s' % self.brain.part)
+
+        # no cleaving progress was made
+        for node_num in stopped:
+            self.brain.servers.start(number=node_num)
+        shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
+        self.assertEqual([ShardRange.ACTIVE] * 2 + [ShardRange.CREATED] * 2,
+                         [sr.state for sr in shard_ranges])
+
+        # stop just one of the servers for third shard range
+        stopped = []
+        for node_num in sr_node_nums:
+            if node_num != leader_num:
+                self.brain.servers.stop(number=node_num)
+                stopped.append(node_num)
+                break
+        self.assertLengthEqual(stopped, 1)  # sanity check
+
+        # attempt to continue sharding the container
+        self.sharders.once(number=leader_num,
+                           additional_args='--partitions=%s' % self.brain.part)
+
+        # this time cleaving completed
+        self.brain.servers.start(number=stopped[0])
+        shard_ranges = self.assert_container_state(leader_num, SHARDED, 4)
+        self.assertEqual([ShardRange.ACTIVE] * 4,
+                         [sr.state for sr in shard_ranges])
