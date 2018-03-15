@@ -72,7 +72,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import Request, Response
 from test.unit import FakeLogger, requires_o_tmpfile_support, \
-    quiet_eventlet_exceptions
+    requires_o_tmpfile_support_in_tmp, quiet_eventlet_exceptions
 
 threading = eventlet.patcher.original('threading')
 
@@ -3838,7 +3838,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 patch('platform.architecture', return_value=('64bit', '')):
             self.assertRaises(OSError, utils.NR_ioprio_set)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_link_fd_to_path_linkat_success(self):
         tempdir = mkdtemp()
         fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
@@ -3858,7 +3858,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             os.close(fd)
             shutil.rmtree(tempdir)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_link_fd_to_path_target_exists(self):
         tempdir = mkdtemp()
         # Create and write to a file
@@ -3893,7 +3893,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 self.fail("Expecting IOError exception")
         self.assertTrue(_m_linkat.called)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_linkat_race_dir_not_exists(self):
         tempdir = mkdtemp()
         target_dir = os.path.join(tempdir, uuid4().hex)
