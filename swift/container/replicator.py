@@ -268,7 +268,7 @@ class ContainerReplicator(db_replicator.Replicator):
 
     def _in_sync(self, rinfo, info, broker, local_sync):
         # TODO: don't always sync shard ranges!
-        if broker.get_shard_ranges(include_own=True):
+        if broker.get_shard_ranges(include_own=True, include_deleted=True):
             return False
 
         return super(ContainerReplicator, self)._in_sync(
