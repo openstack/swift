@@ -177,7 +177,7 @@ class ContainerController(Controller):
                 params['marker'] = marker
             else:
                 params['marker'] = str(shard_range.upper) if reverse \
-                    else shard_range.lower
+                    else str(shard_range.lower)
                 if params['marker'] and reverse:
                     params['marker'] += '\x00'
 
@@ -187,7 +187,7 @@ class ContainerController(Controller):
                 params['end_marker'] = end_marker
             else:
                 params['end_marker'] = str(shard_range.lower) if reverse \
-                    else shard_range.upper
+                    else str(shard_range.upper)
                 if params['end_marker'] and not reverse:
                     params['end_marker'] += '\x00'
 
