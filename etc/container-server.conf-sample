@@ -318,6 +318,13 @@ use = egg:swift#xprofile
 
 # Container sharder specific settings
 #
+# If the auto_shard option is true then the sharder will automatically select
+# containers to shard, scan for shard ranges, and select shards to shrink.
+# The default is false.
+# Warning: auto_sharding is still under development and should not be used in
+# production; do not set this option to true in a production cluster.
+# auto_shard = false
+#
 # shard_container_size defines the size at which a container with
 # container-sharding enabled would start to shard. It also indirectly
 # determines how big a slice to take off a container when sharding, the slice

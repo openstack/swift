@@ -22,7 +22,7 @@ from nose import SkipTest
 from swift.common import direct_client
 from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
-    quorum_size
+    quorum_size, config_true_value
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDED, \
     SHARDING
 from swift.common import utils
@@ -60,6 +60,12 @@ class TestContainerSharding(ReplProbeTest):
                            'container-server configs')
 
         skip_reasons = []
+        auto_shard = all([config_true_value(c.get('auto_shard', False))
+                          for c in cont_configs])
+        if not auto_shard:
+            skip_reasons.append(
+                'auto_shard must be true in all container_sharder configs')
+
         self.max_shard_size = max(
             int(c.get('shard_container_size', '1000000'))
             for c in cont_configs)

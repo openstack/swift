@@ -371,6 +371,7 @@ class TestSharder(unittest.TestCase):
             'scanner_batch_size': 10,
             'rcache': '/var/cache/swift/container-sharder.recon',
             'shards_account_prefix': '.shards_',
+            'auto_shard': False,
         }
         mock_ic = do_test({}, expected)
         mock_ic.assert_called_once_with(
@@ -393,6 +394,7 @@ class TestSharder(unittest.TestCase):
             'internal_client_conf_path': '/etc/swift/my-sharder-ic.conf',
             'rcache': '/var/cache/swift/container-sharder.recon',
             'auto_create_account_prefix': '...',
+            'auto_shard': 'yes',
         }
         expected = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'port': 62010,
@@ -409,6 +411,7 @@ class TestSharder(unittest.TestCase):
             'scanner_batch_size': 8,
             'rcache': '/var/cache/swift/container-sharder.recon',
             'shards_account_prefix': '...shards_',
+            'auto_shard': True,
         }
         mock_ic = do_test(conf, expected)
         mock_ic.assert_called_once_with(
