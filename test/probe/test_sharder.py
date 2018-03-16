@@ -50,11 +50,8 @@ class ShardCollector(object):
 
 
 class TestContainerSharding(ReplProbeTest):
-    def setUp(self):
-        client.logger.setLevel(client.logging.WARNING)
-        client.requests.logging.getLogger().setLevel(
-            client.requests.logging.WARNING)
-        super(TestContainerSharding, self).setUp()
+
+    def _maybe_skip_test(self):
         try:
             cont_configs = [utils.readconf(p, 'container-sharder')
                             for p in self.configs['container-server'].values()]
@@ -63,12 +60,9 @@ class TestContainerSharding(ReplProbeTest):
                            'container-server configs')
 
         skip_reasons = []
-        if cont_configs:
-            self.max_shard_size = max(
-                int(c.get('shard_container_size', '1000000'))
-                for c in cont_configs)
-        else:
-            self.max_shard_size = 1000000
+        self.max_shard_size = max(
+            int(c.get('shard_container_size', '1000000'))
+            for c in cont_configs)
 
         if not (MIN_SHARD_CONTAINER_SIZE <= self.max_shard_size
                 <= MAX_SHARD_CONTAINER_SIZE):
@@ -88,6 +82,16 @@ class TestContainerSharding(ReplProbeTest):
         if skip_reasons:
             raise SkipTest(', '.join(skip_reasons))
 
+    def _load_rings_and_configs(self):
+        super(TestContainerSharding, self)._load_rings_and_configs()
+        # perform checks for skipping test before starting services
+        self._maybe_skip_test()
+
+    def setUp(self):
+        client.logger.setLevel(client.logging.WARNING)
+        client.requests.logging.getLogger().setLevel(
+            client.requests.logging.WARNING)
+        super(TestContainerSharding, self).setUp()
         _, self.admin_token = get_auth(
             'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
         self.container_name = 'container-%s' % uuid.uuid4()

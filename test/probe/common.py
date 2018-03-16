@@ -336,33 +336,35 @@ class ProbeTest(unittest.TestCase):
     Don't instantiate this directly, use a child class instead.
     """
 
+    def _load_rings_and_configs(self):
+        self.ipport2server = {}
+        self.configs = defaultdict(dict)
+        self.account_ring = get_ring(
+            'account',
+            self.acct_cont_required_replicas,
+            self.acct_cont_required_devices,
+            ipport2server=self.ipport2server,
+            config_paths=self.configs)
+        self.container_ring = get_ring(
+            'container',
+            self.acct_cont_required_replicas,
+            self.acct_cont_required_devices,
+            ipport2server=self.ipport2server,
+            config_paths=self.configs)
+        self.policy = get_policy(**self.policy_requirements)
+        self.object_ring = get_ring(
+            self.policy.ring_name,
+            self.obj_required_replicas,
+            self.obj_required_devices,
+            server='object',
+            ipport2server=self.ipport2server,
+            config_paths=self.configs)
+
     def setUp(self):
         resetswift()
         kill_orphans()
+        self._load_rings_and_configs()
         try:
-            self.ipport2server = {}
-            self.configs = defaultdict(dict)
-            self.account_ring = get_ring(
-                'account',
-                self.acct_cont_required_replicas,
-                self.acct_cont_required_devices,
-                ipport2server=self.ipport2server,
-                config_paths=self.configs)
-            self.container_ring = get_ring(
-                'container',
-                self.acct_cont_required_replicas,
-                self.acct_cont_required_devices,
-                ipport2server=self.ipport2server,
-                config_paths=self.configs)
-            self.policy = get_policy(**self.policy_requirements)
-            self.object_ring = get_ring(
-                self.policy.ring_name,
-                self.obj_required_replicas,
-                self.obj_required_devices,
-                server='object',
-                ipport2server=self.ipport2server,
-                config_paths=self.configs)
-
             self.servers_per_port = any(
                 int(readconf(c, section_name='object-replicator').get(
                     'servers_per_port', '0'))
