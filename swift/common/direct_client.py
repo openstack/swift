@@ -54,22 +54,66 @@ class DirectClientException(ClientException):
             http_reason=resp.reason, http_headers=headers)
 
 
-def _make_req(node, part, method, path, _headers, stype,
-              conn_timeout=5, response_timeout=15):
+def _make_req(node, part, method, path, headers, stype,
+              conn_timeout=5, response_timeout=15, contents=None,
+              content_length=None, chunk_size=65535):
     """
     Make request to backend storage node.
     (i.e. 'Account', 'Container', 'Object')
     :param node: a node dict from a ring
-    :param part: an integer, the partion number
+    :param part: an integer, the partition number
     :param method: a string, the HTTP method (e.g. 'PUT', 'DELETE', etc)
     :param path: a string, the request path
     :param headers: a dict, header name => value
     :param stype: a string, describing the type of service
+    :param conn_timeout: timeout while waiting for connection; default is 5
+        seconds
+    :param response_timeout: timeout while waiting for response; default is 15
+        seconds
+    :param contents: an iterable or string to read object data from
+    :param content_length: value to send as content-length header
+    :param chunk_size: if defined, chunk size of data to send
     :returns: an HTTPResponse object
     """
+    if contents is not None:
+        if content_length is not None:
+            headers['Content-Length'] = str(content_length)
+        else:
+            for n, v in headers.items():
+                if n.lower() == 'content-length':
+                    content_length = int(v)
+        if not contents:
+            headers['Content-Length'] = '0'
+        if isinstance(contents, six.string_types):
+            contents = [contents]
+        if content_length is None:
+            headers['Transfer-Encoding'] = 'chunked'
+
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            method, path, headers=_headers)
+                            method, path, headers=headers)
+
+    if contents is not None:
+        contents_f = FileLikeIter(contents)
+
+        if content_length is None:
+            chunk = contents_f.read(chunk_size)
+            while chunk:
+                conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
+                chunk = contents_f.read(chunk_size)
+            conn.send('0\r\n\r\n')
+        else:
+            left = content_length
+            while left > 0:
+                size = chunk_size
+                if size > left:
+                    size = left
+                chunk = contents_f.read(size)
+                if not chunk:
+                    break
+                conn.send(chunk)
+                left -= len(chunk)
+
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
@@ -261,6 +305,36 @@ def direct_delete_container(node, part, account, container, conn_timeout=5,
               'Container', conn_timeout, response_timeout)
 
 
+def direct_put_container(node, part, account, container, conn_timeout=5,
+                         response_timeout=15, headers=None, contents=None,
+                         content_length=None, chunk_size=65535):
+    """
+    Make a PUT request to a container server.
+
+    :param node: node dictionary from the ring
+    :param part: partition the container is on
+    :param account: account name
+    :param container: container name
+    :param conn_timeout: timeout in seconds for establishing the connection
+    :param response_timeout: timeout in seconds for getting the response
+    :param headers: additional headers to include in the request
+    :param contents: an iterable or string to send in request body (optional)
+    :param content_length: value to send as content-length header (optional)
+    :param chunk_size: chunk size of data to send (optional)
+    :raises ClientException: HTTP PUT request failed
+    """
+    if headers is None:
+        headers = {}
+
+    have_x_timestamp = 'x-timestamp' in (k.lower() for k in headers)
+
+    path = '/%s/%s' % (account, container)
+    _make_req(node, part, 'PUT', path,
+              gen_headers(headers, add_ts=(not have_x_timestamp)),
+              'Container', conn_timeout, response_timeout, contents=contents,
+              content_length=content_length, chunk_size=chunk_size)
+
+
 def direct_put_container_object(node, part, account, container, obj,
                                 conn_timeout=5, response_timeout=15,
                                 headers=None):
@@ -396,56 +470,18 @@ def direct_put_object(node, part, account, container, name, contents,
         headers = {}
     if etag:
         headers['ETag'] = etag.strip('"')
-    if content_length is not None:
-        headers['Content-Length'] = str(content_length)
-    else:
-        for n, v in headers.items():
-            if n.lower() == 'content-length':
-                content_length = int(v)
     if content_type is not None:
         headers['Content-Type'] = content_type
     else:
         headers['Content-Type'] = 'application/octet-stream'
-    if not contents:
-        headers['Content-Length'] = '0'
-    if isinstance(contents, six.string_types):
-        contents = [contents]
     # Incase the caller want to insert an object with specific age
     add_ts = 'X-Timestamp' not in headers
 
-    if content_length is None:
-        headers['Transfer-Encoding'] = 'chunked'
+    resp = _make_req(
+        node, part, 'PUT', path, gen_headers(headers, add_ts=add_ts),
+        'Object', conn_timeout, response_timeout, contents=contents,
+        content_length=content_length, chunk_size=chunk_size)
 
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'PUT', path, headers=gen_headers(headers, add_ts))
-
-    contents_f = FileLikeIter(contents)
-
-    if content_length is None:
-        chunk = contents_f.read(chunk_size)
-        while chunk:
-            conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
-            chunk = contents_f.read(chunk_size)
-        conn.send('0\r\n\r\n')
-    else:
-        left = content_length
-        while left > 0:
-            size = chunk_size
-            if size > left:
-                size = left
-            chunk = contents_f.read(size)
-            if not chunk:
-                break
-            conn.send(chunk)
-            left -= len(chunk)
-
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Object', 'PUT',
-                                    node, part, path, resp)
     return resp.getheader('etag').strip('"')
 
 
