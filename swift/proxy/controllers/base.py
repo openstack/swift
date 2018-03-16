@@ -2058,6 +2058,7 @@ class Controller(object):
             or None if there was a problem fetching the shard ranges
         """
         params = req.params.copy()
+        params.pop('limit', None)
         params['format'] = 'json'
         if includes:
             params['includes'] = includes

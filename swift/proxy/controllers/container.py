@@ -167,11 +167,13 @@ class ContainerController(Controller):
         limit = req_limit
         for shard_range in ranges:
             params['limit'] = limit
-            # always set marker and end_marker to ensure that misplaced objects
-            # outside of the expected shard range are not fetched
-            # TODO: perhaps check that we have not strayed beyond end_marker
-            # before getting objects from another shard?
-            if marker and marker in shard_range:
+            # Always set marker to ensure that object names less than or equal
+            # to those already in the listing are not fetched
+            if objects:
+                params['marker'] = objects[-1]['name']
+            elif reverse and marker and marker > shard_range.lower:
+                params['marker'] = marker
+            elif marker and marker <= shard_range.upper:
                 params['marker'] = marker
             else:
                 params['marker'] = str(shard_range.upper) if reverse \
@@ -179,6 +181,8 @@ class ContainerController(Controller):
                 if params['marker'] and reverse:
                     params['marker'] += '\x00'
 
+            # Always set end_marker to ensure that misplaced objects beyond
+            # the expected shard range are not fetched
             if end_marker and end_marker in shard_range:
                 params['end_marker'] = end_marker
             else:
@@ -196,12 +200,8 @@ class ContainerController(Controller):
                 req, shard_range.account, shard_range.container,
                 headers=headers, params=params)
 
-            if objs is None:
-                # TODO: unit tests failed shard GET scenario
-                return shard_resp
-
             if not objs:
-                # TODO: Can we be more aggressive here, and break instead?
+                # tolerate errors or empty shard containers
                 continue
 
             objects.extend(objs)
@@ -221,13 +221,15 @@ class ContainerController(Controller):
             'marker', 'end_marker', 'path', 'prefix', 'delimiter'))
         if not constrained and len(objects) < req_limit:
             self.app.logger.debug('Setting object count to %s' % len(objects))
-            # prefer the actual listing length over the potentially outdated
-            # root object count. This condition is only likely when a sharded
+            # prefer the actual listing stats over the potentially outdated
+            # root stats. This condition is only likely when a sharded
             # container is shrinking or in tests; typically a sharded container
             # will have more than CONTAINER_LISTING_LIMIT objects so any
-            # unconstrained listing will be capped by the limit and object
-            # count cannot be inferred from the listing length.
+            # unconstrained listing will be capped by the limit and total
+            # object stats cannot therefore be inferred from the listing.
             resp.headers['X-Container-Object-Count'] = len(objects)
+            resp.headers['X-Container-Bytes-Used'] = sum(
+                [o['bytes'] for o in objects])
         return resp
 
     @public
