@@ -440,11 +440,11 @@ class TestContainerController(TestRingBase):
         # expected_requests is a list of tuples (path, hdrs dict, params dict)
 
         # sanity check that expected objects is name ordered with no repeats
-        for (prev, next) in zip(expected_objects, expected_objects[1:]):
+        for (prev, next_) in zip(expected_objects, expected_objects[1:]):
             if reverse:
-                self.assertGreater(prev['name'], next['name'])
+                self.assertGreater(prev['name'], next_['name'])
             else:
-                self.assertLess(prev['name'], next['name'])
+                self.assertLess(prev['name'], next_['name'])
         container_path = '/v1/a/c' + query_string
         codes = (resp[0] for resp in mock_responses)
         bodies = iter([json.dumps(resp[1]) for resp in mock_responses])
