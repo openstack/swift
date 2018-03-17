@@ -30,8 +30,7 @@ from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, \
-    split_and_validate_path, is_sys_or_user_meta, shard_range_from_headers, \
-    is_sys_meta
+    split_and_validate_path, is_sys_or_user_meta, shard_range_from_headers
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
@@ -404,7 +403,6 @@ class ContainerController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=drive, request=req)
         requested_policy_index = self.get_and_validate_policy_index(req)
         broker = self._get_container_broker(drive, part, account, container)
-
         record_type = req.headers.get('x-backend-record-type', '').lower()
         if obj:     # put container object
             # obj put expects the policy_index header, default is for
@@ -437,21 +435,16 @@ class ContainerController(BaseStorageServer):
                                   req.headers.get('x-content-type-timestamp'),
                                   req.headers.get('x-meta-timestamp'))
             return HTTPCreated(request=req)
-        elif record_type == str(RECORD_TYPE_SHARD_NODE):
-            try:
-                shard_ranges = json.loads(req.body)
-            except ValueError as err:
-                return HTTPBadRequest('Invalid body: %s' % err)
-            metadata = dict(
-                (key, (value, req_timestamp.internal))
-                for key, value in req.headers.items()
-                if is_sys_meta('container', key))
-            broker.update_metadata(metadata, validate_metadata=True)
-            # TODO: consider writing the shard ranges into the pending file,
-            # but if so ensure an all-or-none semantic for the write
-            broker.merge_shard_ranges(shard_ranges)
-            return HTTPCreated(request=req)
         else:   # put container
+            shard_ranges = None
+            if record_type == RECORD_TYPE_SHARD_NODE:
+                try:
+                    shard_ranges = json.loads(req.body)
+                    # validate incoming data...
+                    [ShardRange.from_dict(sr) for sr in shard_ranges]
+                except (ValueError, KeyError) as err:
+                    return HTTPBadRequest('Invalid body: %r' % err)
+
             if requested_policy_index is None:
                 # use the default index sent by the proxy if available
                 new_container_policy = req.headers.get(
@@ -476,6 +469,10 @@ class ContainerController(BaseStorageServer):
             broker.update_metadata(metadata, validate_metadata=True)
             if metadata:
                 self._update_sync_store(broker, 'PUT')
+            if shard_ranges:
+                # TODO: consider writing the shard ranges into the pending
+                # file, but if so ensure an all-or-none semantic for the write
+                broker.merge_shard_ranges(shard_ranges)
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp

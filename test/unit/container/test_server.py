@@ -2071,20 +2071,9 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 412)
 
     def test_PUT_shard_range_json_in_body(self):
-        # make a container
+        # PUT some shard ranges to non-existent container
         ts_iter = make_timestamp_iter()
         headers = {'X-Timestamp': next(ts_iter).normal}
-        metadata = {'X-Container-Sysmeta-Test': 'original',
-                    'X-Container-Meta-Test': 'existing'}
-        headers.update(metadata)
-        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
-        self.assertEqual(201, req.get_response(self.controller).status_int)
-        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        self.assertEqual(
-            metadata, dict((k, v[0]) for k, v in broker.metadata.items()))
-        put_timestamp = broker.get_info()['put_timestamp']
-
-        # PUT some shard ranges
         shard_bounds = [('', 'ham', ShardRange.ACTIVE),
                         ('ham', 'salami', ShardRange.ACTIVE),
                         ('salami', '', ShardRange.CREATED)]
@@ -2095,30 +2084,38 @@ class TestContainerController(unittest.TestCase):
                        state=state, state_timestamp=next(ts_iter))
             for i, (lower, upper, state) in enumerate(shard_bounds)]
 
+        put_timestamp = next(ts_iter).internal
         headers = {'X-Backend-Record-Type': 'shard',
-                   'X-Timestamp': next(ts_iter).internal,
-                   'X-Container-Sysmeta-Test': 'changed',
-                   'X-Container-Meta-Test': 'modified'}
+                   'X-Timestamp': put_timestamp,
+                   'X-Container-Sysmeta-Test': 'set',
+                   'X-Container-Meta-Test': 'persisted'}
         body = json.dumps([dict(sr) for sr in shard_ranges[:2]])
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
                             body=body)
         resp = req.get_response(self.controller)
         self.assertEqual(201, resp.status_int)
+
+        # check broker
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        # sysmeta and user meta is updated
+        exp_meta = {'X-Container-Sysmeta-Test': 'set',
+                    'X-Container-Meta-Test': 'persisted'}
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
         self._assertShardRangesEqual(shard_ranges[:2],
                                      broker.get_shard_ranges())
-        # sysmeta is updated, user meta is not
-        metadata['X-Container-Sysmeta-Test'] = 'changed'
-        self.assertEqual(
-            metadata, dict((k, v[0]) for k, v in broker.metadata.items()))
-        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         # empty json dict
         body = json.dumps({})
+        put_timestamp = next(ts_iter).internal
+        headers['X-Timestamp'] = put_timestamp
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
         resp = req.get_response(self.controller)
-        self.assertEqual(201, resp.status_int)
-        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
         self._assertShardRangesEqual(shard_ranges[:2],
                                      broker.get_shard_ranges())
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
@@ -2127,10 +2124,14 @@ class TestContainerController(unittest.TestCase):
         shard_ranges[1].bytes_used += 100
         shard_ranges[1].meta_timestamp = next(ts_iter)
         body = json.dumps([dict(sr) for sr in shard_ranges[1:]])
+        put_timestamp = next(ts_iter).internal
+        headers['X-Timestamp'] = put_timestamp
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
         resp = req.get_response(self.controller)
-        self.assertEqual(201, resp.status_int)
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
         self._assertShardRangesEqual(shard_ranges, broker.get_shard_ranges())
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
@@ -2141,42 +2142,50 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
         resp = req.get_response(self.controller)
-        self.assertEqual(201, resp.status_int)
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
         self._assertShardRangesEqual(
             shard_ranges, broker.get_shard_ranges(include_deleted=True))
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         def check_bad_body(body):
+            bad_put_timestamp = next(ts_iter).internal
+            headers['X-Timestamp'] = bad_put_timestamp
             req = Request.blank(
                 '/sda1/p/a/c', method='PUT', headers=headers, body=body)
             resp = req.get_response(self.controller)
             self.assertEqual(400, resp.status_int)
             self.assertIn('Invalid body', resp.body)
+            self.assertEqual(
+                exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
             self._assertShardRangesEqual(
                 shard_ranges, broker.get_shard_ranges(include_deleted=True))
             self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         check_bad_body('not json')
         check_bad_body('')
+        bad_shard_range = dict(ShardRange('a/c', next(ts_iter)))
+        bad_shard_range.pop('created_at')
+        check_bad_body(json.dumps([bad_shard_range]))
 
         def check_not_shard_record_type(headers):
             # body ignored
             body = json.dumps([dict(sr) for sr in shard_ranges])
+            put_timestamp = next(ts_iter).internal
+            headers['X-Timestamp'] = put_timestamp
             req = Request.blank(
                 '/sda1/p/a/c', method='PUT', headers=headers, body=body)
             resp = req.get_response(self.controller)
             self.assertEqual(202, resp.status_int)
             self._assertShardRangesEqual(
                 shard_ranges, broker.get_shard_ranges(include_deleted=True))
-            self.assertNotEqual(
-                put_timestamp, broker.get_info()['put_timestamp'])
+            self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
-        check_not_shard_record_type(
-            {'X-Backend-Record-Type': 'object',
-             'X-Timestamp': next(ts_iter).internal})
+        check_not_shard_record_type({'X-Backend-Record-Type': 'object',
+                                     'X-Timestamp': next(ts_iter).internal})
 
-        check_not_shard_record_type(
-            {'X-Timestamp': next(ts_iter).internal})
+        check_not_shard_record_type({'X-Timestamp': next(ts_iter).internal})
 
     def test_PUT_GET_shard_ranges(self):
         # make a container

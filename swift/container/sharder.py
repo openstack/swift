@@ -22,19 +22,19 @@ from random import random
 
 from eventlet import Timeout
 
+from swift.common.direct_client import direct_put_container, \
+    DirectClientException
 from swift.container.replicator import ContainerReplicator
 from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARDING, SHARDED, COLLAPSED
 from swift.common import internal_client, db_replicator
-from swift.common.bufferedhttp import http_connect
-from swift.common.exceptions import DeviceUnavailable, ConnectionTimeout, \
-    RangeAnalyserException
+from swift.common.exceptions import DeviceUnavailable, RangeAnalyserException
 from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
-    config_float_value, config_positive_int_value, FileLikeIter, list_from_csv
-from swift.common.storage_policy import POLICIES
+    config_float_value, config_positive_int_value, list_from_csv, \
+    quorum_size
 
 
 def sharding_enabled(broker):
@@ -786,40 +786,22 @@ class ContainerSharder(ContainerReplicator):
         self.cpool.waitall(None)
         self.logger.info('Finished container sharding pass')
 
-    def _send_request(self, ip, port, contdevice, partition, op, path,
-                      headers_out, body, node_idx):
-        # TODO: can we eliminate this method by making internal client or
-        # direct client support PUT to container with a body?
+    def _put_container(self, node, part, account, container, headers, body):
         try:
-            with ConnectionTimeout(self.conn_timeout):
-                conn = http_connect(ip, port, contdevice, partition,
-                                    op, path, headers_out)
-
-            left = len(body)
-            contents_f = FileLikeIter(body)
-            chunk_size = 65536
-            while left > 0:
-                size = chunk_size
-                if size > left:
-                    size = left
-                chunk = contents_f.read(size)
-                if not chunk:
-                    break
-                conn.send(chunk)
-                left -= len(chunk)
-
-            with Timeout(self.node_timeout):
-                response = conn.getresponse()
-                return response, node_idx
-        except (Exception, Timeout) as x:
-            self.logger.info(str(x))
-            # TODO: Need to do something here.
-            return None, node_idx
+            direct_put_container(node, part, account, container,
+                                 conn_timeout=self.conn_timeout,
+                                 response_timeout=self.node_timeout,
+                                 headers=headers, contents=body)
+        except DirectClientException as err:
+            self.logger.warning(
+                'Failed to put shard shard ranges to %s:%s/%s: %s',
+                node['ip'], node['port'], node['device'], err.http_status)
+            return False
+        return True
 
     def _update_shard_ranges(self, account, container, shard_ranges,
                              headers=None):
         body = json.dumps([dict(sr) for sr in shard_ranges])
-        path = "/%s/%s" % (account, container)
         part, nodes = self.ring.get_nodes(account, container)
         headers = headers or {}
         headers.update({'X-Backend-Record-Type': RECORD_TYPE_SHARD_NODE,
@@ -829,10 +811,11 @@ class ContainerSharder(ContainerReplicator):
                         'Content-Type': 'application/json'})
 
         for node in nodes:
-            self.cpool.spawn(
-                self._send_request, node['ip'], node['port'], node['device'],
-                part, 'PUT', path, headers, body, node['index'])
-        self.cpool.waitall(None)
+            self.cpool.spawn(self._put_container, node, part, account,
+                             container, headers, body)
+
+        results = self.cpool.waitall(None)
+        return sum(results) >= quorum_size(self.ring.replica_count)
 
     @staticmethod
     def check_complete_ranges(ranges):
@@ -858,22 +841,6 @@ class ContainerSharder(ContainerReplicator):
                 result.add(tuple(res))
 
         return result
-
-    def _put_shard_container(self, broker, shard_range, extra_headers=None):
-        policy = POLICIES.get_by_index(broker.storage_policy_index)
-        headers = {
-            'X-Storage-Policy': policy.name,
-            'X-Container-Sysmeta-Shard-Root': broker.root_path,
-            'X-Container-Sysmeta-Sharding': True}
-        if extra_headers:
-            headers.update(extra_headers)
-        try:
-            self.swift.create_container(
-                shard_range.account, shard_range.container, headers=headers)
-        except internal_client.UnexpectedResponse as ex:
-            self.logger.warning('Failed to put shard container %s: %s',
-                                shard_range.name, str(ex))
-            raise ex
 
     def _find_shard_ranges(self, broker):
         """
@@ -951,26 +918,25 @@ class ContainerSharder(ContainerReplicator):
             # state
             older_shard_range = shard_range.copy(
                 timestamp=Timestamp(float(shard_range.timestamp) - 1))
-            try:
-                self._put_shard_container(broker, older_shard_range)
-            except internal_client.UnexpectedResponse:
+            headers = {
+                'X-Backend-Storage-Policy-Index': broker.storage_policy_index,
+                'X-Container-Sysmeta-Shard-Root': broker.root_path,
+                'X-Container-Sysmeta-Sharding': True}
+            success = self._update_shard_ranges(
+                shard_range.account, shard_range.container,
+                [older_shard_range], headers=headers)
+            if success:
+                self.logger.debug('PUT new shard range container for %s',
+                                  older_shard_range)
+            else:
                 self.logger.error(
-                    'PUT of new shard container %r failed for %s/%s.',
-                    older_shard_range, broker.account, broker.container)
+                    'PUT of new shard container %r failed for %s.',
+                    older_shard_range, broker.path)
                 # break, not continue, because elsewhere it is assumed that
                 # finding and cleaving shard ranges progresses linearly, so we
                 # do not want any subsequent shard ranges to be in created
                 # state while this one is still in found state
                 break
-            # TODO: we had to use internal client to create the container
-            # because that support account autocreate, but now we have to send
-            # the shard container its shard range separately because we can't
-            # send a body through the proxy :( can we unify these requests?
-            self._update_shard_ranges(
-                shard_range.account, shard_range.container,
-                [older_shard_range])
-            self.logger.debug('PUT new shard range container for %s',
-                              older_shard_range)
             shard_range.update_state(ShardRange.CREATED)
             created_ranges.append(shard_range)
             self.logger.increment('shard_ranges_created')
