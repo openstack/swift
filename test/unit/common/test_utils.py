@@ -3518,6 +3518,22 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.get_hmac('GET', '/path', 1, 'abc'),
             'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
 
+    def test_parse_overrides(self):
+        devices, partitions = utils.parse_overrides(devices='sdb1,sdb2')
+        self.assertIn('sdb1', devices)
+        self.assertIn('sdb2', devices)
+        self.assertNotIn('sdb3', devices)
+        self.assertIn(1, partitions)
+        self.assertIn('1', partitions)  # matches because of Everything
+        self.assertIn(None, partitions)  # matches because of Everything
+        devices, partitions = utils.parse_overrides(partitions='1,2,3')
+        self.assertIn('sdb1', devices)
+        self.assertIn('1', devices)  # matches because of Everything
+        self.assertIn(None, devices)  # matches because of Everything
+        self.assertIn(1, partitions)
+        self.assertNotIn('1', partitions)
+        self.assertNotIn(None, partitions)
+
     def test_get_policy_index(self):
         # Account has no information about a policy
         req = Request.blank(
