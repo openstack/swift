@@ -90,7 +90,7 @@ class ContainerController(Controller):
         ai = self.account_info(self.account_name, req)
         auto_account = self.account_name.startswith(
             self.app.auto_create_account_prefix)
-        if not auto_account and not ai[1]:
+        if not (auto_account or ai[1]):
             if 'swift.authorize' in req.environ:
                 aresp = req.environ['swift.authorize'](req)
                 if aresp:
