@@ -141,7 +141,7 @@ class ContainerSharder(ContainerReplicator):
         if (time.time() - self.reported) >= 3600:  # once an hour
             return self._report_stats()
 
-    def _get_shard_ranges(self, broker, newest=False):
+    def _fetch_shard_ranges(self, broker, newest=False):
         path = self.swift.make_path(broker.root_account, broker.root_container)
         path += '?format=json'
         headers = {'X-Backend-Record-Type': 'shard'}
@@ -155,10 +155,39 @@ class ContainerSharder(ContainerReplicator):
                               broker.root_path)
             return None
 
-        # TODO: can we unify this somewhat with _get_shard_ranges in
-        # proxy/controllers/base.py?
         return [ShardRange.from_dict(shard_range)
                 for shard_range in json.loads(resp.body)]
+
+    def _put_container(self, node, part, account, container, headers, body):
+        try:
+            direct_put_container(node, part, account, container,
+                                 conn_timeout=self.conn_timeout,
+                                 response_timeout=self.node_timeout,
+                                 headers=headers, contents=body)
+        except DirectClientException as err:
+            self.logger.warning(
+                'Failed to put shard shard ranges to %s:%s/%s: %s',
+                node['ip'], node['port'], node['device'], err.http_status)
+            return False
+        return True
+
+    def _send_shard_ranges(self, account, container, shard_ranges,
+                           headers=None):
+        body = json.dumps([dict(sr) for sr in shard_ranges])
+        part, nodes = self.ring.get_nodes(account, container)
+        headers = headers or {}
+        headers.update({'X-Backend-Record-Type': RECORD_TYPE_SHARD_NODE,
+                        'User-Agent': 'container-sharder %s' % os.getpid(),
+                        'X-Timestamp': Timestamp.now().normal,
+                        'Content-Length': len(body),
+                        'Content-Type': 'application/json'})
+
+        for node in nodes:
+            self.cpool.spawn(self._put_container, node, part, account,
+                             container, headers, body)
+
+        results = self.cpool.waitall(None)
+        return results.count(True) >= quorum_size(self.ring.replica_count)
 
     def _get_shard_broker(self, shard_range, root_path, policy_index,
                           force=False):
@@ -418,7 +447,7 @@ class ContainerSharder(ContainerReplicator):
                         # TODO: the root may not yet know about shard ranges to
                         # which a shard is sharding - those need to come from
                         # the broker
-                        ranges = self._get_shard_ranges(broker, newest=True)
+                        ranges = self._fetch_shard_ranges(broker, newest=True)
                     outer['ranges'] = iter(ranges)
                 return outer['ranges']
             return dest_shard_ranges
@@ -490,7 +519,7 @@ class ContainerSharder(ContainerReplicator):
                     shard_range.timestamp = timestamp
                     shard_range.deleted = 1
                 # TODO: make a single update of older ranges at end of loop
-                self._update_shard_ranges(
+                self._send_shard_ranges(
                     broker.root_account, broker.root_container, older)
                 continue_with_container = False
             missing_ranges = ContainerSharder.check_complete_ranges(
@@ -507,7 +536,7 @@ class ContainerSharder(ContainerReplicator):
             return continue_with_container
 
         # Get the root view of the world.
-        shard_ranges = self._get_shard_ranges(broker, newest=True)
+        shard_ranges = self._fetch_shard_ranges(broker, newest=True)
         if shard_ranges is None:
             # failed to get the root tree. Error out for now.. we may need to
             # quarantine the container.
@@ -664,7 +693,7 @@ class ContainerSharder(ContainerReplicator):
                                 state=ShardRange.SHARDED,
                                 deleted=1)
                             broker.merge_shard_ranges([own_shard_range])
-                        self._update_shard_ranges(
+                        self._send_shard_ranges(
                             broker.root_account, broker.root_container,
                             [own_shard_range] + shard_ranges)
                         # TODO: check update to root succeeded before moving to
@@ -687,7 +716,7 @@ class ContainerSharder(ContainerReplicator):
                 # failed; don't do this if there is no shard range info.
                 own_shard_range = broker.get_own_shard_range(no_default=True)
                 if own_shard_range:
-                    self._update_shard_ranges(
+                    self._send_shard_ranges(
                         broker.root_account, broker.root_container,
                         [own_shard_range])
                     # persist the reported shard metadata
@@ -786,37 +815,6 @@ class ContainerSharder(ContainerReplicator):
         self.cpool.waitall(None)
         self.logger.info('Finished container sharding pass')
 
-    def _put_container(self, node, part, account, container, headers, body):
-        try:
-            direct_put_container(node, part, account, container,
-                                 conn_timeout=self.conn_timeout,
-                                 response_timeout=self.node_timeout,
-                                 headers=headers, contents=body)
-        except DirectClientException as err:
-            self.logger.warning(
-                'Failed to put shard shard ranges to %s:%s/%s: %s',
-                node['ip'], node['port'], node['device'], err.http_status)
-            return False
-        return True
-
-    def _update_shard_ranges(self, account, container, shard_ranges,
-                             headers=None):
-        body = json.dumps([dict(sr) for sr in shard_ranges])
-        part, nodes = self.ring.get_nodes(account, container)
-        headers = headers or {}
-        headers.update({'X-Backend-Record-Type': RECORD_TYPE_SHARD_NODE,
-                        'User-Agent': 'container-sharder %s' % os.getpid(),
-                        'X-Timestamp': Timestamp.now().normal,
-                        'Content-Length': len(body),
-                        'Content-Type': 'application/json'})
-
-        for node in nodes:
-            self.cpool.spawn(self._put_container, node, part, account,
-                             container, headers, body)
-
-        results = self.cpool.waitall(None)
-        return results.count(True) >= quorum_size(self.ring.replica_count)
-
     @staticmethod
     def check_complete_ranges(ranges):
         lower = set()
@@ -886,7 +884,7 @@ class ContainerSharder(ContainerReplicator):
         broker.merge_shard_ranges(shard_ranges)
         if not broker.is_root_container():
             # TODO: check for success and do not proceed otherwise
-            self._update_shard_ranges(
+            self._send_shard_ranges(
                 broker.root_account, broker.root_container, shard_ranges)
 
         self.logger.info(
@@ -922,7 +920,7 @@ class ContainerSharder(ContainerReplicator):
                 'X-Backend-Storage-Policy-Index': broker.storage_policy_index,
                 'X-Container-Sysmeta-Shard-Root': broker.root_path,
                 'X-Container-Sysmeta-Sharding': True}
-            success = self._update_shard_ranges(
+            success = self._send_shard_ranges(
                 shard_range.account, shard_range.container,
                 [older_shard_range], headers=headers)
             if success:
@@ -944,7 +942,7 @@ class ContainerSharder(ContainerReplicator):
         broker.merge_shard_ranges(created_ranges)
         if not broker.is_root_container():
             # TODO: check for success and do not proceed otherwise
-            self._update_shard_ranges(
+            self._send_shard_ranges(
                 broker.root_account, broker.root_container, created_ranges)
         self.logger.info(
             "Completed creating shard range containers: %d created.",
@@ -1024,7 +1022,7 @@ class ContainerSharder(ContainerReplicator):
                 # Update the acceptor container with its expanding state to
                 # prevent it treating objects cleaved from the donor
                 # as misplaced.
-                self._update_shard_ranges(
+                self._send_shard_ranges(
                     acceptor.account, acceptor.container, [acceptor])
                 # Make a copy the acceptor shard range to send to the donor
                 # container with new timestamp and expanded namespace. Note
@@ -1060,7 +1058,7 @@ class ContainerSharder(ContainerReplicator):
             # donor shard range. Once cleaved, the donor will also update the
             # root directly with its deleted own shard range and the expanded
             # acceptor shard range.
-            self._update_shard_ranges(
+            self._send_shard_ranges(
                 donor.account, donor.container, [acceptor], headers=headers)
 
     def _cleave(self, broker):

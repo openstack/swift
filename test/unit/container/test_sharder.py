@@ -1277,7 +1277,8 @@ class TestSharder(unittest.TestCase):
 
         # NB final shard range not available
         with self._mock_sharder() as sharder:
-            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges[:-1]
+            sharder._fetch_shard_ranges = (lambda *a, **k:
+                                           root_shard_ranges[:-1])
             sharder._misplaced_objects(broker, own_sr)
         sharder._replicate_object.assert_called_with(
             0, expected_shard_dbs[0], 0),
@@ -1303,7 +1304,7 @@ class TestSharder(unittest.TestCase):
 
         # repeat with final shard range available
         with self._mock_sharder() as sharder:
-            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges
             sharder._misplaced_objects(broker, own_sr)
 
         sharder._replicate_object.assert_called_with(
@@ -1344,7 +1345,7 @@ class TestSharder(unittest.TestCase):
                             broker.db_file)
 
         with self._mock_sharder() as sharder:
-            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges
             sharder._misplaced_objects(broker, own_sr)
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0)
@@ -1424,7 +1425,7 @@ class TestSharder(unittest.TestCase):
 
         # first destination is not available
         with self._mock_sharder() as sharder:
-            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges[1:]
+            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges[1:]
             sharder._misplaced_objects(broker, own_sr)
 
         sharder._replicate_object.assert_has_calls(
@@ -1449,7 +1450,7 @@ class TestSharder(unittest.TestCase):
 
         # normality resumes and all destinations are available
         with self._mock_sharder() as sharder:
-            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges
             sharder._misplaced_objects(broker, own_sr)
 
         sharder._replicate_object.assert_has_calls(
@@ -1485,7 +1486,7 @@ class TestSharder(unittest.TestCase):
         # sanity check the puts landed in sharded broker
         self._check_objects(sorted(new_objects + objects[2:5]), broker.db_file)
         with self._mock_sharder() as sharder:
-            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges
             sharder._misplaced_objects(broker, own_sr)
 
         sharder._replicate_object.assert_has_calls(
