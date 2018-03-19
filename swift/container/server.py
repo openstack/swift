@@ -439,9 +439,9 @@ class ContainerController(BaseStorageServer):
             shard_ranges = None
             if record_type == RECORD_TYPE_SHARD_NODE:
                 try:
-                    shard_ranges = json.loads(req.body)
                     # validate incoming data...
-                    [ShardRange.from_dict(sr) for sr in shard_ranges]
+                    shard_ranges = [ShardRange.from_dict(sr)
+                                    for sr in json.loads(req.body)]
                 except (ValueError, KeyError) as err:
                     return HTTPBadRequest('Invalid body: %r' % err)
 
