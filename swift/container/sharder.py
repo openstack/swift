@@ -815,7 +815,7 @@ class ContainerSharder(ContainerReplicator):
                              container, headers, body)
 
         results = self.cpool.waitall(None)
-        return sum(results) >= quorum_size(self.ring.replica_count)
+        return results.count(True) >= quorum_size(self.ring.replica_count)
 
     @staticmethod
     def check_complete_ranges(ranges):
