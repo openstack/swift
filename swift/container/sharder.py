@@ -20,6 +20,7 @@ import time
 
 from random import random
 
+from collections import defaultdict
 from eventlet import Timeout
 
 from swift.common.direct_client import direct_put_container, \
@@ -69,8 +70,6 @@ class ContainerSharder(ContainerReplicator):
     def __init__(self, conf, logger=None):
         logger = logger or get_logger(conf, log_route='container-sharder')
         super(ContainerReplicator, self).__init__(conf, logger=logger)
-        self.rcache = os.path.join(self.recon_cache_path,
-                                   "container-sharder.recon")
         self.shards_account_prefix = (
             (conf.get('auto_create_account_prefix') or '.') + 'shards_')
 
@@ -121,37 +120,60 @@ class ContainerSharder(ContainerReplicator):
 
     def _zero_stats(self):
         """Zero out the stats."""
-        # TODO check that none of the replicator stats are useful
         super(ContainerSharder, self)._zero_stats()
-        self.stats.update({
-            'containers_scanned': 0,
-            'containers_sharded': 0,
-            'containers_shrunk': 0,
-            'container_shard_ranges': 0,
-            'containers_misplaced': 0,
-            'containers_audit_failed': 0,
-            'containers_failed': 0,
-        })
+        # all sharding stats that are additional to the inherited replicator
+        # stats are maintained under the 'sharding' key in self.stats
+        self.stats['sharding'] = defaultdict(lambda: defaultdict(int))
+
+    def _min_stat(self, category, key, value):
+        current = self.stats['sharding'][category][key]
+        if not current:
+            self.stats['sharding'][category][key] = value
+        else:
+            self.stats['sharding'][category][key] = min(current, value)
+
+    def _max_stat(self, category, key, value):
+        current = self.stats['sharding'][category][key]
+        if not current:
+            self.stats['sharding'][category][key] = value
+        else:
+            self.stats['sharding'][category][key] = max(current, value)
+
+    def _increment_stat(self, category, key, step=1):
+        self.stats['sharding'][category][key] += step
 
     def _report_stats(self):
-        stats = self.stats
-        stats['since'] = time.ctime(self.reported)
-        self.logger.info(
-            'Since %(since)s Stats: %(containers_scanned)s scanned, '
-            '%(containers_sharded)s sharded, '
-            '%(containers_shrunk)s shrunk, '
-            '%(container_shard_ranges)s shard ranges found, '
-            '%(containers_misplaced)s contained misplaced items, '
-            '%(containers_audit_failed)s failed audit, '
-            '%(containers_failed)s containers failed.',
-            stats)
-        dump_recon_cache(stats, self.rcache, self.logger)
-        self._zero_stats()
-        self.reported = time.time()
+        default_stats = ('attempted', 'success', 'failure')
+        category_stats = {
+            'visited': default_stats + ('skipped',),
+            'scanned': default_stats + ('found', 'min_time', 'max_time'),
+            'created': default_stats,
+            'cleaved': default_stats + ('min_time', 'max_time',),
+            'misplaced': default_stats}
+
+        now = time.time()
+        last_report = time.ctime(self.reported)
+        elapsed = now - self.stats['start']
+        sharding_stats = self.stats['sharding']
+        for category in (
+                'visited', 'scanned', 'created', 'cleaved', 'misplaced'):
+            stats = sharding_stats[category]
+            msg = ', '.join(['%s %s' % (str(stats[k]), k)
+                             for k in category_stats[category]])
+            self.logger.info(
+                'Since %s: %s: %s', last_report, category, msg)
+
+        dump_recon_cache(
+            {'sharding_stats': self.stats,
+             'sharding_time': elapsed,
+             'sharding_last': now},
+            self.rcache, self.logger)
+        self.reported = now
 
     def _periodic_report_stats(self):
         if (time.time() - self.reported) >= 3600:  # once an hour
-            return self._report_stats()
+            self._report_stats()
+            self._zero_stats()
 
     def _fetch_shard_ranges(self, broker, newest=False):
         path = self.swift.make_path(broker.root_account, broker.root_container)
@@ -409,6 +431,7 @@ class ContainerSharder(ContainerReplicator):
 
         self.logger.debug('Looking for misplaced objects in %s (%s)',
                           broker.path, broker.db_file)
+        self._increment_stat('misplaced', 'attempted')
 
         def make_query(lower, upper):
             # each misplaced object namespace is represented by a shard range
@@ -472,7 +495,7 @@ class ContainerSharder(ContainerReplicator):
 
         if misplaced_items:
             self.logger.increment('misplaced_items_found')
-            self.stats['containers_misplaced'] += 1
+            self._increment_stat('misplaced', 'success')
 
         # wipe out the cache to disable bypass in delete_db
         cleanups = self.shard_cleanups or {}
@@ -543,8 +566,7 @@ class ContainerSharder(ContainerReplicator):
 
             if not continue_with_container:
                 self.logger.increment('audit_failed')
-                self.stats['containers_failed'] += 1
-                self.stats['containers_audit_failed'] += 1
+                self._increment_stat('audit', 'failure')
             return continue_with_container
 
         # Get the root view of the world.
@@ -556,8 +578,7 @@ class ContainerSharder(ContainerReplicator):
                                 "container %s, it may not exist.",
                                 broker.root_path)
             self.logger.increment('audit_failed')
-            self.stats['containers_failed'] += 1
-            self.stats['containers_audit_failed'] += 1
+            self._increment_stat('audit', 'failure')
             return False
         if shard_range in shard_ranges:
             return continue_with_container
@@ -575,8 +596,7 @@ class ContainerSharder(ContainerReplicator):
                 # shard range is newest so leave it alone for now  as the root
                 # might not be updated  yet.
                 self.logger.increment('audit_failed')
-                self.stats['containers_failed'] += 1
-                self.stats['containers_audit_failed'] += 1
+                self._increment_stat('audit', 'failure')
                 return False
             else:
                 # There is a newer range that overlaps/covers this range.
@@ -587,8 +607,7 @@ class ContainerSharder(ContainerReplicator):
                                   'newer shard range',
                                   broker.account, broker.container)
                 self.logger.increment('audit_failed')
-                self.stats['containers_failed'] += 1
-                self.stats['containers_audit_failed'] += 1
+                self._increment_stat('audit', 'failure')
                 return False
         # shard range doesn't exist in the root containers ranges, but doesn't
         # overlap with anything
@@ -738,8 +757,22 @@ class ContainerSharder(ContainerReplicator):
                              broker.get_db_state_text())
         finally:
             self.logger.increment('scanned')
-            self.stats['containers_scanned'] += 1
-            self._periodic_report_stats()
+
+    def _check_node(self, node, override_devices):
+        if not node:
+            return False
+        if override_devices and node['device'] not in override_devices:
+            return False
+        if not is_local_device(self.ips, self.port,
+                               node['replication_ip'],
+                               node['replication_port']):
+            return False
+        if not check_drive(self.root, node['device'],
+                           self.mount_check):
+            self.logger.warning(
+                'Skipping %(device)s as it is not mounted' % node)
+            return False
+        return True
 
     def _one_shard_cycle(self, override_devices=None,
                          override_partitions=None):
@@ -756,8 +789,9 @@ class ContainerSharder(ContainerReplicator):
                 - Phase 2, if there is a shard defined, shard it.
             - Shrinking (check to see if we need to shrink this container).
         """
-        self.logger.info('Starting container sharding cycle, auto-sharding %s',
+        self.logger.info('Container sharder cycle starting, auto-sharding %s',
                          self.auto_shard)
+        self._zero_stats()
         if override_devices:
             self.logger.info('(Override devices: %s)',
                              ', '.join(override_devices))
@@ -768,18 +802,7 @@ class ContainerSharder(ContainerReplicator):
         self.shard_cleanups = dict()
         self.ips = whataremyips(bind_ip=self.bind_ip)
         for node in self.ring.devs:
-            if not node:
-                continue
-            if override_devices and node['device'] not in override_devices:
-                continue
-            if not is_local_device(self.ips, self.port,
-                                   node['replication_ip'],
-                                   node['replication_port']):
-                continue
-            if not check_drive(self.root, node['device'],
-                               self.mount_check):
-                self.logger.warning(
-                    'Skipping %(device)s as it is not mounted' % node)
+            if not self._check_node(node, override_devices):
                 continue
             datadir = os.path.join(self.root, node['device'], self.datadir)
             if os.path.isdir(datadir):
@@ -806,13 +829,20 @@ class ContainerSharder(ContainerReplicator):
             broker = ContainerBroker(path, logger=self.logger)
             if sharding_enabled(broker):
                 try:
+                    self._increment_stat('visited', 'attempted')
                     self._process_broker(broker, node, part)
                 except Exception as err:
+                    self._increment_stat('visited', 'failure')
                     self.logger.exception(
                         'Unhandled exception while processing %s: %s',
                         path, err)
+                else:
+                    self._increment_stat('visited', 'success')
             else:
+                self._increment_stat('visited', 'skipped')
                 self.logger.info('Skipping %s; sharding is not enabled', path)
+
+            self._periodic_report_stats()
 
         # wipe out the cache do disable bypass in delete_db
         cleanups = self.shard_cleanups
@@ -826,7 +856,7 @@ class ContainerSharder(ContainerReplicator):
 
         # Now we wait for all threads to finish.
         self.cpool.waitall(None)
-        self.logger.info('Finished container sharding pass')
+        self._report_stats()
 
     @staticmethod
     def check_complete_ranges(ranges):
@@ -867,10 +897,13 @@ class ContainerSharder(ContainerReplicator):
         """
         self.logger.info('Started scan for shard ranges on %s/%s',
                          broker.account, broker.container)
+        self._increment_stat('scanned', 'attempted')
 
+        start = time.time()
         shard_data, last_found = broker.find_shard_ranges(
             self.shard_container_size // 2, limit=self.scanner_batch_size,
             existing_ranges=broker.get_shard_ranges())
+        elapsed = time.time() - start
 
         if not shard_data:
             if last_found:
@@ -879,6 +912,7 @@ class ContainerSharder(ContainerReplicator):
                 broker.update_sharding_info({'Scan-Done': 'True'})
             else:
                 # we didn't find anything
+                self._increment_stat('scanned', 'failure')
                 self.logger.warning("No shard ranges found, something went "
                                     "wrong. We will try again next cycle.")
             return last_found, 0
@@ -894,13 +928,19 @@ class ContainerSharder(ContainerReplicator):
             self._send_shard_ranges(
                 broker.root_account, broker.root_container, shard_ranges)
 
+        num_found = len(shard_ranges)
         self.logger.info(
-            "Completed scan for shard ranges: %d found", len(shard_ranges))
+            "Completed scan for shard ranges: %d found", num_found)
+        self._increment_stat('scanned', 'found', step=num_found)
+        self._min_stat('scanned', 'min_time', round(elapsed / num_found, 3))
+        self._max_stat('scanned', 'max_time', round(elapsed / num_found, 3))
+
         if last_found:
             # We've found the last shard range, so mark that in metadata
             broker.update_sharding_info({'Scan-Done': 'True'})
             self.logger.info("Final shard range reached.")
-        return last_found, len(shard_ranges)
+        self._increment_stat('scanned', 'success')
+        return last_found, num_found
 
     def _create_shard_containers(self, broker):
         # Create shard containers that are ready to receive redirected object
@@ -909,6 +949,7 @@ class ContainerSharder(ContainerReplicator):
         found_ranges = broker.get_shard_ranges(states=ShardRange.FOUND)
         created_ranges = []
         for shard_range in found_ranges:
+            self._increment_stat('created', 'attempted')
             # Create newly found shard containers with a timestamp that is
             # slightly older that the persisted shard range. Why? The new shard
             # container will initially be empty. As a result, any shard range
@@ -933,10 +974,12 @@ class ContainerSharder(ContainerReplicator):
             if success:
                 self.logger.debug('PUT new shard range container for %s',
                                   older_shard_range)
+                self._increment_stat('created', 'success')
             else:
                 self.logger.error(
                     'PUT of new shard container %r failed for %s.',
                     older_shard_range, broker.path)
+                self._increment_stat('created', 'failure')
                 # break, not continue, because elsewhere it is assumed that
                 # finding and cleaving shard ranges progresses linearly, so we
                 # do not want any subsequent shard ranges to be in created
@@ -1104,6 +1147,8 @@ class ContainerSharder(ContainerReplicator):
             self.logger.info(
                 "Cleaving '%s/%s': %r",
                 broker.account, broker.container, shard_range)
+            self._increment_stat('cleaved', 'attempted')
+            start = time.time()
             shrinking = shard_range.includes(own_shard_range)
             if not shrinking and not broker.is_root_container():
                 # when sharding a shard don't advertise *any* shard range as
@@ -1123,7 +1168,7 @@ class ContainerSharder(ContainerReplicator):
             except DeviceUnavailable as duex:
                 self.logger.warning(str(duex))
                 self.logger.increment('failure')
-                self.stats['containers_failed'] += 1
+                self._increment_stat('cleaved', 'failure')
                 return False
 
             with new_broker.sharding_lock():
@@ -1173,7 +1218,10 @@ class ContainerSharder(ContainerReplicator):
             self.logger.info('Cleaved %s/%s for shard range %s.',
                              broker.account, broker.container, shard_range)
             self.logger.increment('sharded')
-            self.stats['containers_sharded'] += 1
+            self._increment_stat('cleaved', 'success')
+            elapsed = round(time.time() - start, 3)
+            self._min_stat('cleaved', 'min_time', elapsed)
+            self._max_stat('cleaved', 'max_time', elapsed)
 
         if ranges_done:
             broker.merge_shard_ranges(ranges_done)
@@ -1191,7 +1239,6 @@ class ContainerSharder(ContainerReplicator):
 
     def run_forever(self, *args, **kwargs):
         """Run the container sharder until stopped."""
-        self._zero_stats()
         self.reported = time.time()
         time.sleep(random() * self.interval)
         while True:
@@ -1200,20 +1247,16 @@ class ContainerSharder(ContainerReplicator):
                 self._one_shard_cycle()
             except (Exception, Timeout):
                 self.logger.increment('errors')
-                self.logger.exception('ERROR sharding')
+                self.logger.exception('Exception in sharder')
             elapsed = time.time() - begin
             self.logger.info(
                 'Container sharder cycle completed: %.02fs', elapsed)
-            dump_recon_cache({'container_sharder_cycle_completed': elapsed},
-                             self.rcache, self.logger)
-            self._report_stats()
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
     def run_once(self, *args, **kwargs):
         """Run the container sharder once."""
         self.logger.info('Begin container sharder "once" mode')
-        self._zero_stats()
         override_devices = list_from_csv(kwargs.get('devices'))
         override_partitions = list_from_csv(kwargs.get('partitions'))
         begin = self.reported = time.time()
@@ -1222,10 +1265,6 @@ class ContainerSharder(ContainerReplicator):
         elapsed = time.time() - begin
         self.logger.info(
             'Container sharder "once" mode completed: %.02fs', elapsed)
-        # TODO: why's the stat order different compared to above?
-        self._report_stats()
-        dump_recon_cache({'container_sharder_cycle_completed': elapsed},
-                         self.rcache, self.logger)
 
 
 class RangeLink(object):
