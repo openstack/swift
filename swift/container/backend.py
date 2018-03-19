@@ -1981,24 +1981,32 @@ class ContainerBroker(DatabaseBroker):
             row = connection.execute(sql, args).fetchone()
             return row['name'] if row else None
 
-    def find_shard_ranges(self, shard_size, limit=-1):
+    def find_shard_ranges(self, shard_size, limit=-1, existing_ranges=None):
         """
-        Scans the container db for shard ranges that have not yet been found
-        and persisted in the shard_ranges table. Scanning will start at the
-        upper bound of the last persisted shard range, and finish when
-        ``limit`` shard ranges have been or when no more shard ranges can be
-        found or found. In the latter case, the upper bound of the final shard
-        range will be equal to the upper bound of the container namespace.
+        Scans the container db for shard ranges. Scanning will start at the
+        upper bound of the any ``existing_ranges`` that are given, otherwise
+        at ``ShardRange.MIN``. Scanning will stop when ``limit`` shard ranges
+        have been found or when no more shard ranges can be found. In the
+        latter case, the upper bound of the final shard range will be equal to
+        the upper bound of the container namespace.
+
+        This method does not modify the state of the db; callers are
+        responsible for persisting any shard range data in the db.
 
         :param shard_size: the size of each shard range
         :param limit: the maximum number of shard points to be found; a
             negative value (default) implies no limit.
+        :param existing_ranges: an optional list of existing ShardRanges; if
+            given, this list should be sorted in order of upper bounds; the
+            scan for new shard ranges will start at the upper bound of the last
+            existing ShardRange.
         :return:  a tuple; the first value in the tuple is a list of
             dicts each having keys {'index', 'lower', 'upper', 'object_count'}
             in order of ascending 'upper'; the second value in the tuple is a
             boolean which is True if the last shard range has been found, False
             otherwise.
         """
+        existing_ranges = existing_ranges or []
         object_count = self.get_info().get('object_count', 0)
         if shard_size >= object_count:
             # container not big enough to shard
@@ -2007,7 +2015,6 @@ class ContainerBroker(DatabaseBroker):
         own_shard_range = self.get_own_shard_range()
         progress = 0
         # update initial state to account for any existing shard ranges
-        existing_ranges = self.get_shard_ranges()
         if existing_ranges:
             # TODO: if config shard_size changes between calls to this method
             # then this estimation of progress will be WRONG - we need to

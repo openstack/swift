@@ -2897,7 +2897,7 @@ class TestContainerBroker(unittest.TestCase):
         container_name = 'test_container'
 
         def do_test(expected_bounds, expected_last_found, shard_size, limit,
-                    start_index=0):
+                    start_index=0, existing=None):
             # expected_bounds is a list of tuples (lower, upper, object_count)
             # build expected shard ranges
             expected_shard_ranges = [
@@ -2908,8 +2908,8 @@ class TestContainerBroker(unittest.TestCase):
 
             with mock.patch('swift.common.utils.time.time',
                             return_value=float(ts_now.normal)):
-                ranges, last_found = broker.find_shard_ranges(shard_size,
-                                                              limit)
+                ranges, last_found = broker.find_shard_ranges(
+                    shard_size, limit=limit, existing_ranges=existing)
             self.assertEqual(expected_shard_ranges, ranges)
             self.assertEqual(expected_last_found, last_found)
 
@@ -2965,28 +2965,28 @@ class TestContainerBroker(unittest.TestCase):
         do_test(expected, True, shard_size=10, limit=None)
         do_test([], False, shard_size=11, limit=None)
 
-        # now add a pre-existing shard ranges
-        shard_range = ShardRange(
-            '.sharded_a/srange-0', Timestamp.now(), '', 'obj03')
-        broker.merge_shard_ranges([shard_range])
+        # now pass in pre-existing shard ranges
+        existing = [ShardRange(
+            '.sharded_a/srange-0', Timestamp.now(), '', 'obj03')]
 
         expected = [('obj03', 'obj07', 4), ('obj07', c_upper, 3)]
-        do_test(expected, True, shard_size=4, limit=None, start_index=1)
+        do_test(expected, True, shard_size=4, limit=None, start_index=1,
+                existing=existing)
         expected = [('obj03', 'obj07', 4)]
-        do_test(expected, False, shard_size=4, limit=1, start_index=1)
+        do_test(expected, False, shard_size=4, limit=1, start_index=1,
+                existing=existing)
 
         # add another...
-        shard_range = ShardRange(
-            '.sharded_a/srange-1', Timestamp.now(), '', 'obj07')
-        broker.merge_shard_ranges([shard_range])
+        existing.append(ShardRange(
+            '.sharded_a/srange-1', Timestamp.now(), '', 'obj07'))
         expected = [('obj07', c_upper, 3)]
-        do_test(expected, True, shard_size=4, limit=None, start_index=2)
+        do_test(expected, True, shard_size=4, limit=None, start_index=2,
+                existing=existing)
 
         # add last shard range so there's none left to find
-        shard_range = ShardRange(
-            '.sharded_a/srange-2', Timestamp.now(), 'obj07', c_upper)
-        broker.merge_shard_ranges([shard_range])
-        do_test([], True, shard_size=4, limit=None)
+        existing.append(ShardRange(
+            '.sharded_a/srange-2', Timestamp.now(), 'obj07', c_upper))
+        do_test([], True, shard_size=4, limit=None, existing=existing)
 
     def test_find_shard_ranges(self):
         self._check_find_shard_ranges('', '')
