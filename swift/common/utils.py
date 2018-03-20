@@ -3410,6 +3410,15 @@ def get_valid_utf8_str(str_or_unicode):
     return valid_unicode_str.encode('utf-8')
 
 
+class Everything(object):
+    """
+    A container that contains everything. If "e" is an instance of
+    Everything, then "x in e" is true for all x.
+    """
+    def __contains__(self, element):
+        return True
+
+
 def list_from_csv(comma_separated_str):
     """
     Splits the str given and returns a properly stripped list of the comma
@@ -3418,6 +3427,27 @@ def list_from_csv(comma_separated_str):
     if comma_separated_str:
         return [v.strip() for v in comma_separated_str.split(',') if v.strip()]
     return []
+
+
+def parse_overrides(devices='', partitions='', **kwargs):
+    """
+    Given daemon kwargs parse out device and partition overrides or Everything.
+
+    :returns: a tuple of (devices, partitions) which an used like containers to
+              check if a given partition (integer) or device (string) is "in"
+              the collection on which we should act.
+    """
+    devices = list_from_csv(devices)
+    if not devices:
+        devices = Everything()
+
+    partitions = [
+        int(part) for part in
+        list_from_csv(partitions)]
+    if not partitions:
+        partitions = Everything()
+
+    return devices, partitions
 
 
 def csv_append(csv_string, item):

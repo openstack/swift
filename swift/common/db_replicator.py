@@ -33,7 +33,7 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, Timestamp, list_from_csv
+    json, Timestamp, parse_overrides
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
@@ -45,20 +45,6 @@ from swift.common.swob import Response, HTTPNotFound, HTTPNoContent, \
 
 
 DEBUG_TIMINGS_THRESHOLD = 10
-
-
-def parse_overrides(daemon_kwargs):
-    devices = list_from_csv(daemon_kwargs.get('devices', ''))
-    if not devices:
-        devices = Everything()
-
-    partitions = [
-        int(part) for part in
-        list_from_csv(daemon_kwargs.get('partitions', ''))]
-    if not partitions:
-        partitions = Everything()
-
-    return devices, partitions
 
 
 def quarantine_db(object_file, server_type):
@@ -147,15 +133,6 @@ def roundrobin_datadirs(datadirs):
                 yield next(it)
             except StopIteration:
                 its.remove(it)
-
-
-class Everything(object):
-    """
-    A container that contains everything. If "e" is an instance of
-    Everything, then "x in e" is true for all x.
-    """
-    def __contains__(self, element):
-        return True
 
 
 class ReplConnection(BufferedHTTPConnection):
@@ -680,7 +657,8 @@ class Replicator(Daemon):
 
     def run_once(self, *args, **kwargs):
         """Run a replication pass once."""
-        devices_to_replicate, partitions_to_replicate = parse_overrides(kwargs)
+        devices_to_replicate, partitions_to_replicate = parse_overrides(
+            **kwargs)
 
         self._zero_stats()
         dirs = []
