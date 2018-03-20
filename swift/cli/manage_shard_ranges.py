@@ -34,7 +34,7 @@ def _load_and_validate_shard_data(args):
                     for shard in data:
                         shard[k]
                 return data
-            except (ValueError, KeyError) as err:
+            except (TypeError, ValueError, KeyError) as err:
                 print('Failed to load valid shard range data: %r' % err,
                       file=sys.stderr)
                 exit(2)
@@ -96,9 +96,9 @@ def delete_shard_ranges(broker, args):
                        'or quit without deleting [q]? ')
         if choice == 's':
             show_shard_ranges(broker, args)
-            return delete_shard_ranges(broker, args)
+            continue
         elif choice == 'q':
-            exit(1)
+            return 1
         elif choice == 'yes':
             break
         else:
@@ -198,7 +198,7 @@ def main(args=None):
         help='Include deleted shard ranges in output.')
     show_parser.set_defaults(func=show_shard_ranges)
 
-    # show
+    # info
     info_parser = subparsers.add_parser(
         'info', help='Print container db info')
     info_parser.set_defaults(func=db_info)
@@ -223,7 +223,7 @@ def main(args=None):
     _add_replace_args(find_replace_parser)
     find_replace_parser.set_defaults(func=find_replace_shard_ranges)
 
-    # show
+    # enable
     info_parser = subparsers.add_parser(
         'enable', help='Enable sharding and move db to sharding state.')
     info_parser.set_defaults(func=enable_sharding)
@@ -233,8 +233,8 @@ def main(args=None):
     broker = ContainerBroker(args.container_db, logger=logger)
     broker.get_info()
     print('Loaded db broker for %s.' % broker.path, file=sys.stderr)
-    exit(args.func(broker, args))
+    return args.func(broker, args)
 
 
 if __name__ == '__main__':
-    main()
+    exit(main())
