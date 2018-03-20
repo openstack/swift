@@ -52,6 +52,17 @@ def sharding_enabled(broker):
     return False
 
 
+def make_shard_ranges(broker, shard_data, shards_account_prefix):
+    timestamp = Timestamp.now()
+    return [
+        ShardRange(ShardRange.make_path(
+            shards_account_prefix + broker.root_account,
+            broker.root_container, broker.container,
+            timestamp, data.pop('index')),
+            timestamp, **data)
+        for data in shard_data]
+
+
 class ContainerSharder(ContainerReplicator):
     """Shards containers."""
 
@@ -875,15 +886,8 @@ class ContainerSharder(ContainerReplicator):
         # TODO: if we bring back leader election, this is about the spot where
         # we should confirm we're still the scanner
 
-        timestamp = Timestamp.now()
-        shard_ranges = [
-            ShardRange(ShardRange.make_path(
-                self.shards_account_prefix + broker.root_account,
-                broker.root_container, broker.container,
-                timestamp, found_range.pop('index')),
-                timestamp, **found_range)
-            for found_range in shard_data]
-
+        shard_ranges = make_shard_ranges(
+            broker, shard_data, self.shards_account_prefix, )
         broker.merge_shard_ranges(shard_ranges)
         if not broker.is_root_container():
             # TODO: check for success and do not proceed otherwise
