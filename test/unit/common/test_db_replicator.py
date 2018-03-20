@@ -1221,7 +1221,7 @@ class TestDBReplicator(unittest.TestCase):
 
         node_id = 1
         results = list(db_replicator.roundrobin_datadirs(
-            [(datadir, node_id, None)]))
+            [(datadir, node_id, lambda p: True)]))
         expected = [
             ('450', os.path.join(datadir, db_path), node_id),
         ]
@@ -1243,13 +1243,13 @@ class TestDBReplicator(unittest.TestCase):
                          set(os.listdir(datadir)))
 
         results = list(db_replicator.roundrobin_datadirs(
-            [(datadir, node_id, None)]))
+            [(datadir, node_id, lambda p: True)]))
         self.assertEqual(results, expected)
         self.assertEqual({'1054', '1060', '450'},
                          set(os.listdir(datadir)))
 
         results = list(db_replicator.roundrobin_datadirs(
-            [(datadir, node_id, None)]))
+            [(datadir, node_id, lambda p: True)]))
         self.assertEqual(results, expected)
         # non db file in '1060' dir is not deleted and exception is handled
         self.assertEqual({'1060', '450'},
@@ -1336,8 +1336,8 @@ class TestDBReplicator(unittest.TestCase):
                 mock.patch(base + 'random.shuffle', _shuffle), \
                 mock.patch(base + 'os.rmdir', _rmdir):
 
-            datadirs = [('/srv/node/sda/containers', 1, None),
-                        ('/srv/node/sdb/containers', 2, None)]
+            datadirs = [('/srv/node/sda/containers', 1, lambda p: True),
+                        ('/srv/node/sdb/containers', 2, lambda p: True)]
             results = list(db_replicator.roundrobin_datadirs(datadirs))
             # The results show that the .db files are returned, the devices
             # interleaved.
@@ -1583,6 +1583,71 @@ class TestHandoffsOnly(unittest.TestCase):
                 self.root, 'sdq', 'containers', '2', '3b5',
                 'bcbcbcbc15d3835053d568c57e2c83b5',
                 'bcbcbcbc15d3835053d568c57e2c83b5.db'), 1)])
+
+    def test_override_partitions(self):
+        replicator = TestReplicator({
+            'devices': self.root,
+            'bind_port': 6201,
+            'mount_check': 'no',
+        })
+
+        with patch.object(db_replicator, 'whataremyips',
+                          return_value=['10.0.0.1']), \
+                patch.object(replicator, '_replicate_object') as mock_repl, \
+                patch.object(replicator, 'ring', self.FakeRing3Nodes()):
+            replicator.run_once(partitions="0,2")
+
+        self.assertEqual(sorted(mock_repl.mock_calls), [
+            mock.call('0', os.path.join(
+                self.root, 'sdp', 'containers', '0', '220',
+                '010101013cf2b7979af9eaa71cb67220',
+                '010101013cf2b7979af9eaa71cb67220.db'), 0),
+            mock.call('2', os.path.join(
+                self.root, 'sdq', 'containers', '2', '3b5',
+                'bcbcbcbc15d3835053d568c57e2c83b5',
+                'bcbcbcbc15d3835053d568c57e2c83b5.db'), 1)])
+
+    def test_override_devices(self):
+        replicator = TestReplicator({
+            'devices': self.root,
+            'bind_port': 6201,
+            'mount_check': 'no',
+        })
+
+        with patch.object(db_replicator, 'whataremyips',
+                          return_value=['10.0.0.1']), \
+                patch.object(replicator, '_replicate_object') as mock_repl, \
+                patch.object(replicator, 'ring', self.FakeRing3Nodes()):
+            replicator.run_once(devices="sdp")
+
+        self.assertEqual(sorted(mock_repl.mock_calls), [
+            mock.call('0', os.path.join(
+                self.root, 'sdp', 'containers', '0', '220',
+                '010101013cf2b7979af9eaa71cb67220',
+                '010101013cf2b7979af9eaa71cb67220.db'), 0),
+            mock.call('1', os.path.join(
+                self.root, 'sdp', 'containers', '1', '98d',
+                'abababab2b5368158355e799323b498d',
+                'abababab2b5368158355e799323b498d.db'), 0)])
+
+    def test_override_devices_and_partitions(self):
+        replicator = TestReplicator({
+            'devices': self.root,
+            'bind_port': 6201,
+            'mount_check': 'no',
+        })
+
+        with patch.object(db_replicator, 'whataremyips',
+                          return_value=['10.0.0.1']), \
+                patch.object(replicator, '_replicate_object') as mock_repl, \
+                patch.object(replicator, 'ring', self.FakeRing3Nodes()):
+            replicator.run_once(partitions="0,2", devices="sdp")
+
+        self.assertEqual(sorted(mock_repl.mock_calls), [
+            mock.call('0', os.path.join(
+                self.root, 'sdp', 'containers', '0', '220',
+                '010101013cf2b7979af9eaa71cb67220',
+                '010101013cf2b7979af9eaa71cb67220.db'), 0)])
 
 
 class TestReplToNode(unittest.TestCase):
