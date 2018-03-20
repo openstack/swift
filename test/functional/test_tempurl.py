@@ -587,13 +587,8 @@ class TestContainerTempurl(Base):
     def test_tempurl_keys_hidden_from_acl_readonly(self):
         if not tf.cluster_info.get('tempauth'):
             raise SkipTest('TEMP AUTH SPECIFIC TEST')
-        original_token = self.env.container.conn.storage_token
-        try:
-            self.env.container.conn.storage_token = \
-                self.env.conn2.storage_token
-            metadata = self.env.container.info()
-        finally:
-            self.env.container.conn.storage_token = original_token
+        metadata = self.env.container.info(cfg={
+            'use_token': self.env.conn2.storage_token})
 
         self.assertNotIn(
             'tempurl_key', metadata,
