@@ -84,6 +84,7 @@ class ContainerSharder(ContainerReplicator):
         self.shard_batch_size = config_positive_int_value(
             conf.get('shard_batch_size', 2))
         self.reported = None
+        self.auto_shard = config_true_value(conf.get('auto_shard', False))
 
         # internal client
         self.conn_timeout = float(conf.get('conn_timeout', 5))
@@ -614,7 +615,7 @@ class ContainerSharder(ContainerReplicator):
         # TODO: bring back leader election (maybe?); if so make it
         # on-demand since we may not need to know if we are leader for all
         # states
-        is_leader = node['index'] == 0
+        is_leader = node['index'] == 0 and self.auto_shard
         try:
             if state in (UNSHARDED, COLLAPSED):
                 if broker.get_shard_ranges():
@@ -744,7 +745,8 @@ class ContainerSharder(ContainerReplicator):
                 - Phase 2, if there is a shard defined, shard it.
             - Shrinking (check to see if we need to shrink this container).
         """
-        self.logger.info('Starting container sharding cycle')
+        self.logger.info('Starting container sharding cycle, auto-sharding %s',
+                         self.auto_shard)
         if override_devices:
             self.logger.info('(Override devices: %s)',
                              ', '.join(override_devices))
