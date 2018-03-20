@@ -33,7 +33,7 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, Timestamp, parse_overrides
+    json, Timestamp, parse_overrides, round_robin_iter
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
@@ -127,12 +127,10 @@ def roundrobin_datadirs(datadirs):
 
     its = [walk_datadir(datadir, node_id, filt)
            for datadir, node_id, filt in datadirs]
-    while its:
-        for it in its:
-            try:
-                yield next(it)
-            except StopIteration:
-                its.remove(it)
+
+    rr_its = round_robin_iter(its)
+    for datadir in rr_its:
+        yield datadir
 
 
 class ReplConnection(BufferedHTTPConnection):

@@ -4027,6 +4027,19 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(utils.replace_partition_in_path(old, 10), old)
         self.assertEqual(utils.replace_partition_in_path(new, 11), new)
 
+    def test_round_robin_iter(self):
+        it1 = iter([1, 2, 3])
+        it2 = iter([4, 5])
+        it3 = iter([6, 7, 8, 9])
+        it4 = iter([])
+
+        rr_its = utils.round_robin_iter([it1, it2, it3, it4])
+        got = list(rr_its)
+
+        # Expect that items get fetched in a round-robin fashion from the
+        # iterators
+        self.assertListEqual([1, 4, 6, 2, 5, 7, 3, 8, 9], got)
+
 
 class ResellerConfReader(unittest.TestCase):
 

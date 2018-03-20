@@ -4642,3 +4642,17 @@ class PipeMutex(object):
 class ThreadSafeSysLogHandler(SysLogHandler):
     def createLock(self):
         self.lock = PipeMutex()
+
+
+def round_robin_iter(its):
+    """
+    Takes a list of iterators, yield an element from each in a round-robin
+    fashion until all of them are exhausted.
+    :param its: list of iterators
+    """
+    while its:
+        for it in its:
+            try:
+                yield next(it)
+            except StopIteration:
+                its.remove(it)
