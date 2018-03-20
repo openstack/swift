@@ -658,12 +658,11 @@ class Replicator(Daemon):
             return match.groups()[0]
         return "UNKNOWN"
 
-    def _partition_dir_filter(self, device_id, handoffs_only,
-                              partitions_to_replicate):
+    def _partition_dir_filter(self, device_id, partitions_to_replicate):
 
         def filt(partition_dir):
             partition = int(partition_dir)
-            if handoffs_only:
+            if self.handoffs_only:
                 primary_node_ids = [
                     d['id'] for d in self.ring.get_part_nodes(partition)]
                 if device_id in primary_node_ids:
@@ -724,8 +723,7 @@ class Replicator(Daemon):
                 if os.path.isdir(datadir):
                     self._local_device_ids.add(node['id'])
                     part_filt = self._partition_dir_filter(
-                        node['id'], self.handoffs_only,
-                        partitions_to_replicate)
+                        node['id'], partitions_to_replicate)
                     dirs.append((datadir, node['id'], part_filt))
         if not found_local:
             self.logger.error("Can't find itself %s with port %s in ring "
