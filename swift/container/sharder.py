@@ -855,10 +855,11 @@ class ContainerSharder(ContainerReplicator):
         self.logger.info('Started scan for shard ranges on %s/%s',
                          broker.account, broker.container)
 
-        found_ranges, last_found = broker.find_shard_ranges(
-            self.shard_container_size // 2, limit=self.scanner_batch_size)
+        shard_data, last_found = broker.find_shard_ranges(
+            self.shard_container_size // 2, limit=self.scanner_batch_size,
+            existing_ranges=broker.get_shard_ranges())
 
-        if not found_ranges:
+        if not shard_data:
             if last_found:
                 self.logger.info("Already found all shard ranges")
                 # set scan done in case it's missing
@@ -879,7 +880,7 @@ class ContainerSharder(ContainerReplicator):
                 broker.root_container, broker.container,
                 timestamp, found_range.pop('index')),
                 timestamp, **found_range)
-            for found_range in found_ranges]
+            for found_range in shard_data]
 
         broker.merge_shard_ranges(shard_ranges)
         if not broker.is_root_container():
