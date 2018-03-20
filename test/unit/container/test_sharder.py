@@ -22,6 +22,7 @@ from tempfile import mkdtemp
 import mock
 import unittest
 
+from collections import defaultdict
 
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
 from swift.container.sharder import ContainerSharder, RangeAnalyser, \
@@ -31,7 +32,7 @@ from swift.common.utils import ShardRange, Timestamp, hash_path, \
 from test import annotate_failure
 
 from test.unit import FakeLogger, debug_logger, FakeRing, \
-    make_timestamp_iter, unlink_files
+    make_timestamp_iter, unlink_files, mocked_http_conn
 
 
 class TestRangeAnalyser(unittest.TestCase):
@@ -503,14 +504,14 @@ class TestSharder(unittest.TestCase):
             # TODO check recon cache
 
     @contextmanager
-    def _mock_sharder(self, conf=None):
+    def _mock_sharder(self, conf=None, replicas=3):
         conf = conf or {}
         conf['devices'] = self.tempdir
         with mock.patch(
                 'swift.container.sharder.internal_client.InternalClient'):
             with mock.patch(
                     'swift.common.db_replicator.ring.Ring',
-                    lambda *args, **kwargs: FakeRing()):
+                    lambda *args, **kwargs: FakeRing(replicas=replicas)):
                 sharder = ContainerSharder(conf, logger=debug_logger())
                 sharder._local_device_ids = {0, 1, 2}
                 sharder._replicate_object = mock.MagicMock()
@@ -1702,3 +1703,118 @@ class TestSharder(unittest.TestCase):
         broker.update_shard_range(
             ShardRange('acc/a_shard', Timestamp.now(), 'l', 'u'))
         self.assertTrue(sharding_enabled(broker))
+
+    def test_send_shard_ranges(self):
+        shard_ranges = [ShardRange('a/c', next(self.ts_iter), l, u)
+                        for l, u in (('', 'h'), ('h', ''))]
+
+        def do_test(replicas, *resp_codes):
+            sent_data = defaultdict(str)
+
+            def on_send(fake_conn, data):
+                sent_data[fake_conn] += data
+
+            now = next(self.ts_iter)
+            with self._mock_sharder(replicas=replicas) as sharder:
+                with mocked_http_conn(*resp_codes, give_send=on_send) as conn:
+                    with mock.patch('swift.common.utils.Timestamp.now',
+                                    classmethod(lambda c: now)):
+                        res = sharder._send_shard_ranges(
+                            'a', 'c', shard_ranges)
+
+            self.assertEqual(sharder.ring.replica_count, len(conn.requests))
+            expected_body = json.dumps([dict(sr) for sr in shard_ranges])
+            expected_headers = {'Content-Type': 'application/json',
+                                'Content-Length': str(len(expected_body)),
+                                'X-Timestamp': now.internal,
+                                'X-Backend-Record-Type': 'shard',
+                                'User-Agent': mock.ANY}
+            for data in sent_data.values():
+                self.assertEqual(expected_body, data)
+            hosts = set()
+            for req in conn.requests:
+                path_parts = req['path'].split('/')[1:]
+                hosts.add('%s:%s/%s' % (req['ip'], req['port'], path_parts[0]))
+                # FakeRing only has one partition
+                self.assertEqual('0', path_parts[1])
+                self.assertEqual('PUT', req['method'])
+                self.assertEqual(['a', 'c'], path_parts[-2:])
+                req_headers = req['headers']
+                for k, v in expected_headers.items():
+                    self.assertEqual(v, req_headers[k])
+                self.assertTrue(
+                    req_headers['User-Agent'].startswith('container-sharder'))
+            self.assertEqual(sharder.ring.replica_count, len(hosts))
+            return res, sharder
+
+        replicas = 3
+        res, sharder = do_test(replicas, 202, 202, 202)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 202, 202, 404)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 202, 202, Exception)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 202, 404, 404)
+        self.assertFalse(res)
+        warnings = sharder.logger.get_lines_for_level('warning')
+        for warning in warnings[:2]:
+            self.assertIn('Failed to put shard ranges', warning)
+        self.assertFalse(warnings[2:])
+        res, sharder = do_test(replicas, 500, 500, 500)
+        self.assertFalse(res)
+        warnings = sharder.logger.get_lines_for_level('warning')
+        for warning in warnings[:3]:
+            self.assertIn('Failed to put shard ranges', warning)
+        self.assertFalse(warnings[3:])
+        res, sharder = do_test(replicas, Exception, Exception, 202)
+        self.assertFalse(res)
+        warnings = sharder.logger.get_lines_for_level('warning')
+        for warning in warnings[:2]:
+            self.assertIn('Failed to put shard ranges', warning)
+        self.assertFalse(warnings[2:])
+
+        replicas = 2
+        res, sharder = do_test(replicas, 202, 202)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 202, 404)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 202, Exception)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 404, 404)
+        self.assertFalse(res)
+        warnings = sharder.logger.get_lines_for_level('warning')
+        for warning in warnings[:2]:
+            self.assertIn('Failed to put shard ranges', warning)
+        self.assertFalse(warnings[2:])
+        res, sharder = do_test(replicas, Exception, Exception)
+        self.assertFalse(res)
+        warnings = sharder.logger.get_lines_for_level('warning')
+        for warning in warnings[:2]:
+            self.assertIn('Failed to put shard ranges', warning)
+        self.assertFalse(warnings[2:])
+
+        replicas = 4
+        res, sharder = do_test(replicas, 202, 202, 202, 202)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 202, 202, 404, 404)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 202, 202, Exception, Exception)
+        self.assertTrue(res)
+        res, sharder = do_test(replicas, 202, 404, 404, 404)
+        self.assertFalse(res)
+        warnings = sharder.logger.get_lines_for_level('warning')
+        for warning in warnings[:3]:
+            self.assertIn('Failed to put shard ranges', warning)
+        self.assertFalse(warnings[3:])
+        res, sharder = do_test(replicas, 500, 500, 500, 202)
+        self.assertFalse(res)
+        warnings = sharder.logger.get_lines_for_level('warning')
+        for warning in warnings[:3]:
+            self.assertIn('Failed to put shard ranges', warning)
+        self.assertFalse(warnings[3:])
+        res, sharder = do_test(replicas, Exception, Exception, 202, 404)
+        self.assertFalse(res)
+        warnings = sharder.logger.get_lines_for_level('warning')
+        for warning in warnings[:3]:
+            self.assertIn('Failed to put shard ranges', warning)
+        self.assertFalse(warnings[3:])

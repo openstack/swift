@@ -171,11 +171,12 @@ def _get_direct_account_container(path, stype, node, part,
     return resp_headers, json.loads(resp.read())
 
 
-def gen_headers(hdrs_in=None, add_ts=False):
+def gen_headers(hdrs_in=None, add_ts=False, add_user_agent=True):
     hdrs_out = HeaderKeyDict(hdrs_in) if hdrs_in else HeaderKeyDict()
     if add_ts:
         hdrs_out['X-Timestamp'] = Timestamp.now().internal
-    hdrs_out['User-Agent'] = 'direct-client %s' % os.getpid()
+    if add_user_agent:
+        hdrs_out['User-Agent'] = 'direct-client %s' % os.getpid()
     return hdrs_out
 
 
@@ -327,11 +328,12 @@ def direct_put_container(node, part, account, container, conn_timeout=5,
         headers = {}
 
     have_x_timestamp = 'x-timestamp' in (k.lower() for k in headers)
-
+    add_user_agent = 'user-agent' not in (k.lower() for k in headers)
+    headers_out = gen_headers(headers, add_ts=(not have_x_timestamp),
+                              add_user_agent=add_user_agent)
     path = '/%s/%s' % (account, container)
-    _make_req(node, part, 'PUT', path,
-              gen_headers(headers, add_ts=(not have_x_timestamp)),
-              'Container', conn_timeout, response_timeout, contents=contents,
+    _make_req(node, part, 'PUT', path, headers_out, 'Container', conn_timeout,
+              response_timeout, contents=contents,
               content_length=content_length, chunk_size=chunk_size)
 
 

@@ -22,8 +22,7 @@ from random import random
 
 from eventlet import Timeout
 
-from swift.common.direct_client import direct_put_container, \
-    DirectClientException
+from swift.common.direct_client import direct_put_container
 from swift.container.replicator import ContainerReplicator
 from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARDING, SHARDED, COLLAPSED
@@ -165,10 +164,10 @@ class ContainerSharder(ContainerReplicator):
                                  conn_timeout=self.conn_timeout,
                                  response_timeout=self.node_timeout,
                                  headers=headers, contents=body)
-        except DirectClientException as err:
+        except Exception as err:
             self.logger.warning(
-                'Failed to put shard shard ranges to %s:%s/%s: %s',
-                node['ip'], node['port'], node['device'], err.http_status)
+                'Failed to put shard ranges to %s:%s/%s: %s',
+                node['ip'], node['port'], node['device'], err)
             return False
         return True
 
