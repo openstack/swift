@@ -222,7 +222,8 @@ class TestContainerSharding(ReplProbeTest):
                                for k in actual_dict if k not in ignored)
         self.assertEqual(expected_items, filtered_actual)
 
-    def assert_shard_ranges_contiguous(self, expected_number, shard_ranges):
+    def assert_shard_ranges_contiguous(self, expected_number, shard_ranges,
+                                       first_lower='', last_upper=''):
         if shard_ranges and isinstance(shard_ranges[0], ShardRange):
             actual_shard_ranges = sorted(shard_ranges)
         else:
@@ -230,10 +231,12 @@ class TestContainerSharding(ReplProbeTest):
                                           for d in shard_ranges])
         self.assertLengthEqual(actual_shard_ranges, expected_number)
         if expected_number:
-            self.assertEqual('', actual_shard_ranges[0].lower)
-            for x, y in zip(actual_shard_ranges, actual_shard_ranges[1:]):
-                self.assertEqual(x.upper, y.lower)
-            self.assertEqual('', actual_shard_ranges[-1].upper)
+            with annotate_failure('Ranges %s.' % actual_shard_ranges):
+                self.assertEqual(first_lower, actual_shard_ranges[0].lower)
+                self.assertEqual('', actual_shard_ranges[0].lower)
+                for x, y in zip(actual_shard_ranges, actual_shard_ranges[1:]):
+                    self.assertEqual(x.upper, y.lower)
+                self.assertEqual(last_upper, actual_shard_ranges[-1].upper)
 
     def assert_shard_range_equal(self, expected, actual, excludes=None):
         excludes = excludes or []
@@ -263,6 +266,13 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(str(expected_obj_count),
                          headers['x-container-object-count'])
         return headers, actual_listing
+
+    def assert_container_object_count(self, expected_obj_count):
+        headers = client.head_container(
+            self.url, self.token, self.container_name)
+        self.assertIn('x-container-object-count', headers)
+        self.assertEqual(str(expected_obj_count),
+                         headers['x-container-object-count'])
 
     def assert_container_state(self, node_number, expected_state,
                                num_shard_ranges):
@@ -420,6 +430,8 @@ class TestContainerSharding(ReplProbeTest):
         self.assertLengthEqual(orig_root_shard_ranges, 2)
         self.assert_total_object_count(len(obj_names), orig_root_shard_ranges)
         self.assert_shard_ranges_contiguous(2, orig_root_shard_ranges)
+        self.assertEqual([ShardRange.ACTIVE, ShardRange.ACTIVE],
+                         [sr['state'] for sr in orig_root_shard_ranges])
         self.direct_delete_container(expect_failure=True)
 
         self.assertLengthEqual(found['normal_dbs'], 2)
@@ -507,17 +519,46 @@ class TestContainerSharding(ReplProbeTest):
                 number=node_number,
                 additional_args='--partitions=%s' % shard_part)
 
-        found = self.categorize_container_dir_content(
+        # check original first shard range state and shards
+        found_for_shard = self.categorize_container_dir_content(
             shard.account, shard.container)
-        self.assertLengthEqual(found['shard_dbs'], 3)
-        self.assertLengthEqual(found['normal_dbs'], 3)
-        for db_file in found['shard_dbs']:
+        self.assertLengthEqual(found_for_shard['shard_dbs'], 3)
+        self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
+        for db_file in found_for_shard['shard_dbs']:
             broker = ContainerBroker(db_file)
-            self.assertIs(False, broker.is_root_container())
-            self.assertEqual('sharding', broker.get_db_state_text())
-            # TODO: assert existence of 3 new shards: 2 ACTIVE, 1 FOUND
+            with annotate_failure('shard db file %s. ' % db_file):
+                self.assertIs(False, broker.is_root_container())
+                self.assertEqual('sharding', broker.get_db_state_text())
+                shard_shards = broker.get_shard_ranges()
+                self.assertEqual(
+                    [ShardRange.CLEAVED, ShardRange.CLEAVED,
+                     ShardRange.CREATED],
+                    [sr.state for sr in shard_shards])
+                self.assert_shard_ranges_contiguous(
+                    3, shard_shards,
+                    first_lower=orig_root_shard_ranges[0]['lower'],
+                    last_upper=orig_root_shard_ranges[0]['upper'])
+        # check root shard ranges
+        root_shard_ranges = self.direct_get_container_shard_ranges()
+        for node, (hdrs, root_shards) in root_shard_ranges.items():
+            self.assertLengthEqual(root_shards, 5)
+            with annotate_failure('node %s. ' % node):
+                # shard ranges are sorted by lower, upper, so expect:
+                # sub-shard 0, orig shard 0, sub-shards 1 & 2, orig shard 1
+                self.assertEqual(
+                    [ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.CLEAVED,
+                     ShardRange.CREATED, ShardRange.ACTIVE],
+                    [sr['state'] for sr in root_shards])
+                # sub-shards 0, 1, 2, orig shard 1 should be contiguous
+                self.assert_shard_ranges_contiguous(
+                    4, [root_shards[0]] + root_shards[2:])
+                # orig shards 0, 1 should be contiguous
+                self.assert_shard_ranges_contiguous(
+                    2, [root_shards[1], root_shards[4]])
 
         self.assert_container_listing(more_obj_names + obj_names)
+        self.assert_container_object_count(len(more_obj_names + obj_names))
+
         # add another object that lands in the first of the new sub-shards
         self.put_objects(['alpha'])
 
@@ -525,14 +566,34 @@ class TestContainerSharding(ReplProbeTest):
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
         # Run sharders again so things settle.
         self.sharders.once(additional_args='--partitions=%s' % shard_part)
-        # TODO: assert that 3 new shards are now in ACTIVE state
+
+        # check original first shard range shards
+        for db_file in found_for_shard['shard_dbs']:
+            broker = ContainerBroker(db_file)
+            with annotate_failure('shard db file %s. ' % db_file):
+                self.assertIs(False, broker.is_root_container())
+                self.assertEqual('sharded', broker.get_db_state_text())
+                self.assertEqual(
+                    [ShardRange.ACTIVE] * 3,
+                    [sr.state for sr in broker.get_shard_ranges()])
+        # check root shard ranges
+        root_shard_ranges = self.direct_get_container_shard_ranges()
+        for node, (hdrs, root_shards) in root_shard_ranges.items():
+            # old first shard range should have been deleted
+            self.assertLengthEqual(root_shards, 4)
+            with annotate_failure('node %s. ' % node):
+                self.assertEqual(
+                    [ShardRange.ACTIVE] * 4,
+                    [sr['state'] for sr in root_shards])
+                self.assert_shard_ranges_contiguous(4, root_shards)
+
         headers, final_listing = self.assert_container_listing(
             ['alpha'] + more_obj_names + obj_names)
 
+        # check root
         found = self.categorize_container_dir_content()
         self.assertLengthEqual(found['shard_dbs'], 3)
         self.assertLengthEqual(found['normal_dbs'], 0)
-        # Shards stayed the same
         new_shard_ranges = None
         for db_file in found['shard_dbs']:
             broker = ContainerBroker(db_file)

@@ -4313,15 +4313,19 @@ def get_md5_socket():
 class ShardRange(object):
     FOUND = 0
     CREATED = 1
-    ACTIVE = 2
-    EXPANDING = 3
-    SHRINKING = 4
-    SHARDED = 5
+    CLEAVED = 2
+    ACTIVE = 3
+    EXPANDING = 4
+    SHRINKING = 5
+    SHARDING = 6
+    SHARDED = 7
     STATES = {FOUND: 'found',
               CREATED: 'created',
+              CLEAVED: 'cleaved',
               ACTIVE: 'active',
               EXPANDING: 'expanding',
               SHRINKING: 'shrinking',
+              SHARDING: 'sharding',
               SHARDED: 'sharded'}
     STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
 

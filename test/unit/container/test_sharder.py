@@ -614,7 +614,7 @@ class TestSharder(unittest.TestCase):
             0, expected_shard_dbs[0], 0)
         shard_broker = ContainerBroker(expected_shard_dbs[0])
         self.assertEqual(
-            ShardRange.CREATED, shard_broker.get_own_shard_range().state)
+            ShardRange.ACTIVE, shard_broker.get_own_shard_range().state)
         shard_info = shard_broker.get_info()
         total_shard_stats['object_count'] += shard_info['object_count']
         total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -656,7 +656,7 @@ class TestSharder(unittest.TestCase):
         for db in expected_shard_dbs[1:3]:
             shard_broker = ContainerBroker(db)
             self.assertEqual(
-                ShardRange.CREATED, shard_broker.get_own_shard_range().state)
+                ShardRange.ACTIVE, shard_broker.get_own_shard_range().state)
             shard_info = shard_broker.get_info()
             total_shard_stats['object_count'] += shard_info['object_count']
             total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -702,7 +702,7 @@ class TestSharder(unittest.TestCase):
             0, expected_shard_dbs[3], 0)
         shard_broker = ContainerBroker(expected_shard_dbs[3])
         self.assertEqual(
-            ShardRange.CREATED, shard_broker.get_own_shard_range().state)
+            ShardRange.ACTIVE, shard_broker.get_own_shard_range().state)
         shard_info = shard_broker.get_info()
         total_shard_stats['object_count'] += shard_info['object_count']
         total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -744,7 +744,7 @@ class TestSharder(unittest.TestCase):
         sharder._replicate_object.assert_not_called()
 
         # add final shard range - move this to ACTIVE state and update stats to
-        # simulate another replica having cleaved it and replicated it state
+        # simulate another replica having cleaved it and replicated its state
         shard_ranges[4].update_state(ShardRange.ACTIVE)
         shard_ranges[4].update_meta(2, 15)
         broker.merge_shard_ranges(shard_ranges[4:])
@@ -756,8 +756,6 @@ class TestSharder(unittest.TestCase):
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[4], 0)
         shard_broker = ContainerBroker(expected_shard_dbs[4])
-        # NB. This is a root container so expect the shard broker's own shard
-        # range to be ACTIVE when the cleaved shard range is ACTIVE
         self.assertEqual(
             ShardRange.ACTIVE, shard_broker.get_own_shard_range().state)
         shard_info = shard_broker.get_info()
@@ -954,8 +952,9 @@ class TestSharder(unittest.TestCase):
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, expected_shard_dbs[0], 0)])
         shard_broker = ContainerBroker(expected_shard_dbs[0])
+        # NB cleaving a shard, state goes to CLEAVED not ACTIVE
         self.assertEqual(
-            ShardRange.CREATED, shard_broker.get_own_shard_range().state)
+            ShardRange.CLEAVED, shard_broker.get_own_shard_range().state)
 
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(2, len(updated_shard_ranges))
@@ -964,16 +963,16 @@ class TestSharder(unittest.TestCase):
         # meta_timestamp
         shard_ranges[0].bytes_used = 6
         shard_ranges[0].object_count = 3
-        shard_ranges[0].state = ShardRange.ACTIVE
+        shard_ranges[0].state = ShardRange.CLEAVED
         self._check_shard_range(shard_ranges[0], updated_shard_ranges[0])
         self._check_objects(objects[:3], expected_shard_dbs[0])
         self.assertFalse(os.path.exists(expected_shard_dbs[1]))
         unlink_files(expected_shard_dbs)
 
         # run cleave - second (final) range is cleaved; move this range to
-        # ACTIVE state and update stats to simulate another replica having
-        # cleaved it and replicated it state
-        shard_ranges[1].update_state(ShardRange.ACTIVE)
+        # CLEAVED state and update stats to simulate another replica having
+        # cleaved it and replicated its state
+        shard_ranges[1].update_state(ShardRange.CLEAVED)
         shard_ranges[1].update_meta(2, 15)
         broker.merge_shard_ranges(shard_ranges[1:2])
         with self._mock_sharder(sharder_conf) as sharder:
@@ -987,10 +986,8 @@ class TestSharder(unittest.TestCase):
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, expected_shard_dbs[1], 0)])
         shard_broker = ContainerBroker(expected_shard_dbs[1])
-        # NB the state of the *shard broker's own shard range* should be
-        # CREATED regardless of the shard range being ACTIVE
         self.assertEqual(
-            ShardRange.CREATED, shard_broker.get_own_shard_range().state)
+            ShardRange.CLEAVED, shard_broker.get_own_shard_range().state)
 
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(2, len(updated_shard_ranges))
@@ -1044,7 +1041,7 @@ class TestSharder(unittest.TestCase):
         shard_broker = ContainerBroker(expected_shard_db)
         # NB when cleaving a shard container to a larger acceptor namespace
         # then expect the shard broker's own shard range to reflect that of the
-        # acceptor shard range rather than being force to CREATED.
+        # acceptor shard range rather than being set to CLEAVED.
         self.assertEqual(
             ShardRange.ACTIVE, shard_broker.get_own_shard_range().state)
 
