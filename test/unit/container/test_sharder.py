@@ -1754,24 +1754,23 @@ class TestSharder(unittest.TestCase):
         self.assertTrue(res)
         res, sharder = do_test(replicas, 202, 202, Exception)
         self.assertTrue(res)
+        self.assertEqual([True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(replicas, 202, 404, 404)
         self.assertFalse(res)
-        warnings = sharder.logger.get_lines_for_level('warning')
-        for warning in warnings[:2]:
-            self.assertIn('Failed to put shard ranges', warning)
-        self.assertFalse(warnings[2:])
+        self.assertEqual([True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         res, sharder = do_test(replicas, 500, 500, 500)
         self.assertFalse(res)
-        warnings = sharder.logger.get_lines_for_level('warning')
-        for warning in warnings[:3]:
-            self.assertIn('Failed to put shard ranges', warning)
-        self.assertFalse(warnings[3:])
+        self.assertEqual([True, True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         res, sharder = do_test(replicas, Exception, Exception, 202)
-        self.assertFalse(res)
-        warnings = sharder.logger.get_lines_for_level('warning')
-        for warning in warnings[:2]:
-            self.assertIn('Failed to put shard ranges', warning)
-        self.assertFalse(warnings[2:])
+        self.assertEqual([True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
 
         replicas = 2
         res, sharder = do_test(replicas, 202, 202)
@@ -1780,18 +1779,19 @@ class TestSharder(unittest.TestCase):
         self.assertTrue(res)
         res, sharder = do_test(replicas, 202, Exception)
         self.assertTrue(res)
+        self.assertEqual([True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(replicas, 404, 404)
         self.assertFalse(res)
-        warnings = sharder.logger.get_lines_for_level('warning')
-        for warning in warnings[:2]:
-            self.assertIn('Failed to put shard ranges', warning)
-        self.assertFalse(warnings[2:])
+        self.assertEqual([True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         res, sharder = do_test(replicas, Exception, Exception)
         self.assertFalse(res)
-        warnings = sharder.logger.get_lines_for_level('warning')
-        for warning in warnings[:2]:
-            self.assertIn('Failed to put shard ranges', warning)
-        self.assertFalse(warnings[2:])
+        self.assertEqual([True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
 
         replicas = 4
         res, sharder = do_test(replicas, 202, 202, 202, 202)
@@ -1800,21 +1800,24 @@ class TestSharder(unittest.TestCase):
         self.assertTrue(res)
         res, sharder = do_test(replicas, 202, 202, Exception, Exception)
         self.assertTrue(res)
+        self.assertEqual([True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
         res, sharder = do_test(replicas, 202, 404, 404, 404)
         self.assertFalse(res)
-        warnings = sharder.logger.get_lines_for_level('warning')
-        for warning in warnings[:3]:
-            self.assertIn('Failed to put shard ranges', warning)
-        self.assertFalse(warnings[3:])
+        self.assertEqual([True, True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         res, sharder = do_test(replicas, 500, 500, 500, 202)
         self.assertFalse(res)
-        warnings = sharder.logger.get_lines_for_level('warning')
-        for warning in warnings[:3]:
-            self.assertIn('Failed to put shard ranges', warning)
-        self.assertFalse(warnings[3:])
+        self.assertEqual([True, True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('warning')])
         res, sharder = do_test(replicas, Exception, Exception, 202, 404)
         self.assertFalse(res)
-        warnings = sharder.logger.get_lines_for_level('warning')
-        for warning in warnings[:3]:
-            self.assertIn('Failed to put shard ranges', warning)
-        self.assertFalse(warnings[3:])
+        self.assertEqual([True, True], [
+            'Failed to put shard ranges' in line for line in
+            sharder.logger.get_lines_for_level('error')])
+        self.assertEqual([True], [
+            all(msg in line for msg in ('Failed to put shard ranges', '404'))
+            for line in sharder.logger.get_lines_for_level('warning')])
