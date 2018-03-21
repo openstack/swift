@@ -2744,7 +2744,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # merge row for own shard range
         own_shard_range = ShardRange(broker.path, next(ts_iter), 'l', 'u',
-                                     state=ShardRange.CLEAVED)
+                                     state=ShardRange.SHARDING)
         broker.merge_shard_ranges([own_shard_range])
         self.assertFalse(broker.get_shard_ranges())
         self.assertFalse(broker.get_shard_ranges(include_own=False))
@@ -2825,7 +2825,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # exclude_states overrides include_own
         actual = broker.get_shard_ranges(include_own=True,
-                                         exclude_states=ShardRange.CLEAVED,
+                                         exclude_states=ShardRange.SHARDING,
                                          exclude_others=True)
         self.assertFalse(actual)
 
