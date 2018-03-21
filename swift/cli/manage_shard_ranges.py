@@ -224,9 +224,9 @@ def main(args=None):
     find_replace_parser.set_defaults(func=find_replace_shard_ranges)
 
     # enable
-    info_parser = subparsers.add_parser(
+    enable_parser = subparsers.add_parser(
         'enable', help='Enable sharding and move db to sharding state.')
-    info_parser.set_defaults(func=enable_sharding)
+    enable_parser.set_defaults(func=enable_sharding)
 
     args = parser.parse_args(args)
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
