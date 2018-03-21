@@ -4362,7 +4362,7 @@ class ShardRange(object):
 
     def __init__(self, name, created_at, lower=MIN, upper=MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
-                 deleted=0, state=None, state_timestamp=None):
+                 deleted=0, state=None, state_timestamp=None, epoch=None):
         """
         A ShardRange encapsulates state related to a container shard.
 
@@ -4383,6 +4383,7 @@ class ShardRange(object):
             CREATED
         :param state_timestamp: the timestamp at which the shard state was last
             updated; defaults to the value of ``created_at``.
+        :param epoch: optional epoch timestamp
         """
         self.account, self.container = self._validate_path(name)
         self.name = name
@@ -4391,7 +4392,7 @@ class ShardRange(object):
         self.lower = lower
         self.upper = upper
         self.timestamp = created_at
-        self._meta_timestamp = None
+        self._meta_timestamp = self._state_timestamp = self._epoch = None
         self.meta_timestamp = meta_timestamp
         self.object_count = object_count
         self.bytes_used = bytes_used
@@ -4401,6 +4402,7 @@ class ShardRange(object):
         self.state = self.FOUND if state is None else state
         self._state_timestamp = None
         self.state_timestamp = state_timestamp
+        self.epoch = epoch
 
     @classmethod
     def _validate_path(cls, path):
@@ -4558,6 +4560,14 @@ class ShardRange(object):
     def state_timestamp(self, ts):
         self._state_timestamp = self._to_timestamp(ts)
 
+    @property
+    def epoch(self):
+        return self._epoch
+
+    @epoch.setter
+    def epoch(self, epoch):
+        self._epoch = self._to_timestamp(epoch)
+
     def update_state(self, state, state_timestamp=None):
         """
         If state is not already the given value then set state to the given
@@ -4683,6 +4693,7 @@ class ShardRange(object):
         yield 'deleted', 1 if self.deleted else 0
         yield 'state', self.state
         yield 'state_timestamp', self.state_timestamp.internal
+        yield 'epoch', self.epoch.internal if self.epoch else None
 
     def copy(self, timestamp=None, **kwargs):
         """
@@ -4706,14 +4717,15 @@ class ShardRange(object):
         method is deliberately less flexible than the class `__init__()` method
         and requires all of the `__init__()` args to be given in the dict of
         params.
+
         :param params: a dict of parameters
         :return: an instance of this class
         """
-        return cls(params['name'], params['created_at'], params['lower'],
-                   params['upper'], params['object_count'],
-                   params['bytes_used'], params['meta_timestamp'],
-                   params['deleted'], params['state'],
-                   params['state_timestamp'])
+        return cls(
+            params['name'], params['created_at'], params['lower'],
+            params['upper'], params['object_count'], params['bytes_used'],
+            params['meta_timestamp'], params['deleted'], params['state'],
+            params['state_timestamp'], params['epoch'])
 
 
 def find_shard_range(item, ranges):
