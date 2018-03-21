@@ -29,11 +29,11 @@ from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
 from swift.container.sharder import ContainerSharder, RangeAnalyser, \
     sharding_enabled
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
-    encode_timestamps
+    encode_timestamps, parse_db_filename
 from test import annotate_failure
 
 from test.unit import FakeLogger, debug_logger, FakeRing, \
-    make_timestamp_iter, unlink_files, mocked_http_conn
+    make_timestamp_iter, unlink_files, mocked_http_conn, mock_timestamp_now
 
 
 class TestRangeAnalyser(unittest.TestCase):
@@ -1814,11 +1814,9 @@ class TestSharder(unittest.TestCase):
             def on_send(fake_conn, data):
                 sent_data[fake_conn] += data
 
-            now = next(self.ts_iter)
             with self._mock_sharder(replicas=replicas) as sharder:
                 with mocked_http_conn(*resp_codes, give_send=on_send) as conn:
-                    with mock.patch('swift.common.utils.Timestamp.now',
-                                    classmethod(lambda c: now)):
+                    with mock_timestamp_now() as now:
                         res = sharder._send_shard_ranges(
                             'a', 'c', shard_ranges)
 
@@ -1968,3 +1966,164 @@ class TestSharder(unittest.TestCase):
         self.assertEqual([True, True], [
             'Failed to put shard ranges' in line for line in
             sharder.logger.get_lines_for_level('error')])
+
+    def test_process_broker_not_sharding_no_others(self):
+        # verify that sharding process will not start when own shard range is
+        # missing or in wrong state even when other shard ranges are in the db
+        broker = self._make_broker()
+        node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
+                'index': 0}
+        # sanity check
+        self.assertIsNone(broker.get_own_shard_range(no_default=True))
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+
+        # no shard ranges
+        with self._mock_sharder() as sharder:
+            sharder._process_broker(broker, node, 99)
+        self.assertIsNone(broker.get_own_shard_range(no_default=True))
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+        self.assertFalse(broker.logger.get_lines_for_level('warning'))
+        self.assertFalse(broker.logger.get_lines_for_level('error'))
+        broker.logger.clear()
+
+        # no own shard range
+        with self._mock_sharder() as sharder:
+            sharder._process_broker(broker, node, 99)
+        self.assertIsNone(broker.get_own_shard_range(no_default=True))
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+        self.assertFalse(broker.logger.get_lines_for_level('warning'))
+        self.assertFalse(broker.logger.get_lines_for_level('error'))
+        broker.logger.clear()
+
+        # now add own shard range
+        for state in ShardRange.STATES:
+            if state in (ShardRange.SHARDING,
+                         ShardRange.SHRINKING):
+                continue
+            own_sr = broker.get_own_shard_range()  # returns the default
+            own_sr.update_state(state)
+            broker.merge_shard_ranges([own_sr])
+            with self._mock_sharder() as sharder:
+                with mock_timestamp_now() as now:
+                    sharder._process_broker(broker, node, 99)
+                    own_shard_range = broker.get_own_shard_range(
+                        no_default=True)
+            self.assertEqual(dict(own_sr, meta_timestamp=now),
+                             dict(own_shard_range))
+            self.assertEqual(UNSHARDED, broker.get_db_state())
+            self.assertFalse(broker.logger.get_lines_for_level('warning'))
+            self.assertFalse(broker.logger.get_lines_for_level('error'))
+            broker.logger.clear()
+
+    def _check_process_broker_sharding_no_others(self, state):
+        # verify that when existing own_shard_range has given state then the
+        # sharding process will begin
+        broker = self._make_broker(hash_='hash%s' % state)
+        node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
+                'index': 0}
+        own_sr = broker.get_own_shard_range()
+        self.assertTrue(own_sr.update_state(state))
+        broker.merge_shard_ranges([own_sr])
+
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                sharder._process_broker(broker, node, 99)
+                own_shard_range = broker.get_own_shard_range(no_default=True)
+
+        self.assertEqual(dict(own_sr, meta_timestamp=now),
+                         dict(own_shard_range))
+        self.assertEqual(SHARDING, broker.get_db_state())
+        self.assertEqual(now.normal, parse_db_filename(broker.db_file)[1])
+        self.assertFalse(broker.logger.get_lines_for_level('warning'))
+        self.assertFalse(broker.logger.get_lines_for_level('error'))
+
+    def test_process_broker_sharding_with_own_shard_range_no_others(self):
+        self._check_process_broker_sharding_no_others(ShardRange.SHARDING)
+        self._check_process_broker_sharding_no_others(ShardRange.SHRINKING)
+
+    def test_process_broker_not_sharding_others(self):
+        # verify that sharding process will not start when own shard range is
+        # missing or in wrong state even when other shard ranges are in the db
+        broker = self._make_broker()
+        node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
+                'index': 0}
+        # sanity check
+        self.assertIsNone(broker.get_own_shard_range(no_default=True))
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+
+        # add shard ranges - but not own
+        shard_ranges = [ShardRange('.shards_a/c_' + upper, next(self.ts_iter),
+                                   lower, upper)
+                        for lower, upper in (('', 'h'), ('h', ''))]
+        broker.merge_shard_ranges(shard_ranges)
+
+        with self._mock_sharder() as sharder:
+            sharder._process_broker(broker, node, 99)
+        self.assertIsNone(broker.get_own_shard_range(no_default=True))
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+        self.assertFalse(broker.logger.get_lines_for_level('warning'))
+        self.assertFalse(broker.logger.get_lines_for_level('error'))
+        broker.logger.clear()
+
+        # now add own shard range
+        for state in ShardRange.STATES:
+            if state in (ShardRange.SHARDING,
+                         ShardRange.SHRINKING,
+                         ShardRange.SHARDED):
+                continue
+            own_sr = broker.get_own_shard_range()  # returns the default
+            own_sr.update_state(state)
+            broker.merge_shard_ranges([own_sr])
+            with self._mock_sharder() as sharder:
+                with mock_timestamp_now() as now:
+                    sharder._process_broker(broker, node, 99)
+                    own_shard_range = broker.get_own_shard_range(
+                        no_default=True)
+            self.assertEqual(dict(own_sr, meta_timestamp=now),
+                             dict(own_shard_range))
+            self.assertEqual(UNSHARDED, broker.get_db_state())
+            self.assertFalse(broker.logger.get_lines_for_level('warning'))
+            self.assertFalse(broker.logger.get_lines_for_level('error'))
+            broker.logger.clear()
+
+    def _check_process_broker_sharding_others(self, state):
+        # verify states in which own_shard_range will cause sharding
+        # process to start when other shard ranges are in the db
+        broker = self._make_broker(hash_='hash%s' % state)
+        node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
+                'index': 0}
+        # add shard ranges - but not own
+        shard_ranges = [ShardRange('.shards_a/c_' + upper, next(self.ts_iter),
+                                   lower, upper)
+                        for lower, upper in (('', 'h'), ('h', ''))]
+        broker.merge_shard_ranges(shard_ranges)
+        # sanity check
+        self.assertIsNone(broker.get_own_shard_range(no_default=True))
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+
+        # now set own shard range to given state and persist it
+        own_sr = broker.get_own_shard_range()  # returns the default
+        self.assertTrue(own_sr.update_state(state))
+        broker.merge_shard_ranges([own_sr])
+        # TODO: this will go away as soon as we have epochs in shard range
+        epoch = next(self.ts_iter)
+        broker.update_sharding_info({'Epoch': epoch.normal})
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                # we're not testing rest of the process here so prevent any
+                # attempt to progress shard range states
+                sharder._create_shard_containers = lambda *args: 0
+                sharder._process_broker(broker, node, 99)
+                own_shard_range = broker.get_own_shard_range(no_default=True)
+
+        self.assertEqual(dict(own_sr, meta_timestamp=now),
+                         dict(own_shard_range))
+        self.assertEqual(SHARDING, broker.get_db_state())
+        self.assertEqual(epoch.normal, parse_db_filename(broker.db_file)[1])
+        self.assertFalse(broker.logger.get_lines_for_level('warning'))
+        self.assertFalse(broker.logger.get_lines_for_level('error'))
+
+    def test_process_broker_sharding_with_own_shard_range_and_others(self):
+        self._check_process_broker_sharding_others(ShardRange.SHARDING)
+        self._check_process_broker_sharding_others(ShardRange.SHRINKING)
+        self._check_process_broker_sharding_others(ShardRange.SHARDED)

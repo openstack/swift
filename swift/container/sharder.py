@@ -665,13 +665,20 @@ class ContainerSharder(ContainerReplicator):
                         own_shard_range = broker.get_own_shard_range()
 
                 if broker.get_shard_ranges():
-                    # container may have been given shard ranges rather
-                    # than found them e.g. via replication or a shrink event
-                    # TODO: broker *should* also have had a sharding epoch set
-                    # but should we double check? If so, only leader should set
-                    # the epoch.
-                    broker.set_sharding_state()
-                    state = SHARDING
+                    # container may have been given shard ranges rather than
+                    # found them e.g. via replication or a shrink event
+                    if own_shard_range.state in (ShardRange.SHARDING,
+                                                 ShardRange.SHRINKING,
+                                                 ShardRange.SHARDED):
+                        # TODO: broker *should* also have had a sharding epoch
+                        # set but should we double check? If so, only leader
+                        # should set the epoch.
+                        broker.set_sharding_state()
+                        state = SHARDING
+                    else:
+                        self.logger.debug(
+                            'Shard ranges found but own shard range is %r: %s'
+                            % (own_shard_range.state_text, broker.path))
                 elif own_shard_range.state in (ShardRange.SHARDING,
                                                ShardRange.SHRINKING):
                     broker.update_sharding_info({'Scan-Done': 'False'})
@@ -1157,7 +1164,7 @@ class ContainerSharder(ContainerReplicator):
             marker=cleave_cursor + '\x00',
             states=[ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE])
         if not ranges_todo:
-            self.logger.debug('No uncleaved shard ranges for %s/%s',
+            self.logger.debug('No shard ranges to cleave for %s/%s',
                               broker.account, broker.container)
             return True
 
