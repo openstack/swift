@@ -21,7 +21,7 @@ from tempfile import mkdtemp
 
 from six.moves import cStringIO as StringIO
 
-from swift.cli.find_shard_ranges import main
+from swift.cli.manage_shard_ranges import main
 from swift.common import utils
 from swift.container.backend import ContainerBroker
 
@@ -67,31 +67,37 @@ class TestCliFindShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file])
+            main([db_file, 'find'])
         self.assert_formatted_json(out.getvalue(), [])
-        self.assert_starts_with(err.getvalue(), 'Found 0 ranges in ')
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        self.assert_starts_with(err_lines[1], 'Found 0 ranges in ')
 
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, '100'])
+            main([db_file, 'find', '100'])
         self.assert_formatted_json(out.getvalue(), [])
-        self.assert_starts_with(err.getvalue(), 'Found 0 ranges in ')
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        self.assert_starts_with(err_lines[1], 'Found 0 ranges in ')
 
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, '99'])
+            main([db_file, 'find', '99'])
         self.assert_formatted_json(out.getvalue(), [
             {'index': 0, 'lower': '', 'upper': 'obj98', 'object_count': 99},
             {'index': 1, 'lower': 'obj98', 'upper': '', 'object_count': 1},
         ])
-        self.assert_starts_with(err.getvalue(), 'Found 2 ranges in ')
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        self.assert_starts_with(err_lines[1], 'Found 2 ranges in ')
 
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            main([db_file, '10'])
+            main([db_file, 'find', '10'])
         self.assert_formatted_json(out.getvalue(), [
             {'index': 0, 'lower': '', 'upper': 'obj09', 'object_count': 10},
             {'index': 1, 'lower': 'obj09', 'upper': 'obj19',
@@ -112,4 +118,6 @@ class TestCliFindShardRanges(unittest.TestCase):
              'object_count': 10},
             {'index': 9, 'lower': 'obj89', 'upper': '', 'object_count': 10},
         ])
-        self.assert_starts_with(err.getvalue(), 'Found 10 ranges in ')
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        self.assert_starts_with(err_lines[1], 'Found 10 ranges in ')
