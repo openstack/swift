@@ -144,24 +144,23 @@ class ContainerSharder(ContainerReplicator):
 
     def _report_stats(self):
         default_stats = ('attempted', 'success', 'failure')
-        category_stats = {
-            'visited': default_stats + ('skipped',),
-            'scanned': default_stats + ('found', 'min_time', 'max_time'),
-            'created': default_stats,
-            'cleaved': default_stats + ('min_time', 'max_time',),
-            'misplaced': default_stats}
+        category_keys = (
+            ('visited', default_stats + ('skipped',)),
+            ('scanned', default_stats + ('found', 'min_time', 'max_time')),
+            ('created', default_stats),
+            ('cleaved', default_stats + ('min_time', 'max_time',)),
+            ('misplaced', default_stats + ('found',)),
+            ('audit', default_stats),
+        )
 
         now = time.time()
         last_report = time.ctime(self.reported)
         elapsed = now - self.stats['start']
         sharding_stats = self.stats['sharding']
-        for category in (
-                'visited', 'scanned', 'created', 'cleaved', 'misplaced'):
+        for category, keys in category_keys:
             stats = sharding_stats[category]
-            msg = ', '.join(['%s %s' % (str(stats[k]), k)
-                             for k in category_stats[category]])
-            self.logger.info(
-                'Since %s: %s: %s', last_report, category, msg)
+            msg = ' '.join(['%s:%s' % (k, str(stats[k])) for k in keys])
+            self.logger.info('Since %s %s - %s', last_report, category, msg)
 
         dump_recon_cache(
             {'sharding_stats': self.stats,
@@ -472,6 +471,7 @@ class ContainerSharder(ContainerReplicator):
                 queries.append(make_query(own_shard_range.upper, ''))
 
         if not queries:
+            self._increment_stat('misplaced', 'success')
             return
 
         def make_dest_shard_ranges():
@@ -500,7 +500,7 @@ class ContainerSharder(ContainerReplicator):
 
         if misplaced_items:
             self.logger.increment('misplaced_items_found')
-            self._increment_stat('misplaced', 'success')
+            self._increment_stat('misplaced', 'found')
 
         # wipe out the cache to disable bypass in delete_db
         cleanups = self.shard_cleanups or {}
@@ -510,6 +510,7 @@ class ContainerSharder(ContainerReplicator):
         for container in cleanups.values():
             self.cpool.spawn(self.delete_db, container)
         self.cpool.waitall(None)
+        self._increment_stat('misplaced', 'success')
         self.logger.info('Finished misplaced shard replication')
 
     def _post_replicate_hook(self, broker, info, responses):
@@ -535,6 +536,7 @@ class ContainerSharder(ContainerReplicator):
 
         self.logger.info('Auditing %s/%s', broker.account, broker.container)
         continue_with_container = True
+        self._increment_stat('audit', 'attempted')
 
         # if the container has been marked as deleted, all metadata will
         # have been erased so no point auditing. But we want it to pass, in
@@ -572,6 +574,7 @@ class ContainerSharder(ContainerReplicator):
             if not continue_with_container:
                 self.logger.increment('audit_failed')
                 self._increment_stat('audit', 'failure')
+            self._increment_stat('audit', 'success')
             return continue_with_container
 
         # Get the root view of the world.
@@ -586,6 +589,7 @@ class ContainerSharder(ContainerReplicator):
             self._increment_stat('audit', 'failure')
             return False
         if shard_range in shard_ranges:
+            self._increment_stat('audit', 'success')
             return continue_with_container
 
         # shard range isn't in ranges, if it overlaps with an item, we're in
@@ -616,6 +620,7 @@ class ContainerSharder(ContainerReplicator):
                 return False
         # shard range doesn't exist in the root containers ranges, but doesn't
         # overlap with anything
+        self._increment_stat('audit', 'success')
         return continue_with_container
 
     def _process_broker(self, broker, node, part):
