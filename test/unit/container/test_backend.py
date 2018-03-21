@@ -2844,11 +2844,12 @@ class TestContainerBroker(unittest.TestCase):
 
         # no row for own shard range - expect entire namespace default
         now = Timestamp.now()
-        expected = ShardRange('.sharded_a/shard_c', now, '', '', 0, 0, now)
+        expected = ShardRange('.sharded_a/shard_c', now, '', '', 0, 0, now,
+                              state=ShardRange.ACTIVE)
         with mock.patch('swift.container.backend.Timestamp.now',
                         return_value=now):
             actual = broker.get_own_shard_range()
-        self.assertEqual(expected, actual)
+        self.assertEqual(dict(expected), dict(actual))
 
         actual = broker.get_own_shard_range(no_default=True)
         self.assertIsNone(actual)
