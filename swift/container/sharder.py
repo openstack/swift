@@ -642,7 +642,7 @@ class ContainerSharder(ContainerReplicator):
 
         if broker.is_deleted():
             # This container is deleted so we can skip it. We still want
-            # deleted containers to go via misplaced items, cause they may
+            # deleted containers to go via misplaced items because they may
             # have new objects sitting in them that may need to move.
             return
 
@@ -653,6 +653,12 @@ class ContainerSharder(ContainerReplicator):
         is_leader = node['index'] == 0 and self.auto_shard
         try:
             if state in (UNSHARDED, COLLAPSED):
+                if is_leader and broker.is_root_container():
+                    # bootstrap sharding of root container
+                    if self._find_sharding_candidates(
+                            broker, shard_ranges=[own_shard_range]):
+                        own_shard_range = broker.get_own_shard_range()
+
                 if broker.get_shard_ranges():
                     # container may have been given shard ranges rather
                     # than found them e.g. via replication or a shrink event
@@ -661,8 +667,8 @@ class ContainerSharder(ContainerReplicator):
                     # the epoch.
                     broker.set_sharding_state()
                     state = SHARDING
-                elif (is_leader and broker.get_info()['object_count'] >=
-                      self.shard_container_size):
+                elif own_shard_range.state in (ShardRange.SHARDING,
+                                               ShardRange.SHRINKING):
                     broker.update_sharding_info({'Scan-Done': 'False'})
                     own_shard_range.update_state(ShardRange.SHARDING)
                     broker.set_sharding_state(epoch=Timestamp.now())
@@ -711,14 +717,14 @@ class ContainerSharder(ContainerReplicator):
                         states=ShardRange.CLEAVED)
                     for sr in modified_shard_ranges:
                         sr.update_state(ShardRange.ACTIVE)
-                    if not broker.is_root_container():
-                        own_shard_range = broker.get_own_shard_range()
-                        if own_shard_range.state != ShardRange.SHARDED:
-                            own_shard_range = own_shard_range.copy(
-                                timestamp=Timestamp.now(),
-                                state=ShardRange.SHARDED,
-                                deleted=1)
-                            modified_shard_ranges.append(own_shard_range)
+                    own_shard_range = broker.get_own_shard_range()
+                    own_shard_range.update_state(ShardRange.SHARDED)
+                    own_shard_range.update_meta(0, 0)
+                    if (not broker.is_root_container() and not
+                            own_shard_range.deleted):
+                        own_shard_range = own_shard_range.copy(
+                            timestamp=Timestamp.now(), deleted=1)
+                    modified_shard_ranges.append(own_shard_range)
                     broker.merge_shard_ranges(modified_shard_ranges)
 
                     if broker.set_sharded_state():
@@ -728,9 +734,15 @@ class ContainerSharder(ContainerReplicator):
                         self.logger.debug('Remaining in sharding state %s/%s',
                                           broker.account, broker.container)
 
-            if (state == SHARDED and broker.is_root_container() and
-                    is_leader):
-                self._find_shrinks(broker)
+            if state == SHARDED and broker.is_root_container():
+                if is_leader:
+                    self._find_shrinks(broker)
+                    self._find_sharding_candidates(broker)
+                for shard_range in broker.get_shard_ranges(
+                        states=[ShardRange.SHARDING]):
+                    self._send_shard_ranges(
+                        shard_range.account, shard_range.container,
+                        [shard_range])
 
             if not broker.is_root_container():
                 # Update the root container with this container's shard range
@@ -1008,6 +1020,25 @@ class ContainerSharder(ContainerReplicator):
             len(created_ranges))
         return len(created_ranges)
 
+    def _find_sharding_candidates(self, broker, shard_ranges=None):
+        # this should only execute on root containers; the goal is to find
+        # large shard containers that should be sharded.
+        # First cut is simple: assume root container shard usage stats are good
+        # enough to make decision.
+        # TODO: object counts may well not be the appropriate metric for
+        # deciding to shrink because a shard with low object_count may have a
+        # large number of deleted object rows that will need to be merged with
+        # a neighbour. We may need to expose row count as well as object count.
+        if shard_ranges is None:
+            shard_ranges = broker.get_shard_ranges(states=[ShardRange.ACTIVE])
+        candidates = []
+        for shard_range in shard_ranges:
+            if shard_range.object_count >= self.shard_container_size:
+                shard_range.update_state(ShardRange.SHARDING)
+                candidates.append(shard_range)
+        broker.merge_shard_ranges(candidates)
+        return len(candidates)
+
     def _find_shrinks(self, broker):
         # this should only execute on root containers that have sharded; the
         # goal is to find small shard containers that could be retired by
@@ -1029,11 +1060,6 @@ class ContainerSharder(ContainerReplicator):
         own_shard_range = broker.get_own_shard_range()
         if len(shard_ranges) == 1:
             # special case to enable final shard to shrink into root
-            # TODO: in future own_shard_range will exist and have sharded state
-            # but for now this could be first time own_shard_range is touched
-            # and so we need to make it active in order to satisfy the
-            # conditions for an acceptor
-            own_shard_range.state = ShardRange.ACTIVE
             shard_ranges.append(own_shard_range)
 
         merge_pairs = {}
@@ -1046,7 +1072,8 @@ class ContainerSharder(ContainerReplicator):
                 # donor merging into a single acceptor. Don't fret - eventually
                 # all the small ranges will be retired.
                 continue
-            if acceptor.state not in (ShardRange.ACTIVE, ShardRange.EXPANDING):
+            if (acceptor is not own_shard_range and acceptor.state not in
+                    (ShardRange.ACTIVE, ShardRange.EXPANDING)):
                 # don't shrink into a range that is not yet ACTIVE or was
                 # selected as a donor on a previous cycle
                 continue

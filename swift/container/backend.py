@@ -1688,7 +1688,7 @@ class ContainerBroker(DatabaseBroker):
 
     # TODO: add unit test
     def get_shard_usage(self):
-        states = [ShardRange.ACTIVE, ShardRange.SHRINKING,
+        states = [ShardRange.ACTIVE, ShardRange.SHARDING, ShardRange.SHRINKING,
                   ShardRange.EXPANDING]
         if not self.is_root_container():
             states.append(ShardRange.CLEAVED)
