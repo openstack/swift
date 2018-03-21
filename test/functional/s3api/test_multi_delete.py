@@ -172,7 +172,7 @@ class TestS3ApiMultiDelete(S3ApiBase):
                                    query=query)
         self.assertEqual(get_error_code(body), 'UserKeyMustBeSpecified')
 
-        # specified number of objects are over CONF.max_multi_delete_objects
+        # specified number of objects are over max_multi_delete_objects
         # (Default 1000), but xml size is smaller than 61365 bytes.
         req_objects = ['obj%s' for var in xrange(1001)]
         xml = self._gen_multi_delete_xml(req_objects)
@@ -185,7 +185,7 @@ class TestS3ApiMultiDelete(S3ApiBase):
         self.assertEqual(get_error_code(body), 'MalformedXML')
 
         # specified xml size is over 61365 bytes, but number of objects are
-        # smaller than CONF.max_multi_delete_objects.
+        # smaller than max_multi_delete_objects.
         obj = 'a' * 1024
         req_objects = [obj + str(var) for var in xrange(999)]
         xml = self._gen_multi_delete_xml(req_objects)

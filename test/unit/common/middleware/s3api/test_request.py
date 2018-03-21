@@ -92,10 +92,6 @@ class TestRequest(S3ApiTestCase):
         self.swift3.conf.s3_acl = True
         self.swift.s3_acl = True
 
-    def tearDown(self):
-        self.swift3.conf.s3_acl = False
-        self.swift.s3_acl = False
-
     @patch('swift.common.middleware.s3api.acl_handlers.ACL_MAP', Fake_ACL_MAP)
     @patch('swift.common.middleware.s3api.request.S3AclRequest.authenticate',
            lambda x, y: None)

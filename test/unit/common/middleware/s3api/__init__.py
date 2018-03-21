@@ -55,9 +55,6 @@ class S3ApiTestCase(unittest.TestCase):
     def __init__(self, name):
         unittest.TestCase.__init__(self, name)
 
-        # CONF.log_level = 'debug'
-        # CONF.storage_domain = 'localhost'
-
     def setUp(self):
         # setup default config
         self.conf = Config({
@@ -68,7 +65,7 @@ class S3ApiTestCase(unittest.TestCase):
             'max_parts_listing': 1000,
             'max_multi_delete_objects': 1000,
             's3_acl': False,
-            'storage_domain': '',
+            'storage_domain': 'localhost',
             'auth_pipeline_check': True,
             'max_upload_part_num': 1000,
             'check_bucket_owner': False,
@@ -78,7 +75,6 @@ class S3ApiTestCase(unittest.TestCase):
         })
         # those 2 settings has existed the original test setup
         self.conf.log_level = 'debug'
-        self.conf.storage_domain = 'localhost'
 
         self.app = FakeApp()
         self.swift = self.app.swift
