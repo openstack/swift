@@ -327,10 +327,10 @@ def direct_put_container(node, part, account, container, conn_timeout=5,
     if headers is None:
         headers = {}
 
-    have_x_timestamp = 'x-timestamp' in (k.lower() for k in headers)
-    add_user_agent = 'user-agent' not in (k.lower() for k in headers)
-    headers_out = gen_headers(headers, add_ts=(not have_x_timestamp),
-                              add_user_agent=add_user_agent)
+    lower_headers = set(k.lower() for k in headers)
+    headers_out = gen_headers(headers,
+                              add_ts='x-timestamp' not in lower_headers,
+                              add_user_agent='user-agent' not in lower_headers)
     path = '/%s/%s' % (account, container)
     _make_req(node, part, 'PUT', path, headers_out, 'Container', conn_timeout,
               response_timeout, contents=contents,
