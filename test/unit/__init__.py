@@ -751,6 +751,8 @@ class FakeStatus(object):
         :param response_sleep: float, time to eventlet sleep during response
         """
         # connect exception
+        if inspect.isclass(status) and issubclass(status, Exception):
+            raise status('FakeStatus Error')
         if isinstance(status, (Exception, eventlet.Timeout)):
             raise status
         if isinstance(status, tuple):
