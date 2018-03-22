@@ -45,10 +45,20 @@ def _load_and_validate_shard_data(args):
 
 
 def find_ranges(broker, args):
-    start = time.time()
-    ranges = broker.find_shard_ranges(args.rows_per_shard)[0]
+    start = last_report = time.time()
+    ranges, last_found = broker.find_shard_ranges(args.rows_per_shard, limit=5)
+    if ranges:
+        while not last_found:
+            if last_report + 10 < time.time():
+                print('Found %d ranges in %gs; looking for more...' % (
+                    len(ranges), time.time() - start), file=sys.stderr)
+                last_report = time.time()
+            # prefix doesn't matter since we aren't persisting it
+            found_ranges = make_shard_ranges(broker, ranges, '.shards_')
+            more_ranges, last_found = broker.find_shard_ranges(
+                args.rows_per_shard, existing_ranges=found_ranges, limit=5)
+            ranges.extend(more_ranges)
     delta_t = time.time() - start
-
     print(json.dumps([dict(r) for r in ranges], sort_keys=True, indent=2))
     print('Found %d ranges in %gs' % (len(ranges), delta_t), file=sys.stderr)
     return 0
