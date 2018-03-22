@@ -220,11 +220,12 @@ class ContainerSharder(ContainerReplicator):
                         'Content-Length': len(body),
                         'Content-Type': 'application/json'})
 
+        pool = GreenAsyncPile(len(nodes))
         for node in nodes:
-            self.cpool.spawn(self._put_container, node, part, account,
-                             container, headers, body)
+            pool.spawn(self._put_container, node, part, account,
+                       container, headers, body)
 
-        results = self.cpool.waitall(None)
+        results = pool.waitall(None)
         return results.count(True) >= quorum_size(self.ring.replica_count)
 
     def _get_shard_broker(self, shard_range, root_path, policy_index,
