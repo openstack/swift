@@ -1679,7 +1679,8 @@ class ContainerBroker(DatabaseBroker):
             return None
         else:
             own_shard_range = ShardRange(
-                self.path, now, ShardRange.MIN, ShardRange.MAX)
+                self.path, now, ShardRange.MIN, ShardRange.MAX,
+                state=ShardRange.ACTIVE)
 
         info = self.get_info()
         own_shard_range.update_meta(
