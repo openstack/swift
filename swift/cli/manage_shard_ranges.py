@@ -230,7 +230,8 @@ def main(args=None):
 
     args = parser.parse_args(args)
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
-    broker = ContainerBroker(args.container_db, logger=logger)
+    broker = ContainerBroker(args.container_db, logger=logger,
+                             stale_reads_ok=True)
     broker.get_info()
     print('Loaded db broker for %s.' % broker.path, file=sys.stderr)
     return args.func(broker, args)
