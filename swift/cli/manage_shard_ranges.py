@@ -44,13 +44,46 @@ def _load_and_validate_shard_data(args):
         exit(2)
 
 
+def _check_shard_ranges(own_shard_range, shard_ranges):
+    reasons = []
+
+    def reason(x, y):
+        if x != y:
+            reasons.append('%s != %s' % (x, y))
+
+    if not shard_ranges:
+        reasons.append('No shard ranges.')
+    else:
+        reason(own_shard_range.lower, shard_ranges[0].lower)
+        reason(own_shard_range.upper, shard_ranges[-1].upper)
+        for x, y in zip(shard_ranges, shard_ranges[1:]):
+            reason(x.upper, y.lower)
+
+    if reasons:
+        print('WARNING: invalid shard ranges: %s.' % reasons)
+        print('Aborting.')
+        exit(2)
+
+
+def _check_own_shard_range(broker, args):
+    is_shard = broker.account.startswith('.shards_')
+    own_shard_range = broker.get_own_shard_range(no_default=is_shard)
+    if not own_shard_range:
+        print('WARNING: shard container missing own shard range.')
+        print('Aborting.')
+        exit(2)
+    return own_shard_range
+
+
 def find_ranges(broker, args):
     start = time.time()
     ranges = broker.find_shard_ranges(args.rows_per_shard)[0]
     delta_t = time.time() - start
 
     print(json.dumps([dict(r) for r in ranges], sort_keys=True, indent=2))
-    print('Found %d ranges in %gs' % (len(ranges), delta_t), file=sys.stderr)
+    print('Found %d ranges in %gs (container size %s)' %
+          (len(ranges), delta_t, broker.get_info()['object_count']),
+          file=sys.stderr)
     return 0
 
 
@@ -62,6 +95,10 @@ def show_shard_ranges(broker, args):
 
     if not shard_data:
         print("No shard data found.", file=sys.stderr)
+    elif getattr(args, 'brief', False):
+        print("Existing shard ranges:", file=sys.stderr)
+        print(json.dumps([(sd['lower'], sd['upper']) for sd in shard_data],
+                         sort_keys=True, indent=2))
     else:
         print("Existing shard ranges:", file=sys.stderr)
         print(json.dumps(shard_data, sort_keys=True, indent=2))
@@ -86,9 +123,10 @@ def delete_shard_ranges(broker, args):
         print('This will delete existing %d shard ranges.' % len(shard_ranges))
         if broker.get_db_state() != UNSHARDED:
             print('WARNING: Be very cautious about deleting existing shard '
-                  'ranges because:')
-            print('  the db is in state %s' % broker.get_db_state_text())
-            print('  %d existing shard ranges have started sharding' %
+                  'ranges. Deleting all ranges in this db does not guarantee '
+                  'deletion of all ranges on all replicas of the db.')
+            print('  - this db is in state %s' % broker.get_db_state_text())
+            print('  - %d existing shard ranges have started sharding' %
                   [sr.state != ShardRange.FOUND
                    for sr in shard_ranges].count(True))
         choice = input('Do you want to show the existing ranges [s], '
@@ -115,8 +153,11 @@ def delete_shard_ranges(broker, args):
 
 
 def _replace_shard_ranges(broker, args, shard_data):
+    own_shard_range = _check_own_shard_range(broker, args)
     shard_ranges = make_shard_ranges(
         broker, shard_data, args.shards_account_prefix)
+    _check_shard_ranges(own_shard_range, shard_ranges)
+
     if args.verbose > 0:
         print('New shard ranges to be injected:')
         print(json.dumps([dict(sr) for sr in shard_ranges],
@@ -142,16 +183,41 @@ def find_replace_shard_ranges(broker, args):
     _replace_shard_ranges(broker, args, shard_data)
 
 
-def enable_sharding(broker, args):
+def _enable_sharding(broker, own_shard_range, args):
+    if own_shard_range.update_state(ShardRange.SHARDING):
+        own_shard_range.epoch = Timestamp.now()
+    broker.merge_shard_ranges([own_shard_range])
     broker.update_metadata({'X-Container-Sysmeta-Sharding':
                             ('True', Timestamp.now().normal)})
-    print('Sharding enabled.')
-    epoch = Timestamp.now()
-    if not broker.set_sharding_state(epoch=epoch):
-        print ('WARNING: failed to move broker to sharding state.')
+    return own_shard_range
+
+
+def enable_sharding(broker, args):
+    own_shard_range = _check_own_shard_range(broker, args)
+    _check_shard_ranges(own_shard_range, broker.get_shard_ranges())
+
+    if own_shard_range.state == ShardRange.ACTIVE:
+        own_shard_range = _enable_sharding(broker, own_shard_range, args)
+        print('Container moved to state %r with epoch %s.' %
+              (own_shard_range.state_text, own_shard_range.epoch.internal))
+    elif own_shard_range.state == ShardRange.SHARDING:
+        if own_shard_range.epoch:
+            print('Container already in state %r with epoch %s.' %
+                  (own_shard_range.state_text, own_shard_range.epoch.internal))
+            print('No action required.')
+        else:
+            print('Container already in state %r but missing epoch.' %
+                  own_shard_range.state_text)
+            own_shard_range = _enable_sharding(broker, own_shard_range, args)
+            print('Container in state %r given epoch %s.' %
+                  (own_shard_range.state_text, own_shard_range.epoch.internal))
+    else:
+        print('WARNING: container in state %s (should be active or sharding).'
+              % own_shard_range.state_text)
+        print('Aborting.')
         return 2
-    print('Enabled sharding with epoch %s.' % epoch.internal)
-    print('Run container-sharder to shard the container.')
+
+    print('Run container-sharder on all nodes to shard the container.')
     return 0
 
 
@@ -196,6 +262,9 @@ def main(args=None):
     show_parser.add_argument(
         '--include_deleted', '-d', action='store_true', default=False,
         help='Include deleted shard ranges in output.')
+    show_parser.add_argument(
+        '--brief', '-b', action='store_true', default=False,
+        help='Show only shard range bounds in output.')
     show_parser.set_defaults(func=show_shard_ranges)
 
     # info
