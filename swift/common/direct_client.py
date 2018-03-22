@@ -74,6 +74,9 @@ def _make_req(node, part, method, path, headers, stype,
     :param content_length: value to send as content-length header
     :param chunk_size: if defined, chunk size of data to send
     :returns: an HTTPResponse object
+    :raises DirectClientException: if the response status is not 2xx
+    :raises eventlet.Timeout: if either conn_timeout or response_timeout is
+        exceeded
     """
     if contents is not None:
         if content_length is not None:

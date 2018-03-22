@@ -201,7 +201,7 @@ class ContainerSharder(ContainerReplicator):
             self.logger.warning(
                 'Failed to put shard ranges to %s:%s/%s: %s',
                 node['ip'], node['port'], node['device'], err.http_status)
-        except Exception as err:
+        except (Exception, Timeout) as err:
             self.logger.exception(
                 'Failed to put shard ranges to %s:%s/%s: %s',
                 node['ip'], node['port'], node['device'], err)
