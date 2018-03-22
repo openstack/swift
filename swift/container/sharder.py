@@ -1015,9 +1015,12 @@ class ContainerSharder(ContainerReplicator):
             shard_ranges = broker.get_shard_ranges(states=[ShardRange.ACTIVE])
         candidates = []
         for shard_range in shard_ranges:
-            if shard_range.object_count >= self.shard_container_size:
-                shard_range.update_state(ShardRange.SHARDING)
-                candidates.append(shard_range)
+            if shard_range.state != ShardRange.ACTIVE:
+                continue
+            if shard_range.object_count < self.shard_container_size:
+                continue
+            shard_range.update_state(ShardRange.SHARDING)
+            candidates.append(shard_range)
         broker.merge_shard_ranges(candidates)
         return len(candidates)
 
