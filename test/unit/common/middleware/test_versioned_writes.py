@@ -354,6 +354,30 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(['VW', None], self.app.swift_sources)
         self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
 
+    def test_put_versioned_object_including_url_encoded_name_success(self):
+        self.app.register(
+            'PUT', '/v1/a/c/%ff', swob.HTTPOk, {}, 'passed')
+        self.app.register(
+            'GET', '/v1/a/c/%ff', swob.HTTPNotFound, {}, None)
+
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/a/c/%25ff',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100',
+                     'swift.trans_id': 'fake_trans_id'})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(len(self.authorized), 2)
+        # Versioned writes middleware now calls auth on the incoming request
+        # before we try the GET and then at the proxy, so there are 2
+        # atuhorized for the same request.
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertRequestEqual(req, self.authorized[1])
+        self.assertEqual(2, self.app.call_count)
+        self.assertEqual(['VW', None], self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
+
     def test_put_object_no_versioning_with_container_config_true(self):
         # set False to versions_write and expect no GET occurred
         self.vw.conf = {'allow_versioned_writes': 'false'}

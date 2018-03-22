@@ -237,13 +237,13 @@ class TestObjectVersioning(Base):
         self.assertEqual(self.env.container.info()['versions'],
                          self.env.versions_container.name)
 
-    def _test_overwriting_setup(self):
+    def _test_overwriting_setup(self, obj_name=None):
         container = self.env.container
         versions_container = self.env.versions_container
         cont_info = container.info()
         self.assertEqual(cont_info['versions'], versions_container.name)
         expected_content_types = []
-        obj_name = Utils.create_name()
+        obj_name = obj_name or Utils.create_name()
 
         versioned_obj = container.file(obj_name)
         put_headers = {'Content-Type': 'text/jibberish01',
@@ -291,11 +291,11 @@ class TestObjectVersioning(Base):
         # check that POST does not create a new version
         versioned_obj.sync_metadata(metadata={'fu': 'baz'})
         self.assertEqual(1, versions_container.info()['object_count'])
-        expected_content_types.append('text/jibberish02')
 
         # if we overwrite it again, there are two versions
         versioned_obj.write("ccccc")
         self.assertEqual(2, versions_container.info()['object_count'])
+        expected_content_types.append('text/jibberish02')
         versioned_obj_name = versions_container.files()[1]
         prev_version = versions_container.file(versioned_obj_name)
         prev_version.initialize()
@@ -334,6 +334,48 @@ class TestObjectVersioning(Base):
         versions_container = self.env.versions_container
         versioned_obj, expected_headers, expected_content_types = \
             self._test_overwriting_setup()
+
+        # pop one for the current version
+        expected_content_types.pop()
+        self.assertEqual(expected_content_types, [
+            o['content_type'] for o in versions_container.files(
+                parms={'format': 'json'})])
+
+        # test delete
+        versioned_obj.delete()
+        self.assertEqual("ccccc", versioned_obj.read())
+        expected_content_types.pop()
+        self.assertEqual(expected_content_types, [
+            o['content_type'] for o in versions_container.files(
+                parms={'format': 'json'})])
+
+        versioned_obj.delete()
+        self.assertEqual("bbbbb", versioned_obj.read())
+        expected_content_types.pop()
+        self.assertEqual(expected_content_types, [
+            o['content_type'] for o in versions_container.files(
+                parms={'format': 'json'})])
+
+        versioned_obj.delete()
+        self.assertEqual("aaaaa", versioned_obj.read())
+        self.assertEqual(0, versions_container.info()['object_count'])
+
+        # verify that all the original object headers have been copied back
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/jibberish01', obj_info['content_type'])
+        resp_headers = dict(versioned_obj.conn.response.getheaders())
+        for k, v in expected_headers.items():
+            self.assertIn(k.lower(), resp_headers)
+            self.assertEqual(v, resp_headers[k.lower()])
+
+        versioned_obj.delete()
+        self.assertRaises(ResponseError, versioned_obj.read)
+
+    def test_overwriting_with_url_encoded_object_name(self):
+        versions_container = self.env.versions_container
+        obj_name = Utils.create_name() + '%25ff'
+        versioned_obj, expected_headers, expected_content_types = \
+            self._test_overwriting_setup(obj_name)
 
         # pop one for the current version
         expected_content_types.pop()
@@ -783,6 +825,57 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
             versioned_obj.read()
         self.assertEqual(404, cm.exception.status)
         self.assertEqual(11, versions_container.info()['object_count'])
+
+    def test_overwriting_with_url_encoded_object_name(self):
+        versions_container = self.env.versions_container
+        obj_name = Utils.create_name() + '%25ff'
+        versioned_obj, expected_headers, expected_content_types = \
+            self._test_overwriting_setup(obj_name)
+
+        # test delete
+        # at first, delete will succeed with 204
+        versioned_obj.delete()
+        expected_content_types.append(
+            'application/x-deleted;swift_versions_deleted=1')
+        # after that, any time the delete doesn't restore the old version
+        # and we will get 404 NotFound
+        for x in range(3):
+            with self.assertRaises(ResponseError) as cm:
+                versioned_obj.delete()
+            self.assertEqual(404, cm.exception.status)
+            expected_content_types.append(
+                'application/x-deleted;swift_versions_deleted=1')
+        # finally, we have 4 versioned items and 4 delete markers total in
+        # the versions container
+        self.assertEqual(8, versions_container.info()['object_count'])
+        self.assertEqual(expected_content_types, [
+            o['content_type'] for o in versions_container.files(
+                parms={'format': 'json'})])
+
+        # update versioned_obj
+        versioned_obj.write("eeee", hdrs={'Content-Type': 'text/thanksgiving',
+                            'X-Object-Meta-Bar': 'foo'})
+        # verify the PUT object is kept successfully
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/thanksgiving', obj_info['content_type'])
+
+        # we still have delete-marker there
+        self.assertEqual(8, versions_container.info()['object_count'])
+
+        # update versioned_obj
+        versioned_obj.write("ffff", hdrs={'Content-Type': 'text/teriyaki',
+                            'X-Object-Meta-Food': 'chickin'})
+        # verify the PUT object is kept successfully
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/teriyaki', obj_info['content_type'])
+
+        # new obj will be inserted after delete-marker there
+        self.assertEqual(9, versions_container.info()['object_count'])
+
+        versioned_obj.delete()
+        with self.assertRaises(ResponseError) as cm:
+            versioned_obj.read()
+        self.assertEqual(404, cm.exception.status)
 
     def test_versioning_dlo(self):
         obj_name, man_file = \
