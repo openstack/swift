@@ -143,6 +143,7 @@
         - swift-tox-func-ec
         - swift-tox-func-s3api
         - swift-probetests-centos-7
+        - openstack-tox-lower-constraints
     gate:
       jobs:
         - swift-tox-py27
@@ -152,6 +153,7 @@
         - swift-tox-func-domain-remap-staticweb
         - swift-tox-func-ec
         - swift-tox-func-s3api
+        - openstack-tox-lower-constraints
     experimental:
       jobs:
         - swift-tox-py27-centos-7
