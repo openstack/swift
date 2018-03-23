@@ -30,7 +30,8 @@ from swift.common.exceptions import DeviceUnavailable
 from swift.common.http import is_success
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.utils import (Timestamp, hash_path,
-                                storage_directory, majority_size)
+                                storage_directory, majority_size,
+                                make_db_file_path)
 
 
 class ContainerReplicator(db_replicator.Replicator):
@@ -79,10 +80,13 @@ class ContainerReplicator(db_replicator.Replicator):
             node, response, info, broker, http, different_region, diffs=diffs)
         return rv
 
-    def _initialize_broker(self, device, part, account, container, **kwargs):
+    def _initialize_broker(self, device, part, account, container, epoch=None,
+                           **kwargs):
         hsh = hash_path(account, container)
         db_dir = storage_directory(DATADIR, part, hsh)
         db_path = os.path.join(self.root, device, db_dir, hsh + '.db')
+        if epoch:
+            db_path = make_db_file_path(db_path, epoch)
         broker = ContainerBroker(db_path, account=account, container=container,
                                  logger=self.logger)
         if not os.path.exists(broker.db_file):

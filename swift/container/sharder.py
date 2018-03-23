@@ -251,7 +251,7 @@ class ContainerSharder(ContainerReplicator):
 
         shard_broker = self._initialize_broker(
             node['device'], part, shard_range.account, shard_range.container,
-            storage_policy_index=policy_index)
+            storage_policy_index=policy_index, epoch=shard_range.epoch)
 
         # Get the valid info into the broker.container, etc
         shard_broker.get_info()
@@ -671,11 +671,8 @@ class ContainerSharder(ContainerReplicator):
                     if own_shard_range.state in (ShardRange.SHARDING,
                                                  ShardRange.SHRINKING,
                                                  ShardRange.SHARDED):
-                        # TODO: broker *should* also have had a sharding epoch
-                        # set but should we double check? If so, only leader
-                        # should set the epoch.
-                        broker.set_sharding_state()
-                        state = SHARDING
+                        if broker.set_sharding_state():
+                            state = SHARDING
                     else:
                         self.logger.debug(
                             'Shard ranges found but own shard range is %r: %s'
@@ -683,9 +680,8 @@ class ContainerSharder(ContainerReplicator):
                 elif own_shard_range.state in (ShardRange.SHARDING,
                                                ShardRange.SHRINKING):
                     broker.update_sharding_info({'Scan-Done': 'False'})
-                    own_shard_range.update_state(ShardRange.SHARDING)
-                    broker.set_sharding_state(epoch=Timestamp.now())
-                    state = SHARDING
+                    if broker.set_sharding_state():
+                        state = SHARDING
 
             if state == SHARDING:
                 num_found = 0
@@ -1032,7 +1028,8 @@ class ContainerSharder(ContainerReplicator):
                 continue
             if shard_range.object_count < self.shard_container_size:
                 continue
-            shard_range.update_state(ShardRange.SHARDING)
+            if shard_range.update_state(ShardRange.SHARDING):
+                shard_range.epoch = shard_range.state_timestamp
             candidates.append(shard_range)
         broker.merge_shard_ranges(candidates)
         return len(candidates)
@@ -1100,6 +1097,7 @@ class ContainerSharder(ContainerReplicator):
                 # Set donor state to shrinking so that next cycle won't use it
                 # as an acceptor; state_timestamp defines new epoch for donor
                 # and new timestamp for the expanded acceptor below.
+                donor.epoch = donor.state_timestamp
                 modified_shard_ranges.append(donor)
             broker.merge_shard_ranges(modified_shard_ranges)
             if acceptor is not own_shard_range:
@@ -1128,10 +1126,7 @@ class ContainerSharder(ContainerReplicator):
             # set. This is an argument for basing 'scan done condition' on the
             # existence of a shard range whose upper >= shard own range, rather
             # than using sysmeta Scan-Done.
-            headers = {
-                'X-Container-Sysmeta-Shard-Scan-Done': True,
-                'X-Container-Sysmeta-Shard-Epoch': donor.state_timestamp.normal
-            }
+            headers = {'X-Container-Sysmeta-Shard-Scan-Done': True}
             # Now send a copy of the expanded acceptor, with an updated
             # timestamp, to the donor container. This forces the donor to
             # asynchronously cleave its entire contents to the acceptor. The

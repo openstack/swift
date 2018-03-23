@@ -62,7 +62,7 @@ def db_state_text(state):
 # tuples and vice-versa
 SHARD_RANGE_KEYS = ('name', 'created_at', 'lower', 'upper', 'object_count',
                     'bytes_used', 'meta_timestamp', 'deleted', 'state',
-                    'state_timestamp')
+                    'state_timestamp', 'epoch')
 
 POLICY_STAT_TABLE_CREATE = '''
     CREATE TABLE policy_stat (
@@ -279,7 +279,7 @@ def merge_shards(item, existing):
         new_content = True
 
     if existing['state_timestamp'] >= item['state_timestamp']:
-        for k in ('state', 'state_timestamp'):
+        for k in ('state', 'state_timestamp', 'epoch'):
             item[k] = existing[k]
     else:
         new_content = True
@@ -337,12 +337,10 @@ class ContainerBroker(DatabaseBroker):
             return NOTFOUND
         if len(self.db_files) > 1:
             return SHARDING
-        hash_, filename_epoch, ext = parse_db_filename(self.db_files[0])
-        if filename_epoch is None:
+        if self.db_epoch is None:
             # never been sharded
             return UNSHARDED
-        sharding_info_epoch = self.get_sharding_info('Epoch')
-        if sharding_info_epoch and sharding_info_epoch != filename_epoch:
+        if self.db_epoch != self._own_shard_range().epoch:
             return UNSHARDED
         if not self.get_shard_ranges():
             return COLLAPSED
@@ -391,11 +389,10 @@ class ContainerBroker(DatabaseBroker):
             return self._init_db_file
         if self.db_files:
             return self.db_files[-1]
-        # TODO: maybe this should be _init_db_file, _db_file may not even exist
-        return self._db_file
+        return self._init_db_file
 
     @property
-    def epoch(self):
+    def db_epoch(self):
         hash_, epoch, ext = parse_db_filename(self.db_file)
         return epoch
 
@@ -455,11 +452,11 @@ class ContainerBroker(DatabaseBroker):
         """
         brokers = self.get_brokers()
         db_hash = brokers[0].get_info()['hash']
-        cleave_ref = '%s-%s' % (brokers[0].epoch, db_hash)
+        cleave_ref = '%s-%s' % (brokers[0].db_epoch, db_hash)
         cleave_context = brokers[-1].get_sharding_info('Cursor-' + cleave_ref)
         cleave_context = json.loads(cleave_context) if cleave_context else {}
         cleave_context['db_hash'] = db_hash
-        cleave_context['epoch'] = brokers[0].epoch
+        cleave_context['epoch'] = brokers[0].db_epoch
         return cleave_context
 
     # TODO: unit test
@@ -593,6 +590,7 @@ class ContainerBroker(DatabaseBroker):
                 meta_timestamp TEXT,
                 state INTEGER,
                 state_timestamp TEXT,
+                epoch TEXT,
                 deleted INTEGER DEFAULT 0
             );
         """)
@@ -1654,6 +1652,21 @@ class ContainerBroker(DatabaseBroker):
             shard_ranges = list(filter(shard_range_filter, shard_ranges))
         return shard_ranges
 
+    def _own_shard_range(self, no_default=False):
+        shard_ranges = self.get_shard_ranges(include_own=True,
+                                             include_deleted=True,
+                                             exclude_others=True)
+        now = Timestamp.now()
+        if shard_ranges:
+            own_shard_range = shard_ranges[0]
+        elif no_default:
+            return None
+        else:
+            own_shard_range = ShardRange(
+                self.path, now, ShardRange.MIN, ShardRange.MAX,
+                state=ShardRange.ACTIVE)
+        return own_shard_range
+
     def get_own_shard_range(self, no_default=False):
         """
         Returns a shard range representing this broker's own shard range. If no
@@ -1669,22 +1682,11 @@ class ContainerBroker(DatabaseBroker):
             default shard range is returned.
         :return: an instance of :class:`~swift.common.utils.ShardRange`
         """
-        shard_ranges = self.get_shard_ranges(include_own=True,
-                                             include_deleted=True,
-                                             exclude_others=True)
-        now = Timestamp.now()
-        if shard_ranges:
-            own_shard_range = shard_ranges[0]
-        elif no_default:
-            return None
-        else:
-            own_shard_range = ShardRange(
-                self.path, now, ShardRange.MIN, ShardRange.MAX,
-                state=ShardRange.ACTIVE)
-
-        info = self.get_info()
-        own_shard_range.update_meta(
-            info.get('object_count', 0), info.get('bytes_used', 0), now)
+        own_shard_range = self._own_shard_range(no_default=no_default)
+        if own_shard_range:
+            info = self.get_info()
+            own_shard_range.update_meta(
+                info.get('object_count', 0), info.get('bytes_used', 0))
         return own_shard_range
 
     # TODO: add unit test
@@ -1718,16 +1720,16 @@ class ContainerBroker(DatabaseBroker):
         return os.path.exists(lockpath)
 
     def set_sharding_state(self, epoch=None):
-        if epoch:
-            epoch = Timestamp(epoch).normal
-            self.update_sharding_info({'Epoch': epoch})
-        else:
-            epoch = self.get_sharding_info('Epoch')
+        epoch = epoch or self.get_own_shard_range().epoch
+        if not epoch:
+            self.logger.warning("Container '%s' cannot be set to sharding "
+                                "state: missing epoch", self.path)
+            return False
         state = self.get_db_state()
         if not state == UNSHARDED:
-            self.logger.warning("Container '%s/%s' cannot be set to sharding "
-                                "state while in %s state", self.account,
-                                self.container, self.get_db_state_text(state))
+            self.logger.warning("Container '%s' cannot be set to sharding "
+                                "state while in %s state", self.path,
+                                self.get_db_state_text(state))
             return False
 
         # firstly lets ensure we have a connection, otherwise we could start

@@ -894,15 +894,15 @@ class TestContainerBroker(unittest.TestCase):
         self._test_put_object_multiple_encoded_timestamps(broker)
 
     @with_tempdir
-    def test_get_state(self, tempdir):
+    def test_get_db_state(self, tempdir):
         acct = 'account'
         cont = 'container'
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
-        ts_now = Timestamp.now()
-        db_shard_file = "%s_%s.db" % (hsh, ts_now.normal)
+        epoch = Timestamp.now()
+        fresh_db_file = "%s_%s.db" % (hsh, epoch.normal)
         db_path = os.path.join(tempdir, db_file)
-        db_shard_path = os.path.join(tempdir, db_shard_file)
+        fresh_db_path = os.path.join(tempdir, fresh_db_file)
         ts = Timestamp.now()
 
         # First test NOTFOUND state
@@ -910,40 +910,50 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(broker.get_db_state(), NOTFOUND)
         self.assertEqual(broker.get_db_state_text(), 'not_found')
 
-        # Test UNSHARDED state, that is when db_file exists and shard_db_file
+        # Test UNSHARDED state, that is when db_file exists and fresh_db_file
         # doesn't
         broker.initialize(ts.internal, 0)
         self.assertEqual(broker.get_db_state(), UNSHARDED)
         self.assertEqual(broker.get_db_state_text(), 'unsharded')
 
         # Test the SHARDING state, this is the period when both the db_file and
-        # the shard_db_file exist
-        shard_broker = ContainerBroker(db_shard_path, account=acct,
+        # the fresh_db_file exist
+        fresh_broker = ContainerBroker(fresh_db_path, account=acct,
                                        container=cont, force_db_file=True)
-        shard_broker.initialize(ts.internal, 0)
+        fresh_broker.initialize(ts.internal, 0)
+        own_shard_range = fresh_broker.get_own_shard_range()
+        own_shard_range.update_state(ShardRange.SHARDING)
+        own_shard_range.epoch = epoch
         shard_range = ShardRange(
             '.shards_%s/%s' % (acct, cont), Timestamp.now())
-        shard_broker.merge_shard_ranges([shard_range])
-        shard_broker.update_sharding_info({'Epoch': ts_now.normal})
-        self.assertEqual(shard_broker.get_db_state(), SHARDING)
-        self.assertEqual(shard_broker.get_db_state_text(), 'sharding')
+        fresh_broker.merge_shard_ranges([own_shard_range, shard_range])
+
+        self.assertEqual(fresh_broker.get_db_state(), SHARDING)
+        self.assertEqual(fresh_broker.get_db_state_text(), 'sharding')
         # old broker will also change state if we reload its db files
         broker.reload_db_files()
         self.assertEqual(broker.get_db_state(), SHARDING)
         self.assertEqual(broker.get_db_state_text(), 'sharding')
 
-        # Test the SHARDED state, this is when only shard_db_file exists.
+        # Test the SHARDED state, this is when only fresh_db_file exists.
         os.unlink(db_path)
-        shard_broker.reload_db_files()
-        self.assertEqual(shard_broker.get_db_state(), SHARDED)
-        self.assertEqual(shard_broker.get_db_state_text(), 'sharded')
+        fresh_broker.reload_db_files()
+        self.assertEqual(fresh_broker.get_db_state(), SHARDED)
+        self.assertEqual(fresh_broker.get_db_state_text(), 'sharded')
 
-        # Test the SHARDED state, this is when only shard_db_file exists.
+        # Test the COLLAPSED state, this is when only fresh_db_file exists.
         shard_range.deleted = 1
         shard_range.timestamp = Timestamp.now()
-        shard_broker.merge_shard_ranges([shard_range])
-        self.assertEqual(shard_broker.get_db_state(), COLLAPSED)
-        self.assertEqual(shard_broker.get_db_state_text(), 'collapsed')
+        fresh_broker.merge_shard_ranges([shard_range])
+        self.assertEqual(fresh_broker.get_db_state(), COLLAPSED)
+        self.assertEqual(fresh_broker.get_db_state_text(), 'collapsed')
+
+        # back to UNSHARDED if the desired epoch changes
+        own_shard_range.update_state(ShardRange.SHRINKING)
+        own_shard_range.epoch = Timestamp.now()
+        fresh_broker.merge_shard_ranges([own_shard_range])
+        self.assertEqual(fresh_broker.get_db_state(), UNSHARDED)
+        self.assertEqual(fresh_broker.get_db_state_text(), 'unsharded')
 
     @with_tempdir
     def test_db_file(self, tempdir):
@@ -952,61 +962,63 @@ class TestContainerBroker(unittest.TestCase):
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
         ts_epoch = Timestamp.now()
-        db_shard_file = "%s_%s.db" % (hsh, ts_epoch.normal)
+        fresh_db_file = "%s_%s.db" % (hsh, ts_epoch.normal)
         db_path = os.path.join(tempdir, db_file)
-        db_shard_path = os.path.join(tempdir, db_shard_file)
+        fresh_db_path = os.path.join(tempdir, fresh_db_file)
         ts = Timestamp.now()
 
-        # First test NOTFOUND state, this will return the default db_file
-        def check_unfound_db_files(broker):
-            self.assertEqual(broker.db_file, db_path)
+        # First test NOTFOUND state, this will return the db_file passed
+        # in the constructor
+        def check_unfound_db_files(broker, init_db_file):
+            self.assertEqual(init_db_file, broker.db_file)
             self.assertEqual(broker._db_file, db_path)
             self.assertFalse(os.path.exists(db_path))
-            self.assertFalse(os.path.exists(db_shard_path))
+            self.assertFalse(os.path.exists(fresh_db_path))
             self.assertEqual([], broker.db_files)
 
         broker = ContainerBroker(db_path, account=acct, container=cont)
-        check_unfound_db_files(broker)
-        broker = ContainerBroker(db_shard_path, account=acct, container=cont)
-        check_unfound_db_files(broker)
+        check_unfound_db_files(broker, db_path)
+        broker = ContainerBroker(fresh_db_path, account=acct, container=cont)
+        check_unfound_db_files(broker, fresh_db_path)
 
-        # Test UNSHARDED state, that is when db_file exists and shard_db_file
+        # Test UNSHARDED state, that is when db_file exists and fresh_db_file
         # doesn't, so it should return the db_path
         def check_unsharded_db_files(broker):
             self.assertEqual(broker.db_file, db_path)
             self.assertEqual(broker._db_file, db_path)
             self.assertTrue(os.path.exists(db_path))
-            self.assertFalse(os.path.exists(db_shard_path))
+            self.assertFalse(os.path.exists(fresh_db_path))
             self.assertEqual([db_path], broker.db_files)
 
+        broker = ContainerBroker(db_path, account=acct, container=cont)
         broker.initialize(ts.internal, 0)
         check_unsharded_db_files(broker)
-        broker = ContainerBroker(db_shard_path, account=acct, container=cont)
+        broker = ContainerBroker(fresh_db_path, account=acct, container=cont)
         check_unsharded_db_files(broker)
-        # while UNSHARDED db_path is still used despite giving db_shard_path
+        # while UNSHARDED db_path is still used despite giving fresh_db_path
         # to init, so we cannot initialize this broker
         with self.assertRaises(DatabaseAlreadyExists):
             broker.initialize(ts.internal, 0)
 
         # Test the SHARDING state, this is the period when both the db_file and
-        # the shard_db_file exist, in this case it should return the
-        # shard_db_path.
+        # the fresh_db_file exist, in this case it should return the
+        # fresh_db_path.
         def check_sharding_db_files(broker):
-            self.assertEqual(broker.db_file, db_shard_path)
+            self.assertEqual(broker.db_file, fresh_db_path)
             self.assertEqual(broker._db_file, db_path)
             self.assertTrue(os.path.exists(db_path))
-            self.assertTrue(os.path.exists(db_shard_path))
-            self.assertEqual([db_path, db_shard_path], broker.db_files)
+            self.assertTrue(os.path.exists(fresh_db_path))
+            self.assertEqual([db_path, fresh_db_path], broker.db_files)
 
         # Use force_db_file to have db_shard_path created when initializing
-        broker = ContainerBroker(db_shard_path, account=acct,
+        broker = ContainerBroker(fresh_db_path, account=acct,
                                  container=cont, force_db_file=True)
         self.assertEqual([db_path], broker.db_files)
         broker.initialize(ts.internal, 0)
         check_sharding_db_files(broker)
         broker = ContainerBroker(db_path, account=acct, container=cont)
         check_sharding_db_files(broker)
-        broker = ContainerBroker(db_shard_path, account=acct, container=cont)
+        broker = ContainerBroker(fresh_db_path, account=acct, container=cont)
         check_sharding_db_files(broker)
 
         # force_db_file can be used to open db_path specifically
@@ -1016,14 +1028,14 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(forced_broker._db_file, db_path)
 
         def check_sharded_db_files(broker):
-            self.assertEqual(broker.db_file, db_shard_path)
+            self.assertEqual(broker.db_file, fresh_db_path)
             self.assertEqual(broker._db_file, db_path)
             self.assertFalse(os.path.exists(db_path))
-            self.assertTrue(os.path.exists(db_shard_path))
-            self.assertEqual([db_shard_path], broker.db_files)
+            self.assertTrue(os.path.exists(fresh_db_path))
+            self.assertEqual([fresh_db_path], broker.db_files)
 
-        # Test the SHARDED state, this is when only shard_db_file exists, so
-        # obviously this should return the shard_db_path
+        # Test the SHARDED state, this is when only fresh_db_file exists, so
+        # obviously this should return the fresh_db_path
         os.unlink(db_path)
         broker.reload_db_files()
         check_sharded_db_files(broker)
@@ -2640,7 +2652,7 @@ class TestContainerBroker(unittest.TestCase):
         expected_pending_path = os.path.join(tempdir, 'container.db.pending')
 
         db_path = os.path.join(tempdir, 'container.db')
-        sharded_db_path = os.path.join(tempdir, 'container_shard.db')
+        fresh_db_path = os.path.join(tempdir, 'container_epoch.db')
 
         def do_test(given_db_file, expected_db_file):
             broker = ContainerBroker(given_db_file, account='a', container='c')
@@ -2649,24 +2661,24 @@ class TestContainerBroker(unittest.TestCase):
 
         # no files exist
         do_test(db_path, db_path)
-        do_test(sharded_db_path, db_path)
+        do_test(fresh_db_path, fresh_db_path)
 
         # only container.db exists - unsharded
         with open(db_path, 'wb'):
             pass
         do_test(db_path, db_path)
-        do_test(sharded_db_path, db_path)
+        do_test(fresh_db_path, db_path)
 
         # container.db and container_shard.db exist - sharding
-        with open(sharded_db_path, 'wb'):
+        with open(fresh_db_path, 'wb'):
             pass
-        do_test(db_path, sharded_db_path)
-        do_test(sharded_db_path, sharded_db_path)
+        do_test(db_path, fresh_db_path)
+        do_test(fresh_db_path, fresh_db_path)
 
         # only container_shard.db exists - sharded
         os.unlink(db_path)
-        do_test(db_path, sharded_db_path)
-        do_test(sharded_db_path, sharded_db_path)
+        do_test(db_path, fresh_db_path)
+        do_test(fresh_db_path, fresh_db_path)
 
     @with_tempdir
     def test_get_shard_root_account_container(self, tempdir):
@@ -3043,7 +3055,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(expected_shard_ranges, actual_shard_ranges)
 
     @with_tempdir
-    def test_set_sharding_states(self, tempdir):
+    def test_set_db_states(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
             tempdir, 'part', 'suffix', 'hash', 'container.db')
@@ -3130,11 +3142,15 @@ class TestContainerBroker(unittest.TestCase):
         check_broker_info(broker.get_info())
         check_unsharded_state(broker)
 
-        # now set sharding state and make sure everything moves.
-        broker.set_sharding_state(epoch=ts_epoch.normal)
-        epoch = broker.metadata['X-Container-Sysmeta-Shard-Epoch']
-        self.assertEqual(ts_epoch.normal, epoch[0])
-        meta['X-Container-Sysmeta-Shard-Epoch'] = epoch
+        # cannot go to SHARDING without an epoch set
+        self.assertFalse(broker.set_sharding_state())
+
+        # now set sharding epoch and make sure everything moves.
+        own_shard_range = broker.get_own_shard_range()
+        own_shard_range.update_state(ShardRange.SHARDING)
+        own_shard_range.epoch = ts_epoch
+        broker.merge_shard_ranges([own_shard_range])
+        self.assertTrue(broker.set_sharding_state())
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
 
@@ -3192,8 +3208,6 @@ class TestContainerBroker(unittest.TestCase):
         # delete the container - sharding sysmeta gets erased
         broker.delete_db(next(ts_iter).internal)
         self.assertTrue(broker.is_deleted())
-        self.assertEqual(
-            '', broker.metadata['X-Container-Sysmeta-Shard-Epoch'][0])
         check_sharded_state(broker)
 
         def do_revive_shard_delete(shard_ranges):
@@ -3206,17 +3220,17 @@ class TestContainerBroker(unittest.TestCase):
             # add new shard ranges and go to sharding state - need to force
             # broker time to be after the delete time in order to write new
             # sysmeta
+            epoch = next(ts_iter)
+            own_shard_range.update_state(ShardRange.SHARDING,
+                                         state_timestamp=epoch)
+            own_shard_range.epoch = epoch
             shard_ranges = [sr.copy(timestamp=next(ts_iter))
                             for sr in shard_ranges]
-            broker.merge_shard_ranges(shard_ranges)
+            broker.merge_shard_ranges(shard_ranges + [own_shard_range])
             with mock.patch('swift.common.db.time.time',
                             lambda: float(next(ts_iter))):
-                new_epoch = next(ts_iter)
-                self.assertTrue(broker.set_sharding_state(epoch=new_epoch))
+                self.assertTrue(broker.set_sharding_state())
             self.assertEqual(SHARDING, broker.get_db_state())
-            self.assertEqual(
-                new_epoch.normal,
-                broker.metadata['X-Container-Sysmeta-Shard-Epoch'][0])
 
             # go to sharded
             broker.dump_cleave_context(
@@ -3229,8 +3243,6 @@ class TestContainerBroker(unittest.TestCase):
             broker.delete_db(next(ts_iter).internal)
             self.assertTrue(broker.is_deleted())
             self.assertEqual(SHARDED, broker.get_db_state())
-            self.assertEqual(
-                '', broker.metadata['X-Container-Sysmeta-Shard-Epoch'][0])
 
         do_revive_shard_delete(shard_ranges)
         do_revive_shard_delete(shard_ranges)
@@ -3417,7 +3429,11 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(1, broker.get_info()['object_count'])
         self.assertEqual(14, broker.get_info()['bytes_used'])
 
-        broker.set_sharding_state(epoch=Timestamp.now())
+        own_shard_range = ShardRange('%s/%s' % (a, c), next(ts_iter),
+                                     state=ShardRange.SHARDING,
+                                     epoch=next(ts_iter))
+        broker.merge_shard_ranges([own_shard_range])
+        broker.set_sharding_state()
         sr_1 = ShardRange(
             '%s/%s1' % (root_a, root_c), Timestamp.now(), lower='', upper='m',
             object_count=99, bytes_used=999, state=ShardRange.ACTIVE)

@@ -6684,10 +6684,11 @@ class TestShardRange(unittest.TestCase):
         ts_1 = next(self.ts_iter)
         ts_2 = next(self.ts_iter)
         ts_3 = next(self.ts_iter)
+        ts_4 = next(self.ts_iter)
         empty_run = dict(name=None, created_at=None, lower=None,
                          upper=None, object_count=0, bytes_used=0,
                          meta_timestamp=None, deleted=0,
-                         state=0, state_timestamp=None)
+                         state=0, state_timestamp=None, epoch=None)
         # name, timestamp must be given
         assert_initialisation_fails(empty_run.copy())
         assert_initialisation_fails(dict(empty_run, name='a/c'), TypeError)
@@ -6703,7 +6704,8 @@ class TestShardRange(unittest.TestCase):
         expect = dict(name='a/c', created_at=ts_1.internal, lower='',
                       upper='', object_count=0, bytes_used=0,
                       meta_timestamp=ts_1.internal, deleted=0,
-                      state=0, state_timestamp=ts_1.internal)
+                      state=0, state_timestamp=ts_1.internal,
+                      epoch=None)
         assert_initialisation_ok(dict(empty_run, name='a/c', created_at=ts_1),
                                  expect)
         assert_initialisation_ok(dict(name='a/c', created_at=ts_1), expect)
@@ -6711,10 +6713,12 @@ class TestShardRange(unittest.TestCase):
         good_run = dict(name='a/c', created_at=ts_1, lower='l',
                         upper='u', object_count=2, bytes_used=10,
                         meta_timestamp=ts_2, deleted=0,
-                        state=1, state_timestamp=ts_3.internal)
+                        state=1, state_timestamp=ts_3.internal,
+                        epoch=ts_4)
         expect.update({'lower': 'l', 'upper': 'u', 'object_count': 2,
                        'bytes_used': 10, 'meta_timestamp': ts_2.internal,
-                       'state': 1, 'state_timestamp': ts_3.internal})
+                       'state': 1, 'state_timestamp': ts_3.internal,
+                       'epoch': ts_4})
         assert_initialisation_ok(good_run.copy(), expect)
 
         # obj count and bytes used as int strings
@@ -6756,14 +6760,15 @@ class TestShardRange(unittest.TestCase):
         ts_1 = next(self.ts_iter)
         ts_2 = next(self.ts_iter)
         ts_3 = next(self.ts_iter)
+        ts_4 = next(self.ts_iter)
         sr = utils.ShardRange('a/test', ts_1, lower, upper, 10, 100, ts_2,
-                              state=1, state_timestamp=ts_3)
+                              state=1, state_timestamp=ts_3, epoch=ts_4)
         sr_dict = dict(sr)
         expected = {
             'name': 'a/test', 'created_at': ts_1.internal, 'lower': lower,
             'upper': upper, 'object_count': 10, 'bytes_used': 100,
             'meta_timestamp': ts_2.internal, 'deleted': 0,
-            'state': 1, 'state_timestamp': ts_3.internal}
+            'state': 1, 'state_timestamp': ts_3.internal, 'epoch': ts_4}
         self.assertEqual(expected, sr_dict)
         self.assertIsInstance(sr_dict['lower'], six.string_types)
         self.assertIsInstance(sr_dict['upper'], six.string_types)
@@ -6914,6 +6919,20 @@ class TestShardRange(unittest.TestCase):
             sr.update_state(utils.ShardRange.ACTIVE, state_timestamp=now))
         self.assertEqual(now, sr.state_timestamp)
         self.assertEqual(utils.ShardRange.ACTIVE, sr.state)
+
+    def test_epoch_setter(self):
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        self.assertIsNone(sr.epoch)
+        ts = next(self.ts_iter)
+        sr.epoch = ts
+        self.assertEqual(ts, sr.epoch)
+        ts = next(self.ts_iter)
+        sr.epoch = ts.internal
+        self.assertEqual(ts, sr.epoch)
+        sr.epoch = None
+        self.assertIsNone(sr.epoch)
+        with self.assertRaises(ValueError):
+            sr.epoch = 'bad'
 
     def test_lower_setter(self):
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', '')
