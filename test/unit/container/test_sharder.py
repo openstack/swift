@@ -325,8 +325,10 @@ class TestSharder(unittest.TestCase):
         broker.initialize()
         return broker
 
-    def ts_internal(self):
-        return next(self.ts_iter).internal
+    def _make_shard_ranges(self, bounds, state=None):
+        return [ShardRange('.shards_a/c_%s' % upper, Timestamp.now(),
+                           lower, upper, state=state)
+                for lower, upper in bounds]
 
     def ts_encoded(self):
         # make a unique timestamp string with multiple timestamps encoded;
@@ -617,11 +619,7 @@ class TestSharder(unittest.TestCase):
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', 'yonder'),
                         ('yonder', ''))
-        shard_ranges = [
-            ShardRange('.sharded_a/%s-%s' % (lower, upper),
-                       Timestamp.now(), lower, upper)
-            for lower, upper in shard_bounds
-        ]
+        shard_ranges = self._make_shard_ranges(shard_bounds)
         expected_shard_dbs = []
         for shard_range in shard_ranges:
             db_hash = hash_path(shard_range.account, shard_range.container)
@@ -899,12 +897,8 @@ class TestSharder(unittest.TestCase):
 
         cleaving_ref = 'None-' + broker.get_info()['hash']
         shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
-        shard_ranges = [
-            ShardRange('.sharded_a/%s-%s' % (lower, upper),
-                       Timestamp.now(), lower, upper,
-                       state=ShardRange.CREATED)
-            for lower, upper in shard_bounds
-        ]
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CREATED)
         expected_shard_dbs = []
         for shard_range in shard_ranges:
             db_hash = hash_path(shard_range.account, shard_range.container)
@@ -1007,12 +1001,8 @@ class TestSharder(unittest.TestCase):
 
         shard_bounds = (('here', 'there'),
                         ('there', 'where'))
-        shard_ranges = [
-            ShardRange('.sharded_a/%s-%s' % (lower, upper),
-                       Timestamp.now(), lower, upper,
-                       state=ShardRange.CREATED)
-            for lower, upper in shard_bounds
-        ]
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CREATED)
         expected_shard_dbs = []
         for shard_range in shard_ranges:
             db_hash = hash_path(shard_range.account, shard_range.container)
@@ -1171,11 +1161,7 @@ class TestSharder(unittest.TestCase):
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', 'yonder'),
                         ('yonder', ''))
-        initial_shard_ranges = [
-            ShardRange('.sharded_a/%s-%s' % (lower, upper),
-                       Timestamp.now(), lower, upper)
-            for lower, upper in shard_bounds
-        ]
+        initial_shard_ranges = self._make_shard_ranges(shard_bounds)
         expected_shard_dbs = []
         for shard_range in initial_shard_ranges:
             db_hash = hash_path(shard_range.account, shard_range.container)
@@ -1361,11 +1347,7 @@ class TestSharder(unittest.TestCase):
 
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', ''))
-        root_shard_ranges = [
-            ShardRange('.sharded_a/%s-%s' % (lower, upper),
-                       Timestamp.now(), lower, upper)
-            for lower, upper in shard_bounds
-        ]
+        root_shard_ranges = self._make_shard_ranges(shard_bounds)
         expected_shard_dbs = []
         for sr in root_shard_ranges:
             db_hash = hash_path(sr.account, sr.container)
@@ -1524,11 +1506,7 @@ class TestSharder(unittest.TestCase):
 
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', ''))
-        root_shard_ranges = [
-            ShardRange('.sharded_a/%s-%s' %
-                       (lower, upper), Timestamp.now(), lower, upper)
-            for lower, upper in shard_bounds
-        ]
+        root_shard_ranges = self._make_shard_ranges(shard_bounds)
         expected_shard_dbs = []
         for sr in root_shard_ranges:
             db_hash = hash_path(sr.account, sr.container)
@@ -1645,11 +1623,7 @@ class TestSharder(unittest.TestCase):
         broker.merge_shard_ranges([own_sr])
 
         shard_bounds = (('', 'here'), ('here', ''))
-        root_shard_ranges = [
-            ShardRange('.sharded_a/%s-%s' % (lower, upper),
-                       Timestamp.now(), lower, upper)
-            for lower, upper in shard_bounds
-        ]
+        root_shard_ranges = self._make_shard_ranges(shard_bounds)
         expected_shard_dbs = []
         for sr in root_shard_ranges:
             db_hash = hash_path(sr.account, sr.container)
@@ -1824,8 +1798,7 @@ class TestSharder(unittest.TestCase):
         self.assertTrue(sharding_enabled(broker))
 
     def test_send_shard_ranges(self):
-        shard_ranges = [ShardRange('a/c', next(self.ts_iter), l, u)
-                        for l, u in (('', 'h'), ('h', ''))]
+        shard_ranges = self._make_shard_ranges((('', 'h'), ('h', '')))
 
         def do_test(replicas, *resp_codes):
             sent_data = defaultdict(str)
@@ -2084,9 +2057,7 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(UNSHARDED, broker.get_db_state())
 
         # add shard ranges - but not own
-        shard_ranges = [ShardRange('.shards_a/c_' + upper, next(self.ts_iter),
-                                   lower, upper)
-                        for lower, upper in (('', 'h'), ('h', ''))]
+        shard_ranges = self._make_shard_ranges((('', 'h'), ('h', '')))
         broker.merge_shard_ranges(shard_ranges)
 
         with self._mock_sharder() as sharder:
@@ -2133,9 +2104,7 @@ class TestSharder(unittest.TestCase):
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
                 'index': 0}
         # add shard ranges - but not own
-        shard_ranges = [ShardRange('.shards_a/c_' + upper, next(self.ts_iter),
-                                   lower, upper)
-                        for lower, upper in (('', 'h'), ('h', ''))]
+        shard_ranges = self._make_shard_ranges((('', 'h'), ('h', '')))
         broker.merge_shard_ranges(shard_ranges)
         # sanity check
         self.assertIsNone(broker.get_own_shard_range(no_default=True))
