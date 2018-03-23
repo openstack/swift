@@ -2134,3 +2134,81 @@ class TestSharder(unittest.TestCase):
         self._check_process_broker_sharding_others(ShardRange.SHARDING)
         self._check_process_broker_sharding_others(ShardRange.SHRINKING)
         self._check_process_broker_sharding_others(ShardRange.SHARDED)
+
+    def test_update_root_container(self):
+        broker = self._make_broker()
+
+        # nothing to send
+        with self._mock_sharder() as sharder:
+            with mocked_http_conn() as mock_conn:
+                sharder._update_root_container(broker)
+        self.assertFalse(mock_conn.requests)
+
+        def check_shard_ranges_sent(expected_sent):
+            bodies = []
+
+            def capture_send(conn, data):
+                bodies.append(data)
+
+            with self._mock_sharder() as sharder:
+                with mocked_http_conn(204, 204, 204,
+                                      give_send=capture_send) as mock_conn:
+                    sharder._update_root_container(broker)
+
+            for req in mock_conn.requests:
+                self.assertEqual('PUT', req['method'])
+            self.assertEqual([expected_sent] * 3,
+                             [json.loads(b) for b in bodies])
+
+        def check_only_own_shard_range_sent(state):
+            own_shard_range = broker.get_own_shard_range()
+            self.assertTrue(own_shard_range.update_state(state))
+            broker.merge_shard_ranges([own_shard_range])
+            # add an object, expect to see it reflected in the own shard range
+            # that is sent
+            broker.put_object(str(own_shard_range.object_count + 1),
+                              next(self.ts_iter).internal, 1, '', '')
+            with mock_timestamp_now() as now:
+                expected_sent = [
+                    dict(own_shard_range,
+                         meta_timestamp=now.internal,
+                         object_count=own_shard_range.object_count + 1,
+                         bytes_used=own_shard_range.bytes_used + 1)]
+                check_shard_ranges_sent(expected_sent)
+
+        # only own shard range to send
+        for state in ShardRange.STATES:
+            # force own shard range meta updates to be at fixed timestamp
+            with annotate_failure(state):
+                check_only_own_shard_range_sent(state)
+
+        other_shard_ranges = self._make_shard_ranges((('', 'h'), ('h', '')))
+        self.assertTrue(other_shard_ranges[0].set_deleted())
+        broker.merge_shard_ranges(other_shard_ranges)
+
+        # special case when shrinking
+        check_only_own_shard_range_sent(ShardRange.SHRINKING)
+
+        def check_all_shard_ranges_sent(state):
+            own_shard_range = broker.get_own_shard_range()
+            self.assertTrue(own_shard_range.update_state(state))
+            broker.merge_shard_ranges([own_shard_range])
+            # add an object, expect to see it reflected in the own shard range
+            # that is sent
+            broker.put_object(str(own_shard_range.object_count + 1),
+                              next(self.ts_iter).internal, 1, '', '')
+            with mock_timestamp_now() as now:
+                shard_ranges = broker.get_shard_ranges(include_deleted=True)
+                expected_sent = ([
+                    dict(own_shard_range,
+                         meta_timestamp=now.internal,
+                         object_count=own_shard_range.object_count + 1,
+                         bytes_used=own_shard_range.bytes_used + 1)] +
+                    [dict(sr) for sr in shard_ranges])
+                check_shard_ranges_sent(expected_sent)
+
+        for state in ShardRange.STATES.keys():
+            if state == ShardRange.SHRINKING:
+                continue
+            with annotate_failure(state):
+                check_all_shard_ranges_sent(state)
