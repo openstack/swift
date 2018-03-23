@@ -573,13 +573,16 @@ class TestSharder(unittest.TestCase):
                 sharder.shard_cleanups = dict()  # TODO: try to eliminate this
                 yield sharder
 
+    def _get_raw_object_records(self, broker):
+        return [list(obj) for obj in broker.list_objects_iter(
+            10, '', '', '', '', include_deleted=True,
+            transform_func=lambda record, policy_index: record)]
+
     def _check_objects(self, expected_objs, shard_db):
         shard_broker = ContainerBroker(shard_db)
         # use list_objects_iter with no-op transform_func to get back actual
         # un-transformed rows with encoded timestamps
-        shard_objs = [list(obj) for obj in shard_broker.list_objects_iter(
-            10, '', '', '', '', include_deleted=True,
-            transform_func=lambda record, policy_index: record)]
+        shard_objs = self._get_raw_object_records(shard_broker)
         expected_objs = [list(obj) for obj in expected_objs]
         self.assertEqual(expected_objs, shard_objs)
 
@@ -1363,7 +1366,7 @@ class TestSharder(unittest.TestCase):
         self._check_objects(objects[2:3], expected_shard_dbs[2])
         self._check_objects(objects[3:], expected_shard_dbs[3])
 
-    def _setup_misplaced_objects_sufficient_replication(self):
+    def _setup_misplaced_objects(self):
         # make a broker with shard ranges, move it to sharded state and then
         # put some misplaced objects in it
         broker = self._make_broker()
@@ -1404,9 +1407,122 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(SHARDED, broker.get_db_state())
         return broker, objects, expected_dbs
 
+    def test_misplaced_objects_newer_objects(self):
+        broker, objects, expected_dbs = self._setup_misplaced_objects()
+        own_sr = broker.get_own_shard_range()
+        newer_objects = [
+            ['j', self.ts_encoded(), 51, 'text/plain', 'etag_j', 0],
+            ['k', self.ts_encoded(), 52, 'text/plain', 'etag_k', 1],
+        ]
+
+        calls = []
+        pre_removal_objects = []
+
+        def mock_replicate_object(part, db, node_id):
+            calls.append((part, db, node_id))
+            if db == expected_dbs[1]:
+                # put some new objects in the shard range that is being
+                # replicated before misplaced objects are removed from that
+                # range in the source db
+                for obj in newer_objects:
+                    broker.put_object(*obj)
+                    # grab a snapshot of the db contents - a side effect is
+                    # that the newer objects are now committed to the db
+                    pre_removal_objects.extend(
+                        broker.get_objects(include_deleted=True))
+            return True, [True, True, True]
+
+        with self._mock_sharder(replicas=3) as sharder:
+            sharder._replicate_object = mock_replicate_object
+            sharder._misplaced_objects(broker, own_sr)
+
+        # sanity check - the newer objects were in the db before the misplaced
+        # object were removed
+        for obj in newer_objects:
+            self.assertIn(obj[0], [o['name'] for o in pre_removal_objects])
+        for obj in objects[:2]:
+            self.assertIn(obj[0], [o['name'] for o in pre_removal_objects])
+
+        self.assertEqual(
+            set([(0, db, 0) for db in (expected_dbs[1:4])]), set(calls))
+
+        # check misplaced objects were moved
+        self._check_objects(objects[:2], expected_dbs[1])
+        self._check_objects(objects[2:3], expected_dbs[2])
+        self._check_objects(objects[3:], expected_dbs[3])
+        # ... but newer objects were not removed from the source db
+        self._check_objects(newer_objects, broker.db_file)
+        self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+
+        # they will be moved on next cycle
+        unlink_files(expected_dbs)
+        with self._mock_sharder(replicas=3) as sharder:
+            sharder._misplaced_objects(broker, own_sr)
+
+        self._check_objects(newer_objects, expected_dbs[1])
+        self._check_objects([], broker.db_file)
+
+    def test_misplaced_objects_db_id_changed(self):
+        broker, objects, expected_dbs = self._setup_misplaced_objects()
+        own_sr = broker.get_own_shard_range()
+
+        pre_info = broker.get_info()
+        calls = []
+        expected_retained_objects = []
+        expected_retained_objects_dbs = []
+
+        def mock_replicate_object(part, db, node_id):
+            calls.append((part, db, node_id))
+            if len(calls) == 2:
+                broker.newid('fake_remote_id')
+                # grab snapshot of the objects in the broker when it changed id
+                expected_retained_objects.extend(
+                    self._get_raw_object_records(broker))
+            if len(calls) >= 2:
+                expected_retained_objects_dbs.append(db)
+            return True, [True, True, True]
+
+        with self._mock_sharder(replicas=3) as sharder:
+            sharder._replicate_object = mock_replicate_object
+            sharder._misplaced_objects(broker, own_sr)
+
+        # sanity check
+        self.assertNotEqual(pre_info['id'], broker.get_info()['id'])
+
+        self.assertEqual(
+            set([(0, db, 0) for db in (expected_dbs[1:4])]), set(calls))
+
+        # check misplaced objects were moved
+        self._check_objects(objects[:2], expected_dbs[1])
+        self._check_objects(objects[2:3], expected_dbs[2])
+        self._check_objects(objects[3:], expected_dbs[3])
+        # ... but objects were not removed after the source db id changed
+        self._check_objects(expected_retained_objects, broker.db_file)
+
+        lines = sharder.logger.get_lines_for_level('warning')
+        self.assertIn('Refused to remove misplaced objects', lines[0])
+        self.assertIn('Refused to remove misplaced objects', lines[1])
+        self.assertFalse(lines[2:])
+
+        # they will be moved on next cycle
+        unlink_files(expected_dbs)
+        sharder.logger.clear()
+        with self._mock_sharder(replicas=3) as sharder:
+            sharder._misplaced_objects(broker, own_sr)
+
+        self.assertEqual(2, len(set(expected_retained_objects_dbs)))
+        for db in expected_retained_objects_dbs:
+            if db == expected_dbs[1]:
+                self._check_objects(objects[:2], expected_dbs[1])
+            if db == expected_dbs[2]:
+                self._check_objects(objects[2:3], expected_dbs[2])
+            if db == expected_dbs[3]:
+                self._check_objects(objects[3:], expected_dbs[3])
+        self._check_objects([], broker.db_file)
+        self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+
     def test_misplaced_objects_sufficient_replication(self):
-        broker, objects, expected_dbs = \
-            self._setup_misplaced_objects_sufficient_replication()
+        broker, objects, expected_dbs = self._setup_misplaced_objects()
         own_sr = broker.get_own_shard_range()
 
         with self._mock_sharder(replicas=3) as sharder:
@@ -1431,8 +1547,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_dbs[4]))
 
     def test_misplaced_objects_insufficient_replication_3_replicas(self):
-        broker, objects, expected_dbs = \
-            self._setup_misplaced_objects_sufficient_replication()
+        broker, objects, expected_dbs = self._setup_misplaced_objects()
         own_sr = broker.get_own_shard_range()
 
         returns = {expected_dbs[1]: (True, [True, True, True]),  # ok
@@ -1465,8 +1580,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_dbs[4]))
 
     def test_misplaced_objects_insufficient_replication_2_replicas(self):
-        broker, objects, expected_dbs = \
-            self._setup_misplaced_objects_sufficient_replication()
+        broker, objects, expected_dbs = self._setup_misplaced_objects()
         own_sr = broker.get_own_shard_range()
 
         returns = {expected_dbs[1]: (True, [True, True]),  # ok
@@ -1499,8 +1613,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_dbs[4]))
 
     def test_misplaced_objects_insufficient_replication_4_replicas(self):
-        broker, objects, expected_dbs = \
-            self._setup_misplaced_objects_sufficient_replication()
+        broker, objects, expected_dbs = self._setup_misplaced_objects()
         own_sr = broker.get_own_shard_range()
 
         returns = {expected_dbs[1]: (False, [True, False, False, False]),

@@ -731,7 +731,7 @@ class ContainerBroker(DatabaseBroker):
                   'record_type': RECORD_TYPE_OBJECT}
         self.put_record(record)
 
-    def remove_objects(self, lower, upper, storage_policy_index):
+    def remove_objects(self, lower, upper, storage_policy_index, max_row=None):
         """
         Removes items in the given namespace range from the object table.
 
@@ -743,13 +743,25 @@ class ContainerBroker(DatabaseBroker):
             names greater than this value will not be removed.
         :param storage_policy_index: only object names with this storage
             policy index will be removed
+        :param max_row: if specified only rows less than or equal to max_row
+            will be removed
         """
-        query = ('DELETE FROM object WHERE deleted in (0, 1) '
-                 'AND storage_policy_index = ? AND name > ?')
-        query_args = [storage_policy_index, lower]
+        query_conditions = ['storage_policy_index = ?']
+        query_args = [storage_policy_index]
+        if max_row is not None:
+            query_conditions.append('ROWID <= ?')
+            query_args.append(str(max_row))
+        if lower:
+            query_conditions.append('name > ?')
+            query_args.append(str(lower))
         if upper:
-            query += ' AND name <= ?'
-            query_args.append(upper)
+            query_conditions.append('name <= ?')
+            query_args.append(str(upper))
+
+        query = 'DELETE FROM object WHERE deleted in (0, 1)'
+        if query_conditions:
+            query += ' AND ' + ' AND '.join(query_conditions)
+
         with self.get() as conn:
             conn.execute(query, query_args)
             conn.commit()
