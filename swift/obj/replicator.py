@@ -35,7 +35,8 @@ from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, \
     rsync_module_interpolation, mkdirs, config_true_value, \
     tpool_reraise, config_auto_int_value, storage_directory, \
-    load_recon_cache, PrefixLoggerAdapter, parse_override_options
+    load_recon_cache, PrefixLoggerAdapter, parse_override_options, \
+    distribute_evenly
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -258,19 +259,14 @@ class ObjectReplicator(Daemon):
         # Distribute devices among workers as evenly as possible
         self.replicator_workers = min(self.replicator_workers,
                                       len(devices_to_replicate))
-        worker_args = [
-            {
-                'override_devices': [],
-                'override_partitions': override_opts.partitions,
-                'override_policies': override_opts.policies,
-                'have_overrides': have_overrides,
-                'multiprocess_worker_index': i,
-            }
-            for i in range(self.replicator_workers)]
-        for index, device in enumerate(devices_to_replicate):
-            idx = index % self.replicator_workers
-            worker_args[idx]['override_devices'].append(device)
-        return worker_args
+        return [{'override_devices': devs,
+                 'override_partitions': override_opts.partitions,
+                 'override_policies': override_opts.policies,
+                 'have_overrides': have_overrides,
+                 'multiprocess_worker_index': index}
+                for index, devs in enumerate(
+                    distribute_evenly(devices_to_replicate,
+                                      self.replicator_workers))]
 
     def is_healthy(self):
         """

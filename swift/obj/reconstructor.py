@@ -15,7 +15,6 @@
 
 import json
 import errno
-import math
 import os
 from os.path import join
 import random
@@ -34,7 +33,7 @@ from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
     dump_recon_cache, mkdirs, config_true_value,
     tpool_reraise, GreenAsyncPile, Timestamp, remove_file,
-    load_recon_cache, parse_override_options)
+    load_recon_cache, parse_override_options, distribute_evenly)
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
@@ -228,16 +227,14 @@ class ObjectReconstructor(Daemon):
             yield dict(override_devices=override_opts.devices,
                        override_partitions=override_opts.partitions)
             return
-        # for somewhat uniform load per worker use same max_devices_per_worker
-        # when handling all devices or just override devices...
-        max_devices_per_worker = int(math.ceil(
-            1.0 * len(self.all_local_devices) / self.reconstructor_workers))
-        # ...but only use enough workers for the actual devices being handled
-        n = int(math.ceil(1.0 * len(devices) / max_devices_per_worker))
-        override_devices_per_worker = [devices[i::n] for i in range(n)]
-        for override_devices_pw in override_devices_per_worker:
-            yield dict(override_devices=override_devices_pw,
-                       override_partitions=override_opts.partitions)
+        # for somewhat uniform load per worker use same
+        # max_devices_per_worker when handling all devices or just override
+        # devices, but only use enough workers for the actual devices being
+        # handled
+        n_workers = min(self.reconstructor_workers, len(devices))
+        for ods in distribute_evenly(devices, n_workers):
+            yield dict(override_partitions=override_opts.partitions,
+                       override_devices=ods)
 
     def is_healthy(self):
         """

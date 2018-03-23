@@ -4740,3 +4740,13 @@ def parse_override_options(**kwargs):
 
     return OverrideOptions(devices=devices, partitions=partitions,
                            policies=policies)
+
+
+def distribute_evenly(items, num_buckets):
+    """
+    Distribute items as evenly as possible into N buckets.
+    """
+    out = [[] for _ in range(num_buckets)]
+    for index, item in enumerate(items):
+        out[index % num_buckets].append(item)
+    return out

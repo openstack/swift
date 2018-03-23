@@ -1474,13 +1474,15 @@ class TestWorkerReconstructor(unittest.TestCase):
         self.assertEqual(2, reconstructor.reconstructor_workers)
         worker_args = list(reconstructor.get_worker_args(
             once=True, devices='sdb,sdd,sdf', partitions='99,333'))
-        self.assertEqual(1, len(worker_args))
-        # 5 devices in total, 2 workers -> up to 3 devices per worker so a
-        # single worker should handle the requested override devices
-        self.assertEqual([
-            {'override_partitions': [99, 333], 'override_devices': [
-                'sdb', 'sdd', 'sdf']},
-        ], worker_args)
+        # 3 devices to operate on, 2 workers -> one worker gets two devices
+        # and the other worker just gets one
+        self.assertEqual([{
+            'override_partitions': [99, 333],
+            'override_devices': ['sdb', 'sdf'],
+        }, {
+            'override_partitions': [99, 333],
+            'override_devices': ['sdd'],
+        }], worker_args)
 
         # with 4 override devices, expect 2 per worker
         worker_args = list(reconstructor.get_worker_args(
@@ -1524,26 +1526,41 @@ class TestWorkerReconstructor(unittest.TestCase):
             {}, logger=self.logger)
         reconstructor.get_local_devices = lambda: [
             'd%s' % (i + 1) for i in range(21)]
-        # ... with many devices per worker, worker count is pretty granular
-        for i in range(1, 8):
-            reconstructor.reconstructor_workers = i
-            self.assertEqual(i, len(list(reconstructor.get_worker_args())))
-        # ... then it gets sorta stair step
-        for i in range(9, 10):
-            reconstructor.reconstructor_workers = i
-            self.assertEqual(7, len(list(reconstructor.get_worker_args())))
-            # 2-3 devices per worker
-            for args in reconstructor.get_worker_args():
-                self.assertIn(len(args['override_devices']), (2, 3))
-        for i in range(11, 20):
-            reconstructor.reconstructor_workers = i
-            self.assertEqual(11, len(list(reconstructor.get_worker_args())))
-            # 1, 2 devices per worker
-            for args in reconstructor.get_worker_args():
-                self.assertIn(len(args['override_devices']), (1, 2))
-        # this is debatable, but maybe I'll argue if you're going to have
-        # *some* workers with > 1 device, it's better to have fewer workers
-        # with devices spread out evenly than a couple outliers?
+
+        # With more devices than workers, the work is spread out as evenly
+        # as we can manage. When number-of-devices is a multiple of
+        # number-of-workers, every worker has the same number of devices to
+        # operate on.
+        reconstructor.reconstructor_workers = 7
+        worker_args = list(reconstructor.get_worker_args())
+        self.assertEqual([len(a['override_devices']) for a in worker_args],
+                         [3] * 7)
+
+        # When number-of-devices is not a multiple of number-of-workers,
+        # device counts differ by at most 1.
+        reconstructor.reconstructor_workers = 5
+        worker_args = list(reconstructor.get_worker_args())
+        self.assertEqual(
+            sorted([len(a['override_devices']) for a in worker_args]),
+            [4, 4, 4, 4, 5])
+
+        # With more workers than devices, we don't create useless workers.
+        # We'll only make one per device.
+        reconstructor.reconstructor_workers = 22
+        worker_args = list(reconstructor.get_worker_args())
+        self.assertEqual(
+            [len(a['override_devices']) for a in worker_args],
+            [1] * 21)
+
+        # This is true even if we have far more workers than devices.
+        reconstructor.reconstructor_workers = 2 ** 16
+        worker_args = list(reconstructor.get_worker_args())
+        self.assertEqual(
+            [len(a['override_devices']) for a in worker_args],
+            [1] * 21)
+
+        # Spot check one full result for sanity's sake
+        reconstructor.reconstructor_workers = 11
         self.assertEqual([
             {'override_partitions': [], 'override_devices': ['d1', 'd12']},
             {'override_partitions': [], 'override_devices': ['d2', 'd13']},
@@ -1557,12 +1574,6 @@ class TestWorkerReconstructor(unittest.TestCase):
             {'override_partitions': [], 'override_devices': ['d10', 'd21']},
             {'override_partitions': [], 'override_devices': ['d11']},
         ], list(reconstructor.get_worker_args()))
-        # you can't get < than 1 device per worker
-        for i in range(21, 52):
-            reconstructor.reconstructor_workers = i
-            self.assertEqual(21, len(list(reconstructor.get_worker_args())))
-            for args in reconstructor.get_worker_args():
-                self.assertEqual(1, len(args['override_devices']))
 
     def test_next_rcache_update_configured_with_stats_interval(self):
         now = time.time()

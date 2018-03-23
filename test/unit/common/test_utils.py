@@ -6622,5 +6622,39 @@ class TestPipeMutex(unittest.TestCase):
         eventlet.debug.hub_prevent_multiple_readers(True)
 
 
+class TestDistributeEvenly(unittest.TestCase):
+    def test_evenly_divided(self):
+        out = utils.distribute_evenly(range(12), 3)
+        self.assertEqual(out, [
+            [0, 3, 6, 9],
+            [1, 4, 7, 10],
+            [2, 5, 8, 11],
+        ])
+
+        out = utils.distribute_evenly(range(12), 4)
+        self.assertEqual(out, [
+            [0, 4, 8],
+            [1, 5, 9],
+            [2, 6, 10],
+            [3, 7, 11],
+        ])
+
+    def test_uneven(self):
+        out = utils.distribute_evenly(range(11), 3)
+        self.assertEqual(out, [
+            [0, 3, 6, 9],
+            [1, 4, 7, 10],
+            [2, 5, 8],
+        ])
+
+    def test_just_one(self):
+        out = utils.distribute_evenly(range(5), 1)
+        self.assertEqual(out, [[0, 1, 2, 3, 4]])
+
+    def test_more_buckets_than_items(self):
+        out = utils.distribute_evenly(range(5), 7)
+        self.assertEqual(out, [[0], [1], [2], [3], [4], [], []])
+
+
 if __name__ == '__main__':
     unittest.main()
