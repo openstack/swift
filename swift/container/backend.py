@@ -1689,6 +1689,9 @@ class ContainerBroker(DatabaseBroker):
                 info.get('object_count', 0), info.get('bytes_used', 0))
         return own_shard_range
 
+    def is_own_shard_range(self, shard_range):
+        return shard_range.name == self.path
+
     # TODO: add unit test
     def get_shard_usage(self):
         states = [ShardRange.ACTIVE, ShardRange.SHARDING, ShardRange.SHRINKING,

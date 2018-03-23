@@ -628,6 +628,33 @@ class ContainerSharder(ContainerReplicator):
         self._increment_stat('audit', 'success')
         return continue_with_container
 
+    def _update_root_container(self, broker):
+        own_shard_range = broker.get_own_shard_range(no_default=True)
+        if not own_shard_range:
+            return
+
+        # persist the reported shard metadata
+        broker.merge_shard_ranges([own_shard_range])
+        # now get a consistent list of own and other shard ranges
+        shard_ranges = broker.get_shard_ranges(
+            include_own=True,
+            include_deleted=True)
+        for shard_range in shard_ranges:
+            if broker.is_own_shard_range(shard_range):
+                break
+        else:
+            return
+
+        if shard_range.state == ShardRange.SHRINKING:
+            # only send own shard range while shrinking
+            self._send_shard_ranges(
+                broker.root_account, broker.root_container, [shard_range])
+        else:
+            # send everything
+            self._send_shard_ranges(
+                broker.root_account, broker.root_container,
+                shard_ranges)
+
     def _process_broker(self, broker, node, part):
         own_shard_range = broker.get_own_shard_range()
         # TODO: sigh, we should get the info cached *once*, somehow
@@ -755,7 +782,7 @@ class ContainerSharder(ContainerReplicator):
             if not broker.is_root_container():
                 # Update the root container with this container's shard range
                 # info; do this even when sharded in case previous attempts
-                # failed; don't do this if there is no shard range info. When
+                # failed; don't do this if there is no own shard range. When
                 # sharding a shard, this is when the root will see the new
                 # shards move to ACTIVE state and the sharded shard
                 # simultaneously become deleted.
@@ -769,18 +796,8 @@ class ContainerSharder(ContainerReplicator):
                 # should prevent these updates undoing any newer
                 # updates at the root from the actual shards. *It would
                 # be good to have a test to verify that.*
-                own_shard_range = broker.get_own_shard_range(no_default=True)
-                if own_shard_range:
-                    # persist the reported shard metadata
-                    broker.merge_shard_ranges([own_shard_range])
-                    shrinking = own_shard_range.state == ShardRange.SHRINKING
-                    self._send_shard_ranges(
-                        broker.root_account, broker.root_container,
-                        broker. get_shard_ranges(
-                            include_own=True,
-                            include_deleted=True,
-                            exclude_others=shrinking)
-                    )
+                self._update_root_container(broker)
+
             self.logger.info('Finished processing %s/%s state %s',
                              broker.account, broker.container,
                              broker.get_db_state_text())
