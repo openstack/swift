@@ -1065,6 +1065,14 @@ def make_timestamp_iter(offset=0):
                 for t in itertools.count(int(time.time()) + offset))
 
 
+@contextmanager
+def mock_timestamp_now(now=None):
+    now = now or Timestamp.now()
+    with mocklib.patch('swift.common.utils.Timestamp.now',
+                       classmethod(lambda c: now)):
+        yield now
+
+
 class Timeout(object):
     def __init__(self, seconds):
         self.seconds = seconds
