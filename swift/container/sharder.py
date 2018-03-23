@@ -55,13 +55,17 @@ def sharding_enabled(broker):
 
 def make_shard_ranges(broker, shard_data, shards_account_prefix):
     timestamp = Timestamp.now()
-    return [
-        ShardRange(ShardRange.make_path(
+    shard_ranges = []
+    for data in shard_data:
+        # Make a copy so we don't mutate the original
+        kwargs = data.copy()
+        path = ShardRange.make_path(
             shards_account_prefix + broker.root_account,
             broker.root_container, broker.container,
-            timestamp, data.pop('index')),
-            timestamp, **data)
-        for data in shard_data]
+            timestamp, kwargs.pop('index'))
+
+        shard_ranges.append(ShardRange(path, timestamp, **kwargs))
+    return shard_ranges
 
 
 class ContainerSharder(ContainerReplicator):
