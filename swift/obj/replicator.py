@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 import os
 import errno
 from os.path import isdir, isfile, join, dirname
@@ -32,8 +33,9 @@ from swift.common.constraints import check_drive
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, \
-    rsync_module_interpolation, mkdirs, config_true_value, list_from_csv, \
-    tpool_reraise, config_auto_int_value, storage_directory
+    rsync_module_interpolation, mkdirs, config_true_value, \
+    tpool_reraise, config_auto_int_value, storage_directory, \
+    load_recon_cache, PrefixLoggerAdapter, parse_override_options
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -46,6 +48,68 @@ DEFAULT_RSYNC_TIMEOUT = 900
 
 def _do_listdir(partition, replication_cycle):
     return (((partition + replication_cycle) % 10) == 0)
+
+
+class Stats(object):
+    fields = ['attempted', 'failure', 'hashmatch', 'remove', 'rsync',
+              'success', 'suffix_count', 'suffix_hash', 'suffix_sync',
+              'failure_nodes']
+
+    @classmethod
+    def from_recon(cls, dct):
+        return cls(**{k: v for k, v in dct.items() if k in cls.fields})
+
+    def to_recon(self):
+        return {k: getattr(self, k) for k in self.fields}
+
+    def __init__(self, attempted=0, failure=0, hashmatch=0, remove=0, rsync=0,
+                 success=0, suffix_count=0, suffix_hash=0,
+                 suffix_sync=0, failure_nodes=None):
+        self.attempted = attempted
+        self.failure = failure
+        self.hashmatch = hashmatch
+        self.remove = remove
+        self.rsync = rsync
+        self.success = success
+        self.suffix_count = suffix_count
+        self.suffix_hash = suffix_hash
+        self.suffix_sync = suffix_sync
+        self.failure_nodes = defaultdict(lambda: defaultdict(int),
+                                         (failure_nodes or {}))
+
+    def __add__(self, other):
+        total = type(self)()
+        total.attempted = self.attempted + other.attempted
+        total.failure = self.failure + other.failure
+        total.hashmatch = self.hashmatch + other.hashmatch
+        total.remove = self.remove + other.remove
+        total.rsync = self.rsync + other.rsync
+        total.success = self.success + other.success
+        total.suffix_count = self.suffix_count + other.suffix_count
+        total.suffix_hash = self.suffix_hash + other.suffix_hash
+        total.suffix_sync = self.suffix_sync + other.suffix_sync
+
+        all_failed_ips = (set(self.failure_nodes.keys() +
+                              other.failure_nodes.keys()))
+        for ip in all_failed_ips:
+            self_devs = self.failure_nodes.get(ip, {})
+            other_devs = other.failure_nodes.get(ip, {})
+            this_ip_failures = {}
+            for dev in set(self_devs.keys() + other_devs.keys()):
+                this_ip_failures[dev] = (
+                    self_devs.get(dev, 0) + other_devs.get(dev, 0))
+            total.failure_nodes[ip] = this_ip_failures
+        return total
+
+    def add_failure_stats(self, failures):
+        """
+        Note the failure of one or more devices.
+
+        :param failures: a list of (ip, device-name) pairs that failed
+        """
+        self.failure += len(failures)
+        for ip, device in failures:
+            self.failure_nodes[ip][device] += 1
 
 
 class ObjectReplicator(Daemon):
@@ -63,7 +127,8 @@ class ObjectReplicator(Daemon):
         :param logger: logging object
         """
         self.conf = conf
-        self.logger = logger or get_logger(conf, log_route='object-replicator')
+        self.logger = PrefixLoggerAdapter(
+            logger or get_logger(conf, log_route='object-replicator'), {})
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -72,6 +137,7 @@ class ObjectReplicator(Daemon):
         self.port = None if self.servers_per_port else \
             int(conf.get('bind_port', 6200))
         self.concurrency = int(conf.get('concurrency', 1))
+        self.replicator_workers = int(conf.get('replicator_workers', 0))
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
@@ -92,6 +158,7 @@ class ObjectReplicator(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self._next_rcache_update = time.time() + self.stats_interval
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.sync_method = getattr(self, conf.get('sync_method') or 'rsync')
@@ -110,21 +177,22 @@ class ObjectReplicator(Daemon):
                                 'operation, please disable handoffs_first and '
                                 'handoff_delete before the next '
                                 'normal rebalance')
+        self.is_multiprocess_worker = None
         self._df_router = DiskFileRouter(conf, self.logger)
         self._child_process_reaper_queue = queue.LightQueue()
 
     def _zero_stats(self):
-        """Zero out the stats."""
-        self.stats = {'attempted': 0, 'success': 0, 'failure': 0,
-                      'hashmatch': 0, 'rsync': 0, 'remove': 0,
-                      'start': time.time(), 'failure_nodes': {}}
+        self.stats_for_dev = defaultdict(Stats)
 
-    def _add_failure_stats(self, failure_devs_info):
-        for node, dev in failure_devs_info:
-            self.stats['failure'] += 1
-            failure_devs = self.stats['failure_nodes'].setdefault(node, {})
-            failure_devs.setdefault(dev, 0)
-            failure_devs[dev] += 1
+    @property
+    def total_stats(self):
+        return sum(self.stats_for_dev.values(), Stats())
+
+    def _emplace_log_prefix(self, worker_index):
+        self.logger.set_prefix("[worker %d/%d pid=%d] " % (
+            worker_index + 1,  # use 1-based indexing for more readable logs
+            self.replicator_workers,
+            os.getpid()))
 
     def _get_my_replication_ips(self):
         my_replication_ips = set()
@@ -166,6 +234,87 @@ class ObjectReplicator(Daemon):
                 except subprocess.TimeoutExpired:
                     pass
             procs -= reaped_procs
+
+    def get_worker_args(self, once=False, **kwargs):
+        if self.replicator_workers < 1:
+            return []
+
+        override_opts = parse_override_options(once=once, **kwargs)
+        have_overrides = bool(override_opts.devices or override_opts.partitions
+                              or override_opts.policies)
+
+        # save this off for ring-change detection later in is_healthy()
+        self.all_local_devices = self.get_local_devices()
+
+        if override_opts.devices:
+            devices_to_replicate = [
+                d for d in override_opts.devices
+                if d in self.all_local_devices]
+        else:
+            # The sort isn't strictly necessary since we're just trying to
+            # spread devices around evenly, but it makes testing easier.
+            devices_to_replicate = sorted(self.all_local_devices)
+
+        # Distribute devices among workers as evenly as possible
+        self.replicator_workers = min(self.replicator_workers,
+                                      len(devices_to_replicate))
+        worker_args = [
+            {
+                'override_devices': [],
+                'override_partitions': override_opts.partitions,
+                'override_policies': override_opts.policies,
+                'have_overrides': have_overrides,
+                'multiprocess_worker_index': i,
+            }
+            for i in range(self.replicator_workers)]
+        for index, device in enumerate(devices_to_replicate):
+            idx = index % self.replicator_workers
+            worker_args[idx]['override_devices'].append(device)
+        return worker_args
+
+    def is_healthy(self):
+        """
+        Check whether our set of local devices remains the same.
+
+        If devices have been added or removed, then we return False here so
+        that we can kill off any worker processes and then distribute the
+        new set of local devices across a new set of workers so that all
+        devices are, once again, being worked on.
+
+        This function may also cause recon stats to be updated.
+
+        :returns: False if any local devices have been added or removed,
+          True otherwise
+        """
+        # We update recon here because this is the only function we have in
+        # a multiprocess replicator that gets called periodically in the
+        # parent process.
+        if time.time() >= self._next_rcache_update:
+            update = self.aggregate_recon_update()
+            dump_recon_cache(update, self.rcache, self.logger)
+        return self.get_local_devices() == self.all_local_devices
+
+    def get_local_devices(self):
+        """
+        Returns a set of all local devices in all replication-type storage
+        policies.
+
+        This is the device names, e.g. "sdq" or "d1234" or something, not
+        the full ring entries.
+        """
+        ips = whataremyips(self.bind_ip)
+        local_devices = set()
+        for policy in POLICIES:
+            if policy.policy_type != REPL_POLICY:
+                continue
+            self.load_object_ring(policy)
+            for device in policy.object_ring.devs:
+                if device and is_local_device(
+                        ips, self.port,
+                        device['replication_ip'],
+                        device['replication_port']):
+                    local_devices.add(device['device'])
+        return local_devices
 
     # Just exists for doc anchor point
     def sync(self, node, job, suffixes, *args, **kwargs):
@@ -319,7 +468,9 @@ class ObjectReplicator(Daemon):
         def tpool_get_suffixes(path):
             return [suff for suff in os.listdir(path)
                     if len(suff) == 3 and isdir(join(path, suff))]
-        self.replication_count += 1
+
+        stats = self.stats_for_dev[job['device']]
+        stats.attempted += 1
         self.logger.increment('partition.delete.count.%s' % (job['device'],))
         headers = dict(self.default_headers)
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
@@ -333,7 +484,7 @@ class ObjectReplicator(Daemon):
             delete_objs = None
             if suffixes:
                 for node in job['nodes']:
-                    self.stats['rsync'] += 1
+                    stats.rsync += 1
                     kwargs = {}
                     if node['region'] in synced_remote_regions and \
                             self.conf.get('sync_method', 'rsync') == 'ssync':
@@ -373,7 +524,7 @@ class ObjectReplicator(Daemon):
                 delete_handoff = len(responses) == len(job['nodes']) and \
                     all(responses)
             if delete_handoff:
-                self.stats['remove'] += 1
+                stats.remove += 1
                 if (self.conf.get('sync_method', 'rsync') == 'ssync' and
                         delete_objs is not None):
                     self.logger.info(_("Removing %s objects"),
@@ -398,12 +549,12 @@ class ObjectReplicator(Daemon):
                 handoff_partition_deleted = True
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing handoff partition"))
-            self._add_failure_stats(failure_devs_info)
+            stats.add_failure_stats(failure_devs_info)
         finally:
             target_devs_info = set([(target_dev['replication_ip'],
                                      target_dev['device'])
                                     for target_dev in job['nodes']])
-            self.stats['success'] += len(target_devs_info - failure_devs_info)
+            stats.success += len(target_devs_info - failure_devs_info)
             if not handoff_partition_deleted:
                 self.handoffs_remaining += 1
             self.partition_times.append(time.time() - begin)
@@ -438,7 +589,8 @@ class ObjectReplicator(Daemon):
 
         :param job: a dict containing info about the partition to be replicated
         """
-        self.replication_count += 1
+        stats = self.stats_for_dev[job['device']]
+        stats.attempted += 1
         self.logger.increment('partition.update.count.%s' % (job['device'],))
         headers = dict(self.default_headers)
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
@@ -453,7 +605,7 @@ class ObjectReplicator(Daemon):
                 do_listdir=_do_listdir(
                     int(job['partition']),
                     self.replication_cycle))
-            self.suffix_hash += hashed
+            stats.suffix_hash += hashed
             self.logger.update_stats('suffix.hashes', hashed)
             attempts_left = len(job['nodes'])
             synced_remote_regions = set()
@@ -499,7 +651,7 @@ class ObjectReplicator(Daemon):
                                 local_hash[suffix] !=
                                 remote_hash.get(suffix, -1)]
                     if not suffixes:
-                        self.stats['hashmatch'] += 1
+                        stats.hashmatch += 1
                         continue
                     hashed, recalc_hash = tpool_reraise(
                         df_mgr._get_hashes,
@@ -510,7 +662,7 @@ class ObjectReplicator(Daemon):
                     suffixes = [suffix for suffix in local_hash if
                                 local_hash[suffix] !=
                                 remote_hash.get(suffix, -1)]
-                    self.stats['rsync'] += 1
+                    stats.rsync += 1
                     success, _junk = self.sync(node, job, suffixes)
                     with Timeout(self.http_timeout):
                         conn = http_connect(
@@ -525,14 +677,14 @@ class ObjectReplicator(Daemon):
                     # add only remote region when replicate succeeded
                     if success and node['region'] != job['region']:
                         synced_remote_regions.add(node['region'])
-                    self.suffix_sync += len(suffixes)
+                    stats.suffix_sync += len(suffixes)
                     self.logger.update_stats('suffix.syncs', len(suffixes))
                 except (Exception, Timeout):
                     failure_devs_info.add((node['replication_ip'],
                                            node['device']))
                     self.logger.exception(_("Error syncing with node: %s") %
                                           node)
-            self.suffix_count += len(local_hash)
+            stats.suffix_count += len(local_hash)
         except StopIteration:
             self.logger.error('Ran out of handoffs while replicating '
                               'partition %s of policy %d',
@@ -541,8 +693,8 @@ class ObjectReplicator(Daemon):
             failure_devs_info.update(target_devs_info)
             self.logger.exception(_("Error syncing partition"))
         finally:
-            self._add_failure_stats(failure_devs_info)
-            self.stats['success'] += len(target_devs_info - failure_devs_info)
+            stats.add_failure_stats(failure_devs_info)
+            stats.success += len(target_devs_info - failure_devs_info)
             self.partition_times.append(time.time() - begin)
             self.logger.timing_since('partition.update.timing', begin)
 
@@ -550,29 +702,35 @@ class ObjectReplicator(Daemon):
         """
         Logs various stats for the currently running replication pass.
         """
-        if self.replication_count:
+        stats = self.total_stats
+        replication_count = stats.attempted
+        if replication_count > self.last_replication_count:
+            self.last_replication_count = replication_count
             elapsed = (time.time() - self.start) or 0.000001
-            rate = self.replication_count / elapsed
+            rate = replication_count / elapsed
             self.logger.info(
                 _("%(replicated)d/%(total)d (%(percentage).2f%%)"
                   " partitions replicated in %(time).2fs (%(rate).2f/sec, "
                   "%(remaining)s remaining)"),
-                {'replicated': self.replication_count, 'total': self.job_count,
-                 'percentage': self.replication_count * 100.0 / self.job_count,
+                {'replicated': replication_count, 'total': self.job_count,
+                 'percentage': replication_count * 100.0 / self.job_count,
                  'time': time.time() - self.start, 'rate': rate,
                  'remaining': '%d%s' % compute_eta(self.start,
-                                                   self.replication_count,
+                                                   replication_count,
                                                    self.job_count)})
             self.logger.info(_('%(success)s successes, %(failure)s failures')
-                             % self.stats)
+                             % dict(success=stats.success,
+                                    failure=stats.failure))
 
-            if self.suffix_count:
+            if stats.suffix_count:
                 self.logger.info(
                     _("%(checked)d suffixes checked - "
                       "%(hashed).2f%% hashed, %(synced).2f%% synced"),
-                    {'checked': self.suffix_count,
-                     'hashed': (self.suffix_hash * 100.0) / self.suffix_count,
-                     'synced': (self.suffix_sync * 100.0) / self.suffix_count})
+                    {'checked': stats.suffix_count,
+                     'hashed':
+                     (stats.suffix_hash * 100.0) / stats.suffix_count,
+                     'synced':
+                     (stats.suffix_sync * 100.0) / stats.suffix_count})
                 self.partition_times.sort()
                 self.logger.info(
                     _("Partition times: max %(max).4fs, "
@@ -619,8 +777,9 @@ class ObjectReplicator(Daemon):
             found_local = True
             dev_path = check_drive(self.devices_dir, local_dev['device'],
                                    self.mount_check)
+            local_dev_stats = self.stats_for_dev[local_dev['device']]
             if not dev_path:
-                self._add_failure_stats(
+                local_dev_stats.add_failure_stats(
                     [(failure_dev['replication_ip'],
                       failure_dev['device'])
                      for failure_dev in policy.object_ring.devs
@@ -666,12 +825,12 @@ class ObjectReplicator(Daemon):
                              region=local_dev['region']))
                 except ValueError:
                     if part_nodes:
-                        self._add_failure_stats(
+                        local_dev_stats.add_failure_stats(
                             [(failure_dev['replication_ip'],
                               failure_dev['device'])
                              for failure_dev in nodes])
                     else:
-                        self._add_failure_stats(
+                        local_dev_stats.add_failure_stats(
                             [(failure_dev['replication_ip'],
                               failure_dev['device'])
                              for failure_dev in policy.object_ring.devs
@@ -715,7 +874,7 @@ class ObjectReplicator(Daemon):
 
             if policy.policy_type == REPL_POLICY:
                 if (override_policies is not None and
-                        str(policy.idx) not in override_policies):
+                        policy.idx not in override_policies):
                     continue
                 # ensure rings are loaded for policy
                 self.load_object_ring(policy)
@@ -730,14 +889,12 @@ class ObjectReplicator(Daemon):
         return jobs
 
     def replicate(self, override_devices=None, override_partitions=None,
-                  override_policies=None):
+                  override_policies=None, start_time=None):
         """Run a replication pass"""
-        self.start = time.time()
-        self.suffix_count = 0
-        self.suffix_sync = 0
-        self.suffix_hash = 0
-        self.replication_count = 0
-        self.last_replication_count = -1
+        if start_time is None:
+            start_time = time.time()
+        self.start = start_time
+        self.last_replication_count = 0
         self.replication_cycle = (self.replication_cycle + 1) % 10
         self.partition_times = []
         self.my_replication_ips = self._get_my_replication_ips()
@@ -748,19 +905,23 @@ class ObjectReplicator(Daemon):
         eventlet.sleep()  # Give spawns a cycle
 
         current_nodes = None
+        dev_stats = None
+        num_jobs = 0
         try:
             self.run_pool = GreenPool(size=self.concurrency)
             jobs = self.collect_jobs(override_devices=override_devices,
                                      override_partitions=override_partitions,
                                      override_policies=override_policies)
             for job in jobs:
+                dev_stats = self.stats_for_dev[job['device']]
+                num_jobs += 1
                 current_nodes = job['nodes']
                 dev_path = check_drive(self.devices_dir, job['device'],
                                        self.mount_check)
                 if not dev_path:
-                    self._add_failure_stats([(failure_dev['replication_ip'],
-                                              failure_dev['device'])
-                                             for failure_dev in job['nodes']])
+                    dev_stats.add_failure_stats([
+                        (failure_dev['replication_ip'], failure_dev['device'])
+                        for failure_dev in job['nodes']])
                     self.logger.warning(_('%s is not mounted'), job['device'])
                     continue
                 if self.handoffs_first and not job['delete']:
@@ -794,57 +955,126 @@ class ObjectReplicator(Daemon):
                     self.run_pool.spawn(self.update, job)
             current_nodes = None
             self.run_pool.waitall()
-        except (Exception, Timeout):
-            if current_nodes:
-                self._add_failure_stats([(failure_dev['replication_ip'],
-                                          failure_dev['device'])
-                                         for failure_dev in current_nodes])
-            else:
-                self._add_failure_stats(self.all_devs_info)
-            self.logger.exception(_("Exception in top-level replication loop"))
+        except (Exception, Timeout) as err:
+            if dev_stats:
+                if current_nodes:
+                    dev_stats.add_failure_stats(
+                        [(failure_dev['replication_ip'],
+                          failure_dev['device'])
+                         for failure_dev in current_nodes])
+                else:
+                    dev_stats.add_failure_stats(self.all_devs_info)
+            self.logger.exception(
+                _("Exception in top-level replication loop: %s"), err)
         finally:
             stats.kill()
             self.stats_line()
-            self.stats['attempted'] = self.replication_count
 
-    def run_once(self, *args, **kwargs):
+    def update_recon(self, total, end_time, override_devices):
+        # Called at the end of a replication pass to update recon stats.
+        if self.is_multiprocess_worker:
+            # If it weren't for the failure_nodes field, we could do this as
+            # a bunch of shared memory using multiprocessing.Value, which
+            # would be nice because it'd avoid dealing with existing data
+            # during an upgrade.
+            update = {
+                'object_replication_per_disk': {
+                    od: {'replication_stats':
+                         self.stats_for_dev[od].to_recon(),
+                         'replication_time': total,
+                         'replication_last': end_time,
+                         'object_replication_time': total,
+                         'object_replication_last': end_time}
+                    for od in override_devices}}
+        else:
+            update = {'replication_stats': self.total_stats.to_recon(),
+                      'replication_time': total,
+                      'replication_last': end_time,
+                      'object_replication_time': total,
+                      'object_replication_last': end_time}
+        dump_recon_cache(update, self.rcache, self.logger)
+
+    def aggregate_recon_update(self):
+        per_disk_stats = load_recon_cache(self.rcache).get(
+            'object_replication_per_disk', {})
+        recon_update = {}
+        min_repl_last = float('inf')
+        min_repl_time = float('inf')
+
+        # If every child has reported some stats, then aggregate things.
+        if all(ld in per_disk_stats for ld in self.all_local_devices):
+            aggregated = Stats()
+            for device_name, data in per_disk_stats.items():
+                aggregated += Stats.from_recon(data['replication_stats'])
+                min_repl_time = min(
+                    min_repl_time, data['object_replication_time'])
+                min_repl_last = min(
+                    min_repl_last, data['object_replication_last'])
+            recon_update['replication_stats'] = aggregated.to_recon()
+            recon_update['replication_last'] = min_repl_last
+            recon_update['replication_time'] = min_repl_time
+            recon_update['object_replication_last'] = min_repl_last
+            recon_update['object_replication_time'] = min_repl_time
+
+        # Clear out entries for old local devices that we no longer have
+        devices_to_remove = set(per_disk_stats) - set(self.all_local_devices)
+        if devices_to_remove:
+            recon_update['object_replication_per_disk'] = {
+                dtr: {} for dtr in devices_to_remove}
+
+        return recon_update
+
+    def run_once(self, multiprocess_worker_index=None,
+                 have_overrides=False, *args, **kwargs):
+        if multiprocess_worker_index is not None:
+            self.is_multiprocess_worker = True
+            self._emplace_log_prefix(multiprocess_worker_index)
+
         rsync_reaper = eventlet.spawn(self._child_process_reaper)
-
         self._zero_stats()
         self.logger.info(_("Running object replicator in script mode."))
 
-        override_devices = list_from_csv(kwargs.get('devices'))
-        override_partitions = list_from_csv(kwargs.get('partitions'))
-        override_policies = list_from_csv(kwargs.get('policies'))
-        if not override_devices:
-            override_devices = None
-        if not override_partitions:
-            override_partitions = None
-        if not override_policies:
-            override_policies = None
+        override_opts = parse_override_options(once=True, **kwargs)
+        devices = override_opts.devices or None
+        partitions = override_opts.partitions or None
+        policies = override_opts.policies or None
 
+        start_time = time.time()
         self.replicate(
-            override_devices=override_devices,
-            override_partitions=override_partitions,
-            override_policies=override_policies)
-        total = (time.time() - self.stats['start']) / 60
+            override_devices=devices,
+            override_partitions=partitions,
+            override_policies=policies,
+            start_time=start_time)
+        end_time = time.time()
+        total = (end_time - start_time) / 60
         self.logger.info(
             _("Object replication complete (once). (%.02f minutes)"), total)
-        if not (override_partitions or override_devices):
-            replication_last = time.time()
-            dump_recon_cache({'replication_stats': self.stats,
-                              'replication_time': total,
-                              'replication_last': replication_last,
-                              'object_replication_time': total,
-                              'object_replication_last': replication_last},
-                             self.rcache, self.logger)
+
+        # If we've been manually run on a subset of
+        # policies/devices/partitions, then our recon stats are not
+        # representative of how replication is doing, so we don't publish
+        # them.
+        if self.is_multiprocess_worker:
+            # The main process checked for overrides and determined that
+            # there were none
+            should_update_recon = not have_overrides
+        else:
+            # We are single-process, so update recon only if we worked on
+            # everything
+            should_update_recon = not (partitions or devices or policies)
+        if should_update_recon:
+            self.update_recon(total, end_time, devices)
 
         # Give rsync processes one last chance to exit, then bail out and
         # let them be init's problem
         self._child_process_reaper_queue.put(None)
         rsync_reaper.wait()
 
-    def run_forever(self, *args, **kwargs):
+    def run_forever(self, multiprocess_worker_index=None,
+                    override_devices=None, *args, **kwargs):
+        if multiprocess_worker_index is not None:
+            self.is_multiprocess_worker = True
+            self._emplace_log_prefix(multiprocess_worker_index)
         self.logger.info(_("Starting object replicator in daemon mode."))
         eventlet.spawn_n(self._child_process_reaper)
         # Run the replicator continually
@@ -852,17 +1082,18 @@ class ObjectReplicator(Daemon):
             self._zero_stats()
             self.logger.info(_("Starting object replication pass."))
             # Run the replicator
-            self.replicate()
-            total = (time.time() - self.stats['start']) / 60
+            start = time.time()
+            self.replicate(override_devices=override_devices)
+            end = time.time()
+            total = (end - start) / 60
             self.logger.info(
                 _("Object replication complete. (%.02f minutes)"), total)
-            replication_last = time.time()
-            dump_recon_cache({'replication_stats': self.stats,
-                              'replication_time': total,
-                              'replication_last': replication_last,
-                              'object_replication_time': total,
-                              'object_replication_last': replication_last},
-                             self.rcache, self.logger)
+            self.update_recon(total, end, override_devices)
             self.logger.debug('Replication sleeping for %s seconds.',
                               self.interval)
             sleep(self.interval)
+
+    def post_multiprocess_run(self):
+        # This method is called after run_once using multiple workers.
+        update = self.aggregate_recon_update()
+        dump_recon_cache(update, self.rcache, self.logger)

@@ -692,8 +692,14 @@ daemonize                    yes                       Whether or not to run rep
                                                        as a daemon
 interval                     30                        Time in seconds to wait between
                                                        replication passes
-concurrency                  1                         Number of replication workers to
-                                                       spawn
+concurrency                  1                         Number of replication jobs to
+                                                       run per worker process
+replicator_workers           0                         Number of worker processes to use.
+                                                       No matter how big this number is,
+                                                       at most one worker per disk will
+                                                       be used. The default value of 0
+                                                       means no forking; all work is done
+                                                       in the main process.
 sync_method                  rsync                     The sync method to use; default
                                                        is rsync but you can use ssync to
                                                        try the EXPERIMENTAL
