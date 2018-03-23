@@ -18,7 +18,8 @@ from __future__ import print_function
 
 import hashlib
 
-from test.unit import temptree, debug_logger, make_timestamp_iter, with_tempdir
+from test.unit import temptree, debug_logger, make_timestamp_iter, \
+    with_tempdir, mock_timestamp_now
 
 import ctypes
 import contextlib
@@ -6836,15 +6837,13 @@ class TestShardRange(unittest.TestCase):
     def test_update_meta(self):
         ts_1 = next(self.ts_iter)
         sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
-        now = next(self.ts_iter)
-        with mock.patch('swift.common.utils.time.time', lambda: now):
+        with mock_timestamp_now(next(self.ts_iter)) as now:
             sr.update_meta(9, 99)
         self.assertEqual(9, sr.object_count)
         self.assertEqual(99, sr.bytes_used)
         self.assertEqual(now, sr.meta_timestamp)
 
-        now = next(self.ts_iter)
-        with mock.patch('swift.common.utils.time.time', lambda: now):
+        with mock_timestamp_now(next(self.ts_iter)) as now:
             sr.update_meta(99, 999, None)
         self.assertEqual(99, sr.object_count)
         self.assertEqual(999, sr.bytes_used)
@@ -6891,8 +6890,7 @@ class TestShardRange(unittest.TestCase):
         old_sr = sr.copy()
         self.assertEqual(0, sr.state)
         self.assertEqual(dict(sr), dict(old_sr))  # sanity check
-        now = next(self.ts_iter)
-        with mock.patch('swift.common.utils.time.time', lambda: float(now)):
+        with mock_timestamp_now(next(self.ts_iter)) as now:
             self.assertTrue(sr.update_state(utils.ShardRange.CREATED))
         self.assertEqual(now, sr.state_timestamp)
         self.assertEqual(utils.ShardRange.CREATED, sr.state)
@@ -6908,8 +6906,7 @@ class TestShardRange(unittest.TestCase):
         self.assertEqual(now, sr.state_timestamp)
         self.assertEqual(utils.ShardRange.CREATED, sr.state)
 
-        now = next(self.ts_iter)
-        with mock.patch('swift.common.utils.time.time', lambda: float(now)):
+        with mock_timestamp_now(next(self.ts_iter)) as now:
             self.assertTrue(sr.update_state(utils.ShardRange.ACTIVE))
         self.assertEqual(now, sr.state_timestamp)
         self.assertEqual(utils.ShardRange.ACTIVE, sr.state)
