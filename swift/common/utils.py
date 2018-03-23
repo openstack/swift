@@ -4584,6 +4584,21 @@ class ShardRange(object):
         self.state_timestamp = state_timestamp or Timestamp.now()
         return True
 
+    def set_deleted(self, timestamp=None):
+        """
+        Mark the shard range deleted and set timestamp to the current time.
+
+        :param timestamp: optional timestamp to set; if not given the
+            current time will be set.
+        :return: True if the deleted attribute or timestamp was changed, False
+            otherwise
+        """
+        if timestamp is None and self.deleted:
+            return False
+        self.deleted = True
+        self.timestamp = timestamp or Timestamp.now()
+        return True
+
     def __contains__(self, item):
         if self.lower == ShardRange.MIN and self.upper == ShardRange.MAX:
             # No limits so must match

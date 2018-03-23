@@ -6931,6 +6931,38 @@ class TestShardRange(unittest.TestCase):
         with self.assertRaises(ValueError):
             sr.epoch = 'bad'
 
+    def test_set_deleted(self):
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        # initialise other timestamps
+        sr.update_state(utils.ShardRange.ACTIVE)
+        sr.update_meta(1, 2)
+        old_sr = sr.copy()
+        self.assertFalse(sr.deleted)  # sanity check
+        self.assertEqual(dict(sr), dict(old_sr))  # sanity check
+
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            self.assertTrue(sr.set_deleted())
+        self.assertEqual(now, sr.timestamp)
+        self.assertTrue(sr.deleted)
+        old_sr_dict = dict(old_sr)
+        old_sr_dict.pop('deleted')
+        old_sr_dict.pop('created_at')
+        sr_dict = dict(sr)
+        sr_dict.pop('deleted')
+        sr_dict.pop('created_at')
+        self.assertEqual(old_sr_dict, sr_dict)
+
+        # no change
+        self.assertFalse(sr.set_deleted())
+        self.assertEqual(now, sr.timestamp)
+        self.assertTrue(sr.deleted)
+
+        # force timestamp change
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            self.assertTrue(sr.set_deleted(timestamp=now))
+        self.assertEqual(now, sr.timestamp)
+        self.assertTrue(sr.deleted)
+
     def test_lower_setter(self):
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', '')
         # sanity checks

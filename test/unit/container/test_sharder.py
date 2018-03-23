@@ -950,8 +950,7 @@ class TestSharder(unittest.TestCase):
                          json.loads(metadata[cursor_key][0]))
 
         # now change the shard ranges so that third consumes second
-        shard_ranges[1].deleted = 1
-        shard_ranges[1].timestamp = Timestamp.now()
+        shard_ranges[1].set_deleted()
         shard_ranges[2].lower = 'd'
         shard_ranges[2].timestamp = Timestamp.now()
 
