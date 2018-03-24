@@ -2911,6 +2911,49 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(dict(expected), dict(actual))
 
     @with_tempdir
+    def test_get_shard_usage(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        shard_range_by_state = dict(
+            (state, ShardRange('.shards_a/c_%s' % state, next(ts_iter),
+                               str(state), str(state + 1),
+                               2 ** state, 2 ** state + 1, 2,
+                               state=state))
+            for state in ShardRange.STATES)
+
+        def make_broker(a, c):
+            db_path = os.path.join(tempdir, '%s.db' % uuid4())
+            broker = ContainerBroker(db_path, account=a, container=c)
+            broker.initialize(next(ts_iter).internal, 0)
+            broker.update_sharding_info({'Root': 'a/c'})
+            broker.merge_shard_ranges(shard_range_by_state.values())
+            return broker
+
+        # make broker appear to be a root container
+        broker = make_broker('a', 'c')
+        self.assertTrue(broker.is_root_container())
+        included_states = (ShardRange.ACTIVE, ShardRange.SHARDING,
+                           ShardRange.SHRINKING, ShardRange.EXPANDING)
+        included = [shard_range_by_state[state] for state in included_states]
+        expected = {
+            'object_count': sum([sr.object_count for sr in included]),
+            'bytes_used': sum([sr.bytes_used for sr in included])
+        }
+        self.assertEqual(expected, broker.get_shard_usage())
+
+        # make broker appear to be a shard container
+        broker = make_broker('.shards_a', 'c_shard')
+        self.assertFalse(broker.is_root_container())
+        included_states = (ShardRange.ACTIVE, ShardRange.SHARDING,
+                           ShardRange.SHRINKING, ShardRange.EXPANDING,
+                           ShardRange.CLEAVED)
+        included = [shard_range_by_state[state] for state in included_states]
+        expected = {
+            'object_count': sum([sr.object_count for sr in included]),
+            'bytes_used': sum([sr.bytes_used for sr in included])
+        }
+        self.assertEqual(expected, broker.get_shard_usage())
+
+    @with_tempdir
     def _check_find_shard_ranges(self, c_lower, c_upper, tempdir):
         ts_iter = make_timestamp_iter()
         ts_now = Timestamp.now()
