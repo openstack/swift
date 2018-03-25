@@ -66,7 +66,10 @@ def _check_shard_ranges(own_shard_range, shard_ranges):
 
 
 def _check_own_shard_range(broker, args):
-    is_shard = broker.account.startswith('.shards_')
+    # TODO: this check is weak - if the shards prefix changes then we may not
+    # identify a shard container. The goal is to not inadvertently create an
+    # entire namespace default shard range for a shard container.
+    is_shard = broker.account.startswith(args.shards_account_prefix)
     own_shard_range = broker.get_own_shard_range(no_default=is_shard)
     if not own_shard_range:
         print('WARNING: shard container missing own shard range.')
@@ -306,6 +309,7 @@ def main(args=None):
     enable_parser = subparsers.add_parser(
         'enable', help='Enable sharding and move db to sharding state.')
     enable_parser.set_defaults(func=enable_sharding)
+    _add_replace_args(enable_parser)
 
     args = parser.parse_args(args)
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
