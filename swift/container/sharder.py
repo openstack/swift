@@ -731,12 +731,9 @@ class ContainerSharder(ContainerReplicator):
                 # included in shard range update back to root so we know when
                 # cleaving succeeded?
                 if num_found or num_created:
-                    # share the shard ranges with other nodes so they can start
-                    # cleaving
-                    self.cpool.spawn(
-                        self._replicate_object, part, broker.db_file,
-                        node['id'])
-                    self.cpool.waitall(None)
+                    # share updated shard range state with  other nodes
+                    # TODO: only replicate shard ranges, not objects
+                    self._replicate_object(part, broker.db_file, node['id'])
 
                 # always try to cleave any pending shard ranges
                 cleave_complete = self._cleave(broker)
