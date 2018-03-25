@@ -2985,9 +2985,10 @@ class TestContainerBroker(unittest.TestCase):
         do_test(expected, True, shard_size=10, limit=None)
         do_test([], False, shard_size=11, limit=None)
 
-        # now pass in pre-existing shard ranges
+        # now pass in a pre-existing shard range
         existing = [ShardRange(
-            '.sharded_a/srange-0', Timestamp.now(), '', 'obj03')]
+            '.sharded_a/srange-0', Timestamp.now(), '', 'obj03',
+            object_count=4, state=ShardRange.FOUND)]
 
         expected = [('obj03', 'obj07', 4), ('obj07', c_upper, 3)]
         do_test(expected, True, shard_size=4, limit=None, start_index=1,
@@ -2995,17 +2996,33 @@ class TestContainerBroker(unittest.TestCase):
         expected = [('obj03', 'obj07', 4)]
         do_test(expected, False, shard_size=4, limit=1, start_index=1,
                 existing=existing)
+        # using increased shard size should not distort estimation of progress
+        expected = [('obj03', 'obj09', 6), ('obj09', c_upper, 1)]
+        do_test(expected, True, shard_size=6, limit=None, start_index=1,
+                existing=existing)
 
-        # add another...
+        # add another existing...
         existing.append(ShardRange(
-            '.sharded_a/srange-1', Timestamp.now(), '', 'obj07'))
+            '.sharded_a/srange-1', Timestamp.now(), '', 'obj07',
+            object_count=4, state=ShardRange.FOUND))
         expected = [('obj07', c_upper, 3)]
-        do_test(expected, True, shard_size=4, limit=None, start_index=2,
+        do_test(expected, True, shard_size=10, limit=None, start_index=2,
+                existing=existing)
+        # an existing shard range not in FOUND state should not distort
+        # estimation of progress, but may cause final range object count to
+        # default to shard_size
+        existing[-1].state = ShardRange.CREATED
+        existing[-1].object_count = 10
+        # there's only 3 objects left to scan but progress cannot be reliably
+        # calculated, so final shard range has object count of 2
+        expected = [('obj07', 'obj09', 2), ('obj09', c_upper, 2)]
+        do_test(expected, True, shard_size=2, limit=None, start_index=2,
                 existing=existing)
 
         # add last shard range so there's none left to find
         existing.append(ShardRange(
-            '.sharded_a/srange-2', Timestamp.now(), 'obj07', c_upper))
+            '.sharded_a/srange-2', Timestamp.now(), 'obj07', c_upper,
+            object_count=4, state=ShardRange.FOUND))
         do_test([], True, shard_size=4, limit=None, existing=existing)
 
     def test_find_shard_ranges(self):
