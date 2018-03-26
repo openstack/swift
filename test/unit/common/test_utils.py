@@ -4093,6 +4093,65 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(utils.replace_partition_in_path(old, 10), old)
         self.assertEqual(utils.replace_partition_in_path(new, 11), new)
 
+    @with_tempdir
+    def test_get_db_files(self, tempdir):
+        dbdir = os.path.join(tempdir, 'dbdir')
+        path_1 = os.path.join(dbdir, 'dbfile.db')
+        self.assertEqual([], utils.get_db_files(path_1))
+        os.mkdir(dbdir)
+        self.assertEqual([], utils.get_db_files(path_1))
+        with open(path_1, 'wb'):
+            pass
+        self.assertEqual([path_1], utils.get_db_files(path_1))
+
+        path_2 = os.path.join(dbdir, 'dbfile_2.db')
+        self.assertEqual([path_1], utils.get_db_files(path_2))
+
+        with open(path_2, 'wb'):
+            pass
+
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_2))
+
+        path_3 = os.path.join(dbdir, 'dbfile_3.db')
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_3))
+
+        with open(path_3, 'wb'):
+            pass
+
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_3))
+
+        other_hash = os.path.join(dbdir, 'other.db')
+        self.assertEqual([], utils.get_db_files(other_hash))
+
+        pending = os.path.join(dbdir, 'dbfile.pending')
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(pending))
+
+        with open(pending, 'wb'):
+            pass
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(pending))
+
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_3))
+
+        os.unlink(path_1)
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_3))
+
+        os.unlink(path_2)
+        self.assertEqual([path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_3], utils.get_db_files(path_3))
+
+        os.unlink(path_3)
+        self.assertEqual([], utils.get_db_files(path_1))
+        self.assertEqual([], utils.get_db_files(path_2))
+        self.assertEqual([], utils.get_db_files(path_3))
+
 
 class ResellerConfReader(unittest.TestCase):
 

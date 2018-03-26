@@ -5063,7 +5063,6 @@ def get_redirect_data(response):
 
 
 # TODO: unit test
-
 def parse_db_filename(filename):
     """
     Splits a db filename into three parts: the hash, the epoch, and the
@@ -5108,7 +5107,6 @@ def make_db_file_path(db_path, epoch):
     return os.path.join(db_dir, '%s_%s%s' % (hash_, epoch, ext))
 
 
-# TODO: unit test
 def get_db_files(db_path):
     """
     Given the path to a db file, return a sorted list of all valid db files
