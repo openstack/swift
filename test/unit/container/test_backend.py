@@ -2681,7 +2681,18 @@ class TestContainerBroker(unittest.TestCase):
         do_test(fresh_db_path, fresh_db_path)
 
     @with_tempdir
-    def test_get_shard_root_account_container(self, tempdir):
+    def test_path(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(
+            db_path, account='myaccount', container='mycontainer')
+        broker.initialize(next(ts_iter).internal, 1)
+        # make sure we can cope with unitialized account and container
+        broker.account = broker.container = None
+        self.assertEqual('myaccount/mycontainer', broker.path)
+
+    @with_tempdir
+    def test_root_account_container_path(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
