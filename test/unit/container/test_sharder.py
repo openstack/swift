@@ -310,6 +310,10 @@ class TestSharder(unittest.TestCase):
         self.tempdir = mkdtemp()
         self.ts_iter = make_timestamp_iter()
 
+    def _assert_shard_ranges_equal(self, expected, actual):
+        self.assertEqual([dict(sr) for sr in expected],
+                         [dict(sr) for sr in actual])
+
     def _make_broker(self, account='a', container='c', epoch=None,
                      device='sda', part=0, hash_='testhash'):
         datadir = os.path.join(
@@ -1780,6 +1784,186 @@ class TestSharder(unittest.TestCase):
         expected = ('b', ts_expected, 20, 'text/newer', 'etag_newer', 0)
         self._check_objects([expected], expected_shard_dbs[0])
         self._check_objects([], broker.db_file)
+
+    def _setup_find_ranges(self, account, cont, lower, upper):
+        broker = self._make_broker(account=account, container=cont)
+        own_sr = ShardRange('%s/%s' % (account, cont), Timestamp.now(),
+                            lower, upper)
+        broker.merge_shard_ranges([own_sr])
+        broker.update_sharding_info({'Root': 'a/c'})
+        objects = [
+            # some of these are misplaced objects
+            ['obj%3d' % i, self.ts_encoded(), i, 'text/plain', 'etag%s' % i, 0]
+            for i in range(100)]
+        for obj in objects:
+            broker.put_object(*obj)
+        return broker, objects
+
+    def _check_find_shard_ranges_none_found(self, broker, objects):
+        with self._mock_sharder() as sharder:
+            last_found, num_found = sharder._find_shard_ranges(broker)
+        self.assertGreater(sharder.split_size, len(objects))
+        self.assertEqual(0, num_found)
+        self.assertFalse(last_found)
+        self.assertFalse(broker.get_shard_ranges())
+        expected_stats = {'attempted': 1, 'success': 0, 'failure': 1,
+                          'found': 0, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self.assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+        with self._mock_sharder(conf={'shard_container_size': 200}) as sharder:
+            last_found, num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(sharder.split_size, len(objects))
+        self.assertEqual(0, num_found)
+        self.assertFalse(last_found)
+        self.assertFalse(broker.get_shard_ranges())
+        expected_stats = {'attempted': 1, 'success': 0, 'failure': 1,
+                          'found': 0, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self.assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+    def test_find_shard_ranges_none_found_root(self):
+        broker, objects = self._setup_find_ranges('a', 'c', '', '')
+        self._check_find_shard_ranges_none_found(broker, objects)
+
+    def test_find_shard_ranges_none_found_shard(self):
+        broker, objects = self._setup_find_ranges(
+            '.shards_a', 'c', 'lower', 'upper')
+        self._check_find_shard_ranges_none_found(broker, objects)
+
+    def _check_find_shard_ranges_finds_two(self, account, cont, lower, upper):
+        def check_ranges():
+            self.assertEqual(2, len(broker.get_shard_ranges()))
+            expected_ranges = [
+                ShardRange(
+                    ShardRange.make_path('.int_shards_a', 'c', cont, now, 0),
+                    now, lower, objects[98][0], 99),
+                ShardRange(
+                    ShardRange.make_path('.int_shards_a', 'c', cont, now, 1),
+                    now, objects[98][0], upper, 1),
+            ]
+            self._assert_shard_ranges_equal(expected_ranges,
+                                            broker.get_shard_ranges())
+            self.assertEqual('True', broker.get_sharding_info('Scan-Done'))
+
+        broker, objects = self._setup_find_ranges(
+            account, cont, lower, upper)
+        with self._mock_sharder(conf={'shard_container_size': 199,
+                                      'auto_create_account_prefix': '.int_'}
+                                ) as sharder:
+            with mock_timestamp_now() as now:
+                sharder._send_shard_ranges = mock.MagicMock(return_value=True)
+                last_found, num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(99, sharder.split_size)
+        self.assertEqual(2, num_found)
+        self.assertTrue(last_found)
+        check_ranges()
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
+                          'found': 2, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self.assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+        with self._mock_sharder(conf={'shard_container_size': 199,
+                                      'auto_create_account_prefix': '.int_'}
+                                ) as sharder:
+            last_found, num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(0, num_found)
+        self.assertTrue(last_found)
+        self.assertEqual(2, len(broker.get_shard_ranges()))
+        check_ranges()
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
+                          'found': 0, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self.assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+    def test_find_shard_ranges_finds_two_root(self):
+        self._check_find_shard_ranges_finds_two('a', 'c', '', '')
+
+    def test_find_shard_ranges_finds_two_shard(self):
+        self._check_find_shard_ranges_finds_two('.shards_a', 'c_', 'l', 'u')
+
+    def _check_find_shard_ranges_finds_three(self, account, cont, lower,
+                                             upper):
+        broker, objects = self._setup_find_ranges(
+            account, cont, lower, upper)
+        now = Timestamp.now()
+        expected_ranges = [
+            ShardRange(
+                ShardRange.make_path('.shards_a', 'c', cont, now, 0),
+                now, lower, objects[44][0], 45),
+            ShardRange(
+                ShardRange.make_path('.shards_a', 'c', cont, now, 1),
+                now, objects[44][0], objects[89][0], 45),
+            ShardRange(
+                ShardRange.make_path('.shards_a', 'c', cont, now, 2),
+                now, objects[89][0], upper, 10),
+        ]
+        # first invocation finds 2 ranges
+        with self._mock_sharder(
+                conf={'shard_container_size': 90,
+                      'shard_scanner_batch_size': 2}) as sharder:
+            with mock_timestamp_now(now):
+                sharder._send_shard_ranges = mock.MagicMock(return_value=True)
+                last_found, num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(45, sharder.split_size)
+        self.assertEqual(2, num_found)
+        self.assertFalse(last_found)
+        self.assertEqual(2, len(broker.get_shard_ranges()))
+        self._assert_shard_ranges_equal(expected_ranges[:2],
+                                        broker.get_shard_ranges())
+        self.assertIsNone(broker.get_sharding_info('Scan-Done'))
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
+                          'found': 2, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self.assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+        # second invocation finds third shard range
+        with self._mock_sharder(conf={'shard_container_size': 199,
+                                      'shard_scanner_batch_size': 2}
+                                ) as sharder:
+            with mock_timestamp_now(now):
+                sharder._send_shard_ranges = mock.MagicMock(return_value=True)
+                last_found, num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(1, num_found)
+        self.assertTrue(last_found)
+        self.assertEqual(3, len(broker.get_shard_ranges()))
+        self._assert_shard_ranges_equal(expected_ranges,
+                                        broker.get_shard_ranges())
+        self.assertEqual('True', broker.get_sharding_info('Scan-Done'))
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
+                          'found': 1, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self.assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+        # third invocation finds none
+        with self._mock_sharder(conf={'shard_container_size': 199,
+                                      'shard_scanner_batch_size': 2}
+                                ) as sharder:
+            sharder._send_shard_ranges = mock.MagicMock(return_value=True)
+            last_found, num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(0, num_found)
+        self.assertTrue(last_found)
+        self.assertEqual(3, len(broker.get_shard_ranges()))
+        self._assert_shard_ranges_equal(expected_ranges,
+                                        broker.get_shard_ranges())
+        self.assertEqual('True', broker.get_sharding_info('Scan-Done'))
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
+                          'found': 0, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self.assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+    def test_find_shard_ranges_finds_three_root(self):
+        self._check_find_shard_ranges_finds_three('a', 'c', '', '')
+
+    def test_find_shard_ranges_finds_three_shard(self):
+        self._check_find_shard_ranges_finds_three('.shards_a', 'c_', 'l', 'u')
 
     def test_sharding_enabled(self):
         broker = self._make_broker()
