@@ -966,11 +966,6 @@ class ContainerSharder(ContainerReplicator):
         shard_ranges = make_shard_ranges(
             broker, shard_data, self.shards_account_prefix)
         broker.merge_shard_ranges(shard_ranges)
-        if not broker.is_root_container():
-            # TODO: check for success and do not proceed otherwise
-            self._send_shard_ranges(
-                broker.root_account, broker.root_container, shard_ranges)
-
         num_found = len(shard_ranges)
         self.logger.info(
             "Completed scan for shard ranges: %d found", num_found)

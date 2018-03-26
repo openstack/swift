@@ -1854,7 +1854,6 @@ class TestSharder(unittest.TestCase):
                                       'auto_create_account_prefix': '.int_'}
                                 ) as sharder:
             with mock_timestamp_now() as now:
-                sharder._send_shard_ranges = mock.MagicMock(return_value=True)
                 last_found, num_found = sharder._find_shard_ranges(broker)
         self.assertEqual(99, sharder.split_size)
         self.assertEqual(2, num_found)
@@ -1907,7 +1906,6 @@ class TestSharder(unittest.TestCase):
                 conf={'shard_container_size': 90,
                       'shard_scanner_batch_size': 2}) as sharder:
             with mock_timestamp_now(now):
-                sharder._send_shard_ranges = mock.MagicMock(return_value=True)
                 last_found, num_found = sharder._find_shard_ranges(broker)
         self.assertEqual(45, sharder.split_size)
         self.assertEqual(2, num_found)
@@ -1927,7 +1925,6 @@ class TestSharder(unittest.TestCase):
                                       'shard_scanner_batch_size': 2}
                                 ) as sharder:
             with mock_timestamp_now(now):
-                sharder._send_shard_ranges = mock.MagicMock(return_value=True)
                 last_found, num_found = sharder._find_shard_ranges(broker)
         self.assertEqual(1, num_found)
         self.assertTrue(last_found)
