@@ -1692,7 +1692,6 @@ class ContainerBroker(DatabaseBroker):
     def is_own_shard_range(self, shard_range):
         return shard_range.name == self.path
 
-    # TODO: add unit test
     def get_shard_usage(self):
         states = [ShardRange.ACTIVE, ShardRange.SHARDING, ShardRange.SHRINKING,
                   ShardRange.EXPANDING]
