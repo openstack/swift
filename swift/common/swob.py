@@ -634,6 +634,10 @@ class Match(object):
     def __contains__(self, val):
         return '*' in self.tags or val in self.tags
 
+    def __repr__(self):
+        return '%s(%r)' % (
+            self.__class__.__name__, ', '.join(sorted(self.tags)))
+
 
 class Accept(object):
     """
