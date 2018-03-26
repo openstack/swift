@@ -226,8 +226,7 @@ class TestS3ApiSubresource(unittest.TestCase):
                         'Grantee': 'test:tester'}]}
         headers = {sysmeta_header('container', 'acl'):
                    json.dumps(access_control_policy)}
-        acl = decode_acl('container', headers,
-                         self.s3_acl, self.allow_no_owner)
+        acl = decode_acl('container', headers, self.allow_no_owner)
 
         self.assertEqual(type(acl), ACL)
         self.assertEqual(acl.owner.id, 'test:tester')
@@ -242,7 +241,7 @@ class TestS3ApiSubresource(unittest.TestCase):
                         'Grantee': 'test:tester'}]}
         headers = {sysmeta_header('object', 'acl'):
                    json.dumps(access_control_policy)}
-        acl = decode_acl('object', headers, self.s3_acl, self.allow_no_owner)
+        acl = decode_acl('object', headers, self.allow_no_owner)
 
         self.assertEqual(type(acl), ACL)
         self.assertEqual(acl.owner.id, 'test:tester')
@@ -252,8 +251,7 @@ class TestS3ApiSubresource(unittest.TestCase):
 
     def test_decode_acl_undefined(self):
         headers = {}
-        acl = decode_acl('container', headers,
-                         self.s3_acl, self.allow_no_owner)
+        acl = decode_acl('container', headers, self.allow_no_owner)
 
         self.assertEqual(type(acl), ACL)
         self.assertIsNone(acl.owner.id)
@@ -261,8 +259,7 @@ class TestS3ApiSubresource(unittest.TestCase):
 
     def test_decode_acl_empty_list(self):
         headers = {sysmeta_header('container', 'acl'): '[]'}
-        acl = decode_acl('container', headers,
-                         self.s3_acl, self.allow_no_owner)
+        acl = decode_acl('container', headers, self.allow_no_owner)
         self.assertEqual(type(acl), ACL)
         self.assertIsNone(acl.owner.id)
         self.assertEqual(len(acl.grants), 0)
@@ -271,7 +268,7 @@ class TestS3ApiSubresource(unittest.TestCase):
         headers = {sysmeta_header('container', 'acl'): '['}
         self.assertRaises(
             InvalidSubresource, decode_acl, 'container',
-            headers, self.s3_acl, self.allow_no_owner)
+            headers, self.allow_no_owner)
 
     def test_encode_acl_container(self):
         acl = ACLPrivate(Owner(id='test:tester',

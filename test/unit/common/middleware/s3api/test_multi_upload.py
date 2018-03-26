@@ -965,7 +965,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(
             tostring(ACLPublicRead(Owner('test:tester',
                                          'test:tester')).elem()),
-            tostring(decode_acl('object', headers, True, False).elem()))
+            tostring(decode_acl('object', headers, False).elem()))
 
     @s3acl
     def test_object_multipart_upload_abort_error(self):

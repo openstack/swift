@@ -170,7 +170,7 @@ class BaseAclHandler(object):
             try:
                 elem = fromstring(body, ACL.root_tag)
                 acl = ACL.from_elem(
-                    elem, self.req.conf.s3_acl, self.req.conf.allow_no_owner)
+                    elem, True, self.req.allow_no_owner)
             except(XMLSyntaxError, DocumentInvalid):
                 raise MalformedACLError()
             except Exception as e:
