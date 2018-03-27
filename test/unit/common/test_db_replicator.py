@@ -16,6 +16,8 @@
 from __future__ import print_function
 import unittest
 from contextlib import contextmanager
+
+import eventlet
 import os
 import logging
 import errno
@@ -38,6 +40,7 @@ from swift.common.exceptions import DriveNotMounted
 from swift.common.swob import HTTPException
 
 from test import unit
+from test.unit import FakeLogger
 from test.unit.common.test_db import ExampleBroker
 
 
@@ -236,6 +239,9 @@ class FakeBroker(object):
             'put_timestamp': 1,
             'created_at': 1,
             'count': 0,
+            'max_row': 99,
+            'id': 'ID',
+            'metadata': {}
         })
         if self.stub_replication_info:
             info.update(self.stub_replication_info)
@@ -662,10 +668,89 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_replicate_object(self):
         db_replicator.ring = FakeRingWithNodes()
-        replicator = TestReplicator({})
-        replicator.delete_db = self.stub_delete_db
-        replicator._replicate_object('0', '/path/to/file', 'node_id')
-        self.assertEqual([], self.delete_db_calls)
+        db_path = '/path/to/file'
+        replicator = TestReplicator({}, logger=FakeLogger())
+        info = FakeBroker().get_replication_info()
+        # make remote appear to be in sync
+        rinfo = {'point': info['max_row'], 'id': 'remote_id'}
+
+        class FakeResponse(object):
+            def __init__(self, status, rinfo):
+                self._status = status
+                self.data = json.dumps(rinfo)
+
+            @property
+            def status(self):
+                if isinstance(self._status, (Exception, eventlet.Timeout)):
+                    raise self._status
+                return self._status
+
+        # all requests fail
+        replicate = 'swift.common.db_replicator.ReplConnection.replicate'
+        with mock.patch(replicate) as fake_replicate:
+            fake_replicate.side_effect = [
+                FakeResponse(500, None),
+                FakeResponse(500, None),
+                FakeResponse(500, None)]
+            with mock.patch.object(replicator, 'delete_db') as mock_delete:
+                res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertEqual((False, [False, False, False]), res)
+        self.assertEqual(0, mock_delete.call_count)
+        replicator.logger.clear()
+
+        with mock.patch(replicate) as fake_replicate:
+            fake_replicate.side_effect = [
+                FakeResponse(Exception('ugh'), None),
+                FakeResponse(eventlet.Timeout(), None),
+                FakeResponse(200, rinfo)]
+            with mock.patch.object(replicator, 'delete_db') as mock_delete:
+                res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertEqual((False, [False, False, True]), res)
+        self.assertEqual(0, mock_delete.call_count)
+        lines = replicator.logger.get_lines_for_level('error')
+        self.assertIn('ERROR syncing', lines[0])
+        self.assertIn('ERROR syncing', lines[1])
+        replicator.logger.clear()
+
+        # partial success
+        with mock.patch(replicate) as fake_replicate:
+            fake_replicate.side_effect = [
+                FakeResponse(200, rinfo),
+                FakeResponse(200, rinfo),
+                FakeResponse(500, None)]
+            with mock.patch.object(replicator, 'delete_db') as mock_delete:
+                res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertEqual((False, [True, True, False]), res)
+        self.assertEqual(0, mock_delete.call_count)
+        replicator.logger.clear()
+
+        # 507 triggers additional requests
+        with mock.patch(replicate) as fake_replicate:
+            fake_replicate.side_effect = [
+                FakeResponse(200, rinfo),
+                FakeResponse(200, rinfo),
+                FakeResponse(507, None),
+                FakeResponse(507, None),
+                FakeResponse(200, rinfo)]
+            with mock.patch.object(replicator, 'delete_db') as mock_delete:
+                res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertEqual((False, [True, True, False, False, True]), res)
+        self.assertEqual(0, mock_delete.call_count)
+        lines = replicator.logger.get_lines_for_level('error')
+        self.assertIn('Remote drive not mounted', lines[0])
+        self.assertIn('Remote drive not mounted', lines[1])
+        replicator.logger.clear()
+
+        # all requests succeed
+        with mock.patch(replicate) as fake_replicate:
+            fake_replicate.side_effect = [
+                FakeResponse(200, rinfo),
+                FakeResponse(200, rinfo),
+                FakeResponse(200, rinfo)]
+            with mock.patch.object(replicator, 'delete_db') as mock_delete:
+                res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertEqual((True, [True, True, True]), res)
+        self.assertEqual(1, mock_delete.call_count)
 
     def test_replicate_object_quarantine(self):
         replicator = TestReplicator({})
