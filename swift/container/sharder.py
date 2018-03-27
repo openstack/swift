@@ -724,12 +724,6 @@ class ContainerSharder(ContainerReplicator):
                 # create shard containers for newly found ranges
                 num_created = self._create_shard_containers(broker)
 
-                # TODO: what if this replication attempt fails? if we wrote the
-                # db then replicator should eventually find it, but what if we
-                # failed to create the handoff db? Perhaps there should be some
-                # state propagated via cleaving to the shard container and then
-                # included in shard range update back to root so we know when
-                # cleaving succeeded?
                 if num_found or num_created:
                     # share the shard ranges with other nodes so they can start
                     # cleaving
@@ -764,6 +758,7 @@ class ContainerSharder(ContainerReplicator):
 
                     if broker.set_sharded_state():
                         state = SHARDED
+                        self.stats['containers_sharded'] += 1
                         self.logger.increment('sharding_complete')
                     else:
                         self.logger.debug('Remaining in sharding state %s/%s',
@@ -1254,16 +1249,27 @@ class ContainerSharder(ContainerReplicator):
                     shard_range.update_state(ShardRange.CLEAVED)
                 new_broker.merge_shard_ranges([shard_range])
 
-            ranges_done.append(shard_range)
-
             self.logger.info('Replicating new shard container %s/%s for %s',
                              new_broker.account, new_broker.container,
                              new_broker.get_own_shard_range())
-            self.cpool.spawn(
-                self._replicate_object, new_part, new_broker.db_file, node_id)
+
+            success, responses = self._replicate_object(
+                new_part, new_broker.db_file, node_id)
+
+            if (not success and
+                    sum(responses) < quorum_size(self.ring.replica_count)):
+                # break because we don't want to progress the cleave cursor
+                # until each shard range has been successfully cleaved
+                self.logger.warning(
+                    'Failed to sufficiently replicate cleaved shard %s for %s',
+                    shard_range, broker.path)
+                break
+
+            ranges_done.append(shard_range)
+
             self.logger.info('Cleaved %s/%s for shard range %s.',
                              broker.account, broker.container, shard_range)
-            self.logger.increment('sharded')
+            self.logger.increment('cleaved')
             self._increment_stat('cleaved', 'success')
             elapsed = round(time.time() - start, 3)
             self._min_stat('cleaved', 'min_time', elapsed)
@@ -1273,14 +1279,12 @@ class ContainerSharder(ContainerReplicator):
             broker.merge_shard_ranges(ranges_done)
             cleave_context['cursor'] = str(ranges_done[-1].upper)
             if ranges_done[-1].upper >= own_shard_range.upper:
-                # cleaving complete, reset cursor
+                # cleaving complete
                 cleave_context['done'] = True
             broker.dump_cleave_context(cleave_context)
         else:
             self.logger.warning('No progress made in _cleave()!')
 
-        # TODO: a finite timeout might be a good idea
-        self.cpool.waitall(None)
         return len(ranges_done) == len(ranges_todo)
 
     def run_forever(self, *args, **kwargs):
