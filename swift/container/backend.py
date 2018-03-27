@@ -2033,14 +2033,18 @@ class ContainerBroker(DatabaseBroker):
 
         own_shard_range = self.get_own_shard_range()
         progress = 0
+        progress_reliable = True
         # update initial state to account for any existing shard ranges
         if existing_ranges:
-            # TODO: if config shard_size changes between calls to this method
-            # then this estimation of progress will be WRONG - we need to
-            # either record progress in db or record snapshot of shard_size in
-            # each ShardRange and sum them here, OR ditch progress altogether
-            # and lose the optimisation on finding last shard range
-            progress = len(existing_ranges) * shard_size
+            if all([sr.state == ShardRange.FOUND
+                    for sr in existing_ranges]):
+                progress = sum([sr.object_count for sr in existing_ranges])
+            else:
+                # else: object count in existing shard ranges may have changed
+                # since they were found so progress cannot be reliably
+                # calculated; use default progress pf zero - that's ok,
+                # progress is used for optimisation not correctness
+                progress_reliable = False
             last_shard_upper = existing_ranges[-1].upper
             if last_shard_upper >= own_shard_range.upper:
                 # == implies all ranges were previously found
@@ -2057,9 +2061,6 @@ class ContainerBroker(DatabaseBroker):
             if progress + shard_size >= object_count:
                 # next shard point is at or beyond final object name so don't
                 # bother with db query
-                # TODO: should we refresh object count before this test or are
-                # we safe assuming that no updates to the container will be
-                # made while we're scanning?
                 next_shard_upper = None
             else:
                 try:
@@ -2075,10 +2076,12 @@ class ContainerBroker(DatabaseBroker):
                 # beyond if the container has misplaced objects. In either case
                 # limit the final shard range to own_shard_range.upper.
                 next_shard_upper = own_shard_range.upper
-                # object count may include misplaced objects, so the final
-                # shard size may not be accurate until cleaved, but at least
-                # the sum of shard sizes will equal the unsharded object_count
-                shard_size = object_count - progress
+                if progress_reliable:
+                    # object count may include misplaced objects so the final
+                    # shard size may not be accurate until cleaved, but at
+                    # least the sum of shard sizes will equal the unsharded
+                    # object_count
+                    shard_size = object_count - progress
 
             # NB shard ranges are created with a non-zero object count so that
             # the apparent container object count remains constant, and the
