@@ -1604,6 +1604,84 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_object_count'], 2)
         self.assertEqual(info['reported_bytes_used'], 1123)
 
+    @with_tempdir
+    def test_remove_objects(self, tempdir):
+        objects = (('undeleted', Timestamp.now().internal, 0, 'text/plain',
+                    EMPTY_ETAG, 0, 0),
+                   ('other_policy', Timestamp.now().internal, 0, 'text/plain',
+                    EMPTY_ETAG, 0, 1),
+                   ('deleted', Timestamp.now().internal, 0, 'text/plain',
+                    EMPTY_ETAG, 1, 0))
+        object_names = [o[0] for o in objects]
+
+        def get_rows(broker):
+            with broker.get() as conn:
+                cursor = conn.execute("SELECT * FROM object")
+                return [r[1] for r in cursor]
+
+        def do_setup():
+            db_path = os.path.join(
+                tempdir, 'part', 'suffix', 'hash', '%s.db' % uuid4())
+            broker = ContainerBroker(db_path, account='a', container='c')
+            broker.initialize(Timestamp.now().internal, 0)
+            for obj in objects:
+                # ensure row order matches put order
+                broker.put_object(*obj)
+                broker._commit_puts()
+
+            self.assertEqual(3, broker.get_max_row())  # sanity check
+            self.assertEqual(object_names, get_rows(broker))  # sanity check
+            return broker
+
+        broker = do_setup()
+        broker.remove_objects('', '', 0)
+        self.assertEqual([object_names[1]], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', 1)
+        self.assertEqual([object_names[0], object_names[2]], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('deleted', '', 0)
+        self.assertEqual(object_names[1:], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', 'deleted', 0)
+        self.assertEqual(object_names[:2], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', 'deleted', 0, max_row=2)
+
+        broker = do_setup()
+        broker.remove_objects('deleted', 'un', 0)
+        self.assertEqual(object_names, get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', 0, max_row=-1)
+        self.assertEqual(object_names, get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', 0, max_row=0)
+        self.assertEqual(object_names, get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', 0, max_row=1)
+        self.assertEqual(object_names[1:], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', 0, max_row=2)
+        self.assertEqual(object_names[1:], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', 0, max_row=3)
+        self.assertEqual([object_names[1]], get_rows(broker))
+        broker.remove_objects('', '', 1, max_row=99)
+        self.assertFalse(get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', 'deleted', 0, max_row=2)
+        self.assertEqual(object_names, get_rows(broker))
+
     def test_get_objects(self):
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)

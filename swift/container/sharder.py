@@ -278,7 +278,7 @@ class ContainerSharder(ContainerReplicator):
         :param src_shard_range: A :class:`~swift.common.utils.ShardRange`
             describing the source range.
         :param policy_index: The storage policy index.
-        :return: lists objects
+        :return: a generator of tuples of (list of objects, broker info dict)
         """
         # Since we're going to change lower attribute in the loop...
         src_shard_range = src_shard_range.copy()
@@ -288,13 +288,15 @@ class ContainerSharder(ContainerReplicator):
         # override that behaviour
 
         while True:
+            info = broker.get_info()
+            info['max_row'] = broker.get_max_row()
             objects = broker.get_objects(
                 CONTAINER_LISTING_LIMIT,
                 marker=str(src_shard_range.lower),
                 end_marker=src_shard_range.end_marker,
                 storage_policy_index=policy_index,
                 include_deleted=True)
-            yield objects
+            yield objects, info
 
             if len(objects) < CONTAINER_LISTING_LIMIT:
                 break
@@ -315,10 +317,12 @@ class ContainerSharder(ContainerReplicator):
         :param policy_index: The storage policy index.
         :param dest_shard_ranges: A function which should return a list of
             destination shard ranges in name order.
-        :return: tuples of (object list, shard range)
+        :return: a generator of tuples of
+            (object list, shard range, broker info dict)
         """
         dest_shard_range_iter = dest_shard_range = None
-        for objs in self.yield_objects(broker, src_shard_range, policy_index):
+        for objs, info in self.yield_objects(broker, src_shard_range,
+                                             policy_index):
             if not objs:
                 return
 
@@ -339,20 +343,22 @@ class ContainerSharder(ContainerReplicator):
                     # no more destinations: yield remainder of batch and return
                     # NB there may be more batches of objects but none of them
                     # will be placed so no point fetching them
-                    yield objs[last_index:], None
+                    yield objs[last_index:], None, info
                     return
                 if obj['name'] <= dest_shard_range.lower:
                     unplaced = True
                 elif unplaced:
                     # end of run of unplaced objects, yield them
-                    yield objs[last_index:next_index], None
+                    yield objs[last_index:next_index], None, info
                     last_index = next_index
                     unplaced = False
                 while (dest_shard_range and
                        obj['name'] > dest_shard_range.upper):
                     if next_index != last_index:
                         # yield the objects in current dest_shard_range
-                        yield objs[last_index:next_index], dest_shard_range
+                        yield (objs[last_index:next_index],
+                               dest_shard_range,
+                               info)
                     last_index = next_index
                     dest_shard_range = next_or_none(dest_shard_range_iter)
                 next_index += 1
@@ -362,31 +368,47 @@ class ContainerSharder(ContainerReplicator):
                 # NB there may be more objects for the current
                 # dest_shard_range in the next batch from yield_objects
                 yield (objs[last_index:next_index],
-                       None if unplaced else dest_shard_range)
+                       None if unplaced else dest_shard_range,
+                       info)
 
     def _replicate_and_delete(self, broker, policy_index, dest_shard_range,
-                              part, dest_broker, node_id):
+                              part, dest_broker, node_id, info):
         success, responses = self._replicate_object(
             part, dest_broker.db_file, node_id)
         if (not success and
                 responses.count(True) < quorum_size(self.ring.replica_count)):
             self.logger.warning(
                 'Failed to sufficiently replicate misplaced objects: %s in %s '
-                '(not deleting)', dest_shard_range, broker.path)
+                '(not removing)', dest_shard_range, broker.path)
             return False
 
-        # TODO: there may be newer objects in the source db, don't remove them!
-        broker.remove_objects(
-            str(dest_shard_range.lower), str(dest_shard_range.upper),
-            policy_index)
-        return True
+        with broker.sharding_lock():
+            # TODO: check we're actually contending for this lock when
+            # modifying the broker dbs
+            if broker.get_info()['id'] != info['id']:
+                # the db changed - don't remove any objects
+                success = False
+            else:
+                # remove objects up to the max row of the db sampled prior to
+                # the first object yielded for this destination; objects added
+                # after that point may not have been yielded and replicated so
+                # it is not safe to remove them yet
+                broker.remove_objects(
+                    str(dest_shard_range.lower), str(dest_shard_range.upper),
+                    policy_index, info['max_row'])
+                success = True
+        if not success:
+            self.logger.warning(
+                'Refused to remove misplaced objects: %s in %s',
+                dest_shard_range, broker.path)
+        return success
 
     def _move_misplaced_objects(self, broker, src_shard_range, policy_index,
                                 dest_shard_ranges):
         # map shard range -> broker
         brokers = {}
         placed = unplaced = 0
-        for objs, dest_shard_range in self.yield_objects_to_shard_range(
+        for objs, dest_shard_range, info in self.yield_objects_to_shard_range(
                 broker, src_shard_range, policy_index, dest_shard_ranges):
             if not dest_shard_range:
                 unplaced += len(objs)
@@ -402,10 +424,16 @@ class ContainerSharder(ContainerReplicator):
             if dest_shard_range not in brokers:
                 part, dest_broker, node_id = self._get_shard_broker(
                     dest_shard_range, broker.root_path, policy_index)
-                brokers[dest_shard_range] = (part, dest_broker, node_id)
+                # save the broker info that was sampled prior to the *first*
+                # yielded objects for this destination
+                destination = {'part': part,
+                               'dest_broker': dest_broker,
+                               'node_id': node_id,
+                               'info': info}
+                brokers[dest_shard_range] = destination
             else:
-                part, dest_broker, node_id = brokers[dest_shard_range]
-            dest_broker.merge_items(objs)
+                destination = brokers[dest_shard_range]
+            destination['dest_broker'].merge_items(objs)
             placed += len(objs)
 
         if unplaced:
@@ -421,7 +449,7 @@ class ContainerSharder(ContainerReplicator):
             self.logger.debug('moving misplaced objects found in range %s' %
                               dest_shard_range)
             self._replicate_and_delete(broker, policy_index, dest_shard_range,
-                                       *dest_args)
+                                       **dest_args)
 
         self.logger.debug('Moved %s misplaced objects' % placed)
         return True
@@ -1215,7 +1243,7 @@ class ContainerSharder(ContainerReplicator):
 
             with new_broker.sharding_lock():
                 for source_broker in brokers:
-                    for objects in self.yield_objects(
+                    for objects, info in self.yield_objects(
                             source_broker, shard_range, policy_index):
                         new_broker.merge_items(objects)
 
