@@ -78,7 +78,7 @@ class S3ApiTestCase(unittest.TestCase):
 
         self.app = FakeApp()
         self.swift = self.app.swift
-        self.swift3 = S3ApiMiddleware(self.app, self.conf)
+        self.s3api = S3ApiMiddleware(self.app, self.conf)
 
         self.swift.register('HEAD', '/v1/AUTH_test',
                             swob.HTTPOk, {}, None)
@@ -160,4 +160,4 @@ class S3ApiTestCase(unittest.TestCase):
             return status[0], headers[0], body
 
     def call_s3api(self, req, **kwargs):
-        return self.call_app(req, app=self.swift3, **kwargs)
+        return self.call_app(req, app=self.s3api, **kwargs)

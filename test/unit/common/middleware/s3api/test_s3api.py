@@ -538,36 +538,36 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.conf.__file__ = ''
 
             pipeline.return_value = 's3api tempauth proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             # This *should* still work; authtoken will remove our auth details,
             # but the X-Auth-Token we drop in will remain
             # if we found one in the response
             pipeline.return_value = 's3api s3token authtoken keystoneauth ' \
                 'proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             # This should work now; no more doubled-up requests to keystone!
             pipeline.return_value = 's3api s3token keystoneauth proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             pipeline.return_value = 's3api swauth proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             # Note that authtoken would need to have delay_auth_decision=True
             pipeline.return_value = 's3api authtoken s3token keystoneauth ' \
                 'proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             pipeline.return_value = 's3api proxy-server'
             with self.assertRaises(ValueError) as cm:
-                self.swift3.check_pipeline(self.conf)
+                self.s3api.check_pipeline(self.conf)
             self.assertIn('expected auth between s3api and proxy-server',
                           cm.exception.message)
 
             pipeline.return_value = 'proxy-server'
             with self.assertRaises(ValueError) as cm:
-                self.swift3.check_pipeline(self.conf)
+                self.s3api.check_pipeline(self.conf)
             self.assertIn("missing filters ['s3api']",
                           cm.exception.message)
 
@@ -580,25 +580,25 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.conf.__file__ = ''
 
             pipeline.return_value = 's3api tempauth proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             pipeline.return_value = 's3api s3token authtoken keystoneauth ' \
                 'proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             pipeline.return_value = 's3api swauth proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             pipeline.return_value = 's3api authtoken s3token keystoneauth ' \
                 'proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             pipeline.return_value = 's3api proxy-server'
-            self.swift3.check_pipeline(self.conf)
+            self.s3api.check_pipeline(self.conf)
 
             pipeline.return_value = 'proxy-server'
             with self.assertRaises(ValueError):
-                self.swift3.check_pipeline(self.conf)
+                self.s3api.check_pipeline(self.conf)
 
     def test_signature_v4(self):
         environ = {
@@ -911,7 +911,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.swift, {'operator_roles': 'swift-user'})
         self.s3_token = S3Token(
             self.keystone_auth, {'auth_uri': 'https://fakehost/identity'})
-        self.swift3 = S3ApiMiddleware(self.s3_token, self.conf)
+        self.s3api = S3ApiMiddleware(self.s3_token, self.conf)
         req = Request.blank(
             '/bucket',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -937,7 +937,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.swift, {'operator_roles': 'swift-user'})
         self.s3_token = S3Token(
             self.keystone_auth, {'auth_uri': 'https://fakehost/identity'})
-        self.swift3 = S3ApiMiddleware(self.s3_token, self.conf)
+        self.s3api = S3ApiMiddleware(self.s3_token, self.conf)
         req = Request.blank(
             '/bucket',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -965,7 +965,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.keystone_auth, {'delay_auth_decision': 'True'})
         self.s3_token = S3Token(
             self.auth_token, {'auth_uri': 'https://fakehost/identity'})
-        self.swift3 = S3ApiMiddleware(self.s3_token, self.conf)
+        self.s3api = S3ApiMiddleware(self.s3_token, self.conf)
         req = Request.blank(
             '/bucket',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -1003,7 +1003,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.keystone_auth, {'delay_auth_decision': 'True'})
         self.s3_token = S3Token(
             self.auth_token, {'auth_uri': 'https://fakehost/identity'})
-        self.swift3 = S3ApiMiddleware(self.s3_token, self.conf)
+        self.s3api = S3ApiMiddleware(self.s3_token, self.conf)
         req = Request.blank(
             '/bucket',
             environ={'REQUEST_METHOD': 'PUT'},

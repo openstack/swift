@@ -78,7 +78,7 @@ def s3acl(func=None, s3acl_only=False):
             call_func()
             instance.swift._calls = []
 
-        instance.swift3.conf.s3_acl = True
+        instance.s3api.conf.s3_acl = True
         instance.swift.s3_acl = True
         owner = Owner('test:tester', 'test:tester')
         generate_s3acl_environ('test', instance.swift, owner)
@@ -160,7 +160,7 @@ class TestS3ApiS3Acl(S3ApiTestCase):
     def setUp(self):
         super(TestS3ApiS3Acl, self).setUp()
 
-        self.swift3.conf.s3_acl = True
+        self.s3api.conf.s3_acl = True
         self.swift.s3_acl = True
 
         account = 'test'
@@ -169,7 +169,7 @@ class TestS3ApiS3Acl(S3ApiTestCase):
         generate_s3acl_environ(account, self.swift, self.default_owner)
 
     def tearDown(self):
-        self.swift3.conf.s3_acl = False
+        self.s3api.conf.s3_acl = False
 
     def test_bucket_acl_PUT_with_other_owner(self):
         req = Request.blank('/bucket?acl',
@@ -507,7 +507,7 @@ class TestS3ApiS3Acl(S3ApiTestCase):
 
         class FakeClass(object):
             def __init__(self):
-                self.swift3 = MagicMock()
+                self.s3api = MagicMock()
                 self.swift = FakeSwift()
 
             @s3acl
@@ -520,12 +520,12 @@ class TestS3ApiS3Acl(S3ApiTestCase):
 
             @s3acl(s3acl_only=True)
             def s3acl_s3only_error(self):
-                if self.swift3.conf.s3_acl:
+                if self.s3api.conf.s3_acl:
                     raise TypeError()
 
             @s3acl(s3acl_only=True)
             def s3acl_s3only_no_error(self):
-                if not self.swift3.conf.s3_acl:
+                if not self.s3api.conf.s3_acl:
                     raise TypeError()
 
         fake_class = FakeClass()

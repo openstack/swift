@@ -89,7 +89,7 @@ class TestRequest(S3ApiTestCase):
 
     def setUp(self):
         super(TestRequest, self).setUp()
-        self.swift3.conf.s3_acl = True
+        self.s3api.conf.s3_acl = True
         self.swift.s3_acl = True
 
     @patch('swift.common.middleware.s3api.acl_handlers.ACL_MAP', Fake_ACL_MAP)
@@ -126,10 +126,10 @@ class TestRequest(S3ApiTestCase):
             mock_get_resp.return_value = fake_swift_resp \
                 or FakeResponse(self.conf.s3_acl)
             return mock_get_resp, m_check_permission,\
-                s3_req.get_response(self.swift3)
+                s3_req.get_response(self.s3api)
 
     def test_get_response_without_s3_acl(self):
-        self.swift3.conf.s3_acl = False
+        self.s3api.conf.s3_acl = False
         self.swift.s3_acl = False
         mock_get_resp, m_check_permission, s3_resp = \
             self._test_get_response('HEAD')
