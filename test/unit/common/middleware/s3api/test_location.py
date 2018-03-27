@@ -35,7 +35,7 @@ class TestS3ApiLocation(S3ApiTestCase):
         self.assertIsNone(location)
 
     def test_object_location_setting_as_us_west_1(self):
-        self.swift3.conf.location = 'us-west-1'
+        self.s3api.conf.location = 'us-west-1'
         req = Request.blank('/bucket?location',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
