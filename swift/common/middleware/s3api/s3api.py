@@ -43,7 +43,7 @@ from swift.common.wsgi import PipelineWrapper, loadcontext
 
 from swift.common.middleware.s3api.exception import NotS3Request, \
     InvalidSubresource
-from swift.common.middleware.s3api.request import get_request_class
+from swift.common.middleware.s3api.s3request import get_request_class
 from swift.common.middleware.s3api.response import ErrorResponse, \
     InternalError, MethodNotAllowed, ResponseBase, S3NotImplemented
 from swift.common.utils import get_logger, register_swift_info, \

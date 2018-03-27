@@ -767,14 +767,16 @@ class TestS3ApiObj(S3ApiTestCase):
                                        swob.HTTPServiceUnavailable)
         self.assertEqual(code, 'InternalError')
 
-        with patch('swift.common.middleware.s3api.request.get_container_info',
-                   return_value={'status': 204}):
+        with patch(
+                'swift.common.middleware.s3api.s3request.get_container_info',
+                return_value={'status': 204}):
             code = self._test_method_error('DELETE', '/bucket/object',
                                            swob.HTTPNotFound)
             self.assertEqual(code, 'NoSuchKey')
 
-        with patch('swift.common.middleware.s3api.request.get_container_info',
-                   return_value={'status': 404}):
+        with patch(
+                'swift.common.middleware.s3api.s3request.get_container_info',
+                return_value={'status': 404}):
             code = self._test_method_error('DELETE', '/bucket/object',
                                            swob.HTTPNotFound)
             self.assertEqual(code, 'NoSuchBucket')

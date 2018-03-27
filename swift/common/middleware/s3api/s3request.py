@@ -382,7 +382,7 @@ def get_request_class(env, s3_acl):
     if s3_acl:
         request_classes = (S3AclRequest, SigV4S3AclRequest)
     else:
-        request_classes = (Request, SigV4Request)
+        request_classes = (S3Request, SigV4Request)
 
     req = swob.Request(env)
     if 'X-Amz-Credential' in req.params or \
@@ -395,7 +395,7 @@ def get_request_class(env, s3_acl):
         return request_classes[0]
 
 
-class Request(swob.Request):
+class S3Request(swob.Request):
     """
     S3 request object.
     """
@@ -1288,7 +1288,7 @@ class Request(swob.Request):
         pass
 
 
-class S3AclRequest(Request):
+class S3AclRequest(S3Request):
     """
     S3Acl request object.
     """
@@ -1392,7 +1392,7 @@ class S3AclRequest(Request):
         self.acl_handler = acl_handler
 
 
-class SigV4Request(SigV4Mixin, Request):
+class SigV4Request(SigV4Mixin, S3Request):
     pass
 
 

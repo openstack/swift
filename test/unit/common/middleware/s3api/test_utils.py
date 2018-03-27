@@ -17,7 +17,7 @@ import os
 import time
 import unittest
 
-from swift.common.middleware.s3api import utils, request
+from swift.common.middleware.s3api import utils, s3request
 
 strs = [
     ('Owner', 'owner'),
@@ -114,7 +114,7 @@ class TestS3ApiUtils(unittest.TestCase):
 
         # X-Amz-Date style
         self.assertEqual(0, utils.mktime('19700101T000000Z',
-                                         request.SIGV4_X_AMZ_DATE_FORMAT))
+                                         s3request.SIGV4_X_AMZ_DATE_FORMAT))
 
     def test_mktime_weird_tz(self):
         orig_tz = os.environ.get('TZ', '')

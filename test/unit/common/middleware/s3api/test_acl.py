@@ -101,7 +101,7 @@ class TestS3ApiAcl(S3ApiTestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(),
                                      'X-AMZ-ACL': 'public-read'})
-        with mock.patch('swift.common.middleware.s3api.request.'
+        with mock.patch('swift.common.middleware.s3api.s3request.'
                         'handle_acl_header') as mock_handler:
             status, headers, body = self.call_s3api(req)
             self.assertEqual(status.split()[0], '200')

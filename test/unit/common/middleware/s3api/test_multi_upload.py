@@ -33,7 +33,7 @@ from swift.common.middleware.s3api.subresource import Owner, Grant, User, ACL, \
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
 from swift.common.middleware.s3api.utils import sysmeta_header, mktime, \
     S3Timestamp
-from swift.common.middleware.s3api.request import MAX_32BIT_INT
+from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
 from swift.common.middleware.s3api.controllers.multi_upload import \
     MULTIUPLOAD_SUFFIX
 
@@ -227,7 +227,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(len(elem.findall('Upload')), 0)
 
     @s3acl
-    @patch('swift.common.middleware.s3api.request.get_container_info',
+    @patch('swift.common.middleware.s3api.s3request.get_container_info',
            lambda x, y: {'status': 404})
     def test_bucket_multipart_uploads_GET_without_bucket(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket',
@@ -649,8 +649,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
                             body=xml)
-        with patch('swift.common.middleware.s3api.request.get_container_info',
-                   lambda x, y: {'status': 404}):
+        with patch(
+                'swift.common.middleware.s3api.s3request.get_container_info',
+                lambda x, y: {'status': 404}):
             self.swift.register('HEAD', '/v1/AUTH_test/nobucket',
                                 swob.HTTPNotFound, {}, None)
             status, headers, body = self.call_s3api(req)
@@ -981,8 +982,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
-        with patch('swift.common.middleware.s3api.request.get_container_info',
-                   lambda x, y: {'status': 404}):
+        with patch(
+                'swift.common.middleware.s3api.s3request.get_container_info',
+                lambda x, y: {'status': 404}):
             self.swift.register('HEAD', '/v1/AUTH_test/nobucket',
                                 swob.HTTPNotFound, {}, None)
             status, headers, body = self.call_s3api(req)
@@ -998,7 +1000,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(status.split()[0], '204')
 
     @s3acl
-    @patch('swift.common.middleware.s3api.request.'
+    @patch('swift.common.middleware.s3api.s3request.'
            'get_container_info', lambda x, y: {'status': 204})
     def test_object_upload_part_error(self):
         # without upload id
@@ -1043,8 +1045,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()},
                             body='part object')
-        with patch('swift.common.middleware.s3api.request.get_container_info',
-                   lambda x, y: {'status': 404}):
+        with patch(
+                'swift.common.middleware.s3api.s3request.get_container_info',
+                lambda x, y: {'status': 404}):
             self.swift.register('HEAD', '/v1/AUTH_test/nobucket',
                                 swob.HTTPNotFound, {}, None)
             status, headers, body = self.call_s3api(req)
@@ -1074,8 +1077,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
-        with patch('swift.common.middleware.s3api.request.get_container_info',
-                   lambda x, y: {'status': 404}):
+        with patch(
+                'swift.common.middleware.s3api.s3request.get_container_info',
+                lambda x, y: {'status': 404}):
             self.swift.register('HEAD', '/v1/AUTH_test/nobucket',
                                 swob.HTTPNotFound, {}, None)
             status, headers, body = self.call_s3api(req)

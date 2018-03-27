@@ -24,7 +24,7 @@ from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
 from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
     ACLPublicRead
-from swift.common.middleware.s3api.request import MAX_32BIT_INT
+from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
 
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl

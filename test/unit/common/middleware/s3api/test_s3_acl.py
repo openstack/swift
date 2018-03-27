@@ -57,7 +57,7 @@ def s3acl(func=None, s3acl_only=False):
                 #  @patch(xxx)
                 #  def test_xxxx(self)
 
-                with patch('swift.common.middleware.s3api.request.'
+                with patch('swift.common.middleware.s3api.s3request.'
                            'get_container_info',
                            return_value={'status': 204}):
                     func(*args, **kwargs)

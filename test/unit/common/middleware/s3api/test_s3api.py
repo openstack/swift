@@ -35,8 +35,7 @@ from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.helpers import FakeSwift
 from test.unit.common.middleware.s3api.test_s3token import \
     GOOD_RESPONSE_V2, GOOD_RESPONSE_V3
-from swift.common.middleware.s3api.request import SigV4Request, Request as \
-    S3Request
+from swift.common.middleware.s3api.s3request import SigV4Request, S3Request
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.s3api import filter_factory, \
     S3ApiMiddleware
@@ -115,8 +114,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     header = header[5:]
                 env[header] = value
 
-            with patch('swift.common.middleware.s3api.request.'
-                       'Request._validate_headers'):
+            with patch('swift.common.middleware.s3api.s3request.'
+                       'S3Request._validate_headers'):
                 req = S3Request(env)
             return req.environ['swift3.auth_details']['string_to_sign']
 
@@ -384,8 +383,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         req.headers['Authorization'] = 'AWS test:tester:hmac'
         date_header = self.get_date_header()
         req.headers['Date'] = date_header
-        with mock.patch('swift.common.middleware.s3api.request.'
-                        'Request.check_signature') as mock_cs:
+        with mock.patch('swift.common.middleware.s3api.s3request.'
+                        'S3Request.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req.environ['swift3.auth_details'], {
@@ -709,8 +708,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     'Signature=x',
             }
             env.update(environ)
-            with patch('swift.common.middleware.s3api.request.'
-                       'Request._validate_headers'):
+            with patch('swift.common.middleware.s3api.s3request.'
+                       'S3Request._validate_headers'):
                 req = SigV4Request(env, location=self.conf.location)
             return req
 
@@ -722,7 +721,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             # /signature-v4-test-suite.html for where location, service, and
             # signing key came from
             with patch.object(self.conf, 'location', 'us-east-1'), \
-                    patch.object(swift.common.middleware.s3api.request,
+                    patch.object(swift.common.middleware.s3api.s3request,
                                  'SERVICE', 'host'):
                 req = _get_req(path, environ)
                 hash_in_sts = req._string_to_sign().split('\n')[3]
@@ -783,7 +782,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # validation in the following test.
 
         # NOTE: eventlet's PATH_INFO is unquoted
-        with patch('swift.common.middleware.s3api.request.'
+        with patch('swift.common.middleware.s3api.s3request.'
                    'validate_bucket_name'):
             verify('27ba31df5dbc6e063d8f87d62eb07143'
                    'f7f271c5330a917840586ac1c85b6f6b',
