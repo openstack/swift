@@ -957,15 +957,13 @@ class ContainerSharder(ContainerReplicator):
 
     def _find_shard_ranges(self, broker):
         """
-        This function is the main work horse of a scanner node, it:
-          - Looks at the shard_ranges table to see where to continue on from.
-          - Once it finds the next shard_range it'll ask for a quorum as to
-             whether this node is still in fact a scanner node.
-          - If it is still the scanner, it's time to add it to the shard_ranges
-            table.
+        Scans the container to find shard ranges and adds them to the shard
+        ranges table. If there are existing shard ranges then scanning starts
+        from the upper bound of the uppermost existing shard range.
 
-        :param broker:
-        :return: True if the last shard range was found, False otherwise
+        :param broker: An instance of :class:`swift.container.ContainerBroker`
+        :return: a tuple of (success, num of shard ranges found) where success
+            is True if the last shard range has been found, False otherwise.
         """
         self.logger.info('Started scan for shard ranges on %s/%s',
                          broker.account, broker.container)
@@ -973,7 +971,7 @@ class ContainerSharder(ContainerReplicator):
 
         start = time.time()
         shard_data, last_found = broker.find_shard_ranges(
-            self.shard_container_size // 2, limit=self.scanner_batch_size,
+            self.split_size, limit=self.scanner_batch_size,
             existing_ranges=broker.get_shard_ranges())
         elapsed = time.time() - start
 
@@ -982,18 +980,17 @@ class ContainerSharder(ContainerReplicator):
                 self.logger.info("Already found all shard ranges")
                 # set scan done in case it's missing
                 broker.update_sharding_info({'Scan-Done': 'True'})
+                self._increment_stat('scanned', 'success')
             else:
                 # we didn't find anything
+                self.logger.warning("No shard ranges found")
                 self._increment_stat('scanned', 'failure')
-                self.logger.warning("No shard ranges found, something went "
-                                    "wrong. We will try again next cycle.")
             return last_found, 0
 
         # TODO: if we bring back leader election, this is about the spot where
         # we should confirm we're still the scanner
-
         shard_ranges = make_shard_ranges(
-            broker, shard_data, self.shards_account_prefix, )
+            broker, shard_data, self.shards_account_prefix)
         broker.merge_shard_ranges(shard_ranges)
         if not broker.is_root_container():
             # TODO: check for success and do not proceed otherwise
