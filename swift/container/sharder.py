@@ -99,6 +99,8 @@ class ContainerSharder(ContainerReplicator):
             conf.get('shard_batch_size', 2))
         self.reported = None
         self.auto_shard = config_true_value(conf.get('auto_shard', False))
+        self.recon_candidates_limit = int(
+            conf.get('recon_candidates_limit', 5))
 
         # internal client
         self.conn_timeout = float(conf.get('conn_timeout', 5))
@@ -129,6 +131,11 @@ class ContainerSharder(ContainerReplicator):
         # stats are maintained under the 'sharding' key in self.stats
         self.stats['sharding'] = defaultdict(lambda: defaultdict(int))
 
+    def _append_stat(self, category, key, value):
+        if not self.stats['sharding'][category][key]:
+            self.stats['sharding'][category][key] = list()
+        self.stats['sharding'][category][key].append(value)
+
     def _min_stat(self, category, key, value):
         current = self.stats['sharding'][category][key]
         if not current:
@@ -145,6 +152,16 @@ class ContainerSharder(ContainerReplicator):
 
     def _increment_stat(self, category, key, step=1):
         self.stats['sharding'][category][key] += step
+
+    def _transform_sharding_candidate_stats(self):
+        category = self.stats['sharding']['sharding_candidates']
+        candidates = category.pop('all', [])
+        category['found'] = len(candidates)
+        candidates.sort(key=lambda c: c['object_count'], reverse=True)
+        if self.recon_candidates_limit >= 0:
+            category['top'] = candidates[:self.recon_candidates_limit]
+        else:
+            category['top'] = candidates
 
     def _report_stats(self):
         default_stats = ('attempted', 'success', 'failure')
@@ -165,6 +182,8 @@ class ContainerSharder(ContainerReplicator):
             stats = sharding_stats[category]
             msg = ' '.join(['%s:%s' % (k, str(stats[k])) for k in keys])
             self.logger.info('Since %s %s - %s', last_report, category, msg)
+
+        self._transform_sharding_candidate_stats()
 
         dump_recon_cache(
             {'sharding_stats': self.stats,
@@ -655,6 +674,24 @@ class ContainerSharder(ContainerReplicator):
                 broker.root_account, broker.root_container,
                 shard_ranges)
 
+    def _identify_sharding_candidate(self, broker, node):
+        own_shard_range = broker.get_own_shard_range()
+        if self._is_sharding_candidate(own_shard_range):
+            try:
+                file_size = os.stat(broker.db_file).st_size
+            except OSError:
+                file_size = None
+
+            info = {'path': broker.db_file,
+                    'node_index': node.get('index'),
+                    'account': broker.account,
+                    'container': broker.container,
+                    'root': broker.root_path,
+                    'object_count': own_shard_range.object_count,
+                    'meta_timestamp': own_shard_range.meta_timestamp.internal,
+                    'file_size': file_size}
+            self._append_stat('sharding_candidates', 'all', info)
+
     def _process_broker(self, broker, node, part):
         own_shard_range = broker.get_own_shard_range()
         # TODO: sigh, we should get the info cached *once*, somehow
@@ -873,6 +910,7 @@ class ContainerSharder(ContainerReplicator):
                 continue
 
             broker = ContainerBroker(path, logger=self.logger)
+            self._identify_sharding_candidate(broker, node)
             if sharding_enabled(broker):
                 try:
                     self._increment_stat('visited', 'attempted')
@@ -1032,6 +1070,10 @@ class ContainerSharder(ContainerReplicator):
             len(created_ranges))
         return len(created_ranges)
 
+    def _is_sharding_candidate(self, shard_range):
+        return (shard_range.state == ShardRange.ACTIVE and
+                shard_range.object_count >= self.shard_container_size)
+
     def _find_sharding_candidates(self, broker, shard_ranges=None):
         # this should only execute on root containers; the goal is to find
         # large shard containers that should be sharded.
@@ -1045,9 +1087,7 @@ class ContainerSharder(ContainerReplicator):
             shard_ranges = broker.get_shard_ranges(states=[ShardRange.ACTIVE])
         candidates = []
         for shard_range in shard_ranges:
-            if shard_range.state != ShardRange.ACTIVE:
-                continue
-            if shard_range.object_count < self.shard_container_size:
+            if not self._is_sharding_candidate(shard_range):
                 continue
             if shard_range.update_state(ShardRange.SHARDING):
                 shard_range.epoch = shard_range.state_timestamp

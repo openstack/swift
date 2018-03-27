@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import hashlib
 import json
 
 import eventlet
@@ -311,7 +312,8 @@ class TestSharder(unittest.TestCase):
         self.ts_iter = make_timestamp_iter()
 
     def _make_broker(self, account='a', container='c', epoch=None,
-                     device='sda', part=0, hash_='testhash'):
+                     device='sda', part=0, hash_=None):
+        hash_ = hash_ or hashlib.md5(container).hexdigest()
         datadir = os.path.join(
             self.tempdir, device, 'containers', str(part), hash_[-3:], hash_)
         if epoch:
@@ -375,6 +377,7 @@ class TestSharder(unittest.TestCase):
             'rcache': '/var/cache/swift/container.recon',
             'shards_account_prefix': '.shards_',
             'auto_shard': False,
+            'recon_candidates_limit': 5
         }
         mock_ic = do_test({}, expected)
         mock_ic.assert_called_once_with(
@@ -398,6 +401,7 @@ class TestSharder(unittest.TestCase):
             'recon_cache_path': '/var/cache/swift-alt',
             'auto_create_account_prefix': '...',
             'auto_shard': 'yes',
+            'recon_candidates_limit': 10
         }
         expected = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'port': 62010,
@@ -415,6 +419,7 @@ class TestSharder(unittest.TestCase):
             'rcache': '/var/cache/swift-alt/container.recon',
             'shards_account_prefix': '...shards_',
             'auto_shard': True,
+            'recon_candidates_limit': 10
         }
         mock_ic = do_test(conf, expected)
         mock_ic.assert_called_once_with(
@@ -464,6 +469,7 @@ class TestSharder(unittest.TestCase):
                 'misplaced': {'attempted': 1, 'success': 1, 'failure': 0,
                               'found': 1},
                 'audit': {'attempted': 5, 'success': 4, 'failure': 1},
+                'sharding_candidates': {'found': 0, 'top': []}
             }
             # NB these are time increments not absolute times...
             fake_periods = [1, 2, 3, 3600, 4, 15, 15]
@@ -1139,6 +1145,255 @@ class TestSharder(unittest.TestCase):
                 v, actual, 'Expected %s but got %s for %s in %s' %
                            (v, actual, k, stats))
         return stats
+
+    def test_identify_sharding_candidate(self):
+        brokers = [self._make_broker(container='c%03d' % i) for i in range(6)]
+        for broker in brokers:
+            broker.update_sharding_info({'Root': 'a/c'})
+        node = {'index': 2}
+        # containers are all empty
+        with self._mock_sharder() as sharder:
+            for broker in brokers:
+                sharder._identify_sharding_candidate(broker, node)
+        expected_stats = {}
+        self.assert_stats(expected_stats, sharder, 'sharding_candidates')
+
+        objects = [
+            ['obj%3d' % i, next(self.ts_iter).internal, i, 'text/plain',
+             'etag%s' % i, 0] for i in range(160)]
+
+        # one container has 100 objects, which is below the sharding threshold
+        for obj in objects[:100]:
+            brokers[0].put_object(*obj)
+        conf = {'recon_cache_path': self.tempdir}
+        with self._mock_sharder(conf=conf) as sharder:
+            for broker in brokers:
+                sharder._identify_sharding_candidate(broker, node)
+        self.assert_stats(expected_stats, sharder, 'sharding_candidates')
+        expected_recon = {
+            'found': 0,
+            'top': []}
+        sharder._report_stats()
+        with open(sharder.rcache, 'rb') as fd:
+            recon = json.load(fd)
+        self.assertEqual(
+            expected_recon,
+            recon['sharding_stats']['sharding']['sharding_candidates'])
+
+        # reduce the sharding threshold and the container is reported
+        conf = {'shard_container_size': 100,
+                'recon_cache_path': self.tempdir}
+        with self._mock_sharder(conf=conf) as sharder:
+            with mock_timestamp_now() as now:
+                for broker in brokers:
+                    sharder._identify_sharding_candidate(broker, node)
+        stats_0 = {'path': brokers[0].db_file,
+                   'node_index': 2,
+                   'account': 'a',
+                   'container': 'c000',
+                   'root': 'a/c',
+                   'object_count': 100,
+                   'meta_timestamp': now.internal,
+                   'file_size': os.stat(brokers[0].db_file).st_size}
+        expected_stats = {'all': [stats_0]}
+        self.assert_stats(expected_stats, sharder, 'sharding_candidates')
+        expected_recon = {
+            'found': 1,
+            'top': [stats_0]}
+        sharder._report_stats()
+        with open(sharder.rcache, 'rb') as fd:
+            recon = json.load(fd)
+        self.assertEqual(
+            expected_recon,
+            recon['sharding_stats']['sharding']['sharding_candidates'])
+
+        # repeat with handoff node and db_file error
+        with self._mock_sharder(conf=conf) as sharder:
+            with mock.patch('os.stat', side_effect=OSError('test error')):
+                with mock_timestamp_now(now):
+                    for broker in brokers:
+                        sharder._identify_sharding_candidate(broker, {})
+        stats_0_b = {'path': brokers[0].db_file,
+                     'node_index': None,
+                     'account': 'a',
+                     'container': 'c000',
+                     'root': 'a/c',
+                     'object_count': 100,
+                     'meta_timestamp': now.internal,
+                     'file_size': None}
+        expected_stats = {'all': [stats_0_b]}
+        self.assert_stats(expected_stats, sharder, 'sharding_candidates')
+        expected_recon = {
+            'found': 1,
+            'top': [stats_0_b]}
+        sharder._report_stats()
+        with open(sharder.rcache, 'rb') as fd:
+            recon = json.load(fd)
+        self.assertEqual(
+            expected_recon,
+            recon['sharding_stats']['sharding']['sharding_candidates'])
+
+        # load up another container, but not to threshold for sharding, and
+        # verify it is never a candidate for sharding
+        for obj in objects[:50]:
+            brokers[2].put_object(*obj)
+        own_sr = brokers[2].get_own_shard_range()
+        expected_stats = {'all': [stats_0]}
+        for state in ShardRange.STATES:
+            own_sr.update_state(state)
+            brokers[2].merge_shard_ranges([own_sr])
+            with self._mock_sharder(conf=conf) as sharder:
+                with mock_timestamp_now(now):
+                    for broker in brokers:
+                        sharder._identify_sharding_candidate(broker, node)
+            with annotate_failure(state):
+                self.assert_stats(
+                    expected_stats, sharder, 'sharding_candidates')
+
+        # reduce the threshold and the second container is included
+        conf = {'shard_container_size': 50,
+                'recon_cache_path': self.tempdir}
+        own_sr.update_state(ShardRange.ACTIVE)
+        brokers[2].merge_shard_ranges([own_sr])
+        with self._mock_sharder(conf=conf) as sharder:
+            with mock_timestamp_now(now):
+                for broker in brokers:
+                    sharder._identify_sharding_candidate(broker, node)
+        stats_2 = {'path': brokers[2].db_file,
+                   'node_index': 2,
+                   'account': 'a',
+                   'container': 'c002',
+                   'root': 'a/c',
+                   'object_count': 50,
+                   'meta_timestamp': now.internal,
+                   'file_size': os.stat(brokers[2].db_file).st_size}
+        expected_stats = {'all': [stats_0, stats_2]}
+        self.assert_stats(expected_stats, sharder, 'sharding_candidates')
+        expected_recon = {
+            'found': 2,
+            'top': [stats_0, stats_2]}
+        sharder._report_stats()
+        with open(sharder.rcache, 'rb') as fd:
+            recon = json.load(fd)
+        self.assertEqual(
+            expected_recon,
+            recon['sharding_stats']['sharding']['sharding_candidates'])
+
+        # a broker not in active state is not included
+        own_sr = brokers[0].get_own_shard_range()
+        expected_stats = {'all': [stats_2]}
+        for state in ShardRange.STATES:
+            if state == ShardRange.ACTIVE:
+                continue
+            own_sr.update_state(state)
+            brokers[0].merge_shard_ranges([own_sr])
+            with self._mock_sharder(conf=conf) as sharder:
+                with mock_timestamp_now(now):
+                    for broker in brokers:
+                        sharder._identify_sharding_candidate(broker, node)
+            with annotate_failure(state):
+                self.assert_stats(
+                    expected_stats, sharder, 'sharding_candidates')
+
+        own_sr.update_state(ShardRange.ACTIVE)
+        brokers[0].merge_shard_ranges([own_sr])
+
+        # load up a third container with 150 objects
+        for obj in objects[:150]:
+            brokers[5].put_object(*obj)
+        with self._mock_sharder(conf=conf) as sharder:
+            with mock_timestamp_now(now):
+                for broker in brokers:
+                    sharder._identify_sharding_candidate(broker, node)
+        stats_5 = {'path': brokers[5].db_file,
+                   'node_index': 2,
+                   'account': 'a',
+                   'container': 'c005',
+                   'root': 'a/c',
+                   'object_count': 150,
+                   'meta_timestamp': now.internal,
+                   'file_size': os.stat(brokers[5].db_file).st_size}
+        expected_stats = {'all': [stats_0, stats_2, stats_5]}
+        self.assert_stats(expected_stats, sharder, 'sharding_candidates')
+        # note recon top list is sorted by size
+        expected_recon = {
+            'found': 3,
+            'top': [stats_5, stats_0, stats_2]}
+        sharder._report_stats()
+        with open(sharder.rcache, 'rb') as fd:
+            recon = json.load(fd)
+        self.assertEqual(
+            expected_recon,
+            recon['sharding_stats']['sharding']['sharding_candidates'])
+
+        # restrict the number of reported candidates
+        conf = {'shard_container_size': 50,
+                'recon_cache_path': self.tempdir,
+                'recon_candidates_limit': 2}
+        with self._mock_sharder(conf=conf) as sharder:
+            with mock_timestamp_now(now):
+                for broker in brokers:
+                    sharder._identify_sharding_candidate(broker, node)
+        self.assert_stats(expected_stats, sharder, 'sharding_candidates')
+        expected_recon = {
+            'found': 3,
+            'top': [stats_5, stats_0]}
+        sharder._report_stats()
+        with open(sharder.rcache, 'rb') as fd:
+            recon = json.load(fd)
+        self.assertEqual(
+            expected_recon,
+            recon['sharding_stats']['sharding']['sharding_candidates'])
+
+        # unrestrict the number of reported candidates
+        conf = {'shard_container_size': 50,
+                'recon_cache_path': self.tempdir,
+                'recon_candidates_limit': -1}
+        for i, broker in enumerate([brokers[1]] + brokers[3:5]):
+            for obj in objects[:(151 + i)]:
+                broker.put_object(*obj)
+        with self._mock_sharder(conf=conf) as sharder:
+            with mock_timestamp_now(now):
+                for broker in brokers:
+                    sharder._identify_sharding_candidate(broker, node)
+
+        stats_4 = {'path': brokers[4].db_file,
+                   'node_index': 2,
+                   'account': 'a',
+                   'container': 'c004',
+                   'root': 'a/c',
+                   'object_count': 153,
+                   'meta_timestamp': now.internal,
+                   'file_size': os.stat(brokers[4].db_file).st_size}
+        stats_3 = {'path': brokers[3].db_file,
+                   'node_index': 2,
+                   'account': 'a',
+                   'container': 'c003',
+                   'root': 'a/c',
+                   'object_count': 152,
+                   'meta_timestamp': now.internal,
+                   'file_size': os.stat(brokers[3].db_file).st_size}
+        stats_1 = {'path': brokers[1].db_file,
+                   'node_index': 2,
+                   'account': 'a',
+                   'container': 'c001',
+                   'root': 'a/c',
+                   'object_count': 151,
+                   'meta_timestamp': now.internal,
+                   'file_size': os.stat(brokers[1].db_file).st_size}
+
+        expected_stats = {
+            'all': [stats_0, stats_1, stats_2, stats_3, stats_4, stats_5]}
+        self.assert_stats(expected_stats, sharder, 'sharding_candidates')
+        expected_recon = {
+            'found': 6,
+            'top': [stats_4, stats_3, stats_1, stats_5, stats_0, stats_2]}
+        sharder._report_stats()
+        with open(sharder.rcache, 'rb') as fd:
+            recon = json.load(fd)
+        self.assertEqual(
+            expected_recon,
+            recon['sharding_stats']['sharding']['sharding_candidates'])
 
     def test_misplaced_objects_root_container(self):
         broker = self._make_broker()
