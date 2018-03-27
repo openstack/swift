@@ -454,21 +454,21 @@ class ContainerSharder(ContainerReplicator):
         self.logger.debug('Moved %s misplaced objects' % placed)
         return True
 
-    def _misplaced_objects(self, broker, own_shard_range):
+    def _misplaced_objects(self, broker):
         """
         Search for objects in the given broker that do not belong in that
         broker's namespace and move those objects to their correct shard
         container.
 
         :param broker: An instance of :class:`swift.container.ContainerBroker`
-        :param own_shard_range: A ShardRange describing the namespace for this
-            broker
         """
 
         if broker.is_deleted():
             self.logger.debug('Not looking for misplaced objects in deleted '
                               'container %s (%s)', broker.path, broker.db_file)
             return
+
+        own_shard_range = broker.get_own_shard_range()
         if own_shard_range.state == ShardRange.EXPANDING:
             self.logger.debug('Not looking for misplaced objects in expanding '
                               'container %s (%s)', broker.path, broker.db_file)
@@ -692,7 +692,6 @@ class ContainerSharder(ContainerReplicator):
                 shard_ranges)
 
     def _process_broker(self, broker, node, part):
-        own_shard_range = broker.get_own_shard_range()
         # TODO: sigh, we should get the info cached *once*, somehow
         broker.get_info()  # make sure account/container are populated
         state = broker.get_db_state()
@@ -711,7 +710,7 @@ class ContainerSharder(ContainerReplicator):
         #     continue
 
         # now look and deal with misplaced objects.
-        self._misplaced_objects(broker, own_shard_range)
+        self._misplaced_objects(broker)
 
         if broker.is_deleted():
             # This container is deleted so we can skip it. We still want
@@ -728,10 +727,10 @@ class ContainerSharder(ContainerReplicator):
             if state in (UNSHARDED, COLLAPSED):
                 if is_leader and broker.is_root_container():
                     # bootstrap sharding of root container
-                    if self._find_sharding_candidates(
-                            broker, shard_ranges=[own_shard_range]):
-                        own_shard_range = broker.get_own_shard_range()
+                    self._find_sharding_candidates(
+                        broker, shard_ranges=[broker.get_own_shard_range()])
 
+                own_shard_range = broker.get_own_shard_range()
                 if broker.get_shard_ranges():
                     # container may have been given shard ranges rather than
                     # found them e.g. via replication or a shrink event
