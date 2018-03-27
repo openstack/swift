@@ -364,6 +364,23 @@ class ContainerSharder(ContainerReplicator):
                 yield (objs[last_index:next_index],
                        None if unplaced else dest_shard_range)
 
+    def _replicate_and_delete(self, broker, policy_index, dest_shard_range,
+                              part, dest_broker, node_id):
+        success, responses = self._replicate_object(
+            part, dest_broker.db_file, node_id)
+        if (not success and
+                responses.count(True) < quorum_size(self.ring.replica_count)):
+            self.logger.warning(
+                'Failed to sufficiently replicate misplaced objects: %s in %s '
+                '(not deleting)', dest_shard_range, broker.path)
+            return False
+
+        # TODO: there may be newer objects in the source db, don't remove them!
+        broker.remove_objects(
+            str(dest_shard_range.lower), str(dest_shard_range.upper),
+            policy_index)
+        return True
+
     def _move_misplaced_objects(self, broker, src_shard_range, policy_index,
                                 dest_shard_ranges):
         # map shard range -> broker
@@ -399,21 +416,12 @@ class ContainerSharder(ContainerReplicator):
         if not brokers:
             return False
 
-        for dest_shard_range, (part, dest_broker, node_id) in brokers.items():
+        # TODO: consider executing the replication jobs concurrently
+        for dest_shard_range, dest_args in brokers.items():
             self.logger.debug('moving misplaced objects found in range %s' %
                               dest_shard_range)
-            self.cpool.spawn(
-                self._replicate_object, part, dest_broker.db_file, node_id)
-
-        self.cpool.waitall(None)
-        # TODO: we need to be confident that replication succeeded before
-        # removing misplaced items from source - if not then just leave the
-        # misplaced items in source, but do not mark them as deleted, and
-        # leave for next cycle to try again
-        for dest_shard_range in brokers:
-            broker.remove_objects(
-                str(dest_shard_range.lower), str(dest_shard_range.upper),
-                policy_index)
+            self._replicate_and_delete(broker, policy_index, dest_shard_range,
+                                       *dest_args)
 
         self.logger.debug('Moved %s misplaced objects' % placed)
         return True
@@ -758,7 +766,6 @@ class ContainerSharder(ContainerReplicator):
 
                     if broker.set_sharded_state():
                         state = SHARDED
-                        self.stats['containers_sharded'] += 1
                         self.logger.increment('sharding_complete')
                     else:
                         self.logger.debug('Remaining in sharding state %s/%s',
