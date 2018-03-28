@@ -619,12 +619,12 @@ class TestSharder(unittest.TestCase):
         ]
         for obj in objects:
             broker.put_object(*obj)
+        context_ref = broker._get_context_ref()
         initial_root_info = broker.get_info()
         own_shard_range = broker.get_own_shard_range()
         own_shard_range.update_state(ShardRange.SHARDING)
         own_shard_range.epoch = Timestamp.now()
         broker.merge_shard_ranges([own_shard_range])
-        cleaving_ref = 'None-' + initial_root_info['hash']
 
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', 'yonder'),
@@ -703,11 +703,8 @@ class TestSharder(unittest.TestCase):
             with annotate_failure(i):
                 self.assertEqual(dict(shard_ranges[i]),
                                  dict(updated_shard_ranges[i]))
-        metadata = broker.metadata
-        cursor_key = 'X-Container-Sysmeta-Shard-Cursor-%s' % cleaving_ref
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual(
-            {'cursor': 'here'}, json.loads(metadata[cursor_key][0]))
+        self.assertEqual({'cursor': 'here', 'ref': context_ref},
+                         broker.load_cleave_context())
         unlink_files(expected_shard_dbs)
 
         # move more shard ranges to created state
@@ -735,11 +732,8 @@ class TestSharder(unittest.TestCase):
             with annotate_failure(i):
                 self.assertEqual(dict(shard_ranges[i]),
                                  dict(updated_shard_ranges[i]))
-        metadata = broker.metadata
-        cursor_key = 'X-Container-Sysmeta-Shard-Cursor-%s' % cleaving_ref
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual(
-            {'cursor': 'here'}, json.loads(metadata[cursor_key][0]))
+        self.assertEqual({'cursor': 'here', 'ref': context_ref},
+                         broker.load_cleave_context())
 
         # try again, this time replication is sufficiently successful
         with self._mock_sharder() as sharder:
@@ -796,10 +790,8 @@ class TestSharder(unittest.TestCase):
             with annotate_failure(i):
                 self.assertEqual(dict(shard_ranges[i]),
                                  dict(updated_shard_range))
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual(
-            {'cursor': 'where'}, json.loads(metadata[cursor_key][0]))
+        self.assertEqual({'cursor': 'where', 'ref': context_ref},
+                         broker.load_cleave_context())
         unlink_files(expected_shard_dbs)
 
         # run cleave again - should process the fourth range
@@ -846,10 +838,8 @@ class TestSharder(unittest.TestCase):
                                  dict(updated_shard_range))
 
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual(
-            {'cursor': 'yonder'}, json.loads(metadata[cursor_key][0]))
+        self.assertEqual({'cursor': 'yonder', 'ref': context_ref},
+                         broker.load_cleave_context())
         unlink_files(expected_shard_dbs)
 
         # run cleave - should be a no-op, all existing ranges have been cleaved
@@ -906,10 +896,8 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(initial_root_info['bytes_used'],
                          total_shard_stats['bytes_used'])
 
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual(
-            {'cursor': '', 'done': True}, json.loads(metadata[cursor_key][0]))
+        self.assertEqual({'cursor': '', 'done': True, 'ref': context_ref},
+                         broker.load_cleave_context())
 
         self.assertTrue(broker.set_sharded_state())
         # run cleave - should be a no-op
@@ -934,12 +922,12 @@ class TestSharder(unittest.TestCase):
         ]
         for obj in objects:
             broker.put_object(*obj)
+        context_ref = broker._get_context_ref()
         own_shard_range = broker.get_own_shard_range()
         own_shard_range.update_state(ShardRange.SHARDING)
         own_shard_range.epoch = Timestamp.now()
         broker.merge_shard_ranges([own_shard_range])
 
-        cleaving_ref = 'None-' + broker.get_info()['hash']
         shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.CREATED)
@@ -956,11 +944,9 @@ class TestSharder(unittest.TestCase):
         # run cleave - first batch is cleaved
         with self._mock_sharder() as sharder:
             self.assertFalse(sharder._cleave(broker))
-        cursor_key = 'X-Container-Sysmeta-Shard-Cursor-%s' % cleaving_ref
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual({'cursor': shard_ranges[1].upper},
-                         json.loads(metadata[cursor_key][0]))
+        self.assertEqual(
+            {'cursor': str(shard_ranges[1].upper), 'ref': context_ref},
+            broker.load_cleave_context())
 
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_has_calls(
@@ -988,10 +974,9 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(dict(shard_ranges[2]),
                          dict(updated_shard_ranges[2]))
 
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual({'cursor': shard_ranges[1].upper},
-                         json.loads(metadata[cursor_key][0]))
+        self.assertEqual(
+            {'cursor': str(shard_ranges[1].upper), 'ref': context_ref},
+            broker.load_cleave_context())
 
         # now change the shard ranges so that third consumes second
         shard_ranges[1].set_deleted()
@@ -1018,10 +1003,10 @@ class TestSharder(unittest.TestCase):
         self._check_shard_range(shard_ranges[2], updated_shard_ranges[1])
         self._check_objects(objects[4:8], expected_shard_dbs[2])
 
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual({'cursor': str(shard_ranges[2].upper), 'done': True},
-                         json.loads(metadata[cursor_key][0]))
+        self.assertEqual(
+            {'cursor': str(shard_ranges[2].upper), 'ref': context_ref,
+             'done': True},
+            broker.load_cleave_context())
 
     def test_cleave_shard(self):
         broker = self._make_broker(account='.sharded_a', container='shard_c')
@@ -1040,7 +1025,7 @@ class TestSharder(unittest.TestCase):
         ]
         for obj in objects:
             broker.put_object(*obj)
-        cleaving_ref = 'None-' + broker.get_info()['hash']
+        context_ref = broker._get_context_ref()
 
         shard_bounds = (('here', 'there'),
                         ('there', 'where'))
@@ -1061,11 +1046,9 @@ class TestSharder(unittest.TestCase):
         with self._mock_sharder(sharder_conf) as sharder:
             self.assertFalse(sharder._cleave(broker))
 
-        cursor_key = 'X-Container-Sysmeta-Shard-Cursor-%s' % cleaving_ref
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual({'cursor': shard_ranges[0].upper},
-                         json.loads(metadata[cursor_key][0]))
+        self.assertEqual(
+            {'cursor': str(shard_ranges[0].upper), 'ref': context_ref},
+            broker.load_cleave_context())
 
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_has_calls(
@@ -1096,10 +1079,10 @@ class TestSharder(unittest.TestCase):
         broker.merge_shard_ranges(shard_ranges[1:2])
         with self._mock_sharder(sharder_conf) as sharder:
             self.assertTrue(sharder._cleave(broker))
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual({'cursor': 'where', 'done': True},
-                         json.loads(metadata[cursor_key][0]))
+        self.assertEqual(
+            {'cursor': str(shard_ranges[1].upper), 'ref': context_ref,
+             'done': True},
+            broker.load_cleave_context())
 
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_has_calls(
@@ -1132,6 +1115,7 @@ class TestSharder(unittest.TestCase):
         ]
         for obj in objects:
             broker.put_object(*obj)
+        context_ref = broker._get_context_ref()
         acceptor_epoch = next(self.ts_iter)
         acceptor = ShardRange('.shards_a/acceptor', Timestamp.now(),
                               'here', 'yonder', '1000', '11111',
@@ -1149,12 +1133,9 @@ class TestSharder(unittest.TestCase):
         with self._mock_sharder() as sharder:
             self.assertTrue(sharder._cleave(broker))
 
-        cleaving_ref = 'None-' + broker.get_info()['hash']
-        cursor_key = 'X-Container-Sysmeta-Shard-Cursor-%s' % cleaving_ref
-        metadata = broker.metadata
-        self.assertIn(cursor_key, metadata)
-        self.assertEqual({'cursor': acceptor.upper, 'done': True},
-                         json.loads(metadata[cursor_key][0]))
+        self.assertEqual(
+            {'cursor': str(acceptor.upper), 'ref': context_ref, 'done': True},
+            broker.load_cleave_context())
 
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_has_calls(
@@ -1186,7 +1167,7 @@ class TestSharder(unittest.TestCase):
 
     def test_misplaced_objects_root_container(self):
         broker = self._make_broker()
-        cleaving_ref = 'None-' + broker.get_info()['hash']
+        cleave_context = broker.load_cleave_context()
         own_sr = broker.get_own_shard_range()
         own_sr.update_state(ShardRange.SHARDING)
         own_sr.epoch = next(self.ts_iter)
@@ -1224,7 +1205,7 @@ class TestSharder(unittest.TestCase):
             sharder.logger.get_increment_counts().get('misplaced_items_found'))
 
         # sharding - no misplaced objects
-        broker.set_sharding_state()
+        self.assertTrue(broker.set_sharding_state())
         with self._mock_sharder() as sharder:
             sharder._move_misplaced_objects(broker)
         sharder._replicate_object.assert_not_called()
@@ -1233,9 +1214,8 @@ class TestSharder(unittest.TestCase):
             sharder.logger.get_increment_counts().get('misplaced_items_found'))
 
         # pretend we cleaved up to end of second shard range
-        cursor_key = 'Cursor-%s' % cleaving_ref
-        broker.update_sharding_info(
-            {cursor_key: json.dumps({'cursor': 'there'})})
+        cleave_context.update({'cursor': 'there'})
+        broker.dump_cleave_context(cleave_context)
         with self._mock_sharder() as sharder:
             sharder._move_misplaced_objects(broker)
         sharder._replicate_object.assert_not_called()
@@ -1247,8 +1227,8 @@ class TestSharder(unittest.TestCase):
         for obj in objects:
             broker.put_object(*obj)
         # pretend we have not cleaved any ranges
-        broker.update_sharding_info({cursor_key: json.dumps({})})
-        broker.update_sharding_info({cursor_key: None})
+        cleave_context.update({'cursor': ''})
+        broker.dump_cleave_context(cleave_context)
         with self._mock_sharder() as sharder:
             sharder._move_misplaced_objects(broker)
         sharder._replicate_object.assert_not_called()
@@ -1262,10 +1242,8 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
 
         # pretend we cleaved up to end of second shard range
-        broker.update_sharding_info(
-            {cursor_key: json.dumps({'cursor': 'there'})})
-        broker.update_sharding_info(
-            {cursor_key: json.dumps({'cursor': 'there'})})
+        cleave_context.update({'cursor': 'there'})
+        broker.dump_cleave_context(cleave_context)
         with self._mock_sharder() as sharder:
             sharder._move_misplaced_objects(broker)
 
@@ -1287,8 +1265,8 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
 
         # pretend we cleaved up to end of fourth shard range
-        broker.update_sharding_info(
-            {cursor_key: json.dumps({'cursor': 'yonder'})})
+        cleave_context.update({'cursor': 'yonder'})
+        broker.dump_cleave_context(cleave_context)
         # and some new misplaced updates arrived in the first shard range
         new_objects = [
             ['b', self.ts_encoded(), 10, 'text/plain', 'etag_b', 0],
@@ -1323,8 +1301,8 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[4]))
 
         # pretend we cleaved all ranges - sharded state
-        broker.update_sharding_info(
-            {cursor_key: json.dumps({'cursor': '', 'done': True})})
+        cleave_context.update({'cursor': '', 'done': True})
+        broker.dump_cleave_context(cleave_context)
         self.assertTrue(broker.set_sharded_state())
         with self._mock_sharder() as sharder:
             sharder._move_misplaced_objects(broker)
@@ -1831,7 +1809,6 @@ class TestSharder(unittest.TestCase):
         broker.update_sharding_info({'Root': 'a/c'})
         self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
         self.assertEqual(UNSHARDED, broker.get_db_state())
-        cleaving_ref = 'None-' + broker.get_info()['hash']
 
         objects = [
             # some of these are misplaced objects
@@ -1854,7 +1831,8 @@ class TestSharder(unittest.TestCase):
                              db_hash[-3:], db_hash, db_hash + '.db'))
 
         # pretend broker is sharding but not yet cleaved a shard
-        broker.set_sharding_state()
+        cleave_context = broker.load_cleave_context()
+        self.assertTrue(broker.set_sharding_state())
         broker.merge_shard_ranges([dict(sr) for sr in root_shard_ranges[1:3]])
         # then some updates arrive
         for obj in objects:
@@ -1913,9 +1891,8 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
 
         # pretend first shard has been cleaved
-        cursor_key = 'Cursor-%s' % cleaving_ref
-        broker.update_sharding_info(
-            {cursor_key: json.dumps({'cursor': 'there'})})
+        cleave_context.update({'cursor': 'there'})
+        broker.dump_cleave_context(cleave_context)
         # and then more misplaced updates arrive
         new_objects = [
             ['a', self.ts_encoded(), 51, 'text/plain', 'etag_a', 0],
@@ -1960,7 +1937,6 @@ class TestSharder(unittest.TestCase):
     def test_misplaced_objects_deleted_and_updated(self):
         # setup
         broker = self._make_broker()
-        cleaving_ref = 'None-' + broker.get_info()['hash']
         own_sr = broker.get_own_shard_range()
         own_sr.update_state(ShardRange.SHARDING)
         own_sr.epoch = next(self.ts_iter)
@@ -1975,6 +1951,7 @@ class TestSharder(unittest.TestCase):
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
         broker.merge_shard_ranges(root_shard_ranges)
+        cleave_context = broker.load_cleave_context()
         self.assertTrue(broker.set_sharding_state())
 
         ts_older_internal = self.ts_encoded()  # used later
@@ -1988,9 +1965,8 @@ class TestSharder(unittest.TestCase):
         broker.get_info()
         self._check_objects(objects, broker.db_file)  # sanity check
         # pretend we cleaved all ranges - sharded state
-        cursor_key = 'Cursor-%s' % cleaving_ref
-        broker.update_sharding_info(
-            {cursor_key: json.dumps({'cursor': '', 'done': True})})
+        cleave_context.update({'cursor': '', 'done': True})
+        broker.dump_cleave_context(cleave_context)
         self.assertTrue(broker.set_sharded_state())
 
         with self._mock_sharder() as sharder:

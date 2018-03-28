@@ -435,36 +435,35 @@ class ContainerBroker(DatabaseBroker):
             return info.get(key, default)
         return info
 
-    # TODO: unit test
+    def _get_context_ref(self):
+        return '%s-%s' % (self.get_info()['id'], self.get_max_row())
+
     def load_cleave_context(self):
         """
         Returns a context dict for tracking the progress of cleaving this
         broker's retiring DB. The context is persisted in sysmeta using a key
-        that is based off the retiring db epoch and the db hash. This form of
+        that is based off the retiring db id and max row. This form of
         key ensures that a cleaving context is only loaded for a db that
-        matches the epoch and hash when the context was created; if a db is
-        modified such that its hash changes then a different context, or no
+        matches the id and max row when the context was created; if a db is
+        modified such that its max row changes then a different context, or no
         context, will be loaded.
 
         :return: A dict to which cleave progress metadata may be added. The
-            dict initially has keys {'epoch', 'db_hash'} which should not be
-            modified by any caller.
+            dict initially has a key ``ref`` which should not be modified by
+            any caller.
         """
         brokers = self.get_brokers()
-        db_hash = brokers[0].get_info()['hash']
-        cleave_ref = '%s-%s' % (brokers[0].db_epoch, db_hash)
+        cleave_ref = brokers[0]._get_context_ref()
         cleave_context = brokers[-1].get_sharding_info('Cursor-' + cleave_ref)
         cleave_context = json.loads(cleave_context) if cleave_context else {}
-        cleave_context['db_hash'] = db_hash
-        cleave_context['epoch'] = brokers[0].db_epoch
+        cleave_context['ref'] = cleave_ref
         return cleave_context
 
-    # TODO: unit test
     def dump_cleave_context(self, cleave_context):
-        cleave_ref = '%s-%s' % (cleave_context.pop('epoch'),
-                                cleave_context.pop('db_hash'))
+        stored_context = dict(cleave_context)
+        cleave_ref = stored_context.pop('ref')
         self.update_sharding_info(
-            {'Cursor-' + cleave_ref: json.dumps(cleave_context)})
+            {'Cursor-' + cleave_ref: json.dumps(stored_context)})
 
     @property
     def storage_policy_index(self):
