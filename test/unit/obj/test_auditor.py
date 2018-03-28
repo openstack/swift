@@ -17,6 +17,8 @@ import json
 import unittest
 import mock
 import os
+import sys
+import signal
 import time
 import string
 import xattr
@@ -850,7 +852,7 @@ class TestAuditor(unittest.TestCase):
         self.auditor.run_audit(**kwargs)
         self.assertFalse(os.path.isdir(quarantine_path))
         del(kwargs['zero_byte_fps'])
-        clear_auditor_status(self.devices)
+        clear_auditor_status(self.devices, 'objects')
         self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.isdir(quarantine_path))
 
@@ -1252,6 +1254,12 @@ class TestAuditor(unittest.TestCase):
                 self.wait_called += 1
                 return (self.wait_called, 0)
 
+            def mock_signal(self, sig, action):
+                pass
+
+            def mock_exit(self):
+                pass
+
         for i in string.ascii_letters[2:26]:
             mkdirs(os.path.join(self.devices, 'sd%s' % i))
 
@@ -1267,8 +1275,12 @@ class TestAuditor(unittest.TestCase):
         my_auditor.run_audit = mocker.mock_run
         was_fork = os.fork
         was_wait = os.wait
+        was_signal = signal.signal
+        was_exit = sys.exit
         os.fork = mocker.mock_fork
         os.wait = mocker.mock_wait
+        signal.signal = mocker.mock_signal
+        sys.exit = mocker.mock_exit
         try:
             my_auditor._sleep = mocker.mock_sleep_stop
             my_auditor.run_once(zero_byte_fps=50)
@@ -1280,6 +1292,12 @@ class TestAuditor(unittest.TestCase):
                 'ERROR auditing: %s', loop_error)
             my_auditor.audit_loop = real_audit_loop
 
+            # sleep between ZBF scanner forks
+            self.assertRaises(StopForever, my_auditor.fork_child, True, True)
+
+            mocker.fork_called = 0
+            signal.signal = was_signal
+            sys.exit = was_exit
             self.assertRaises(StopForever,
                               my_auditor.run_forever, zero_byte_fps=50)
             self.assertEqual(mocker.check_kwargs['zero_byte_fps'], 50)
@@ -1306,11 +1324,11 @@ class TestAuditor(unittest.TestCase):
 
             mocker.fork_called = 0
             self.assertRaises(StopForever, my_auditor.run_forever)
-            # Fork is called 2 times since the zbf process is forked just
-            # once before self._sleep() is called and StopForever is raised
-            # Also wait is called just once before StopForever is raised
-            self.assertEqual(mocker.fork_called, 2)
-            self.assertEqual(mocker.wait_called, 1)
+            # Fork or Wait are called greate than or equal to 2 times in the
+            # main process. 2 times if zbf run once and 3 times if zbf run
+            # again
+            self.assertGreaterEqual(mocker.fork_called, 2)
+            self.assertGreaterEqual(mocker.wait_called, 2)
 
             my_auditor._sleep = mocker.mock_sleep_continue
             my_auditor.audit_loop = works_only_once(my_auditor.audit_loop,
@@ -1320,13 +1338,13 @@ class TestAuditor(unittest.TestCase):
             mocker.fork_called = 0
             mocker.wait_called = 0
             self.assertRaises(LetMeOut, my_auditor.run_forever)
-            # Fork is called no. of devices + (no. of devices)/2 + 1 times
-            # since zbf process is forked (no.of devices)/2 + 1 times
+            # Fork or Wait are called greater than or equal to
+            # no. of devices + (no. of devices)/2 + 1 times in main process
             no_devices = len(os.listdir(self.devices))
-            self.assertEqual(mocker.fork_called, no_devices + no_devices / 2
-                             + 1)
-            self.assertEqual(mocker.wait_called, no_devices + no_devices / 2
-                             + 1)
+            self.assertGreaterEqual(mocker.fork_called, no_devices +
+                                    no_devices / 2 + 1)
+            self.assertGreaterEqual(mocker.wait_called, no_devices +
+                                    no_devices / 2 + 1)
 
         finally:
             os.fork = was_fork

@@ -326,7 +326,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             check_metadata()
 
         # simulate a legacy diskfile that might have persisted unicode metadata
-        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
+        with mock.patch.object(diskfile, '_decode_metadata', lambda x: x):
             with open(path, 'wb') as fd:
                 diskfile.write_metadata(fd, metadata)
             # sanity check, while still mocked, that we did persist unicode
@@ -334,8 +334,8 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 actual = diskfile.read_metadata(fd)
                 for k, v in actual.items():
                     if k == u'X-Object-Meta-Strange':
-                        self.assertIsInstance(k, six.text_type)
-                        self.assertIsInstance(v, six.text_type)
+                        self.assertIsInstance(k, str)
+                        self.assertIsInstance(v, str)
                         break
                 else:
                     self.fail('Did not find X-Object-Meta-Strange')
@@ -375,17 +375,6 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                                      "fcd938702024c25fef6c32fef05298eb"))
             os.makedirs(os.path.join(tmpdir, "sdp", "objects-1", "9970", "ca5",
                                      "4a943bc72c2e647c4675923d58cf4ca5"))
-            os.makedirs(os.path.join(tmpdir, "sdq", "objects-2", "9971", "8eb",
-                                     "fcd938702024c25fef6c32fef05298eb"))
-            os.makedirs(os.path.join(tmpdir, "sdq", "objects-99", "9972",
-                                     "8eb",
-                                     "fcd938702024c25fef6c32fef05298eb"))
-            # the bad
-            os.makedirs(os.path.join(tmpdir, "sdq", "objects-", "1135",
-                                     "6c3",
-                                     "fcd938702024c25fef6c32fef05298eb"))
-            os.makedirs(os.path.join(tmpdir, "sdq", "objects-fud", "foo"))
-            os.makedirs(os.path.join(tmpdir, "sdq", "objects-+1", "foo"))
 
             self._make_file(os.path.join(tmpdir, "sdp", "objects", "1519",
                                          "fed"))
@@ -404,26 +393,18 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                                      "4f9eee668b66c6f0250bfa3c7ab9e51e"))
 
             logger = debug_logger()
-            locations = [(loc.path, loc.device, loc.partition, loc.policy)
-                         for loc in diskfile.object_audit_location_generator(
-                             devices=tmpdir, mount_check=False,
-                             logger=logger)]
-            locations.sort()
+            loc_generators = []
+            datadirs = ["objects", "objects-1"]
+            for datadir in datadirs:
+                loc_generators.append(
+                    diskfile.object_audit_location_generator(
+                        devices=tmpdir, datadir=datadir, mount_check=False,
+                        logger=logger))
 
-            # expect some warnings about those bad dirs
-            warnings = logger.get_lines_for_level('warning')
-            self.assertEqual(set(warnings), set([
-                ("Directory 'objects-' does not map to a valid policy "
-                 "(Unknown policy, for index '')"),
-                ("Directory 'objects-2' does not map to a valid policy "
-                 "(Unknown policy, for index '2')"),
-                ("Directory 'objects-99' does not map to a valid policy "
-                 "(Unknown policy, for index '99')"),
-                ("Directory 'objects-fud' does not map to a valid policy "
-                 "(Unknown policy, for index 'fud')"),
-                ("Directory 'objects-+1' does not map to a valid policy "
-                 "(Unknown policy, for index '+1')"),
-            ]))
+            all_locs = itertools.chain(*loc_generators)
+            locations = [(loc.path, loc.device, loc.partition, loc.policy) for
+                         loc in all_locs]
+            locations.sort()
 
             expected =  \
                 [(os.path.join(tmpdir, "sdp", "objects-1", "9970", "ca5",
@@ -448,12 +429,19 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             self.assertEqual(locations, expected)
 
             # Reset status file for next run
-            diskfile.clear_auditor_status(tmpdir)
+            for datadir in datadirs:
+                diskfile.clear_auditor_status(tmpdir, datadir)
 
             # now without a logger
-            locations = [(loc.path, loc.device, loc.partition, loc.policy)
-                         for loc in diskfile.object_audit_location_generator(
-                             devices=tmpdir, mount_check=False)]
+            for datadir in datadirs:
+                loc_generators.append(
+                    diskfile.object_audit_location_generator(
+                        devices=tmpdir, datadir=datadir, mount_check=False,
+                        logger=logger))
+
+            all_locs = itertools.chain(*loc_generators)
+            locations = [(loc.path, loc.device, loc.partition, loc.policy) for
+                         loc in all_locs]
             locations.sort()
             self.assertEqual(locations, expected)
 
@@ -470,7 +458,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             locations = [
                 (loc.path, loc.device, loc.partition, loc.policy)
                 for loc in diskfile.object_audit_location_generator(
-                    devices=tmpdir, mount_check=True)]
+                    devices=tmpdir, datadir="objects", mount_check=True)]
             locations.sort()
 
             self.assertEqual(
@@ -485,7 +473,8 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             locations = [
                 (loc.path, loc.device, loc.partition, loc.policy)
                 for loc in diskfile.object_audit_location_generator(
-                    devices=tmpdir, mount_check=True, logger=logger)]
+                    devices=tmpdir, datadir="objects", mount_check=True,
+                    logger=logger)]
             debug_lines = logger.get_lines_for_level('debug')
             self.assertEqual([
                 'Skipping sdq as it is not mounted',
@@ -502,7 +491,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             locations = [
                 (loc.path, loc.device, loc.partition, loc.policy)
                 for loc in diskfile.object_audit_location_generator(
-                    devices=tmpdir, mount_check=False)]
+                    devices=tmpdir, datadir="objects", mount_check=False)]
 
             self.assertEqual(
                 locations,
@@ -516,30 +505,22 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             locations = [
                 (loc.path, loc.device, loc.partition, loc.policy)
                 for loc in diskfile.object_audit_location_generator(
-                    devices=tmpdir, mount_check=False, logger=logger)]
+                    devices=tmpdir, datadir="objects", mount_check=False,
+                    logger=logger)]
             debug_lines = logger.get_lines_for_level('debug')
             self.assertEqual([
                 'Skipping garbage as it is not a dir',
             ], debug_lines)
             logger.clear()
-            with mock_check_drive(isdir=True):
-                locations = [
-                    (loc.path, loc.device, loc.partition, loc.policy)
-                    for loc in diskfile.object_audit_location_generator(
-                        devices=tmpdir, mount_check=False, logger=logger)]
-            debug_lines = logger.get_lines_for_level('debug')
-            self.assertEqual([
-                'Skipping %s: Not a directory' % os.path.join(
-                    tmpdir, "garbage"),
-            ], debug_lines)
-            logger.clear()
+
             with mock_check_drive() as mocks:
                 mocks['ismount'].side_effect = lambda path: (
                     False if path.endswith('garbage') else True)
                 locations = [
                     (loc.path, loc.device, loc.partition, loc.policy)
                     for loc in diskfile.object_audit_location_generator(
-                        devices=tmpdir, mount_check=True, logger=logger)]
+                        devices=tmpdir, datadir="objects", mount_check=True,
+                        logger=logger)]
             debug_lines = logger.get_lines_for_level('debug')
             self.assertEqual([
                 'Skipping garbage as it is not mounted',
@@ -550,10 +531,10 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
         # so that errors get logged and a human can see what's going wrong;
         # only normal FS corruption should be skipped over silently.
 
-        def list_locations(dirname):
+        def list_locations(dirname, datadir):
             return [(loc.path, loc.device, loc.partition, loc.policy)
                     for loc in diskfile.object_audit_location_generator(
-                        devices=dirname, mount_check=False)]
+                        devices=dirname, datadir=datadir, mount_check=False)]
 
         real_listdir = os.listdir
 
@@ -570,30 +551,34 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                                      "2607", "b54",
                                      "fe450ec990a88cc4b252b181bab04b54"))
             with mock.patch('os.listdir', splode_if_endswith("sdf/objects")):
-                self.assertRaises(OSError, list_locations, tmpdir)
+                self.assertRaises(OSError, list_locations, tmpdir, "objects")
             with mock.patch('os.listdir', splode_if_endswith("2607")):
-                self.assertRaises(OSError, list_locations, tmpdir)
+                self.assertRaises(OSError, list_locations, tmpdir, "objects")
             with mock.patch('os.listdir', splode_if_endswith("b54")):
-                self.assertRaises(OSError, list_locations, tmpdir)
+                self.assertRaises(OSError, list_locations, tmpdir, "objects")
 
     def test_auditor_status(self):
         with temptree([]) as tmpdir:
             os.makedirs(os.path.join(tmpdir, "sdf", "objects", "1", "a", "b"))
             os.makedirs(os.path.join(tmpdir, "sdf", "objects", "2", "a", "b"))
+            datadir = "objects"
 
             # Pretend that some time passed between each partition
             with mock.patch('os.stat') as mock_stat, \
                     mock_check_drive(isdir=True):
                 mock_stat.return_value.st_mtime = time() - 60
                 # Auditor starts, there are two partitions to check
-                gen = diskfile.object_audit_location_generator(tmpdir, False)
+                gen = diskfile.object_audit_location_generator(tmpdir,
+                                                               datadir,
+                                                               False)
                 gen.next()
                 gen.next()
 
             # Auditor stopped for some reason without raising StopIterator in
             # the generator and restarts There is now only one remaining
             # partition to check
-            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen = diskfile.object_audit_location_generator(tmpdir, datadir,
+                                                           False)
             with mock_check_drive(isdir=True):
                 gen.next()
 
@@ -602,17 +587,19 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
 
             # There are no partitions to check if the auditor restarts another
             # time and the status files have not been cleared
-            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen = diskfile.object_audit_location_generator(tmpdir, datadir,
+                                                           False)
             with mock_check_drive(isdir=True):
                 self.assertRaises(StopIteration, gen.next)
 
             # Reset status file
-            diskfile.clear_auditor_status(tmpdir)
+            diskfile.clear_auditor_status(tmpdir, datadir)
 
             # If the auditor restarts another time, we expect to
             # check two partitions again, because the remaining
             # partitions were empty and a new listdir was executed
-            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen = diskfile.object_audit_location_generator(tmpdir, datadir,
+                                                           False)
             with mock_check_drive(isdir=True):
                 gen.next()
                 gen.next()
@@ -985,7 +972,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.logger.increment.assert_called_with('async_pendings')
 
     def test_object_audit_location_generator(self):
-        locations = list(self.df_mgr.object_audit_location_generator())
+        locations = list(
+            self.df_mgr.object_audit_location_generator(POLICIES[0]))
         self.assertEqual(locations, [])
 
     def test_replication_one_per_device_deprecation(self):

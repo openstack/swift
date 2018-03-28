@@ -119,6 +119,8 @@ class ConfigString(NamedConfigLoader):
         }
         self.parser = loadwsgi.NicerConfigParser("string", defaults=defaults)
         self.parser.optionxform = str  # Don't lower-case keys
+        # Defaults don't need interpolation (crazy PasteDeploy...)
+        self.parser.defaults = lambda: dict(self.parser._defaults, **defaults)
         self.parser.readfp(self.contents)
 
 

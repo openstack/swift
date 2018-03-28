@@ -45,7 +45,7 @@ import ctypes
 import ctypes.util
 from optparse import OptionParser
 
-from tempfile import mkstemp, NamedTemporaryFile
+from tempfile import gettempdir, mkstemp, NamedTemporaryFile
 import glob
 import itertools
 import stat
@@ -78,8 +78,7 @@ from six.moves.urllib.parse import urlparse as stdlib_urlparse
 
 from swift import gettext_ as _
 import swift.common.exceptions
-from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
-    HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+from swift.common.http import is_server_error
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.linkat import linkat
 
@@ -940,11 +939,16 @@ class Timestamp(object):
         :param delta: deca-microsecond difference from the base timestamp
                       param, an int
         """
+        if isinstance(timestamp, bytes):
+            timestamp = timestamp.decode('ascii')
         if isinstance(timestamp, six.string_types):
-            parts = timestamp.split('_', 1)
-            self.timestamp = float(parts.pop(0))
-            if parts:
-                self.offset = int(parts[0], 16)
+            base, base_offset = timestamp.partition('_')[::2]
+            self.timestamp = float(base)
+            if '_' in base_offset:
+                raise ValueError('invalid literal for int() with base 16: '
+                                 '%r' % base_offset)
+            if base_offset:
+                self.offset = int(base_offset, 16)
             else:
                 self.offset = 0
         else:
@@ -1661,24 +1665,6 @@ class StatsdClient(object):
                                sample_rate)
 
 
-def server_handled_successfully(status_int):
-    """
-    True for successful responses *or* error codes that are not Swift's fault,
-    False otherwise. For example, 500 is definitely the server's fault, but
-    412 is an error code (4xx are all errors) that is due to a header the
-    client sent.
-
-    If one is tracking error rates to monitor server health, one would be
-    advised to use a function like this one, lest a client cause a flurry of
-    404s or 416s and make a spurious spike in your errors graph.
-    """
-    return (is_success(status_int) or
-            is_redirection(status_int) or
-            status_int == HTTP_NOT_FOUND or
-            status_int == HTTP_PRECONDITION_FAILED or
-            status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
-
-
 def timing_stats(**dec_kwargs):
     """
     Returns a decorator that logs timing events or errors for public methods in
@@ -1691,7 +1677,15 @@ def timing_stats(**dec_kwargs):
         def _timing_stats(ctrl, *args, **kwargs):
             start_time = time.time()
             resp = func(ctrl, *args, **kwargs)
-            if server_handled_successfully(resp.status_int):
+            # .timing is for successful responses *or* error codes that are
+            # not Swift's fault. For example, 500 is definitely the server's
+            # fault, but 412 is an error code (4xx are all errors) that is
+            # due to a header the client sent.
+            #
+            # .errors.timing is for failures that *are* Swift's fault.
+            # Examples include 507 for an unmounted drive or 500 for an
+            # unhandled exception.
+            if not is_server_error(resp.status_int):
                 ctrl.logger.timing_since(method + '.timing',
                                          start_time, **dec_kwargs)
             else:
@@ -3416,6 +3410,15 @@ def get_valid_utf8_str(str_or_unicode):
     return valid_unicode_str.encode('utf-8')
 
 
+class Everything(object):
+    """
+    A container that contains everything. If "e" is an instance of
+    Everything, then "x in e" is true for all x.
+    """
+    def __contains__(self, element):
+        return True
+
+
 def list_from_csv(comma_separated_str):
     """
     Splits the str given and returns a properly stripped list of the comma
@@ -3424,6 +3427,27 @@ def list_from_csv(comma_separated_str):
     if comma_separated_str:
         return [v.strip() for v in comma_separated_str.split(',') if v.strip()]
     return []
+
+
+def parse_overrides(devices='', partitions='', **kwargs):
+    """
+    Given daemon kwargs parse out device and partition overrides or Everything.
+
+    :returns: a tuple of (devices, partitions) which an used like containers to
+              check if a given partition (integer) or device (string) is "in"
+              the collection on which we should act.
+    """
+    devices = list_from_csv(devices)
+    if not devices:
+        devices = Everything()
+
+    partitions = [
+        int(part) for part in
+        list_from_csv(partitions)]
+    if not partitions:
+        partitions = Everything()
+
+    return devices, partitions
 
 
 def csv_append(csv_string, item):
@@ -4364,6 +4388,43 @@ def modify_priority(conf, logger):
     _ioprio_set(io_class, io_priority)
 
 
+def o_tmpfile_in_path_supported(dirpath):
+    if not hasattr(os, 'O_TMPFILE'):
+        return False
+
+    testfile = os.path.join(dirpath, ".o_tmpfile.test")
+
+    hasO_TMPFILE = True
+    fd = None
+    try:
+        fd = os.open(testfile, os.O_CREAT | os.O_WRONLY | os.O_TMPFILE)
+    except OSError as e:
+        if e.errno == errno.EINVAL:
+            hasO_TMPFILE = False
+        else:
+            raise Exception("Error on '%(path)s' while checking "
+                            "O_TMPFILE: '%(ex)s'",
+                            {'path': dirpath, 'ex': e})
+
+    except Exception as e:
+        raise Exception("Error on '%(path)s' while checking O_TMPFILE: "
+                        "'%(ex)s'", {'path': dirpath, 'ex': e})
+
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+        # ensure closing the fd will actually remove the file
+        if os.path.isfile(testfile):
+            return False
+
+    return hasO_TMPFILE
+
+
+def o_tmpfile_in_tmpdir_supported():
+    return o_tmpfile_in_path_supported(gettempdir())
+
+
 def o_tmpfile_supported():
     """
     Returns True if O_TMPFILE flag is supported.
@@ -4581,3 +4642,17 @@ class PipeMutex(object):
 class ThreadSafeSysLogHandler(SysLogHandler):
     def createLock(self):
         self.lock = PipeMutex()
+
+
+def round_robin_iter(its):
+    """
+    Takes a list of iterators, yield an element from each in a round-robin
+    fashion until all of them are exhausted.
+    :param its: list of iterators
+    """
+    while its:
+        for it in its:
+            try:
+                yield next(it)
+            except StopIteration:
+                its.remove(it)

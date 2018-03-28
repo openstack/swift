@@ -6064,6 +6064,68 @@ class TestObjectController(unittest.TestCase):
         except OSError as err:
             self.assertEqual(err.errno, errno.ENOENT)
 
+    def test_x_if_delete_at_formats(self):
+        policy = POLICIES.get_by_index(0)
+        test_time = time()
+        put_time = test_time
+        delete_time = test_time + 1
+        delete_at_timestamp = int(test_time + 10000)
+        delete_at_container = str(
+            delete_at_timestamp /
+            self.object_controller.expiring_objects_container_divisor *
+            self.object_controller.expiring_objects_container_divisor)
+
+        def do_test(if_delete_at, expected_status):
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Timestamp': normalize_timestamp(put_time),
+                         'X-Delete-At': str(delete_at_timestamp),
+                         'X-Delete-At-Container': delete_at_container,
+                         'Content-Length': '4',
+                         'Content-Type': 'application/octet-stream'})
+            req.body = 'TEST'
+
+            # Mock out async_update so we don't get any async_pending files.
+            with mock.patch.object(self.object_controller, 'async_update'):
+                resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 201)
+
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': normalize_timestamp(delete_time),
+                         'X-Backend-Clean-Expiring-Object-Queue': 'false',
+                         'X-If-Delete-At': if_delete_at})
+            # Again, we don't care about async_pending files (for this test)
+            with mock.patch.object(self.object_controller, 'async_update'):
+                resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, expected_status)
+
+            # Clean up the tombstone
+            objfile = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                               policy=policy)
+            files = os.listdir(objfile._datadir)
+            self.assertEqual(len(files), 1,
+                             'Expected to find one file, got %r' % files)
+            if expected_status == 204:
+                self.assertTrue(files[0].endswith('.ts'),
+                                'Expected a tombstone, found %r' % files[0])
+            else:
+                self.assertTrue(files[0].endswith('.data'),
+                                'Expected a data file, found %r' % files[0])
+            os.unlink(os.path.join(objfile._datadir, files[0]))
+
+        # More as a reminder than anything else
+        self.assertIsInstance(delete_at_timestamp, int)
+
+        do_test(str(delete_at_timestamp), 204)
+        do_test(str(delete_at_timestamp) + ':', 400)
+        do_test(Timestamp(delete_at_timestamp).isoformat, 400)
+        do_test(Timestamp(delete_at_timestamp).normal, 204)
+        do_test(Timestamp(delete_at_timestamp, delta=1).normal, 412)
+        do_test(Timestamp(delete_at_timestamp, delta=-1).normal, 412)
+        do_test(Timestamp(delete_at_timestamp, offset=1).internal, 412)
+        do_test(Timestamp(delete_at_timestamp, offset=15).internal, 412)
+
     def test_DELETE_but_expired(self):
         test_time = time() + 10000
         delete_at_timestamp = int(test_time + 100)

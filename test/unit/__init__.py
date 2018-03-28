@@ -1080,6 +1080,15 @@ class Timeout(object):
         raise TimeoutException
 
 
+def requires_o_tmpfile_support_in_tmp(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if not utils.o_tmpfile_in_tmpdir_supported():
+            raise SkipTest('Requires O_TMPFILE support in TMPDIR')
+        return func(*args, **kwargs)
+    return wrapper
+
+
 def requires_o_tmpfile_support(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -1292,7 +1301,7 @@ def xattr_supported_check():
     # assume the worst -- xattrs aren't supported
     supports_xattr_cached_val = False
 
-    big_val = 'x' * (4096 + 1)  # more than 4k of metadata
+    big_val = b'x' * (4096 + 1)  # more than 4k of metadata
     try:
         fd, tmppath = mkstemp()
         xattr.setxattr(fd, 'user.swift.testing_key', big_val)

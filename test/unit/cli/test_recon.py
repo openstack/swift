@@ -511,7 +511,7 @@ aliases = %s
             self.recon_instance.umount_check(hosts)
 
         output = stdout.getvalue()
-        r = re.compile("\Not mounted:|Device errors: .*")
+        r = re.compile("^Not mounted:|Device errors: .*")
         lines = output.splitlines()
         self.assertTrue(lines)
         for line in lines:

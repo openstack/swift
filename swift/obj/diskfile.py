@@ -83,8 +83,8 @@ PICKLE_PROTOCOL = 2
 DEFAULT_RECLAIM_AGE = timedelta(weeks=1).total_seconds()
 HASH_FILE = 'hashes.pkl'
 HASH_INVALIDATIONS_FILE = 'hashes.invalid'
-METADATA_KEY = 'user.swift.metadata'
-METADATA_CHECKSUM_KEY = 'user.swift.metadata_checksum'
+METADATA_KEY = b'user.swift.metadata'
+METADATA_CHECKSUM_KEY = b'user.swift.metadata_checksum'
 DROP_CACHE_WINDOW = 1024 * 1024
 # These are system-set metadata keys that cannot be changed with a POST.
 # They should be lowercase.
@@ -131,6 +131,26 @@ def _encode_metadata(metadata):
     return dict(((encode_str(k), encode_str(v)) for k, v in metadata.items()))
 
 
+def _decode_metadata(metadata):
+    """
+    Given a metadata dict from disk, convert keys and values to native strings.
+
+    :param metadata: a dict
+    """
+    if six.PY2:
+        def to_str(item):
+            if isinstance(item, six.text_type):
+                return item.encode('utf8')
+            return item
+    else:
+        def to_str(item):
+            if isinstance(item, six.binary_type):
+                return item.decode('utf8', 'surrogateescape')
+            return item
+
+    return dict(((to_str(k), to_str(v)) for k, v in metadata.items()))
+
+
 def read_metadata(fd, add_missing_checksum=False):
     """
     Helper function to read the pickled metadata from an object file.
@@ -144,8 +164,8 @@ def read_metadata(fd, add_missing_checksum=False):
     key = 0
     try:
         while True:
-            metadata += xattr.getxattr(fd, '%s%s' % (METADATA_KEY,
-                                                     (key or '')))
+            metadata += xattr.getxattr(
+                fd, METADATA_KEY + str(key or '').encode('ascii'))
             key += 1
     except (IOError, OSError) as e:
         if errno.errorcode.get(e.errno) in ('ENOTSUP', 'EOPNOTSUPP'):
@@ -173,7 +193,7 @@ def read_metadata(fd, add_missing_checksum=False):
                 logging.error("Error adding metadata: %s" % e)
 
     if metadata_checksum:
-        computed_checksum = hashlib.md5(metadata).hexdigest()
+        computed_checksum = hashlib.md5(metadata).hexdigest().encode('ascii')
         if metadata_checksum != computed_checksum:
             raise DiskFileBadMetadataChecksum(
                 "Metadata checksum mismatch for %s: "
@@ -183,7 +203,11 @@ def read_metadata(fd, add_missing_checksum=False):
     # strings are utf-8 encoded when written, but have not always been
     # (see https://bugs.launchpad.net/swift/+bug/1678018) so encode them again
     # when read
-    return _encode_metadata(pickle.loads(metadata))
+    if six.PY2:
+        metadata = pickle.loads(metadata)
+    else:
+        metadata = pickle.loads(metadata, encoding='bytes')
+    return _decode_metadata(metadata)
 
 
 def write_metadata(fd, metadata, xattr_size=65536):
@@ -194,11 +218,11 @@ def write_metadata(fd, metadata, xattr_size=65536):
     :param metadata: metadata to write
     """
     metastr = pickle.dumps(_encode_metadata(metadata), PICKLE_PROTOCOL)
-    metastr_md5 = hashlib.md5(metastr).hexdigest()
+    metastr_md5 = hashlib.md5(metastr).hexdigest().encode('ascii')
     key = 0
     try:
         while metastr:
-            xattr.setxattr(fd, '%s%s' % (METADATA_KEY, key or ''),
+            xattr.setxattr(fd, METADATA_KEY + str(key or '').encode('ascii'),
                            metastr[:xattr_size])
             metastr = metastr[xattr_size:]
             key += 1
@@ -368,9 +392,10 @@ def invalidate_hash(suffix_dir):
     suffix = basename(suffix_dir)
     partition_dir = dirname(suffix_dir)
     invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
-    with lock_path(partition_dir):
-        with open(invalidations_file, 'ab') as inv_fh:
-            inv_fh.write(suffix + "\n")
+    if not isinstance(suffix, bytes):
+        suffix = suffix.encode('utf-8')
+    with lock_path(partition_dir), open(invalidations_file, 'ab') as inv_fh:
+        inv_fh.write(suffix + b"\n")
 
 
 def relink_paths(target_path, new_target_path, check_existing=False):
@@ -428,18 +453,20 @@ class AuditLocation(object):
         return str(self.path)
 
 
-def object_audit_location_generator(devices, mount_check=True, logger=None,
-                                    device_dirs=None, auditor_type="ALL"):
+def object_audit_location_generator(devices, datadir, mount_check=True,
+                                    logger=None, device_dirs=None,
+                                    auditor_type="ALL"):
     """
     Given a devices path (e.g. "/srv/node"), yield an AuditLocation for all
-    objects stored under that directory if device_dirs isn't set.  If
-    device_dirs is set, only yield AuditLocation for the objects under the
-    entries in device_dirs. The AuditLocation only knows the path to the hash
-    directory, not to the .data file therein (if any). This is to avoid a
-    double listdir(hash_dir); the DiskFile object will always do one, so
-    we don't.
+    objects stored under that directory for the given datadir (policy),
+    if device_dirs isn't set.  If device_dirs is set, only yield AuditLocation
+    for the objects under the entries in device_dirs. The AuditLocation only
+    knows the path to the hash directory, not to the .data file therein
+    (if any). This is to avoid a double listdir(hash_dir); the DiskFile object
+    will always do one, so we don't.
 
     :param devices: parent directory of the devices to be audited
+    :param datadir: objects directory
     :param mount_check: flag to check if a mount check should be performed
                         on devices
     :param logger: a logger object
@@ -455,6 +482,7 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
     # randomize devices in case of process restart before sweep completed
     shuffle(device_dirs)
 
+    base, policy = split_policy_string(datadir)
     for device in device_dirs:
         if not check_drive(devices, device, mount_check):
             if logger:
@@ -462,55 +490,37 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                     'Skipping %s as it is not %s', device,
                     'mounted' if mount_check else 'a dir')
             continue
-        # loop through object dirs for all policies
-        device_dir = os.path.join(devices, device)
-        try:
-            dirs = os.listdir(device_dir)
-        except OSError as e:
-            if logger:
-                logger.debug(
-                    _('Skipping %(dir)s: %(err)s') % {'dir': device_dir,
-                                                      'err': e.strerror})
+
+        datadir_path = os.path.join(devices, device, datadir)
+        if not os.path.exists(datadir_path):
             continue
-        for dir_ in dirs:
-            if not dir_.startswith(DATADIR_BASE):
-                continue
+
+        partitions = get_auditor_status(datadir_path, logger, auditor_type)
+
+        for pos, partition in enumerate(partitions):
+            update_auditor_status(datadir_path, logger,
+                                  partitions[pos:], auditor_type)
+            part_path = os.path.join(datadir_path, partition)
             try:
-                base, policy = split_policy_string(dir_)
-            except PolicyError as e:
-                if logger:
-                    logger.warning(_('Directory %(directory)r does not map '
-                                     'to a valid policy (%(error)s)') % {
-                                   'directory': dir_, 'error': e})
+                suffixes = listdir(part_path)
+            except OSError as e:
+                if e.errno != errno.ENOTDIR:
+                    raise
                 continue
-            datadir_path = os.path.join(devices, device, dir_)
-
-            partitions = get_auditor_status(datadir_path, logger, auditor_type)
-
-            for pos, partition in enumerate(partitions):
-                update_auditor_status(datadir_path, logger,
-                                      partitions[pos:], auditor_type)
-                part_path = os.path.join(datadir_path, partition)
+            for asuffix in suffixes:
+                suff_path = os.path.join(part_path, asuffix)
                 try:
-                    suffixes = listdir(part_path)
+                    hashes = listdir(suff_path)
                 except OSError as e:
                     if e.errno != errno.ENOTDIR:
                         raise
                     continue
-                for asuffix in suffixes:
-                    suff_path = os.path.join(part_path, asuffix)
-                    try:
-                        hashes = listdir(suff_path)
-                    except OSError as e:
-                        if e.errno != errno.ENOTDIR:
-                            raise
-                        continue
-                    for hsh in hashes:
-                        hsh_path = os.path.join(suff_path, hsh)
-                        yield AuditLocation(hsh_path, device, partition,
-                                            policy)
+                for hsh in hashes:
+                    hsh_path = os.path.join(suff_path, hsh)
+                    yield AuditLocation(hsh_path, device, partition,
+                                        policy)
 
-            update_auditor_status(datadir_path, logger, [], auditor_type)
+        update_auditor_status(datadir_path, logger, [], auditor_type)
 
 
 def get_auditor_status(datadir_path, logger, auditor_type):
@@ -564,15 +574,13 @@ def update_auditor_status(datadir_path, logger, partitions, auditor_type):
                            {'auditor_status': auditor_status, 'err': e})
 
 
-def clear_auditor_status(devices, auditor_type="ALL"):
-    for device in os.listdir(devices):
-        for dir_ in os.listdir(os.path.join(devices, device)):
-            if not dir_.startswith("objects"):
-                continue
-            datadir_path = os.path.join(devices, device, dir_)
-            auditor_status = os.path.join(
-                datadir_path, "auditor_status_%s.json" % auditor_type)
-            remove_file(auditor_status)
+def clear_auditor_status(devices, datadir, auditor_type="ALL"):
+    device_dirs = listdir(devices)
+    for device in device_dirs:
+        datadir_path = os.path.join(devices, device, datadir)
+        auditor_status = os.path.join(
+            datadir_path, "auditor_status_%s.json" % auditor_type)
+        remove_file(auditor_status)
 
 
 def strip_self(f):
@@ -608,10 +616,10 @@ class DiskFileRouter(object):
         self.policy_to_manager = {}
         for policy in POLICIES:
             manager_cls = self.policy_type_to_manager_cls[policy.policy_type]
-            self.policy_to_manager[policy] = manager_cls(*args, **kwargs)
+            self.policy_to_manager[int(policy)] = manager_cls(*args, **kwargs)
 
     def __getitem__(self, policy):
-        return self.policy_to_manager[policy]
+        return self.policy_to_manager[int(policy)]
 
 
 class BaseDiskFileManager(object):
@@ -1315,15 +1323,22 @@ class BaseDiskFileManager(object):
                                  pipe_size=self.pipe_size,
                                  use_linkat=self.use_linkat, **kwargs)
 
-    def object_audit_location_generator(self, device_dirs=None,
+    def clear_auditor_status(self, policy, auditor_type="ALL"):
+        datadir = get_data_dir(policy)
+        clear_auditor_status(self.devices, datadir, auditor_type)
+
+    def object_audit_location_generator(self, policy, device_dirs=None,
                                         auditor_type="ALL"):
         """
         Yield an AuditLocation for all objects stored under device_dirs.
 
+        :param policy: the StoragePolicy instance
         :param device_dirs: directory of target device
         :param auditor_type: either ALL or ZBF
         """
-        return object_audit_location_generator(self.devices, self.mount_check,
+        datadir = get_data_dir(policy)
+        return object_audit_location_generator(self.devices, datadir,
+                                               self.mount_check,
                                                self.logger, device_dirs,
                                                auditor_type)
 

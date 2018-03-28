@@ -14,8 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import codecs
 import sys
 from optparse import OptionParser
+
+import six
 
 from swift.common.storage_policy import reload_storage_policies
 from swift.common.utils import set_swift_dir
@@ -23,6 +26,11 @@ from swift.cli.info import print_obj, InfoSystemExit
 
 
 if __name__ == '__main__':
+    if not six.PY2:
+        # Make stdout able to write escaped bytes
+        sys.stdout = codecs.getwriter("utf-8")(
+            sys.stdout.detach(), errors='surrogateescape')
+
     parser = OptionParser('%prog [options] OBJECT_FILE')
     parser.add_option(
         '-n', '--no-check-etag', default=True,
@@ -31,6 +39,9 @@ if __name__ == '__main__':
     parser.add_option(
         '-d', '--swift-dir', default='/etc/swift', dest='swift_dir',
         help="Pass location of swift directory")
+    parser.add_option(
+        '--drop-prefixes', default=False, action="store_true",
+        help="When outputting metadata, drop the per-section common prefixes")
     parser.add_option(
         '-P', '--policy-name', dest='policy_name',
         help="Specify storage policy name")

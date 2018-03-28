@@ -38,7 +38,7 @@ from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
-from swift.common.http import HTTP_NOT_FOUND, is_success
+from swift.common.http import HTTP_NO_CONTENT, HTTP_NOT_FOUND, is_success
 from swift.common.middleware import listing_formats
 from swift.common.storage_policy import POLICIES
 from swift.common.base_storage_server import BaseStorageServer
@@ -522,7 +522,7 @@ class ContainerController(BaseStorageServer):
                        content_type=out_content_type, charset='utf-8')
         ret.last_modified = math.ceil(float(resp_headers['X-PUT-Timestamp']))
         if not ret.body:
-            ret.status_int = 204
+            ret.status_int = HTTP_NO_CONTENT
         return ret
 
     @public
