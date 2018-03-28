@@ -3396,7 +3396,8 @@ class TestContainerBroker(unittest.TestCase):
              for sr in shard_ranges])
         # pretend all ranges have been cleaved
         broker.dump_cleave_context(
-            dict(broker.load_cleave_context(), done=True))
+            dict(broker.load_cleave_context(),
+                 cleaving_done=True, misplaced_done=True))
         self.assertTrue(broker.set_sharded_state())
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
@@ -3446,7 +3447,8 @@ class TestContainerBroker(unittest.TestCase):
 
             # go to sharded
             broker.dump_cleave_context(
-                dict(broker.load_cleave_context(), done=True))
+                dict(broker.load_cleave_context(),
+                     cleaving_done=True, misplaced_done=True))
             self.assertTrue(
                 broker.set_sharded_state())
             self.assertEqual(SHARDED, broker.get_db_state())
@@ -3479,9 +3481,10 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(warning_lines[1:])
         broker.logger.clear()
 
-        # done is missing
+        # cleaving_done is missing
         context = broker.load_cleave_context()
-        broker.dump_cleave_context(dict(context, cursor=''))
+        broker.dump_cleave_context(
+            dict(context, cursor='', misplaced_done=True))
         self.assertFalse(broker.set_sharded_state())
         warning_lines = broker.logger.get_lines_for_level('warning')
         self.assertIn('Refusing to delete db %r' % broker.db_files[0],
@@ -3489,8 +3492,29 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(warning_lines[1:])
         broker.logger.clear()
 
-        # done is False
-        broker.dump_cleave_context(dict(context, cursor='', done=False))
+        # cleaving_done is False
+        broker.dump_cleave_context(
+            dict(context, cursor='', cleaving_done=False, misplaced_done=True))
+        self.assertFalse(broker.set_sharded_state())
+        warning_lines = broker.logger.get_lines_for_level('warning')
+        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
+                      warning_lines[0])
+        self.assertFalse(warning_lines[1:])
+        broker.logger.clear()
+
+        # misplaced_done is False
+        broker.dump_cleave_context(
+            dict(context, cursor='', cleaving_done=True))
+        self.assertFalse(broker.set_sharded_state())
+        warning_lines = broker.logger.get_lines_for_level('warning')
+        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
+                      warning_lines[0])
+        self.assertFalse(warning_lines[1:])
+        broker.logger.clear()
+
+        # misplaced_done is False
+        broker.dump_cleave_context(
+            dict(context, cursor='', cleaving_done=True, misplaced_done=False))
         self.assertFalse(broker.set_sharded_state())
         warning_lines = broker.logger.get_lines_for_level('warning')
         self.assertIn('Refusing to delete db %r' % broker.db_files[0],
@@ -3503,7 +3527,8 @@ class TestContainerBroker(unittest.TestCase):
                'content_type': 'text/plain', 'etag': 'an etag', 'deleted': 1}
         broker.get_brokers()[0].merge_objects([obj])
 
-        broker.dump_cleave_context(dict(context, cursor='', done=True))
+        broker.dump_cleave_context(
+            dict(context, cursor='', cleaving_done=True, misplaced_done=True))
         self.assertFalse(broker.set_sharded_state())
         warning_lines = broker.logger.get_lines_for_level('warning')
         self.assertIn('Refusing to delete db %r' % broker.db_files[0],
@@ -3513,7 +3538,8 @@ class TestContainerBroker(unittest.TestCase):
 
         # db id changes
         context = broker.load_cleave_context()
-        broker.dump_cleave_context(dict(context, cursor='', done=True))
+        broker.dump_cleave_context(
+            dict(context, cursor='', cleaving_done=True, misplaced_done=True))
         broker.get_brokers()[0].newid('fake_remote_id')
         self.assertFalse(broker.set_sharded_state())
         warning_lines = broker.logger.get_lines_for_level('warning')
@@ -3524,7 +3550,8 @@ class TestContainerBroker(unittest.TestCase):
 
         # context ok
         context = broker.load_cleave_context()
-        broker.dump_cleave_context(dict(context, cursor='', done=True))
+        broker.dump_cleave_context(
+            dict(context, cursor='', cleaving_done=True, misplaced_done=True))
         self.assertTrue(broker.set_sharded_state())
         warning_lines = broker.logger.get_lines_for_level('warning')
         self.assertFalse(warning_lines)
@@ -3705,7 +3732,8 @@ class TestContainerBroker(unittest.TestCase):
             'a', 'c', 'a', 'c', tempdir)
         self.assertTrue(broker.is_root_container())  # sanity
         broker.dump_cleave_context(
-            dict(broker.load_cleave_context(), done=True))
+            dict(broker.load_cleave_context(),
+                 cleaving_done=True, misplaced_done=True))
         self.assertTrue(broker.set_sharded_state())
         self.assertEqual(120, broker.get_info()['object_count'])
         self.assertEqual(1999, broker.get_info()['bytes_used'])
@@ -3716,7 +3744,8 @@ class TestContainerBroker(unittest.TestCase):
             '.shard_a', 'c-blah', 'a', 'c', tempdir)
         self.assertFalse(broker.is_root_container())  # sanity
         broker.dump_cleave_context(
-            dict(broker.load_cleave_context(), done=True))
+            dict(broker.load_cleave_context(),
+                 cleaving_done=True, misplaced_done=True))
         self.assertTrue(broker.set_sharded_state())
         self.assertEqual(0, broker.get_info()['object_count'])
         self.assertEqual(0, broker.get_info()['bytes_used'])

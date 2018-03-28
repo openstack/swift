@@ -1857,7 +1857,8 @@ class ContainerBroker(DatabaseBroker):
         brokers = self.get_brokers()
         # look for a cleave context for the retiring db's epoch and db hash
         context = self.load_cleave_context()
-        if not context or not context.get('done', False):
+        if (not context or not context.get('cleaving_done', False) or not
+                context.get('misplaced_done', False)):
             self.logger.warning(
                 'Refusing to delete db %r with cleaving context: %s'
                 % (brokers[0].db_file, context))

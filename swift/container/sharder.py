@@ -422,95 +422,103 @@ class ContainerSharder(ContainerReplicator):
                 dest_shard_range, broker.path)
         return success
 
-    def _move_objects(self, broker, src_shard_range, policy_index,
-                      dest_shard_ranges):
-        brokers = {}  # map shard range -> broker
+    def _move_objects(self, src_broker, src_shard_range, policy_index,
+                      shard_range_fetcher):
+        dest_brokers = {}  # map shard range -> broker
         placed = unplaced = 0
+        success = True
         for objs, dest_shard_range, info in self.yield_objects_to_shard_range(
-                broker, src_shard_range, policy_index, dest_shard_ranges):
+                src_broker, src_shard_range, policy_index,
+                shard_range_fetcher):
             if not dest_shard_range:
                 unplaced += len(objs)
+                success = False
                 continue
 
-            if (dest_shard_range.name ==
-                    '%s/%s' % (broker.account, broker.container)):
+            if dest_shard_range.name == src_broker.path:
                 # in shrinking context, the misplaced objects might actually be
                 # correctly placed if the root has expanded this shard but this
                 # broker has not yet been updated
                 continue
 
-            if dest_shard_range not in brokers:
+            if dest_shard_range not in dest_brokers:
                 part, dest_broker, node_id = self._get_shard_broker(
-                    dest_shard_range, broker.root_path, policy_index)
+                    dest_shard_range, src_broker.root_path, policy_index)
                 # save the broker info that was sampled prior to the *first*
                 # yielded objects for this destination
                 destination = {'part': part,
                                'dest_broker': dest_broker,
                                'node_id': node_id,
                                'info': info}
-                brokers[dest_shard_range] = destination
+                dest_brokers[dest_shard_range] = destination
             else:
-                destination = brokers[dest_shard_range]
+                destination = dest_brokers[dest_shard_range]
             destination['dest_broker'].merge_items(objs)
             placed += len(objs)
 
         if unplaced:
             self.logger.warning(
                 'Failed to find destination for at least %s misplaced objects '
-                'in %s' % (unplaced, broker.path))
+                'in %s' % (unplaced, src_broker.path))
 
         # TODO: consider executing the replication jobs concurrently
-        success = True
-        for dest_shard_range, dest_args in brokers.items():
+        for dest_shard_range, dest_args in dest_brokers.items():
             self.logger.debug('moving misplaced objects found in range %s' %
                               dest_shard_range)
             success &= self._replicate_and_delete(
-                broker, policy_index, dest_shard_range, **dest_args)
+                src_broker, policy_index, dest_shard_range, **dest_args)
 
         self._increment_stat('misplaced', 'placed', step=placed)
         self._increment_stat('misplaced', 'unplaced', step=unplaced)
         self.logger.debug('Moved %s misplaced objects' % placed)
         return success, placed + unplaced
 
-    def _move_misplaced_objects(self, broker):
-        """
-        Search for objects in the given broker that do not belong in that
-        broker's namespace and move those objects to their correct shard
-        container.
+    def _make_shard_range_fetcher(self, broker):
+        # returns a function that will lazy load shard ranges on demand;
+        # this means only one lookup is made for all misplaced ranges.
+        outer = {}
 
-        :param broker: An instance of :class:`swift.container.ContainerBroker`
-        :return: True if all misplaced objects were sufficiently replicated to
-            their correct shard containers, False otherwise
-        """
-        if broker.is_deleted():
-            self.logger.debug('Not looking for misplaced objects in deleted '
-                              'container %s (%s)', broker.path, broker.db_file)
-            return True
+        def shard_range_fetcher():
+            if not outer:
+                if broker.is_root_container():
+                    ranges = broker.get_shard_ranges()
+                else:
+                    # TODO: the root may not yet know about shard ranges to
+                    # which a shard is sharding - those need to come from
+                    # the broker
+                    ranges = self._fetch_shard_ranges(broker, newest=True)
+                outer['ranges'] = iter(ranges)
+            return outer['ranges']
+        return shard_range_fetcher
 
+    def _make_default_misplaced_object_bounds(self, broker):
+        # Objects outside of this container's own range are misplaced.
+        own_shard_range = broker.get_own_shard_range()
+        bounds = []
+        if own_shard_range.lower:
+            bounds.append(('', own_shard_range.lower))
+        if own_shard_range.upper:
+            bounds.append((own_shard_range.upper, ''))
+        return bounds
+
+    def _make_misplaced_object_bounds(self, broker):
         own_shard_range = broker.get_own_shard_range()
         if own_shard_range.state == ShardRange.EXPANDING:
             self.logger.debug('Not looking for misplaced objects in expanding '
                               'container %s (%s)', broker.path, broker.db_file)
-            return True
+            return []
 
         self.logger.debug('Looking for misplaced objects in %s (%s)',
                           broker.path, broker.db_file)
         self._increment_stat('misplaced', 'attempted')
 
-        def make_query(lower, upper):
-            # each misplaced object namespace is represented by a shard range
-            return ShardRange('dont/care', Timestamp.now(), lower, upper)
-
-        queries = []
-        policy_index = broker.storage_policy_index
-        # TODO: what about records for objects in the wrong storage policy?
-
+        bounds = []
         state = broker.get_db_state()
         if state == SHARDED:
             # Anything in the object table is treated as a misplaced object.
-            queries.append(make_query('', ''))
+            bounds.append(('', ''))
 
-        if not queries and state == SHARDING:
+        if not bounds and state == SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
             # TODO: if we redirect new udpates to CREATED shards then should we
@@ -519,45 +527,47 @@ class ContainerSharder(ContainerReplicator):
             cleave_context = broker.load_cleave_context()
             cleave_cursor = cleave_context.get('cursor')
             if cleave_cursor:
-                queries.append(make_query('', cleave_cursor))
+                bounds.append(('', cleave_cursor))
                 if own_shard_range.upper:
-                    queries.append(make_query(own_shard_range.upper, ''))
+                    bounds.append((own_shard_range.upper, ''))
 
-        if not queries:
-            # Objects outside of this container's own range are misplaced.
-            if own_shard_range.lower:
-                queries.append(make_query('', own_shard_range.lower))
-            if own_shard_range.upper:
-                queries.append(make_query(own_shard_range.upper, ''))
+        return bounds or self._make_default_misplaced_object_bounds(broker)
 
-        if not queries:
-            self._increment_stat('misplaced', 'success')
+    def _move_misplaced_objects(self, broker, src_broker=None,
+                                src_bounds=None):
+        """
+        Search for objects in the given broker that do not belong in that
+        broker's namespace and move those objects to their correct shard
+        container.
+
+        :param broker: An instance of :class:`swift.container.ContainerBroker`.
+        :param src_broker: optional alternative broker to use as the source
+            of misplaced objects; if not specified then ``broker`` is used as
+            the source.
+        :param src_bounds: optional list of (lower, upper) namespace bounds to
+            use when searching for misplaced objects
+        :return: True if all misplaced objects were sufficiently replicated to
+            their correct shard containers, False otherwise
+        """
+        if broker.is_deleted():
+            self.logger.debug('Not looking for misplaced objects in deleted '
+                              'container %s (%s)', broker.path, broker.db_file)
             return True
 
-        def make_dest_shard_ranges():
-            # returns a function that will lazy load shard ranges on demand;
-            # this means only one lookup is made for all misplaced ranges.
-            outer = {}
-
-            def dest_shard_ranges():
-                if not outer:
-                    if broker.is_root_container():
-                        ranges = broker.get_shard_ranges()
-                    else:
-                        # TODO: the root may not yet know about shard ranges to
-                        # which a shard is sharding - those need to come from
-                        # the broker
-                        ranges = self._fetch_shard_ranges(broker, newest=True)
-                    outer['ranges'] = iter(ranges)
-                return outer['ranges']
-            return dest_shard_ranges
-
-        self.logger.debug('misplaced object queries %s' % queries)
+        src_broker = src_broker or broker
+        if src_bounds is None:
+            src_bounds = self._make_misplaced_object_bounds(broker)
+        src_ranges = [ShardRange('dont/care', Timestamp.now(), lower, upper)
+                      for lower, upper in src_bounds]
+        self.logger.debug('misplaced object source bounds %s' % src_bounds)
+        policy_index = broker.storage_policy_index
+        # TODO: what about records for objects in the wrong storage policy?
         success = True
         num_found = 0
-        for query in queries:
+        for query in src_ranges:
             part_success, part_num_found = self._move_objects(
-                broker, query, policy_index, make_dest_shard_ranges())
+                src_broker, query, policy_index,
+                self._make_shard_range_fetcher(broker))
             success &= part_success
             num_found += part_num_found
 
@@ -1231,8 +1241,8 @@ class ContainerSharder(ContainerReplicator):
                                     [donor, acceptor], headers=headers)
 
     def _cleave(self, broker):
-        # Returns True if all available shard ranges have been successfully
-        # cleaved, False otherwise
+        # Returns True if misplaced objects have been moved and all *available*
+        # shard ranges have been successfully cleaved, False otherwise
         state = broker.get_db_state()
         if state == SHARDED:
             self.logger.debug('Passing over already sharded container %s/%s',
@@ -1240,23 +1250,37 @@ class ContainerSharder(ContainerReplicator):
             return True
 
         cleave_context = broker.load_cleave_context()
-        if cleave_context.get('done', False):
-            self.logger.debug('Passing over already cleaved container %s/%s',
-                              broker.account, broker.container)
-            return True
+        misplaced_done = cleave_context.get('misplaced_done', False)
+        if not misplaced_done:
+            # ensure any misplaced objects in the source broker are moved; note
+            # that this invocation of _move_misplaced_objects is targetted at
+            # the *retiring* db.
+            self.logger.debug(
+                'Moving any misplaced objects from sharding container: %s',
+                broker.path)
+            bounds = self._make_default_misplaced_object_bounds(broker)
+            misplaced_done = self._move_misplaced_objects(
+                broker, src_broker=broker.get_brokers()[0],
+                src_bounds=bounds)
+            cleave_context['misplaced_done'] = misplaced_done
+            broker.dump_cleave_context(cleave_context)
+
+        if cleave_context.get('cleaving_done', False):
+            self.logger.debug('Cleaving already complete for container ',
+                              broker.path)
+            return misplaced_done
 
         cleave_cursor = cleave_context.get('cursor') or ''
         ranges_todo = broker.get_shard_ranges(
             marker=cleave_cursor + '\x00',
             states=[ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE])
         if not ranges_todo:
-            self.logger.debug('No shard ranges to cleave for %s/%s',
-                              broker.account, broker.container)
-            return True
+            self.logger.debug('No shard ranges to cleave for %s', broker.path)
+            return misplaced_done
 
-        self.logger.debug('%s to cleave %s/%s',
-                          'Continuing' if cleave_cursor else 'Starting',
-                          broker.account, broker.container)
+        self.logger.debug(
+            '%s to cleave %s', 'Continuing' if cleave_cursor else 'Starting',
+            broker.path)
 
         own_shard_range = broker.get_own_shard_range()
         ranges_done = []
@@ -1264,8 +1288,7 @@ class ContainerSharder(ContainerReplicator):
         brokers = broker.get_brokers()
         for shard_range in ranges_todo[:self.shard_batch_size]:
             self.logger.info(
-                "Cleaving '%s/%s': %r",
-                broker.account, broker.container, shard_range)
+                "Cleaving '%s': %r", broker.path, shard_range)
             self._increment_stat('cleaved', 'attempted')
             start = time.time()
             shrinking = shard_range.includes(own_shard_range)
@@ -1314,9 +1337,8 @@ class ContainerSharder(ContainerReplicator):
                 shard_range.update_state(ShardRange.CLEAVED)
                 new_broker.merge_shard_ranges([shard_range])
 
-            self.logger.info('Replicating new shard container %s/%s for %s',
-                             new_broker.account, new_broker.container,
-                             new_broker.get_own_shard_range())
+            self.logger.info('Replicating new shard container %s for %s',
+                             new_broker.path, new_broker.get_own_shard_range())
 
             success, responses = self._replicate_object(
                 new_part, new_broker.db_file, node_id)
@@ -1332,8 +1354,8 @@ class ContainerSharder(ContainerReplicator):
 
             ranges_done.append(shard_range)
 
-            self.logger.info('Cleaved %s/%s for shard range %s.',
-                             broker.account, broker.container, shard_range)
+            self.logger.info(
+                'Cleaved %s for shard range %s.', broker.path, shard_range)
             self.logger.increment('cleaved')
             self._increment_stat('cleaved', 'success')
             elapsed = round(time.time() - start, 3)
@@ -1345,12 +1367,12 @@ class ContainerSharder(ContainerReplicator):
             cleave_context['cursor'] = str(ranges_done[-1].upper)
             if ranges_done[-1].upper >= own_shard_range.upper:
                 # cleaving complete
-                cleave_context['done'] = True
+                cleave_context['cleaving_done'] = True
             broker.dump_cleave_context(cleave_context)
         else:
-            self.logger.warning('No progress made in _cleave()!')
+            self.logger.warning('No cleaving progress made: %s', broker.path)
 
-        return len(ranges_done) == len(ranges_todo)
+        return misplaced_done and (len(ranges_done) == len(ranges_todo))
 
     def run_forever(self, *args, **kwargs):
         """Run the container sharder until stopped."""
