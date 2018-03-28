@@ -40,8 +40,7 @@ from six.moves import urllib
 
 from swift.common.swob import Request, HTTPBadRequest, HTTPUnauthorized, \
     HTTPException
-from swift.common.utils import config_true_value, split_path, get_logger, \
-    is_valid_ipv6
+from swift.common.utils import config_true_value, split_path, get_logger
 from swift.common.wsgi import ConfigFileError
 
 
@@ -128,27 +127,7 @@ class S3Token(object):
             conf.get('delay_auth_decision'))
 
         # where to find the auth service (we use this to validate tokens)
-        self._request_uri = conf.get('auth_uri')
-        if not self._request_uri:
-            self._logger.warning(
-                "Use of the auth_host, auth_port, and auth_protocol "
-                "configuration options was deprecated in the Newton release "
-                "in favor of auth_uri. These options may be removed in a "
-                "future release.")
-            auth_host = conf.get('auth_host')
-            if not auth_host:
-                raise ConfigFileError('Either auth_uri or auth_host required')
-            elif is_valid_ipv6(auth_host):
-                # Note(timburke) it is an IPv6 address, so it needs to be
-                # wrapped with '[]' to generate a valid IPv6 URL, based on
-                # http://www.ietf.org/rfc/rfc2732.txt
-                auth_host = '[%s]' % auth_host
-            auth_port = int(conf.get('auth_port', 35357))
-            auth_protocol = conf.get('auth_protocol', 'https')
-
-            self._request_uri = '%s://%s:%s' % (auth_protocol, auth_host,
-                                                auth_port)
-        self._request_uri = self._request_uri.rstrip('/')
+        self._request_uri = conf.get('auth_uri', '').rstrip('/') + '/s3tokens'
         parsed = urllib.parse.urlsplit(self._request_uri)
         if not parsed.scheme or not parsed.hostname:
             raise ConfigFileError(
@@ -159,7 +138,6 @@ class S3Token(object):
         if parsed.query or parsed.fragment or '@' in parsed.netloc:
             raise ConfigFileError('Invalid auth_uri; must not include '
                                   'username, query, or fragment')
-        self._request_uri += '/v%s/s3tokens' % conf.get('auth_version', '2.0')
 
         # SSL
         insecure = config_true_value(conf.get('insecure'))

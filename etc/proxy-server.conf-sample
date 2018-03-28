@@ -560,12 +560,7 @@ reseller_prefix = AUTH_
 delay_auth_decision = False
 
 # Keystone server details
-auth_uri = http://keystonehost:35357/
-
-# Identity Service API version to use. This is appended to the auth_uri.
-# Historically this defaulted to "2.0", but most modern deployments
-# should use "3".
-auth_version = 2.0
+auth_uri = http://keystonehost:35357/v3
 
 # Connect/read timeout to use when communicating with Keystone
 http_timeout = 10.0

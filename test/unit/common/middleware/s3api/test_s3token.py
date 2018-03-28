@@ -113,8 +113,8 @@ class FakeApp(object):
 
 class S3TokenMiddlewareTestBase(unittest.TestCase):
 
-    TEST_AUTH_URI = 'https://fakehost/identity'
-    TEST_URL = '%s/v2.0/s3tokens' % (TEST_AUTH_URI, )
+    TEST_AUTH_URI = 'https://fakehost/identity/v2.0'
+    TEST_URL = '%s/s3tokens' % (TEST_AUTH_URI, )
     TEST_DOMAIN_ID = '1'
     TEST_DOMAIN_NAME = 'aDomain'
     TEST_GROUP_ID = uuid.uuid4().hex
@@ -198,7 +198,9 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
 
     def _assert_authorized(self, req, expect_token=True,
                            account_path='/v1/AUTH_TENANT_ID/'):
-        self.assertTrue(req.path.startswith(account_path))
+        self.assertTrue(
+            req.path.startswith(account_path),
+            '%r does not start with %r' % (req.path, account_path))
         expected_headers = {
             'X-Identity-Status': 'Confirmed',
             'X-Roles': 'swift-user,_member_',
@@ -264,17 +266,13 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         self._assert_authorized(req)
 
     def test_authorized_http(self):
-        protocol = 'http'
-        host = 'fakehost'
-        port = 35357
+        auth_uri = 'http://fakehost:35357/v2.0'
         self.requests_mock.post(
-            '%s://%s:%s/v2.0/s3tokens' % (protocol, host, port),
+            '%s/s3tokens' % auth_uri,
             status_code=201, json=GOOD_RESPONSE_V2)
 
-        self.middleware = (
-            s3token.filter_factory({'auth_protocol': 'http',
-                                    'auth_host': host,
-                                    'auth_port': port})(self.app))
+        self.middleware = s3token.filter_factory({
+            'auth_uri': auth_uri})(self.app)
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
@@ -285,18 +283,15 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         self._assert_authorized(req)
 
     def test_authorized_v3(self):
-        protocol = 'http'
-        host = 'fakehost'
-        port = 35357
+        # Prior to https://github.com/openstack/keystone/commit/dd1e705
+        # even v3 URLs would respond with a v2-format response
+        auth_uri = 'http://fakehost:35357/v3'
         self.requests_mock.post(
-            '%s://%s:%s/v3/s3tokens' % (protocol, host, port),
+            '%s/s3tokens' % auth_uri,
             status_code=201, json=GOOD_RESPONSE_V2)
 
-        self.middleware = (
-            s3token.filter_factory({'auth_protocol': 'http',
-                                    'auth_host': host,
-                                    'auth_port': port,
-                                    'auth_version': '3'})(self.app))
+        self.middleware = s3token.filter_factory({
+            'auth_uri': auth_uri})(self.app)
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
@@ -377,51 +372,31 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         middleware = s3token.filter_factory(config)(self.app)
         self.assertIs('false_ind', middleware._verify)
 
-    def test_auth_version(self):
+    def test_auth_uris(self):
         for conf, expected in [
-                # if provided just host/scheme, tack on the default
-                # version/endpoint like before
-                ({'auth_uri': 'https://example.com'},
-                 'https://example.com/v2.0/s3tokens'),
-                # if provided a version-specific URI, trust it
-                ({'auth_uri': 'https://example.com:5000',
-                  'auth_version': '2.0'},
-                 'https://example.com:5000/v2.0/s3tokens'),
-                ({'auth_uri': 'http://example.com', 'auth_version': '3'},
-                 'http://example.com/v3/s3tokens'),
-                # even try to allow for future versions
-                ({'auth_uri': 'http://example.com', 'auth_version': '4.25'},
-                 'http://example.com/v4.25/s3tokens'),
-                # keystone running under mod_wsgi often has a path prefix
-                ({'auth_uri': 'https://example.com/identity'},
-                 'https://example.com/identity/v2.0/s3tokens'),
-                # doesn't really work to include version in auth_uri
                 ({'auth_uri': 'https://example.com/v2.0'},
-                 'https://example.com/v2.0/v2.0/s3tokens')]:
+                 'https://example.com/v2.0/s3tokens'),
+                # Trailing slash doesn't interfere
+                ({'auth_uri': 'https://example.com/v2.0/'},
+                 'https://example.com/v2.0/s3tokens'),
+                # keystone running under mod_wsgi often has a path prefix
+                ({'auth_uri': 'https://example.com/identity/v2.0'},
+                 'https://example.com/identity/v2.0/s3tokens'),
+                ({'auth_uri': 'https://example.com/identity/v2.0/'},
+                 'https://example.com/identity/v2.0/s3tokens'),
+                # IPv4 addresses are fine
+                ({'auth_uri': 'http://127.0.0.1:35357/v3'},
+                 'http://127.0.0.1:35357/v3/s3tokens'),
+                ({'auth_uri': 'http://127.0.0.1:35357/v3/'},
+                 'http://127.0.0.1:35357/v3/s3tokens'),
+                # IPv6 addresses need [brackets] per RFC 3986
+                ({'auth_uri': 'https://[::FFFF:129.144.52.38]:5000/v3'},
+                 'https://[::FFFF:129.144.52.38]:5000/v3/s3tokens'),
+                ({'auth_uri': 'https://[::FFFF:129.144.52.38]:5000/v3/'},
+                 'https://[::FFFF:129.144.52.38]:5000/v3/s3tokens'),
+        ]:
             middleware = s3token.filter_factory(conf)(self.app)
             self.assertEqual(expected, middleware._request_uri)
-
-    def test_ipv6_auth_host_option(self):
-        config = {}
-        ipv6_addr = '::FFFF:129.144.52.38'
-        request_uri = 'https://[::FFFF:129.144.52.38]:35357/v2.0/s3tokens'
-
-        # Raw IPv6 address should work
-        config['auth_host'] = ipv6_addr
-        middleware = s3token.filter_factory(config)(self.app)
-        self.assertEqual(request_uri, middleware._request_uri)
-
-        # ...as should workarounds already in use
-        config['auth_host'] = '[%s]' % ipv6_addr
-        middleware = s3token.filter_factory(config)(self.app)
-        self.assertEqual(request_uri, middleware._request_uri)
-
-        # ... with no config, we should get config error
-        del config['auth_host']
-        with self.assertRaises(ConfigFileError) as cm:
-            s3token.filter_factory(config)(self.app)
-        self.assertEqual('Either auth_uri or auth_host required',
-                         cm.exception.message)
 
     @mock.patch.object(requests, 'post')
     def test_http_timeout(self, MOCK_REQUEST):
@@ -493,26 +468,6 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
                 'http://example.com/#with-fragment']:
             with self.assertRaises(ConfigFileError) as cm:
                 s3token.filter_factory({'auth_uri': auth_uri})(self.app)
-            self.assertEqual('Invalid auth_uri; must not include username, '
-                             'query, or fragment', cm.exception.message)
-
-    def test_bad_auth_parts(self):
-        with self.assertRaises(ConfigFileError) as cm:
-            s3token.filter_factory({
-                'auth_host': 'example.com', 'auth_protocol': ''})(self.app)
-        self.assertEqual('Invalid auth_uri; must include scheme and host',
-                         cm.exception.message)
-        with self.assertRaises(ConfigFileError) as cm:
-            s3token.filter_factory({
-                'auth_host': 'example.com', 'auth_protocol': 'ftp'})(self.app)
-        self.assertEqual('Invalid auth_uri; scheme must be http or https',
-                         cm.exception.message)
-        for conf in [
-                {'auth_host': 'example.com/?with=query'},
-                {'auth_host': 'user:password@example.com'},
-                {'auth_host': 'example.com/#with-fragment'}]:
-            with self.assertRaises(ConfigFileError) as cm:
-                s3token.filter_factory(conf)(self.app)
             self.assertEqual('Invalid auth_uri; must not include username, '
                              'query, or fragment', cm.exception.message)
 
@@ -768,17 +723,15 @@ class S3TokenMiddlewareTestV3(S3TokenMiddlewareTestBase):
         self._assert_authorized(req)
 
     def test_authorized_http(self):
-        protocol = 'http'
-        host = 'fakehost'
-        port = 35357
+        # Following https://github.com/openstack/keystone/commit/3ec1aa4
+        # even v2 URLs would respond with a v3-format response
+        auth_uri = 'http://fakehost:35357/v2.0/'
         self.requests_mock.post(
-            '%s://%s:%s/v2.0/s3tokens' % (protocol, host, port),
+            auth_uri + 's3tokens',
             status_code=201, json=GOOD_RESPONSE_V3)
 
-        self.middleware = (
-            s3token.filter_factory({'auth_protocol': 'http',
-                                    'auth_host': host,
-                                    'auth_port': port})(self.app))
+        self.middleware = s3token.filter_factory({
+            'auth_uri': auth_uri})(self.app)
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
@@ -789,18 +742,13 @@ class S3TokenMiddlewareTestV3(S3TokenMiddlewareTestBase):
         self._assert_authorized(req)
 
     def test_authorized_v3(self):
-        protocol = 'http'
-        host = 'fakehost'
-        port = 35357
+        auth_uri = 'http://fakehost:35357/v3/'
         self.requests_mock.post(
-            '%s://%s:%s/v3/s3tokens' % (protocol, host, port),
+            auth_uri + 's3tokens',
             status_code=201, json=GOOD_RESPONSE_V3)
 
-        self.middleware = (
-            s3token.filter_factory({'auth_protocol': 'http',
-                                    'auth_host': host,
-                                    'auth_port': port,
-                                    'auth_version': '3'})(self.app))
+        self.middleware = s3token.filter_factory({
+            'auth_uri': auth_uri})(self.app)
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {
             'access_key': u'access',
