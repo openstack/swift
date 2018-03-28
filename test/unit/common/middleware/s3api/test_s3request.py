@@ -245,7 +245,7 @@ class TestRequest(S3ApiTestCase):
 
             m_swift_resp.return_value = FakeSwiftResponse()
             s3_req = S3AclRequest(req.environ, MagicMock())
-            self.assertNotIn('swift3.auth_details', s3_req.environ)
+            self.assertNotIn('s3api.auth_details', s3_req.environ)
             self.assertNotIn('HTTP_AUTHORIZATION', s3_req.environ)
             self.assertNotIn('Authorization', s3_req.headers)
             self.assertEqual(s3_req.token, 'token')
@@ -264,7 +264,7 @@ class TestRequest(S3ApiTestCase):
             m_swift_resp.return_value = FakeSwiftResponse()
             s3_req = S3AclRequest(req.environ, MagicMock())
             sw_req = s3_req.to_swift_req(method, container, obj)
-            self.assertNotIn('swift3.auth_details', sw_req.environ)
+            self.assertNotIn('s3api.auth_details', sw_req.environ)
             self.assertNotIn('HTTP_AUTHORIZATION', sw_req.environ)
             self.assertNotIn('Authorization', sw_req.headers)
             self.assertEqual(sw_req.headers['X-Auth-Token'], 'token')

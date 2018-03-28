@@ -422,7 +422,7 @@ class S3Request(swob.Request):
         self._validate_headers()
         # Lock in string-to-sign now, before we start messing with query params
         self.string_to_sign = self._string_to_sign()
-        self.environ['swift3.auth_details'] = {
+        self.environ['s3api.auth_details'] = {
             'access_key': self.access_key,
             'signature': self.signature,
             'string_to_sign': self.string_to_sign,
@@ -1342,7 +1342,7 @@ class S3AclRequest(S3Request):
         # Need to skip S3 authorization on subsequent requests to prevent
         # overwriting the account in PATH_INFO
         del self.headers['Authorization']
-        del self.environ['swift3.auth_details']
+        del self.environ['s3api.auth_details']
 
     def to_swift_req(self, method, container, obj, query=None,
                      body=None, headers=None):

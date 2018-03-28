@@ -228,7 +228,7 @@ class S3Token(object):
             return self._app(environ, start_response)
 
         # Read request signature and access id.
-        s3_auth_details = req.environ.get('swift3.auth_details')
+        s3_auth_details = req.environ.get('s3api.auth_details')
         if not s3_auth_details:
             msg = 'No authorization details from s3api. skipping.'
             self._logger.debug(msg)
