@@ -17,14 +17,11 @@ import base64
 import calendar
 import email.utils
 import re
-import socket
 import time
-from urllib import unquote
 import uuid
 
 # Need for check_path_header
 from swift.common import utils
-from swift.common.swob import HTTPPreconditionFailed
 
 MULTIUPLOAD_SUFFIX = '+segments'
 
@@ -68,48 +65,6 @@ def utf8decode(s):
     if isinstance(s, str):
         s = s.decode('utf8')
     return s
-
-
-def check_path_header(req, name, length, error_msg):
-    # FIXME: replace swift.common.constraints check_path_header
-    #        when swift3 supports swift 2.2 or later
-    """
-    Validate that the value of path-like header is
-    well formatted. We assume the caller ensures that
-    specific header is present in req.headers.
-
-    :param req: HTTP request object
-    :param name: header name
-    :param length: length of path segment check
-    :param error_msg: error message for client
-    :returns: A tuple with path parts according to length
-    :raise: HTTPPreconditionFailed if header value
-            is not well formatted.
-    """
-    src_header = unquote(req.headers.get(name))
-    if not src_header.startswith('/'):
-        src_header = '/' + src_header
-    try:
-        return utils.split_path(src_header, length, length, True)
-    except ValueError:
-        raise HTTPPreconditionFailed(
-            request=req,
-            body=error_msg)
-
-
-def is_valid_ipv6(ip):
-    # FIXME: replace with swift.common.ring.utils is_valid_ipv6
-    #        when swift3 requires swift 2.3 or later
-    #        --or--
-    #        swift.common.utils is_valid_ipv6 when swift3 requires swift>2.9
-    """
-    Returns True if the provided ip is a valid IPv6-address
-    """
-    try:
-        socket.inet_pton(socket.AF_INET6, ip)
-    except socket.error:  # not a valid IPv6 address
-        return False
-    return True
 
 
 def validate_bucket_name(name, dns_compliant_bucket_names):

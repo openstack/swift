@@ -40,10 +40,9 @@ from six.moves import urllib
 
 from swift.common.swob import Request, HTTPBadRequest, HTTPUnauthorized, \
     HTTPException
-from swift.common.utils import config_true_value, split_path, get_logger
+from swift.common.utils import config_true_value, split_path, get_logger, \
+    is_valid_ipv6
 from swift.common.wsgi import ConfigFileError
-
-from swift.common.middleware.s3api.utils import is_valid_ipv6
 
 
 PROTOCOL_NAME = 'S3 Token Authentication'

@@ -36,6 +36,7 @@ from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers.base import get_container_info, \
     headers_to_container_info
+from swift.common.request_helpers import check_path_header
 
 from swift.common.middleware.s3api.controllers import ServiceController, \
     ObjectController, AclController, MultiObjectDeleteController, \
@@ -53,7 +54,7 @@ from swift.common.middleware.s3api.response import AccessDenied, \
 from swift.common.middleware.s3api.exception import NotS3Request, \
     BadSwiftRequest
 from swift.common.middleware.s3api.utils import utf8encode, \
-    check_path_header, S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
+    S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
     validate_bucket_name
