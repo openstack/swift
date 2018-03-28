@@ -592,19 +592,6 @@ class UploadController(Controller):
             self.logger.error(e)
             raise exc_type, exc_value, exc_traceback
 
-        # Following swift commit 7f636a5, zero-byte segments aren't allowed,
-        # even as the final segment
-        empty_seg = None
-        if manifest[-1]['size_bytes'] == 0:
-            empty_seg = manifest.pop()
-
-            # We'll check the sizes of all except the last segment below, but
-            # since we just popped off a zero-byte segment, we should check
-            # that last segment, too.
-            if manifest and \
-                    manifest[-1]['size_bytes'] < self.conf.min_segment_size:
-                raise EntityTooSmall()
-
         # Check the size of each segment except the last and make sure they are
         # all more than the minimum upload chunk size
         for info in manifest[:-1]:
@@ -633,12 +620,6 @@ class UploadController(Controller):
                 raise EntityTooSmall(msg)
             else:
                 raise
-
-        if empty_seg:
-            # clean up the zero-byte segment
-            _, empty_seg_cont, empty_seg_name = empty_seg['path'].split('/', 2)
-            req.get_response(self.app, 'DELETE',
-                             container=empty_seg_cont, obj=empty_seg_name)
 
         # clean up the multipart-upload record
         obj = '%s/%s' % (req.object_name, upload_id)
