@@ -375,8 +375,8 @@ class ContainerSharder(ContainerReplicator):
                               part, dest_broker, node_id, info):
         success, responses = self._replicate_object(
             part, dest_broker.db_file, node_id)
-        if (not success and
-                responses.count(True) < quorum_size(self.ring.replica_count)):
+        quorum = quorum_size(self.ring.replica_count)
+        if not success and responses.count(True) < quorum:
             self.logger.warning(
                 'Failed to sufficiently replicate misplaced objects: %s in %s '
                 '(not removing)', dest_shard_range, broker.path)
@@ -403,10 +403,9 @@ class ContainerSharder(ContainerReplicator):
                 dest_shard_range, broker.path)
         return success
 
-    def _move_misplaced_objects(self, broker, src_shard_range, policy_index,
-                                dest_shard_ranges):
-        # map shard range -> broker
-        brokers = {}
+    def _move_objects(self, broker, src_shard_range, policy_index,
+                      dest_shard_ranges):
+        brokers = {}  # map shard range -> broker
         placed = unplaced = 0
         for objs, dest_shard_range, info in self.yield_objects_to_shard_range(
                 broker, src_shard_range, policy_index, dest_shard_ranges):
@@ -441,38 +440,39 @@ class ContainerSharder(ContainerReplicator):
                 'Failed to find destination for at least %s misplaced objects'
                 % unplaced)
 
-        if not brokers:
-            return False
-
         # TODO: consider executing the replication jobs concurrently
+        success = True
         for dest_shard_range, dest_args in brokers.items():
             self.logger.debug('moving misplaced objects found in range %s' %
                               dest_shard_range)
-            self._replicate_and_delete(broker, policy_index, dest_shard_range,
-                                       **dest_args)
+            success &= self._replicate_and_delete(
+                broker, policy_index, dest_shard_range, **dest_args)
 
+        self._increment_stat('misplaced', 'placed', step=placed)
+        self._increment_stat('misplaced', 'unplaced', step=unplaced)
         self.logger.debug('Moved %s misplaced objects' % placed)
-        return True
+        return success, placed + unplaced
 
-    def _misplaced_objects(self, broker):
+    def _move_misplaced_objects(self, broker):
         """
         Search for objects in the given broker that do not belong in that
         broker's namespace and move those objects to their correct shard
         container.
 
         :param broker: An instance of :class:`swift.container.ContainerBroker`
+        :return: True if all misplaced objects were sufficiently replicated to
+            their correct shard containers, False otherwise
         """
-
         if broker.is_deleted():
             self.logger.debug('Not looking for misplaced objects in deleted '
                               'container %s (%s)', broker.path, broker.db_file)
-            return
+            return True
 
         own_shard_range = broker.get_own_shard_range()
         if own_shard_range.state == ShardRange.EXPANDING:
             self.logger.debug('Not looking for misplaced objects in expanding '
                               'container %s (%s)', broker.path, broker.db_file)
-            return
+            return True
 
         self.logger.debug('Looking for misplaced objects in %s (%s)',
                           broker.path, broker.db_file)
@@ -513,7 +513,7 @@ class ContainerSharder(ContainerReplicator):
 
         if not queries:
             self._increment_stat('misplaced', 'success')
-            return
+            return True
 
         def make_dest_shard_ranges():
             # returns a function that will lazy load shard ranges on demand;
@@ -534,14 +534,18 @@ class ContainerSharder(ContainerReplicator):
             return dest_shard_ranges
 
         self.logger.debug('misplaced object queries %s' % queries)
-        misplaced_items = False
+        success = True
+        num_found = 0
         for query in queries:
-            misplaced_items |= self._move_misplaced_objects(
+            part_success, part_num_found = self._move_objects(
                 broker, query, policy_index, make_dest_shard_ranges())
+            success &= part_success
+            num_found += part_num_found
 
-        if misplaced_items:
+        if num_found:
             self.logger.increment('misplaced_items_found')
             self._increment_stat('misplaced', 'found')
+        self._increment_stat('misplaced', 'success' if success else 'failure')
 
         # wipe out the cache to disable bypass in delete_db
         cleanups = self.shard_cleanups or {}
@@ -551,8 +555,9 @@ class ContainerSharder(ContainerReplicator):
         for container in cleanups.values():
             self.cpool.spawn(self.delete_db, container)
         self.cpool.waitall(None)
-        self._increment_stat('misplaced', 'success')
+
         self.logger.info('Finished misplaced shard replication')
+        return success
 
     def _post_replicate_hook(self, broker, info, responses):
         return
@@ -710,7 +715,7 @@ class ContainerSharder(ContainerReplicator):
         #     continue
 
         # now look and deal with misplaced objects.
-        self._misplaced_objects(broker)
+        self._move_misplaced_objects(broker)
 
         if broker.is_deleted():
             # This container is deleted so we can skip it. We still want
