@@ -273,7 +273,7 @@ class TempAuth(object):
             return self.app(env, start_response)
         if env.get('PATH_INFO', '').startswith(self.auth_prefix):
             return self.handle(env, start_response)
-        s3 = env.get('swift3.auth_details')
+        s3 = env.get('s3api.auth_details')
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         service_token = env.get('HTTP_X_SERVICE_TOKEN')
         if s3 or (token and token.startswith(self.reseller_prefix)):
@@ -433,7 +433,7 @@ class TempAuth(object):
             if expires < time():
                 groups = None
 
-        s3_auth_details = env.get('swift3.auth_details')
+        s3_auth_details = env.get('s3api.auth_details')
         if s3_auth_details:
             if 'check_signature' not in s3_auth_details:
                 self.logger.warning(

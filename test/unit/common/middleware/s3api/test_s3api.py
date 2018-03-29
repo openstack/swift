@@ -117,7 +117,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             with patch('swift.common.middleware.s3api.s3request.'
                        'S3Request._validate_headers'):
                 req = S3Request(env)
-            return req.environ['swift3.auth_details']['string_to_sign']
+            return req.environ['s3api.auth_details']['string_to_sign']
 
         def verify(hash, path, headers):
             s = canonical_string(path, headers)
@@ -387,7 +387,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                         'S3Request.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
         _, _, headers = self.swift.calls_with_headers[-1]
-        self.assertEqual(req.environ['swift3.auth_details'], {
+        self.assertEqual(req.environ['s3api.auth_details'], {
             'access_key': 'test:tester',
             'signature': 'hmac',
             'string_to_sign': '\n'.join([
