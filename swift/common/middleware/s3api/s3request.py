@@ -43,9 +43,9 @@ from swift.common.middleware.s3api.controllers import ServiceController, \
     LocationController, LoggingStatusController, PartController, \
     UploadController, UploadsController, VersioningController, \
     UnsupportedController, S3AclController, BucketController
-from swift.common.middleware.s3api.response import AccessDenied, \
+from swift.common.middleware.s3api.s3response import AccessDenied, \
     InvalidArgument, InvalidDigest, \
-    RequestTimeTooSkewed, Response, SignatureDoesNotMatch, \
+    RequestTimeTooSkewed, S3Response, SignatureDoesNotMatch, \
     BucketAlreadyExists, BucketNotEmpty, EntityTooLarge, \
     InternalError, NoSuchBucket, NoSuchKey, PreconditionFailed, InvalidRange, \
     MissingContentLength, InvalidStorageClass, S3NotImplemented, InvalidURI, \
@@ -1148,7 +1148,7 @@ class S3Request(swob.Request):
                       headers=None, body=None, query=None):
         """
         Calls the application with this request's environment.  Returns a
-        Response object that wraps up the application's result.
+        S3Response object that wraps up the application's result.
         """
 
         method = method or self.environ['REQUEST_METHOD']
@@ -1168,7 +1168,7 @@ class S3Request(swob.Request):
                                         2, 3, True)
         self.account = utf8encode(self.account)
 
-        resp = Response.from_swift_resp(sw_resp)
+        resp = S3Response.from_swift_resp(sw_resp)
         status = resp.status_int  # pylint: disable-msg=E1101
 
         if not self.user_id:

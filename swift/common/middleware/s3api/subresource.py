@@ -18,7 +18,7 @@ from functools import partial
 from swift.common.utils import json
 
 from swift.common.middleware.s3api.etree import tostring
-from swift.common.middleware.s3api.response import InvalidArgument, \
+from swift.common.middleware.s3api.s3response import InvalidArgument, \
     MalformedACLError, S3NotImplemented, InvalidRequest, AccessDenied
 from swift.common.middleware.s3api.etree import Element, SubElement
 from swift.common.middleware.s3api.utils import sysmeta_header

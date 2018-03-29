@@ -23,7 +23,7 @@ from swift.common.utils import json, public, config_true_value
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring, \
     fromstring, XMLSyntaxError, DocumentInvalid
-from swift.common.middleware.s3api.response import HTTPOk, S3NotImplemented, \
+from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented, \
     InvalidArgument, \
     MalformedXML, InvalidLocationConstraint, NoSuchBucket, \
     BucketNotEmpty, InternalError, ServiceUnavailable, NoSuchKey

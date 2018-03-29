@@ -22,7 +22,7 @@ from hashlib import md5
 from swift.common.swob import Request, HTTPAccepted
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement, XMLNS_XSI
-from swift.common.middleware.s3api.response import InvalidArgument
+from swift.common.middleware.s3api.s3response import InvalidArgument
 from swift.common.middleware.s3api.acl_utils import handle_acl_header
 
 from test.unit.common.middleware.s3api import S3ApiTestCase

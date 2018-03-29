@@ -15,7 +15,7 @@
 
 import functools
 
-from swift.common.middleware.s3api.response import S3NotImplemented, \
+from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRequest
 from swift.common.middleware.s3api.utils import camel_to_snake
 

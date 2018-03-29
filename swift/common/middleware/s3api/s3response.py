@@ -63,14 +63,14 @@ class HeaderKeyDict(swob.HeaderKeyDict):
         return swob.HeaderKeyDict.pop(self, HeaderKey(key), default)
 
 
-class ResponseBase(object):
+class S3ResponseBase(object):
     """
     Base class for swift3 responses.
     """
     pass
 
 
-class Response(ResponseBase, swob.Response):
+class S3Response(S3ResponseBase, swob.Response):
     """
     Similar to the Response class in Swift, but uses our HeaderKeyDict for
     headers instead of Swift's HeaderKeyDict.  This also translates Swift
@@ -155,9 +155,9 @@ class Response(ResponseBase, swob.Response):
             body = sw_resp.body
             app_iter = None
 
-        resp = Response(status=sw_resp.status, headers=sw_resp.headers,
-                        request=sw_resp.request, body=body, app_iter=app_iter,
-                        conditional_response=sw_resp.conditional_response)
+        resp = cls(status=sw_resp.status, headers=sw_resp.headers,
+                   request=sw_resp.request, body=body, app_iter=app_iter,
+                   conditional_response=sw_resp.conditional_response)
         resp.environ.update(sw_resp.environ)
 
         return resp
@@ -171,14 +171,14 @@ class Response(ResponseBase, swob.Response):
         self.etag = None
 
 
-HTTPOk = partial(Response, status=200)
-HTTPCreated = partial(Response, status=201)
-HTTPAccepted = partial(Response, status=202)
-HTTPNoContent = partial(Response, status=204)
-HTTPPartialContent = partial(Response, status=206)
+HTTPOk = partial(S3Response, status=200)
+HTTPCreated = partial(S3Response, status=201)
+HTTPAccepted = partial(S3Response, status=202)
+HTTPNoContent = partial(S3Response, status=204)
+HTTPPartialContent = partial(S3Response, status=206)
 
 
-class ErrorResponse(ResponseBase, swob.HTTPException):
+class ErrorResponse(S3ResponseBase, swob.HTTPException):
     """
     S3 error object.
 

@@ -17,7 +17,7 @@ from urllib import quote
 from swift.common.utils import public
 
 from swift.common.middleware.s3api.controllers.base import Controller
-from swift.common.middleware.s3api.response import HTTPOk
+from swift.common.middleware.s3api.s3response import HTTPOk
 from swift.common.middleware.s3api.etree import tostring
 
 

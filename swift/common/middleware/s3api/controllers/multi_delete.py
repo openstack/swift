@@ -21,7 +21,7 @@ from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
-from swift.common.middleware.s3api.response import HTTPOk, S3NotImplemented, \
+from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented, \
     NoSuchKey, ErrorResponse, MalformedXML, UserKeyMustBeSpecified, \
     AccessDenied, MissingRequestBodyError
 

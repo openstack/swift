@@ -44,8 +44,8 @@ from swift.common.wsgi import PipelineWrapper, loadcontext
 from swift.common.middleware.s3api.exception import NotS3Request, \
     InvalidSubresource
 from swift.common.middleware.s3api.s3request import get_request_class
-from swift.common.middleware.s3api.response import ErrorResponse, \
-    InternalError, MethodNotAllowed, ResponseBase, S3NotImplemented
+from swift.common.middleware.s3api.s3response import ErrorResponse, \
+    InternalError, MethodNotAllowed, S3ResponseBase, S3NotImplemented
 from swift.common.utils import get_logger, register_swift_info, \
     config_true_value, config_positive_int_value
 from swift.common.middleware.s3api.utils import Config
@@ -112,7 +112,7 @@ class S3ApiMiddleware(object):
             self.logger.exception(e)
             resp = InternalError(reason=e)
 
-        if isinstance(resp, ResponseBase) and 'swift.trans_id' in env:
+        if isinstance(resp, S3ResponseBase) and 'swift.trans_id' in env:
             resp.headers['x-amz-id-2'] = env['swift.trans_id']
             resp.headers['x-amz-request-id'] = env['swift.trans_id']
 

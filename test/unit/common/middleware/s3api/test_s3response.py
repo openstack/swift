@@ -17,7 +17,7 @@ import unittest
 
 from swift.common.swob import Response
 from swift.common.utils import HeaderKeyDict
-from swift.common.middleware.s3api.response import Response as S3Response
+from swift.common.middleware.s3api.s3response import S3Response
 from swift.common.middleware.s3api.utils import sysmeta_prefix
 
 

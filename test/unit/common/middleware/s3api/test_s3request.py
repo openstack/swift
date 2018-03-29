@@ -25,7 +25,7 @@ from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
 from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
 from swift.common.middleware.s3api.s3request import S3Request, \
     S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT
-from swift.common.middleware.s3api.response import InvalidArgument, \
+from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed
 

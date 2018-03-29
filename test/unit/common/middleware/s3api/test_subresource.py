@@ -17,7 +17,7 @@ import unittest
 
 from swift.common.utils import json
 
-from swift.common.middleware.s3api.response import AccessDenied, \
+from swift.common.middleware.s3api.s3response import AccessDenied, \
     InvalidArgument, S3NotImplemented
 from swift.common.middleware.s3api.subresource import User, \
     AuthenticatedUsers, AllUsers, \

@@ -54,7 +54,7 @@ from six.moves.urllib.parse import urlparse  # pylint: disable=F0401
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
-from swift.common.middleware.s3api.response import InvalidArgument, \
+from swift.common.middleware.s3api.s3response import InvalidArgument, \
     ErrorResponse, MalformedXML, \
     InvalidPart, BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, \
     InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \

@@ -16,7 +16,7 @@
 import sys
 
 from swift.common.middleware.s3api.subresource import ACL, Owner, encode_acl
-from swift.common.middleware.s3api.response import MissingSecurityHeader, \
+from swift.common.middleware.s3api.s3response import MissingSecurityHeader, \
     MalformedACLError, UnexpectedContent
 from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid

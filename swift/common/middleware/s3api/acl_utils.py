@@ -16,7 +16,7 @@
 from swift.common.middleware.s3api.exception import ACLError
 from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid, XMLNS_XSI
-from swift.common.middleware.s3api.response import S3NotImplemented, \
+from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     MalformedACLError, InvalidArgument
 
 
