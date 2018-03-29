@@ -571,7 +571,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertTrue('X-Container-Read' in headers)
         self.assertEqual(headers.get('X-Container-Read'), '.r:*,.rlistings')
-        self.assertTrue('X-Container-Sysmeta-Swift3-Acl' not in headers)
+        self.assertNotIn('X-Container-Sysmeta-S3api-Acl', headers)
 
     @s3acl(s3acl_only=True)
     def test_bucket_PUT_with_canned_s3acl(self):
@@ -586,10 +586,10 @@ class TestS3ApiBucket(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
         _, _, headers = self.swift.calls_with_headers[-1]
-        self.assertTrue('X-Container-Read' not in headers)
-        self.assertTrue('X-Container-Sysmeta-Swift3-Acl' in headers)
-        self.assertEqual(headers.get('X-Container-Sysmeta-Swift3-Acl'),
-                         acl['x-container-sysmeta-swift3-acl'])
+        self.assertNotIn('X-Container-Read', headers)
+        self.assertIn('X-Container-Sysmeta-S3api-Acl', headers)
+        self.assertEqual(headers.get('X-Container-Sysmeta-S3api-Acl'),
+                         acl['x-container-sysmeta-s3api-acl'])
 
     @s3acl
     def test_bucket_PUT_with_location_error(self):

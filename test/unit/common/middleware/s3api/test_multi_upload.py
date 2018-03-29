@@ -92,8 +92,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             swob.HTTPOk,
                             {'x-object-meta-foo': 'bar',
                              'content-type': 'application/directory',
-                             'x-object-sysmeta-swift3-has-content-type': 'yes',
-                             'x-object-sysmeta-swift3-content-type':
+                             'x-object-sysmeta-s3api-has-content-type': 'yes',
+                             'x-object-sysmeta-s3api-content-type':
                              'baz/quux'}, None)
         self.swift.register('PUT', segment_bucket + '/object/X',
                             swob.HTTPCreated, {}, None)
@@ -580,9 +580,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         _, _, req_headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req_headers.get('X-Object-Meta-Foo'), 'bar')
         self.assertEqual(req_headers.get(
-            'X-Object-Sysmeta-Swift3-Has-Content-Type'), 'yes')
+            'X-Object-Sysmeta-S3api-Has-Content-Type'), 'yes')
         self.assertEqual(req_headers.get(
-            'X-Object-Sysmeta-Swift3-Content-Type'), 'cat/picture')
+            'X-Object-Sysmeta-S3api-Content-Type'), 'cat/picture')
         tmpacl_header = req_headers.get(sysmeta_header('object', 'tmpacl'))
         self.assertTrue(tmpacl_header)
         acl_header = encode_acl('object',
@@ -609,7 +609,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         _, _, req_headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req_headers.get('X-Object-Meta-Foo'), 'bar')
         self.assertEqual(req_headers.get(
-            'X-Object-Sysmeta-Swift3-Has-Content-Type'), 'no')
+            'X-Object-Sysmeta-S3api-Has-Content-Type'), 'no')
         tmpacl_header = req_headers.get(sysmeta_header('object', 'tmpacl'))
         self.assertTrue(tmpacl_header)
         acl_header = encode_acl('object',
@@ -708,7 +708,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_object_multipart_upload_complete_no_content_type(self):
         self.swift.register_unconditionally(
             'HEAD', '/v1/AUTH_test/bucket+segments/object/X',
-            swob.HTTPOk, {"X-Object-Sysmeta-Swift3-Has-Content-Type": "no"},
+            swob.HTTPOk, {"X-Object-Sysmeta-S3api-Has-Content-Type": "no"},
             None)
 
         req = Request.blank('/bucket/object?uploadId=X',

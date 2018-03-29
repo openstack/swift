@@ -30,10 +30,10 @@ def sysmeta_prefix(resource):
     """
     Returns the system metadata prefix for given resource type.
     """
-    if resource == 'object':
-        return 'x-object-sysmeta-swift3-'
+    if resource.lower() == 'object':
+        return 'x-object-sysmeta-s3api-'
     else:
-        return 'x-container-sysmeta-swift3-'
+        return 'x-container-sysmeta-s3api-'
 
 
 def sysmeta_header(resource, name):

@@ -19,6 +19,7 @@ from functools import partial
 
 from swift.common import swob
 from swift.common.utils import config_true_value
+from swift.common.request_helpers import is_sys_meta
 
 from swift.common.middleware.s3api.utils import snake_to_camel, sysmeta_prefix
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
@@ -87,11 +88,34 @@ class Response(ResponseBase, swob.Response):
         headers = HeaderKeyDict()
         self.is_slo = False
 
+        def is_swift3_sysmeta(sysmeta_key, server_type):
+            swift3_sysmeta_prefix = (
+                'x-%s-sysmeta-swift3' % server_type).lower()
+            if sysmeta_key.lower().startswith(swift3_sysmeta_prefix):
+                return True
+            return False
+
+        def is_s3api_sysmeta(sysmeta_key, server_type):
+            s3api_sysmeta_prefix = sysmeta_prefix(_server_type).lower()
+            if sysmeta_key.lower().startswith(s3api_sysmeta_prefix):
+                return True
+            return False
+
         for key, val in self.headers.iteritems():
-            _key = key.lower()
-            if _key.startswith(sysmeta_prefix('object')) or \
-                    _key.startswith(sysmeta_prefix('container')):
-                sw_sysmeta_headers[key] = val
+            if is_sys_meta('object', key) or is_sys_meta('container', key):
+                _server_type = key.split('-')[1]
+                if is_swift3_sysmeta(key, _server_type):
+                    # To be compatible with older swift3, translate swift3
+                    # sysmeta to s3api sysmeta here
+                    key = sysmeta_prefix(_server_type) + \
+                        key[len('x-%s-sysmeta-swift3-' % _server_type):]
+
+                    if key not in sw_sysmeta_headers:
+                        # To avoid overwrite s3api sysmeta by older swift3
+                        # sysmeta set the key only when the key does not exist
+                        sw_sysmeta_headers[key] = val
+                elif is_s3api_sysmeta(key, _server_type):
+                    sw_sysmeta_headers[key] = val
             else:
                 sw_headers[key] = val
 

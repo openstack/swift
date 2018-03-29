@@ -480,7 +480,7 @@ use = egg:swift#s3api
 # max_multi_delete_objects = 1000
 #
 # If set to 'true', s3api uses its own metadata for ACL
-# (e.g. X-Container-Sysmeta-Swift3-Acl) to achieve the best S3 compatibility.
+# (e.g. X-Container-Sysmeta-S3Api-Acl) to achieve the best S3 compatibility.
 # If set to 'false', s3api tries to use Swift ACL (e.g. X-Container-Read)
 # instead of S3 ACL as far as possible.  If you want to keep backward
 # compatibility with Swift3 1.7 or earlier, set false here
