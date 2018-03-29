@@ -818,12 +818,11 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/empty-bucket+segments/object/X'),
             ('GET', '/v1/AUTH_test/empty-bucket+segments?delimiter=/&'
                     'format=json&prefix=object/X/'),
-            # note the lack of multipart-manifest=put below
-            ('PUT', '/v1/AUTH_test/empty-bucket/object'),
-            ('DELETE', '/v1/AUTH_test/empty-bucket+segments/object/X/1'),
+            ('PUT',
+             '/v1/AUTH_test/empty-bucket/object?multipart-manifest=put'),
             ('DELETE', '/v1/AUTH_test/empty-bucket+segments/object/X'),
         ])
-        _, _, put_headers = self.swift.calls_with_headers[-3]
+        _, _, put_headers = self.swift.calls_with_headers[-2]
         self.assertEqual(put_headers.get('X-Object-Meta-Foo'), 'bar')
         self.assertEqual(put_headers.get('Content-Type'), 'baz/quux')
 
@@ -936,7 +935,6 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             ('GET', '/v1/AUTH_test/bucket+segments?delimiter=/&'
                     'format=json&prefix=object/X/'),
             ('PUT', '/v1/AUTH_test/bucket/object?multipart-manifest=put'),
-            ('DELETE', '/v1/AUTH_test/bucket+segments/object/X/3'),
             ('DELETE', '/v1/AUTH_test/bucket+segments/object/X'),
         ])
 
