@@ -303,7 +303,7 @@ class AuthenticatedUsers(Group):
     uri = 'http://acs.amazonaws.com/groups/global/AuthenticatedUsers'
 
     def __contains__(self, key):
-        # Swift3 handles only signed requests.
+        # s3api handles only signed requests.
         return True
 
 
@@ -313,7 +313,7 @@ class AllUsers(Group):
     requests can be signed (authenticated) or unsigned (anonymous).  Unsigned
     requests omit the Authentication header in the request.
 
-    Note: Swift3 regards unsigned requests as Swift API accesses, and bypasses
+    Note: s3api regards unsigned requests as Swift API accesses, and bypasses
     them to Swift.  As a result, AllUsers behaves completely same as
     AuthenticatedUsers.
     """

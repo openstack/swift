@@ -570,7 +570,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.assertIn("missing filters ['s3api']",
                           cm.exception.message)
 
-    def test_swift3_initialization_with_disabled_pipeline_check(self):
+    def test_s3api_initialization_with_disabled_pipeline_check(self):
         with patch("swift.common.middleware.s3api.s3api.loadcontext"), \
                 patch("swift.common.middleware.s3api.s3api.PipelineWrapper") \
                 as pipeline:
@@ -904,7 +904,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '403', body)
 
-    def test_swift3_with_only_s3_token(self):
+    def test_s3api_with_only_s3_token(self):
         self.swift = FakeSwift()
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
@@ -930,7 +930,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.assertEqual(body, '')
             self.assertEqual(1, mock_req.call_count)
 
-    def test_swift3_with_only_s3_token_v3(self):
+    def test_s3api_with_only_s3_token_v3(self):
         self.swift = FakeSwift()
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
@@ -956,7 +956,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.assertEqual(body, '')
             self.assertEqual(1, mock_req.call_count)
 
-    def test_swift3_with_s3_token_and_auth_token(self):
+    def test_s3api_with_s3_token_and_auth_token(self):
         self.swift = FakeSwift()
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
@@ -994,7 +994,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                 # connect to keystone in auth_token, again
                 self.assertEqual(1, mock_fetch.call_count)
 
-    def test_swift3_with_s3_token_no_pass_token_to_auth_token(self):
+    def test_s3api_with_s3_token_no_pass_token_to_auth_token(self):
         self.swift = FakeSwift()
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})

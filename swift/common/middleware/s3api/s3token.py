@@ -24,7 +24,7 @@ S3 Token Middleware
 
 This WSGI component:
 
-* Gets a request from the swift3 middleware with an S3 Authorization
+* Gets a request from the s3api middleware with an S3 Authorization
   access key.
 * Validates s3 token in Keystone.
 * Transforms the account name to AUTH_%(tenant_name).

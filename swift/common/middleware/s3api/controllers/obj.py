@@ -101,7 +101,7 @@ class ObjectController(Controller):
         """
         Handle PUT Object and PUT Object (Copy) request
         """
-        # set X-Timestamp by swift3 to use at copy resp body
+        # set X-Timestamp by s3api to use at copy resp body
         req_timestamp = S3Timestamp.now()
         req.headers['X-Timestamp'] = req_timestamp.internal
         if all(h in req.headers

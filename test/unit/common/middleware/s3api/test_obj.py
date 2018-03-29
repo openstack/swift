@@ -498,11 +498,11 @@ class TestS3ApiObj(S3ApiTestCase):
         # Check that s3api does not return an etag header,
         # specified copy source.
         self.assertTrue(headers.get('etag') is None)
-        # Check that swift3 does not return custom metadata in response
+        # Check that s3api does not return custom metadata in response
         self.assertTrue(headers.get('x-amz-meta-something') is None)
 
         _, _, headers = self.swift.calls_with_headers[-1]
-        # Check that swift3 converts a Content-MD5 header into an etag.
+        # Check that s3api converts a Content-MD5 header into an etag.
         self.assertEqual(headers['ETag'], self.etag)
         self.assertEqual(headers['X-Object-Meta-Something'], 'oh hai')
         self.assertEqual(headers['X-Object-Meta-Unreadable-Prefix'],
@@ -696,7 +696,7 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(len(self.swift.calls_with_headers), 3)
         # After the check of the copy source in the case of s3acl is valid,
-        # Swift3 check the bucket write permissions of the destination.
+        # s3api check the bucket write permissions of the destination.
         _, _, headers = self.swift.calls_with_headers[-2]
         self.assertTrue(headers.get('If-Match') is None)
         self.assertTrue(headers.get('If-Modified-Since') is None)
@@ -738,7 +738,7 @@ class TestS3ApiObj(S3ApiTestCase):
             self._test_object_PUT_copy(swob.HTTPOk, header)
         self.assertEqual(status.split()[0], '200')
         # After the check of the copy source in the case of s3acl is valid,
-        # Swift3 check the bucket write permissions of the destination.
+        # s3api check the bucket write permissions of the destination.
         self.assertEqual(len(self.swift.calls_with_headers), 3)
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertTrue(headers.get('If-None-Match') is None)

@@ -1575,7 +1575,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(len(self.swift.calls_with_headers), 4)
         # Before the check of the copy source in the case of s3acl is valid,
-        # Swift3 check the bucket write permissions and the object existence
+        # s3api check the bucket write permissions and the object existence
         # of the destination.
         _, _, headers = self.swift.calls_with_headers[-3]
         self.assertTrue(headers.get('If-Match') is None)
@@ -1626,7 +1626,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(len(self.swift.calls_with_headers), 4)
         # Before the check of the copy source in the case of s3acl is valid,
-        # Swift3 check the bucket write permissions and the object existence
+        # s3api check the bucket write permissions and the object existence
         # of the destination.
         _, _, headers = self.swift.calls_with_headers[-3]
         self.assertTrue(headers.get('If-Match') is None)

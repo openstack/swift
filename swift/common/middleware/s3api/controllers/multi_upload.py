@@ -17,7 +17,7 @@
 Implementation of S3 Multipart Upload.
 
 This module implements S3 Multipart Upload APIs with the Swift SLO feature.
-The following explains how swift3 uses swift container and objects to store S3
+The following explains how s3api uses swift container and objects to store S3
 upload information:
 
  - [bucket]+segments

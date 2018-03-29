@@ -223,7 +223,7 @@ class BucketController(Controller):
                 raise exc_type, exc_value, exc_traceback
 
             if location != self.conf.location:
-                # Swift3 cannot support multiple regions currently.
+                # s3api cannot support multiple regions currently.
                 raise InvalidLocationConstraint()
 
         resp = req.get_response(self.app)

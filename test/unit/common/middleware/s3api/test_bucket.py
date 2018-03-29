@@ -631,7 +631,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         code = self._test_method_error_delete('/bucket', swob.HTTPServerError)
         self.assertEqual(code, 'InternalError')
 
-        # bucket not empty is now validated at swift3
+        # bucket not empty is now validated at s3api
         self.swift.register('HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
                             {'X-Container-Object-Count': '1'}, None)
         code = self._test_method_error('DELETE', '/bucket', swob.HTTPConflict)

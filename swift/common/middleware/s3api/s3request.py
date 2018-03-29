@@ -582,7 +582,7 @@ class S3Request(swob.Request):
             return self._parse_header_authentication()
         else:
             # if this request is neither query auth nor header auth
-            # swift3 regard this as not s3 request
+            # s3api regard this as not s3 request
             raise NotS3Request()
 
     def _validate_expire_param(self):
@@ -1213,7 +1213,8 @@ class S3Request(swob.Request):
         """
         get_response is an entry point to be extended for child classes.
         If additional tasks needed at that time of getting swift response,
-        we can override this method. swift3.request.Request need to just call
+        we can override this method.
+        swift.common.middleware.s3api.s3request.S3Request need to just call
         _get_response to get pure swift response.
         """
 
