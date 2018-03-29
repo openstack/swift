@@ -90,12 +90,13 @@ class TestDbUsyncReplicator(ReplProbeTest):
 
         expected_meta = {
             'x-container-meta-a': '2',
-            'x-container-meta-b': '2',
+            'x-container-meta-b': '3',
             'x-container-meta-c': '1',
             'x-container-meta-d': '2',
+            'x-container-meta-e': '3',
         }
 
-        # node that got the object updates still doesn't have the meta
+        # node that got the object updates now has the meta
         resp_headers = direct_client.direct_head_container(
             cnode, cpart, self.account, container)
         for header, value in expected_meta.items():
@@ -103,14 +104,6 @@ class TestDbUsyncReplicator(ReplProbeTest):
             self.assertEqual(value, resp_headers[header])
         self.assertNotIn(resp_headers.get('x-container-object-count'),
                          (None, '0', 0))
-
-        expected_meta = {
-            'x-container-meta-a': '2',
-            'x-container-meta-b': '3',
-            'x-container-meta-c': '1',
-            'x-container-meta-d': '2',
-            'x-container-meta-e': '3',
-        }
 
         # other nodes still have the meta, as well as objects
         for node in cnodes:

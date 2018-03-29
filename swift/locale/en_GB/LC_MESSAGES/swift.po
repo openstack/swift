@@ -10,16 +10,16 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-02-09 02:13+0000\n"
+"POT-Creation-Date: 2018-02-28 19:39+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2018-01-27 09:17+0000\n"
+"PO-Revision-Date: 2018-02-16 07:31+0000\n"
 "Last-Translator: Andi Chandler <andi@gowling.com>\n"
-"Language: en-GB\n"
+"Language: en_GB\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
-"X-Generator: Zanata 3.9.6\n"
+"X-Generator: Zanata 4.3.3\n"
 "Language-Team: English (United Kingdom)\n"
 
 msgid ""
@@ -673,10 +673,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr "Exception in top-level reconstruction loop"
 
 #, python-format
-msgid "Exception while deleting container %(container)s %(err)s"
-msgstr "Exception while deleting container %(container)s %(err)s"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Exception with %(ip)s:%(port)s/%(device)s"
 
@@ -926,14 +922,6 @@ msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 
 #, python-format
-msgid ""
-"Pass beginning; %(containers)s possible containers; %(objects)s possible "
-"objects"
-msgstr ""
-"Pass beginning; %(containers)s possible containers; %(objects)s possible "
-"objects"
-
-#, python-format
 msgid "Pass completed in %(time)ds; %(objects)d objects expired"
 msgstr "Pass completed in %(time)ds; %(objects)d objects expired"
 
@@ -975,6 +963,10 @@ msgstr "Problem with fragment response: %s"
 #, python-format
 msgid "Profiling Error: %s"
 msgstr "Profiling Error: %s"
+
+#, python-format
+msgid "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
+msgstr "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
 
 #, python-format
 msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"

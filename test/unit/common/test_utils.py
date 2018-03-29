@@ -72,7 +72,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import Request, Response
 from test.unit import FakeLogger, requires_o_tmpfile_support, \
-    quiet_eventlet_exceptions
+    requires_o_tmpfile_support_in_tmp, quiet_eventlet_exceptions
 
 threading = eventlet.patcher.original('threading')
 
@@ -183,6 +183,7 @@ class TestTimestamp(unittest.TestCase):
 
     def test_invalid_input(self):
         self.assertRaises(ValueError, utils.Timestamp, time.time(), offset=-1)
+        self.assertRaises(ValueError, utils.Timestamp, '123.456_78_90')
 
     def test_invalid_string_conversion(self):
         t = utils.Timestamp.now()
@@ -390,6 +391,8 @@ class TestTimestamp(unittest.TestCase):
         expected = '1402436408.91203_00000000000000f0'
         test_values = (
             '1402436408.91203_000000f0',
+            u'1402436408.91203_000000f0',
+            b'1402436408.91203_000000f0',
             '1402436408.912030000_0000000000f0',
             '1402436408.912029_000000f0',
             '1402436408.91202999999_0000000000f0',
@@ -621,16 +624,7 @@ class TestTimestamp(unittest.TestCase):
                             '%r is not greater than %r given %r' % (
                                 timestamp, int(other), value))
 
-    def test_greater_with_offset(self):
-        now = time.time()
-        older = now - 1
-        test_values = (
-            0, '0', 0.0, '0.0', '0000.0000', '000.000_000',
-            1, '1', 1.1, '1.1', '1111.1111', '111.111_111',
-            1402443346.935174, '1402443346.93517', '1402443346.935169_ffff',
-            older, '%f' % older, '%f_0000ffff' % older,
-            now, '%f' % now, '%f_00000000' % now,
-        )
+    def _test_greater_with_offset(self, now, test_values):
         for offset in range(1, 1000, 100):
             timestamp = utils.Timestamp(now, offset=offset)
             for value in test_values:
@@ -654,6 +648,43 @@ class TestTimestamp(unittest.TestCase):
                 self.assertTrue(timestamp > int(other),
                                 '%r is not greater than %r given %r' % (
                                     timestamp, int(other), value))
+
+    def test_greater_with_offset(self):
+        # Part 1: use the natural time of the Python. This is deliciously
+        # unpredictable, but completely legitimate and realistic. Finds bugs!
+        now = time.time()
+        older = now - 1
+        test_values = (
+            0, '0', 0.0, '0.0', '0000.0000', '000.000_000',
+            1, '1', 1.1, '1.1', '1111.1111', '111.111_111',
+            1402443346.935174, '1402443346.93517', '1402443346.935169_ffff',
+            older, now,
+        )
+        self._test_greater_with_offset(now, test_values)
+        # Part 2: Same as above, but with fixed time values that reproduce
+        # specific corner cases.
+        now = 1519830570.6949348
+        older = now - 1
+        test_values = (
+            0, '0', 0.0, '0.0', '0000.0000', '000.000_000',
+            1, '1', 1.1, '1.1', '1111.1111', '111.111_111',
+            1402443346.935174, '1402443346.93517', '1402443346.935169_ffff',
+            older, now,
+        )
+        self._test_greater_with_offset(now, test_values)
+        # Part 3: The '%f' problem. Timestamps cannot be converted to %f
+        # strings, then back to timestamps, then compared with originals.
+        # You can only "import" a floating point representation once.
+        now = 1519830570.6949348
+        now = float('%f' % now)
+        older = now - 1
+        test_values = (
+            0, '0', 0.0, '0.0', '0000.0000', '000.000_000',
+            1, '1', 1.1, '1.1', '1111.1111', '111.111_111',
+            older, '%f' % older, '%f_0000ffff' % older,
+            now, '%f' % now, '%s_00000000' % now,
+        )
+        self._test_greater_with_offset(now, test_values)
 
     def test_smaller_no_offset(self):
         now = time.time()
@@ -3518,6 +3549,22 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.get_hmac('GET', '/path', 1, 'abc'),
             'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
 
+    def test_parse_overrides(self):
+        devices, partitions = utils.parse_overrides(devices='sdb1,sdb2')
+        self.assertIn('sdb1', devices)
+        self.assertIn('sdb2', devices)
+        self.assertNotIn('sdb3', devices)
+        self.assertIn(1, partitions)
+        self.assertIn('1', partitions)  # matches because of Everything
+        self.assertIn(None, partitions)  # matches because of Everything
+        devices, partitions = utils.parse_overrides(partitions='1,2,3')
+        self.assertIn('sdb1', devices)
+        self.assertIn('1', devices)  # matches because of Everything
+        self.assertIn(None, devices)  # matches because of Everything
+        self.assertIn(1, partitions)
+        self.assertNotIn('1', partitions)
+        self.assertNotIn(None, partitions)
+
     def test_get_policy_index(self):
         # Account has no information about a policy
         req = Request.blank(
@@ -3807,7 +3854,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 patch('platform.architecture', return_value=('64bit', '')):
             self.assertRaises(OSError, utils.NR_ioprio_set)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_link_fd_to_path_linkat_success(self):
         tempdir = mkdtemp()
         fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
@@ -3827,7 +3874,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             os.close(fd)
             shutil.rmtree(tempdir)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_link_fd_to_path_target_exists(self):
         tempdir = mkdtemp()
         # Create and write to a file
@@ -3862,7 +3909,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 self.fail("Expecting IOError exception")
         self.assertTrue(_m_linkat.called)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_linkat_race_dir_not_exists(self):
         tempdir = mkdtemp()
         target_dir = os.path.join(tempdir, uuid4().hex)
@@ -3979,6 +4026,19 @@ cluster_dfw1 = http://dfw1.host/v1/
         # Make sure there is no change if the part power didn't change
         self.assertEqual(utils.replace_partition_in_path(old, 10), old)
         self.assertEqual(utils.replace_partition_in_path(new, 11), new)
+
+    def test_round_robin_iter(self):
+        it1 = iter([1, 2, 3])
+        it2 = iter([4, 5])
+        it3 = iter([6, 7, 8, 9])
+        it4 = iter([])
+
+        rr_its = utils.round_robin_iter([it1, it2, it3, it4])
+        got = list(rr_its)
+
+        # Expect that items get fetched in a round-robin fashion from the
+        # iterators
+        self.assertListEqual([1, 4, 6, 2, 5, 7, 3, 8, 9], got)
 
 
 class ResellerConfReader(unittest.TestCase):
@@ -4823,6 +4883,13 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(mock_controller.args[0], 'METHOD.timing')
         self.assertTrue(mock_controller.args[1] > 0)
 
+        mock_controller = MockController(400)
+        METHOD(mock_controller)
+        self.assertEqual(len(mock_controller.args), 2)
+        self.assertEqual(mock_controller.called, 'timing')
+        self.assertEqual(mock_controller.args[0], 'METHOD.timing')
+        self.assertTrue(mock_controller.args[1] > 0)
+
         mock_controller = MockController(404)
         METHOD(mock_controller)
         self.assertEqual(len(mock_controller.args), 2)
@@ -4844,7 +4911,14 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(mock_controller.args[0], 'METHOD.timing')
         self.assertTrue(mock_controller.args[1] > 0)
 
-        mock_controller = MockController(401)
+        mock_controller = MockController(500)
+        METHOD(mock_controller)
+        self.assertEqual(len(mock_controller.args), 2)
+        self.assertEqual(mock_controller.called, 'timing')
+        self.assertEqual(mock_controller.args[0], 'METHOD.errors.timing')
+        self.assertTrue(mock_controller.args[1] > 0)
+
+        mock_controller = MockController(507)
         METHOD(mock_controller)
         self.assertEqual(len(mock_controller.args), 2)
         self.assertEqual(mock_controller.called, 'timing')
