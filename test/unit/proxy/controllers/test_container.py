@@ -795,9 +795,12 @@ class TestContainerController(TestRingBase):
 
     def test_GET_sharded_container_overlapping_shards(self):
         # verify ordered listing even if unexpected overlapping shard ranges
-        shard_bounds = (('', 'ham'), ('', 'pie'), ('lemon', ''))
-        shard_ranges = [ShardRange('a/c', Timestamp.now(), lower, upper)
-                        for lower, upper in shard_bounds]
+        shard_bounds = (('', 'ham', ShardRange.CLEAVED),
+                        ('', 'pie', ShardRange.ACTIVE),
+                        ('lemon', '', ShardRange.ACTIVE))
+        shard_ranges = [
+            ShardRange('a/c', Timestamp.now(), lower, upper, state=state)
+            for lower, upper, state in shard_bounds]
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
         shard_resp_hdrs = [

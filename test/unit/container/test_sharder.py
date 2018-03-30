@@ -686,7 +686,7 @@ class TestSharder(unittest.TestCase):
             0, expected_shard_dbs[0], 0)
         shard_broker = ContainerBroker(expected_shard_dbs[0])
         shard_own_sr = shard_broker.get_own_shard_range()
-        self.assertEqual(ShardRange.ACTIVE, shard_own_sr.state)
+        self.assertEqual(ShardRange.CLEAVED, shard_own_sr.state)
         shard_info = shard_broker.get_info()
         total_shard_stats['object_count'] += shard_info['object_count']
         total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -696,7 +696,7 @@ class TestSharder(unittest.TestCase):
         # update expected state and metadata, check cleaved shard range
         shard_ranges[0].bytes_used = 20
         shard_ranges[0].object_count = 2
-        shard_ranges[0].state = ShardRange.ACTIVE
+        shard_ranges[0].state = ShardRange.CLEAVED
         self._check_shard_range(shard_ranges[0], updated_shard_ranges[0])
         self._check_objects(objects[:2], expected_shard_dbs[0])
         # other shard ranges should be unchanged
@@ -769,7 +769,7 @@ class TestSharder(unittest.TestCase):
         for db in expected_shard_dbs[1:3]:
             shard_broker = ContainerBroker(db)
             shard_own_sr = shard_broker.get_own_shard_range()
-            self.assertEqual(ShardRange.ACTIVE, shard_own_sr.state)
+            self.assertEqual(ShardRange.CLEAVED, shard_own_sr.state)
             shard_info = shard_broker.get_info()
             total_shard_stats['object_count'] += shard_info['object_count']
             total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -781,10 +781,10 @@ class TestSharder(unittest.TestCase):
         # update expected state and metadata, check cleaved shard ranges
         shard_ranges[1].bytes_used = 6
         shard_ranges[1].object_count = 3
-        shard_ranges[1].state = ShardRange.ACTIVE
+        shard_ranges[1].state = ShardRange.CLEAVED
         shard_ranges[2].bytes_used = 100
         shard_ranges[2].object_count = 1
-        shard_ranges[2].state = ShardRange.ACTIVE
+        shard_ranges[2].state = ShardRange.CLEAVED
         for i in range(0, 3):
             with annotate_failure(i):
                 self._check_shard_range(
@@ -822,7 +822,7 @@ class TestSharder(unittest.TestCase):
             0, expected_shard_dbs[3], 0)
         shard_broker = ContainerBroker(expected_shard_dbs[3])
         shard_own_sr = shard_broker.get_own_shard_range()
-        self.assertEqual(ShardRange.ACTIVE, shard_own_sr.state)
+        self.assertEqual(ShardRange.CLEAVED, shard_own_sr.state)
         shard_info = shard_broker.get_info()
         total_shard_stats['object_count'] += shard_info['object_count']
         total_shard_stats['bytes_used'] += shard_info['bytes_used']
@@ -832,7 +832,7 @@ class TestSharder(unittest.TestCase):
 
         shard_ranges[3].bytes_used = 1000
         shard_ranges[3].object_count = 1
-        shard_ranges[3].state = ShardRange.ACTIVE
+        shard_ranges[3].state = ShardRange.CLEAVED
         for i in range(0, 4):
             with annotate_failure(i):
                 self._check_shard_range(
@@ -978,11 +978,11 @@ class TestSharder(unittest.TestCase):
         # meta_timestamp
         shard_ranges[0].bytes_used = 23
         shard_ranges[0].object_count = 4
-        shard_ranges[0].state = ShardRange.ACTIVE
+        shard_ranges[0].state = ShardRange.CLEAVED
         self._check_shard_range(shard_ranges[0], updated_shard_ranges[0])
         shard_ranges[1].bytes_used = 103
         shard_ranges[1].object_count = 2
-        shard_ranges[1].state = ShardRange.ACTIVE
+        shard_ranges[1].state = ShardRange.CLEAVED
         self._check_shard_range(shard_ranges[1], updated_shard_ranges[1])
         self._check_objects(objects[:4], expected_shard_dbs[0])
         self._check_objects(objects[4:7], expected_shard_dbs[1])
@@ -1018,7 +1018,7 @@ class TestSharder(unittest.TestCase):
         # including objects previously in the second shard range
         shard_ranges[2].bytes_used = 1103
         shard_ranges[2].object_count = 3
-        shard_ranges[2].state = ShardRange.ACTIVE
+        shard_ranges[2].state = ShardRange.CLEAVED
         self._check_shard_range(shard_ranges[2], updated_shard_ranges[1])
         self._check_objects(objects[4:8], expected_shard_dbs[2])
 

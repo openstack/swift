@@ -1306,16 +1306,7 @@ class ContainerSharder(ContainerReplicator):
                 info = new_broker.get_info()
                 shard_range.update_meta(
                     info['object_count'], info['bytes_used'])
-                if broker.is_root_container():
-                    # skip CLEAVED state and set to ACTIVE; this shard range
-                    # is considered authoritative in the root namespace.
-                    shard_range.update_state(ShardRange.ACTIVE)
-                else:
-                    # set to CLEAVED state; this shard range is considered
-                    # authoritative in the shard namespace; it is not
-                    # authoritative in the root namespace until *all* shards
-                    # have been cleaved and its state is then set to ACTIVE.
-                    shard_range.update_state(ShardRange.CLEAVED)
+                shard_range.update_state(ShardRange.CLEAVED)
                 new_broker.merge_shard_ranges([shard_range])
 
             self.logger.info('Replicating new shard container %s/%s for %s',

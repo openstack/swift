@@ -581,11 +581,9 @@ class ContainerController(BaseStorageServer):
             states = get_param(req, 'state') or None
             if states:
                 states = set(list_from_csv(states))
-                listing = {'active', 'sharding', 'shrinking', 'expanding'}
-                if not broker.is_root_container():
-                    listing.add('cleaved')
-                updating = {'created', 'cleaved', 'active', 'sharding',
-                            'shrinking', 'expanding'}
+                listing = {'cleaved', 'active', 'sharding', 'shrinking',
+                           'expanding'}
+                updating = listing | {'created'}
                 aliases = {'listing': listing, 'updating': updating}
                 for alias, aliased_states in aliases.items():
                     if alias in states:

@@ -2287,10 +2287,10 @@ class TestContainerController(unittest.TestCase):
             [shard_ranges[2], shard_ranges[0]], 'a/c',
             params='&state=active,shrinking&reverse=true&marker=pickle')
         # only active or shrinking shards using listing alias
-        check_shard_GET([shard_ranges[0], shard_ranges[2]], 'a/c',
+        check_shard_GET(shard_ranges[:3], 'a/c',
                         params='&state=listing&end_marker=pickle')
         check_shard_GET(
-            [shard_ranges[2], shard_ranges[0]], 'a/c',
+            reversed(shard_ranges[:3]), 'a/c',
             params='&state=listing&reverse=true&marker=pickle')
         # only created, cleaved, active, shrinking shards using updating alias
         check_shard_GET(shard_ranges[:4], 'a/c',
@@ -2312,7 +2312,7 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=active&reverse=true&end_marker=pickle')
         # listing shards don't cover entire namespace so expect an extra filler
-        expected = [shard_ranges[0], shard_ranges[2], extra_shard_range]
+        expected = shard_ranges[:3] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&state=listing')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=listing&reverse=true')
@@ -2499,16 +2499,13 @@ class TestContainerController(unittest.TestCase):
         root_path = container_path = 'a/c'
         params = '&state=listing'
         expected_states = [
-            ShardRange.ACTIVE, ShardRange.SHARDING,
+            ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
             ShardRange.SHRINKING, ShardRange.EXPANDING]
         do_test(root_path, container_path, params, expected_states)
 
         # shard's shard ranges for listing
         container_path = '.shards_a/c'
         params = '&state=listing'
-        expected_states = [
-            ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
-            ShardRange.SHRINKING, ShardRange.EXPANDING]
         do_test(root_path, container_path, params, expected_states)
 
         # root's shard ranges for updating
