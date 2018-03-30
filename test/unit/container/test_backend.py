@@ -45,6 +45,10 @@ from test.unit.common import test_db
 
 class TestContainerBroker(unittest.TestCase):
     """Tests for ContainerBroker"""
+    def _assert_shard_ranges(self, broker, expected):
+        actual = broker.get_shard_ranges(include_deleted=True)
+        self.assertEqual([dict(sr) for sr in expected],
+                         [dict(sr) for sr in actual])
 
     def test_creation(self):
         # Test ContainerBroker.__init__
@@ -949,7 +953,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(fresh_broker.get_db_state_text(), 'collapsed')
 
         # back to UNSHARDED if the desired epoch changes
-        own_shard_range.update_state(ShardRange.SHRINKING)
+        own_shard_range.update_state(ShardRange.SHRINKING,
+                                     state_timestamp=Timestamp.now())
         own_shard_range.epoch = Timestamp.now()
         fresh_broker.merge_shard_ranges([own_shard_range])
         self.assertEqual(fresh_broker.get_db_state(), UNSHARDED)
@@ -3467,11 +3472,6 @@ class TestContainerBroker(unittest.TestCase):
 
     @with_tempdir
     def test_merge_shard_ranges(self, tempdir):
-        def assert_shard_ranges(broker, expected):
-            actual = broker.get_shard_ranges(include_deleted=True)
-            self.assertEqual([dict(sr) for sr in expected],
-                             [dict(sr) for sr in actual])
-
         ts_iter = make_timestamp_iter()
         ts = [next(ts_iter) for _ in range(13)]
         db_path = os.path.join(
@@ -3491,19 +3491,19 @@ class TestContainerBroker(unittest.TestCase):
         sr_b_1_1 = ShardRange('a/c_b', ts[1], lower='a', upper='b',
                               object_count=2)
         broker.merge_shard_ranges([sr_b_1_1])
-        assert_shard_ranges(broker, [sr_b_1_1])
+        self._assert_shard_ranges(broker, [sr_b_1_1])
 
         # merge older item - ignored
         sr_b_0_0 = ShardRange('a/c_b', ts[0], lower='a', upper='b',
                               object_count=1)
         broker.merge_shard_ranges([sr_b_0_0])
-        assert_shard_ranges(broker, [sr_b_1_1])
+        self._assert_shard_ranges(broker, [sr_b_1_1])
 
         # merge same timestamp - ignored
         broker.merge_shard_ranges([dict(sr_b_1_1, lower='', upper='c')])
-        assert_shard_ranges(broker, [sr_b_1_1])
+        self._assert_shard_ranges(broker, [sr_b_1_1])
         broker.merge_shard_ranges([dict(sr_b_1_1, object_count=99)])
-        assert_shard_ranges(broker, [sr_b_1_1])
+        self._assert_shard_ranges(broker, [sr_b_1_1])
 
         # merge list with older item *after* newer item
         sr_c_2_2 = ShardRange('a/c_c', ts[2], lower='b', upper='c',
@@ -3511,47 +3511,47 @@ class TestContainerBroker(unittest.TestCase):
         sr_c_3_3 = ShardRange('a/c_c', ts[3], lower='b', upper='c',
                               object_count=4)
         broker.merge_shard_ranges([sr_c_3_3, sr_c_2_2])
-        assert_shard_ranges(broker, [sr_b_1_1, sr_c_3_3])
+        self._assert_shard_ranges(broker, [sr_b_1_1, sr_c_3_3])
 
         # merge newer item - updated
         sr_c_5_5 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
                               object_count=5)
         broker.merge_shard_ranges([sr_c_5_5])
-        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_5])
+        self._assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_5])
 
         # merge older metadata item - ignored
         sr_c_5_4 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
                               object_count=6, meta_timestamp=ts[4])
         broker.merge_shard_ranges([sr_c_5_4])
-        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_5])
+        self._assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_5])
 
         # merge newer metadata item - only metadata is updated
         sr_c_5_6 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
                               object_count=7, meta_timestamp=ts[6])
         broker.merge_shard_ranges([dict(sr_c_5_6, lower='', upper='d')])
-        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_6])
+        self._assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_6])
 
         # merge older created_at, newer metadata item - ignored
         sr_c_4_7 = ShardRange('a/c_c', ts[4], lower='b', upper='c',
                               object_count=8, meta_timestamp=ts[7])
         broker.merge_shard_ranges([sr_c_4_7])
-        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_6])
+        self._assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_6])
 
         # merge list with older metadata item *after* newer metadata item
         sr_c_5_11 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
                                object_count=9, meta_timestamp=ts[11])
         broker.merge_shard_ranges([sr_c_5_11, sr_c_5_6])
-        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_11])
+        self._assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_11])
 
         # delete item at *same timestamp* as existing - ignored
         broker.merge_shard_ranges([dict(sr_b_1_1, deleted=1, object_count=0)])
-        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_11])
+        self._assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_11])
 
         # delete item at *newer timestamp* - updated
         sr_b_2_2_deleted = ShardRange('a/c_b', ts[2], lower='a', upper='b',
                                       object_count=0, deleted=1)
         broker.merge_shard_ranges([sr_b_2_2_deleted])
-        assert_shard_ranges(broker, [sr_b_2_2_deleted, sr_c_5_11])
+        self._assert_shard_ranges(broker, [sr_b_2_2_deleted, sr_c_5_11])
 
         # merge list with older undeleted item *after* newer deleted item
         # NB deleted timestamp trumps newer meta timestamp
@@ -3560,8 +3560,54 @@ class TestContainerBroker(unittest.TestCase):
         sr_c_10_10_deleted = ShardRange('a/c_c', ts[10], lower='b', upper='c',
                                         object_count=0, deleted=1)
         broker.merge_shard_ranges([sr_c_10_10_deleted, sr_c_9_12])
-        assert_shard_ranges(broker, [sr_b_2_2_deleted, sr_c_10_10_deleted])
-        # TODO: add unit tests for state and state_timestamp changes
+        self._assert_shard_ranges(
+            broker, [sr_b_2_2_deleted, sr_c_10_10_deleted])
+
+    @with_tempdir
+    def test_merge_shard_ranges_state(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+        expected_shard_ranges = []
+
+        def do_test(orig_state, orig_timestamp, test_state, test_timestamp,
+                    expected_state, expected_timestamp):
+            index = len(expected_shard_ranges)
+            sr = ShardRange('a/%s' % index, orig_timestamp, '%03d' % index,
+                            '%03d' % (index + 1), state=orig_state)
+            broker.merge_shard_ranges([sr])
+            sr.state = test_state
+            sr.state_timestamp = test_timestamp
+            broker.merge_shard_ranges([sr])
+            sr.state = expected_state
+            sr.state_timestamp = expected_timestamp
+            expected_shard_ranges.append(sr)
+            self._assert_shard_ranges(broker, expected_shard_ranges)
+
+        # state at older state_timestamp is not merged
+        for orig_state in ShardRange.STATES:
+            for test_state in ShardRange.STATES:
+                ts_older = next(ts_iter)
+                ts = next(ts_iter)
+                do_test(orig_state, ts, test_state, ts_older, orig_state, ts)
+
+        # more advanced state at same timestamp is merged
+        for orig_state in ShardRange.STATES:
+            for test_state in ShardRange.STATES:
+                ts = next(ts_iter)
+                do_test(orig_state, ts, test_state, ts,
+                        test_state if test_state > orig_state else orig_state,
+                        ts)
+
+        # any state at newer timestamp is merged
+        for orig_state in ShardRange.STATES:
+            for test_state in ShardRange.STATES:
+                ts = next(ts_iter)
+                ts_newer = next(ts_iter)
+                do_test(orig_state, ts, test_state, ts_newer, test_state,
+                        ts_newer)
 
     def _check_object_stats_when_sharded(self, a, c, root_a, root_c, tempdir):
         # common setup and assertions for root and shard containers

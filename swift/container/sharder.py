@@ -1079,7 +1079,6 @@ class ContainerSharder(ContainerReplicator):
                 # do not want any subsequent shard ranges to be in created
                 # state while this one is still in found state
                 break
-            shard_range.update_state(ShardRange.CREATED)
             created_ranges.append(shard_range)
             self.logger.increment('shard_ranges_created')
 
@@ -1112,8 +1111,9 @@ class ContainerSharder(ContainerReplicator):
         for shard_range in shard_ranges:
             if not self._is_sharding_candidate(shard_range):
                 continue
-            if shard_range.update_state(ShardRange.SHARDING):
-                shard_range.epoch = shard_range.state_timestamp
+            shard_range.update_state(ShardRange.SHARDING,
+                                     state_timestamp=Timestamp.now())
+            shard_range.epoch = shard_range.state_timestamp
             candidates.append(shard_range)
         broker.merge_shard_ranges(candidates)
         return len(candidates)
@@ -1181,7 +1181,7 @@ class ContainerSharder(ContainerReplicator):
                 # Set donor state to shrinking so that next cycle won't use it
                 # as an acceptor; state_timestamp defines new epoch for donor
                 # and new timestamp for the expanded acceptor below.
-                donor.epoch = donor.state_timestamp
+                donor.epoch = donor.state_timestamp = Timestamp.now()
                 modified_shard_ranges.append(donor)
             broker.merge_shard_ranges(modified_shard_ranges)
             if acceptor is not own_shard_range:
@@ -1200,7 +1200,8 @@ class ContainerSharder(ContainerReplicator):
                 acceptor.bytes_used += donor.bytes_used
             else:
                 # no need to change namespace or stats
-                acceptor.update_state(ShardRange.ACTIVE)
+                acceptor.update_state(ShardRange.ACTIVE,
+                                      state_timestamp=Timestamp.now())
             # Set Scan-Done so that the donor will not scan itself and will
             # transition to SHARDED state once it has cleaved to the acceptor;
             # TODO: if the PUT request successfully write the Scan-Done sysmeta

@@ -4570,18 +4570,20 @@ class ShardRange(object):
 
     def update_state(self, state, state_timestamp=None):
         """
-        If state is not already the given value then set state to the given
-        value and update the state_timestamp to the current time.
+        Set state to the given value and optionally update the state_timestamp
+        to the given time.
 
         :param state: new state, should be an integer
         :param state_timestamp: timestamp for state; if not given the
-            current time will be set.
-        :return: True if the state was changed, False otherwise
+            state_timestamp will not be changed.
+        :return: True if the state or state_timestamp was changed, False
+            otherwise
         """
         if state_timestamp is None and self.state == state:
             return False
         self.state = state
-        self.state_timestamp = state_timestamp or Timestamp.now()
+        if state_timestamp:
+            self.state_timestamp = state_timestamp
         return True
 
     def set_deleted(self, timestamp=None):
