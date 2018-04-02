@@ -1060,11 +1060,19 @@ class TestContainerSharding(ReplProbeTest):
             self.assert_container_object_count(exp_obj_count)
             self.assert_container_listing([alpha] + second_shard_objects)
 
-            # we may then need sharders to run once or more to find the donor
-            # shard, shrink and replicate it to the acceptor
-            self.sharders.once()
+            # root sharder finds donor, acceptor pair and pushes changes
+            self.sharders.once(
+                additional_args='--partitions=%s' % self.brain.part)
             self.assert_container_listing([alpha] + second_shard_objects)
-            self.sharders.once()
+            # run sharder on donor to shrink and replicate to acceptor
+            self.sharders.once(
+                additional_args='--partitions=%s' % shard_part)
+            self.assert_container_listing([alpha] + second_shard_objects)
+            # run sharder on acceptor to update root with stats
+            acceptor_part, acceptor_nodes = self.get_part_and_node_numbers(
+                orig_shard_ranges[0].account, orig_shard_ranges[0].container)
+            self.sharders.once(
+                additional_args='--partitions=%s' % acceptor_part)
             self.assert_container_listing([alpha] + second_shard_objects)
             self.assert_container_object_count(len(second_shard_objects) + 1)
 
