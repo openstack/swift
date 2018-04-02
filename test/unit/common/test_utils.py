@@ -6934,6 +6934,38 @@ class TestShardRange(unittest.TestCase):
         check_bad_args(10, 'bad')
         check_bad_args(10, 11, 'bad')
 
+    def test_increment_meta(self):
+        ts_1 = next(self.ts_iter)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 1, 2, None)
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            sr.increment_meta(9, 99)
+        self.assertEqual(10, sr.object_count)
+        self.assertEqual(101, sr.bytes_used)
+        self.assertEqual(now, sr.meta_timestamp)
+
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            sr.increment_meta(99, 999, None)
+        self.assertEqual(109, sr.object_count)
+        self.assertEqual(1100, sr.bytes_used)
+        self.assertEqual(now, sr.meta_timestamp)
+
+        ts_2 = next(self.ts_iter)
+        sr.increment_meta(21, 2112, ts_2)
+        self.assertEqual(130, sr.object_count)
+        self.assertEqual(3212, sr.bytes_used)
+        self.assertEqual(ts_2, sr.meta_timestamp)
+
+        sr.increment_meta('11', '12')
+        self.assertEqual(141, sr.object_count)
+        self.assertEqual(3224, sr.bytes_used)
+
+        def check_bad_args(*args):
+            with self.assertRaises(ValueError):
+                sr.increment_meta(*args)
+        check_bad_args('bad', 10)
+        check_bad_args(10, 'bad')
+        check_bad_args(10, 11, 'bad')
+
     def test_state_setter(self):
         for state in utils.ShardRange.STATES:
             for test_value in (state, str(state)):

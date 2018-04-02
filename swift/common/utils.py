@@ -4533,6 +4533,23 @@ class ShardRange(object):
         self.bytes_used = int(bytes_used)
         self.meta_timestamp = meta_timestamp or Timestamp.now()
 
+    def increment_meta(self, object_count, bytes_used, meta_timestamp=None):
+        """
+        Increment the object stats metadata by the given values and update the
+        meta_timestamp to the current time.
+
+        :param object_count: should be an integer
+        :param bytes_used: should be an integer
+        :param meta_timestamp: timestamp for metadata; if not given the
+            current time will be set.
+        :raises ValueError: if ``object_count`` or ``bytes_used`` cannot be
+            cast to an int, or if meta_timestamp is neither None nor can be
+            cast to a :class:`~swift.common.utils.Timestamp`.
+        """
+        self.update_meta(self.object_count + int(object_count),
+                         self.bytes_used + int(bytes_used),
+                         meta_timestamp=meta_timestamp)
+
     @property
     def state(self):
         return self._state
