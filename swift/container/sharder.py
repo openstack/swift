@@ -569,8 +569,9 @@ class ContainerSharder(ContainerReplicator):
         # wipe out the cache to disable bypass in delete_db
         cleanups = self.shard_cleanups or {}
         self.shard_cleanups = None
-        self.logger.info('Cleaning up %d replicated shard containers',
-                         len(cleanups))
+        if cleanups:
+            self.logger.info('Cleaning up %d replicated shard containers',
+                             len(cleanups))
         for container in cleanups.values():
             self.cpool.spawn(self.delete_db, container)
         self.cpool.waitall(None)
