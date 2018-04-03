@@ -170,7 +170,7 @@ class ContainerSharder(ContainerReplicator):
             ('scanned', default_stats + ('found', 'min_time', 'max_time')),
             ('created', default_stats),
             ('cleaved', default_stats + ('min_time', 'max_time',)),
-            ('misplaced', default_stats + ('found',)),
+            ('misplaced', default_stats + ('found', 'placed', 'unplaced')),
             ('audit', default_stats),
         )
 
@@ -456,8 +456,8 @@ class ContainerSharder(ContainerReplicator):
 
         if unplaced:
             self.logger.warning(
-                'Failed to find destination for at least %s misplaced objects'
-                % unplaced)
+                'Failed to find destination for at least %s misplaced objects '
+                'in %s' % (unplaced, broker.path))
 
         # TODO: consider executing the replication jobs concurrently
         success = True

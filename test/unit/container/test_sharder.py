@@ -473,7 +473,7 @@ class TestSharder(unittest.TestCase):
                 'cleaved': {'attempted': 1, 'success': 1, 'failure': 0,
                             'min_time': 0.01, 'max_time': 1.3},
                 'misplaced': {'attempted': 1, 'success': 1, 'failure': 0,
-                              'found': 1},
+                              'found': 1, 'placed': 1, 'unplaced': 0},
                 'audit': {'attempted': 5, 'success': 4, 'failure': 1},
                 'sharding_candidates': {'found': 0, 'top': []}
             }
@@ -1978,7 +1978,8 @@ class TestSharder(unittest.TestCase):
         warning_lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn(
             'Failed to find destination for at least 2 misplaced objects',
-            warning_lines)
+            warning_lines[0])
+        self.assertFalse(warning_lines[1:])
         sharder.logger.clear()
 
         # check misplaced objects were moved
@@ -2131,7 +2132,8 @@ class TestSharder(unittest.TestCase):
         warning_lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn(
             'Failed to find destination for at least 2 misplaced objects',
-            warning_lines)
+            warning_lines[0])
+        self.assertFalse(warning_lines[1:])
         sharder.logger.clear()
 
         # check some misplaced objects were moved
