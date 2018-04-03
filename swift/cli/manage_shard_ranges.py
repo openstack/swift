@@ -182,8 +182,11 @@ def _replace_shard_ranges(broker, args, shard_data):
     broker.merge_shard_ranges(shard_ranges)
     print('Injected %d shard ranges.' % len(shard_ranges))
     print('Run container-replicator to replicate them to other nodes.')
-    print('Use the enable sub-command to enable sharding.')
-    return 0
+    if args.enable:
+        return enable_sharding(broker, args)
+    else:
+        print('Use the enable sub-command to enable sharding.')
+        return 0
 
 
 def replace_shard_ranges(broker, args):
@@ -245,6 +248,9 @@ def _add_replace_args(parser):
     parser.add_argument(
         '--force', '-f', action='store_true', default=False,
         help='Delete existing shard ranges; no questions asked.')
+    parser.add_argument(
+        '--enable', action='store_true', default=False,
+        help='Enable sharding after adding shard ranges.')
 
 
 def main(args=None):
