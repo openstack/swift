@@ -2495,6 +2495,89 @@ class TestContainerController(unittest.TestCase):
         container_path = '.shards_a/c'
         do_test(root_path, container_path, params, expected_states)
 
+    def test_PUT_GET_to_sharding_container(self):
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+
+        def do_update(name, timestamp=None, headers=None):
+            # Make a PUT request to container controller to update an object
+            timestamp = timestamp or next(ts_iter)
+            headers = headers or {}
+            headers.update({'X-Timestamp': timestamp.internal,
+                            'X-Size': 17,
+                            'X-Content-Type': 'text/plain',
+                            'X-Etag': 'fake etag'})
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % name, method='PUT', headers=headers)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+
+        def get_api_listing():
+            req = Request.blank(
+                '/sda1/p/a/c', method='GET', params={'format': 'json'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(200, resp.status_int)
+            return [obj['name'] for obj in json.loads(resp.body)]
+
+        def assert_broker_rows(broker, expected_names, expected_max_row):
+            self.assertEqual(expected_max_row, broker.get_max_row())
+            with broker.get() as conn:
+                curs = conn.execute('''
+                    SELECT * FROM object WHERE ROWID > -1 ORDER BY ROWID ASC
+                ''')
+                actual = [r[1] for r in curs]
+
+            self.assertEqual(expected_names, actual)
+
+        do_update('unsharded')
+        self.assertEqual(['unsharded'], get_api_listing())
+        assert_broker_rows(broker, ['unsharded'], 1)
+
+        # move container to sharding state
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDING)
+        own_sr.epoch = Timestamp.now()
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.set_sharding_state())
+        assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
+        assert_broker_rows(broker.get_brokers()[1], [], 1)
+
+        # add another update - should not merge into the older db and therefore
+        # not appear in api listing
+        do_update('sharding')
+        self.assertEqual(['unsharded'], get_api_listing())
+        assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
+        assert_broker_rows(broker.get_brokers()[1], ['sharding'], 2)
+
+        orig_lister = swift.container.backend.ContainerBroker.list_objects_iter
+
+        def mock_list_objects_iter(*args, **kwargs):
+            # cause an update to land in the pending file after it has been
+            # flushed by get_info() calls in the container PUT method, but
+            # before it is flushed by the call to list_objects_iter
+            do_update('racing_update')
+            return orig_lister(*args, **kwargs)
+
+        with mock.patch(
+                'swift.container.backend.ContainerBroker.list_objects_iter',
+                mock_list_objects_iter):
+            listing = get_api_listing()
+
+        self.assertEqual(['unsharded'], listing)
+        assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
+        assert_broker_rows(broker.get_brokers()[1], ['sharding'], 2)
+
+        # next listing will flush pending file
+        listing = get_api_listing()
+        self.assertEqual(['unsharded'], listing)
+        assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
+        assert_broker_rows(broker.get_brokers()[1],
+                           ['sharding', 'racing_update'], 3)
+
     def test_PUT_object_update_redirected_to_shard(self):
         ts_iter = make_timestamp_iter()
         headers = {'X-Timestamp': next(ts_iter).normal}

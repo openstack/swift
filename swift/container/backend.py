@@ -328,7 +328,8 @@ class ContainerBroker(DatabaseBroker):
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,
-                 stale_reads_ok=False, force_db_file=False):
+                 stale_reads_ok=False, skip_commits=False,
+                 force_db_file=False):
         self._init_db_file = db_file
         if db_file == ':memory:':
             base_db_file = db_file
@@ -338,7 +339,7 @@ class ContainerBroker(DatabaseBroker):
             base_db_file = os.path.join(db_dir, hash_ + ext)
         super(ContainerBroker, self).__init__(
             base_db_file, timeout, logger, account, container, pending_timeout,
-            stale_reads_ok)
+            stale_reads_ok, skip_commits=skip_commits)
         # the root account and container are populated on demand
         self._root_account = self._root_container = None
         self._force_db_file = force_db_file
@@ -1883,7 +1884,7 @@ class ContainerBroker(DatabaseBroker):
 
     def get_brokers(self):
         """
-        Return a list of brokers for each component db, ordered by age. The
+        Return a list of brokers for each component db, ordered by epoch. The
         list will have two entries while in sharding state, otherwise one
         entry.
 
@@ -1896,7 +1897,7 @@ class ContainerBroker(DatabaseBroker):
             ContainerBroker(
                 db_file, self.timeout, self.logger, self.account,
                 self.container, self.pending_timeout, self.stale_reads_ok,
-                force_db_file=True)
+                force_db_file=True, skip_commits=True)
             for db_file in self.db_files[-2:-1]]
         brokers.append(self)
         return brokers
