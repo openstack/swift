@@ -694,8 +694,11 @@ class TestDBReplicator(unittest.TestCase):
                 FakeResponse(500, None)]
             with mock.patch.object(replicator, 'delete_db') as mock_delete:
                 res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertRaises(StopIteration, next, fake_replicate.side_effect)
         self.assertEqual((False, [False, False, False]), res)
         self.assertEqual(0, mock_delete.call_count)
+        self.assertFalse(replicator.logger.get_lines_for_level('error'))
+        self.assertFalse(replicator.logger.get_lines_for_level('warning'))
         replicator.logger.clear()
 
         with mock.patch(replicate) as fake_replicate:
@@ -705,11 +708,13 @@ class TestDBReplicator(unittest.TestCase):
                 FakeResponse(200, rinfo)]
             with mock.patch.object(replicator, 'delete_db') as mock_delete:
                 res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertRaises(StopIteration, next, fake_replicate.side_effect)
         self.assertEqual((False, [False, False, True]), res)
         self.assertEqual(0, mock_delete.call_count)
         lines = replicator.logger.get_lines_for_level('error')
         self.assertIn('ERROR syncing', lines[0])
         self.assertIn('ERROR syncing', lines[1])
+        self.assertFalse(replicator.logger.get_lines_for_level('warning'))
         replicator.logger.clear()
 
         # partial success
@@ -720,8 +725,11 @@ class TestDBReplicator(unittest.TestCase):
                 FakeResponse(500, None)]
             with mock.patch.object(replicator, 'delete_db') as mock_delete:
                 res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertRaises(StopIteration, next, fake_replicate.side_effect)
         self.assertEqual((False, [True, True, False]), res)
         self.assertEqual(0, mock_delete.call_count)
+        self.assertFalse(replicator.logger.get_lines_for_level('error'))
+        self.assertFalse(replicator.logger.get_lines_for_level('warning'))
         replicator.logger.clear()
 
         # 507 triggers additional requests
@@ -734,11 +742,13 @@ class TestDBReplicator(unittest.TestCase):
                 FakeResponse(200, rinfo)]
             with mock.patch.object(replicator, 'delete_db') as mock_delete:
                 res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertRaises(StopIteration, next, fake_replicate.side_effect)
         self.assertEqual((False, [True, True, False, False, True]), res)
         self.assertEqual(0, mock_delete.call_count)
         lines = replicator.logger.get_lines_for_level('error')
         self.assertIn('Remote drive not mounted', lines[0])
         self.assertIn('Remote drive not mounted', lines[1])
+        self.assertFalse(replicator.logger.get_lines_for_level('warning'))
         replicator.logger.clear()
 
         # all requests succeed
@@ -749,8 +759,11 @@ class TestDBReplicator(unittest.TestCase):
                 FakeResponse(200, rinfo)]
             with mock.patch.object(replicator, 'delete_db') as mock_delete:
                 res = replicator._replicate_object('0', db_path, 'node_id')
+        self.assertRaises(StopIteration, next, fake_replicate.side_effect)
         self.assertEqual((True, [True, True, True]), res)
         self.assertEqual(1, mock_delete.call_count)
+        self.assertFalse(replicator.logger.get_lines_for_level('error'))
+        self.assertFalse(replicator.logger.get_lines_for_level('warning'))
 
     def test_replicate_object_quarantine(self):
         replicator = TestReplicator({})
