@@ -30,8 +30,7 @@ from eventlet.green import subprocess
 from eventlet import Timeout, sleep
 
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       mocked_http_conn, mock_check_drive, skip_if_no_xattrs,
-                       SkipTest)
+                       mocked_http_conn, mock_check_drive, skip_if_no_xattrs)
 from swift.common import utils
 from swift.common.utils import (hash_path, mkdirs, normalize_timestamp,
                                 storage_directory)
@@ -134,20 +133,28 @@ def _mock_process(ret):
 
 
 class MockHungProcess(object):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, waits_needed=1, *args, **kwargs):
         class MockStdout(object):
             def read(self):
                 pass
         self.stdout = MockStdout()
         self._state = 'running'
         self._calls = []
+        self._waits = 0
+        self._waits_needed = waits_needed
 
-    def wait(self):
+    def wait(self, timeout=None):
         self._calls.append(('wait', self._state))
         if self._state == 'running':
-            # Sleep so we trip either the lockup detector or the rsync timeout
+            # Sleep so we trip the rsync timeout
             sleep(1)
             raise BaseException('You need to mock out some timeouts')
+        elif self._state == 'killed':
+            self._waits += 1
+            if self._waits >= self._waits_needed:
+                return
+            else:
+                raise subprocess.TimeoutExpired('some cmd', timeout)
 
     def terminate(self):
         self._calls.append(('terminate', self._state))
@@ -2036,38 +2043,6 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertIn(
             "next_part_power set in policy 'one'. Skipping", warnings)
 
-    def test_replicate_lockup_detector(self):
-        raise SkipTest("this is not a reliable test and must be fixed")
-        cur_part = '0'
-        df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
-                                      policy=POLICIES[0])
-        mkdirs(df._datadir)
-        f = open(os.path.join(df._datadir,
-                              normalize_timestamp(time.time()) + '.data'),
-                 'wb')
-        f.write('1234567890')
-        f.close()
-
-        mock_procs = []
-
-        def new_mock(*a, **kw):
-            proc = MockHungProcess()
-            mock_procs.append(proc)
-            return proc
-
-        with mock.patch('swift.obj.replicator.http_connect',
-                        mock_http_connect(200)), \
-                mock.patch.object(self.replicator, 'lockup_timeout', 0.01), \
-                mock.patch('eventlet.green.subprocess.Popen', new_mock):
-            self.replicator.replicate()
-        for proc in mock_procs:
-            self.assertEqual(proc._calls, [
-                ('wait', 'running'),
-                ('terminate', 'running'),
-                ('wait', 'terminating'),
-            ])
-        self.assertEqual(len(mock_procs), 1)
-
     def test_replicate_rsync_timeout(self):
         cur_part = '0'
         df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
@@ -2090,7 +2065,7 @@ class TestObjectReplicator(unittest.TestCase):
                         mock_http_connect(200)), \
                 mock.patch.object(self.replicator, 'rsync_timeout', 0.01), \
                 mock.patch('eventlet.green.subprocess.Popen', new_mock):
-            self.replicator.replicate()
+            self.replicator.run_once()
         for proc in mock_procs:
             self.assertEqual(proc._calls, [
                 ('wait', 'running'),
@@ -2098,6 +2073,39 @@ class TestObjectReplicator(unittest.TestCase):
                 ('wait', 'killed'),
             ])
         self.assertEqual(len(mock_procs), 2)
+
+    def test_replicate_rsync_timeout_wedged(self):
+        cur_part = '0'
+        df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
+                                      policy=POLICIES[0])
+        mkdirs(df._datadir)
+        f = open(os.path.join(df._datadir,
+                              normalize_timestamp(time.time()) + '.data'),
+                 'wb')
+        f.write('1234567890')
+        f.close()
+
+        mock_procs = []
+
+        def new_mock(*a, **kw):
+            proc = MockHungProcess(waits_needed=2)
+            mock_procs.append(proc)
+            return proc
+
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)), \
+                mock.patch.object(self.replicator, 'rsync_timeout', 0.01), \
+                mock.patch('eventlet.green.subprocess.Popen', new_mock):
+            self.replicator.run_once()
+        for proc in mock_procs:
+            self.assertEqual(proc._calls, [
+                ('wait', 'running'),
+                ('kill', 'running'),
+                ('wait', 'killed'),
+                ('wait', 'killed'),
+            ])
+        self.assertEqual(len(mock_procs), 2)
+
 
 if __name__ == '__main__':
     unittest.main()
