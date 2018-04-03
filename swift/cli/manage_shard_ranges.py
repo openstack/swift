@@ -199,6 +199,7 @@ def find_replace_shard_ranges(broker, args):
 def _enable_sharding(broker, own_shard_range, args):
     if own_shard_range.update_state(ShardRange.SHARDING):
         own_shard_range.epoch = Timestamp.now()
+        own_shard_range.state_timestamp = own_shard_range.epoch
     broker.merge_shard_ranges([own_shard_range])
     broker.update_metadata({'X-Container-Sysmeta-Sharding':
                             ('True', Timestamp.now().normal)})
