@@ -391,3 +391,10 @@ use = egg:swift#xprofile
 # rsync_module = {replication_ip}::container
 #
 # recon_cache_path = /var/cache/swift
+#
+# Each time the sharder dumps stats to the recon cache file it includes a list
+# of containers that appear to need sharding but are not yet sharding. By
+# default this list is limited to the top 5 containers, ordered by size. The
+# limit may be changed by setting recon_candidates_limit to an integer value. A
+# negative value implies no limit.
+# recon_candidates_limit = 5
