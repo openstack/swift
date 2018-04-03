@@ -3204,6 +3204,62 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(expected_shard_ranges, actual_shard_ranges)
 
     @with_tempdir
+    def test_cleave_context(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+        expected = {'ref': '%s-%s' % (broker.get_info()['id'], -1)}
+        self.assertEqual(expected, broker.load_cleave_context())
+        # adding a row changes ref
+        broker.put_object(
+            'obj', next(ts_iter).internal, 0, 'text/plain', 'etag', 1)
+        expected = {'ref': '%s-%s' % (broker.get_info()['id'], 1)}
+        self.assertEqual(expected, broker.load_cleave_context())
+        # changing id changes ref
+        old_id = broker.get_info()['id']
+        broker.newid('fake_remote_id')
+        new_id = broker.get_info()['id']
+        self.assertNotEqual(old_id, new_id)
+        expected = {'ref': '%s-%s' % (broker.get_info()['id'], 1)}
+        self.assertEqual(expected, broker.load_cleave_context())
+
+        # adding fresh db does not change context
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDING)
+        own_sr.epoch = next(ts_iter)
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.set_sharding_state())
+        broker = ContainerBroker(db_path, account='a', container='c')
+        self.assertNotEqual(new_id, broker.get_info()['id'])  # sanity check
+        context = broker.load_cleave_context()
+        self.assertEqual(expected, context)
+
+        # context changes are persisted
+        context.update({'cursor': 'somewhere', 'done': False})
+        broker.dump_cleave_context(context)
+        expected.update({'cursor': 'somewhere', 'done': False})
+        self.assertEqual(expected, context)
+        self.assertEqual(expected, broker.load_cleave_context())
+
+        # reclaim of object row does not change the ref/context
+        self.assertEqual(
+            1, len(broker.get_brokers()[0].get_objects(include_deleted=True)))
+        now = next(ts_iter).internal
+        broker.get_brokers()[0].reclaim(now, now)
+        self.assertFalse(
+            broker.get_brokers()[0].get_objects(include_deleted=True))
+        context = broker.load_cleave_context()
+        self.assertEqual(expected, context)
+
+        # unless the ref changes...
+        broker.put_object(
+            'obj', next(ts_iter).internal, 0, 'text/plain', 'etag', 1)
+        expected = {'ref': '%s-%s' % (new_id, 2)}
+        self.assertEqual(expected, broker.load_cleave_context())
+
+    @with_tempdir
     def test_set_db_states(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
@@ -3211,8 +3267,7 @@ class TestContainerBroker(unittest.TestCase):
         ts_epoch = next(ts_iter)
         new_db_path = os.path.join(tempdir, 'part', 'suffix', 'hash',
                                    'container_%s.db' % ts_epoch.normal)
-        broker = ContainerBroker(
-            db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
 
         # load up the broker with some objects
@@ -3435,7 +3490,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(warning_lines[1:])
         broker.logger.clear()
 
-        # modified db hash
+        # modified db max row
         obj = {'name': 'obj', 'created_at': next(ts_iter).internal, 'size': 14,
                'content_type': 'text/plain', 'etag': 'an etag', 'deleted': 1}
         broker.get_brokers()[0].merge_objects([obj])
@@ -3448,10 +3503,10 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(warning_lines[1:])
         broker.logger.clear()
 
-        # epoch mismatch
+        # db id changes
         context = broker.load_cleave_context()
-        broker.dump_cleave_context(dict(context, cursor='', done=True,
-                                        epoch=next(ts_iter).internal))
+        broker.dump_cleave_context(dict(context, cursor='', done=True))
+        broker.get_brokers()[0].newid('fake_remote_id')
         self.assertFalse(broker.set_sharded_state())
         warning_lines = broker.logger.get_lines_for_level('warning')
         self.assertIn('Refusing to delete db %r' % broker.db_files[0],
@@ -3460,6 +3515,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.logger.clear()
 
         # context ok
+        context = broker.load_cleave_context()
         broker.dump_cleave_context(dict(context, cursor='', done=True))
         self.assertTrue(broker.set_sharded_state())
         warning_lines = broker.logger.get_lines_for_level('warning')
