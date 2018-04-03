@@ -1284,8 +1284,8 @@ class ContainerSharder(ContainerReplicator):
             success, responses = self._replicate_object(
                 new_part, new_broker.db_file, node_id)
 
-            if (not success and
-                    sum(responses) < quorum_size(self.ring.replica_count)):
+            quorum = quorum_size(self.ring.replica_count)
+            if not success and responses.count(True) < quorum:
                 # break because we don't want to progress the cleave cursor
                 # until each shard range has been successfully cleaved
                 self.logger.warning(
