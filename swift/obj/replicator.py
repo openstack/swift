@@ -233,13 +233,10 @@ class ObjectReplicator(Daemon):
 
             reaped_procs = set()
             for proc in procs:
-                try:
-                    # this will reap the process if it has exited, but
-                    # otherwise will not wait
-                    proc.wait(timeout=0)
+                # this will reap the process if it has exited, but
+                # otherwise will not wait
+                if proc.poll() is not None:
                     reaped_procs.add(proc)
-                except subprocess.TimeoutExpired:
-                    pass
             procs -= reaped_procs
 
     def get_worker_args(self, once=False, **kwargs):
