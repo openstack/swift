@@ -942,20 +942,19 @@ class ContainerSharder(ContainerReplicator):
                 continue
 
             broker = ContainerBroker(path, logger=self.logger)
-            self._identify_sharding_candidate(broker, node)
-            if sharding_enabled(broker):
-                try:
+            try:
+                self._identify_sharding_candidate(broker, node)
+                if sharding_enabled(broker):
                     self._increment_stat('visited', 'attempted')
                     self._process_broker(broker, node, part)
-                except Exception as err:
-                    self._increment_stat('visited', 'failure')
-                    self.logger.exception(
-                        'Unhandled exception while processing %s: %s',
-                        path, err)
-                else:
                     self._increment_stat('visited', 'success')
-            else:
-                self._increment_stat('visited', 'skipped')
+                else:
+                    self._increment_stat('visited', 'skipped')
+            except Exception as err:
+                self._increment_stat('visited', 'failure')
+                self.logger.exception(
+                    'Unhandled exception while processing %s: %s',
+                    path, err)
 
             self._periodic_report_stats()
 
