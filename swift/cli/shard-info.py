@@ -42,6 +42,8 @@ def collect_brokers(conf_path, names2nodes):
     dirs = []
     brokers = defaultdict(dict)
     for node in c_ring.devs:
+        if node is None:
+            continue
         datadir = os.path.join(root, node['device'], DATADIR)
         if os.path.isdir(datadir):
             dirs.append((datadir, node['id']))
