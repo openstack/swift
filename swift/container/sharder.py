@@ -955,7 +955,6 @@ class ContainerSharder(ContainerReplicator):
                     self._increment_stat('visited', 'success')
             else:
                 self._increment_stat('visited', 'skipped')
-                self.logger.info('Skipping %s; sharding is not enabled', path)
 
             self._periodic_report_stats()
 
