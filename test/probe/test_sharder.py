@@ -990,6 +990,11 @@ class TestContainerSharding(ReplProbeTest):
             self.assertEqual(2 * repeat[0], shard_cont_count)
             self.assertEqual(len(obj_names), shard_obj_count)
 
+            # checking the listing also refreshes proxy container info cache so
+            # that the proxy becomes aware that container is sharded and will
+            # now look up the shard target for subsequent updates
+            self.assert_container_listing(obj_names)
+
             # delete objects from first shard range
             first_shard_objects = [obj_name for obj_name in obj_names
                                    if obj_name <= orig_shard_ranges[0].upper]
@@ -1000,16 +1005,11 @@ class TestContainerSharding(ReplProbeTest):
                     client.get_object(
                         self.url, self.token, self.container_name, obj)
 
-            # put another obj
+            second_shard_objects = [obj_name for obj_name in obj_names
+                                    if obj_name > orig_shard_ranges[1].lower]
+            self.assert_container_listing(second_shard_objects)
+
             self.put_objects([alpha])
-
-            # proxy container info cache has not been refreshed with
-            # container's sharding state so all object updates will have been
-            # sent to root, redirected and landed in async pending - so listing
-            # will not be up to date until we run the object updater :(
-            self.updaters.once()
-
-            # listing has new object
             second_shard_objects = [obj_name for obj_name in obj_names
                                     if obj_name > orig_shard_ranges[1].lower]
             self.assert_container_listing([alpha] + second_shard_objects)

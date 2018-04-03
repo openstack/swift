@@ -550,6 +550,26 @@ class TestObjectUpdater(unittest.TestCase):
                              {'successes': 1, 'unlinks': 1,
                               'async_pendings': 1})
 
+    def _write_async_update(self, dfmanager, timestamp, policy,
+                            headers=None, container_path=None):
+        # write an async
+        account, container, obj = 'a', 'c', 'o'
+        op = 'PUT'
+        headers_out = headers or {
+            'x-size': 0,
+            'x-content-type': 'text/plain',
+            'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            'x-timestamp': timestamp.internal,
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'User-Agent': 'object-server %s' % os.getpid()
+        }
+        data = {'op': op, 'account': account, 'container': container,
+                'obj': obj, 'headers': headers_out}
+        if container_path:
+            data['container_path'] = container_path
+        dfmanager.pickle_async_update(self.sda1, account, container, obj,
+                                      data, timestamp, policy)
+
     def test_obj_put_async_updates(self):
         ts_iter = make_timestamp_iter()
         policies = list(POLICIES)
@@ -565,16 +585,12 @@ class TestObjectUpdater(unittest.TestCase):
         async_dir = os.path.join(self.sda1, get_async_dir(policies[0]))
         os.mkdir(async_dir)
 
-        def do_test(headers_out, expected):
+        def do_test(headers_out, expected, container_path=None):
             # write an async
             dfmanager = DiskFileManager(conf, daemon.logger)
-            account, container, obj = 'a', 'c', 'o'
-            op = 'PUT'
-            data = {'op': op, 'account': account, 'container': container,
-                    'obj': obj, 'headers': headers_out}
-            dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                          data, next(ts_iter), policies[0])
-
+            self._write_async_update(dfmanager, next(ts_iter), policies[0],
+                                     headers=headers_out,
+                                     container_path=container_path)
             request_log = []
 
             def capture(*args, **kwargs):
@@ -618,9 +634,20 @@ class TestObjectUpdater(unittest.TestCase):
             'X-Backend-Storage-Policy-Index': str(int(policies[0])),
             'User-Agent': 'object-updater %s' % os.getpid(),
         }
+        do_test(headers_out, expected, container_path='.shards_a/shard_c')
+
+        # if there is no container path then expect X-Backend-Accept-Redirect
+        expected['X-Backend-Accept-Redirect'] = 'true'
         do_test(headers_out, expected)
 
+        # ...unless X-Backend-Accept-Redirect is already set
+        expected['X-Backend-Accept-Redirect'] = 'false'
+        headers_out_2 = dict(headers_out)
+        headers_out_2['X-Backend-Accept-Redirect'] = 'false'
+        do_test(headers_out_2, expected)
+
         # updater should add policy header if missing
+        expected['X-Backend-Accept-Redirect'] = 'true'
         headers_out['X-Backend-Storage-Policy-Index'] = None
         do_test(headers_out, expected)
 
@@ -635,27 +662,8 @@ class TestObjectUpdater(unittest.TestCase):
             'X-Backend-Storage-Policy-Index')
         do_test(headers_out, expected)
 
-    def _write_async_update(self, dfmanager, timestamp, policy,
-                            container_path=None):
-        # write an async
-        account, container, obj = 'a', 'c', 'o'
-        op = 'PUT'
-        headers_out = {
-            'x-size': 0,
-            'x-content-type': 'text/plain',
-            'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-            'x-timestamp': timestamp.internal,
-            'X-Backend-Storage-Policy-Index': int(policy),
-            'User-Agent': 'object-server %s' % os.getpid()
-        }
-        data = {'op': op, 'account': account, 'container': container,
-                'obj': obj, 'headers': headers_out}
-        if container_path:
-            data['container_path'] = container_path
-        dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                      data, timestamp, policy)
-
-    def _check_update_requests(self, requests, timestamp, policy):
+    def _check_update_requests(self, requests, timestamp, policy,
+                               accept_redirect=False):
         # do some sanity checks on update request
         expected_headers = {
             'X-Size': '0',
@@ -665,6 +673,8 @@ class TestObjectUpdater(unittest.TestCase):
             'X-Backend-Storage-Policy-Index': str(int(policy)),
             'User-Agent': 'object-updater %s' % os.getpid(),
         }
+        if accept_redirect:
+            expected_headers['X-Backend-Accept-Redirect'] = 'true'
         for request in requests:
             self.assertEqual('PUT', request['method'])
             self.assertDictEqual(expected_headers, request['headers'])
@@ -707,7 +717,9 @@ class TestObjectUpdater(unittest.TestCase):
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
 
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests[:3], ts_obj, policies[0],
+                                    accept_redirect=True)
+        self._check_update_requests(conn.requests[3:], ts_obj, policies[0])
         self.assertEqual(['/sda1/0/a/c/o'] * 3 +
                          ['/sda1/0/.sharded_a/c_shard_new/o'] * 3,
                          [req['path'] for req in conn.requests])
@@ -741,7 +753,8 @@ class TestObjectUpdater(unittest.TestCase):
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
 
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests, ts_obj, policies[0],
+                                    accept_redirect=True)
         self.assertEqual(['/sda1/0/a/c/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
@@ -763,7 +776,10 @@ class TestObjectUpdater(unittest.TestCase):
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
 
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests[:2], ts_obj, policies[0],
+                                    accept_redirect=True)
+        self._check_update_requests(conn.requests[2:], ts_obj, policies[0],
+                                    accept_redirect=False)
         self.assertEqual(['/sda1/0/a/c/o'] * 2 +
                          ['/sda1/3/.sharded_a/c_shard_1/o'] * 3,
                          [req['path'] for req in conn.requests])
@@ -813,7 +829,8 @@ class TestObjectUpdater(unittest.TestCase):
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
 
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests, ts_obj, policies[0],
+                                    accept_redirect=True)
         self.assertEqual(['/sda1/0/a/c/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
@@ -884,7 +901,8 @@ class TestObjectUpdater(unittest.TestCase):
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
 
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests, ts_obj, policies[0],
+                                    accept_redirect=False)
         # only *one* set of redirected requests is attempted per cycle
         self.assertEqual(['/sda1/0/.sharded_a/c_shard_older/o'] * 3 +
                          ['/sda1/0/.sharded_a/c_shard_new/o'] * 3,
@@ -910,7 +928,8 @@ class TestObjectUpdater(unittest.TestCase):
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
 
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests, ts_obj, policies[0],
+                                    accept_redirect=False)
         self.assertEqual(['/sda1/1/.sharded_a/c_shard_newer/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(
@@ -952,7 +971,10 @@ class TestObjectUpdater(unittest.TestCase):
                 *fake_status_codes, headers=fake_headers) as conn:
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests[:3], ts_obj, policies[0],
+                                    accept_redirect=True)
+        self._check_update_requests(conn.requests[3:], ts_obj, policies[0],
+                                    accept_redirect=False)
         # only *one* set of redirected requests is attempted per cycle
         self.assertEqual(['/sda1/0/a/c/o'] * 3 +
                          ['/sda1/3/.sharded_a/c_shard_1/o'] * 3,
@@ -981,7 +1003,10 @@ class TestObjectUpdater(unittest.TestCase):
                 *fake_status_codes, headers=fake_headers) as conn:
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests[:3], ts_obj, policies[0],
+                                    accept_redirect=False)
+        self._check_update_requests(conn.requests[3:], ts_obj, policies[0],
+                                    accept_redirect=True)
         # first try the previously persisted container path, response to that
         # creates a loop so ignore and send to root
         self.assertEqual(['/sda1/1/.sharded_a/c_shard_2/o'] * 3 +
@@ -1012,7 +1037,8 @@ class TestObjectUpdater(unittest.TestCase):
                 *fake_status_codes, headers=fake_headers) as conn:
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests, ts_obj, policies[0],
+                                    accept_redirect=False)
         self.assertEqual(['/sda1/3/.sharded_a/c_shard_3/o'] * 3 +
                          ['/sda1/3/.sharded_a/c_shard_1/o'] * 3,
                          [req['path'] for req in conn.requests])
@@ -1036,7 +1062,8 @@ class TestObjectUpdater(unittest.TestCase):
                 *fake_status_codes, headers=fake_headers) as conn:
             with mock.patch('swift.obj.updater.dump_recon_cache'):
                 daemon.run_once()
-        self._check_update_requests(conn.requests, ts_obj, policies[0])
+        self._check_update_requests(conn.requests, ts_obj, policies[0],
+                                    accept_redirect=True)
         self.assertEqual(['/sda1/0/a/c/o'] * 3,
                          [req['path'] for req in conn.requests])
         self.assertEqual(

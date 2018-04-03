@@ -50,6 +50,11 @@ SHARDED = 3
 COLLAPSED = 4
 DB_STATES = ['not_found', 'unsharded', 'sharding', 'sharded', 'collapsed']
 
+SHARD_STATS_STATES = [ShardRange.ACTIVE, ShardRange.SHARDING,
+                      ShardRange.SHRINKING]
+SHARD_LISTING_STATES = SHARD_STATS_STATES + [ShardRange.CLEAVED]
+SHARD_UPDATE_STATES = SHARD_LISTING_STATES + [ShardRange.CREATED]
+
 
 def db_state_text(state):
     try:
@@ -1719,8 +1724,7 @@ class ContainerBroker(DatabaseBroker):
         return shard_range.name == self.path
 
     def get_shard_usage(self):
-        states = [ShardRange.ACTIVE, ShardRange.SHARDING, ShardRange.SHRINKING]
-        shard_ranges = self.get_shard_ranges(states=states)
+        shard_ranges = self.get_shard_ranges(states=SHARD_STATS_STATES)
         return {'bytes_used': sum([sr.bytes_used for sr in shard_ranges]),
                 'object_count': sum([sr.object_count for sr in shard_ranges])}
 

@@ -47,7 +47,7 @@ from test.unit import fake_http_connect, debug_logger, mock_check_drive
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
 
-from test import listen_zero
+from test import listen_zero, annotate_failure
 from test.unit import patch_policies
 
 
@@ -2578,170 +2578,54 @@ class TestContainerController(unittest.TestCase):
         assert_broker_rows(broker.get_brokers()[1],
                            ['sharding', 'racing_update'], 3)
 
-    def test_PUT_object_update_redirected_to_shard(self):
+    def _check_object_update_redirected_to_shard(self, method):
+        expected_status = 204 if method == 'DELETE' else 201
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         ts_iter = make_timestamp_iter()
         headers = {'X-Timestamp': next(ts_iter).normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
 
-        def do_update(name, timestamp=None):
+        def do_update(name, timestamp=None, headers=None):
             # Make a PUT request to container controller to update an object
             timestamp = timestamp or next(ts_iter)
-            headers = {'X-Timestamp': timestamp.internal,
-                       'X-Size': 17,
-                       'X-Content-Type': 'text/plain',
-                       'X-Etag': 'fake etag'}
-            req = Request.blank(
-                '/sda1/p/a/c/%s' % name, method='PUT', headers=headers)
-            self._update_object_put_headers(req)
-            return req.get_response(self.controller)
-
-        def get_listing():
-            req = Request.blank(
-                '/sda1/p/a/c?format=json', method='GET')
-            resp = req.get_response(self.controller)
-            self.assertEqual(200, resp.status_int)
-            return json.loads(resp.body)
-
-        # sanity check
-        ts_bashful_orig = next(ts_iter)
-        resp = do_update('bashful', timestamp=ts_bashful_orig)
-        self.assertEqual(201, resp.status_int)
-        self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
-
-        shard_ranges = {
-            'dopey': ShardRange(
-                '.sharded_a/sr_dopey', next(ts_iter), '', 'dopey'),
-            'happy': ShardRange(
-                '.sharded_a/sr_happy', next(ts_iter), 'dopey', 'happy'),
-            '': ShardRange('.sharded_a/sr_', next(ts_iter), 'happy', '')
-        }
-        # start with only the middle shard range
-        self._put_shard_range(shard_ranges['happy'])
-
-        # TODO: shard ranges exist but broker is not yet in sharding state - we
-        # should probably *not* be redirecting...
-        resp = do_update('grumpy')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_happy/grumpy',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
-
-        # set broker to sharding state
-        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        broker.set_sharding_state(epoch=Timestamp.now())
-        # TODO: also test broker in SHARDED state
-        resp = do_update('grumpy')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_happy/grumpy',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
-
-        resp = do_update('happy')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_happy/happy',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
-
-        # no shard for this object yet so it is accepted by root container
-        ts_dopey_orig = next(ts_iter)
-        resp = do_update('dopey', timestamp=ts_dopey_orig)
-        self.assertEqual(201, resp.status_int)
-        self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        # but it won't appear in listings
-        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
-        self.assertEqual([ts_bashful_orig.isoformat],
-                         [obj['last_modified'] for obj in get_listing()])
-
-        # now PUT the first shard range
-        self._put_shard_range(shard_ranges['dopey'])  # newer timestamp
-        resp = do_update('bashful')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_dopey/bashful',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['dopey'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        resp = do_update('dopey')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_dopey/dopey',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['dopey'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        # existing updates in this container were *not* updated
-        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
-        self.assertEqual([ts_bashful_orig.isoformat],
-                         [obj['last_modified'] for obj in get_listing()])
-
-        # no shard for this object yet
-        ts_sleepy_orig = next(ts_iter)
-        resp = do_update('sleepy', timestamp=ts_sleepy_orig)
-        self.assertEqual(201, resp.status_int)
-        self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
-        self.assertEqual([ts_bashful_orig.isoformat],
-                         [obj['last_modified'] for obj in get_listing()])
-
-        # now PUT the final shard
-        self._put_shard_range(shard_ranges[''])
-        resp = do_update('sleepy')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_/sleepy',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges[''].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
-        self.assertEqual([ts_bashful_orig.isoformat],
-                         [obj['last_modified'] for obj in get_listing()])
-
-    def test_DELETE_object_update_redirected_to_shard(self):
-        ts_iter = make_timestamp_iter()
-        headers = {'X-Timestamp': next(ts_iter).normal}
-        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
-        self.assertEqual(201, req.get_response(self.controller).status_int)
-
-        def do_update(name, timestamp=None, method='DELETE'):
-            # Make request to container controller to update an object
-            timestamp = timestamp or next(ts_iter)
-            headers = {'X-Timestamp': timestamp.internal,
-                       'X-Size': 17,
-                       'X-Content-Type': 'text/plain',
-                       'X-Etag': 'fake etag'}
+            headers = headers or {}
+            headers.update({'X-Timestamp': timestamp.internal,
+                            'X-Size': 17,
+                            'X-Content-Type': 'text/plain',
+                            'X-Etag': 'fake etag'})
             req = Request.blank(
                 '/sda1/p/a/c/%s' % name, method=method, headers=headers)
             self._update_object_put_headers(req)
             return req.get_response(self.controller)
 
-        def get_listing():
-            req = Request.blank('/sda1/p/a/c?format=json', method='GET')
-            resp = req.get_response(self.controller)
-            self.assertEqual(200, resp.status_int)
-            return json.loads(resp.body)
+        def get_listing(broker_index):
+            # index -1 is always the freshest db
+            sub_broker = broker.get_brokers()[broker_index]
+            return sub_broker.get_objects(
+                include_deleted=True,
+                storage_policy_index=POLICIES.default.idx)
 
-        # PUT some updates and sanity check
-        obj_names = ['bashful', 'dopey', 'happy', 'sleepy', 'sneezy']
-        obj_timestamps = {}
-        for name in obj_names:
-            obj_timestamps[name] = next(ts_iter)
-            do_update(name, timestamp=obj_timestamps[name], method='PUT')
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
-        # delete - no shard ranges, not in sharding state
-        obj_timestamps['sneezy'] = next(ts_iter)
-        resp = do_update('sneezy', timestamp=obj_timestamps['sneezy'])
-        self.assertEqual(204, resp.status_int)
-        self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        obj_names.remove('sneezy')
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+        def assert_not_redirected(obj_name, timestamp=None, headers=None):
+            resp = do_update(obj_name, timestamp=timestamp, headers=headers)
+            self.assertEqual(expected_status, resp.status_int)
+            self.assertNotIn('Location', resp.headers)
+            self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
+
+        def assert_redirected(obj_name, shard_range, headers=None):
+            resp = do_update(obj_name, headers=headers)
+            self.assertEqual(301, resp.status_int)
+            self.assertEqual('/%s/%s' % (shard_range.name, obj_name),
+                             resp.headers['Location'])
+            self.assertEqual(shard_range.timestamp.internal,
+                             resp.headers['X-Backend-Redirect-Timestamp'])
+
+        # sanity check
+        ts_bashful_orig = next(ts_iter)
+        mocked_fn = 'swift.container.backend.ContainerBroker.get_shard_ranges'
+        with mock.patch(mocked_fn) as mock_get_shard_ranges:
+            assert_not_redirected('bashful', ts_bashful_orig)
+        mock_get_shard_ranges.assert_not_called()
 
         shard_ranges = {
             'dopey': ShardRange(
@@ -2753,106 +2637,147 @@ class TestContainerController(unittest.TestCase):
         # start with only the middle shard range
         self._put_shard_range(shard_ranges['happy'])
 
-        # TODO: shard ranges exist but broker is not yet in sharding state - we
-        # should probably *not* be redirecting...
-        resp = do_update('grumpy')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_happy/grumpy',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+        # shard range exists - redirect
+        sr_happy = shard_ranges['happy']
+        redirect_states = (
+            ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHARDING, ShardRange.SHRINKING)
+        headers = {'X-Backend-Accept-Redirect': 'true'}
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpy%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                obj_name = 'grumpy%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
 
         # set broker to sharding state
-        # TODO: also test broker in SHARDED state
-        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        broker.set_sharding_state(epoch=Timestamp.now())
-        resp = do_update('grumpy')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_happy/grumpy',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDING)
+        own_sr.epoch = Timestamp.now()
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.set_sharding_state())
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpier%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    # update goes to fresh db, misplaced
+                    self.assertIn(
+                        obj_name, [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(
+                        obj_name, [obj['name'] for obj in get_listing(0)])
+                obj_name = 'grumpier%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(
+                    obj_name, [obj['name'] for obj in get_listing(-1)])
+                # update is misplaced, not in retiring db
+                self.assertNotIn(
+                    obj_name, [obj['name'] for obj in get_listing(0)])
 
-        resp = do_update('happy')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_happy/happy',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
-
-        # no shard for this object yet, so accepted to misplaced objects table
-        delete_times = {'dopey': next(ts_iter)}
-        resp = do_update('dopey', timestamp=delete_times['dopey'])
-        self.assertEqual(204, resp.status_int)
-        self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        # but the delete is not reflected in the listing
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
-        self.assertEqual(
-            [obj_timestamps[name].isoformat for name in obj_names],
-            [obj['last_modified'] for obj in get_listing()])
+        # no shard for this object yet so it is accepted by root container
+        # and stored in misplaced objects...
+        assert_not_redirected('dopey', timestamp=next(ts_iter))
+        self.assertIn('dopey', [obj['name'] for obj in get_listing(-1)])
+        self.assertNotIn('dopey', [obj['name'] for obj in get_listing(0)])
 
         # now PUT the first shard range
-        self._put_shard_range(shard_ranges['dopey'])  # newer timestamp
-        resp = do_update('bashful')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_dopey/bashful',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['dopey'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        resp = do_update('dopey')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_dopey/dopey',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges['dopey'].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        # existing updates in this container were *not* updated
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
-        self.assertEqual(
-            [obj_timestamps[name].isoformat for name in obj_names],
-            [obj['last_modified'] for obj in get_listing()])
+        sr_dopey = shard_ranges['dopey']
+        sr_dopey.update_state(ShardRange.CLEAVED,
+                              state_timestamp=next(ts_iter))
+        self._put_shard_range(sr_dopey)
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'dopey%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(0)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(0)])
+                obj_name = 'dopey%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
+                self.assertNotIn(obj_name,
+                                 [obj['name'] for obj in get_listing(0)])
 
-        # no shard for this object yet, so accepted to misplaced objects table
-        delete_times['sleepy'] = next(ts_iter)
-        resp = do_update('sleepy', timestamp=delete_times['sleepy'])
-        self.assertEqual(204, resp.status_int)
-        self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
-        # but the delete is not reflected in the listing
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
-        self.assertEqual(
-            [obj_timestamps[name].isoformat for name in obj_names],
-            [obj['last_modified'] for obj in get_listing()])
+        # further updates to bashful and dopey are now redirected...
+        assert_redirected('bashful', sr_dopey, headers=headers)
+        assert_redirected('dopey', sr_dopey, headers=headers)
+        # ...and existing updates in this container are *not* updated
+        self.assertEqual([ts_bashful_orig.internal],
+                         [obj['created_at'] for obj in get_listing(0)
+                          if obj['name'] == 'bashful'])
 
-        # now PUT the final shard
-        self._put_shard_range(shard_ranges[''])
-        resp = do_update('sleepy')
-        self.assertEqual(301, resp.status_int)
-        self.assertEqual('/.sharded_a/sr_/sleepy',
-                         resp.headers['Location'])
-        self.assertEqual(shard_ranges[''].timestamp.internal,
-                         resp.headers['X-Backend-Redirect-Timestamp'])
-        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
-        self.assertEqual(
-            [obj_timestamps[name].isoformat for name in obj_names],
-            [obj['last_modified'] for obj in get_listing()])
+        # set broker to sharded state
+        context = broker.load_cleave_context()
+        context.update({'misplaced_done': True, 'cleaving_done': True})
+        broker.dump_cleave_context(context)
+        self.assertTrue(broker.set_sharded_state())
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpiest%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                obj_name = 'grumpiest%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
 
-        # sanity check existence of rows for the delete updates that were
-        # accepted in misplaced objects table when no shard ranges existed for
-        # them; note that this queries only the misplaced objects table because
-        # the broker is in sharding state
-        container_rows = broker.list_objects_iter(
-            100, '', '', '', '', None,
-            storage_policy_index=broker.storage_policy_index,
-            include_deleted=True)
-        deleted_obj_names = ['dopey', 'sleepy']
-        self.assertEqual(deleted_obj_names, [obj[0] for obj in container_rows])
-        self.assertEqual(
-            [delete_times[name].internal for name in deleted_obj_names],
-            [obj[1] for obj in container_rows])
+    def test_PUT_object_update_redirected_to_shard(self):
+        self._check_object_update_redirected_to_shard('PUT')
+
+    def test_DELETE_object_update_redirected_to_shard(self):
+        self._check_object_update_redirected_to_shard('DELETE')
 
     def test_GET_json_all_items(self):
         ts_iter = make_timestamp_iter()
