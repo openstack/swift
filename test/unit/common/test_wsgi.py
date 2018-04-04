@@ -1270,9 +1270,10 @@ class TestWorkersStrategy(unittest.TestCase):
             pid += 1
             sock_count += 1
 
+        mypid = os.getpid()
         self.assertEqual([
-            'Started child %s' % 88,
-            'Started child %s' % 89,
+            'Started child %s from parent %s' % (88, mypid),
+            'Started child %s from parent %s' % (89, mypid),
         ], self.logger.get_lines_for_level('notice'))
 
         self.assertEqual(2, sock_count)
@@ -1282,7 +1283,7 @@ class TestWorkersStrategy(unittest.TestCase):
         self.strategy.register_worker_exit(88)
 
         self.assertEqual([
-            'Removing dead child %s' % 88,
+            'Removing dead child %s from parent %s' % (88, mypid)
         ], self.logger.get_lines_for_level('error'))
 
         for s, i in self.strategy.new_worker_socks():
@@ -1294,9 +1295,9 @@ class TestWorkersStrategy(unittest.TestCase):
 
         self.assertEqual(1, sock_count)
         self.assertEqual([
-            'Started child %s' % 88,
-            'Started child %s' % 89,
-            'Started child %s' % 90,
+            'Started child %s from parent %s' % (88, mypid),
+            'Started child %s from parent %s' % (89, mypid),
+            'Started child %s from parent %s' % (90, mypid),
         ], self.logger.get_lines_for_level('notice'))
 
     def test_post_fork_hook(self):

@@ -14,7 +14,6 @@
 # limitations under the License.
 import json
 import os
-import time
 import uuid
 
 from nose import SkipTest
@@ -32,7 +31,8 @@ from swiftclient import client, get_auth, ClientException
 from swift.proxy.controllers.obj import num_container_updates
 from test import annotate_failure
 from test.probe.brain import BrainSplitter
-from test.probe.common import ReplProbeTest, get_server_number
+from test.probe.common import ReplProbeTest, get_server_number, \
+    wait_for_server_to_hangup
 
 
 MIN_SHARD_CONTAINER_SIZE = 4
@@ -107,6 +107,21 @@ class TestContainerSharding(ReplProbeTest):
 
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
+
+    def stop_container_servers(self, node_numbers=None):
+        if node_numbers:
+            ipports = []
+            server2ipport = {v: k for k, v in self.ipport2server.items()}
+            for number in self.brain.node_numbers[node_numbers]:
+                self.brain.servers.stop(number=number)
+                server = 'container%d' % number
+                ipports.append(server2ipport[server])
+        else:
+            ipports = [k for k, v in self.ipport2server.items()
+                       if v.startswith('container')]
+            self.brain.servers.stop()
+        for ipport in ipports:
+            wait_for_server_to_hangup(ipport)
 
     def put_objects(self, obj_names):
         for obj in obj_names:
@@ -1009,8 +1024,7 @@ class TestContainerSharding(ReplProbeTest):
             # to the shard, but fails to update shard, so that the async
             # pending will first be directed to the shard when the updaters
             # run?
-            self.brain.servers.stop()
-            time.sleep(2)  # why?
+            self.stop_container_servers()
             self.put_objects([beta])
             self.brain.servers.start()
             async_pendings = self.gather_async_pendings(
@@ -1159,9 +1173,7 @@ class TestContainerSharding(ReplProbeTest):
         self.replicators.once()
 
         # stop the leader node and one other server
-        time.sleep(2)
-        for number in node_numbers[:2]:
-            self.brain.servers.stop(number=number)
+        self.stop_container_servers(slice(0, 2))
 
         # ...then put one more object in first shard range namespace
         self.put_objects(['alpha'])
