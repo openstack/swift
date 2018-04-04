@@ -2955,13 +2955,14 @@ class TestSharder(unittest.TestCase):
                               next(self.ts_iter).internal, 1, '', '')
             with mock_timestamp_now() as now:
                 shard_ranges = broker.get_shard_ranges(include_deleted=True)
-                expected_sent = ([
-                    dict(own_shard_range,
-                         meta_timestamp=now.internal,
-                         object_count=own_shard_range.object_count + 1,
-                         bytes_used=own_shard_range.bytes_used + 1)] +
-                    [dict(sr) for sr in shard_ranges])
-                check_shard_ranges_sent(expected_sent)
+                expected_sent = sorted([
+                    own_shard_range.copy(
+                        meta_timestamp=now.internal,
+                        object_count=own_shard_range.object_count + 1,
+                        bytes_used=own_shard_range.bytes_used + 1)] +
+                    shard_ranges,
+                    key=lambda r: (r.lower, r.upper))
+                check_shard_ranges_sent([dict(sr) for sr in expected_sent])
 
         for state in ShardRange.STATES.keys():
             if state == ShardRange.SHRINKING:

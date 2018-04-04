@@ -1603,8 +1603,7 @@ class ContainerBroker(DatabaseBroker):
                     condition = ' WHERE ' + ' AND '.join(conditions)
                 sql = '''
                 SELECT %s
-                FROM shard_ranges%s
-                ORDER BY lower, upper;
+                FROM shard_ranges%s;
                 ''' % (', '.join(SHARD_RANGE_KEYS), condition)
                 data = conn.execute(sql)
                 data.row_factory = None
@@ -1658,6 +1657,7 @@ class ContainerBroker(DatabaseBroker):
                 include_deleted=include_deleted, states=states,
                 exclude_states=exclude_states, include_own=include_own,
                 exclude_others=exclude_others)]
+        shard_ranges.sort(key=lambda sr: (sr.lower, sr.upper))
         if includes:
             shard_range = find_shard_range(includes, shard_ranges)
             return [shard_range] if shard_range else []

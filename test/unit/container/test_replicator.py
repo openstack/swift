@@ -1355,6 +1355,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     def assert_synced_shard_ranges(self, expected, synced_items):
         for item in synced_items:
             item.pop('record_type')
+        expected.sort(key=lambda sr: (sr.lower, sr.upper))
         self.assertEqual([dict(ex) for ex in expected], synced_items)
 
     def assert_info_synced(self, local, remote_node_index, mismatches=None):
