@@ -1133,6 +1133,7 @@ class TestContainerSharding(ReplProbeTest):
             self.updaters.once()
             # and the container is revived!
             self.assert_container_listing([beta])
+
             # finally, clear out the container
             client.delete_object(
                 self.url, self.token, self.container_name, beta)
