@@ -1143,6 +1143,10 @@ class ContainerSharder(ContainerReplicator):
 
         merge_pairs = {}
         for donor, acceptor in zip(shard_ranges, shard_ranges[1:]):
+            self.logger.debug('considering shrink donor    %r %s' %
+                              (donor, donor.name))
+            self.logger.debug('considering shrink acceptor %r %s' %
+                              (acceptor, acceptor.name))
             if donor in merge_pairs:
                 # this range may already have been made an acceptor; if so then
                 # move on. In principle it might be that even after expansion
@@ -1167,6 +1171,8 @@ class ContainerSharder(ContainerReplicator):
                 # include previously identified merge pairs on presumption that
                 # following shrink procedure is idempotent
                 merge_pairs[acceptor] = donor
+                self.logger.debug('selecting shrink pair %r %r' %
+                                  (donor, acceptor))
 
         # TODO: think long and hard about the correct order for these remaining
         # operations and what happens when one fails...

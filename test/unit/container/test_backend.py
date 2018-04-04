@@ -3303,8 +3303,6 @@ class TestContainerBroker(unittest.TestCase):
         broker.merge_syncs([incoming_sync], incoming=True)
 
         # Add some ShardRanges
-        # TODO: note these are initialised with expected object count and bytes
-        # used - check that reality catches up with this assumption
         shard_ranges = [ShardRange(
             name='.sharded_a/shard_range_%s' % i,
             created_at=next(ts_iter), lower='obj_%d' % i,
@@ -3312,8 +3310,10 @@ class TestContainerBroker(unittest.TestCase):
             object_count=len(objects[i:i + 2]),
             bytes_used=sum(obj['size'] for obj in objects[i:i + 2]),
             meta_timestamp=next(ts_iter)) for i in range(0, 6, 2)]
-
-        broker.merge_shard_ranges(shard_ranges)
+        deleted_range = ShardRange('.sharded_a/shard_range_z', next(ts_iter),
+                                   'z', '', state=ShardRange.ACTIVE, deleted=1)
+        own_sr = broker.get_own_shard_range()
+        broker.merge_shard_ranges([own_sr] + shard_ranges + [deleted_range])
 
         def check_broker_properties(broker):
             # these broker properties should remain unchanged as state changes
@@ -3323,7 +3323,9 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(original_meta, meta)
             self.assertEqual(broker.get_syncs(True)[0], incoming_sync)
             self.assertEqual(broker.get_syncs(False)[0], outgoing_sync)
-            self.assertEqual(broker.get_shard_ranges(), shard_ranges)
+            self.assertEqual([own_sr] + shard_ranges + [deleted_range],
+                             broker.get_shard_ranges(include_own=True,
+                                                     include_deleted=True))
 
         def check_broker_info(actual_info):
             for key in ('db_state', 'id'):

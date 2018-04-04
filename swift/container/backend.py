@@ -1790,7 +1790,8 @@ class ContainerBroker(DatabaseBroker):
         # who are still in the UNSHARDED state.
         # TODO: should we include deleted shard ranges here...just in case it
         # ever happened and mattered?
-        sub_broker.merge_shard_ranges(self.get_shard_ranges(include_own=True))
+        sub_broker.merge_shard_ranges(
+            self.get_shard_ranges(include_own=True, include_deleted=True))
 
         # We also need to sync the sync tables as we have no idea how long
         # sharding will take and we want to be able to continue replication
