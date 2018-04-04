@@ -6956,34 +6956,24 @@ class TestShardRange(unittest.TestCase):
     def test_update_state(self):
         sr = utils.ShardRange('a/c', next(self.ts_iter))
         old_sr = sr.copy()
-        self.assertEqual(0, sr.state)
+        self.assertEqual(utils.ShardRange.FOUND, sr.state)
         self.assertEqual(dict(sr), dict(old_sr))  # sanity check
-        with mock_timestamp_now(next(self.ts_iter)) as now:
-            self.assertTrue(sr.update_state(utils.ShardRange.CREATED))
-        self.assertEqual(now, sr.state_timestamp)
-        self.assertEqual(utils.ShardRange.CREATED, sr.state)
-        old_sr_dict = dict(old_sr)
-        old_sr_dict.pop('state')
-        old_sr_dict.pop('state_timestamp')
-        sr_dict = dict(sr)
-        sr_dict.pop('state')
-        sr_dict.pop('state_timestamp')
-        self.assertEqual(old_sr_dict, sr_dict)
 
-        self.assertFalse(sr.update_state(utils.ShardRange.CREATED))
-        self.assertEqual(now, sr.state_timestamp)
-        self.assertEqual(utils.ShardRange.CREATED, sr.state)
+        for state in utils.ShardRange.STATES:
+            if state == utils.ShardRange.FOUND:
+                continue
+            self.assertTrue(sr.update_state(state))
+            self.assertEqual(dict(old_sr, state=state), dict(sr))
+            self.assertFalse(sr.update_state(state))
+            self.assertEqual(dict(old_sr, state=state), dict(sr))
 
-        with mock_timestamp_now(next(self.ts_iter)) as now:
-            self.assertTrue(sr.update_state(utils.ShardRange.ACTIVE))
-        self.assertEqual(now, sr.state_timestamp)
-        self.assertEqual(utils.ShardRange.ACTIVE, sr.state)
-
-        now = next(self.ts_iter)
-        self.assertTrue(
-            sr.update_state(utils.ShardRange.ACTIVE, state_timestamp=now))
-        self.assertEqual(now, sr.state_timestamp)
-        self.assertEqual(utils.ShardRange.ACTIVE, sr.state)
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        old_sr = sr.copy()
+        for state in utils.ShardRange.STATES:
+            ts = next(self.ts_iter)
+            self.assertTrue(sr.update_state(state, state_timestamp=ts))
+            self.assertEqual(dict(old_sr, state=state, state_timestamp=ts),
+                             dict(sr))
 
     def test_epoch_setter(self):
         sr = utils.ShardRange('a/c', next(self.ts_iter))
@@ -7002,7 +6992,8 @@ class TestShardRange(unittest.TestCase):
     def test_set_deleted(self):
         sr = utils.ShardRange('a/c', next(self.ts_iter))
         # initialise other timestamps
-        sr.update_state(utils.ShardRange.ACTIVE)
+        sr.update_state(utils.ShardRange.ACTIVE,
+                        state_timestamp=utils.Timestamp.now())
         sr.update_meta(1, 2)
         old_sr = sr.copy()
         self.assertFalse(sr.deleted)  # sanity check

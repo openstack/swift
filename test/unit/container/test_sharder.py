@@ -601,8 +601,6 @@ class TestSharder(unittest.TestCase):
         actual_dict = dict(actual)
         self.assertGreater(actual_dict.pop('meta_timestamp'),
                            expected_dict.pop('meta_timestamp'))
-        self.assertGreater(actual_dict.pop('state_timestamp'),
-                           expected_dict.pop('state_timestamp'))
         self.assertEqual(expected_dict, actual_dict)
 
     def test_cleave_root(self):
@@ -1265,7 +1263,7 @@ class TestSharder(unittest.TestCase):
         own_sr = brokers[2].get_own_shard_range()
         expected_stats = {'all': [stats_0]}
         for state in ShardRange.STATES:
-            own_sr.update_state(state)
+            own_sr.update_state(state, state_timestamp=Timestamp.now())
             brokers[2].merge_shard_ranges([own_sr])
             with self._mock_sharder(conf=conf) as sharder:
                 with mock_timestamp_now(now):
@@ -1278,7 +1276,7 @@ class TestSharder(unittest.TestCase):
         # reduce the threshold and the second container is included
         conf = {'shard_container_size': 50,
                 'recon_cache_path': self.tempdir}
-        own_sr.update_state(ShardRange.ACTIVE)
+        own_sr.update_state(ShardRange.ACTIVE, state_timestamp=Timestamp.now())
         brokers[2].merge_shard_ranges([own_sr])
         with self._mock_sharder(conf=conf) as sharder:
             with mock_timestamp_now(now):
@@ -1310,7 +1308,7 @@ class TestSharder(unittest.TestCase):
         for state in ShardRange.STATES:
             if state == ShardRange.ACTIVE:
                 continue
-            own_sr.update_state(state)
+            own_sr.update_state(state, state_timestamp=Timestamp.now())
             brokers[0].merge_shard_ranges([own_sr])
             with self._mock_sharder(conf=conf) as sharder:
                 with mock_timestamp_now(now):
@@ -1320,7 +1318,7 @@ class TestSharder(unittest.TestCase):
                 self.assert_stats(
                     expected_stats, sharder, 'sharding_candidates')
 
-        own_sr.update_state(ShardRange.ACTIVE)
+        own_sr.update_state(ShardRange.ACTIVE, state_timestamp=Timestamp.now())
         brokers[0].merge_shard_ranges([own_sr])
 
         # load up a third container with 150 objects
@@ -2916,13 +2914,15 @@ class TestSharder(unittest.TestCase):
 
         def check_only_own_shard_range_sent(state):
             own_shard_range = broker.get_own_shard_range()
-            self.assertTrue(own_shard_range.update_state(state))
+            self.assertTrue(own_shard_range.update_state(
+                state, state_timestamp=next(self.ts_iter)))
             broker.merge_shard_ranges([own_shard_range])
             # add an object, expect to see it reflected in the own shard range
             # that is sent
             broker.put_object(str(own_shard_range.object_count + 1),
                               next(self.ts_iter).internal, 1, '', '')
             with mock_timestamp_now() as now:
+                # force own shard range meta updates to be at fixed timestamp
                 expected_sent = [
                     dict(own_shard_range,
                          meta_timestamp=now.internal,
@@ -2932,7 +2932,6 @@ class TestSharder(unittest.TestCase):
 
         # only own shard range to send
         for state in ShardRange.STATES:
-            # force own shard range meta updates to be at fixed timestamp
             with annotate_failure(state):
                 check_only_own_shard_range_sent(state)
 
@@ -2945,7 +2944,8 @@ class TestSharder(unittest.TestCase):
 
         def check_all_shard_ranges_sent(state):
             own_shard_range = broker.get_own_shard_range()
-            self.assertTrue(own_shard_range.update_state(state))
+            self.assertTrue(own_shard_range.update_state(
+                state, state_timestamp=next(self.ts_iter)))
             broker.merge_shard_ranges([own_shard_range])
             # add an object, expect to see it reflected in the own shard range
             # that is sent

@@ -252,35 +252,49 @@ def update_new_item_from_existing(new_item, existing):
     return any(newer_than_existing)
 
 
-def merge_shards(item, existing):
+def merge_shards(shard_data, existing):
+    """
+    Compares ``shard_data`` with ``existing`` and updates ``shard_data`` with
+    any items of ``existing`` that take precedence over the corresponding item
+    in ``shard_data``.
+
+    :param shard_data: a dict representation of shard range that may be
+        modified by this method.
+    :param existing: a dict representation of shard range.
+    :returns: True if ``shard data`` has any item(s) that are considered to
+        take precedence over the corresponding item in ``existing``
+    """
     # TODO: do we need to consider taking object_count and bytes_used from
     # whichever has newest meta_timestamp regardless of created time? If we had
     # two shard_ranges on two nodes with same created at and name, then one
     # may have been updated with meta independently of the other.
     if not existing:
         return True
-    if existing['created_at'] < item['created_at']:
+    if existing['created_at'] < shard_data['created_at']:
         # note that currently we do not roll forward any meta or state from
         # an item that was created at older time, newer created time trumps
         return True
-    elif existing['created_at'] > item['created_at']:
+    elif existing['created_at'] > shard_data['created_at']:
         return False
 
     new_content = False
     # created_at must be the same, so preserve existing range bounds
     for k in ('lower', 'upper'):
-        item[k] = existing[k]
+        shard_data[k] = existing[k]
 
     # now we need to look for meta data updates
-    if existing['meta_timestamp'] >= item['meta_timestamp']:
+    if existing['meta_timestamp'] >= shard_data['meta_timestamp']:
         for k in ('object_count', 'bytes_used', 'meta_timestamp'):
-            item[k] = existing[k]
+            shard_data[k] = existing[k]
     else:
         new_content = True
 
-    if existing['state_timestamp'] >= item['state_timestamp']:
+    if (existing['state_timestamp'] == shard_data['state_timestamp']
+            and shard_data['state'] > existing['state']):
+        new_content = True
+    elif existing['state_timestamp'] >= shard_data['state_timestamp']:
         for k in ('state', 'state_timestamp', 'epoch'):
-            item[k] = existing[k]
+            shard_data[k] = existing[k]
     else:
         new_content = True
     return new_content
