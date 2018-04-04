@@ -358,7 +358,7 @@ class TestContainerSharding(ReplProbeTest):
         shard_ranges = self.get_container_shard_ranges()
         self.assertLengthEqual(shard_ranges, 4)
         for shard_range in shard_ranges[:2]:
-            self.assertEqual(ShardRange.ACTIVE, shard_range.state)
+            self.assertEqual(ShardRange.CLEAVED, shard_range.state)
         for shard_range in shard_ranges[2:]:
             self.assertEqual(ShardRange.CREATED, shard_range.state)
 
@@ -759,7 +759,7 @@ class TestContainerSharding(ReplProbeTest):
         expected_epoch = broker.get_sharding_info('Epoch')
         self.assertLengthEqual(expected_shard_ranges, 3)
         self.assertEqual(
-            [ShardRange.ACTIVE, ShardRange.ACTIVE, ShardRange.CREATED],
+            [ShardRange.CLEAVED, ShardRange.CLEAVED, ShardRange.CREATED],
             [sr.state for sr in expected_shard_ranges])
 
         # Still have all three big DBs -- we've only cleaved 2 of the 3 shard
@@ -1297,7 +1297,7 @@ class TestContainerSharding(ReplProbeTest):
         self.sharders.once(number=leader_num,
                            additional_args='--partitions=%s' % self.brain.part)
         shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
-        self.assertEqual([ShardRange.ACTIVE] * 2 + [ShardRange.CREATED] * 2,
+        self.assertEqual([ShardRange.CLEAVED] * 2 + [ShardRange.CREATED] * 2,
                          [sr.state for sr in shard_ranges])
 
         # stop *all* container servers for third shard range
@@ -1314,7 +1314,7 @@ class TestContainerSharding(ReplProbeTest):
         for node_num in sr_node_nums:
             self.brain.servers.start(number=node_num)
         shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
-        self.assertEqual([ShardRange.ACTIVE] * 2 + [ShardRange.CREATED] * 2,
+        self.assertEqual([ShardRange.CLEAVED] * 2 + [ShardRange.CREATED] * 2,
                          [sr.state for sr in shard_ranges])
 
         # stop two of the servers for third shard range, not including any
@@ -1336,7 +1336,7 @@ class TestContainerSharding(ReplProbeTest):
         for node_num in stopped:
             self.brain.servers.start(number=node_num)
         shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
-        self.assertEqual([ShardRange.ACTIVE] * 2 + [ShardRange.CREATED] * 2,
+        self.assertEqual([ShardRange.CLEAVED] * 2 + [ShardRange.CREATED] * 2,
                          [sr.state for sr in shard_ranges])
 
         # stop just one of the servers for third shard range
