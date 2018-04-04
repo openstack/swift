@@ -68,6 +68,47 @@ def make_shard_ranges(broker, shard_data, shards_account_prefix):
     return shard_ranges
 
 
+def find_missing_ranges(shard_ranges):
+    """
+    Find any ranges in the entire object namespace that are not covered by any
+    shard range in the given list.
+
+    :param shard_ranges: A list of :class:`~swift.utils.ShardRange`
+    :return: a list of missing ranges
+    """
+    gaps = []
+    if not shard_ranges:
+        return ((ShardRange.MIN, ShardRange.MAX),)
+    if shard_ranges[0].lower > ShardRange.MIN:
+        gaps.append((ShardRange.MIN, shard_ranges[0].lower))
+    for first, second in zip(shard_ranges, shard_ranges[1:]):
+        if first.upper < second.lower:
+            gaps.append((first.upper, second.lower))
+    if shard_ranges[-1].upper < ShardRange.MAX:
+        gaps.append((shard_ranges[-1].upper, ShardRange.MAX))
+    return gaps
+
+
+def find_overlapping_ranges(shard_ranges):
+    """
+    Find all pairs of overlapping ranges in the given list.
+
+    :param shard_ranges: A list of :class:`~swift.utils.ShardRange`
+    :return: a set of tuples, each tuple containing ranges that overlap with
+        each other.
+    """
+    result = set()
+    for shard_range in shard_ranges:
+        overlapping = [sr for sr in shard_ranges
+                       if shard_range != sr and shard_range.overlaps(sr)]
+        if overlapping:
+            overlapping.append(shard_range)
+            overlapping.sort()
+            result.add(tuple(overlapping))
+
+    return result
+
+
 class ContainerSharder(ContainerReplicator):
     """Shards containers."""
 
@@ -171,7 +212,8 @@ class ContainerSharder(ContainerReplicator):
             ('created', default_stats),
             ('cleaved', default_stats + ('min_time', 'max_time',)),
             ('misplaced', default_stats + ('found', 'placed', 'unplaced')),
-            ('audit', default_stats),
+            ('audit_root', default_stats),
+            ('audit_shard', default_stats),
         )
 
         now = time.time()
@@ -197,15 +239,16 @@ class ContainerSharder(ContainerReplicator):
             self._report_stats()
             self._zero_stats()
 
-    def _fetch_shard_ranges(self, broker, newest=False):
+    def _fetch_shard_ranges(self, broker, newest=False, params=None):
         path = self.swift.make_path(broker.root_account, broker.root_container)
-        path += '?format=json'
+        params = params or {}
+        params.setdefault('format', 'json')
         headers = {'X-Backend-Record-Type': 'shard'}
         if newest:
             headers['X-Newest'] = 'true'
         try:
-            resp = self.swift.make_request('GET', path, headers,
-                                           acceptable_statuses=(2,))
+            resp = self.swift.make_request(
+                'GET', path, headers, acceptable_statuses=(2,), params=params)
         except internal_client.UnexpectedResponse:
             self.logger.error("Failed to get shard ranges from %s",
                               broker.root_path)
@@ -593,101 +636,114 @@ class ContainerSharder(ContainerReplicator):
             return
         return super(ContainerReplicator, self).delete_db(broker)
 
-    def _audit_shard_container(self, broker, shard_range):
-        # TODO We will need to audit the root (make sure there are no missing
-        #      gaps in the ranges.
-        # TODO If the shard container has a sharding lock then see if it's
-        #       needed. Maybe something as simple as sharding lock older then
-        #       reclaim age.
+    def _audit_root_container(self, broker):
+        # This is the root container, and therefore the tome of knowledge,
+        # all we can do is check there is nothing screwy with the ranges
+        self._increment_stat('audit_root', 'attempted')
+        warnings = []
+        own_shard_range = broker.get_own_shard_range()
 
-        self.logger.info('Auditing %s/%s', broker.account, broker.container)
-        continue_with_container = True
-        self._increment_stat('audit', 'attempted')
-
-        # if the container has been marked as deleted, all metadata will
-        # have been erased so no point auditing. But we want it to pass, in
-        # case any objects exist inside it.
-        if broker.is_deleted():
-            return continue_with_container
-
-        if broker.is_root_container():
-            # This is the root container, and therefore the tome of knowledge,
-            # all we can do is check there is nothing screwy with the range
+        if own_shard_range.state in (ShardRange.SHARDING, ShardRange.SHARDED):
             shard_ranges = broker.get_shard_ranges()
-            overlaps = ContainerSharder.find_overlapping_ranges(shard_ranges)
-            for overlap in overlaps:
-                self.logger.error('Range overlaps found, attempting to '
-                                  'correct')
-                newest = max(overlap, key=lambda x: x.timestamp)
-                older = set(overlap).difference(set([newest]))
-
-                # now delete the older overlaps, keeping only the newest
-                timestamp = Timestamp(newest.timestamp, offset=1)
-                for shard_range in older:
-                    shard_range.timestamp = timestamp
-                    shard_range.deleted = 1
-                # TODO: make a single update of older ranges at end of loop
-                self._send_shard_ranges(
-                    broker.root_account, broker.root_container, older)
-                continue_with_container = False
-            missing_ranges = ContainerSharder.check_complete_ranges(
-                shard_ranges)
+            missing_ranges = find_missing_ranges(shard_ranges)
             if missing_ranges:
-                self.logger.error('Missing range(s) dectected: %s',
-                                  '-'.join(missing_ranges))
-                continue_with_container = False
+                warnings.append(
+                    'missing range(s): %s' %
+                    ' '.join(['%s-%s' % (lower, upper)
+                              for lower, upper in missing_ranges]))
 
-            if not continue_with_container:
-                self.logger.increment('audit_failed')
-                self._increment_stat('audit', 'failure')
-            self._increment_stat('audit', 'success')
-            return continue_with_container
+        for state in ShardRange.STATES:
+            shard_ranges = broker.get_shard_ranges(states=state)
+            overlaps = find_overlapping_ranges(shard_ranges)
+            for overlapping_ranges in overlaps:
+                warnings.append(
+                    'overlapping ranges in state %s: %s' %
+                    (ShardRange.STATES[state],
+                     ' '.join(['%s-%s' % (sr.lower, sr.upper)
+                               for sr in overlapping_ranges])))
 
-        # Get the root view of the world.
-        shard_ranges = self._fetch_shard_ranges(broker, newest=True)
-        if shard_ranges is None:
-            # failed to get the root tree. Error out for now.. we may need to
-            # quarantine the container.
-            self.logger.warning("Failed to get a shard range tree from root "
-                                "container %s, it may not exist.",
-                                broker.root_path)
+        if warnings:
+            self.logger.warning(
+                'Audit failed for root %s (%s): %s' %
+                (broker.db_file, broker.path, ', '.join(warnings)))
             self.logger.increment('audit_failed')
-            self._increment_stat('audit', 'failure')
+            self._increment_stat('audit_root', 'failure')
             return False
-        if shard_range in shard_ranges:
-            self._increment_stat('audit', 'success')
-            return continue_with_container
 
-        # shard range isn't in ranges, if it overlaps with an item, we're in
-        # trouble. If there is overlap let's see if it's newer than this
-        # container, if so, it's safe to delete (quarantine this container).
-        # TODO(tburke): is ^^^ right? or better to consider it all misplaced?
-        # if it's newer, then it might not be updated yet, so just let it
-        # continue (or maybe we shouldn't?).
-        overlaps = [r for r in shard_ranges if r.overlaps(shard_range)]
-        if overlaps:
-            if max(overlaps + [shard_range],
-                   key=lambda x: x.timestamp) == shard_range:
-                # shard range is newest so leave it alone for now  as the root
-                # might not be updated  yet.
-                self.logger.increment('audit_failed')
-                self._increment_stat('audit', 'failure')
-                return False
+        self._increment_stat('audit_root', 'success')
+        return True
+
+    def _audit_shard_container(self, broker):
+        # Get the root view of the world.
+        self._increment_stat('audit_shard', 'attempted')
+        warnings = []
+        errors = []
+        if not broker.account.startswith(self.shards_account_prefix):
+            warnings.append('account not in shards namespace %r' %
+                            self.shards_account_prefix)
+
+        own_shard_range = broker.get_own_shard_range(no_default=True)
+        if not own_shard_range:
+            errors.append('missing own shard range')
+
+        # try to contact root container
+        upper = own_shard_range.upper if own_shard_range else ''
+        shard_ranges = self._fetch_shard_ranges(
+            broker, newest=True, params={'includes': upper})
+
+        shard_range = None
+        if shard_ranges and own_shard_range:
+            for shard_range in shard_ranges:
+                if (shard_range.lower == own_shard_range.lower and
+                        shard_range.upper == own_shard_range.upper and
+                        shard_range.name == own_shard_range.name):
+                    break
             else:
-                # There is a newer range that overlaps/covers this range.
-                # so we are safe to quarantine it.
-                # TODO Quarantine
-                self.logger.error('The range of objects stored in this '
-                                  'container (%s/%s) overlaps with another '
-                                  'newer shard range',
-                                  broker.account, broker.container)
-                self.logger.increment('audit_failed')
-                self._increment_stat('audit', 'failure')
-                return False
-        # shard range doesn't exist in the root containers ranges, but doesn't
-        # overlap with anything
-        self._increment_stat('audit', 'success')
-        return continue_with_container
+                shard_range = None
+
+        if not shard_range:
+            # this is not necessarily an error - some replicas of the root may
+            # not yet know about this shard container
+            warnings.append('root has no matching shard range')
+
+        if warnings:
+            self.logger.warning(
+                'Audit warnings for shard %s (%s): %s' %
+                (broker.db_file, broker.path, ', '.join(warnings)))
+
+        if errors:
+            self.logger.warning(
+                'Audit failed for shard %s (%s) - skipping: %s' %
+                (broker.db_file, broker.path, ', '.join(errors)))
+            self.logger.increment('audit_failed')
+            self._increment_stat('audit_shard', 'failure')
+            return False
+
+        if shard_range:
+            # TODO: merging the root shard range here may save us having to
+            # push every shard range from the root in process_broker
+            broker.merge_shard_ranges([shard_range])
+            own_shard_range = broker.get_own_shard_range()
+            delete_age = time.time() - self.reclaim_age
+            if (own_shard_range.state == ShardRange.SHARDED and
+                    own_shard_range.deleted and
+                    own_shard_range.timestamp < delete_age and
+                    broker.empty()):
+                broker.delete_db(Timestamp.now().internal)
+                self.logger.debug('Deleted shard container %s (%s)',
+                                  broker.db_file, broker.path)
+        self._increment_stat('audit_shard', 'success')
+        return True
+
+    def _audit_container(self, broker):
+        if broker.is_deleted():
+            # if the container has been marked as deleted, all metadata will
+            # have been erased so no point auditing. But we want it to pass, in
+            # case any objects exist inside it.
+            return True
+        if broker.is_root_container():
+            return self._audit_root_container(broker)
+        return self._audit_shard_container(broker)
 
     def _update_root_container(self, broker):
         own_shard_range = broker.get_own_shard_range(no_default=True)
@@ -742,15 +798,8 @@ class ContainerSharder(ContainerReplicator):
                          broker.account, broker.container,
                          broker.get_db_state_text(state))
 
-        # Before we do any heavy lifting, lets do an audit on the shard
-        # container. We grab the root's view of the shard_points and make
-        # sure this container exists in it and in what should be it's
-        # parent. If its in both great, If it exists in either but not the
-        # other, then this needs to be fixed. If, however, it doesn't
-        # exist in either then this container may not exist anymore so
-        # quarantine it.
-        # if not self._audit_shard_container(broker, shard_range):
-        #     continue
+        if not self._audit_container(broker):
+            return
 
         # now look and deal with misplaced objects.
         self._move_misplaced_objects(broker)
@@ -972,31 +1021,6 @@ class ContainerSharder(ContainerReplicator):
         # Now we wait for all threads to finish.
         self.cpool.waitall(None)
         self._report_stats()
-
-    @staticmethod
-    def check_complete_ranges(ranges):
-        lower = set()
-        upper = set()
-        for r in ranges:
-            lower.add(r.lower)
-            upper.add(r.upper)
-        l = lower.copy()
-        lower.difference_update(upper)
-        upper.difference_update(l)
-
-        return zip(upper, lower)
-
-    @staticmethod
-    def find_overlapping_ranges(ranges):
-        result = set()
-        for range in ranges:
-            res = [r for r in ranges if range != r and range.overlaps(r)]
-            if res:
-                res.append(range)
-                res.sort()
-                result.add(tuple(res))
-
-        return result
 
     def _find_shard_ranges(self, broker):
         """
