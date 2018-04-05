@@ -71,7 +71,7 @@ if not six.PY2:
 from six.moves import cPickle as pickle
 from six.moves.configparser import (ConfigParser, NoSectionError,
                                     NoOptionError, RawConfigParser)
-from six.moves import range
+from six.moves import range, http_client
 from six.moves.urllib.parse import ParseResult
 from six.moves.urllib.parse import quote as _quote
 from six.moves.urllib.parse import urlparse as stdlib_urlparse
@@ -1770,12 +1770,19 @@ class LogAdapter(logging.LoggerAdapter, object):
                 emsg = str(exc)
             elif exc.errno == errno.ECONNREFUSED:
                 emsg = _('Connection refused')
+            elif exc.errno == errno.ECONNRESET:
+                emsg = _('Connection reset')
             elif exc.errno == errno.EHOSTUNREACH:
                 emsg = _('Host unreachable')
+            elif exc.errno == errno.ENETUNREACH:
+                emsg = _('Network unreachable')
             elif exc.errno == errno.ETIMEDOUT:
                 emsg = _('Connection timeout')
             else:
                 call = self._exception
+        elif isinstance(exc, http_client.BadStatusLine):
+            # Use error(); not really exceptional
+            emsg = '%s: %s' % (exc.__class__.__name__, exc.line)
         elif isinstance(exc, eventlet.Timeout):
             emsg = exc.__class__.__name__
             if hasattr(exc, 'seconds'):

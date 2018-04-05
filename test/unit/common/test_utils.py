@@ -43,6 +43,7 @@ import inspect
 import six
 from six import BytesIO, StringIO
 from six.moves.queue import Queue, Empty
+from six.moves import http_client
 from six.moves import range
 from textwrap import dedent
 
@@ -1705,6 +1706,13 @@ class TestUtils(unittest.TestCase):
             self.assertTrue('(42s)' in log_msg)
             self.assertTrue('my error message' in log_msg)
             message_timeout.cancel()
+
+            # test BadStatusLine
+            log_exception(http_client.BadStatusLine(''))
+            log_msg = strip_value(sio)
+            self.assertNotIn('Traceback', log_msg)
+            self.assertIn('BadStatusLine', log_msg)
+            self.assertIn("''", log_msg)
 
             # test unhandled
             log_exception(Exception('my error message'))
