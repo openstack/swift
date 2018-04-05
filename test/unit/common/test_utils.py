@@ -47,6 +47,7 @@ import inspect
 import six
 from six import BytesIO, StringIO
 from six.moves.queue import Queue, Empty
+from six.moves import http_client
 from six.moves import range
 from textwrap import dedent
 
@@ -76,7 +77,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import Request, Response
 from test.unit import FakeLogger, requires_o_tmpfile_support, \
-    quiet_eventlet_exceptions
+    requires_o_tmpfile_support_in_tmp, quiet_eventlet_exceptions
 
 threading = eventlet.patcher.original('threading')
 
@@ -1718,6 +1719,13 @@ class TestUtils(unittest.TestCase):
             self.assertTrue('(42s)' in log_msg)
             self.assertTrue('my error message' in log_msg)
             message_timeout.cancel()
+
+            # test BadStatusLine
+            log_exception(http_client.BadStatusLine(''))
+            log_msg = strip_value(sio)
+            self.assertNotIn('Traceback', log_msg)
+            self.assertIn('BadStatusLine', log_msg)
+            self.assertIn("''", log_msg)
 
             # test unhandled
             log_exception(Exception('my error message'))
@@ -3609,6 +3617,22 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.get_hmac('GET', '/path', 1, 'abc'),
             'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
 
+    def test_parse_overrides(self):
+        devices, partitions = utils.parse_overrides(devices='sdb1,sdb2')
+        self.assertIn('sdb1', devices)
+        self.assertIn('sdb2', devices)
+        self.assertNotIn('sdb3', devices)
+        self.assertIn(1, partitions)
+        self.assertIn('1', partitions)  # matches because of Everything
+        self.assertIn(None, partitions)  # matches because of Everything
+        devices, partitions = utils.parse_overrides(partitions='1,2,3')
+        self.assertIn('sdb1', devices)
+        self.assertIn('1', devices)  # matches because of Everything
+        self.assertIn(None, devices)  # matches because of Everything
+        self.assertIn(1, partitions)
+        self.assertNotIn('1', partitions)
+        self.assertNotIn(None, partitions)
+
     def test_get_policy_index(self):
         # Account has no information about a policy
         req = Request.blank(
@@ -3929,7 +3953,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 patch('platform.architecture', return_value=('64bit', '')):
             self.assertRaises(OSError, utils.NR_ioprio_set)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_link_fd_to_path_linkat_success(self):
         tempdir = mkdtemp()
         fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
@@ -3949,7 +3973,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             os.close(fd)
             shutil.rmtree(tempdir)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_link_fd_to_path_target_exists(self):
         tempdir = mkdtemp()
         # Create and write to a file
@@ -3984,7 +4008,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 self.fail("Expecting IOError exception")
         self.assertTrue(_m_linkat.called)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_linkat_race_dir_not_exists(self):
         tempdir = mkdtemp()
         target_dir = os.path.join(tempdir, uuid4().hex)
@@ -4101,6 +4125,19 @@ cluster_dfw1 = http://dfw1.host/v1/
         # Make sure there is no change if the part power didn't change
         self.assertEqual(utils.replace_partition_in_path(old, 10), old)
         self.assertEqual(utils.replace_partition_in_path(new, 11), new)
+
+    def test_round_robin_iter(self):
+        it1 = iter([1, 2, 3])
+        it2 = iter([4, 5])
+        it3 = iter([6, 7, 8, 9])
+        it4 = iter([])
+
+        rr_its = utils.round_robin_iter([it1, it2, it3, it4])
+        got = list(rr_its)
+
+        # Expect that items get fetched in a round-robin fashion from the
+        # iterators
+        self.assertListEqual([1, 4, 6, 2, 5, 7, 3, 8, 9], got)
 
     @with_tempdir
     def test_get_db_files(self, tempdir):

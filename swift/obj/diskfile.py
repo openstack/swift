@@ -453,18 +453,20 @@ class AuditLocation(object):
         return str(self.path)
 
 
-def object_audit_location_generator(devices, mount_check=True, logger=None,
-                                    device_dirs=None, auditor_type="ALL"):
+def object_audit_location_generator(devices, datadir, mount_check=True,
+                                    logger=None, device_dirs=None,
+                                    auditor_type="ALL"):
     """
     Given a devices path (e.g. "/srv/node"), yield an AuditLocation for all
-    objects stored under that directory if device_dirs isn't set.  If
-    device_dirs is set, only yield AuditLocation for the objects under the
-    entries in device_dirs. The AuditLocation only knows the path to the hash
-    directory, not to the .data file therein (if any). This is to avoid a
-    double listdir(hash_dir); the DiskFile object will always do one, so
-    we don't.
+    objects stored under that directory for the given datadir (policy),
+    if device_dirs isn't set.  If device_dirs is set, only yield AuditLocation
+    for the objects under the entries in device_dirs. The AuditLocation only
+    knows the path to the hash directory, not to the .data file therein
+    (if any). This is to avoid a double listdir(hash_dir); the DiskFile object
+    will always do one, so we don't.
 
     :param devices: parent directory of the devices to be audited
+    :param datadir: objects directory
     :param mount_check: flag to check if a mount check should be performed
                         on devices
     :param logger: a logger object
@@ -480,6 +482,7 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
     # randomize devices in case of process restart before sweep completed
     shuffle(device_dirs)
 
+    base, policy = split_policy_string(datadir)
     for device in device_dirs:
         if not check_drive(devices, device, mount_check):
             if logger:
@@ -487,55 +490,37 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                     'Skipping %s as it is not %s', device,
                     'mounted' if mount_check else 'a dir')
             continue
-        # loop through object dirs for all policies
-        device_dir = os.path.join(devices, device)
-        try:
-            dirs = os.listdir(device_dir)
-        except OSError as e:
-            if logger:
-                logger.debug(
-                    _('Skipping %(dir)s: %(err)s') % {'dir': device_dir,
-                                                      'err': e.strerror})
+
+        datadir_path = os.path.join(devices, device, datadir)
+        if not os.path.exists(datadir_path):
             continue
-        for dir_ in dirs:
-            if not dir_.startswith(DATADIR_BASE):
-                continue
+
+        partitions = get_auditor_status(datadir_path, logger, auditor_type)
+
+        for pos, partition in enumerate(partitions):
+            update_auditor_status(datadir_path, logger,
+                                  partitions[pos:], auditor_type)
+            part_path = os.path.join(datadir_path, partition)
             try:
-                base, policy = split_policy_string(dir_)
-            except PolicyError as e:
-                if logger:
-                    logger.warning(_('Directory %(directory)r does not map '
-                                     'to a valid policy (%(error)s)') % {
-                                   'directory': dir_, 'error': e})
+                suffixes = listdir(part_path)
+            except OSError as e:
+                if e.errno != errno.ENOTDIR:
+                    raise
                 continue
-            datadir_path = os.path.join(devices, device, dir_)
-
-            partitions = get_auditor_status(datadir_path, logger, auditor_type)
-
-            for pos, partition in enumerate(partitions):
-                update_auditor_status(datadir_path, logger,
-                                      partitions[pos:], auditor_type)
-                part_path = os.path.join(datadir_path, partition)
+            for asuffix in suffixes:
+                suff_path = os.path.join(part_path, asuffix)
                 try:
-                    suffixes = listdir(part_path)
+                    hashes = listdir(suff_path)
                 except OSError as e:
                     if e.errno != errno.ENOTDIR:
                         raise
                     continue
-                for asuffix in suffixes:
-                    suff_path = os.path.join(part_path, asuffix)
-                    try:
-                        hashes = listdir(suff_path)
-                    except OSError as e:
-                        if e.errno != errno.ENOTDIR:
-                            raise
-                        continue
-                    for hsh in hashes:
-                        hsh_path = os.path.join(suff_path, hsh)
-                        yield AuditLocation(hsh_path, device, partition,
-                                            policy)
+                for hsh in hashes:
+                    hsh_path = os.path.join(suff_path, hsh)
+                    yield AuditLocation(hsh_path, device, partition,
+                                        policy)
 
-            update_auditor_status(datadir_path, logger, [], auditor_type)
+        update_auditor_status(datadir_path, logger, [], auditor_type)
 
 
 def get_auditor_status(datadir_path, logger, auditor_type):
@@ -589,15 +574,13 @@ def update_auditor_status(datadir_path, logger, partitions, auditor_type):
                            {'auditor_status': auditor_status, 'err': e})
 
 
-def clear_auditor_status(devices, auditor_type="ALL"):
-    for device in os.listdir(devices):
-        for dir_ in os.listdir(os.path.join(devices, device)):
-            if not dir_.startswith("objects"):
-                continue
-            datadir_path = os.path.join(devices, device, dir_)
-            auditor_status = os.path.join(
-                datadir_path, "auditor_status_%s.json" % auditor_type)
-            remove_file(auditor_status)
+def clear_auditor_status(devices, datadir, auditor_type="ALL"):
+    device_dirs = listdir(devices)
+    for device in device_dirs:
+        datadir_path = os.path.join(devices, device, datadir)
+        auditor_status = os.path.join(
+            datadir_path, "auditor_status_%s.json" % auditor_type)
+        remove_file(auditor_status)
 
 
 def strip_self(f):
@@ -1340,15 +1323,22 @@ class BaseDiskFileManager(object):
                                  pipe_size=self.pipe_size,
                                  use_linkat=self.use_linkat, **kwargs)
 
-    def object_audit_location_generator(self, device_dirs=None,
+    def clear_auditor_status(self, policy, auditor_type="ALL"):
+        datadir = get_data_dir(policy)
+        clear_auditor_status(self.devices, datadir, auditor_type)
+
+    def object_audit_location_generator(self, policy, device_dirs=None,
                                         auditor_type="ALL"):
         """
         Yield an AuditLocation for all objects stored under device_dirs.
 
+        :param policy: the StoragePolicy instance
         :param device_dirs: directory of target device
         :param auditor_type: either ALL or ZBF
         """
-        return object_audit_location_generator(self.devices, self.mount_check,
+        datadir = get_data_dir(policy)
+        return object_audit_location_generator(self.devices, datadir,
+                                               self.mount_check,
                                                self.logger, device_dirs,
                                                auditor_type)
 

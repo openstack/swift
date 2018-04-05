@@ -27,7 +27,7 @@ from eventlet import Timeout
 from swift.obj import diskfile, replicator
 from swift.common.utils import (
     get_logger, ratelimit_sleep, dump_recon_cache, list_from_csv, listdir,
-    unlink_paths_older_than, readconf, config_auto_int_value)
+    unlink_paths_older_than, readconf, config_auto_int_value, round_robin_iter)
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist,\
     DiskFileDeleted, DiskFileExpired
 from swift.common.daemon import Daemon
@@ -120,18 +120,17 @@ class AuditorWorker(object):
         total_quarantines = 0
         total_errors = 0
         time_auditing = 0
-        # TODO: we should move audit-location generation to the storage policy,
-        # as we may (conceivably) have a different filesystem layout for each.
-        # We'd still need to generate the policies to audit from the actual
-        # directories found on-disk, and have appropriate error reporting if we
-        # find a directory that doesn't correspond to any known policy. This
-        # will require a sizable refactor, but currently all diskfile managers
-        # can find all diskfile locations regardless of policy -- so for now
-        # just use Policy-0's manager.
-        all_locs = (self.diskfile_router[POLICIES[0]]
+
+        # get AuditLocations for each policy
+        loc_generators = []
+        for policy in POLICIES:
+            loc_generators.append(
+                self.diskfile_router[policy]
                     .object_audit_location_generator(
-                        device_dirs=device_dirs,
+                        policy, device_dirs=device_dirs,
                         auditor_type=self.auditor_type))
+
+        all_locs = round_robin_iter(loc_generators)
         for location in all_locs:
             loop_time = time.time()
             self.failsafe_object_audit(location)
@@ -192,8 +191,11 @@ class AuditorWorker(object):
             self.logger.info(
                 _('Object audit stats: %s') % json.dumps(self.stats_buckets))
 
-        # Unset remaining partitions to not skip them in the next run
-        diskfile.clear_auditor_status(self.devices, self.auditor_type)
+        for policy in POLICIES:
+            # Unset remaining partitions to not skip them in the next run
+            self.diskfile_router[policy].clear_auditor_status(
+                policy,
+                self.auditor_type)
 
     def record_stats(self, obj_size):
         """

@@ -163,6 +163,25 @@ use = egg:swift#recon
 # Work only with ionice_class.
 # ionice_class =
 # ionice_priority =
+#
+# The handoffs_only mode option is for special-case emergency
+# situations such as full disks in the cluster. This option SHOULD NOT
+# BE ENABLED except in emergencies. When handoffs_only mode is enabled
+# the replicator will *only* replicate from handoff nodes to primary
+# nodes and will not sync primary nodes with other primary nodes.
+#
+# This has two main effects: first, the replicator becomes much more
+# effective at removing misplaced databases, thereby freeing up disk
+# space at a much faster pace than normal. Second, the replicator does
+# not sync data between primary nodes, so out-of-sync account and
+# container listings will not resolve while handoffs_only is enabled.
+#
+# This mode is intended to allow operators to temporarily sacrifice
+# consistency in order to gain faster rebalancing, such as during a
+# capacity addition with nearly-full disks. It is not intended for
+# long-term use.
+#
+# handoffs_only = no
 
 [account-auditor]
 # You can override the default log routing for this app here (don't use set!):

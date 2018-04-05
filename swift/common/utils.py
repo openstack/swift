@@ -47,7 +47,7 @@ import ctypes
 import ctypes.util
 from optparse import OptionParser
 
-from tempfile import mkstemp, NamedTemporaryFile
+from tempfile import gettempdir, mkstemp, NamedTemporaryFile
 import glob
 import itertools
 import stat
@@ -73,7 +73,7 @@ if not six.PY2:
 from six.moves import cPickle as pickle
 from six.moves.configparser import (ConfigParser, NoSectionError,
                                     NoOptionError, RawConfigParser)
-from six.moves import range
+from six.moves import range, http_client
 from six.moves.urllib.parse import ParseResult
 from six.moves.urllib.parse import quote as _quote
 from six.moves.urllib.parse import urlparse as stdlib_urlparse
@@ -1788,12 +1788,19 @@ class LogAdapter(logging.LoggerAdapter, object):
                 emsg = str(exc)
             elif exc.errno == errno.ECONNREFUSED:
                 emsg = _('Connection refused')
+            elif exc.errno == errno.ECONNRESET:
+                emsg = _('Connection reset')
             elif exc.errno == errno.EHOSTUNREACH:
                 emsg = _('Host unreachable')
+            elif exc.errno == errno.ENETUNREACH:
+                emsg = _('Network unreachable')
             elif exc.errno == errno.ETIMEDOUT:
                 emsg = _('Connection timeout')
             else:
                 call = self._exception
+        elif isinstance(exc, http_client.BadStatusLine):
+            # Use error(); not really exceptional
+            emsg = '%s: %s' % (exc.__class__.__name__, exc.line)
         elif isinstance(exc, eventlet.Timeout):
             emsg = exc.__class__.__name__
             if hasattr(exc, 'seconds'):
@@ -3428,6 +3435,15 @@ def get_valid_utf8_str(str_or_unicode):
     return valid_unicode_str.encode('utf-8')
 
 
+class Everything(object):
+    """
+    A container that contains everything. If "e" is an instance of
+    Everything, then "x in e" is true for all x.
+    """
+    def __contains__(self, element):
+        return True
+
+
 def list_from_csv(comma_separated_str):
     """
     Splits the str given and returns a properly stripped list of the comma
@@ -3436,6 +3452,27 @@ def list_from_csv(comma_separated_str):
     if comma_separated_str:
         return [v.strip() for v in comma_separated_str.split(',') if v.strip()]
     return []
+
+
+def parse_overrides(devices='', partitions='', **kwargs):
+    """
+    Given daemon kwargs parse out device and partition overrides or Everything.
+
+    :returns: a tuple of (devices, partitions) which an used like containers to
+              check if a given partition (integer) or device (string) is "in"
+              the collection on which we should act.
+    """
+    devices = list_from_csv(devices)
+    if not devices:
+        devices = Everything()
+
+    partitions = [
+        int(part) for part in
+        list_from_csv(partitions)]
+    if not partitions:
+        partitions = Everything()
+
+    return devices, partitions
 
 
 def csv_append(csv_string, item):
@@ -4841,6 +4878,43 @@ def modify_priority(conf, logger):
     _ioprio_set(io_class, io_priority)
 
 
+def o_tmpfile_in_path_supported(dirpath):
+    if not hasattr(os, 'O_TMPFILE'):
+        return False
+
+    testfile = os.path.join(dirpath, ".o_tmpfile.test")
+
+    hasO_TMPFILE = True
+    fd = None
+    try:
+        fd = os.open(testfile, os.O_CREAT | os.O_WRONLY | os.O_TMPFILE)
+    except OSError as e:
+        if e.errno == errno.EINVAL:
+            hasO_TMPFILE = False
+        else:
+            raise Exception("Error on '%(path)s' while checking "
+                            "O_TMPFILE: '%(ex)s'",
+                            {'path': dirpath, 'ex': e})
+
+    except Exception as e:
+        raise Exception("Error on '%(path)s' while checking O_TMPFILE: "
+                        "'%(ex)s'", {'path': dirpath, 'ex': e})
+
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+        # ensure closing the fd will actually remove the file
+        if os.path.isfile(testfile):
+            return False
+
+    return hasO_TMPFILE
+
+
+def o_tmpfile_in_tmpdir_supported():
+    return o_tmpfile_in_path_supported(gettempdir())
+
+
 def o_tmpfile_supported():
     """
     Returns True if O_TMPFILE flag is supported.
@@ -5058,6 +5132,20 @@ class PipeMutex(object):
 class ThreadSafeSysLogHandler(SysLogHandler):
     def createLock(self):
         self.lock = PipeMutex()
+
+
+def round_robin_iter(its):
+    """
+    Takes a list of iterators, yield an element from each in a round-robin
+    fashion until all of them are exhausted.
+    :param its: list of iterators
+    """
+    while its:
+        for it in its:
+            try:
+                yield next(it)
+            except StopIteration:
+                its.remove(it)
 
 
 def get_redirect_data(response):
