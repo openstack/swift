@@ -88,27 +88,15 @@ class TestContainerController(unittest.TestCase):
         """
         pass
 
-    def _put_shard_range(self, shard_range, path='a/c'):
-        headers = {
-            'x-timestamp': shard_range.timestamp.normal,
-            'x-backend-shard-objects': shard_range.object_count,
-            'x-backend-shard-bytes': shard_range.bytes_used,
-            'x-backend-shard-lower': shard_range.lower,
-            'x-backend-shard-upper': shard_range.upper,
-            'x-backend-timestamp': shard_range.timestamp.internal,
-            'x-meta-timestamp': shard_range.meta_timestamp.internal,
-            'x-backend-shard-state': shard_range.state,
-            'x-backend-shard-state-timestamp':
-                shard_range.state_timestamp.internal,
-            'x-backend-record-type': 'shard',
-            'x-size': 0,
-        }
-        req = Request.blank('/sda1/p/%s/%s' % (path, shard_range.name),
-                            method='PUT',
-                            headers=headers)
-        self._update_object_put_headers(req)
+    def _put_shard_range(self, shard_range):
+        put_timestamp = shard_range.timestamp.internal
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Timestamp': put_timestamp}
+        body = json.dumps([dict(shard_range)])
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=body)
         resp = req.get_response(self.controller)
-        self.assertEqual(201, resp.status_int)
+        self.assertIn(resp.status_int, (201, 202))
 
     def _check_put_container_storage_policy(self, req, policy_index):
         resp = req.get_response(self.controller)
@@ -2408,23 +2396,10 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(shard_ranges[1:2], 'a/c',
                         params='&marker=cheese&end_marker=egg&reverse=true')
 
-        # delete a shardrange range
+        # delete a shard range
         shard_range = shard_ranges[1]
-        headers = {
-            'x-timestamp': next(ts_iter).internal,
-            'x-backend-record-type': 'shard',
-            'x-backend-shard-lower': shard_range.lower,
-            'x-backend-shard-upper': shard_range.upper,
-            # TODO (acoles): should this be shard_range.timestamp.internal?
-            'x-backend-timestamp': next(ts_iter).internal,
-            'x-meta-timestamp': shard_range.meta_timestamp.normal,
-            'x-backend-shard-state': '0',  # CREATED
-            'x-backend-shard-state-timestamp': next(ts_iter).internal,
-        }
-        req = Request.blank('/sda1/p/a/c/%s' % shard_range.name,
-                            method='DELETE', headers=headers)
-        resp = req.get_response(self.controller)
-        self.assertEqual(204, resp.status_int)
+        shard_range.set_deleted(timestamp=next(ts_iter))
+        self._put_shard_range(shard_range)
 
         self._assertShardRangesEqual(shard_ranges[:1] + shard_ranges[2:],
                                      broker.get_shard_ranges())

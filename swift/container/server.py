@@ -30,7 +30,7 @@ from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, \
-    split_and_validate_path, is_sys_or_user_meta, shard_range_from_headers
+    split_and_validate_path, is_sys_or_user_meta
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
@@ -315,19 +315,13 @@ class ContainerController(BaseStorageServer):
         if not os.path.exists(broker.db_file):
             return HTTPNotFound()
         if obj:     # delete object
-            record_type = req.headers.get('x-backend-record-type', '').lower()
-            if record_type == RECORD_TYPE_SHARD_NODE:
-                shard_range = shard_range_from_headers(obj, req.headers)
-                shard_range.deleted = 1
-                broker.update_shard_range(shard_range)
-            else:
-                # redirect if a shard range exists for the object name
-                redirect = self._find_shard_location(req, broker, obj)
-                if redirect:
-                    return redirect
+            # redirect if a shard range exists for the object name
+            redirect = self._find_shard_location(req, broker, obj)
+            if redirect:
+                return redirect
 
-                broker.delete_object(obj, req.headers.get('x-timestamp'),
-                                     obj_policy_index)
+            broker.delete_object(obj, req.headers.get('x-timestamp'),
+                                 obj_policy_index)
             return HTTPNoContent(request=req)
         else:
             # delete container
@@ -403,7 +397,6 @@ class ContainerController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=drive, request=req)
         requested_policy_index = self.get_and_validate_policy_index(req)
         broker = self._get_container_broker(drive, part, account, container)
-        record_type = req.headers.get('x-backend-record-type', '').lower()
         if obj:     # put container object
             # obj put expects the policy_index header, default is for
             # legacy support during upgrade.
@@ -417,26 +410,22 @@ class ContainerController(BaseStorageServer):
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
 
-            if record_type == RECORD_TYPE_SHARD_NODE:
-                broker.update_shard_range(
-                    shard_range_from_headers(obj, req.headers))
+            # redirect if a shard exists for this object name
+            response = self._find_shard_location(req, broker, obj)
+            if response:
+                return response
 
-            else:
-                # redirect if a shard exists for this object name
-                response = self._find_shard_location(req, broker, obj)
-                if response:
-                    return response
-
-                broker.put_object(obj, req_timestamp.internal,
-                                  int(req.headers['x-size']),
-                                  req.headers['x-content-type'],
-                                  req.headers['x-etag'], 0,
-                                  obj_policy_index,
-                                  req.headers.get('x-content-type-timestamp'),
-                                  req.headers.get('x-meta-timestamp'))
+            broker.put_object(obj, req_timestamp.internal,
+                              int(req.headers['x-size']),
+                              req.headers['x-content-type'],
+                              req.headers['x-etag'], 0,
+                              obj_policy_index,
+                              req.headers.get('x-content-type-timestamp'),
+                              req.headers.get('x-meta-timestamp'))
             return HTTPCreated(request=req)
         else:   # put container
             shard_ranges = None
+            record_type = req.headers.get('x-backend-record-type', '').lower()
             if record_type == RECORD_TYPE_SHARD_NODE:
                 try:
                     # validate incoming data...
