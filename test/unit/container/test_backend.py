@@ -3035,19 +3035,6 @@ class TestContainerBroker(unittest.TestCase):
         }
         self.assertEqual(expected, broker.get_shard_usage())
 
-        # make broker appear to be a shard container
-        broker = make_broker('.shards_a', 'c_shard')
-        self.assertFalse(broker.is_root_container())
-        included_states = (ShardRange.ACTIVE, ShardRange.SHARDING,
-                           ShardRange.SHRINKING, ShardRange.EXPANDING,
-                           ShardRange.CLEAVED)
-        included = [shard_range_by_state[state] for state in included_states]
-        expected = {
-            'object_count': sum([sr.object_count for sr in included]),
-            'bytes_used': sum([sr.bytes_used for sr in included])
-        }
-        self.assertEqual(expected, broker.get_shard_usage())
-
     @with_tempdir
     def _check_find_shard_ranges(self, c_lower, c_upper, tempdir):
         ts_iter = make_timestamp_iter()
