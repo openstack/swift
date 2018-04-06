@@ -45,6 +45,9 @@ from swift.common.utils import capture_stdio, disable_fallocate, \
     validate_configuration, get_hub, config_auto_int_value, \
     reiterate
 
+SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
+                  if n.startswith('SIG') and '_' not in n}
+
 # Set maximum line size of message headers to be accepted.
 wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
 
@@ -559,7 +562,8 @@ class WorkersStrategy(object):
         :param int pid: The new worker process' PID
         """
 
-        self.logger.notice('Started child %s' % pid)
+        self.logger.notice('Started child %s from parent %s',
+                           pid, os.getpid())
         self.children.append(pid)
 
     def register_worker_exit(self, pid):
@@ -569,7 +573,8 @@ class WorkersStrategy(object):
         :param int pid: The PID of the worker that exited.
         """
 
-        self.logger.error('Removing dead child %s' % pid)
+        self.logger.error('Removing dead child %s from parent %s',
+                          pid, os.getpid())
         self.children.remove(pid)
 
     def shutdown_sockets(self):
@@ -935,22 +940,14 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         run_server(conf, logger, no_fork_sock, global_conf=global_conf)
         return 0
 
-    def kill_children(*args):
-        """Kills the entire process group."""
-        logger.error('SIGTERM received')
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    def stop_with_signal(signum, *args):
+        """Set running to False and capture the signum"""
         running[0] = False
-        os.killpg(0, signal.SIGTERM)
+        running[1] = signum
 
-    def hup(*args):
-        """Shuts down the server, but allows running requests to complete"""
-        logger.error('SIGHUP received')
-        signal.signal(signal.SIGHUP, signal.SIG_IGN)
-        running[0] = False
-
-    running = [True]
-    signal.signal(signal.SIGTERM, kill_children)
-    signal.signal(signal.SIGHUP, hup)
+    running = [True, None]
+    signal.signal(signal.SIGTERM, stop_with_signal)
+    signal.signal(signal.SIGHUP, stop_with_signal)
 
     while running[0]:
         for sock, sock_info in strategy.new_worker_socks():
@@ -995,8 +992,19 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                 running[0] = False
                 break
 
+    if running[1] is not None:
+        try:
+            signame = SIGNUM_TO_NAME[running[1]]
+        except KeyError:
+            logger.error('Stopping with unexpected signal %r' % running[1])
+        else:
+            logger.error('%s received', signame)
+    if running[1] == signal.SIGTERM:
+        os.killpg(0, signal.SIGTERM)
+
     strategy.shutdown_sockets()
-    logger.notice('Exited')
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    logger.notice('Exited (%s)', os.getpid())
     return 0
 
 

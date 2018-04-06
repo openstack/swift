@@ -127,13 +127,17 @@ def kill_server(ipport, ipport2server):
     if err:
         raise Exception('unable to kill %s' % (server if not number else
                                                '%s%s' % (server, number)))
+    return wait_for_server_to_hangup(ipport)
+
+
+def wait_for_server_to_hangup(ipport):
     try_until = time() + 30
     while True:
         try:
             conn = HTTPConnection(*ipport)
             conn.request('GET', '/')
             conn.getresponse()
-        except Exception as err:
+        except Exception:
             break
         if time() > try_until:
             raise Exception(
