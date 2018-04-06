@@ -1153,8 +1153,16 @@ class TestContainerSharding(ReplProbeTest):
             self.assertEqual(404, cm.exception.http_status)
             self.direct_head_container(expect_failure=True)
 
+            # and the container stays deleted even after sharders run and shard
+            # send updates
+            self.sharders.once()
+            with self.assertRaises(ClientException) as cm:
+                client.get_container(self.url, self.token, self.container_name)
+            self.assertEqual(404, cm.exception.http_status)
+            self.direct_head_container(expect_failure=True)
+
             # now run updaters to deal with the async pending for the beta
-            # object, targeted at the now retired first shard...
+            # object
             self.updaters.once()
             # and the container is revived!
             self.assert_container_listing([beta])
