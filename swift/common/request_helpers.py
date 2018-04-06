@@ -39,7 +39,7 @@ from swift.common.swob import HTTPBadRequest, \
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range, csv_append, list_from_csv, Spliterator, ShardRange
+    parse_content_range, csv_append, list_from_csv, Spliterator
 
 from swift.common.wsgi import make_subrequest
 
@@ -715,33 +715,3 @@ def resolve_etag_is_at_header(req, metadata):
                 alternate_etag = metadata[name]
                 break
     return alternate_etag
-
-
-def shard_range_from_headers(name, headers):
-    # TODO: add unit test
-    return ShardRange(
-        name,
-        created_at=headers['x-backend-timestamp'],
-        lower=headers['x-backend-shard-lower'],
-        upper=headers['x-backend-shard-upper'],
-        object_count=headers.get('x-backend-shard-objects', 0),
-        bytes_used=headers.get('x-backend-shard-bytes', 0),
-        meta_timestamp=headers['x-meta-timestamp'],
-        state=headers['x-backend-shard-state'],
-        state_timestamp=headers['x-backend-shard-state-timestamp'],
-    )
-
-
-def shard_range_to_headers(shard_range):
-    # TODO: add unit test
-    return {
-        'x-backend-timestamp': shard_range.timestamp.internal,
-        'x-backend-shard-lower': shard_range.lower,
-        'x-backend-shard-upper': shard_range.upper,
-        'x-backend-shard-objects': shard_range.object_count,
-        'x-backend-shard-bytes': shard_range.bytes_used,
-        'x-meta-timestamp': shard_range.meta_timestamp.internal,
-        'x-backend-shard-state': shard_range.state,
-        'x-backend-shard-state-timestamp':
-            shard_range.state_timestamp.internal,
-    }
