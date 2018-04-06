@@ -332,7 +332,7 @@ from swift.common.utils import get_logger, config_true_value, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
     closing_if_possible, LRUCache, StreamingPile, strict_b64decode
 from swift.common.request_helpers import SegmentedIterable, \
-    get_sys_meta_prefix, update_etag_is_at_header
+    get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
 from swift.common.wsgi import WSGIContext, make_subrequest
@@ -792,16 +792,19 @@ class SloGetContext(WSGIContext):
         if slo_etag and slo_size and (
                 req.method == 'HEAD' or is_conditional):
             # Since we have length and etag, we can respond immediately
-            for i, (header, _value) in enumerate(self._response_headers):
-                lheader = header.lower()
-                if lheader == 'etag':
-                    self._response_headers[i] = (header, '"%s"' % slo_etag)
-                elif lheader == 'content-length' and not is_conditional:
-                    self._response_headers[i] = (header, slo_size)
-            start_response(self._response_status,
-                           self._response_headers,
-                           self._response_exc_info)
-            return resp_iter
+            resp = Response(
+                status=self._response_status,
+                headers=self._response_headers,
+                app_iter=resp_iter,
+                request=req,
+                conditional_etag=resolve_etag_is_at_header(
+                    req, self._response_headers),
+                conditional_response=True)
+            resp.headers.update({
+                'Etag': '"%s"' % slo_etag,
+                'Content-Length': slo_size,
+            })
+            return resp(req.environ, start_response)
 
         if self._need_to_refetch_manifest(req):
             req.environ['swift.non_client_disconnect'] = True
@@ -874,14 +877,15 @@ class SloGetContext(WSGIContext):
         response_headers = []
         for header, value in resp_headers:
             lheader = header.lower()
+            if lheader not in ('etag', 'content-length'):
+                response_headers.append((header, value))
+
             if lheader == SYSMETA_SLO_ETAG:
                 slo_etag = value
             elif lheader == SYSMETA_SLO_SIZE:
                 # it's from sysmeta, so we don't worry about non-integer
                 # values here
                 content_length = int(value)
-            elif lheader not in ('etag', 'content-length'):
-                response_headers.append((header, value))
 
         # Prep to calculate content_length & etag if necessary
         if slo_etag is None:
@@ -926,7 +930,9 @@ class SloGetContext(WSGIContext):
                 req, content_length, response_headers, segments)
 
     def _manifest_head_response(self, req, response_headers):
+        conditional_etag = resolve_etag_is_at_header(req, response_headers)
         return HTTPOk(request=req, headers=response_headers, body='',
+                      conditional_etag=conditional_etag,
                       conditional_response=True)
 
     def _manifest_get_response(self, req, content_length, response_headers,
@@ -984,9 +990,11 @@ class SloGetContext(WSGIContext):
             # the proxy logs and the user will receive incomplete results.
             return HTTPConflict(request=req)
 
+        conditional_etag = resolve_etag_is_at_header(req, response_headers)
         response = Response(request=req, content_length=content_length,
                             headers=response_headers,
                             conditional_response=True,
+                            conditional_etag=conditional_etag,
                             app_iter=segmented_iter)
         return response
 
