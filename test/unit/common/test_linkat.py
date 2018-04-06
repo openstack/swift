@@ -25,7 +25,7 @@ from tempfile import gettempdir
 from swift.common.linkat import linkat
 from swift.common.utils import O_TMPFILE
 
-from test.unit import requires_o_tmpfile_support
+from test.unit import requires_o_tmpfile_support_in_tmp
 
 
 class TestLinkat(unittest.TestCase):
@@ -38,7 +38,7 @@ class TestLinkat(unittest.TestCase):
     def test_available(self):
         self.assertFalse(linkat.available)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_errno(self):
         with open('/dev/null', 'r') as fd:
             self.assertRaises(IOError, linkat,
@@ -77,7 +77,7 @@ class TestLinkat(unittest.TestCase):
         mock_cdll.assert_called_once_with(libc_name, use_errno=True)
         self.assertTrue(libc.linkat_retrieved)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_linkat_success(self):
 
         fd = None

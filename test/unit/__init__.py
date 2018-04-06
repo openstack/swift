@@ -1090,6 +1090,15 @@ class Timeout(object):
         raise TimeoutException
 
 
+def requires_o_tmpfile_support_in_tmp(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if not utils.o_tmpfile_in_tmpdir_supported():
+            raise SkipTest('Requires O_TMPFILE support in TMPDIR')
+        return func(*args, **kwargs)
+    return wrapper
+
+
 def requires_o_tmpfile_support(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):

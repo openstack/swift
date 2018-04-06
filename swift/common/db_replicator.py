@@ -33,7 +33,8 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, Timestamp, get_db_files, parse_db_filename
+    json, Timestamp, parse_overrides, round_robin_iter, get_db_files, \
+    parse_db_filename
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
@@ -87,13 +88,13 @@ def roundrobin_datadirs(datadirs):
     found (in their proper places). The partitions within each data
     dir are walked randomly, however.
 
-    :param datadirs: a list of (path, node_id) to walk
+    :param datadirs: a list of (path, node_id, partition_filter) to walk
     :returns: A generator of (partition, path_to_db_file, node_id)
     """
 
-    def walk_datadir(datadir, node_id):
+    def walk_datadir(datadir, node_id, part_filter):
         partitions = [pd for pd in os.listdir(datadir)
-                      if looks_like_partition(pd)]
+                      if looks_like_partition(pd) and part_filter(pd)]
         random.shuffle(partitions)
         for partition in partitions:
             part_dir = os.path.join(datadir, partition)
@@ -130,13 +131,12 @@ def roundrobin_datadirs(datadirs):
                         if e.errno != errno.ENOTEMPTY:
                             raise
 
-    its = [walk_datadir(datadir, node_id) for datadir, node_id in datadirs]
-    while its:
-        for it in its:
-            try:
-                yield next(it)
-            except StopIteration:
-                its.remove(it)
+    its = [walk_datadir(datadir, node_id, filt)
+           for datadir, node_id, filt in datadirs]
+
+    rr_its = round_robin_iter(its)
+    for datadir in rr_its:
+        yield datadir
 
 
 class ReplConnection(BufferedHTTPConnection):
@@ -211,6 +211,7 @@ class Replicator(Daemon):
                                    self.recon_replicator)
         self.extract_device_re = re.compile('%s%s([^%s]+)' % (
             self.root, os.path.sep, os.path.sep))
+        self.handoffs_only = config_true_value(conf.get('handoffs_only', 'no'))
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -731,17 +732,44 @@ class Replicator(Daemon):
             return match.groups()[0]
         return "UNKNOWN"
 
+    def _partition_dir_filter(self, device_id, partitions_to_replicate):
+
+        def filt(partition_dir):
+            partition = int(partition_dir)
+            if self.handoffs_only:
+                primary_node_ids = [
+                    d['id'] for d in self.ring.get_part_nodes(partition)]
+                if device_id in primary_node_ids:
+                    return False
+
+            if partition not in partitions_to_replicate:
+                return False
+
+            return True
+
+        return filt
+
     def report_up_to_date(self, full_info):
         return True
 
     def run_once(self, *args, **kwargs):
         """Run a replication pass once."""
+        devices_to_replicate, partitions_to_replicate = parse_overrides(
+            **kwargs)
+
         self._zero_stats()
         dirs = []
         ips = whataremyips(self.bind_ip)
         if not ips:
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
+
+        if self.handoffs_only:
+            self.logger.warning(
+                'Starting replication pass with handoffs_only enabled. '
+                'This mode is not intended for normal '
+                'operation; use handoffs_only with care.')
+
         self._local_device_ids = set()
         found_local = False
         for node in self.ring.devs:
@@ -758,13 +786,20 @@ class Replicator(Daemon):
                     self.logger.warning(
                         _('Skipping %(device)s as it is not mounted') % node)
                     continue
+                if node['device'] not in devices_to_replicate:
+                    self.logger.debug(
+                        'Skipping device %s due to given arguments',
+                        node['device'])
+                    continue
                 unlink_older_than(
                     os.path.join(self.root, node['device'], 'tmp'),
                     time.time() - self.reclaim_age)
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
                     self._local_device_ids.add(node['id'])
-                    dirs.append((datadir, node['id']))
+                    part_filt = self._partition_dir_filter(
+                        node['id'], partitions_to_replicate)
+                    dirs.append((datadir, node['id'], part_filt))
         if not found_local:
             self.logger.error("Can't find itself %s with port %s in ring "
                               "file, not replicating",
@@ -775,6 +810,10 @@ class Replicator(Daemon):
                 self._replicate_object, part, object_file, node_id)
         self.cpool.waitall()
         self.logger.info(_('Replication run OVER'))
+        if self.handoffs_only:
+            self.logger.warning(
+                'Finished replication pass with handoffs_only enabled. '
+                'If handoffs_only is no longer required, disable it.')
         self._report_stats()
 
     def run_forever(self, *args, **kwargs):

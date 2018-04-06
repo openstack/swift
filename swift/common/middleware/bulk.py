@@ -314,7 +314,7 @@ class Bulk(object):
         resp = head_cont_req.get_response(self.app)
         if resp.is_success:
             return False
-        if resp.status_int == 404:
+        if resp.status_int == HTTP_NOT_FOUND:
             new_env = req.environ.copy()
             new_env['PATH_INFO'] = container_path
             new_env['swift.source'] = 'EA'

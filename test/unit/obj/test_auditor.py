@@ -852,7 +852,7 @@ class TestAuditor(unittest.TestCase):
         self.auditor.run_audit(**kwargs)
         self.assertFalse(os.path.isdir(quarantine_path))
         del(kwargs['zero_byte_fps'])
-        clear_auditor_status(self.devices)
+        clear_auditor_status(self.devices, 'objects')
         self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.isdir(quarantine_path))
 

@@ -34,8 +34,8 @@ from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
-    config_float_value, config_positive_int_value, list_from_csv, \
-    quorum_size
+    config_float_value, config_positive_int_value, \
+    quorum_size, parse_overrides, Everything
 
 
 def sharding_enabled(broker):
@@ -883,10 +883,10 @@ class ContainerSharder(ContainerReplicator):
         finally:
             self.logger.increment('scanned')
 
-    def _check_node(self, node, override_devices):
+    def _check_node(self, node, devices_to_shard):
         if not node:
             return False
-        if override_devices and node['device'] not in override_devices:
+        if node['device'] not in devices_to_shard:
             return False
         if not is_local_device(self.ips, self.port,
                                node['replication_ip'],
@@ -899,8 +899,8 @@ class ContainerSharder(ContainerReplicator):
             return False
         return True
 
-    def _one_shard_cycle(self, override_devices=None,
-                         override_partitions=None):
+    def _one_shard_cycle(self, devices_to_shard=None,
+                         partitions_to_shard=None):
         """
         The main function, everything the sharder does forks from this method.
 
@@ -917,30 +917,31 @@ class ContainerSharder(ContainerReplicator):
         self.logger.info('Container sharder cycle starting, auto-sharding %s',
                          self.auto_shard)
         self._zero_stats()
-        if override_devices:
+        if isinstance(devices_to_shard, (list, tuple)):
             self.logger.info('(Override devices: %s)',
-                             ', '.join(override_devices))
-        if override_partitions:
+                             ', '.join(str(d) for d in devices_to_shard))
+        if isinstance(partitions_to_shard, (list, tuple)):
             self.logger.info('(Override partitions: %s)',
-                             ', '.join(override_partitions))
+                             ', '.join(str(p) for p in partitions_to_shard))
         dirs = []
         self.shard_cleanups = dict()
         self.ips = whataremyips(bind_ip=self.bind_ip)
         for node in self.ring.devs:
-            if not self._check_node(node, override_devices):
+            if not self._check_node(node, devices_to_shard):
                 continue
             datadir = os.path.join(self.root, node['device'], self.datadir)
             if os.path.isdir(datadir):
                 # Populate self._local_device_ids so we can find
                 # handoffs for shards later
                 self._local_device_ids.add(node['id'])
-                dirs.append((datadir, node['id']))
+                part_filt = self._partition_dir_filter(
+                    node['id'],
+                    partitions_to_shard)
+                dirs.append((datadir, node['id'], part_filt))
         if not dirs:
             self.logger.warning('Found no data dirs!')
         for part, path, node_id in db_replicator.roundrobin_datadirs(dirs):
             # NB: get_part_nodes always provides an 'index' key
-            if override_partitions and part not in override_partitions:
-                continue
             for node in self.ring.get_part_nodes(int(part)):
                 if node['id'] == node_id:
                     break
@@ -1381,7 +1382,8 @@ class ContainerSharder(ContainerReplicator):
         while True:
             begin = time.time()
             try:
-                self._one_shard_cycle()
+                self._one_shard_cycle(devices_to_shard=Everything(),
+                                      partitions_to_shard=Everything())
             except (Exception, Timeout):
                 self.logger.increment('errors')
                 self.logger.exception('Exception in sharder')
@@ -1394,11 +1396,11 @@ class ContainerSharder(ContainerReplicator):
     def run_once(self, *args, **kwargs):
         """Run the container sharder once."""
         self.logger.info('Begin container sharder "once" mode')
-        override_devices = list_from_csv(kwargs.get('devices'))
-        override_partitions = list_from_csv(kwargs.get('partitions'))
+        devices_to_shard, partitions_to_shard = parse_overrides(
+            **kwargs)
         begin = self.reported = time.time()
-        self._one_shard_cycle(override_devices=override_devices,
-                              override_partitions=override_partitions)
+        self._one_shard_cycle(devices_to_shard=devices_to_shard,
+                              partitions_to_shard=partitions_to_shard)
         elapsed = time.time() - begin
         self.logger.info(
             'Container sharder "once" mode completed: %.02fs', elapsed)
