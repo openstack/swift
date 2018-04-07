@@ -46,7 +46,7 @@ def collect_brokers(conf_path, names2nodes):
             continue
         datadir = os.path.join(root, node['device'], DATADIR)
         if os.path.isdir(datadir):
-            dirs.append((datadir, node['id']))
+            dirs.append((datadir, node['id'], lambda *args: True))
     for part, object_file, node_id in roundrobin_datadirs(dirs):
         broker = ContainerBroker(object_file)
         for node in c_ring.get_part_nodes(int(part)):
