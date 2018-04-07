@@ -2128,10 +2128,6 @@ class TestContainerController(unittest.TestCase):
         own_sr.epoch = next(ts_iter)
         broker.merge_shard_ranges([own_sr])
         self.assertTrue(broker.set_sharding_state())
-        context = broker.load_cleave_context()
-        context['misplaced_done'] = True
-        context['cleaving_done'] = True
-        broker.dump_cleave_context(context)
         self.assertTrue(broker.set_sharded_state())
 
         delete_time = next(ts_iter).internal
@@ -2879,9 +2875,6 @@ class TestContainerController(unittest.TestCase):
                           if obj['name'] == 'bashful'])
 
         # set broker to sharded state
-        context = broker.load_cleave_context()
-        context.update({'misplaced_done': True, 'cleaving_done': True})
-        broker.dump_cleave_context(context)
         self.assertTrue(broker.set_sharded_state())
         for state in ShardRange.STATES:
             self.assertTrue(

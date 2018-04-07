@@ -17,7 +17,6 @@ Pluggable Back-ends for Container Server
 """
 
 import errno
-import json
 
 import os
 from uuid import uuid4
@@ -455,36 +454,6 @@ class ContainerBroker(DatabaseBroker):
         if key:
             return info.get(key, default)
         return info
-
-    def _get_context_ref(self):
-        return '%s-%s' % (self.get_info()['id'], self.get_max_row())
-
-    def load_cleave_context(self):
-        """
-        Returns a context dict for tracking the progress of cleaving this
-        broker's retiring DB. The context is persisted in sysmeta using a key
-        that is based off the retiring db id and max row. This form of
-        key ensures that a cleaving context is only loaded for a db that
-        matches the id and max row when the context was created; if a db is
-        modified such that its max row changes then a different context, or no
-        context, will be loaded.
-
-        :return: A dict to which cleave progress metadata may be added. The
-            dict initially has a key ``ref`` which should not be modified by
-            any caller.
-        """
-        brokers = self.get_brokers()
-        cleave_ref = brokers[0]._get_context_ref()
-        cleave_context = brokers[-1].get_sharding_info('Cursor-' + cleave_ref)
-        cleave_context = json.loads(cleave_context) if cleave_context else {}
-        cleave_context['ref'] = cleave_ref
-        return cleave_context
-
-    def dump_cleave_context(self, cleave_context):
-        stored_context = dict(cleave_context)
-        cleave_ref = stored_context.pop('ref')
-        self.update_sharding_info(
-            {'Cursor-' + cleave_ref: json.dumps(stored_context)})
 
     @property
     def storage_policy_index(self):
@@ -1047,7 +1016,8 @@ class ContainerBroker(DatabaseBroker):
 
     def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
                           path=None, storage_policy_index=0, reverse=False,
-                          include_deleted=False, transform_func=None):
+                          include_deleted=False, since_row=None,
+                          transform_func=None):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -1063,6 +1033,8 @@ class ContainerBroker(DatabaseBroker):
         :param storage_policy_index: storage policy index for query
         :param reverse: reverse the result order.
         :param include_deleted: Include items that have the delete marker set
+        :param since_row: include only items whose ROWID is greater than
+            the given row id; by default all rows are included.
         :param transform_func: an optional function that if given will be
             called for each object to get a transformed version of the object
             to include in the listing; should have same signature as
@@ -1123,6 +1095,10 @@ class ContainerBroker(DatabaseBroker):
                         query_conditions.append('+deleted = 0')
                     else:
                         query_conditions.append('deleted = 0')
+                if since_row:
+                    query_conditions.append('ROWID > ?')
+                    query_args.append(since_row)
+
                 # storage policy filter
                 query_conditions.append('storage_policy_index = ?')
                 query_args.append(storage_policy_index)
@@ -1199,7 +1175,7 @@ class ContainerBroker(DatabaseBroker):
 
     def get_objects(self, limit=None, marker='', end_marker='', prefix=None,
                     delimiter=None, path=None, storage_policy_index=0,
-                    reverse=False, include_deleted=False):
+                    reverse=False, include_deleted=False, since_row=None):
         """
         Return a list of objects.
 
@@ -1215,6 +1191,8 @@ class ContainerBroker(DatabaseBroker):
         :param storage_policy_index: storage policy index for query
         :param reverse: reverse the result order.
         :param include_deleted: include items that have the delete marker set
+        :param since_row: include only items whose ROWID is greater than
+            the given row id; by default all rows are included.
         :return: a list of dicts, each describing an object.
         """
         def transform_record(record, policy_index):
@@ -1226,7 +1204,8 @@ class ContainerBroker(DatabaseBroker):
         return self.list_objects_iter(
             limit, marker, end_marker, prefix, delimiter, path=path,
             storage_policy_index=storage_policy_index, reverse=reverse,
-            include_deleted=include_deleted, transform_func=transform_record
+            include_deleted=include_deleted, transform_func=transform_record,
+            since_row=since_row
         )
 
     def _transform_record(self, record, storage_policy_index):
@@ -1905,16 +1884,7 @@ class ContainerBroker(DatabaseBroker):
                                 self.container, self.get_db_state_text(state))
             return False
 
-        # TODO: wrap following checks and the unlink in a lock
         brokers = self.get_brokers()
-        # look for a cleave context for the retiring db's epoch and db hash
-        context = self.load_cleave_context()
-        if (not context or not context.get('cleaving_done', False) or not
-                context.get('misplaced_done', False)):
-            self.logger.warning(
-                'Refusing to delete db %r with cleaving context: %s'
-                % (brokers[0].db_file, context))
-            return False
 
         if len(brokers) < 2:
             self.logger.warning(
