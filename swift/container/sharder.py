@@ -545,12 +545,6 @@ class ContainerSharder(ContainerReplicator):
         return bounds
 
     def _make_misplaced_object_bounds(self, broker):
-        own_shard_range = broker.get_own_shard_range()
-        if own_shard_range.state == ShardRange.EXPANDING:
-            self.logger.debug('Not looking for misplaced objects in expanding '
-                              'container %s (%s)', broker.path, broker.db_file)
-            return []
-
         self.logger.debug('Looking for misplaced objects in %s (%s)',
                           broker.path, broker.db_file)
         self._increment_stat('misplaced', 'attempted')
@@ -571,6 +565,7 @@ class ContainerSharder(ContainerReplicator):
             cleave_cursor = cleave_context.get('cursor')
             if cleave_cursor:
                 bounds.append(('', cleave_cursor))
+                own_shard_range = broker.get_own_shard_range()
                 if own_shard_range.upper:
                     bounds.append((own_shard_range.upper, ''))
 
@@ -766,21 +761,10 @@ class ContainerSharder(ContainerReplicator):
         shard_ranges = broker.get_shard_ranges(
             include_own=True,
             include_deleted=True)
-        for shard_range in shard_ranges:
-            if broker.is_own_shard_range(shard_range):
-                break
-        else:
-            return
-
-        if shard_range.state == ShardRange.SHRINKING:
-            # only send own shard range while shrinking
-            self._send_shard_ranges(
-                broker.root_account, broker.root_container, [shard_range])
-        else:
-            # send everything
-            self._send_shard_ranges(
-                broker.root_account, broker.root_container,
-                shard_ranges)
+        # send everything
+        self._send_shard_ranges(
+            broker.root_account, broker.root_container,
+            shard_ranges)
 
     def _identify_sharding_candidate(self, broker, node):
         own_shard_range = broker.get_own_shard_range()
@@ -1189,10 +1173,9 @@ class ContainerSharder(ContainerReplicator):
                 # donor merging into a single acceptor. Don't fret - eventually
                 # all the small ranges will be retired.
                 continue
-            if (acceptor is not own_shard_range and acceptor.state not in
-                    (ShardRange.ACTIVE, ShardRange.EXPANDING)):
-                # don't shrink into a range that is not yet ACTIVE or was
-                # selected as a donor on a previous cycle
+            if (acceptor is not own_shard_range and
+                    acceptor.state != ShardRange.ACTIVE):
+                # don't shrink into a range that is not yet ACTIVE
                 continue
             if donor.state not in (ShardRange.ACTIVE, ShardRange.SHRINKING):
                 # found? created? sharded? don't touch it
@@ -1215,29 +1198,24 @@ class ContainerSharder(ContainerReplicator):
             self.logger.debug('shrinking shard range %s into %s in %s' %
                               (donor, acceptor, broker.db_file))
             modified_shard_ranges = []
-            if acceptor.update_state(ShardRange.EXPANDING):
-                modified_shard_ranges.append(acceptor)
             if donor.update_state(ShardRange.SHRINKING):
                 # Set donor state to shrinking so that next cycle won't use it
                 # as an acceptor; state_timestamp defines new epoch for donor
                 # and new timestamp for the expanded acceptor below.
                 donor.epoch = donor.state_timestamp = Timestamp.now()
                 modified_shard_ranges.append(donor)
-            broker.merge_shard_ranges(modified_shard_ranges)
-            if acceptor is not own_shard_range:
+            if acceptor.lower != donor.lower:
                 # Update the acceptor container with its expanding state to
                 # prevent it treating objects cleaved from the donor
                 # as misplaced.
+                acceptor.lower = donor.lower
+                acceptor.timestamp = donor.state_timestamp
+                modified_shard_ranges.append(acceptor)
+            broker.merge_shard_ranges(modified_shard_ranges)
+            if acceptor is not own_shard_range:
                 self._send_shard_ranges(
                     acceptor.account, acceptor.container, [acceptor])
-                # Make a copy the acceptor shard range to send to the donor
-                # container with new timestamp and expanded namespace. Note
-                # that the new acceptor namespace is not yet saved in the root.
-                acceptor = acceptor.copy(timestamp=donor.state_timestamp,
-                                         lower=donor.lower,
-                                         state=ShardRange.ACTIVE)
-                acceptor.object_count += donor.object_count
-                acceptor.bytes_used += donor.bytes_used
+                acceptor.increment_meta(donor.object_count, donor.bytes_used)
             else:
                 # no need to change namespace or stats
                 acceptor.update_state(ShardRange.ACTIVE,
@@ -1316,11 +1294,10 @@ class ContainerSharder(ContainerReplicator):
                 "Cleaving '%s': %r", broker.path, shard_range)
             self._increment_stat('cleaved', 'attempted')
             start = time.time()
-            shrinking = shard_range.includes(own_shard_range)
             try:
                 # use force here because we may want to update existing shard
                 # metadata timestamps
-                new_part, new_broker, node_id = self._get_shard_broker(
+                shard_part, shard_broker, node_id = self._get_shard_broker(
                     shard_range, broker.root_path, policy_index, force=True)
             except DeviceUnavailable as duex:
                 self.logger.warning(str(duex))
@@ -1328,45 +1305,39 @@ class ContainerSharder(ContainerReplicator):
                 self._increment_stat('cleaved', 'failure')
                 return False
 
-            with new_broker.sharding_lock():
+            with shard_broker.sharding_lock():
                 for source_broker in brokers:
                     for objects, info in self.yield_objects(
                             source_broker, shard_range, policy_index):
-                        new_broker.merge_items(objects)
+                        shard_broker.merge_items(objects)
 
-            if shrinking:
+            if shard_range.includes(own_shard_range):
                 # When shrinking, include deleted own (donor) shard range in
                 # the replicated db so that when acceptor next updates root it
                 # will atomically update its namespace *and* delete the donor.
                 # Don't do this when sharding a shard because the donor
                 # namespace should not be deleted until all shards are cleaved.
-                if own_shard_range.state != ShardRange.SHARDED:
-                    own_shard_range = own_shard_range.copy(
-                        timestamp=Timestamp.now(), state=ShardRange.SHARDED,
-                        deleted=1)
+                if own_shard_range.update_state(ShardRange.SHARDED):
+                    own_shard_range.set_deleted()
                     broker.merge_shard_ranges([own_shard_range])
-                new_broker.merge_shard_ranges([own_shard_range])
+                shard_broker.merge_shard_ranges([own_shard_range])
             elif shard_range.state == ShardRange.CREATED:
-                # Note: deliberately not using update_state to ensure stats are
-                # modified before state is changed.
                 # The shard range object stats may have changed since the shard
                 # range was found, so update with stats of objects actually
                 # copied to the shard broker. Only do this the first time each
-                # shard range is cleaved and if the source namespace includes
-                # the entire shard range; when shrinking, the source namespace
-                # is smaller than the existing acceptor shard range to which we
-                # are cleaving and the source stats are therefore incomplete.
-                info = new_broker.get_info()
+                # shard range is cleaved.
+                info = shard_broker.get_info()
                 shard_range.update_meta(
                     info['object_count'], info['bytes_used'])
                 shard_range.update_state(ShardRange.CLEAVED)
-                new_broker.merge_shard_ranges([shard_range])
+                shard_broker.merge_shard_ranges([shard_range])
 
-            self.logger.info('Replicating new shard container %s for %s',
-                             new_broker.path, new_broker.get_own_shard_range())
+            self.logger.info(
+                'Replicating new shard container %s for %s',
+                shard_broker.path, shard_broker.get_own_shard_range())
 
             success, responses = self._replicate_object(
-                new_part, new_broker.db_file, node_id)
+                shard_part, shard_broker.db_file, node_id)
 
             quorum = quorum_size(self.ring.replica_count)
             if not success and responses.count(True) < quorum:

@@ -570,8 +570,7 @@ class ContainerController(BaseStorageServer):
             states = get_param(req, 'state') or None
             if states:
                 states = set(list_from_csv(states))
-                listing = {'cleaved', 'active', 'sharding', 'shrinking',
-                           'expanding'}
+                listing = {'cleaved', 'active', 'sharding', 'shrinking'}
                 updating = listing | {'created'}
                 aliases = {'listing': listing, 'updating': updating}
                 for alias, aliased_states in aliases.items():

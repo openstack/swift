@@ -4352,7 +4352,6 @@ class ShardRange(object):
     CREATED = 1
     CLEAVED = 2
     ACTIVE = 3
-    EXPANDING = 4
     SHRINKING = 5
     SHARDING = 6
     SHARDED = 7
@@ -4360,7 +4359,6 @@ class ShardRange(object):
               CREATED: 'created',
               CLEAVED: 'cleaved',
               ACTIVE: 'active',
-              EXPANDING: 'expanding',
               SHRINKING: 'shrinking',
               SHARDING: 'sharding',
               SHARDED: 'sharded'}

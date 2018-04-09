@@ -1718,8 +1718,7 @@ class ContainerBroker(DatabaseBroker):
         return shard_range.name == self.path
 
     def get_shard_usage(self):
-        states = [ShardRange.ACTIVE, ShardRange.SHARDING, ShardRange.SHRINKING,
-                  ShardRange.EXPANDING]
+        states = [ShardRange.ACTIVE, ShardRange.SHARDING, ShardRange.SHRINKING]
         shard_ranges = self.get_shard_ranges(states=states)
         return {'bytes_used': sum([sr.bytes_used for sr in shard_ranges]),
                 'object_count': sum([sr.object_count for sr in shard_ranges])}

@@ -3027,7 +3027,7 @@ class TestContainerBroker(unittest.TestCase):
         broker = make_broker('a', 'c')
         self.assertTrue(broker.is_root_container())
         included_states = (ShardRange.ACTIVE, ShardRange.SHARDING,
-                           ShardRange.SHRINKING, ShardRange.EXPANDING)
+                           ShardRange.SHRINKING)
         included = [shard_range_by_state[state] for state in included_states]
         expected = {
             'object_count': sum([sr.object_count for sr in included]),
