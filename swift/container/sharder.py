@@ -1291,7 +1291,7 @@ class ContainerSharder(ContainerReplicator):
             broker.dump_cleave_context(cleave_context)
 
         if cleave_context.get('cleaving_done', False):
-            self.logger.debug('Cleaving already complete for container ',
+            self.logger.debug('Cleaving already complete for container %s',
                               broker.path)
             return misplaced_done
 

@@ -640,6 +640,10 @@ class TestSharder(unittest.TestCase):
             {'cursor': '', 'cleaving_done': True, 'misplaced_done': True,
              'ref': context_ref}, broker.load_cleave_context())
 
+        with self._mock_sharder() as sharder:
+            self.assertTrue(sharder._cleave(broker))
+        sharder._replicate_object.assert_not_called()
+
         self.assertTrue(broker.set_sharded_state())
         # run cleave - should be a no-op
         with self._mock_sharder() as sharder:
