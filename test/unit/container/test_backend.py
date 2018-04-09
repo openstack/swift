@@ -106,16 +106,89 @@ class TestContainerBroker(unittest.TestCase):
             pass
         self.assertTrue(broker.conn is None)
 
-    def test_empty(self):
+    @with_tempdir
+    def test_empty(self, tempdir):
         # Test ContainerBroker.empty
-        broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(Timestamp('1').internal, 0)
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+
+        def check_object_counted(broker_to_test, broker_with_object):
+            obj = {'name': 'o', 'created_at': next(ts_iter).internal,
+                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
+                   'deleted': 0}
+            broker_with_object.merge_objects([dict(obj)])
+            self.assertFalse(broker_to_test.empty())
+            # and delete it
+            obj.update({'created_at': next(ts_iter).internal, 'deleted': 1})
+            broker_with_object.merge_objects([dict(obj)])
+            self.assertTrue(broker_to_test.empty())
+
         self.assertTrue(broker.empty())
-        broker.put_object('o', Timestamp.now().internal, 0, 'text/plain',
-                          'd41d8cd98f00b204e9800998ecf8427e')
-        self.assertTrue(not broker.empty())
-        sleep(.00001)
-        broker.delete_object('o', Timestamp.now().internal)
+        check_object_counted(broker, broker)
+
+        # own shard range is not considered for object count
+        own_sr = broker.get_own_shard_range()
+        self.assertEqual(0, own_sr.object_count)
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.empty())
+
+        broker.put_object('o', next(ts_iter).internal, 0, 'text/plain',
+                          EMPTY_ETAG)
+        own_sr = broker.get_own_shard_range()
+        self.assertEqual(1, own_sr.object_count)
+        broker.merge_shard_ranges([own_sr])
+        self.assertFalse(broker.empty())
+        broker.delete_object('o', next(ts_iter).internal)
+        self.assertTrue(broker.empty())
+
+        def check_shard_ranges_counted():
+            # other shard range is considered
+            sr = ShardRange('.shards_a/shard_c', next(ts_iter), object_count=0)
+            sr.update_meta(13, 99, meta_timestamp=next(ts_iter))
+            counted_states = (ShardRange.ACTIVE, ShardRange.SHARDING,
+                              ShardRange.SHRINKING)
+            for state in ShardRange.STATES:
+                sr.update_state(state, state_timestamp=next(ts_iter))
+                broker.merge_shard_ranges([sr])
+                self.assertEqual(state not in counted_states, broker.empty())
+
+            # empty other shard ranges do not influence result
+            sr.update_meta(0, 0, meta_timestamp=next(ts_iter))
+            for state in ShardRange.STATES:
+                sr.update_state(state, state_timestamp=next(ts_iter))
+                broker.merge_shard_ranges([sr])
+                self.assertTrue(broker.empty())
+
+        check_shard_ranges_counted()
+
+        # move to sharding state
+        self._move_own_shard_range_to_sharding(broker, next(ts_iter))
+        self.assertTrue(broker.set_sharding_state())
+
+        # check object in retiring db is considered
+        check_object_counted(broker, broker.get_brokers()[0])
+        self.assertTrue(broker.empty())
+        # as well as misplaced objects in fresh db
+        check_object_counted(broker, broker)
+        check_shard_ranges_counted()
+
+        # move to sharded state
+        ctx = broker.load_cleave_context()
+        ctx['cleaving_done'] = True
+        ctx['misplaced_done'] = True
+        broker.dump_cleave_context(ctx)
+        self.assertTrue(broker.set_sharded_state())
+        self.assertTrue(broker.empty())
+        check_object_counted(broker, broker)
+        check_shard_ranges_counted()
+
+        # own shard range still has no influence
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_meta(3, 4, meta_timestamp=next(ts_iter))
+        broker.merge_shard_ranges([own_sr])
         self.assertTrue(broker.empty())
 
     def test_reclaim(self):
