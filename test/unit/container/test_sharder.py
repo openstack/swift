@@ -27,11 +27,13 @@ import unittest
 
 from collections import defaultdict
 
+import time
+
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED
 from swift.container.sharder import ContainerSharder, sharding_enabled
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
-    encode_timestamps, parse_db_filename, quorum_size
+    encode_timestamps, parse_db_filename, quorum_size, Everything
 from test import annotate_failure
 
 from test.unit import FakeLogger, debug_logger, FakeRing, \
@@ -184,6 +186,12 @@ class TestSharder(unittest.TestCase):
                            (v, actual, k, stats))
         return stats
 
+    def _assert_recon_stats(self, expected, sharder, category):
+        with open(sharder.rcache, 'rb') as fd:
+            recon = json.load(fd)
+        stats = recon['sharding_stats']['sharding'].get(category)
+        self.assertEqual(expected, stats)
+
     def test_increment_stats(self):
         with self._mock_sharder() as sharder:
             sharder._increment_stat('visited', 'success')
@@ -216,20 +224,11 @@ class TestSharder(unittest.TestCase):
         self.assertIsNone(counts.get('visited_completed'))
 
     def test_run_forever(self):
-        @contextmanager
-        def setup_mocks():
-            mod = 'swift.container.sharder'
-            with mock.patch(mod + '.internal_client.InternalClient'):
-                with mock.patch('swift.common.db_replicator.ring.Ring'):
-                    conf = {'recon_cache_path': self.tempdir,
-                            'devices': self.tempdir}
-                    sharder = ContainerSharder(conf, logger=FakeLogger())
-                    sharder.ring = FakeRing()
-                    sharder._check_node = lambda *args: True
-                    sharder.logger.clear()
-                    yield sharder
-
-        with setup_mocks() as sharder:
+        conf = {'recon_cache_path': self.tempdir,
+                'devices': self.tempdir}
+        with self._mock_sharder(conf) as sharder:
+            sharder._check_node = lambda *args: True
+            sharder.logger.clear()
             for container in ('c1', 'c2'):
                 broker = self._make_broker(
                     container=container, hash_=container + 'hash',
@@ -250,7 +249,7 @@ class TestSharder(unittest.TestCase):
                 'sharding_candidates': {'found': 0, 'top': []}
             }
             # NB these are time increments not absolute times...
-            fake_periods = [1, 2, 3, 3600, 4, 15, 15]
+            fake_periods = [1, 2, 3, 3600, 4, 15, 15, 0]
             fake_periods_iter = iter(fake_periods)
             recon_data = []
 
@@ -311,7 +310,8 @@ class TestSharder(unittest.TestCase):
             self.assertIn('Container sharder cycle starting', lines.pop(0))
             self.assertFalse(lines)
             lines = sharder.logger.get_lines_for_level('error')
-            self.assertIn('Exception in sharder', lines[0])
+            self.assertIn(
+                'Unhandled exception while dumping progress', lines[0])
 
             def check_recon(data, time, last, expected_stats):
                 self.assertEqual(time, data['sharding_time'])
@@ -342,6 +342,142 @@ class TestSharder(unittest.TestCase):
             check_recon(recon_data[3], sum(fake_periods[5:7]),
                         sum(fake_periods[:7]), fake_stats)
 
+    def test_one_shard_cycle(self):
+        conf = {'recon_cache_path': self.tempdir,
+                'devices': self.tempdir,
+                'shard_container_size': 9}
+        with self._mock_sharder(conf) as sharder:
+            sharder._check_node = lambda *args: True
+            sharder.reported = time.time()
+            sharder.logger = debug_logger()
+            brokers = []
+            for container in ('c1', 'c2', 'c3'):
+                brokers.append(self._make_broker(
+                    container=container, hash_=container + 'hash',
+                    device=sharder.ring.devs[0]['device'], part=0))
+            # enable a/c2 and a/c3 for sharding
+            for broker in brokers[1:]:
+                broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                        ('true', next(self.ts_iter).internal)})
+            # make a/c2 a candidate for sharding
+            for i in range(10):
+                brokers[1].put_object('o%s' % i, next(self.ts_iter).internal,
+                                      0, 'text/plain', 'etag', 0)
+
+            # check only sharding enabled containers are processed
+            with mock.patch.object(
+                    sharder, '_process_broker'
+            ) as mock_process_broker:
+                sharder._one_shard_cycle(Everything(), Everything())
+
+            self.assertEqual(2, mock_process_broker.call_count)
+            processed_paths = [call[0][0].path
+                               for call in mock_process_broker.call_args_list]
+            self.assertEqual({'a/c2', 'a/c3'}, set(processed_paths))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+            expected_stats = {'attempted': 2, 'success': 2, 'failure': 0,
+                              'skipped': 1, 'completed': 0}
+            self._assert_recon_stats(expected_stats, sharder, 'visited')
+            expected_candidate_stats = {
+                'found': 1,
+                'top': [{'object_count': 10, 'account': 'a', 'container': 'c2',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[1].db_file).st_size,
+                         'path': brokers[1].db_file, 'root': 'a/c2',
+                         'node_index': 0}]}
+            self._assert_recon_stats(
+                expected_candidate_stats, sharder, 'sharding_candidates')
+            self._assert_recon_stats(None, sharder, 'sharding_progress')
+
+            # enable and progress container a/c1 by giving it shard ranges
+            now = next(self.ts_iter)
+            brokers[0].merge_shard_ranges(
+                [ShardRange('a/c1', now, '', '', state=ShardRange.SHARDING),
+                 ShardRange('.s_a/1', now, '', 'b', state=ShardRange.ACTIVE),
+                 ShardRange('.s_a/2', now, 'b', 'c', state=ShardRange.CLEAVED),
+                 ShardRange('.s_a/3', now, 'c', 'd', state=ShardRange.CREATED),
+                 ShardRange('.s_a/4', now, 'd', 'e', state=ShardRange.CREATED),
+                 ShardRange('.s_a/5', now, 'e', '', state=ShardRange.FOUND)])
+            brokers[1].merge_shard_ranges(
+                [ShardRange('a/c2', now, '', '', state=ShardRange.SHARDING),
+                 ShardRange('.s_a/6', now, '', 'b', state=ShardRange.ACTIVE),
+                 ShardRange('.s_a/7', now, 'b', 'c', state=ShardRange.ACTIVE),
+                 ShardRange('.s_a/8', now, 'c', 'd', state=ShardRange.CLEAVED),
+                 ShardRange('.s_a/9', now, 'd', 'e', state=ShardRange.CREATED),
+                 ShardRange('.s_a/0', now, 'e', '', state=ShardRange.CREATED)])
+            for i in range(11):
+                brokers[2].put_object('o%s' % i, next(self.ts_iter).internal,
+                                      0, 'text/plain', 'etag', 0)
+            # check exceptions are handled
+            with mock.patch.object(
+                    sharder, '_process_broker',
+                    side_effect=[None, Exception('kapow!'), None]
+            ) as mock_process_broker:
+                sharder._one_shard_cycle(Everything(), Everything())
+
+            self.assertEqual(3, mock_process_broker.call_count)
+            processed_paths = [call[0][0].path
+                               for call in mock_process_broker.call_args_list]
+            self.assertEqual({'a/c1', 'a/c2', 'a/c3'}, set(processed_paths))
+            lines = sharder.logger.get_lines_for_level('error')
+            self.assertIn('Unhandled exception while processing', lines[0])
+            self.assertFalse(lines[1:])
+            sharder.logger.clear()
+            expected_stats = {'attempted': 3, 'success': 2, 'failure': 1,
+                              'skipped': 0, 'completed': 0}
+            self._assert_recon_stats(expected_stats, sharder, 'visited')
+            expected_candidate_stats = {
+                'found': 1,
+                'top': [{'object_count': 11, 'account': 'a', 'container': 'c3',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[1].db_file).st_size,
+                         'path': brokers[2].db_file, 'root': 'a/c3',
+                         'node_index': 0}]}
+            self._assert_recon_stats(
+                expected_candidate_stats, sharder, 'sharding_candidates')
+            expected_in_progress_stats = {
+                'all': [{'object_count': 0, 'account': 'a', 'container': 'c1',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[0].db_file).st_size,
+                         'path': brokers[0].db_file, 'root': 'a/c1',
+                         'node_index': 0,
+                         'found': 1, 'created': 2, 'cleaved': 1, 'active': 1,
+                         'state': 'sharding', 'db_state': 'unsharded',
+                         'error': None},
+                        {'object_count': 10, 'account': 'a', 'container': 'c2',
+                         'meta_timestamp': mock.ANY,
+                         'file_size': os.stat(brokers[1].db_file).st_size,
+                         'path': brokers[1].db_file, 'root': 'a/c2',
+                         'node_index': 0,
+                         'found': 0, 'created': 2, 'cleaved': 1, 'active': 2,
+                         'state': 'sharding', 'db_state': 'unsharded',
+                         'error': 'kapow!'}]}
+            self._assert_stats(
+                expected_in_progress_stats, sharder, 'sharding_in_progress')
+
+            # check that candidates and in progress stats don't stick in recon
+            own_shard_range = brokers[0].get_own_shard_range()
+            own_shard_range.state = ShardRange.ACTIVE
+            brokers[0].merge_shard_ranges([own_shard_range])
+            for i in range(10):
+                brokers[1].delete_object(
+                    'o%s' % i, next(self.ts_iter).internal)
+            with mock.patch.object(
+                    sharder, '_process_broker'
+            ) as mock_process_broker:
+                sharder._one_shard_cycle(Everything(), Everything())
+            self.assertEqual(3, mock_process_broker.call_count)
+            processed_paths = [call[0][0].path
+                               for call in mock_process_broker.call_args_list]
+            self.assertEqual({'a/c1', 'a/c2', 'a/c3'}, set(processed_paths))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+            expected_stats = {'attempted': 3, 'success': 3, 'failure': 0,
+                              'skipped': 0, 'completed': 0}
+            self._assert_recon_stats(expected_stats, sharder, 'visited')
+            self._assert_recon_stats(
+                expected_candidate_stats, sharder, 'sharding_candidates')
+            self._assert_recon_stats(None, sharder, 'sharding_progress')
+
     @contextmanager
     def _mock_sharder(self, conf=None, replicas=3):
         conf = conf or {}
@@ -351,7 +487,7 @@ class TestSharder(unittest.TestCase):
             with mock.patch(
                     'swift.common.db_replicator.ring.Ring',
                     lambda *args, **kwargs: FakeRing(replicas=replicas)):
-                sharder = ContainerSharder(conf, logger=debug_logger())
+                sharder = ContainerSharder(conf, logger=FakeLogger())
                 sharder._local_device_ids = {0, 1, 2}
                 sharder._replicate_object = mock.MagicMock(
                     return_value=(True, [True] * sharder.ring.replica_count))
@@ -1014,11 +1150,8 @@ class TestSharder(unittest.TestCase):
             'found': 0,
             'top': []}
         sharder._report_stats()
-        with open(sharder.rcache, 'rb') as fd:
-            recon = json.load(fd)
-        self.assertEqual(
-            expected_recon,
-            recon['sharding_stats']['sharding']['sharding_candidates'])
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
 
         # reduce the sharding threshold and the container is reported
         conf = {'shard_container_size': 100,
@@ -1041,11 +1174,8 @@ class TestSharder(unittest.TestCase):
             'found': 1,
             'top': [stats_0]}
         sharder._report_stats()
-        with open(sharder.rcache, 'rb') as fd:
-            recon = json.load(fd)
-        self.assertEqual(
-            expected_recon,
-            recon['sharding_stats']['sharding']['sharding_candidates'])
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
 
         # repeat with handoff node and db_file error
         with self._mock_sharder(conf=conf) as sharder:
@@ -1067,11 +1197,8 @@ class TestSharder(unittest.TestCase):
             'found': 1,
             'top': [stats_0_b]}
         sharder._report_stats()
-        with open(sharder.rcache, 'rb') as fd:
-            recon = json.load(fd)
-        self.assertEqual(
-            expected_recon,
-            recon['sharding_stats']['sharding']['sharding_candidates'])
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
 
         # load up another container, but not to threshold for sharding, and
         # verify it is never a candidate for sharding
@@ -1113,11 +1240,8 @@ class TestSharder(unittest.TestCase):
             'found': 2,
             'top': [stats_0, stats_2]}
         sharder._report_stats()
-        with open(sharder.rcache, 'rb') as fd:
-            recon = json.load(fd)
-        self.assertEqual(
-            expected_recon,
-            recon['sharding_stats']['sharding']['sharding_candidates'])
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
 
         # a broker not in active state is not included
         own_sr = brokers[0].get_own_shard_range()
@@ -1160,11 +1284,8 @@ class TestSharder(unittest.TestCase):
             'found': 3,
             'top': [stats_5, stats_0, stats_2]}
         sharder._report_stats()
-        with open(sharder.rcache, 'rb') as fd:
-            recon = json.load(fd)
-        self.assertEqual(
-            expected_recon,
-            recon['sharding_stats']['sharding']['sharding_candidates'])
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
 
         # restrict the number of reported candidates
         conf = {'shard_container_size': 50,
@@ -1179,11 +1300,8 @@ class TestSharder(unittest.TestCase):
             'found': 3,
             'top': [stats_5, stats_0]}
         sharder._report_stats()
-        with open(sharder.rcache, 'rb') as fd:
-            recon = json.load(fd)
-        self.assertEqual(
-            expected_recon,
-            recon['sharding_stats']['sharding']['sharding_candidates'])
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
 
         # unrestrict the number of reported candidates
         conf = {'shard_container_size': 50,
@@ -1229,11 +1347,8 @@ class TestSharder(unittest.TestCase):
             'found': 6,
             'top': [stats_4, stats_3, stats_1, stats_5, stats_0, stats_2]}
         sharder._report_stats()
-        with open(sharder.rcache, 'rb') as fd:
-            recon = json.load(fd)
-        self.assertEqual(
-            expected_recon,
-            recon['sharding_stats']['sharding']['sharding_candidates'])
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
 
     def test_misplaced_objects_root_container(self):
         broker = self._make_broker()
