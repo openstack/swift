@@ -208,7 +208,7 @@ class DatabaseBroker(object):
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,
-                 stale_reads_ok=False):
+                 stale_reads_ok=False, skip_commits=False):
         """Encapsulates working with a database."""
         self.conn = None
         self._db_file = db_file
@@ -221,6 +221,7 @@ class DatabaseBroker(object):
         self.account = account
         self.container = container
         self._db_version = -1
+        self.skip_commits = skip_commits
 
     def __str__(self):
         """
@@ -621,6 +622,8 @@ class DatabaseBroker(object):
             return
         if not self._db_exists():
             raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
+        if self.skip_commits:
+            raise DatabaseConnectionError(self.db_file, "commits not accepted")
         with lock_parent_directory(self.pending_file, self.pending_timeout):
             pending_size = 0
             try:
@@ -640,6 +643,10 @@ class DatabaseBroker(object):
                         protocol=PICKLE_PROTOCOL).encode('base64'))
                     fp.flush()
 
+    def _skip_commit_puts(self):
+        return (self._db_file == ':memory:' or self.skip_commits or not
+                os.path.exists(self.pending_file))
+
     def _commit_puts(self, item_list=None):
         """
         Scan for .pending files and commit the found records by feeding them
@@ -648,8 +655,7 @@ class DatabaseBroker(object):
 
         :param item_list: A list of items to commit in addition to .pending
         """
-        if self._db_file == ':memory:' or not \
-                os.path.exists(self.pending_file):
+        if self._skip_commit_puts():
             return
         if item_list is None:
             item_list = []
@@ -680,8 +686,7 @@ class DatabaseBroker(object):
         Catch failures of _commit_puts() if broker is intended for
         reading of stats, and thus does not care for pending updates.
         """
-        if self._db_file == ':memory:' or not \
-                os.path.exists(self.pending_file):
+        if self._skip_commit_puts():
             return
         try:
             with lock_parent_directory(self.pending_file,
@@ -876,7 +881,7 @@ class DatabaseBroker(object):
         :param age_timestamp: max created_at timestamp of object rows to delete
         :param sync_timestamp: max update_at timestamp of sync rows to delete
         """
-        if self._db_file != ':memory:' and os.path.exists(self.pending_file):
+        if not self._skip_commit_puts():
             with lock_parent_directory(self.pending_file,
                                        self.pending_timeout):
                 self._commit_puts()

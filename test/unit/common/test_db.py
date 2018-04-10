@@ -1344,5 +1344,131 @@ class TestDatabaseBroker(unittest.TestCase):
                 else:
                     self.fail('Expected an exception to be raised')
 
+    def test_skip_commits(self):
+        broker = DatabaseBroker(':memory:')
+        self.assertTrue(broker._skip_commit_puts())
+
+        # not initialized
+        db_file = os.path.join(self.testdir, '1.db')
+        broker = DatabaseBroker(db_file)
+        self.assertTrue(broker._skip_commit_puts())
+
+        # no pending file
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+        self.assertTrue(os.path.exists(broker.db_file))  # sanity check
+        self.assertTrue(broker._skip_commit_puts())
+
+        # pending file exists
+        self.assertFalse(os.path.exists(broker.pending_file))  # sanity check
+        with open(broker.pending_file, 'wb'):
+            pass
+        self.assertFalse(broker._skip_commit_puts())
+
+        # do_commits is False
+        broker.skip_commits = True
+        self.assertTrue(broker._skip_commit_puts())
+
+    def test_commit_puts(self):
+        db_file = os.path.join(self.testdir, '1.db')
+        broker = DatabaseBroker(db_file)
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+        with open(broker.pending_file, 'wb'):
+            pass
+
+        # merge given list
+        mock_merge_items = MagicMock()
+        broker.merge_items = mock_merge_items
+        items = ['test']
+        broker._commit_puts(items)
+        mock_merge_items.assert_called_once_with(items)
+
+        # load file and merge
+        with open(broker.pending_file, 'wb') as fd:
+            fd.write(':1:2:99')
+        mock_merge_items = MagicMock()
+        broker.merge_items = mock_merge_items
+        broker._commit_puts_load = lambda l, e: l.append(e)
+        broker._commit_puts()
+        mock_merge_items.assert_called_once_with(['1', '2', '99'])
+        self.assertEqual(0, os.path.getsize(broker.pending_file))
+
+        # load file and merge with given list
+        with open(broker.pending_file, 'wb') as fd:
+            fd.write(':bad')
+        mock_merge_items = MagicMock()
+        broker.merge_items = mock_merge_items
+        broker._commit_puts_load = lambda l, e: l.append(e)
+        broker._commit_puts(['not'])
+        mock_merge_items.assert_called_once_with(['not', 'bad'])
+        self.assertEqual(0, os.path.getsize(broker.pending_file))
+
+        # skip_commits True - no merge
+        db_file = os.path.join(self.testdir, '2.db')
+        broker = DatabaseBroker(db_file, skip_commits=True)
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+        with open(broker.pending_file, 'wb') as fd:
+            fd.write(':ignored')
+        mock_merge_items = MagicMock()
+        broker.merge_items = mock_merge_items
+        broker._commit_puts_load = lambda l, e: l.append(e)
+        broker._commit_puts(['hmmm'])
+        mock_merge_items.assert_not_called()
+        with open(broker.pending_file, 'rb') as fd:
+            self.assertEqual(':ignored', fd.read())
+
+    def test_put_record(self):
+        db_file = os.path.join(self.testdir, '1.db')
+        broker = DatabaseBroker(db_file)
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+
+        # pending file created and record written
+        broker.make_tuple_for_pickle = lambda x: x.upper()
+        with patch.object(broker, '_commit_puts') as mock_commit_puts:
+            broker.put_record('pinky')
+        mock_commit_puts.assert_not_called()
+        with open(broker.pending_file, 'rb') as fd:
+            pending = fd.read()
+        items = pending.split(':')
+        self.assertEqual(['PINKY'],
+                         [pickle.loads(i.decode('base64')) for i in items[1:]])
+
+        # record appended
+        with patch.object(broker, '_commit_puts') as mock_commit_puts:
+            broker.put_record('perky')
+        mock_commit_puts.assert_not_called()
+        with open(broker.pending_file, 'rb') as fd:
+            pending = fd.read()
+        items = pending.split(':')
+        self.assertEqual(['PINKY', 'PERKY'],
+                         [pickle.loads(i.decode('base64')) for i in items[1:]])
+
+        # pending file above cap
+        cap = swift.common.db.PENDING_CAP
+        while os.path.getsize(broker.pending_file) < cap:
+            with open(broker.pending_file, 'ab') as fd:
+                fd.write('x' * 100000)
+        with patch.object(broker, '_commit_puts') as mock_commit_puts:
+            broker.put_record('direct')
+        mock_commit_puts.called_once_with(['direct'])
+
+        # skip commits True
+        broker.skip_commits = True
+        with open(broker.pending_file, 'wb'):
+            # empty the pending file
+            pass
+        with patch.object(broker, '_commit_puts') as mock_commit_puts:
+            with self.assertRaises(DatabaseConnectionError) as cm:
+                broker.put_record('unwelcome')
+        self.assertIn('commits not accepted', str(cm.exception))
+        mock_commit_puts.assert_not_called()
+        with open(broker.pending_file, 'rb') as fd:
+            pending = fd.read()
+        self.assertFalse(pending)
+
+
 if __name__ == '__main__':
     unittest.main()

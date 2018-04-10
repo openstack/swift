@@ -3246,10 +3246,19 @@ class TestContainerBroker(unittest.TestCase):
         context = broker.load_cleave_context()
         self.assertEqual(expected, context)
 
-        # unless the ref changes...
+        # putting object to fresh db does not change ref
         broker.put_object(
             'obj', next(ts_iter).internal, 0, 'text/plain', 'etag', 1)
+        self.assertEqual(expected, broker.load_cleave_context())
+
+        # putting object to older db does change ref
         expected = {'ref': '%s-%s' % (new_id, 2)}
+        retiring_broker = broker.get_brokers()[0]
+        # override normal behaviour to force commit into *older* db
+        retiring_broker.skip_commits = False
+        retiring_broker.put_object(
+            'obj', next(ts_iter).internal, 0, 'text/plain', 'etag', 1)
+        retiring_broker._commit_puts()
         self.assertEqual(expected, broker.load_cleave_context())
 
     @with_tempdir
@@ -3270,9 +3279,9 @@ class TestContainerBroker(unittest.TestCase):
                     'etag': 'etag_%d' % i,
                     'size': 1024 * i,
                     'deleted': 0,
-                    'storage_policy_index': 0,
                     } for i in range(1, 6)]
-        broker.merge_objects(objects)
+        # merge_objects mutates items
+        broker.merge_objects([dict(obj) for obj in objects])
         original_info = broker.get_info()
 
         # Add some metadata
@@ -3321,13 +3330,15 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(original_info, actual_info)
 
         def check_unsharded_state(broker):
-            # this are expected properties in unsharded state
+            # these are expected properties in unsharded state
             self.assertEqual(len(broker.get_brokers()), 1)
             self.assertEqual(broker.get_db_state(), UNSHARDED)
             self.assertTrue(os.path.exists(db_path))
             self.assertFalse(os.path.exists(new_db_path))
-            self.assertEqual(5, len(broker.list_objects_iter(
-                100, None, None, None, None, include_deleted=True)))
+            listing = broker.list_objects_iter(
+                100, None, None, None, None, include_deleted=True)
+            self.assertEqual(
+                objects, [broker._record_to_dict(obj) for obj in listing])
 
         # Sanity checks
         check_broker_properties(broker)
@@ -3360,6 +3371,10 @@ class TestContainerBroker(unittest.TestCase):
             self.assertTrue(os.path.exists(new_db_path))
             self.assertEqual([], broker.list_objects_iter(
                 100, None, None, None, None, include_deleted=True))
+            listing = broker.get_brokers()[0].list_objects_iter(
+                100, None, None, None, None, include_deleted=True)
+            self.assertEqual(
+                objects, [broker._record_to_dict(obj) for obj in listing])
         check_sharding_state(broker)
 
         # to confirm we're definitely looking at the shard db
