@@ -138,7 +138,7 @@ class ContainerSharder(ContainerReplicator):
             conf.get('shard_scanner_batch_size', 10))
         self.shard_batch_size = config_positive_int_value(
             conf.get('shard_batch_size', 2))
-        self.reported = None
+        self.reported = 0
         self.auto_shard = config_true_value(conf.get('auto_shard', False))
         self.recon_candidates_limit = int(
             conf.get('recon_candidates_limit', 5))
@@ -765,26 +765,49 @@ class ContainerSharder(ContainerReplicator):
             broker.root_account, broker.root_container,
             shard_ranges)
 
+    def _make_stats_info(self, broker, node, own_shard_range):
+        try:
+            file_size = os.stat(broker.db_file).st_size
+        except OSError:
+            file_size = None
+
+        return {'path': broker.db_file,
+                'node_index': node.get('index'),
+                'account': broker.account,
+                'container': broker.container,
+                'root': broker.root_path,
+                'object_count': own_shard_range.object_count,
+                'meta_timestamp': own_shard_range.meta_timestamp.internal,
+                'file_size': file_size}
+
     def _identify_sharding_candidate(self, broker, node):
         own_shard_range = broker.get_own_shard_range()
         if self._is_sharding_candidate(own_shard_range):
-            try:
-                file_size = os.stat(broker.db_file).st_size
-            except OSError:
-                file_size = None
+            self._append_stat(
+                'sharding_candidates', 'all',
+                self._make_stats_info(broker, node, own_shard_range))
 
-            info = {'path': broker.db_file,
-                    'node_index': node.get('index'),
-                    'account': broker.account,
-                    'container': broker.container,
-                    'root': broker.root_path,
-                    'object_count': own_shard_range.object_count,
-                    'meta_timestamp': own_shard_range.meta_timestamp.internal,
-                    'file_size': file_size}
-            self._append_stat('sharding_candidates', 'all', info)
+    def _record_sharding_progress(self, broker, node, error):
+        own_shard_range = broker.get_own_shard_range()
+        if (broker.get_db_state() in (UNSHARDED, SHARDING, SHARDED) and
+                own_shard_range.state in (ShardRange.SHARDING,
+                                          ShardRange.SHARDED)):
+            info = self._make_stats_info(broker, node, own_shard_range)
+            info['state'] = own_shard_range.state_text
+            info['db_state'] = broker.get_db_state_text()
+            states = [ShardRange.FOUND, ShardRange.CREATED,
+                      ShardRange.CLEAVED, ShardRange.ACTIVE]
+            shard_ranges = broker.get_shard_ranges(states=states)
+            state_count = {}
+            for state in states:
+                state_count[ShardRange.STATES[state]] = 0
+            for shard_range in shard_ranges:
+                state_count[shard_range.state_text] += 1
+            info.update(state_count)
+            info['error'] = error and str(error)
+            self._append_stat('sharding_in_progress', 'all', info)
 
     def _process_broker(self, broker, node, part):
-        # TODO: sigh, we should get the info cached *once*, somehow
         broker.get_info()  # make sure account/container are populated
         state = broker.get_db_state()
         self.logger.info('Starting processing %s state %s',
@@ -926,8 +949,7 @@ class ContainerSharder(ContainerReplicator):
             return False
         return True
 
-    def _one_shard_cycle(self, devices_to_shard=None,
-                         partitions_to_shard=None):
+    def _one_shard_cycle(self, devices_to_shard, partitions_to_shard):
         """
         The main function, everything the sharder does forks from this method.
 
@@ -980,6 +1002,7 @@ class ContainerSharder(ContainerReplicator):
                 continue
 
             broker = ContainerBroker(path, logger=self.logger)
+            error = None
             try:
                 self._identify_sharding_candidate(broker, node)
                 if sharding_enabled(broker):
@@ -988,12 +1011,16 @@ class ContainerSharder(ContainerReplicator):
                     self._increment_stat('visited', 'success', statsd=True)
                 else:
                     self._increment_stat('visited', 'skipped')
-            except Exception as err:
+            except Exception as error:
                 self._increment_stat('visited', 'failure', statsd=True)
                 self.logger.exception(
-                    'Unhandled exception while processing %s: %s',
-                    path, err)
-
+                    'Unhandled exception while processing %s: %s', path, error)
+            try:
+                self._record_sharding_progress(broker, node, error)
+            except Exception as error:
+                self.logger.exception(
+                    'Unhandled exception while dumping progress for %s: %s',
+                    path, error)
             self._periodic_report_stats()
 
         # wipe out the cache do disable bypass in delete_db
