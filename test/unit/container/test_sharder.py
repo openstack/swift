@@ -311,7 +311,6 @@ class TestSharder(unittest.TestCase):
                 sharder._local_device_ids = {0, 1, 2}
                 sharder._replicate_object = mock.MagicMock(
                     return_value=(True, [True] * sharder.ring.replica_count))
-                sharder.shard_cleanups = dict()  # TODO: try to eliminate this
                 yield sharder
 
     def _get_raw_object_records(self, broker):

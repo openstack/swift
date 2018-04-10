@@ -40,6 +40,10 @@ class ContainerReplicator(db_replicator.Replicator):
     datadir = DATADIR
     default_port = 6201
 
+    def __init__(self, conf, logger=None):
+        super(ContainerReplicator, self).__init__(conf, logger=logger)
+        self.reconciler_cleanups = None
+
     def report_up_to_date(self, full_info):
         reported_key_map = {
             'reported_put_timestamp': 'put_timestamp',
