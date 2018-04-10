@@ -285,6 +285,20 @@ class TestMatch(unittest.TestCase):
         self.assertIn('b', match)
         self.assertNotIn('c', match)
 
+    def test_match_no_optional_white_space(self):
+        match = swift.common.swob.Match('"a","b"')
+        self.assertEqual(match.tags, set(('a', 'b')))
+        self.assertIn('a', match)
+        self.assertIn('b', match)
+        self.assertNotIn('c', match)
+
+    def test_match_lots_of_optional_white_space(self):
+        match = swift.common.swob.Match('"a"   ,  ,   "b"   ')
+        self.assertEqual(match.tags, set(('a', 'b')))
+        self.assertIn('a', match)
+        self.assertIn('b', match)
+        self.assertNotIn('c', match)
+
 
 class TestTransferEncoding(unittest.TestCase):
     def test_is_chunked(self):
