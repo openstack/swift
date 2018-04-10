@@ -1687,7 +1687,7 @@ class ContainerBroker(DatabaseBroker):
             is False.
         :param exclude_others: boolean that governs whether the rows whose
             names do not match the broker's path are included in the returned
-            list. If True, those rows are not includesd, otherwise they are
+            list. If True, those rows are not included, otherwise they are
             included. Default is False.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
