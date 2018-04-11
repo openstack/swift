@@ -814,7 +814,12 @@ class ContainerBroker(DatabaseBroker):
 
     def _is_deleted(self, conn):
         """
-        Check container_stat view and evaluate info.
+        Check if the DB is considered to be deleted.
+
+        This object count used in this check is the same as the container
+        object count that would be returned in the result of :meth:`get_info`
+        and exposed to a client i.e. it is based on the container_stat view for
+        the current storage policy index or relevant shard range usage.
 
         :param conn: database conn
 
@@ -823,6 +828,8 @@ class ContainerBroker(DatabaseBroker):
         info = conn.execute('''
             SELECT put_timestamp, delete_timestamp, object_count
             FROM container_stat''').fetchone()
+        info = dict(info)
+        info.update(self._get_alternate_object_stats()[1])
         return self._is_deleted_info(**info)
 
     def get_info_is_deleted(self):
@@ -880,6 +887,18 @@ class ContainerBroker(DatabaseBroker):
             self.container = data['container']
             return data
 
+    def _get_alternate_object_stats(self):
+        state = self.get_db_state()
+        if state == SHARDING:
+            other_info = self.get_brokers()[0]._get_info()
+            stats = {'object_count': other_info.get('object_count', 0),
+                     'bytes_used': other_info.get('bytes_used', 0)}
+        elif state == SHARDED and self.is_root_container():
+            stats = self.get_shard_usage()
+        else:
+            stats = {}
+        return state, stats
+
     def get_info(self):
         """
         Get global data for the container.
@@ -893,16 +912,9 @@ class ContainerBroker(DatabaseBroker):
                   db_state.
         """
         data = self._get_info()
-        state = self.get_db_state()
         # TODO: unit test sharding states including with no shard ranges
-        if state == SHARDING:
-            # grab the obj_count, bytes used from locked DB. We need
-            # obj_count for sharding.
-            other_info = self.get_brokers()[0]._get_info()
-            data.update({'object_count': other_info.get('object_count', 0),
-                         'bytes_used': other_info.get('bytes_used', 0)})
-        elif state == SHARDED and self.is_root_container():
-            data.update(self.get_shard_usage())
+        state, stats = self._get_alternate_object_stats()
+        data.update(stats)
         data['db_state'] = state
         return data
 

@@ -107,6 +107,117 @@ class TestContainerBroker(unittest.TestCase):
         self.assertTrue(broker.conn is None)
 
     @with_tempdir
+    def test_is_deleted(self, tempdir):
+        # Test ContainerBroker.is_deleted() and get_info_is_deleted()
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+
+        self.assertFalse(broker.is_deleted())
+        broker.delete_db(next(ts_iter).internal)
+        self.assertTrue(broker.is_deleted())
+
+        def check_object_counted(broker_to_test, broker_with_object):
+            obj = {'name': 'o', 'created_at': next(ts_iter).internal,
+                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
+                   'deleted': 0}
+            broker_with_object.merge_objects([dict(obj)])
+            self.assertFalse(broker_to_test.is_deleted())
+            info, deleted = broker_to_test.get_info_is_deleted()
+            self.assertFalse(deleted)
+            self.assertEqual(1, info['object_count'])
+            obj.update({'created_at': next(ts_iter).internal, 'deleted': 1})
+            broker_with_object.merge_objects([dict(obj)])
+            self.assertTrue(broker_to_test.is_deleted())
+            info, deleted = broker_to_test.get_info_is_deleted()
+            self.assertTrue(deleted)
+            self.assertEqual(0, info['object_count'])
+
+        def check_object_not_counted(broker):
+            obj = {'name': 'o', 'created_at': next(ts_iter).internal,
+                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
+                   'deleted': 0}
+            broker.merge_objects([dict(obj)])
+            self.assertTrue(broker.is_deleted())
+            info, deleted = broker.get_info_is_deleted()
+            self.assertTrue(deleted)
+            self.assertEqual(0, info['object_count'])
+            obj.update({'created_at': next(ts_iter).internal, 'deleted': 1})
+            broker.merge_objects([dict(obj)])
+            self.assertTrue(broker.is_deleted())
+            info, deleted = broker.get_info_is_deleted()
+            self.assertTrue(deleted)
+            self.assertEqual(0, info['object_count'])
+
+        def check_shard_ranges_not_counted():
+            sr = ShardRange('.shards_a/shard_c', next(ts_iter), object_count=0)
+            sr.update_meta(13, 99, meta_timestamp=next(ts_iter))
+            for state in ShardRange.STATES:
+                sr.update_state(state, state_timestamp=next(ts_iter))
+                broker.merge_shard_ranges([sr])
+                self.assertTrue(broker.is_deleted())
+                info, deleted = broker.get_info_is_deleted()
+                self.assertTrue(deleted)
+                self.assertEqual(0, info['object_count'])
+
+        def check_shard_ranges_counted():
+            sr = ShardRange('.shards_a/shard_c', next(ts_iter), object_count=0)
+            sr.update_meta(13, 99, meta_timestamp=next(ts_iter))
+            counted_states = (ShardRange.ACTIVE, ShardRange.SHARDING,
+                              ShardRange.SHRINKING)
+            for state in ShardRange.STATES:
+                sr.update_state(state, state_timestamp=next(ts_iter))
+                broker.merge_shard_ranges([sr])
+                expected = state not in counted_states
+                self.assertEqual(expected, broker.is_deleted())
+                info, deleted = broker.get_info_is_deleted()
+                self.assertEqual(expected, deleted)
+                self.assertEqual(0 if expected else 13, info['object_count'])
+
+            sr.update_meta(0, 0, meta_timestamp=next(ts_iter))
+            for state in ShardRange.STATES:
+                sr.update_state(state, state_timestamp=next(ts_iter))
+                broker.merge_shard_ranges([sr])
+                self.assertTrue(broker.is_deleted())
+                info, deleted = broker.get_info_is_deleted()
+                self.assertTrue(deleted)
+                self.assertEqual(0, info['object_count'])
+
+        # unsharded
+        check_object_counted(broker, broker)
+        check_shard_ranges_not_counted()
+
+        # move to sharding state
+        self._move_own_shard_range_to_sharding(broker, next(ts_iter))
+        self.assertTrue(broker.set_sharding_state())
+        broker.delete_db(next(ts_iter).internal)
+        self.assertTrue(broker.is_deleted())
+
+        # check object in retiring db is considered
+        check_object_counted(broker, broker.get_brokers()[0])
+        self.assertTrue(broker.is_deleted())
+        check_shard_ranges_not_counted()
+        # misplaced object in fresh db is not considered
+        check_object_not_counted(broker)
+
+        # move to sharded state
+        ctx = broker.load_cleave_context()
+        ctx['cleaving_done'] = True
+        ctx['misplaced_done'] = True
+        broker.dump_cleave_context(ctx)
+        self.assertTrue(broker.set_sharded_state())
+        check_object_not_counted(broker)
+        check_shard_ranges_counted()
+
+        # own shard range has no influence
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_meta(3, 4, meta_timestamp=next(ts_iter))
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.is_deleted())
+
+    @with_tempdir
     def test_empty(self, tempdir):
         # Test ContainerBroker.empty
         ts_iter = make_timestamp_iter()
@@ -3554,6 +3665,15 @@ class TestContainerBroker(unittest.TestCase):
 
         # delete the container - sharding sysmeta gets erased
         broker.delete_db(next(ts_iter).internal)
+        # but it is not considered deleted while shards have content
+        self.assertFalse(broker.is_deleted())
+        check_sharded_state(broker)
+        # empty the shard ranges
+        empty_shard_ranges = [sr.copy(object_count=0, bytes_used=0,
+                                      meta_timestamp=next(ts_iter))
+                              for sr in shard_ranges]
+        broker.merge_shard_ranges(empty_shard_ranges)
+        # and no it is deleted
         self.assertTrue(broker.is_deleted())
         check_sharded_state(broker)
 

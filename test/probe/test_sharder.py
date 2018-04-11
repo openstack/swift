@@ -40,6 +40,9 @@ MAX_SHARD_CONTAINER_SIZE = 100
 
 
 class ShardCollector(object):
+    """
+    Returns map of node to tuples of (headers, shard ranges) returned from node
+    """
     def __init__(self):
         self.ranges = {}
 
@@ -127,6 +130,11 @@ class TestContainerSharding(ReplProbeTest):
         for obj in obj_names:
             client.put_object(self.url, self.token, self.container_name, obj)
 
+    def delete_objects(self, obj_names):
+        for obj in obj_names:
+            client.delete_object(
+                self.url, self.token, self.container_name, obj)
+
     def get_container_shard_ranges(self, account=None, container=None):
         account = account if account else self.account
         container = container if container else self.container_name
@@ -142,9 +150,10 @@ class TestContainerSharding(ReplProbeTest):
         container = container if container else self.container_name
         cpart, cnodes = self.container_ring.get_nodes(account, container)
         unexpected_responses = []
+        results = {}
         for cnode in cnodes:
             try:
-                func(cnode, cpart, account, container)
+                results[cnode['id']] = func(cnode, cpart, account, container)
             except DirectClientException as err:
                 if not expect_failure:
                     unexpected_responses.append((cnode, err))
@@ -153,6 +162,7 @@ class TestContainerSharding(ReplProbeTest):
                     unexpected_responses.append((cnode, 'success'))
         if unexpected_responses:
             self.fail('Unexpected responses: %s' % unexpected_responses)
+        return results
 
     def direct_get_container_shard_ranges(self, account=None, container=None,
                                           expect_failure=False):
@@ -168,8 +178,8 @@ class TestContainerSharding(ReplProbeTest):
 
     def direct_head_container(self, account=None, container=None,
                               expect_failure=False):
-        self.direct_container_op(direct_client.direct_head_container,
-                                 account, container, expect_failure)
+        return self.direct_container_op(direct_client.direct_head_container,
+                                        account, container, expect_failure)
 
     def get_storage_dir(self, part, node, account=None, container=None):
         account = account or self.brain.account
@@ -267,6 +277,10 @@ class TestContainerSharding(ReplProbeTest):
         for expected, actual in zip(expected, actual):
             self.assert_shard_range_equal(expected, actual, excludes=excludes)
 
+    def assert_shard_range_state(self, expected_state, shard_ranges):
+        self.assertEqual([expected_state] * len(shard_ranges),
+                         [sr.state for sr in shard_ranges])
+
     def assert_total_object_count(self, expected_object_count, shard_ranges):
         actual = sum([sr['object_count'] for sr in shard_ranges])
         self.assertEqual(expected_object_count, actual)
@@ -288,6 +302,38 @@ class TestContainerSharding(ReplProbeTest):
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(str(expected_obj_count),
                          headers['x-container-object-count'])
+
+    def assert_container_post_ok(self, meta_value):
+        key = 'X-Container-Meta-Assert-Post-Works'
+        headers = {key: meta_value}
+        client.post_container(
+            self.url, self.token, self.container_name, headers=headers)
+        resp_headers = client.head_container(
+            self.url, self.token, self.container_name)
+        self.assertEqual(meta_value, resp_headers.get(key.lower()))
+
+    def assert_container_post_fails(self, meta_value):
+        key = 'X-Container-Meta-Assert-Post-Works'
+        headers = {key: meta_value}
+        with self.assertRaises(ClientException) as cm:
+            client.post_container(
+                self.url, self.token, self.container_name, headers=headers)
+        self.assertEqual(404, cm.exception.http_status)
+
+    def assert_container_delete_fails(self):
+        with self.assertRaises(ClientException) as cm:
+            client.delete_container(self.url, self.token, self.container_name)
+        self.assertEqual(409, cm.exception.http_status)
+
+    def assert_container_has_shard_sysmeta(self):
+        node_headers = self.direct_head_container()
+        for node_id, headers in node_headers.items():
+            with annotate_failure('%s in %s' % (node_id, node_headers.keys())):
+                for k, v in headers.items():
+                    if k.lower().startswith('x-container-sysmeta-shard'):
+                        break
+                else:
+                    self.fail('No shard sysmeta found in %s' % headers)
 
     def assert_container_state(self, node_number, expected_state,
                                num_shard_ranges):
@@ -387,13 +433,16 @@ class TestContainerSharding(ReplProbeTest):
                 number=n, additional_args='--partitions=%s' % self.brain.part)
 
         # sanity check shard range states
+        for number in self.brain.node_numbers:
+            self.assert_container_state(number, SHARDING, 4)
         shard_ranges = self.get_container_shard_ranges()
         self.assertLengthEqual(shard_ranges, 4)
-        for shard_range in shard_ranges[:2]:
-            self.assertEqual(ShardRange.CLEAVED, shard_range.state)
-        for shard_range in shard_ranges[2:]:
-            self.assertEqual(ShardRange.CREATED, shard_range.state)
+        self.assert_shard_range_state(ShardRange.CLEAVED, shard_ranges[:2])
+        self.assert_shard_range_state(ShardRange.CREATED, shard_ranges[2:])
 
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()  # confirm no sysmeta deleted
+        self.assert_container_post_ok('sharding')
         do_listing_checks(obj_names)
 
         # put some new objects spread through entire namespace
@@ -413,12 +462,14 @@ class TestContainerSharding(ReplProbeTest):
         # run all the sharders again and the last two shard ranges get cleaved
         self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
         shard_ranges = self.get_container_shard_ranges()
-        for shard_range in shard_ranges:
-            self.assertEqual(ShardRange.ACTIVE, shard_range.state)
+        self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges)
 
         exp_obj_names = obj_names + new_obj_names
         exp_obj_names.sort()
         do_listing_checks(exp_obj_names)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
 
     def _test_sharded_listing(self, run_replicators=False):
         obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
@@ -1388,3 +1439,54 @@ class TestContainerSharding(ReplProbeTest):
         shard_ranges = self.assert_container_state(leader_num, SHARDED, 4)
         self.assertEqual([ShardRange.ACTIVE] * 4,
                          [sr.state for sr in shard_ranges])
+
+    def test_sharded_delete(self):
+        all_obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
+        self.put_objects(all_obj_names)
+        # Shard the container
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        for n in self.brain.node_numbers:
+            self.sharders.once(
+                number=n, additional_args='--partitions=%s' % self.brain.part)
+        # sanity checks
+        for number in self.brain.node_numbers:
+            self.assert_container_state(number, SHARDED, 2)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
+        self.assert_container_listing(all_obj_names)
+
+        # delete all objects - updates redirected to shards
+        self.delete_objects(all_obj_names)
+        self.assert_container_listing([])
+        self.assert_container_post_ok('has objects')
+        # root not yet updated with shard stats
+        self.assert_container_object_count(len(all_obj_names))
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+
+        # run sharder on shard containers to update root stats
+        shard_ranges = self.get_container_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 2)
+        self.run_sharders(shard_ranges)
+        self.assert_container_listing([])
+        self.assert_container_post_ok('empty')
+        self.assert_container_object_count(0)
+
+        # put a new object - update redirected to shard
+        self.put_objects(['alpha'])
+        self.assert_container_listing(['alpha'])
+        self.assert_container_object_count(0)
+
+        # before root learns about new object in shard, delete the container
+        client.delete_container(self.url, self.token, self.container_name)
+        self.assert_container_post_fails('deleted')
+
+        # run the sharders to update root with shard stats
+        self.run_sharders(shard_ranges)
+
+        self.assert_container_listing(['alpha'])
+        self.assert_container_object_count(1)
+        self.assert_container_delete_fails()
+        self.assert_container_post_ok('revived')
