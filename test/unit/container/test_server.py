@@ -2281,10 +2281,10 @@ class TestContainerController(unittest.TestCase):
             reversed(shard_ranges[:3]), 'a/c',
             params='&state=listing&reverse=true&marker=pickle')
         # only created, cleaved, active, shrinking shards using updating alias
-        check_shard_GET(shard_ranges[:4], 'a/c',
+        check_shard_GET(shard_ranges[1:4], 'a/c',
                         params='&state=updating&end_marker=treacle')
         check_shard_GET(
-            reversed(shard_ranges[:4]), 'a/c',
+            reversed(shard_ranges[1:4]), 'a/c',
             params='&state=updating&reverse=true&marker=treacle')
 
         # active shards don't cover entire namespace so expect an extra filler
@@ -2308,7 +2308,7 @@ class TestContainerController(unittest.TestCase):
         extra_shard_range = ShardRange(
             'a/c', ts_now, shard_ranges[3].upper, ShardRange.MAX,
             state=ShardRange.ACTIVE)
-        expected = shard_ranges[:4] + [extra_shard_range]
+        expected = shard_ranges[1:4] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&state=updating')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=updating&reverse=true')
@@ -2487,7 +2487,7 @@ class TestContainerController(unittest.TestCase):
         params = '&state=updating'
         expected_states = [
             ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
-            ShardRange.SHARDING, ShardRange.SHRINKING]
+            ShardRange.SHARDING]
         container_path = root_path
         do_test(root_path, container_path, params, expected_states)
 
@@ -2641,7 +2641,7 @@ class TestContainerController(unittest.TestCase):
         sr_happy = shard_ranges['happy']
         redirect_states = (
             ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
-            ShardRange.SHARDING, ShardRange.SHRINKING)
+            ShardRange.SHARDING)
         headers = {'X-Backend-Accept-Redirect': 'true'}
         for state in ShardRange.STATES:
             self.assertTrue(

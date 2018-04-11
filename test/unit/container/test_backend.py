@@ -2873,7 +2873,7 @@ class TestContainerBroker(unittest.TestCase):
 
         self.assertEqual(
             {ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
-             ShardRange.SHARDING, ShardRange.SHRINKING},
+             ShardRange.SHARDING},
             ContainerBroker.resolve_shard_range_states(['updating']))
 
         self.assertEqual(

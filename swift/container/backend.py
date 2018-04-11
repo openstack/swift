@@ -53,7 +53,8 @@ DB_STATES = ['not_found', 'unsharded', 'sharding', 'sharded', 'collapsed']
 SHARD_STATS_STATES = [ShardRange.ACTIVE, ShardRange.SHARDING,
                       ShardRange.SHRINKING]
 SHARD_LISTING_STATES = SHARD_STATS_STATES + [ShardRange.CLEAVED]
-SHARD_UPDATE_STATES = SHARD_LISTING_STATES + [ShardRange.CREATED]
+SHARD_UPDATE_STATES = [ShardRange.CREATED, ShardRange.CLEAVED,
+                       ShardRange.ACTIVE, ShardRange.SHARDING]
 
 
 def db_state_text(state):
