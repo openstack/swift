@@ -4585,6 +4585,31 @@ class ShardRange(object):
                          self.bytes_used + int(bytes_used),
                          meta_timestamp=meta_timestamp)
 
+    @classmethod
+    def resolve_state(cls, state):
+        """
+        Given a value that may be either the name or the number of a state
+        return a tuple of (state number, state name).
+
+        :param state: Either a string state name or an integer state number.
+        :return: A tuple (state number, state name)
+        :raises ValueError: if ``state`` is neither a valid state name nor a
+            valid state number.
+        """
+        try:
+            state = state.lower()
+            state_num = cls.STATES_BY_NAME[state]
+        except (KeyError, AttributeError):
+            try:
+                state_name = cls.STATES[state]
+            except KeyError:
+                raise ValueError('Invalid state %r' % state)
+            else:
+                state_num = state
+        else:
+            state_name = state
+        return state_num, state_name
+
     @property
     def state(self):
         return self._state

@@ -2835,6 +2835,62 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual('root_a/root_c', broker.root_path)
         self.assertFalse(broker.is_root_container())
 
+    def test_resolve_shard_range_states(self):
+        self.assertIsNone(ContainerBroker.resolve_shard_range_states(None))
+        self.assertIsNone(ContainerBroker.resolve_shard_range_states([]))
+
+        for state_num, state_name in ShardRange.STATES.items():
+            self.assertEqual({state_num},
+                             ContainerBroker.resolve_shard_range_states(
+                                 [state_name]))
+            self.assertEqual({state_num},
+                             ContainerBroker.resolve_shard_range_states(
+                                 [state_num]))
+
+        self.assertEqual(set(ShardRange.STATES),
+                         ContainerBroker.resolve_shard_range_states(
+                         ShardRange.STATES_BY_NAME))
+
+        self.assertEqual(
+            set(ShardRange.STATES),
+            ContainerBroker.resolve_shard_range_states(ShardRange.STATES))
+
+        # check aliases
+        self.assertEqual(
+            {ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
+             ShardRange.SHRINKING},
+            ContainerBroker.resolve_shard_range_states(['listing']))
+
+        self.assertEqual(
+            {ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
+             ShardRange.SHRINKING},
+            ContainerBroker.resolve_shard_range_states(['listing', 'active']))
+
+        self.assertEqual(
+            {ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
+             ShardRange.SHRINKING, ShardRange.CREATED},
+            ContainerBroker.resolve_shard_range_states(['listing', 'created']))
+
+        self.assertEqual(
+            {ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+             ShardRange.SHARDING, ShardRange.SHRINKING},
+            ContainerBroker.resolve_shard_range_states(['updating']))
+
+        self.assertEqual(
+            {ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+             ShardRange.SHARDING, ShardRange.SHRINKING},
+            ContainerBroker.resolve_shard_range_states(
+                ['updating', 'listing']))
+
+        def check_bad_value(value):
+            with self.assertRaises(ValueError) as cm:
+                ContainerBroker.resolve_shard_range_states(value)
+            self.assertIn('Invalid state', str(cm.exception))
+
+        check_bad_value(['bad_state', 'active'])
+        check_bad_value([''])
+        check_bad_value('active')
+
     @with_tempdir
     def test_get_shard_ranges(self, tempdir):
         ts_iter = make_timestamp_iter()
