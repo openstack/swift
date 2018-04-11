@@ -789,7 +789,7 @@ class ContainerSharder(ContainerReplicator):
 
     def _record_sharding_progress(self, broker, node, error):
         own_shard_range = broker.get_own_shard_range()
-        if (broker.get_db_state() in (UNSHARDED, SHARDING, SHARDED) and
+        if (broker.get_db_state() in (UNSHARDED, SHARDING) and
                 own_shard_range.state in (ShardRange.SHARDING,
                                           ShardRange.SHARDED)):
             info = self._make_stats_info(broker, node, own_shard_range)
