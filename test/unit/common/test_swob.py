@@ -271,12 +271,14 @@ class TestMatch(unittest.TestCase):
         self.assertIn('a', match)
         self.assertIn('b', match)
         self.assertNotIn('c', match)
+        self.assertEqual(repr(match), "Match('a, b')")
 
     def test_match_star(self):
         match = swift.common.swob.Match('"a", "*"')
         self.assertIn('a', match)
         self.assertIn('b', match)
         self.assertIn('c', match)
+        self.assertEqual(repr(match), "Match('*, a')")
 
     def test_match_noquote(self):
         match = swift.common.swob.Match('a, b')
