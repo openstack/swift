@@ -592,7 +592,11 @@ class ContainerBroker(DatabaseBroker):
 
         :param conn: DB connection object
         """
-        conn.executescript("""
+        # Use execute (not executescript) so we get the benefits of our
+        # GreenDBConnection. Creating a table requires a whole-DB lock;
+        # *any* in-progress cursor will otherwise trip a "database is locked"
+        # error.
+        conn.execute("""
             CREATE TABLE shard_ranges (
                 ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,

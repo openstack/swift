@@ -78,24 +78,31 @@ def _check_own_shard_range(broker, args):
     return own_shard_range
 
 
-def find_ranges(broker, args):
+def _find_ranges(broker, args, status_file=None):
     start = last_report = time.time()
-    ranges, last_found = broker.find_shard_ranges(args.rows_per_shard, limit=5)
-    if ranges:
+    limit = 5 if status_file else -1
+    shard_data, last_found = broker.find_shard_ranges(
+        args.rows_per_shard, limit=limit)
+    if shard_data:
         while not last_found:
             if last_report + 10 < time.time():
                 print('Found %d ranges in %gs; looking for more...' % (
-                    len(ranges), time.time() - start), file=sys.stderr)
+                    len(shard_data), time.time() - start), file=status_file)
                 last_report = time.time()
             # prefix doesn't matter since we aren't persisting it
-            found_ranges = make_shard_ranges(broker, ranges, '.shards_')
-            more_ranges, last_found = broker.find_shard_ranges(
+            found_ranges = make_shard_ranges(broker, shard_data, '.shards_')
+            more_shard_data, last_found = broker.find_shard_ranges(
                 args.rows_per_shard, existing_ranges=found_ranges, limit=5)
-            ranges.extend(more_ranges)
-    delta_t = time.time() - start
-    print(json.dumps([dict(r) for r in ranges], sort_keys=True, indent=2))
+            shard_data.extend(more_shard_data)
+    return shard_data, time.time() - start
+
+
+def find_ranges(broker, args):
+    shard_data, delta_t = _find_ranges(broker, args, sys.stderr)
+    print(json.dumps(shard_data, sort_keys=True, indent=2))
     print('Found %d ranges in %gs (container size %s)' %
-          (len(ranges), delta_t, broker.get_info()['object_count']),
+          (len(shard_data), delta_t,
+           sum(r['object_count'] for r in shard_data)),
           file=sys.stderr)
     return 0
 
@@ -132,7 +139,7 @@ def delete_shard_ranges(broker, args):
         print("No shard ranges found to delete.")
         return 0
 
-    while True and not args.force:
+    while not args.force:
         print('This will delete existing %d shard ranges.' % len(shard_ranges))
         if broker.get_db_state() != UNSHARDED:
             print('WARNING: Be very cautious about deleting existing shard '
@@ -165,7 +172,7 @@ def delete_shard_ranges(broker, args):
     return 0
 
 
-def _replace_shard_ranges(broker, args, shard_data):
+def _replace_shard_ranges(broker, args, shard_data, timeout=None):
     own_shard_range = _check_own_shard_range(broker, args)
     shard_ranges = make_shard_ranges(
         broker, shard_data, args.shards_account_prefix)
@@ -176,10 +183,14 @@ def _replace_shard_ranges(broker, args, shard_data):
         print(json.dumps([dict(sr) for sr in shard_ranges],
                          sort_keys=True, indent=2))
 
-    delete_shard_ranges(broker, args)
+    # Crank up the timeout in an effort to *make sure* this succeeds
+    with broker.updated_timeout(max(timeout, args.replace_timeout)):
+        delete_shard_ranges(broker, args)
 
-    broker.update_sharding_info({'Scan-Done': 'True'})
-    broker.merge_shard_ranges(shard_ranges)
+        broker.merge_shard_ranges(shard_ranges)
+        # Update metadata *after* merge, just like in the sharder
+        broker.update_sharding_info({'Scan-Done': 'True'})
+
     print('Injected %d shard ranges.' % len(shard_ranges))
     print('Run container-replicator to replicate them to other nodes.')
     if args.enable:
@@ -191,21 +202,25 @@ def _replace_shard_ranges(broker, args, shard_data):
 
 def replace_shard_ranges(broker, args):
     shard_data = _load_and_validate_shard_data(args)
-    _replace_shard_ranges(broker, args, shard_data)
+    return _replace_shard_ranges(broker, args, shard_data)
 
 
 def find_replace_shard_ranges(broker, args):
-    shard_data = broker.find_shard_ranges(args.rows_per_shard)[0]
-    _replace_shard_ranges(broker, args, shard_data)
+    shard_data, delta_t = _find_ranges(broker, args, sys.stdout)
+    # Since we're trying to one-shot this, and the previous step probably
+    # took a while, make the timeout for writing *at least* that long
+    return _replace_shard_ranges(broker, args, shard_data, timeout=delta_t)
 
 
 def _enable_sharding(broker, own_shard_range, args):
     if own_shard_range.update_state(ShardRange.SHARDING):
         own_shard_range.epoch = Timestamp.now()
         own_shard_range.state_timestamp = own_shard_range.epoch
-    broker.merge_shard_ranges([own_shard_range])
-    broker.update_metadata({'X-Container-Sysmeta-Sharding':
-                            ('True', Timestamp.now().normal)})
+
+    with broker.updated_timeout(args.enable_timeout):
+        broker.merge_shard_ranges([own_shard_range])
+        broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                ('True', Timestamp.now().normal)})
     return own_shard_range
 
 
@@ -247,11 +262,20 @@ def _add_replace_args(parser):
         '--shards_account_prefix', metavar='shards_account_prefix', type=str,
         required=False, help='Prefix for shards account', default='.shards_')
     parser.add_argument(
+        '--replace-timeout', type=int, default=600,
+        help='DB timeout to use when replacing shard ranges.')
+    parser.add_argument(
         '--force', '-f', action='store_true', default=False,
         help='Delete existing shard ranges; no questions asked.')
     parser.add_argument(
         '--enable', action='store_true', default=False,
         help='Enable sharding after adding shard ranges.')
+
+
+def _add_enable_args(parser):
+    parser.add_argument(
+        '--enable-timeout', type=int, default=300,
+        help='DB timeout to use when enabling sharding.')
 
 
 def main(args=None):
@@ -310,11 +334,13 @@ def main(args=None):
     )
     _add_find_args(find_replace_parser)
     _add_replace_args(find_replace_parser)
+    _add_enable_args(find_replace_parser)
     find_replace_parser.set_defaults(func=find_replace_shard_ranges)
 
     # enable
     enable_parser = subparsers.add_parser(
         'enable', help='Enable sharding and move db to sharding state.')
+    _add_enable_args(enable_parser)
     enable_parser.set_defaults(func=enable_sharding)
     _add_replace_args(enable_parser)
 
