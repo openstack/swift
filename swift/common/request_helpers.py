@@ -515,11 +515,11 @@ class SegmentedIterable(object):
                     'Too many bytes for %(name)s; truncating in '
                     '%(seg)s with %(left)d bytes left' %
                     {'name': self.name, 'seg': seg_name,
-                     'left': bytes_left})
+                     'left': -bytes_left})
 
         if bytes_left:
-            raise SegmentError(
-                'Not enough bytes for %s; closing connection' % self.name)
+            raise SegmentError('Expected another %d bytes for %s; '
+                               'closing connection' % (bytes_left, self.name))
 
     def _time_limited_iter(self):
         # Makes sure a GET response doesn't take more than self.max_get_time
