@@ -121,7 +121,7 @@ from swift.common.exceptions import MimeInvalid
 from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
 from swift.common.utils import streq_const_time, register_swift_info, \
     parse_content_disposition, parse_mime_headers, \
-    iter_multipart_mime_documents
+    iter_multipart_mime_documents, reiterate, close_if_possible
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized
 from swift.proxy.controllers.base import get_account_info, get_container_info
@@ -270,7 +270,7 @@ class FormPost(object):
                 if 'content-type' not in attributes and 'content-type' in hdrs:
                     attributes['content-type'] = \
                         hdrs['Content-Type'] or 'application/octet-stream'
-                status, subheaders, message = \
+                status, subheaders = \
                     self._perform_subrequest(env, attributes, fp, keys)
                 if not status.startswith('2'):
                     break
@@ -323,7 +323,7 @@ class FormPost(object):
         :param attributes: dict of the attributes of the form so far.
         :param fp: The file-like object containing the request body.
         :param keys: The account keys to validate the signature with.
-        :returns: (status_line, headers_list, message)
+        :returns: (status_line, headers_list)
         """
         if not keys:
             raise FormUnauthorized('invalid signature')
@@ -357,8 +357,6 @@ class FormPost(object):
         if 'content-type' in attributes:
             subenv['CONTENT_TYPE'] = \
                 attributes['content-type'] or 'application/octet-stream'
-        elif 'CONTENT_TYPE' in subenv:
-            del subenv['CONTENT_TYPE']
         try:
             if int(attributes.get('expires') or 0) < time():
                 raise FormUnauthorized('form expired')
@@ -392,12 +390,10 @@ class FormPost(object):
             substatus[0] = status
             subheaders[0] = headers
 
-        i = iter(self.app(subenv, _start_response))
-        try:
-            next(i)
-        except StopIteration:
-            pass
-        return substatus[0], subheaders[0], ''
+        # reiterate to ensure the response started,
+        # but drop any data on the floor
+        close_if_possible(reiterate(self.app(subenv, _start_response)))
+        return substatus[0], subheaders[0]
 
     def _get_keys(self, env):
         """
