@@ -1061,6 +1061,7 @@ class TestObjectController(unittest.TestCase):
         actual_headers = mock_update.call_args_list[0][0][4]
         # User-Agent is updated.
         expected_post_headers['User-Agent'] = 'object-updater %s' % os.getpid()
+        expected_post_headers['X-Backend-Accept-Redirect'] = 'true'
         self.assertDictEqual(expected_post_headers, actual_headers)
         self.assertFalse(
             os.listdir(os.path.join(

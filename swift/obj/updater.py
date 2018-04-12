@@ -314,17 +314,18 @@ class ObjectUpdater(Daemon):
 
         def do_update():
             successes = update.get('successes', [])
+            headers_out = HeaderKeyDict(update['headers'].copy())
+            headers_out['user-agent'] = 'object-updater %s' % os.getpid()
+            headers_out.setdefault('X-Backend-Storage-Policy-Index',
+                                   str(int(policy)))
             container_path = update.get('container_path')
             if container_path:
                 acct, cont = split_path('/' + container_path, minsegs=2)
             else:
                 acct, cont = update['account'], update['container']
+                headers_out.setdefault('X-Backend-Accept-Redirect', 'true')
             part, nodes = self.get_container_ring().get_nodes(acct, cont)
             obj = '/%s/%s/%s' % (acct, cont, update['obj'])
-            headers_out = HeaderKeyDict(update['headers'].copy())
-            headers_out['user-agent'] = 'object-updater %s' % os.getpid()
-            headers_out.setdefault('X-Backend-Storage-Policy-Index',
-                                   str(int(policy)))
             events = [spawn(self.object_update,
                             node, part, update['op'], obj, headers_out)
                       for node in nodes if node['id'] not in successes]

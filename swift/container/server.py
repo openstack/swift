@@ -25,7 +25,7 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
-    RECORD_TYPE_SHARD_NODE, UNSHARDED
+    RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARD_UPDATE_STATES
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
@@ -266,24 +266,29 @@ class ContainerController(BaseStorageServer):
             self.logger.exception('Failed to update sync_store %s during %s' %
                                   (broker.db_file, method))
 
-    def _find_shard_location(self, req, broker, obj_name):
+    def _redirect_to_shard(self, req, broker, obj_name):
         """
-        Look for a shard range that contains ``obj_name`` and if one exists
-        return a HTTPMovedPermanently response.
+        If the request indicates that it can accept a redirection, look for a
+        shard range that contains ``obj_name`` and if one exists return a
+        HTTPMovedPermanently response.
 
+        :param req: an instance of :class:`~swift.common.swob.Request`
         :param broker: a container broker
         :param obj_name: an object name
         :return: an instance of :class:`swift.common.swob.HTTPMovedPermanently`
             if a shard range exists for the given ``obj_name``, otherwise None.
         """
-        # TODO: do we need to restrict the shard range states used here w.r.t.
-        # shrinking?
-        shard_ranges = broker.get_shard_ranges(includes=obj_name)
-        if shard_ranges:
-            containing_range = shard_ranges[0]
-        else:
+        if not config_true_value(
+                req.headers.get('x-backend-accept-redirect', False)):
             return None
 
+        shard_ranges = broker.get_shard_ranges(
+            includes=obj_name, states=SHARD_UPDATE_STATES)
+        if not shard_ranges:
+            return None
+
+        # TODO: if more than one match, select based on state
+        containing_range = shard_ranges[0]
         location = "/%s/%s" % (containing_range.name, obj_name)
         headers = {'Location': location,
                    'X-Backend-Redirect-Timestamp':
@@ -316,7 +321,7 @@ class ContainerController(BaseStorageServer):
             return HTTPNotFound()
         if obj:     # delete object
             # redirect if a shard range exists for the object name
-            redirect = self._find_shard_location(req, broker, obj)
+            redirect = self._redirect_to_shard(req, broker, obj)
             if redirect:
                 return redirect
 
@@ -411,7 +416,7 @@ class ContainerController(BaseStorageServer):
                 return HTTPNotFound()
 
             # redirect if a shard exists for this object name
-            response = self._find_shard_location(req, broker, obj)
+            response = self._redirect_to_shard(req, broker, obj)
             if response:
                 return response
 
