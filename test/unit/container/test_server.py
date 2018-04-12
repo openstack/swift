@@ -2059,15 +2059,133 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 412)
 
-    def test_PUT_shard_range_json_in_body(self):
-        # PUT some shard ranges to non-existent container
+    def test_PUT_shard_range_autocreates_shard_container(self):
         ts_iter = make_timestamp_iter()
-        headers = {'X-Timestamp': next(ts_iter).normal}
+        shard_range = ShardRange('.shards_a/shard_c', next(ts_iter))
+        put_timestamp = next(ts_iter).internal
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Timestamp': put_timestamp,
+                   'X-Container-Sysmeta-Test': 'set',
+                   'X-Container-Meta-Test': 'persisted'}
+
+        # PUT shard range to non-existent container with non-autocreate prefix
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+        # PUT shard range to non-existent container with autocreate prefix,
+        # missing storage policy
+        headers['X-Timestamp'] = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
+            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(400, resp.status_int)
+        self.assertIn('X-Backend-Storage-Policy-Index header is required',
+                      resp.body)
+
+        # PUT shard range to non-existent container with autocreate prefix
+        headers['X-Timestamp'] = next(ts_iter).internal
+        policy_index = random.choice(POLICIES).idx
+        headers['X-Backend-Storage-Policy-Index'] = str(policy_index)
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
+            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+
+        # repeat PUT of shard range to autocreated container - 204 response
+        headers['X-Timestamp'] = next(ts_iter).internal
+        headers.pop('X-Backend-Storage-Policy-Index')  # no longer required
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
+            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+
+        # regular PUT to autocreated container - 204 response
+        headers['X-Timestamp'] = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT',
+            headers={'X-Timestamp': next(ts_iter).internal},
+            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+
+    def test_PUT_shard_range_to_deleted_container(self):
+        ts_iter = make_timestamp_iter()
+        put_time = next(ts_iter).internal
+        # create a container, get it to sharded state and then delete it
+        req = Request.blank('/sda1/p/a/c', method='PUT',
+                            headers={'X-Timestamp': put_time})
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDING, state_timestamp=next(ts_iter))
+        own_sr.epoch = next(ts_iter)
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.set_sharding_state())
+        context = broker.load_cleave_context()
+        context['misplaced_done'] = True
+        context['cleaving_done'] = True
+        broker.dump_cleave_context(context)
+        self.assertTrue(broker.set_sharded_state())
+
+        delete_time = next(ts_iter).internal
+        req = Request.blank('/sda1/p/a/c', method='DELETE',
+                            headers={'X-Timestamp': delete_time})
+        resp = req.get_response(self.controller)
+        self.assertEqual(204, resp.status_int)
+        self.assertTrue(broker.is_deleted())
+        self.assertEqual(delete_time, broker.get_info()['delete_timestamp'])
+        self.assertEqual(put_time, broker.get_info()['put_timestamp'])
+        req = Request.blank('/sda1/p/a/c', method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+        # shard range PUT is accepted but container remains deleted
+        shard_range = ShardRange('.shards_a/shard_c', next(ts_iter),
+                                 state=ShardRange.ACTIVE)
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Timestamp': next(ts_iter).internal,
+                   'X-Container-Sysmeta-Test': 'set',
+                   'X-Container-Meta-Test': 'persisted'}
+
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertTrue(broker.get_info_is_deleted()[1])
+        self.assertEqual(delete_time, broker.get_info()['delete_timestamp'])
+        self.assertEqual(put_time, broker.get_info()['put_timestamp'])
+        req = Request.blank('/sda1/p/a/c', method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+        # unless shard range has non-zero stats, then container is revived
+        shard_range.update_meta(99, 1234, meta_timestamp=next(ts_iter))
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertFalse(broker.get_info_is_deleted()[1])
+        self.assertEqual(delete_time, broker.get_info()['delete_timestamp'])
+        self.assertEqual(put_time, broker.get_info()['put_timestamp'])
+        req = Request.blank('/sda1/p/a/c', method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(204, resp.status_int)
+        self.assertEqual('99', resp.headers['X-Container-Object-Count'])
+
+    def test_PUT_shard_range_json_in_body(self):
+        ts_iter = make_timestamp_iter()
         shard_bounds = [('', 'ham', ShardRange.ACTIVE),
                         ('ham', 'salami', ShardRange.ACTIVE),
                         ('salami', '', ShardRange.CREATED)]
         shard_ranges = [
-            ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
+            ShardRange('.shards_a/_%s' % upper, next(ts_iter),
                        lower, upper,
                        i * 100, i * 1000, meta_timestamp=next(ts_iter),
                        state=state, state_timestamp=next(ts_iter))
@@ -2079,10 +2197,25 @@ class TestContainerController(unittest.TestCase):
                    'X-Container-Sysmeta-Test': 'set',
                    'X-Container-Meta-Test': 'persisted'}
         body = json.dumps([dict(sr) for sr in shard_ranges[:2]])
+
+        # PUT some shard ranges to non-existent container
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
                             body=body)
         resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+        # create the container with a regular PUT
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT',
+            headers={'X-Timestamp': put_timestamp}, body=body)
+        resp = req.get_response(self.controller)
         self.assertEqual(201, resp.status_int)
+
+        # now we can PUT shard ranges
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
 
         # check broker
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
@@ -2097,8 +2230,7 @@ class TestContainerController(unittest.TestCase):
 
         # empty json dict
         body = json.dumps({})
-        put_timestamp = next(ts_iter).internal
-        headers['X-Timestamp'] = put_timestamp
+        headers['X-Timestamp'] = next(ts_iter).internal
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
         resp = req.get_response(self.controller)
@@ -2113,8 +2245,7 @@ class TestContainerController(unittest.TestCase):
         shard_ranges[1].bytes_used += 100
         shard_ranges[1].meta_timestamp = next(ts_iter)
         body = json.dumps([dict(sr) for sr in shard_ranges[1:]])
-        put_timestamp = next(ts_iter).internal
-        headers['X-Timestamp'] = put_timestamp
+        headers['X-Timestamp'] = next(ts_iter).internal
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
         resp = req.get_response(self.controller)
@@ -2161,6 +2292,7 @@ class TestContainerController(unittest.TestCase):
         def check_not_shard_record_type(headers):
             # body ignored
             body = json.dumps([dict(sr) for sr in shard_ranges])
+            # note, regular PUT so put timestamp is updated
             put_timestamp = next(ts_iter).internal
             headers['X-Timestamp'] = put_timestamp
             req = Request.blank(
