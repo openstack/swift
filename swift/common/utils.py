@@ -4396,36 +4396,20 @@ def modify_priority(conf, logger):
 
 
 def o_tmpfile_in_path_supported(dirpath):
-    if not hasattr(os, 'O_TMPFILE'):
-        return False
-
-    testfile = os.path.join(dirpath, ".o_tmpfile.test")
-
-    hasO_TMPFILE = True
     fd = None
     try:
-        fd = os.open(testfile, os.O_CREAT | os.O_WRONLY | os.O_TMPFILE)
+        fd = os.open(dirpath, os.O_WRONLY | O_TMPFILE)
+        return True
     except OSError as e:
-        if e.errno == errno.EINVAL:
-            hasO_TMPFILE = False
+        if e.errno in (errno.EINVAL, errno.EISDIR, errno.EOPNOTSUPP):
+            return False
         else:
             raise Exception("Error on '%(path)s' while checking "
                             "O_TMPFILE: '%(ex)s'",
                             {'path': dirpath, 'ex': e})
-
-    except Exception as e:
-        raise Exception("Error on '%(path)s' while checking O_TMPFILE: "
-                        "'%(ex)s'", {'path': dirpath, 'ex': e})
-
     finally:
         if fd is not None:
             os.close(fd)
-
-        # ensure closing the fd will actually remove the file
-        if os.path.isfile(testfile):
-            return False
-
-    return hasO_TMPFILE
 
 
 def o_tmpfile_in_tmpdir_supported():
