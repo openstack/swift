@@ -100,7 +100,7 @@ def _find_ranges(broker, args, status_file=None):
 def find_ranges(broker, args):
     shard_data, delta_t = _find_ranges(broker, args, sys.stderr)
     print(json.dumps(shard_data, sort_keys=True, indent=2))
-    print('Found %d ranges in %gs (container size %s)' %
+    print('Found %d ranges in %gs (total object count %s)' %
           (len(shard_data), delta_t,
            sum(r['object_count'] for r in shard_data)),
           file=sys.stderr)
@@ -263,7 +263,7 @@ def _add_replace_args(parser):
         required=False, help='Prefix for shards account', default='.shards_')
     parser.add_argument(
         '--replace-timeout', type=int, default=600,
-        help='DB timeout to use when replacing shard ranges.')
+        help='Minimum DB timeout to use when replacing shard ranges.')
     parser.add_argument(
         '--force', '-f', action='store_true', default=False,
         help='Delete existing shard ranges; no questions asked.')
@@ -347,7 +347,7 @@ def main(args=None):
     args = parser.parse_args(args)
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
     broker = ContainerBroker(args.container_db, logger=logger,
-                             stale_reads_ok=True)
+                             skip_commits=True)
     broker.get_info()
     print('Loaded db broker for %s.' % broker.path, file=sys.stderr)
     return args.func(broker, args)
