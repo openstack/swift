@@ -399,6 +399,20 @@ class DatabaseBroker(object):
         self.quarantine(exc_hint)
 
     @contextmanager
+    def updated_timeout(self, new_timeout):
+        """Use with "with" statement; updates ``timeout`` within the block."""
+        old_timeout = self.timeout
+        try:
+            self.timeout = new_timeout
+            if self.conn:
+                self.conn.timeout = new_timeout
+            yield old_timeout
+        finally:
+            self.timeout = old_timeout
+            if self.conn:
+                self.conn.timeout = old_timeout
+
+    @contextmanager
     def get(self):
         """Use with the "with" statement; returns a database connection."""
         if not self.conn:
