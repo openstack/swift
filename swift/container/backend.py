@@ -673,23 +673,12 @@ class ContainerBroker(DatabaseBroker):
                 'record_type': record_type}
         item_list.append(item)
 
-    def empty(self):
-        """
-        Check if container DB is empty.
-
-        :returns: True if the database has no active objects, False otherwise
-        """
+    def _empty(self):
         self._commit_puts_stale_ok()
         with self.get() as conn:
             try:
-                # TODO: this does not check misplaced objects table is empty!
-                if self.get_db_state() == SHARDED:
-                    row = conn.execute(
-                        'SELECT max(object_count) from shard_ranges where '
-                        'deleted = 0').fetchone()
-                else:
-                    row = conn.execute(
-                        'SELECT max(object_count) from policy_stat').fetchone()
+                row = conn.execute(
+                    'SELECT max(object_count) from policy_stat').fetchone()
             except sqlite3.OperationalError as err:
                 if not any(msg in str(err) for msg in (
                         "no such column: storage_policy_index",
@@ -698,6 +687,21 @@ class ContainerBroker(DatabaseBroker):
                 row = conn.execute(
                     'SELECT object_count from container_stat').fetchone()
             return (row[0] == 0)
+
+    def empty(self):
+        """
+        Check if container DB is empty.
+
+        This method uses more stringent checks on object count than
+        :meth:`is_deleted`: this method checks that there are no objects in any
+        policy; if the container is in the process of sharding then both fresh
+        and retiring databases are checked to be empty; if the container has
+        shard ranges then they are checked to be empty.
+
+        :returns: True if the database has no active objects, False otherwise
+        """
+        return all([broker._empty() for broker in self.get_brokers()] +
+                   [self.get_shard_usage()['object_count'] <= 0])
 
     def delete_object(self, name, timestamp, storage_policy_index=0):
         """
