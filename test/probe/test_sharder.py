@@ -301,9 +301,26 @@ class TestContainerSharding(ReplProbeTest):
             str(expected_state), headers['X-Backend-Sharding-State'])
         return [ShardRange.from_dict(sr) for sr in shard_ranges]
 
-    def get_part_and_node_numbers(self, account, container):
-        part, nodes = self.brain.ring.get_nodes(account, container)
+    def get_part_and_node_numbers(self, shard_range):
+        """Return the partition and node numbers for a shard range."""
+        part, nodes = self.brain.ring.get_nodes(
+            shard_range.account, shard_range.container)
         return part, [n['id'] + 1 for n in nodes]
+
+    def run_sharders(self, shard_ranges):
+        """Run the sharder on partitions for given shard ranges."""
+        if not isinstance(shard_ranges, (list, tuple, set)):
+            shard_ranges = (shard_ranges,)
+        partitions = ','.join(str(self.get_part_and_node_numbers(sr)[0])
+                              for sr in shard_ranges)
+        self.sharders.once(additional_args='--partitions=%s' % partitions)
+
+    def run_sharder_sequentially(self, shard_range):
+        """Run sharder node by node on partition for given shard range."""
+        part, node_numbers = self.get_part_and_node_numbers(shard_range)
+        for node_number in node_numbers:
+            self.sharders.once(number=node_number,
+                               additional_args='--partitions=%s' % part)
 
     def test_sharding_listing(self):
         # verify parameterised listing of a container during sharding
@@ -521,9 +538,7 @@ class TestContainerSharding(ReplProbeTest):
 
         # run sharders on the shard to get root updated
         shard = ShardRange.from_dict(orig_root_shard_ranges[0])
-        shard_part, shard_nodes = self.get_part_and_node_numbers(
-            shard.account, shard.container)
-        self.sharders.once(additional_args='--partitions=%s' % shard_part)
+        self.run_sharders(shard)
         self.assert_container_object_count(len(more_obj_names + obj_names))
 
         # we've added objects enough that we need to shard *again* into three
@@ -546,10 +561,7 @@ class TestContainerSharding(ReplProbeTest):
         # ...then run first cycle of shard sharders in order, leader first, to
         # get to predictable state where all nodes have cleaved 2 out of 3
         # ranges
-        for node_number in shard_nodes:
-            self.sharders.once(
-                number=node_number,
-                additional_args='--partitions=%s' % shard_part)
+        self.run_sharder_sequentially(shard)
 
         # check original first shard range state and shards
         found_for_shard = self.categorize_container_dir_content(
@@ -616,7 +628,7 @@ class TestContainerSharding(ReplProbeTest):
         # TODO: assert that alpha is in the first new shard
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
         # Run sharders again so things settle.
-        self.sharders.once(additional_args='--partitions=%s' % shard_part)
+        self.run_sharders(shard)
 
         # check original first shard range shards
         for db_file in found_for_shard['shard_dbs']:
@@ -699,10 +711,7 @@ class TestContainerSharding(ReplProbeTest):
         # sharder on root container because that triggers shrinks which can
         # cause root object count to temporarily be non-zero and prevent the
         # final delete.
-        partitions = ','.join(
-            str(self.get_part_and_node_numbers(sr.account, sr.container)[0])
-            for sr in self.get_container_shard_ranges())
-        self.sharders.once(additional_args='--partitions=%s' % partitions)
+        self.run_sharders(self.get_container_shard_ranges())
         # then root is empty and can be deleted
         self.assert_container_listing([])
         self.assert_container_object_count(0)
@@ -1053,9 +1062,7 @@ class TestContainerSharding(ReplProbeTest):
                     excludes=['meta_timestamp', 'state_timestamp'])
 
             # ...until the sharders run and update root
-            shard_part, shard_nodes = self.get_part_and_node_numbers(
-                orig_shard_ranges[0].account, orig_shard_ranges[0].container)
-            self.sharders.once(additional_args='--partitions=%s' % shard_part)
+            self.run_sharders(orig_shard_ranges[0])
             exp_obj_count = len(second_shard_objects) + 1
             self.assert_container_object_count(exp_obj_count)
             self.assert_container_listing([alpha] + second_shard_objects)
@@ -1065,14 +1072,10 @@ class TestContainerSharding(ReplProbeTest):
                 additional_args='--partitions=%s' % self.brain.part)
             self.assert_container_listing([alpha] + second_shard_objects)
             # run sharder on donor to shrink and replicate to acceptor
-            self.sharders.once(
-                additional_args='--partitions=%s' % shard_part)
+            self.run_sharders(orig_shard_ranges[0])
             self.assert_container_listing([alpha] + second_shard_objects)
             # run sharder on acceptor to update root with stats
-            acceptor_part, acceptor_nodes = self.get_part_and_node_numbers(
-                orig_shard_ranges[0].account, orig_shard_ranges[0].container)
-            self.sharders.once(
-                additional_args='--partitions=%s' % acceptor_part)
+            self.run_sharders(orig_shard_ranges[1])
             self.assert_container_listing([alpha] + second_shard_objects)
             self.assert_container_object_count(len(second_shard_objects) + 1)
 
@@ -1322,8 +1325,7 @@ class TestContainerSharding(ReplProbeTest):
                          [sr.state for sr in shard_ranges])
 
         # stop *all* container servers for third shard range
-        sr_part, sr_node_nums = self.get_part_and_node_numbers(
-            shard_ranges[2].account, shard_ranges[2].container)
+        sr_part, sr_node_nums = self.get_part_and_node_numbers(shard_ranges[2])
         for node_num in sr_node_nums:
             self.brain.servers.stop(number=node_num)
 
