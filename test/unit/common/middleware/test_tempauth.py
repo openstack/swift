@@ -37,6 +37,14 @@ class FakeMemcache(object):
         return self.store.get(key)
 
     def set(self, key, value, time=0):
+        if isinstance(value, (tuple, list)):
+            decoded = []
+            for elem in value:
+                if type(elem) == str:
+                    decoded.append(elem.decode('utf8'))
+                else:
+                    decoded.append(elem)
+            value = tuple(decoded)
         self.store[key] = value
         return True
 
@@ -907,6 +915,37 @@ class TestAuth(unittest.TestCase):
         self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEqual(resp.headers.get('Www-Authenticate'),
                          'Swift realm="BLAH_account"')
+
+    def test_successful_token_unicode_user(self):
+        app = FakeApp(iter(NO_CONTENT_RESP))
+        ath = auth.filter_factory(
+            {u'user_t\u00e9st_t\u00e9ster'.encode('utf8'):
+             u'p\u00e1ss .admin'.encode('utf8')})(app)
+        memcache = FakeMemcache()
+
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': u't\u00e9st:t\u00e9ster',
+                     'X-Auth-Key': u'p\u00e1ss'})
+        req.environ['swift.cache'] = memcache
+        resp = req.get_response(ath)
+        self.assertEqual(resp.status_int, 200)
+        auth_token = resp.headers['X-Auth-Token']
+
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': u't\u00e9st:t\u00e9ster',
+                     'X-Auth-Key': u'p\u00e1ss'})
+        req.environ['swift.cache'] = memcache
+        resp = req.get_response(ath)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(auth_token, resp.headers['X-Auth-Token'])
+
+        req = self._make_request(
+            u'/v1/AUTH_t\u00e9st', headers={'X-Auth-Token': auth_token})
+        req.environ['swift.cache'] = memcache
+        resp = req.get_response(ath)
+        self.assertEqual(204, resp.status_int)
 
 
 class TestAuthWithMultiplePrefixes(TestAuth):
