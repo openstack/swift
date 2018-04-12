@@ -2034,10 +2034,13 @@ class Controller(object):
             return None, response
 
         try:
-            return json.loads(response.body), response
+            data = json.loads(response.body)
+            if not isinstance(data, list):
+                raise ValueError('not a list')
+            return data, response
         except ValueError as err:
-            self.app.logger.warning(
-                'Problem with listing response from %s: %s',
+            self.app.logger.error(
+                'Problem with listing response from %s: %r',
                 subreq.path_qs, err)
             return None, response
 
@@ -2070,11 +2073,18 @@ class Controller(object):
         if listing is None:
             return None
 
+        record_type = response.headers.get('x-backend-record-type')
+        if record_type != 'shard':
+            err = 'unexpected record type %r' % record_type
+            self.app.logger.error("Failed to get shard ranges from %s: %s",
+                                  req.path_qs, err)
+            return None
+
         try:
             return [ShardRange.from_dict(shard_range)
                     for shard_range in listing]
         except (ValueError, TypeError, KeyError) as err:
-            self.app.logger.exception(
-                "Problem decoding shard ranges in response from %s: %s",
-                response.request.path_qs, err)
+            self.app.logger.error(
+                "Failed to get shard ranges from %s: invalid data: %r",
+                req.path_qs, err)
             return None

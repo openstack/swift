@@ -243,23 +243,41 @@ class ContainerSharder(ContainerReplicator):
             self._report_stats()
             self._zero_stats()
 
-    def _fetch_shard_ranges(self, broker, newest=False, params=None):
+    def _fetch_shard_ranges(self, broker, newest=False, params=None,
+                            include_deleted=False):
         path = self.swift.make_path(broker.root_account, broker.root_container)
         params = params or {}
         params.setdefault('format', 'json')
-        headers = {'X-Backend-Record-Type': 'shard'}
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Backend-Override-Deleted': 'true',
+                   'X-Backend-Include-Deleted': str(include_deleted)}
         if newest:
             headers['X-Newest'] = 'true'
         try:
             resp = self.swift.make_request(
                 'GET', path, headers, acceptable_statuses=(2,), params=params)
-        except internal_client.UnexpectedResponse:
-            self.logger.error("Failed to get shard ranges from %s",
-                              broker.root_path)
+        except internal_client.UnexpectedResponse as err:
+            self.logger.warning("Failed to get shard ranges from %s: %s",
+                                broker.root_path, err)
+            return None
+        record_type = resp.headers.get('x-backend-record-type')
+        if record_type != 'shard':
+            err = 'unexpected record type %r' % record_type
+            self.logger.error("Failed to get shard ranges from %s: %s",
+                              broker.root_path, err)
             return None
 
-        return [ShardRange.from_dict(shard_range)
-                for shard_range in json.loads(resp.body)]
+        try:
+            data = json.loads(resp.body)
+            if not isinstance(data, list):
+                raise ValueError('not a list')
+            return [ShardRange.from_dict(shard_range)
+                    for shard_range in data]
+        except (ValueError, TypeError, KeyError) as err:
+            self.logger.error(
+                "Failed to get shard ranges from %s: invalid data: %r",
+                broker.root_path, err)
+        return None
 
     def _put_container(self, node, part, account, container, headers, body):
         try:
@@ -675,7 +693,8 @@ class ContainerSharder(ContainerReplicator):
             shard_ranges = self._fetch_shard_ranges(
                 broker, newest=True,
                 params={'marker': own_shard_range.lower,
-                        'end_marker': own_shard_range.upper})
+                        'end_marker': own_shard_range.upper},
+                include_deleted=True)
             if shard_ranges:
                 for shard_range in shard_ranges:
                     if (shard_range.lower == own_shard_range.lower and
