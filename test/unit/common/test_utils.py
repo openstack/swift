@@ -7044,6 +7044,26 @@ class TestShardRange(unittest.TestCase):
             self.assertEqual(dict(old_sr, state=state, state_timestamp=ts),
                              dict(sr))
 
+    def test_resolve_state(self):
+        for name, number in utils.ShardRange.STATES_BY_NAME.items():
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(name))
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(name.upper()))
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(name.title()))
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(number))
+
+        def check_bad_value(value):
+            with self.assertRaises(ValueError) as cm:
+                utils.ShardRange.resolve_state(value)
+            self.assertIn('Invalid state %r' % value, str(cm.exception))
+
+        check_bad_value(min(utils.ShardRange.STATES) - 1)
+        check_bad_value(max(utils.ShardRange.STATES) + 1)
+        check_bad_value('badstate')
+
     def test_epoch_setter(self):
         sr = utils.ShardRange('a/c', next(self.ts_iter))
         self.assertIsNone(sr.epoch)

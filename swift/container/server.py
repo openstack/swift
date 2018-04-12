@@ -574,17 +574,10 @@ class ContainerController(BaseStorageServer):
             includes = get_param(req, 'includes')
             states = get_param(req, 'state') or None
             if states:
-                states = set(list_from_csv(states))
-                listing = {'cleaved', 'active', 'sharding', 'shrinking'}
-                updating = listing | {'created'}
-                aliases = {'listing': listing, 'updating': updating}
-                for alias, aliased_states in aliases.items():
-                    if alias in states:
-                        states.remove(alias)
-                        states |= aliased_states
+                states = list_from_csv(states)
                 try:
-                    states = [ShardRange.STATES_BY_NAME[st] for st in states]
-                except KeyError:
+                    states = broker.resolve_shard_range_states(states)
+                except ValueError:
                     return HTTPBadRequest(request=req, body='Bad state')
             container_list = broker.get_shard_ranges(
                 marker, end_marker, includes, reverse, states=states)

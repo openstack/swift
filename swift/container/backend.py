@@ -1579,7 +1579,7 @@ class ContainerBroker(DatabaseBroker):
 
         def prep_states(states):
             state_set = set()
-            if isinstance(states, (list, tuple)):
+            if isinstance(states, (list, tuple, set)):
                 state_set.update(set(states))
             elif states is not None:
                 state_set.add(states)
@@ -1625,6 +1625,35 @@ class ContainerBroker(DatabaseBroker):
         else:
             with self.get() as conn:
                 return do_query(conn)
+
+    @classmethod
+    def resolve_shard_range_states(cls, states):
+        """
+        Given a list of values each of which may be the name of a state, the
+        number of a state, or an alias, return the set of state numbers
+        described by the list.
+
+        The following alias values are supported: 'listing' maps to all states
+        that are considered valid when listing objects; 'updating' maps to all
+        states that are considered valid for redirecting an object update.
+
+        :param states: a list of values each of which may be the name of a
+            state, the number of a state, or an alias
+        :return: a set of integer state numbers
+        :raises ValueError: if any value in the given list is neither a valid
+            state nor a valid alias
+        """
+        if states:
+            resolved_states = set()
+            for state in states:
+                if state == 'listing':
+                    resolved_states.update(SHARD_LISTING_STATES)
+                elif state == 'updating':
+                    resolved_states.update(SHARD_UPDATE_STATES)
+                else:
+                    resolved_states.add(ShardRange.resolve_state(state)[0])
+            return resolved_states
+        return None
 
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
                          reverse=False, include_deleted=False, states=None,
