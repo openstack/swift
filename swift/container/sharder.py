@@ -837,23 +837,23 @@ class ContainerSharder(ContainerReplicator):
                     broker, shard_ranges=[broker.get_own_shard_range()])
 
             own_shard_range = broker.get_own_shard_range()
-            if broker.get_shard_ranges():
-                # container may have been given shard ranges rather than
-                # found them e.g. via replication or a shrink event
-                if own_shard_range.state in (ShardRange.SHARDING,
-                                             ShardRange.SHRINKING,
-                                             ShardRange.SHARDED):
+            if own_shard_range.state in (ShardRange.SHARDING,
+                                         ShardRange.SHRINKING,
+                                         ShardRange.SHARDED):
+                if broker.get_shard_ranges():
+                    # container has been given shard ranges rather than
+                    # found them e.g. via replication or a shrink event
+                    if broker.set_sharding_state():
+                        state = SHARDING
+                elif is_leader:
+                    broker.update_sharding_info({'Scan-Done': 'False'})
                     if broker.set_sharding_state():
                         state = SHARDING
                 else:
                     self.logger.debug(
-                        'Shard ranges found but own shard range is %r: %s'
+                        'Own shard range in state %r but no shard ranges '
+                        'and not leader; remaining unsharded: %s'
                         % (own_shard_range.state_text, broker.path))
-            elif own_shard_range.state in (ShardRange.SHARDING,
-                                           ShardRange.SHRINKING):
-                broker.update_sharding_info({'Scan-Done': 'False'})
-                if broker.set_sharding_state():
-                    state = SHARDING
 
         if state == SHARDING:
             num_found = 0
