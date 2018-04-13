@@ -141,6 +141,8 @@ class ContainerSharder(ContainerReplicator):
         self.auto_shard = config_true_value(conf.get('auto_shard', False))
         self.recon_candidates_limit = int(
             conf.get('recon_candidates_limit', 5))
+        self.broker_timeout = config_positive_int_value(
+            conf.get('broker_timeout', 60))
 
         # internal client
         self.conn_timeout = float(conf.get('conn_timeout', 5))
@@ -978,7 +980,8 @@ class ContainerSharder(ContainerReplicator):
                                     node_id)
                 continue
 
-            broker = ContainerBroker(path, logger=self.logger)
+            broker = ContainerBroker(path, logger=self.logger,
+                                     timeout=self.broker_timeout)
             error = None
             try:
                 self._identify_sharding_candidate(broker, node)

@@ -417,3 +417,8 @@ use = egg:swift#xprofile
 # limit may be changed by setting recon_candidates_limit to an integer value. A
 # negative value implies no limit.
 # recon_candidates_limit = 5
+#
+# Large databases tend to take a while to work with, but we want to make sure
+# we write down our progress. Use a larger-than-normal broker timeout to make
+# us less likely to bomb out on a LockTimeout.
+# broker_timeout = 60
