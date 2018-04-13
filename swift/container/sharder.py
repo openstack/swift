@@ -114,7 +114,7 @@ class ContainerSharder(ContainerReplicator):
 
     def __init__(self, conf, logger=None):
         logger = logger or get_logger(conf, log_route='container-sharder')
-        super(ContainerReplicator, self).__init__(conf, logger=logger)
+        super(ContainerSharder, self).__init__(conf, logger=logger)
         self.shards_account_prefix = (
             (conf.get('auto_create_account_prefix') or '.') + 'shards_')
 
@@ -133,7 +133,6 @@ class ContainerSharder(ContainerReplicator):
         self.shrink_size = self.shard_container_size * self.shard_shrink_point
         self.merge_size = self.shard_container_size * self.shrink_merge_point
         self.split_size = self.shard_container_size // 2
-        self.cpool = GreenAsyncPile(self.cpool)
         self.scanner_batch_size = config_positive_int_value(
             conf.get('shard_scanner_batch_size', 10))
         self.shard_batch_size = config_positive_int_value(
@@ -470,6 +469,8 @@ class ContainerSharder(ContainerReplicator):
 
     def _move_objects(self, src_broker, src_shard_range, policy_index,
                       shard_range_fetcher):
+        # move objects from src_shard_range in src_broker to destination shard
+        # ranges provided by shard_range_fetcher
         dest_brokers = {}  # map shard range -> broker
         placed = unplaced = 0
         success = True
@@ -614,33 +615,11 @@ class ContainerSharder(ContainerReplicator):
         if num_found:
             self._increment_stat('misplaced', 'found', statsd=True)
         self._increment_stat('misplaced', 'success' if success else 'failure')
-
-        # wipe out the cache to disable bypass in delete_db
-        cleanups = self.shard_cleanups or {}
-        self.shard_cleanups = None
-        if cleanups:
-            self.logger.info('Cleaning up %d replicated shard containers',
-                             len(cleanups))
-        for container in cleanups.values():
-            self.cpool.spawn(self.delete_db, container)
-        self.cpool.waitall(None)
-
         self.logger.info('Finished misplaced shard replication')
         return success
 
     def _post_replicate_hook(self, broker, info, responses):
         return
-
-    def delete_db(self, broker):
-        """
-        Ensure that replicated sharded databases are only cleaned up at the end
-        of the replication run.
-        """
-        if self.shard_cleanups is not None:
-            # this container shouldn't be here, make sure it's cleaned up
-            self.shard_cleanups[broker.container] = broker
-            return
-        return super(ContainerReplicator, self).delete_db(broker)
 
     def _audit_root_container(self, broker):
         # This is the root container, and therefore the tome of knowledge,
@@ -825,7 +804,6 @@ class ContainerSharder(ContainerReplicator):
             # have new objects sitting in them that may need to move.
             return
 
-        self.shard_cleanups = dict()
         # TODO: bring back leader election (maybe?); if so make it
         # on-demand since we may not need to know if we are leader for all
         # states
@@ -973,7 +951,6 @@ class ContainerSharder(ContainerReplicator):
             self.logger.info('(Override partitions: %s)',
                              ', '.join(str(p) for p in partitions_to_shard))
         dirs = []
-        self.shard_cleanups = dict()
         self.ips = whataremyips(bind_ip=self.bind_ip)
         for node in self.ring.devs:
             if not self._check_node(node, devices_to_shard):
@@ -1023,18 +1000,6 @@ class ContainerSharder(ContainerReplicator):
                     path, error)
             self._periodic_report_stats()
 
-        # wipe out the cache do disable bypass in delete_db
-        cleanups = self.shard_cleanups
-        self.shard_cleanups = None
-        if cleanups:
-            self.logger.info('Cleaning up %d replicated shard containers',
-                             len(cleanups))
-
-            for container in cleanups.values():
-                self.cpool.spawn(self.delete_db, container)
-
-        # Now we wait for all threads to finish.
-        self.cpool.waitall(None)
         self._report_stats()
 
     def _find_shard_ranges(self, broker):
