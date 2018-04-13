@@ -2106,6 +2106,31 @@ class TestObjectReplicator(unittest.TestCase):
             ])
         self.assertEqual(len(mock_procs), 2)
 
+    def test_limit_rsync_log(self):
+        def do_test(length_limit, log_line, expected):
+            self.replicator.rsync_error_log_line_length = length_limit
+            result = self.replicator._limit_rsync_log(log_line)
+            self.assertEqual(result, expected)
+
+        tests = [{'length_limit': 20,
+                  'log_line': 'a' * 20,
+                  'expected': 'a' * 20},
+                 {'length_limit': 20,
+                  'log_line': 'a' * 19,
+                  'expected': 'a' * 19},
+                 {'length_limit': 20,
+                  'log_line': 'a' * 21,
+                  'expected': 'a' * 20},
+                 {'length_limit': None,
+                  'log_line': 'a' * 50,
+                  'expected': 'a' * 50},
+                 {'length_limit': 0,
+                  'log_line': 'a' * 50,
+                  'expected': 'a' * 50}]
+
+        for params in tests:
+            do_test(**params)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -191,6 +191,20 @@ class ObjectReplicator(Daemon):
         policy.load_ring(self.swift_dir)
         return policy.object_ring
 
+    def _limit_rsync_log(self, line):
+        """
+        If rsync_error_log_line_length is defined then
+        limit the error to that length
+
+        :param line: rsync log line
+        :return: If enabled the line limited to rsync_error_log_line_length
+                 otherwise the initial line.
+        """
+        if self.rsync_error_log_line_length:
+            return line[:self.rsync_error_log_line_length]
+
+        return line
+
     def _rsync(self, args):
         """
         Execute the rsync binary to replicate a partition.
@@ -208,7 +222,9 @@ class ObjectReplicator(Daemon):
                 results = proc.stdout.read()
                 ret_val = proc.wait()
         except Timeout:
-            self.logger.error(_("Killing long-running rsync: %s"), str(args))
+            self.logger.error(
+                self._limit_rsync_log(
+                    _("Killing long-running rsync: %s") % str(args)))
             if proc:
                 proc.kill()
                 try:
@@ -240,11 +256,10 @@ class ObjectReplicator(Daemon):
             else:
                 self.logger.error(result)
         if ret_val:
-            error_line = _('Bad rsync return code: %(ret)d <- %(args)s') % \
-                {'args': str(args), 'ret': ret_val}
-            if self.rsync_error_log_line_length:
-                error_line = error_line[:self.rsync_error_log_line_length]
-            self.logger.error(error_line)
+            self.logger.error(
+                self._limit_rsync_log(
+                    _('Bad rsync return code: %(ret)d <- %(args)s') %
+                    {'args': str(args), 'ret': ret_val}))
         else:
             log_method = self.logger.info if results else self.logger.debug
             log_method(
