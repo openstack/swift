@@ -199,6 +199,8 @@ Sharding Metadata:
             created_at=utils.Timestamp(i), lower='%da' % i,
             upper='%dz' % i, object_count=i, bytes_used=i,
             meta_timestamp=utils.Timestamp(i)) for i in range(1, 4)]
+        shard_ranges[0].state = utils.ShardRange.CLEAVED
+        shard_ranges[1].state = utils.ShardRange.CREATED
 
         info = dict(
             account='acct',
@@ -248,17 +250,17 @@ Sharding Metadata:
 Shard Ranges:
   Name: .sharded_a/shard_range_1
     lower: '1a', upper: '1z'
-    Object Count: 1, Bytes Used: 1
+    Object Count: 1, Bytes Used: 1, State: cleaved (2)
     Created at: 1970-01-01T00:00:01.000000 (0000000001.00000)
     Meta Timestamp: 1970-01-01T00:00:01.000000 (0000000001.00000)
   Name: .sharded_a/shard_range_2
     lower: '2a', upper: '2z'
-    Object Count: 2, Bytes Used: 2
+    Object Count: 2, Bytes Used: 2, State: created (1)
     Created at: 1970-01-01T00:00:02.000000 (0000000002.00000)
     Meta Timestamp: 1970-01-01T00:00:02.000000 (0000000002.00000)
   Name: .sharded_a/shard_range_3
     lower: '3a', upper: '3z'
-    Object Count: 3, Bytes Used: 3
+    Object Count: 3, Bytes Used: 3, State: found (0)
     Created at: 1970-01-01T00:00:03.000000 (0000000003.00000)
     Meta Timestamp: 1970-01-01T00:00:03.000000 (0000000003.00000)''' %\
                   POLICIES[0].name
