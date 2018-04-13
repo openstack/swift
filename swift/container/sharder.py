@@ -988,7 +988,7 @@ class ContainerSharder(ContainerReplicator):
                     self._increment_stat('visited', 'success', statsd=True)
                 else:
                     self._increment_stat('visited', 'skipped')
-            except Exception as error:
+            except (Exception, Timeout) as error:
                 self._increment_stat('visited', 'failure', statsd=True)
                 self.logger.exception(
                     'Unhandled exception while processing %s: %s', path, error)
