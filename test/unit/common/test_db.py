@@ -38,12 +38,36 @@ from swift.common.constraints import \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
-    GreenDBConnection, PICKLE_PROTOCOL
+    GreenDBConnection, PICKLE_PROTOCOL, zero_like
 from swift.common.utils import normalize_timestamp, mkdirs, Timestamp
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
 
 from test.unit import with_tempdir
+
+
+class TestHelperFunctions(unittest.TestCase):
+
+    def test_zero_like(self):
+        expectations = {
+            # value => expected
+            None: True,
+            True: False,
+            '': True,
+            'asdf': False,
+            0: True,
+            1: False,
+            '0': True,
+            '1': False,
+        }
+        errors = []
+        for value, expected in expectations.items():
+            rv = zero_like(value)
+            if rv != expected:
+                errors.append('zero_like(%r) => %r expected %r' % (
+                    value, rv, expected))
+        if errors:
+            self.fail('Some unexpected return values:\n' + '\n'.join(errors))
 
 
 class TestDatabaseConnectionError(unittest.TestCase):
@@ -287,6 +311,13 @@ class ExampleBroker(DatabaseBroker):
         info = conn.execute('SELECT * FROM test_stat').fetchone()
         return (info['test_count'] in (None, '', 0, '0')) and \
             (Timestamp(info['delete_timestamp']) >
+             Timestamp(info['put_timestamp']))
+
+    def is_reclaimable(self, now, reclaim_age):
+        info = self.get_replication_info()
+        return (info['count'] in (None, '', 0, '0')) and \
+            (Timestamp(now - reclaim_age) >
+             Timestamp(info['delete_timestamp']) >
              Timestamp(info['put_timestamp']))
 
 

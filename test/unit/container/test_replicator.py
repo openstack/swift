@@ -1166,55 +1166,85 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker = self._get_broker('a', 'c', node_index=0)
         put_timestamp = Timestamp.now()
         broker.initialize(put_timestamp.internal, POLICIES.default.idx)
-        daemon = replicator.ContainerReplicator({})
+        orig_info = broker.get_replication_info()
+        daemon = replicator.ContainerReplicator({}, logger=self.logger)
 
         # db should not be here, replication ok, deleted
-        res = daemon.cleanup_post_replicate(broker, False, [True] * 3)
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
         self.assertTrue(res)
         self.assertFalse(os.path.exists(broker.db_file))
-
-        # db should be here, not deleted
-        broker.initialize(put_timestamp.internal, POLICIES.default.idx)
-        res = daemon.cleanup_post_replicate(broker, True, [True] * 3)
-        self.assertTrue(res)
-        self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(['Successfully deleted db %s' % broker.db_file],
+                         daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
 
         # failed replication, not deleted
-        res = daemon.cleanup_post_replicate(broker, False, [False, True, True])
+        broker.initialize(put_timestamp.internal, POLICIES.default.idx)
+        orig_info = broker.get_replication_info()
+        res = daemon.cleanup_post_replicate(broker, orig_info,
+                                            [False, True, True])
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(['Not deleting db %s (2/3 success)' % broker.db_file],
+                         daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
 
         # db has shard ranges, not deleted
         broker.merge_shard_ranges(
             [ShardRange('.shards_a/c', Timestamp.now(), '', 'm')])
         self.assertTrue(broker.requires_sharding())  # sanity check
-        res = daemon.cleanup_post_replicate(broker, False, [True] * 3)
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(
+            ['Not deleting db %s (requires sharding, state unsharded)' %
+             broker.db_file],
+            daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
 
         # db sharding, nor deleted
         self._goto_sharding_state(broker, Timestamp.now())
         self.assertTrue(broker.requires_sharding())  # sanity check
-        res = daemon.cleanup_post_replicate(broker, False, [True] * 3)
+        orig_info = broker.get_replication_info()
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
-
-        # db sharded, should be here, not deleted
-        self._goto_sharded_state(broker)
-        self.assertFalse(broker.requires_sharding())  # sanity check
-        res = daemon.cleanup_post_replicate(broker, True, [True] * 3)
-        self.assertTrue(res)
-        self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(
+            ['Not deleting db %s (requires sharding, state sharding)' %
+             broker.db_file],
+            daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
 
         # db sharded, should not be here, failed replication, not deleted
-        res = daemon.cleanup_post_replicate(broker, False, [True, False, True])
+        self._goto_sharded_state(broker)
+        self.assertFalse(broker.requires_sharding())  # sanity check
+        res = daemon.cleanup_post_replicate(broker, orig_info,
+                                            [True, False, True])
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(['Not deleting db %s (2/3 success)' %
+                          broker.db_file],
+                         daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
 
-        # db sharded, should not be here, replication ok, deleted
-        res = daemon.cleanup_post_replicate(broker, False, [True] * 3)
+        # db sharded, should not be here, new shard ranges (e.g. from reverse
+        # replication), deleted
+        broker.merge_shard_ranges(
+            [ShardRange('.shards_a/c', Timestamp.now(), '', 'm')])
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
         self.assertTrue(res)
         self.assertFalse(os.path.exists(broker.db_file))
+        daemon.logger.clear()
+
+        # db sharded, should not be here, replication ok, deleted
+        broker.initialize(put_timestamp.internal, POLICIES.default.idx)
+        self.assertTrue(os.path.exists(broker.db_file))
+        orig_info = broker.get_replication_info()
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
+        self.assertTrue(res)
+        self.assertFalse(os.path.exists(broker.db_file))
+        self.assertEqual(['Successfully deleted db %s' % broker.db_file],
+                         daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
 
     def test_sync_shard_ranges(self):
         put_timestamp = Timestamp.now().internal

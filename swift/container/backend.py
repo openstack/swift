@@ -32,7 +32,8 @@ from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, ShardRange, renamer, \
     find_shard_range, MD5_OF_EMPTY_STRING, mkdirs, get_db_files, \
     parse_db_filename, make_db_file_path
-from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT
+from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT, \
+    zero_like
 
 
 SQLITE_ARG_LIMIT = 999
@@ -660,7 +661,7 @@ class ContainerBroker(DatabaseBroker):
                     raise
                 row = conn.execute(
                     'SELECT object_count from container_stat').fetchone()
-            return (row[0] == 0)
+            return zero_like(row[0])
 
     def empty(self):
         """
@@ -779,7 +780,7 @@ class ContainerBroker(DatabaseBroker):
         # The container is considered deleted if the delete_timestamp
         # value is greater than the put_timestamp, and there are no
         # objects in the container.
-        return (object_count in (None, '', 0, '0')) and (
+        return zero_like(object_count) and (
             Timestamp(delete_timestamp) > Timestamp(put_timestamp))
 
     def _is_deleted(self, conn):
@@ -801,6 +802,18 @@ class ContainerBroker(DatabaseBroker):
         info = dict(info)
         info.update(self._get_alternate_object_stats()[1])
         return self._is_deleted_info(**info)
+
+    def is_reclaimable(self, now, reclaim_age):
+        self._commit_puts_stale_ok()
+        with self.get() as conn:
+            info = conn.execute('''
+                SELECT put_timestamp, delete_timestamp
+                FROM container_stat''').fetchone()
+        if (Timestamp(now - reclaim_age) >
+            Timestamp(info['delete_timestamp']) >
+                Timestamp(info['put_timestamp'])):
+            return self.empty()
+        return False
 
     def get_info_is_deleted(self):
         """

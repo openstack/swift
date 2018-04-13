@@ -266,14 +266,17 @@ class ContainerReplicator(db_replicator.Replicator):
             # replication
             broker.update_reconciler_sync(max_sync)
 
-    def cleanup_post_replicate(self, broker, shouldbehere, responses):
-        if (not shouldbehere) and broker.requires_sharding():
+    def cleanup_post_replicate(self, broker, orig_info, responses):
+        debug_template = 'Not deleting db %s (%%s)' % broker.db_file
+        if broker.requires_sharding():
             # despite being a handoff, since we're sharding we're not going to
             # do any cleanup so we can continue cleaving - this is still
             # considered "success"
+            reason = 'requires sharding, state %s' % broker.get_db_state_text()
+            self.logger.debug(debug_template, reason)
             return True
         return super(ContainerReplicator, self).cleanup_post_replicate(
-            broker, shouldbehere, responses)
+            broker, orig_info, responses)
 
     def delete_db(self, broker):
         """

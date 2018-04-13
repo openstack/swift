@@ -247,6 +247,16 @@ class FakeBroker(object):
             info.update(self.stub_replication_info)
         return info
 
+    def get_max_row(self):
+        return self.get_replication_info()['max_row']
+
+    def is_reclaimable(self, now, reclaim_age):
+        info = self.get_replication_info()
+        return info['count'] == 0 and (
+            (now - reclaim_age) >
+            info['delete_timestamp'] >
+            info['put_timestamp'])
+
     def get_other_replication_items(self):
         return None
 
@@ -291,6 +301,7 @@ class TestDBReplicator(unittest.TestCase):
         self.recon_cache = mkdtemp()
         rmtree(self.recon_cache, ignore_errors=1)
         os.mkdir(self.recon_cache)
+        self.logger = unit.debug_logger('test-replicator')
 
     def tearDown(self):
         for patcher in self._patchers:
@@ -810,7 +821,7 @@ class TestDBReplicator(unittest.TestCase):
         with mock.patch.object(replicator, 'cleanup_post_replicate',
                                side_effect=orig_cleanup) as mock_cleanup:
             replicator._replicate_object('0', '/path/to/file', 'node_id')
-        mock_cleanup.assert_called_once_with(mock.ANY, False, [True] * 3)
+        mock_cleanup.assert_called_once_with(mock.ANY, mock.ANY, [True] * 3)
         self.assertIsInstance(mock_cleanup.call_args[0][0],
                               replicator.brokerclass)
         self.assertEqual(['/path/to/file'], self.delete_db_calls)
@@ -827,56 +838,90 @@ class TestDBReplicator(unittest.TestCase):
         with mock.patch.object(replicator, 'cleanup_post_replicate',
                                return_value=True) as mock_cleanup:
             replicator._replicate_object('0', '/path/to/file', 'node_id')
-        mock_cleanup.assert_called_once_with(mock.ANY, False, [True] * 3)
+        mock_cleanup.assert_called_once_with(mock.ANY, mock.ANY, [True] * 3)
         self.assertIsInstance(mock_cleanup.call_args[0][0],
                               replicator.brokerclass)
         self.assertFalse(self.delete_db_calls)
         self.assertEqual(0, replicator.stats['failure'])
+        self.assertEqual(3, replicator.stats['success'])
 
         # cleanup fails
+        replicator._zero_stats()
         with mock.patch.object(replicator, 'cleanup_post_replicate',
                                return_value=False) as mock_cleanup:
             replicator._replicate_object('0', '/path/to/file', 'node_id')
-        mock_cleanup.assert_called_once_with(mock.ANY, False, [True] * 3)
+        mock_cleanup.assert_called_once_with(mock.ANY, mock.ANY, [True] * 3)
         self.assertIsInstance(mock_cleanup.call_args[0][0],
                               replicator.brokerclass)
         self.assertFalse(self.delete_db_calls)
         self.assertEqual(3, replicator.stats['failure'])
+        self.assertEqual(0, replicator.stats['success'])
+
+        # shouldbehere True - cleanup not required
+        replicator._zero_stats()
+        primary_node_id = replicator.ring.get_part_nodes('0')[0]['id']
+        with mock.patch.object(replicator, 'cleanup_post_replicate',
+                               return_value=True) as mock_cleanup:
+            replicator._replicate_object('0', '/path/to/file', primary_node_id)
+        mock_cleanup.assert_not_called()
+        self.assertFalse(self.delete_db_calls)
+        self.assertEqual(0, replicator.stats['failure'])
+        self.assertEqual(2, replicator.stats['success'])
 
     def test_cleanup_post_replicate(self):
-        replicator = TestReplicator({})
+        replicator = TestReplicator({}, logger=self.logger)
         replicator.ring = FakeRingWithNodes().Ring('path')
         broker = FakeBroker()
         replicator._repl_to_node = lambda *args: True
-
-        with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
-            res = replicator.cleanup_post_replicate(broker, True, [True] * 3)
-        mock_delete_db.assert_not_called()
-        self.assertTrue(res)
-
-        with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
-            res = replicator.cleanup_post_replicate(broker, False, [False] * 3)
-        mock_delete_db.assert_not_called()
-        self.assertTrue(res)
+        info = broker.get_replication_info()
 
         with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
             res = replicator.cleanup_post_replicate(
-                broker, False, [True, False, True])
+                broker, info, [False] * 3)
         mock_delete_db.assert_not_called()
         self.assertTrue(res)
+        self.assertEqual(['Not deleting db %s (0/3 success)' % broker.db_file],
+                         replicator.logger.get_lines_for_level('debug'))
+        replicator.logger.clear()
 
         with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
             res = replicator.cleanup_post_replicate(
-                broker, False, [True] * 3)
+                broker, info, [True, False, True])
+        mock_delete_db.assert_not_called()
+        self.assertTrue(res)
+        self.assertEqual(['Not deleting db %s (2/3 success)' % broker.db_file],
+                         replicator.logger.get_lines_for_level('debug'))
+        replicator.logger.clear()
+
+        broker.stub_replication_info = {'max_row': 101}
+        with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
+            res = replicator.cleanup_post_replicate(
+                broker, info, [True] * 3)
+        mock_delete_db.assert_not_called()
+        self.assertTrue(res)
+        broker.stub_replication_info = None
+        self.assertEqual(['Not deleting db %s (2 new rows)' % broker.db_file],
+                         replicator.logger.get_lines_for_level('debug'))
+        replicator.logger.clear()
+
+        with mock.patch.object(replicator, 'delete_db') as mock_delete_db:
+            res = replicator.cleanup_post_replicate(
+                broker, info, [True] * 3)
         mock_delete_db.assert_called_once_with(broker)
         self.assertTrue(res)
+        self.assertEqual(['Successfully deleted db %s' % broker.db_file],
+                         replicator.logger.get_lines_for_level('debug'))
+        replicator.logger.clear()
 
         with mock.patch.object(replicator, 'delete_db',
                                return_value=False) as mock_delete_db:
             res = replicator.cleanup_post_replicate(
-                broker, False, [True] * 3)
+                broker, info, [True] * 3)
         mock_delete_db.assert_called_once_with(broker)
         self.assertFalse(res)
+        self.assertEqual(['Failed to delete db %s' % broker.db_file],
+                         replicator.logger.get_lines_for_level('debug'))
+        replicator.logger.clear()
 
     def test_replicate_object_with_exception(self):
         replicator = TestReplicator({})
