@@ -29,10 +29,12 @@ if __name__ == '__main__':
     parser.add_argument('--devices', default='/srv/node',
                         dest='devices', help='Path to swift device directory')
     parser.add_argument('--skip-mount-check', default=False,
+                        help='Don\'t test if disk is mounted',
                         action="store_true", dest='skip_mount_check')
     parser.add_argument('--logfile', default=None,
-                        dest='logfile')
-    parser.add_argument('--debug', default=False, action='store_true')
+                        dest='logfile', help='Set log file name')
+    parser.add_argument('--debug', default=False, action='store_true',
+                        help='Enable debug mode')
 
     args = parser.parse_args()
 

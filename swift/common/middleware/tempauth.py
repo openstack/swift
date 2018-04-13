@@ -432,6 +432,8 @@ class TempAuth(object):
             expires, groups = cached_auth_data
             if expires < time():
                 groups = None
+            else:
+                groups = groups.encode('utf8')
 
         s3_auth_details = env.get('swift3.auth_details')
         if s3_auth_details:
@@ -788,7 +790,8 @@ class TempAuth(object):
             cached_auth_data = memcache_client.get(memcache_token_key)
             if cached_auth_data:
                 expires, old_groups = cached_auth_data
-                old_groups = old_groups.split(',')
+                old_groups = [group.encode('utf8')
+                              for group in old_groups.split(',')]
                 new_groups = self._get_user_groups(account, account_user,
                                                    account_id)
 

@@ -622,7 +622,10 @@ class Match(object):
     """
     def __init__(self, headerval):
         self.tags = set()
-        for tag in headerval.split(', '):
+        for tag in headerval.split(','):
+            tag = tag.strip()
+            if not tag:
+                continue
             if tag.startswith('"') and tag.endswith('"'):
                 self.tags.add(tag[1:-1])
             else:
@@ -630,6 +633,10 @@ class Match(object):
 
     def __contains__(self, val):
         return '*' in self.tags or val in self.tags
+
+    def __repr__(self):
+        return '%s(%r)' % (
+            self.__class__.__name__, ', '.join(sorted(self.tags)))
 
 
 class Accept(object):

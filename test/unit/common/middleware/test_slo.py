@@ -1392,6 +1392,7 @@ class TestSloHeadOldManifest(SloTestCase):
             'Content-Length': str(len(manifest_json)),
             'Content-Type': 'test/data',
             'X-Static-Large-Object': 'true',
+            'X-Object-Sysmeta-Artisanal-Etag': 'bespoke',
             'Etag': md5hex(manifest_json)}
         manifest_headers.update(getattr(self, 'extra_manifest_headers', {}))
         self.manifest_has_sysmeta = all(h in manifest_headers for h in (
@@ -1440,6 +1441,46 @@ class TestSloHeadOldManifest(SloTestCase):
             headers={'If-Match': 'zzz'})
         status, headers, body = self.call_slo(req)
         self.assertEqual(status, '412 Precondition Failed')
+        self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
+        self.assertIn(('Content-Length', '0'), headers)
+        self.assertIn(('Content-Type', 'test/data'), headers)
+
+        expected_app_calls = [('HEAD', '/v1/AUTH_test/headtest/man')]
+        if not self.manifest_has_sysmeta:
+            expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
+        self.assertEqual(self.app.calls, expected_app_calls)
+
+    def test_if_none_match_etag_matching_with_override(self):
+        req = Request.blank(
+            '/v1/AUTH_test/headtest/man',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={
+                'If-None-Match': 'bespoke',
+                'X-Backend-Etag-Is-At': 'X-Object-Sysmeta-Artisanal-Etag'})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '304 Not Modified')
+        # We *are not* responsible for replacing the etag; whoever set
+        # x-backend-etag-is-at is responsible
+        self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
+        self.assertIn(('Content-Length', '0'), headers)
+        self.assertIn(('Content-Type', 'test/data'), headers)
+
+        expected_app_calls = [('HEAD', '/v1/AUTH_test/headtest/man')]
+        if not self.manifest_has_sysmeta:
+            expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
+        self.assertEqual(self.app.calls, expected_app_calls)
+
+    def test_if_match_etag_not_matching_with_override(self):
+        req = Request.blank(
+            '/v1/AUTH_test/headtest/man',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={
+                'If-Match': self.slo_etag,
+                'X-Backend-Etag-Is-At': 'X-Object-Sysmeta-Artisanal-Etag'})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '412 Precondition Failed')
+        # We *are not* responsible for replacing the etag; whoever set
+        # x-backend-etag-is-at is responsible
         self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
         self.assertIn(('Content-Length', '0'), headers)
         self.assertIn(('Content-Type', 'test/data'), headers)
@@ -3410,7 +3451,8 @@ class TestSloConditionalGetOldManifest(SloTestCase):
             'Content-Length': str(len(_abcd_manifest_json)),
             'Content-Type': 'application/json',
             'X-Static-Large-Object': 'true',
-            'Etag': md5hex(_abcd_manifest_json)}
+            'Etag': md5hex(_abcd_manifest_json),
+            'X-Object-Sysmeta-Custom-Etag': 'a custom etag'}
         manifest_headers.update(getattr(self, 'extra_manifest_headers', {}))
         self.manifest_has_sysmeta = all(h in manifest_headers for h in (
             'X-Object-Sysmeta-Slo-Etag', 'X-Object-Sysmeta-Slo-Size'))
@@ -3520,6 +3562,128 @@ class TestSloConditionalGetOldManifest(SloTestCase):
         self.assertEqual(self.app.calls, expected_app_calls)
         self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
                          'x-object-sysmeta-slo-etag')
+
+    def test_if_none_match_matches_with_override(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-None-Match': '"a custom etag"',
+                     'X-Backend-Etag-Is-At': 'X-Object-Sysmeta-Custom-Etag'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '304 Not Modified')
+        self.assertIn(('Content-Length', '0'), headers)
+        self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
+        self.assertIn(('X-Object-Sysmeta-Custom-Etag', 'a custom etag'),
+                      headers)
+        self.assertEqual(body, '')
+
+        expected_app_calls = [('GET', '/v1/AUTH_test/gettest/manifest-abcd')]
+        if not self.manifest_has_sysmeta:
+            # NB: no known middleware would have written a custom etag with
+            # old-style manifests. but if there *was*, here's what'd happen
+            expected_app_calls.extend([
+                # 304, so gotta refetch
+                ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+                # Since the "authoritative" etag didn't come from slo, we still
+                # verify the first segment
+                ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+                ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ])
+        self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(
+            self.app.headers[0].get('X-Backend-Etag-Is-At'),
+            'X-Object-Sysmeta-Custom-Etag,x-object-sysmeta-slo-etag')
+
+    def test_if_none_match_does_not_match_with_override(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-None-Match': "%s" % self.slo_etag,
+                     'X-Backend-Etag-Is-At': 'X-Object-Sysmeta-Custom-Etag'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertIn(('Content-Length', '50'), headers)
+        self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
+        self.assertIn(('X-Object-Sysmeta-Custom-Etag', 'a custom etag'),
+                      headers)
+        self.assertEqual(
+            body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
+
+        expected_app_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get'),
+        ]
+        self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(
+            self.app.headers[0].get('X-Backend-Etag-Is-At'),
+            'X-Object-Sysmeta-Custom-Etag,x-object-sysmeta-slo-etag')
+
+    def test_if_match_matches_with_override(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Match': '"a custom etag"',
+                     'X-Backend-Etag-Is-At': 'X-Object-Sysmeta-Custom-Etag'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertIn(('Content-Length', '50'), headers)
+        self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
+        self.assertIn(('X-Object-Sysmeta-Custom-Etag', 'a custom etag'),
+                      headers)
+        self.assertEqual(
+            body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
+
+        expected_app_calls = [
+            ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+            # Match on the override from left of us; no need to refetch
+            ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get'),
+        ]
+        self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(
+            self.app.headers[0].get('X-Backend-Etag-Is-At'),
+            'X-Object-Sysmeta-Custom-Etag,x-object-sysmeta-slo-etag')
+
+    def test_if_match_does_not_match_with_override(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Match': "%s" % self.slo_etag,
+                     'X-Backend-Etag-Is-At': 'X-Object-Sysmeta-Custom-Etag'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '412 Precondition Failed')
+        self.assertIn(('Content-Length', '0'), headers)
+        self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
+        self.assertIn(('X-Object-Sysmeta-Custom-Etag', 'a custom etag'),
+                      headers)
+        self.assertEqual(body, '')
+
+        expected_app_calls = [('GET', '/v1/AUTH_test/gettest/manifest-abcd')]
+        if not self.manifest_has_sysmeta:
+            # NB: no known middleware would have written a custom etag with
+            # old-style manifests. but if there *was*, here's what'd happen
+            expected_app_calls.extend([
+                # Manifest never matches -> got back a 412; need to re-fetch
+                ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+                # We *still* verify the first segment, even though we'll 412
+                ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+                ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ])
+        self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(
+            self.app.headers[0].get('X-Backend-Etag-Is-At'),
+            'X-Object-Sysmeta-Custom-Etag,x-object-sysmeta-slo-etag')
 
     def test_if_match_matches_and_range(self):
         req = Request.blank(
