@@ -667,28 +667,25 @@ class ContainerSharder(ContainerReplicator):
                             self.shards_account_prefix)
 
         own_shard_range = broker.get_own_shard_range(no_default=True)
-        if not own_shard_range:
-            errors.append('missing own shard range')
-
-        # try to contact root container
-        upper = own_shard_range.upper if own_shard_range else ''
-        shard_ranges = self._fetch_shard_ranges(
-            broker, newest=True, params={'includes': upper})
 
         shard_range = None
-        if shard_ranges and own_shard_range:
+        if own_shard_range:
+            shard_ranges = self._fetch_shard_ranges(
+                broker, newest=True,
+                params={'marker': own_shard_range.lower,
+                        'end_marker': own_shard_range.upper})
             for shard_range in shard_ranges:
                 if (shard_range.lower == own_shard_range.lower and
                         shard_range.upper == own_shard_range.upper and
                         shard_range.name == own_shard_range.name):
                     break
             else:
+                # this is not necessarily an error - some replicas of the root
+                # may not yet know about this shard container
+                warnings.append('root has no matching shard range')
                 shard_range = None
-
-        if not shard_range:
-            # this is not necessarily an error - some replicas of the root may
-            # not yet know about this shard container
-            warnings.append('root has no matching shard range')
+        else:
+            errors.append('missing own shard range')
 
         if warnings:
             self.logger.warning(
@@ -703,8 +700,7 @@ class ContainerSharder(ContainerReplicator):
             return False
 
         if shard_range:
-            # TODO: merging the root shard range here may save us having to
-            # push every shard range from the root in process_broker
+            self.logger.debug('Updating shard from root %s', dict(shard_range))
             broker.merge_shard_ranges([shard_range])
             own_shard_range = broker.get_own_shard_range()
             delete_age = time.time() - self.reclaim_age

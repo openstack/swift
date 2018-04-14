@@ -2954,7 +2954,9 @@ class TestSharder(unittest.TestCase):
     def test_audit_shard_container(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
         broker.update_sharding_info({'Root': 'a/c'})
-        shard_bounds = (('a', 'j'), ('k', 't'), ('s', 'z'))
+        # include overlaps to verify correct match for updating own shard range
+        shard_bounds = (
+            ('a', 'j'), ('k', 't'), ('k', 's'), ('l', 's'), ('s', 'z'))
         shard_ranges = self._make_shard_ranges(shard_bounds, ShardRange.ACTIVE)
         shard_ranges[1].name = broker.path
         expected_stats = {'attempted': 1, 'success': 0, 'failure': 1}
@@ -2979,7 +2981,7 @@ class TestSharder(unittest.TestCase):
         self._assert_stats(expected_stats, sharder, 'audit_shard')
         self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
         self.assertIn('account not in shards namespace', lines[0])
-        self.assertIn('root has no matching shard range', lines[0])
+        self.assertNotIn('root has no matching shard range', lines[0])
         self.assertIn('Audit failed for shard %s' % broker.db_file, lines[1])
         self.assertIn('missing own shard range', lines[1])
         self.assertFalse(lines[2:])
@@ -2990,12 +2992,9 @@ class TestSharder(unittest.TestCase):
         sharder = call_audit_container()
         lines = sharder.logger.get_lines_for_level('warning')
         self._assert_stats(expected_stats, sharder, 'audit_shard')
-        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
-        self.assertNotIn('account not in shards namespace', lines[0])
-        self.assertIn('root has no matching shard range', lines[0])
-        self.assertIn('Audit failed for shard %s' % broker.db_file, lines[1])
-        self.assertIn('missing own shard range', lines[1])
-        self.assertFalse(lines[2:])
+        self.assertIn('Audit failed for shard %s' % broker.db_file, lines[0])
+        self.assertIn('missing own shard range', lines[0])
+        self.assertFalse(lines[1:])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertFalse(broker.is_deleted())
 
@@ -3022,14 +3021,17 @@ class TestSharder(unittest.TestCase):
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
             self._assert_stats(expected_stats, sharder, 'audit_shard')
 
-        # make own shard range match one in root
-        own_shard_range = broker.get_own_shard_range()
-        own_shard_range.lower = 'k'
-        own_shard_range.upper = 't'
-        own_shard_range.timestamp = Timestamp.now()
-        broker.merge_shard_ranges([own_shard_range])
+        # make own shard range match one in root, but different state
+        shard_ranges[1].timestamp = Timestamp.now()
+        broker.merge_shard_ranges([shard_ranges[1]])
+        now = Timestamp.now()
+        shard_ranges[1].update_state(ShardRange.SHARDING, state_timestamp=now)
         assert_ok()
         self.assertFalse(broker.is_deleted())
+        # own shard range state is updated from root version
+        own_shard_range = broker.get_own_shard_range()
+        self.assertEqual(ShardRange.SHARDING, own_shard_range.state)
+        self.assertEqual(now, own_shard_range.state_timestamp)
 
         own_shard_range.update_state(ShardRange.SHARDED,
                                      state_timestamp=Timestamp.now())

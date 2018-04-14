@@ -537,8 +537,8 @@ class TestContainerSharding(ReplProbeTest):
         self.assert_container_object_count(len(obj_names))
 
         # run sharders on the shard to get root updated
-        shard = ShardRange.from_dict(orig_root_shard_ranges[0])
-        self.run_sharders(shard)
+        shard_1 = ShardRange.from_dict(orig_root_shard_ranges[0])
+        self.run_sharders(shard_1)
         self.assert_container_object_count(len(more_obj_names + obj_names))
 
         # we've added objects enough that we need to shard *again* into three
@@ -554,18 +554,93 @@ class TestContainerSharding(ReplProbeTest):
                 # orig shards 0, 1 should be contiguous
                 self.assert_shard_ranges_contiguous(2, root_shards)
 
-        # Now run the root leader to identify shard candidate...
+        # Now run the root leader to identify shard candidate...while one of
+        # the shard container servers is down
+        shard_1_part, shard_1_nodes = self.get_part_and_node_numbers(shard_1)
+        self.brain.servers.stop(number=shard_1_nodes[2])
         self.sharders.once(number=self.brain.node_numbers[0],
                            additional_args='--partitions=%s' % self.brain.part)
 
+        # ... so third shard replica state is not moved to sharding
+        found_for_shard = self.categorize_container_dir_content(
+            shard_1.account, shard_1.container)
+        self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
+        self.assertEqual(
+            [ShardRange.SHARDING, ShardRange.SHARDING, ShardRange.ACTIVE],
+            [ContainerBroker(db_file).get_own_shard_range().state
+             for db_file in found_for_shard['normal_dbs']])
+
         # ...then run first cycle of shard sharders in order, leader first, to
         # get to predictable state where all nodes have cleaved 2 out of 3
-        # ranges
-        self.run_sharder_sequentially(shard)
+        # ranges...starting with first two nodes
+        for node_number in shard_1_nodes[:2]:
+            self.sharders.once(
+                number=node_number,
+                additional_args='--partitions=%s' % shard_1_part)
 
-        # check original first shard range state and shards
+        # ... first two replicas start sharding
         found_for_shard = self.categorize_container_dir_content(
-            shard.account, shard.container)
+            shard_1.account, shard_1.container)
+        self.assertLengthEqual(found_for_shard['shard_dbs'], 2)
+        for db_file in found_for_shard['shard_dbs'][:2]:
+            broker = ContainerBroker(db_file)
+            with annotate_failure('shard db file %s. ' % db_file):
+                self.assertIs(False, broker.is_root_container())
+                self.assertEqual('sharding', broker.get_db_state_text())
+                self.assertEqual(
+                    ShardRange.SHARDING, broker.get_own_shard_range().state)
+                shard_shards = broker.get_shard_ranges()
+                self.assertEqual(
+                    [ShardRange.CLEAVED, ShardRange.CLEAVED,
+                     ShardRange.CREATED],
+                    [sr.state for sr in shard_shards])
+                self.assert_shard_ranges_contiguous(
+                    3, shard_shards,
+                    first_lower=orig_root_shard_ranges[0]['lower'],
+                    last_upper=orig_root_shard_ranges[0]['upper'])
+
+        # but third replica still has no idea it should be sharding
+        self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
+        self.assertEqual(
+            ShardRange.ACTIVE,
+            ContainerBroker(
+                found_for_shard['normal_dbs'][2]).get_own_shard_range().state)
+
+        # ...but once sharder runs on third replica it will learn its state;
+        # note that any root replica on the stopped container server also won't
+        # know about the shards being in sharding state, so leave that server
+        # stopped for now so that shard fetches its state from an up-to-date
+        # root replica
+        self.sharders.once(
+            number=shard_1_nodes[2],
+            additional_args='--partitions=%s' % shard_1_part)
+
+        # third replica is sharding but has no shard ranges yet...
+        found_for_shard = self.categorize_container_dir_content(
+            shard_1.account, shard_1.container)
+        self.assertLengthEqual(found_for_shard['shard_dbs'], 2)
+        self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
+        broker = ContainerBroker(found_for_shard['normal_dbs'][2])
+        self.assertEqual('unsharded', broker.get_db_state_text())
+        self.assertEqual(
+            ShardRange.SHARDING, broker.get_own_shard_range().state)
+        self.assertFalse(broker.get_shard_ranges())
+
+        # ...until shard ranges are replicated from another shard replica;
+        # there may also be a sub-shard replica missing so run replicators on
+        # all nodes to fix that if necessary
+        self.brain.servers.start(number=shard_1_nodes[2])
+        self.replicators.once()
+
+        # now run sharder again on third replica
+        self.sharders.once(
+            number=shard_1_nodes[2],
+            additional_args='--partitions=%s' % shard_1_part)
+
+        # check original first shard range state and shards - all replicas
+        # should now be in consistent state
+        found_for_shard = self.categorize_container_dir_content(
+            shard_1.account, shard_1.container)
         self.assertLengthEqual(found_for_shard['shard_dbs'], 3)
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
         for db_file in found_for_shard['shard_dbs']:
@@ -628,7 +703,7 @@ class TestContainerSharding(ReplProbeTest):
         # TODO: assert that alpha is in the first new shard
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
         # Run sharders again so things settle.
-        self.run_sharders(shard)
+        self.run_sharders(shard_1)
 
         # check original first shard range shards
         for db_file in found_for_shard['shard_dbs']:
