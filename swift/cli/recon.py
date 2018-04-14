@@ -87,6 +87,8 @@ class Scout(object):
         url = base_url + recon_type
         try:
             body = urllib2.urlopen(url, timeout=self.timeout).read()
+            if six.PY3 and isinstance(body, six.binary_type):
+                body = body.decode('utf8')
             content = json.loads(body)
             if self.verbose:
                 print("-> %s: %s" % (url, content))
@@ -129,7 +131,7 @@ class Scout(object):
             req = urllib2.Request(url)
             req.get_method = lambda: 'OPTIONS'
             conn = urllib2.urlopen(req)
-            header = conn.info().getheader('Server')
+            header = conn.info().get('Server')
             server_header = header.split('/')
             content = server_header[0]
             status = 200
