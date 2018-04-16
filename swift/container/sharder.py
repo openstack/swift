@@ -891,7 +891,6 @@ class ContainerSharder(ContainerReplicator):
                     if broker.set_sharding_state():
                         state = SHARDING
                 elif is_leader:
-                    broker.update_sharding_info({'Scan-Done': 'False'})
                     if broker.set_sharding_state():
                         state = SHARDING
                 else:
@@ -901,11 +900,10 @@ class ContainerSharder(ContainerReplicator):
                         % (own_shard_range.state_text, broker.path))
 
         if state == SHARDING:
-            num_found = 0
-            scan_complete = config_true_value(
-                broker.get_sharding_info('Scan-Done'))
-            if is_leader and not scan_complete:
-                scan_complete, num_found = self._find_shard_ranges(broker)
+            if is_leader:
+                num_found = self._find_shard_ranges(broker)
+            else:
+                num_found = 0
 
             # create shard containers for newly found ranges
             num_created = self._create_shard_containers(broker)
@@ -918,7 +916,7 @@ class ContainerSharder(ContainerReplicator):
             # always try to cleave any pending shard ranges
             cleave_complete = self._cleave(broker)
 
-            if scan_complete and cleave_complete:
+            if cleave_complete:
                 self.logger.debug('Completed cleaving of %s', broker.path)
                 if self._complete_sharding(broker):
                     state = SHARDED
@@ -1066,27 +1064,30 @@ class ContainerSharder(ContainerReplicator):
         :return: a tuple of (success, num of shard ranges found) where success
             is True if the last shard range has been found, False otherwise.
         """
-        self.logger.info('Started scan for shard ranges on %s/%s',
-                         broker.account, broker.container)
+        own_shard_range = broker.get_own_shard_range()
+        shard_ranges = broker.get_shard_ranges()
+        if shard_ranges and shard_ranges[-1].upper >= own_shard_range.upper:
+            self.logger.debug('Scan already completed for %s', broker.path)
+            return 0
+
+        self.logger.info('Starting scan for shard ranges on %s', broker.path)
         self._increment_stat('scanned', 'attempted')
 
         start = time.time()
         shard_data, last_found = broker.find_shard_ranges(
             self.split_size, limit=self.scanner_batch_size,
-            existing_ranges=broker.get_shard_ranges())
+            existing_ranges=shard_ranges)
         elapsed = time.time() - start
 
         if not shard_data:
             if last_found:
                 self.logger.info("Already found all shard ranges")
-                # set scan done in case it's missing
-                broker.update_sharding_info({'Scan-Done': 'True'})
                 self._increment_stat('scanned', 'success', statsd=True)
             else:
                 # we didn't find anything
                 self.logger.warning("No shard ranges found")
                 self._increment_stat('scanned', 'failure', statsd=True)
-            return last_found, 0
+            return 0
 
         # TODO: if we bring back leader election, this is about the spot where
         # we should confirm we're still the scanner
@@ -1101,11 +1102,9 @@ class ContainerSharder(ContainerReplicator):
         self._max_stat('scanned', 'max_time', round(elapsed / num_found, 3))
 
         if last_found:
-            # We've found the last shard range, so mark that in metadata
-            broker.update_sharding_info({'Scan-Done': 'True'})
             self.logger.info("Final shard range reached.")
         self._increment_stat('scanned', 'success', statsd=True)
-        return last_found, num_found
+        return num_found
 
     def _create_shard_containers(self, broker):
         # Create shard containers that are ready to receive redirected object
@@ -1259,32 +1258,97 @@ class ContainerSharder(ContainerReplicator):
                 # no need to change namespace or stats
                 acceptor.update_state(ShardRange.ACTIVE,
                                       state_timestamp=Timestamp.now())
-            # Set Scan-Done so that the donor will not scan itself and will
-            # transition to SHARDED state once it has cleaved to the acceptor;
-            # TODO: if the PUT request successfully write the Scan-Done sysmeta
-            # but fails to write the acceptor shard range, then the shard is
-            # left with Scan-Done set, and if it was to then grow in size to
-            # eventually need sharding, we don't want Scan-Done prematurely
-            # set. This is an argument for basing 'scan done condition' on the
-            # existence of a shard range whose upper >= shard own range, rather
-            # than using sysmeta Scan-Done.
-            headers = {'X-Container-Sysmeta-Shard-Scan-Done': True}
             # Now send a copy of the expanded acceptor, with an updated
             # timestamp, to the donor container. This forces the donor to
-            # asynchronously cleave its entire contents to the acceptor. The
-            # donor will pass a deleted copy of its own shard range and the
-            # newer expended acceptor shard range to the acceptor when
-            # cleaving. Subsequent updates from the acceptor will then update
-            # the root to have the expanded acceptor namespace and deleted
-            # donor shard range. Once cleaved, the donor will also update the
-            # root directly with its deleted own shard range and the expanded
-            # acceptor shard range.
-            self._send_shard_ranges(donor.account, donor.container,
-                                    [donor, acceptor], headers=headers)
+            # asynchronously cleave its entire contents to the acceptor and
+            # delete itself. The donor will pass its own deleted shard range to
+            # the acceptor when cleaving. Subsequent updates from the donor or
+            # the acceptor will then update the root to have the  deleted donor
+            # shard range.
+            self._send_shard_ranges(
+                donor.account, donor.container, [donor, acceptor])
+
+    def _cleave_shard_range(self, broker, cleaving_context, shard_range):
+        self.logger.info("Cleaving '%s': %r from row %s",
+                         broker.path, shard_range,
+                         cleaving_context.last_cleave_to_row)
+        self._increment_stat('cleaved', 'attempted')
+        start = time.time()
+        policy_index = broker.storage_policy_index
+        try:
+            # use force here because we may want to update existing shard
+            # metadata timestamps
+            shard_part, shard_broker, node_id = self._get_shard_broker(
+                shard_range, broker.root_path, policy_index, force=True)
+        except DeviceUnavailable as duex:
+            self.logger.warning(str(duex))
+            self._increment_stat('cleaved', 'failure', statsd=True)
+            return False
+
+        brokers = broker.get_brokers()
+        with shard_broker.sharding_lock():
+            for source_broker in brokers:
+                for objects, info in self.yield_objects(
+                        source_broker, shard_range, policy_index,
+                        since_row=cleaving_context.last_cleave_to_row):
+                    shard_broker.merge_items(objects)
+
+        own_shard_range = broker.get_own_shard_range()
+        if shard_range.includes(own_shard_range):
+            # When shrinking, include deleted own (donor) shard range in
+            # the replicated db so that when acceptor next updates root it
+            # will atomically update its namespace *and* delete the donor.
+            # Don't do this when sharding a shard because the donor
+            # namespace should not be deleted until all shards are cleaved.
+            if own_shard_range.update_state(ShardRange.SHARDED):
+                own_shard_range.set_deleted()
+                broker.merge_shard_ranges([own_shard_range])
+            shard_broker.merge_shard_ranges([own_shard_range])
+        elif shard_range.state == ShardRange.CREATED:
+            # The shard range object stats may have changed since the shard
+            # range was found, so update with stats of objects actually
+            # copied to the shard broker. Only do this the first time each
+            # shard range is cleaved.
+            info = shard_broker.get_info()
+            shard_range.update_meta(
+                info['object_count'], info['bytes_used'])
+            shard_range.update_state(ShardRange.CLEAVED)
+            shard_broker.merge_shard_ranges([shard_range])
+
+        self.logger.info(
+            'Replicating new shard container %s for %s',
+            shard_broker.path, shard_broker.get_own_shard_range())
+
+        success, responses = self._replicate_object(
+            shard_part, shard_broker.db_file, node_id)
+
+        quorum = quorum_size(self.ring.replica_count)
+        if not success and responses.count(True) < quorum:
+            # break because we don't want to progress the cleave cursor
+            # until each shard range has been successfully cleaved
+            self.logger.warning(
+                'Failed to sufficiently replicate cleaved shard %s for %s',
+                shard_range, broker.path)
+            self._increment_stat('cleaved', 'failure', statsd=True)
+            return False
+
+        elapsed = round(time.time() - start, 3)
+        self._min_stat('cleaved', 'min_time', elapsed)
+        self._max_stat('cleaved', 'max_time', elapsed)
+        broker.merge_shard_ranges([shard_range])
+        cleaving_context.cursor = str(shard_range.upper)
+        if shard_range.upper >= own_shard_range.upper:
+            # cleaving complete
+            cleaving_context.cleaving_done = True
+        cleaving_context.store(broker)
+        self.logger.info(
+            'Cleaved %s for shard range %s.', broker.path, shard_range)
+        self._increment_stat('cleaved', 'success', statsd=True)
+        return True
 
     def _cleave(self, broker):
-        # Returns True if misplaced objects have been moved and all *available*
-        # shard ranges have been successfully cleaved, False otherwise
+        # Returns True if misplaced objects have been moved and the entire
+        # container namespace has been successfully cleaved, False otherwise
         state = broker.get_db_state()
         if state == SHARDED:
             self.logger.debug('Passing over already sharded container %s/%s',
@@ -1310,104 +1374,33 @@ class ContainerSharder(ContainerReplicator):
                               broker.path)
             return cleaving_context.misplaced_done
 
-        ranges_todo = broker.get_shard_ranges(
-            marker=cleaving_context.marker,
-            states=[ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE])
-        if not ranges_todo:
-            self.logger.debug('No shard ranges to cleave for %s', broker.path)
-            return cleaving_context.misplaced_done
-
         if cleaving_context.cursor:
             self.logger.debug('Continuing to cleave %s', broker.path)
         else:
             self.logger.debug('Starting to cleave %s', broker.path)
             cleaving_context.start()
 
-        own_shard_range = broker.get_own_shard_range()
+        ranges_todo = broker.get_shard_ranges(marker=cleaving_context.marker)
         ranges_done = []
-        policy_index = broker.storage_policy_index
-        brokers = broker.get_brokers()
         for shard_range in ranges_todo[:self.shard_batch_size]:
-            self.logger.info("Cleaving '%s': %r from row %s",
-                             broker.path, shard_range,
-                             cleaving_context.last_cleave_to_row)
-            self._increment_stat('cleaved', 'attempted')
-            start = time.time()
-            try:
-                # use force here because we may want to update existing shard
-                # metadata timestamps
-                shard_part, shard_broker, node_id = self._get_shard_broker(
-                    shard_range, broker.root_path, policy_index, force=True)
-            except DeviceUnavailable as duex:
-                self.logger.warning(str(duex))
-                self._increment_stat('cleaved', 'failure', statsd=True)
-                return False
-
-            with shard_broker.sharding_lock():
-                for source_broker in brokers:
-                    for objects, info in self.yield_objects(
-                            source_broker, shard_range, policy_index,
-                            since_row=cleaving_context.last_cleave_to_row):
-                        shard_broker.merge_items(objects)
-
-            if shard_range.includes(own_shard_range):
-                # When shrinking, include deleted own (donor) shard range in
-                # the replicated db so that when acceptor next updates root it
-                # will atomically update its namespace *and* delete the donor.
-                # Don't do this when sharding a shard because the donor
-                # namespace should not be deleted until all shards are cleaved.
-                if own_shard_range.update_state(ShardRange.SHARDED):
-                    own_shard_range.set_deleted()
-                    broker.merge_shard_ranges([own_shard_range])
-                shard_broker.merge_shard_ranges([own_shard_range])
-            elif shard_range.state == ShardRange.CREATED:
-                # The shard range object stats may have changed since the shard
-                # range was found, so update with stats of objects actually
-                # copied to the shard broker. Only do this the first time each
-                # shard range is cleaved.
-                info = shard_broker.get_info()
-                shard_range.update_meta(
-                    info['object_count'], info['bytes_used'])
-                shard_range.update_state(ShardRange.CLEAVED)
-                shard_broker.merge_shard_ranges([shard_range])
-
-            self.logger.info(
-                'Replicating new shard container %s for %s',
-                shard_broker.path, shard_broker.get_own_shard_range())
-
-            success, responses = self._replicate_object(
-                shard_part, shard_broker.db_file, node_id)
-
-            quorum = quorum_size(self.ring.replica_count)
-            if not success and responses.count(True) < quorum:
-                # break because we don't want to progress the cleave cursor
-                # until each shard range has been successfully cleaved
-                self.logger.warning(
-                    'Failed to sufficiently replicate cleaved shard %s for %s',
-                    shard_range, broker.path)
+            if shard_range.state == ShardRange.FOUND:
                 break
-
-            ranges_done.append(shard_range)
-
-            self.logger.info(
-                'Cleaved %s for shard range %s.', broker.path, shard_range)
-            self._increment_stat('cleaved', 'success', statsd=True)
-            elapsed = round(time.time() - start, 3)
-            self._min_stat('cleaved', 'min_time', elapsed)
-            self._max_stat('cleaved', 'max_time', elapsed)
-
-        if ranges_done:
-            broker.merge_shard_ranges(ranges_done)
-            cleaving_context.cursor = str(ranges_done[-1].upper)
-            if ranges_done[-1].upper >= own_shard_range.upper:
-                # cleaving complete
-                cleaving_context.cleaving_done = True
-            cleaving_context.store(broker)
-        else:
-            self.logger.warning('No cleaving progress made: %s', broker.path)
-
+            elif shard_range.state in (ShardRange.CREATED,
+                                       ShardRange.CLEAVED,
+                                       ShardRange.ACTIVE):
+                if self._cleave_shard_range(
+                        broker, cleaving_context, shard_range):
+                    ranges_done.append(shard_range)
+                else:
+                    break
+            else:
+                self.logger.warning('Unexpected shard range state for cleave',
+                                    shard_range.state)
+                break
+        self.logger.debug(
+            'Cleaved %s shard ranges for %s', len(ranges_done), broker.path)
         return (cleaving_context.misplaced_done and
-                (len(ranges_done) == len(ranges_todo)))
+                cleaving_context.cleaving_done)
 
     def _complete_sharding(self, broker):
         # TODO: wrap this in a lock

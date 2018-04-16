@@ -189,7 +189,6 @@ def _replace_shard_ranges(broker, args, shard_data, timeout=None):
 
         broker.merge_shard_ranges(shard_ranges)
         # Update metadata *after* merge, just like in the sharder
-        broker.update_sharding_info({'Scan-Done': 'True'})
 
     print('Injected %d shard ranges.' % len(shard_ranges))
     print('Run container-replicator to replicate them to other nodes.')
