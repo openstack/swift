@@ -38,8 +38,9 @@ from swift.common.storage_policy import POLICIES
 
 import mock
 
+from test import annotate_failure
 from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
-                       EMPTY_ETAG, FakeLogger)
+                       EMPTY_ETAG)
 from test.unit.common import test_db
 
 
@@ -203,10 +204,6 @@ class TestContainerBroker(unittest.TestCase):
         check_object_not_counted(broker)
 
         # move to sharded state
-        ctx = broker.load_cleave_context()
-        ctx['cleaving_done'] = True
-        ctx['misplaced_done'] = True
-        broker.dump_cleave_context(ctx)
         self.assertTrue(broker.set_sharded_state())
         check_object_not_counted(broker)
         check_shard_ranges_counted()
@@ -287,10 +284,6 @@ class TestContainerBroker(unittest.TestCase):
         check_shard_ranges_counted()
 
         # move to sharded state
-        ctx = broker.load_cleave_context()
-        ctx['cleaving_done'] = True
-        ctx['misplaced_done'] = True
-        broker.dump_cleave_context(ctx)
         self.assertTrue(broker.set_sharded_state())
         self.assertTrue(broker.empty())
         check_object_counted(broker, broker)
@@ -1919,6 +1912,91 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(['deleted'] + obj_names, [o['name'] for o in actual])
         # TODO: add tests for prefix, path, delimiter
 
+    def test_get_objects_since_row(self):
+        ts_iter = make_timestamp_iter()
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        obj_names = ['obj%03d' % i for i in range(20)]
+        timestamps = [next(ts_iter) for o in obj_names]
+        for name, timestamp in zip(obj_names, timestamps):
+            broker.put_object(name, timestamp.internal,
+                              0, 'text/plain', EMPTY_ETAG)
+            broker._commit_puts()  # ensure predictable row order
+        timestamps = [next(ts_iter) for o in obj_names[10:]]
+        for name, timestamp in zip(obj_names[10:], timestamps):
+            broker.put_object(name, timestamp.internal,
+                              0, 'text/plain', EMPTY_ETAG, deleted=1)
+            broker._commit_puts()  # ensure predictable row order
+
+        # sanity check
+        self.assertEqual(30, broker.get_max_row())
+        actual = broker.get_objects(include_deleted=True)
+        self.assertEqual(obj_names, [o['name'] for o in actual])
+
+        # all rows included
+        actual = broker.get_objects(since_row=None)
+        self.assertEqual(obj_names[:10], [o['name'] for o in actual])
+
+        actual = broker.get_objects(include_deleted=True, since_row=None)
+        self.assertEqual(obj_names, [o['name'] for o in actual])
+
+        actual = broker.get_objects(include_deleted=True, since_row=-1)
+        self.assertEqual(obj_names, [o['name'] for o in actual])
+
+        # selected rows
+        for since_row in range(10):
+            actual = broker.get_objects(include_deleted=True,
+                                        since_row=since_row)
+            with annotate_failure(since_row):
+                self.assertEqual(obj_names[since_row:],
+                                 [o['name'] for o in actual])
+            actual = broker.get_objects(include_deleted=True,
+                                        since_row=since_row,
+                                        reverse=True)
+            with annotate_failure(since_row):
+                self.assertEqual(list(reversed(obj_names[since_row:])),
+                                 [o['name'] for o in actual])
+
+        for since_row in range(10, 20):
+            actual = broker.get_objects(include_deleted=True,
+                                        since_row=since_row)
+            with annotate_failure(since_row):
+                self.assertEqual(obj_names[10:],
+                                 [o['name'] for o in actual])
+            actual = broker.get_objects(include_deleted=True,
+                                        since_row=since_row,
+                                        reverse=True)
+            with annotate_failure(since_row):
+                self.assertEqual(list(reversed(obj_names[10:])),
+                                 [o['name'] for o in actual])
+
+        for since_row in range(20, len(obj_names) + 1):
+            actual = broker.get_objects(include_deleted=True,
+                                        since_row=since_row)
+            with annotate_failure(since_row):
+                self.assertEqual(obj_names[since_row - 10:],
+                                 [o['name'] for o in actual])
+            actual = broker.get_objects(include_deleted=True,
+                                        since_row=since_row,
+                                        reverse=True)
+            with annotate_failure(since_row):
+                self.assertEqual(list(reversed(obj_names[since_row - 10:])),
+                                 [o['name'] for o in actual])
+
+        for since_row in range(len(obj_names) + 1):
+            actual = broker.get_objects(since_row=since_row)
+            with annotate_failure(since_row):
+                self.assertEqual(obj_names[since_row:10],
+                                 [o['name'] for o in actual])
+
+        self.assertFalse(broker.get_objects(end_marker=obj_names[5],
+                                            include_deleted=True,
+                                            since_row=5))
+        self.assertFalse(broker.get_objects(marker=obj_names[5],
+                                            include_deleted=True,
+                                            reverse=True,
+                                            since_row=5))
+
     def test_list_objects_iter(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(':memory:', account='a', container='c')
@@ -3445,68 +3523,6 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(expected_shard_ranges, actual_shard_ranges)
 
     @with_tempdir
-    def test_cleave_context(self, tempdir):
-        ts_iter = make_timestamp_iter()
-        db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
-        broker.initialize(next(ts_iter).internal, 0)
-        expected = {'ref': '%s-%s' % (broker.get_info()['id'], -1)}
-        self.assertEqual(expected, broker.load_cleave_context())
-        # adding a row changes ref
-        broker.put_object(
-            'obj', next(ts_iter).internal, 0, 'text/plain', 'etag', 1)
-        expected = {'ref': '%s-%s' % (broker.get_info()['id'], 1)}
-        self.assertEqual(expected, broker.load_cleave_context())
-        # changing id changes ref
-        old_id = broker.get_info()['id']
-        broker.newid('fake_remote_id')
-        new_id = broker.get_info()['id']
-        self.assertNotEqual(old_id, new_id)
-        expected = {'ref': '%s-%s' % (broker.get_info()['id'], 1)}
-        self.assertEqual(expected, broker.load_cleave_context())
-
-        # adding fresh db does not change context
-        self._move_own_shard_range_to_sharding(broker, next(ts_iter))
-        self.assertTrue(broker.set_sharding_state())
-        broker = ContainerBroker(db_path, account='a', container='c')
-        self.assertNotEqual(new_id, broker.get_info()['id'])  # sanity check
-        context = broker.load_cleave_context()
-        self.assertEqual(expected, context)
-
-        # context changes are persisted
-        context.update({'cursor': 'somewhere', 'done': False})
-        broker.dump_cleave_context(context)
-        expected.update({'cursor': 'somewhere', 'done': False})
-        self.assertEqual(expected, context)
-        self.assertEqual(expected, broker.load_cleave_context())
-
-        # reclaim of object row does not change the ref/context
-        self.assertEqual(
-            1, len(broker.get_brokers()[0].get_objects(include_deleted=True)))
-        now = next(ts_iter).internal
-        broker.get_brokers()[0].reclaim(now, now)
-        self.assertFalse(
-            broker.get_brokers()[0].get_objects(include_deleted=True))
-        context = broker.load_cleave_context()
-        self.assertEqual(expected, context)
-
-        # putting object to fresh db does not change ref
-        broker.put_object(
-            'obj', next(ts_iter).internal, 0, 'text/plain', 'etag', 1)
-        self.assertEqual(expected, broker.load_cleave_context())
-
-        # putting object to older db does change ref
-        expected = {'ref': '%s-%s' % (new_id, 2)}
-        retiring_broker = broker.get_brokers()[0]
-        # override normal behaviour to force commit into *older* db
-        retiring_broker.skip_commits = False
-        retiring_broker.put_object(
-            'obj', next(ts_iter).internal, 0, 'text/plain', 'etag', 1)
-        retiring_broker._commit_puts()
-        self.assertEqual(expected, broker.load_cleave_context())
-
-    @with_tempdir
     def test_set_db_states(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
@@ -3640,9 +3656,6 @@ class TestContainerBroker(unittest.TestCase):
                   state_timestamp=next(ts_iter).internal)
              for sr in shard_ranges])
         # pretend all ranges have been cleaved
-        broker.dump_cleave_context(
-            dict(broker.load_cleave_context(),
-                 cleaving_done=True, misplaced_done=True))
         self.assertTrue(broker.set_sharded_state())
         check_broker_properties(broker)
         check_broker_info(broker.get_info())
@@ -3697,9 +3710,6 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(SHARDING, broker.get_db_state())
 
             # go to sharded
-            broker.dump_cleave_context(
-                dict(broker.load_cleave_context(),
-                     cleaving_done=True, misplaced_done=True))
             self.assertTrue(
                 broker.set_sharded_state())
             self.assertEqual(SHARDED, broker.get_db_state())
@@ -3711,102 +3721,6 @@ class TestContainerBroker(unittest.TestCase):
 
         do_revive_shard_delete(shard_ranges)
         do_revive_shard_delete(shard_ranges)
-
-    @with_tempdir
-    def test_set_sharded_state_checks_cleave_context(self, tempdir):
-        ts_iter = make_timestamp_iter()
-        db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(
-            db_path, account='a', container='c', logger=FakeLogger())
-        broker.initialize(next(ts_iter).internal, 0)
-
-        self._move_own_shard_range_to_sharding(broker, Timestamp.now())
-        self.assertTrue(broker.set_sharding_state())
-        self.assertEqual(2, len(broker.db_files))  # sanity check
-
-        # no cleave context
-        self.assertFalse(broker.set_sharded_state())
-        warning_lines = broker.logger.get_lines_for_level('warning')
-        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
-                      warning_lines[0])
-        self.assertFalse(warning_lines[1:])
-        broker.logger.clear()
-
-        # cleaving_done is missing
-        context = broker.load_cleave_context()
-        broker.dump_cleave_context(
-            dict(context, cursor='', misplaced_done=True))
-        self.assertFalse(broker.set_sharded_state())
-        warning_lines = broker.logger.get_lines_for_level('warning')
-        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
-                      warning_lines[0])
-        self.assertFalse(warning_lines[1:])
-        broker.logger.clear()
-
-        # cleaving_done is False
-        broker.dump_cleave_context(
-            dict(context, cursor='', cleaving_done=False, misplaced_done=True))
-        self.assertFalse(broker.set_sharded_state())
-        warning_lines = broker.logger.get_lines_for_level('warning')
-        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
-                      warning_lines[0])
-        self.assertFalse(warning_lines[1:])
-        broker.logger.clear()
-
-        # misplaced_done is False
-        broker.dump_cleave_context(
-            dict(context, cursor='', cleaving_done=True))
-        self.assertFalse(broker.set_sharded_state())
-        warning_lines = broker.logger.get_lines_for_level('warning')
-        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
-                      warning_lines[0])
-        self.assertFalse(warning_lines[1:])
-        broker.logger.clear()
-
-        # misplaced_done is False
-        broker.dump_cleave_context(
-            dict(context, cursor='', cleaving_done=True, misplaced_done=False))
-        self.assertFalse(broker.set_sharded_state())
-        warning_lines = broker.logger.get_lines_for_level('warning')
-        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
-                      warning_lines[0])
-        self.assertFalse(warning_lines[1:])
-        broker.logger.clear()
-
-        # modified db max row
-        obj = {'name': 'obj', 'created_at': next(ts_iter).internal, 'size': 14,
-               'content_type': 'text/plain', 'etag': 'an etag', 'deleted': 1}
-        broker.get_brokers()[0].merge_objects([obj])
-
-        broker.dump_cleave_context(
-            dict(context, cursor='', cleaving_done=True, misplaced_done=True))
-        self.assertFalse(broker.set_sharded_state())
-        warning_lines = broker.logger.get_lines_for_level('warning')
-        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
-                      warning_lines[0])
-        self.assertFalse(warning_lines[1:])
-        broker.logger.clear()
-
-        # db id changes
-        context = broker.load_cleave_context()
-        broker.dump_cleave_context(
-            dict(context, cursor='', cleaving_done=True, misplaced_done=True))
-        broker.get_brokers()[0].newid('fake_remote_id')
-        self.assertFalse(broker.set_sharded_state())
-        warning_lines = broker.logger.get_lines_for_level('warning')
-        self.assertIn('Refusing to delete db %r' % broker.db_files[0],
-                      warning_lines[0])
-        self.assertFalse(warning_lines[1:])
-        broker.logger.clear()
-
-        # context ok
-        context = broker.load_cleave_context()
-        broker.dump_cleave_context(
-            dict(context, cursor='', cleaving_done=True, misplaced_done=True))
-        self.assertTrue(broker.set_sharded_state())
-        warning_lines = broker.logger.get_lines_for_level('warning')
-        self.assertFalse(warning_lines)
 
     @with_tempdir
     def test_merge_shard_ranges(self, tempdir):
@@ -3980,9 +3894,6 @@ class TestContainerBroker(unittest.TestCase):
         broker = self._check_object_stats_when_sharded(
             'a', 'c', 'a', 'c', tempdir)
         self.assertTrue(broker.is_root_container())  # sanity
-        broker.dump_cleave_context(
-            dict(broker.load_cleave_context(),
-                 cleaving_done=True, misplaced_done=True))
         self.assertTrue(broker.set_sharded_state())
         self.assertEqual(120, broker.get_info()['object_count'])
         self.assertEqual(1999, broker.get_info()['bytes_used'])
@@ -3992,9 +3903,6 @@ class TestContainerBroker(unittest.TestCase):
         broker = self._check_object_stats_when_sharded(
             '.shard_a', 'c-blah', 'a', 'c', tempdir)
         self.assertFalse(broker.is_root_container())  # sanity
-        broker.dump_cleave_context(
-            dict(broker.load_cleave_context(),
-                 cleaving_done=True, misplaced_done=True))
         self.assertTrue(broker.set_sharded_state())
         self.assertEqual(0, broker.get_info()['object_count'])
         self.assertEqual(0, broker.get_info()['bytes_used'])

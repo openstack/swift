@@ -1427,9 +1427,6 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker.merge_shard_ranges([own_sr])
 
     def _goto_sharded_state(self, broker):
-        broker.dump_cleave_context(
-            dict(broker.load_cleave_context(), cleaving_done=True,
-                 misplaced_done=True))
         broker.set_sharded_state()
 
     def _assert_local_sharding_in_sync(self, local_broker, old_id, new_id):
