@@ -29,6 +29,7 @@ from collections import defaultdict
 
 import time
 
+from swift.common.internal_client import UnexpectedResponse
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED
 from swift.container.sharder import ContainerSharder, sharding_enabled
@@ -2961,7 +2962,7 @@ class TestSharder(unittest.TestCase):
         shard_ranges[1].name = broker.path
         expected_stats = {'attempted': 1, 'success': 0, 'failure': 1}
 
-        def call_audit_container():
+        def call_audit_container(exc=None):
             with self._mock_sharder() as sharder:
                 with mock.patch.object(
                         sharder, '_audit_root_container') as mocked:
@@ -2970,11 +2971,13 @@ class TestSharder(unittest.TestCase):
                         mock_response.body = json.dumps(
                             [dict(sr) for sr in shard_ranges])
                         mock_swift.make_request.return_value = mock_response
+                        mock_swift.make_request.side_effect = exc
                         sharder.reclaim_age = 0
                         sharder._audit_container(broker)
             mocked.assert_not_called()
             return sharder
 
+        # bad account name
         broker.account = 'bad_account'
         sharder = call_audit_container()
         lines = sharder.logger.get_lines_for_level('warning')
@@ -2982,18 +2985,21 @@ class TestSharder(unittest.TestCase):
         self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
         self.assertIn('account not in shards namespace', lines[0])
         self.assertNotIn('root has no matching shard range', lines[0])
+        self.assertNotIn('unable to get shard ranges from root', lines[0])
         self.assertIn('Audit failed for shard %s' % broker.db_file, lines[1])
         self.assertIn('missing own shard range', lines[1])
         self.assertFalse(lines[2:])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertFalse(broker.is_deleted())
 
+        # missing own shard range
         broker.get_info()
         sharder = call_audit_container()
         lines = sharder.logger.get_lines_for_level('warning')
         self._assert_stats(expected_stats, sharder, 'audit_shard')
         self.assertIn('Audit failed for shard %s' % broker.db_file, lines[0])
         self.assertIn('missing own shard range', lines[0])
+        self.assertNotIn('unable to get shard ranges from root', lines[0])
         self.assertFalse(lines[1:])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertFalse(broker.is_deleted())
@@ -3010,9 +3016,30 @@ class TestSharder(unittest.TestCase):
         self.assertNotIn('account not in shards namespace', lines[0])
         self.assertNotIn('missing own shard range', lines[0])
         self.assertIn('root has no matching shard range', lines[0])
+        self.assertNotIn('unable to get shard ranges from root', lines[0])
         self._assert_stats(expected_stats, sharder, 'audit_shard')
         self.assertFalse(lines[1:])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
+        self.assertFalse(broker.is_deleted())
+
+        # create own shard range, failed response from root
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
+        own_shard_range = broker.get_own_shard_range()  # get the default
+        own_shard_range.lower = 'j'
+        own_shard_range.upper = 'k'
+        broker.merge_shard_ranges([own_shard_range])
+        sharder = call_audit_container(exc=UnexpectedResponse('bad', 'resp'))
+        lines = sharder.logger.get_lines_for_level('warning')
+        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
+        self.assertNotIn('account not in shards namespace', lines[0])
+        self.assertNotIn('missing own shard range', lines[0])
+        self.assertNotIn('root has no matching shard range', lines[0])
+        self.assertIn('unable to get shard ranges from root', lines[0])
+        self._assert_stats(expected_stats, sharder, 'audit_shard')
+        self.assertFalse(lines[1:])
+        lines = sharder.logger.get_lines_for_level('error')
+        self.assertIn('Failed to get shard ranges', lines[0])
+        self.assertFalse(lines[1:])
         self.assertFalse(broker.is_deleted())
 
         def assert_ok():
