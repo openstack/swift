@@ -676,16 +676,19 @@ class ContainerSharder(ContainerReplicator):
                 broker, newest=True,
                 params={'marker': own_shard_range.lower,
                         'end_marker': own_shard_range.upper})
-            for shard_range in shard_ranges:
-                if (shard_range.lower == own_shard_range.lower and
-                        shard_range.upper == own_shard_range.upper and
-                        shard_range.name == own_shard_range.name):
-                    break
+            if shard_ranges:
+                for shard_range in shard_ranges:
+                    if (shard_range.lower == own_shard_range.lower and
+                            shard_range.upper == own_shard_range.upper and
+                            shard_range.name == own_shard_range.name):
+                        break
+                else:
+                    # this is not necessarily an error - some replicas of the
+                    # root may not yet know about this shard container
+                    warnings.append('root has no matching shard range')
+                    shard_range = None
             else:
-                # this is not necessarily an error - some replicas of the root
-                # may not yet know about this shard container
-                warnings.append('root has no matching shard range')
-                shard_range = None
+                warnings.append('unable to get shard ranges from root')
         else:
             errors.append('missing own shard range')
 

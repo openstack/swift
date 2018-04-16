@@ -42,7 +42,7 @@ class ContainerReplicator(db_replicator.Replicator):
 
     def __init__(self, conf, logger=None):
         super(ContainerReplicator, self).__init__(conf, logger=logger)
-        self.reconciler_cleanups = None
+        self.reconciler_cleanups = self.sync_store = None
 
     def report_up_to_date(self, full_info):
         reported_key_map = {
@@ -232,12 +232,13 @@ class ContainerReplicator(db_replicator.Replicator):
             # this container shouldn't be here, make sure it's cleaned up
             self.reconciler_cleanups[broker.container] = broker
             return
-        try:
-            # DB is going to get deleted. Be preemptive about it
-            self.sync_store.remove_synced_container(broker)
-        except Exception:
-            self.logger.exception('Failed to remove sync_store entry %s' %
-                                  broker.db_file)
+        if self.sync_store:
+            try:
+                # DB is going to get deleted. Be preemptive about it
+                self.sync_store.remove_synced_container(broker)
+            except Exception:
+                self.logger.exception('Failed to remove sync_store entry %s' %
+                                      broker.db_file)
 
         return super(ContainerReplicator, self).delete_db(broker)
 
