@@ -305,7 +305,7 @@ def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False):
         print('  Type: %s' % shard_type)
         print('  State: %s' % db_state_text(info['db_state']))
     if info.get('shard_ranges'):
-        print('Shard Ranges:')
+        print('Shard Ranges (%d):' % len(info['shard_ranges']))
         for srange in info['shard_ranges']:
             srange = dict(srange, state_text=srange.state_text)
             print('  Name: %(name)s' % srange)
