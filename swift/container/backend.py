@@ -1658,7 +1658,7 @@ class ContainerBroker(DatabaseBroker):
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
                          reverse=False, include_deleted=False, states=None,
                          exclude_states=None, include_own=False,
-                         exclude_others=False):
+                         exclude_others=False, fill_gaps=False):
         """
         Returns a list of persisted shard ranges.
 
@@ -1684,8 +1684,18 @@ class ContainerBroker(DatabaseBroker):
             names do not match the broker's path are included in the returned
             list. If True, those rows are not included, otherwise they are
             included. Default is False.
+        :param fill_gaps: if True, insert own shard range to fill any gaps in
+            at the tail of other shard ranges.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
+        def shard_range_filter(sr):
+            end = start = True
+            if end_marker:
+                end = sr < end_marker or end_marker in sr
+            if marker:
+                start = sr > marker or marker in sr
+            return start and end
+
         shard_ranges = [
             ShardRange(*row)
             for row in self._get_shard_range_rows(
@@ -1695,21 +1705,35 @@ class ContainerBroker(DatabaseBroker):
         shard_ranges.sort(key=lambda sr: (sr.lower, sr.upper))
         if includes:
             shard_range = find_shard_range(includes, shard_ranges)
-            return [shard_range] if shard_range else []
+            shard_ranges = [shard_range] if shard_range else []
+        else:
+            if reverse:
+                shard_ranges.reverse()
+                marker, end_marker = end_marker, marker
+            if marker or end_marker:
+                shard_ranges = list(filter(shard_range_filter, shard_ranges))
 
-        if reverse:
-            shard_ranges.reverse()
-            marker, end_marker = end_marker, marker
-        if marker or end_marker:
-            def shard_range_filter(sr):
-                end = start = True
-                if end_marker:
-                    end = sr < end_marker or end_marker in sr
-                if marker:
-                    start = sr > marker or marker in sr
-                return start and end
+        if fill_gaps:
+            if reverse:
+                if shard_ranges:
+                    last_upper = shard_ranges[0].upper
+                else:
+                    last_upper = marker or ShardRange.MIN
+                required_upper = end_marker or ShardRange.MAX
+                filler_index = 0
+            else:
+                if shard_ranges:
+                    last_upper = shard_ranges[-1].upper
+                else:
+                    last_upper = marker or ShardRange.MIN
+                required_upper = end_marker or ShardRange.MAX
+                filler_index = len(shard_ranges)
+            if required_upper > last_upper:
+                filler_sr = self.get_own_shard_range()
+                filler_sr.lower = last_upper
+                filler_sr.upper = required_upper
+                shard_ranges.insert(filler_index, filler_sr)
 
-            shard_ranges = list(filter(shard_range_filter, shard_ranges))
         return shard_ranges
 
     def _own_shard_range(self, no_default=False):
