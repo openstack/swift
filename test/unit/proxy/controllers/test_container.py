@@ -541,9 +541,9 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, {}),  # 404
             ('a/c', {}, {}),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 404
+             dict(states='listing')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 200
+             dict(states='listing')),  # 200
             (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', limit=str(limit))),  # 200
             (shard_ranges[1].name, {},
@@ -574,7 +574,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, {}),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 200
+             dict(states='listing')),  # 200
             (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', limit=str(limit))),  # 200
             (shard_ranges[1].name, {},
@@ -604,7 +604,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, dict(reverse='true')),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing', reverse='true')),  # 404
+             dict(states='listing', reverse='true')),  # 404
             (shard_ranges[2].name, {},
              dict(marker='', end_marker='pie', reverse='true',
                   limit=str(limit))),  # 200
@@ -640,9 +640,9 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, dict(limit=str(limit))),  # 404
             ('a/c', {}, dict(limit=str(limit))),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 404
+             dict(states='listing')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 200
+             dict(states='listing')),  # 200
             (shard_ranges[0].name, {},  # 200
              dict(marker='', end_marker='ham\x00',
                   limit=str(limit))),
@@ -675,7 +675,7 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, dict(marker=marker)),  # 404
             ('a/c', {}, dict(marker=marker)),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(marker=marker, state='listing')),  # 200
+             dict(marker=marker, states='listing')),  # 200
             (shard_ranges[1].name, {},  # 404
              dict(marker=marker, end_marker='pie\x00',
                   limit=str(limit))),
@@ -707,7 +707,7 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, dict(end_marker=end_marker)),  # 404
             ('a/c', {}, dict(end_marker=end_marker)),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(end_marker=end_marker, state='listing')),  # 200
+             dict(end_marker=end_marker, states='listing')),  # 200
             (shard_ranges[0].name, {},  # 200
              dict(marker='', end_marker='ham\x00',
                   limit=str(limit))),
@@ -741,10 +741,10 @@ class TestContainerController(TestRingBase):
              dict(marker=marker, end_marker=end_marker,
                   limit=str(limit))),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing',
+             dict(states='listing',
                   marker=marker, end_marker=end_marker)),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing',
+             dict(states='listing',
                   marker=marker, end_marker=end_marker)),  # 200
             (shard_ranges[1].name, {},  # 200
              dict(marker=marker, end_marker=end_marker,
@@ -773,10 +773,10 @@ class TestContainerController(TestRingBase):
              dict(marker=end_marker, reverse='true', end_marker=marker,
                   limit=str(limit))),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing', marker=end_marker,
+             dict(states='listing', marker=end_marker,
                   end_marker=marker, reverse='true')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing', marker=end_marker,
+             dict(states='listing', marker=end_marker,
                   end_marker=marker, reverse='true')),  # 200
             (shard_ranges[1].name, {},  # 200
              dict(marker=end_marker, end_marker=marker,
@@ -844,7 +844,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, {}),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 200
+             dict(states='listing')),  # 200
             (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', limit=str(limit))),  # 200
             (shard_ranges[1].name, {},
@@ -881,7 +881,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, dict(reverse='true')),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing', reverse='true')),  # 200
+             dict(states='listing', reverse='true')),  # 200
             (shard_ranges[2].name, {},
              dict(marker='', end_marker='lemon', limit=str(limit),
                   reverse='true')),  # 200
@@ -942,7 +942,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, {}),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 200
+             dict(states='listing')),  # 200
             (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', limit=str(limit))),  # 200
             (shard_ranges[1].name, {},
@@ -1001,7 +1001,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, {}),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 200
+             dict(states='listing')),  # 200
             (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', limit=str(limit))),  # 200
             (shard_ranges[1].name, {},
@@ -1030,7 +1030,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, dict(marker='koolaid')),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing', marker='koolaid')),  # 200
+             dict(states='listing', marker='koolaid')),  # 200
             (shard_ranges[1].name, {},
              dict(marker='koolaid', end_marker='pie\x00',
                   limit=str(limit))),  # 200
@@ -1057,7 +1057,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, dict(marker='koolaid', reverse='true')),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing', marker='koolaid', reverse='true')),  # 200
+             dict(states='listing', marker='koolaid', reverse='true')),  # 200
             (shard_ranges[1].name, {},
              dict(marker='koolaid', end_marker='ham', reverse='true',
                   limit=str(limit))),  # 200
@@ -1115,7 +1115,7 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {}, {}),  # 200
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 200
+             dict(states='listing')),  # 200
             (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', limit=str(limit)))] \
             + [(shard_ranges[1].name, {},
@@ -1200,7 +1200,7 @@ class TestContainerController(TestRingBase):
             ('a/c', {}, {}),
             # get root shard ranges
             ('a/c', {'X-Backend-Record-Type': 'shard'},
-             dict(state='listing')),  # 200
+             dict(states='listing')),  # 200
             # get first shard objects
             (shard_ranges[0].name, {},
              dict(marker='', end_marker='ham\x00', limit=str(limit))),  # 200
@@ -1210,7 +1210,7 @@ class TestContainerController(TestRingBase):
                   limit=str(limit - len(sr_objs[0])))),  # 200
             # get second shard sub-shard ranges
             (shard_ranges[1].name, {'X-Backend-Record-Type': 'shard'},
-             dict(marker='h', end_marker='pie\x00', state='listing')),
+             dict(marker='h', end_marker='pie\x00', states='listing')),
             # get first sub-shard objects
             (sub_shard_ranges[0].name, {},
              dict(marker='h', end_marker='juice\x00',

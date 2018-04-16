@@ -1563,3 +1563,120 @@ class TestContainerSharding(ReplProbeTest):
         self.assert_container_object_count(1)
         self.assert_container_delete_fails()
         self.assert_container_post_ok('revived')
+
+    def test_misplaced_object_movement(self):
+        all_obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
+        self.put_objects(all_obj_names)
+        # Shard the container
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        for n in self.brain.node_numbers:
+            self.sharders.once(
+                number=n, additional_args='--partitions=%s' % self.brain.part)
+        # sanity checks
+        for number in self.brain.node_numbers:
+            self.assert_container_state(number, SHARDED, 2)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
+        self.assert_container_listing(all_obj_names)
+
+        # delete all objects - updates redirected to shards
+        self.delete_objects(all_obj_names)
+        self.assert_container_listing([])
+        self.assert_container_post_ok('has objects')
+
+        # run sharder on shard containers to update root stats
+        shard_ranges = self.get_container_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 2)
+        self.run_sharders(shard_ranges)
+        self.assert_container_object_count(0)
+
+        # First, test a misplaced object moving from one shard to another.
+        # with one shard server down, put a new 'alpha' object...
+        shard_part, shard_nodes = self.get_part_and_node_numbers(
+            shard_ranges[0])
+        self.brain.servers.stop(number=shard_nodes[2])
+        self.put_objects(['alpha'])
+        self.assert_container_listing(['alpha'])
+        self.assert_container_object_count(0)
+        self.assertLengthEqual(
+            self.gather_async_pendings(self.get_all_object_nodes()), 1)
+        self.brain.servers.start(number=shard_nodes[2])
+
+        # run sharder on root to discover first shrink candidate
+        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        # then run sharder on the shard node without the alpha object
+        self.sharders.once(additional_args='--partitions=%s' % shard_part,
+                           number=shard_nodes[2])
+        # root sees first shard has shrunk, only second shard range used for
+        # listing so alpha object not in listing
+        self.assertLengthEqual(self.get_container_shard_ranges(), 1)
+        self.assert_container_listing([])
+        self.assert_container_object_count(0)
+
+        # run the updaters to get the async pending into the retired shard
+        self.updaters.once()
+        # ...where it is now misplaced so will not yet show in listing
+        self.assert_container_listing([])
+        self.assert_container_object_count(0)
+
+        # until sharder runs on that node to move the misplaced object to the
+        # second shard range
+        self.sharders.once(additional_args='--partitions=%s' % shard_part,
+                           number=shard_nodes[2])
+        self.assert_container_listing(['alpha'])
+        self.assert_container_object_count(0)  # root not yet updated
+
+        # then run sharder on other shard nodes to complete shrinking
+        for number in shard_nodes[:2]:
+            self.sharders.once(additional_args='--partitions=%s' % shard_part,
+                               number=number)
+        # and get root updated
+        self.run_sharders(shard_ranges[1])
+        self.assert_container_listing(['alpha'])
+        self.assert_container_object_count(1)
+        self.assertLengthEqual(self.get_container_shard_ranges(), 1)
+
+        # Now we have just one active shard, test a misplaced object moving
+        # from that shard to the root.
+        # with one shard server down, delete 'alpha' and put a 'beta' object...
+        shard_part, shard_nodes = self.get_part_and_node_numbers(
+            shard_ranges[1])
+        self.brain.servers.stop(number=shard_nodes[2])
+        self.delete_objects(['alpha'])
+        self.put_objects(['beta'])
+        self.assert_container_listing(['beta'])
+        self.assert_container_object_count(1)
+        self.assertLengthEqual(
+            self.gather_async_pendings(self.get_all_object_nodes()), 2)
+        self.brain.servers.start(number=shard_nodes[2])
+
+        # run sharder on root to discover second shrink candidate - root is not
+        # yet aware of the beta object
+        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        # then run sharder on the shard node without the beta object, to shrink
+        # it to root - note this moves stale copy of alpha to the root db
+        self.sharders.once(additional_args='--partitions=%s' % shard_part,
+                           number=shard_nodes[2])
+        # now there are no active shards
+        self.assertFalse(self.get_container_shard_ranges())
+
+        # with other two shard servers down, listing won't find beta object
+        for number in shard_nodes[:2]:
+            self.brain.servers.stop(number=number)
+        self.assert_container_listing(['alpha'])
+        self.assert_container_object_count(1)
+
+        # run the updaters to get the async pendings into the retired shard
+        self.updaters.once()
+        # ...where they are misplaced so will not yet show in listing
+        self.assert_container_listing(['alpha'])
+        self.assert_container_object_count(1)
+
+        # until sharder runs on that node to move the misplaced object
+        self.sharders.once(additional_args='--partitions=%s' % shard_part,
+                           number=shard_nodes[2])
+        self.assert_container_listing(['beta'])
+        self.assert_container_object_count(1)
+        self.assert_container_delete_fails()

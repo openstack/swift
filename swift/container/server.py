@@ -588,7 +588,7 @@ class ContainerController(BaseStorageServer):
         record_type = req.headers.get('x-backend-record-type', '').lower()
         if record_type == 'shard':
             includes = get_param(req, 'includes')
-            states = get_param(req, 'state') or None
+            states = get_param(req, 'states') or None
             if states:
                 states = list_from_csv(states)
                 try:
