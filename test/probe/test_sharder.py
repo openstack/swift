@@ -1073,8 +1073,7 @@ class TestContainerSharding(ReplProbeTest):
             # nodes on which sharder has not run are still in unsharded state
             # but have had shard ranges replicated to them
             exp_obj_count = len(obj_names)
-            exp_hdrs = {'X-Container-Sysmeta-Shard-Scan-Done': 'True',
-                        'X-Backend-Sharding-State': str(UNSHARDED),
+            exp_hdrs = {'X-Backend-Sharding-State': str(UNSHARDED),
                         'X-Container-Object-Count': str(exp_obj_count)}
             node_id = self.brain.node_numbers[1] - 1
             check_node_data(
@@ -1260,8 +1259,7 @@ class TestContainerSharding(ReplProbeTest):
             # check root container
             root_nodes_data = self.direct_get_container_shard_ranges()
             self.assertEqual(3, len(root_nodes_data))
-            exp_hdrs = {'X-Container-Sysmeta-Shard-Scan-Done': 'True',
-                        'X-Backend-Sharding-State': str(COLLAPSED),
+            exp_hdrs = {'X-Backend-Sharding-State': str(COLLAPSED),
                         # just the alpha object
                         'X-Container-Object-Count': '1'}
             for node_id, node_data in root_nodes_data.items():

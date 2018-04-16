@@ -733,14 +733,6 @@ majority quorum again to make sure it is still the scanner, and if so will write
 the found ranges to the shard_ranges table. The other nodes will get these
 ranges via container replication.
 
-Once the scanner node has found all ranges, it'll set some metadata to say it
-has::
-
-  X-Container-Sysmeta-Shard-Scan-Done
-
-This way the other nodes will know when they've finished sharding. And then
-it'll start sharding itself.
-
 **Comments/Discussion:**
 
 - Currently there is no check to see if the current scanner has stalled, died
