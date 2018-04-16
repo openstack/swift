@@ -1334,7 +1334,6 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(12, len(old_broker.get_objects()))
 
         self.assertEqual(SHARDING, broker.get_db_state())
-        # TODO: this next assertion may change to SHARDING
         self.assertEqual(ShardRange.SHARDING,
                          broker.get_own_shard_range().state)
         self.assertEqual([(0, expected_shard_dbs[0], 0),

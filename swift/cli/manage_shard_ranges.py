@@ -186,9 +186,7 @@ def _replace_shard_ranges(broker, args, shard_data, timeout=None):
     # Crank up the timeout in an effort to *make sure* this succeeds
     with broker.updated_timeout(max(timeout, args.replace_timeout)):
         delete_shard_ranges(broker, args)
-
         broker.merge_shard_ranges(shard_ranges)
-        # Update metadata *after* merge, just like in the sharder
 
     print('Injected %d shard ranges.' % len(shard_ranges))
     print('Run container-replicator to replicate them to other nodes.')
