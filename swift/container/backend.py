@@ -669,8 +669,9 @@ class ContainerBroker(DatabaseBroker):
 
         :returns: True if the database has no active objects, False otherwise
         """
-        return all([broker._empty() for broker in self.get_brokers()] +
-                   [self.get_shard_usage()['object_count'] <= 0])
+        if not all(broker._empty() for broker in self.get_brokers()):
+            return False
+        return self.get_shard_usage()['object_count'] <= 0
 
     def delete_object(self, name, timestamp, storage_policy_index=0):
         """
