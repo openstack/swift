@@ -96,6 +96,12 @@ class TestContainerSharding(ReplProbeTest):
         # perform checks for skipping test before starting services
         self._maybe_skip_test()
 
+    def setup_container_brain(self, container_name):
+        self.container_name = container_name
+        self.brain = BrainSplitter(self.url, self.token, self.container_name,
+                                   None, 'container')
+        self.brain.put_container(policy_index=int(self.policy))
+
     def setUp(self):
         client.logger.setLevel(client.logging.WARNING)
         client.requests.logging.getLogger().setLevel(
@@ -103,11 +109,7 @@ class TestContainerSharding(ReplProbeTest):
         super(TestContainerSharding, self).setUp()
         _, self.admin_token = get_auth(
             'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
-        self.container_name = 'container-%s' % uuid.uuid4()
-        self.brain = BrainSplitter(self.url, self.token, self.container_name,
-                                   None, 'container')
-        self.brain.put_container(policy_index=int(self.policy))
-
+        self.setup_container_brain('container-%s' % uuid.uuid4())
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
 
@@ -370,6 +372,9 @@ class TestContainerSharding(ReplProbeTest):
 
     def test_sharding_listing(self):
         # verify parameterised listing of a container during sharding
+        name_length = self.cluster_info['swift']['max_container_name_length']
+        cont_name = self.container_name.ljust(name_length, 'x')
+        self.setup_container_brain(cont_name)
         all_obj_names = ['obj%03d' % x for x in range(4 * self.max_shard_size)]
         obj_names = all_obj_names[::2]
         self.put_objects(obj_names)
