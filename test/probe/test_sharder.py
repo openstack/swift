@@ -383,7 +383,9 @@ class TestContainerSharding(ReplProbeTest):
     def test_sharding_listing(self):
         # verify parameterised listing of a container during sharding
         name_length = self.cluster_info['swift']['max_container_name_length']
-        cont_name = self.container_name.ljust(name_length, 'x')
+        cont_name = self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb'
+        cont_name = cont_name.encode('utf8')
+        cont_name = cont_name.ljust(name_length, 'x')
         self.setup_container_brain(cont_name)
         all_obj_names = ['obj%03d' % x for x in range(4 * self.max_shard_size)]
         obj_names = all_obj_names[::2]
