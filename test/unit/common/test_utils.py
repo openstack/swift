@@ -6791,32 +6791,32 @@ class TestShardRange(unittest.TestCase):
         ts_2 = next(self.ts_iter)
         ts_3 = next(self.ts_iter)
         ts_4 = next(self.ts_iter)
-        empty_run = dict(name=None, created_at=None, lower=None,
+        empty_run = dict(name=None, timestamp=None, lower=None,
                          upper=None, object_count=0, bytes_used=0,
                          meta_timestamp=None, deleted=0,
                          state=0, state_timestamp=None, epoch=None)
         # name, timestamp must be given
         assert_initialisation_fails(empty_run.copy())
         assert_initialisation_fails(dict(empty_run, name='a/c'), TypeError)
-        assert_initialisation_fails(dict(empty_run, created_at=ts_1))
+        assert_initialisation_fails(dict(empty_run, timestamp=ts_1))
         # name must be form a/c
-        assert_initialisation_fails(dict(empty_run, name='c', created_at=ts_1))
-        assert_initialisation_fails(dict(empty_run, name='', created_at=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='c', timestamp=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='', timestamp=ts_1))
         assert_initialisation_fails(dict(empty_run, name='/a/c',
-                                         created_at=ts_1))
+                                         timestamp=ts_1))
         assert_initialisation_fails(dict(empty_run, name='/c',
-                                         created_at=ts_1))
+                                         timestamp=ts_1))
         # lower, upper can be None
-        expect = dict(name='a/c', created_at=ts_1.internal, lower='',
+        expect = dict(name='a/c', timestamp=ts_1.internal, lower='',
                       upper='', object_count=0, bytes_used=0,
                       meta_timestamp=ts_1.internal, deleted=0,
                       state=0, state_timestamp=ts_1.internal,
                       epoch=None)
-        assert_initialisation_ok(dict(empty_run, name='a/c', created_at=ts_1),
+        assert_initialisation_ok(dict(empty_run, name='a/c', timestamp=ts_1),
                                  expect)
-        assert_initialisation_ok(dict(name='a/c', created_at=ts_1), expect)
+        assert_initialisation_ok(dict(name='a/c', timestamp=ts_1), expect)
 
-        good_run = dict(name='a/c', created_at=ts_1, lower='l',
+        good_run = dict(name='a/c', timestamp=ts_1, lower='l',
                         upper='u', object_count=2, bytes_used=10,
                         meta_timestamp=ts_2, deleted=0,
                         state=1, state_timestamp=ts_3.internal,
@@ -6842,7 +6842,7 @@ class TestShardRange(unittest.TestCase):
         assert_initialisation_ok(good_deleted,
                                  dict(expect, deleted=1))
 
-        assert_initialisation_fails(dict(good_run, created_at='water balloon'))
+        assert_initialisation_fails(dict(good_run, timestamp='water balloon'))
 
         assert_initialisation_fails(
             dict(good_run, meta_timestamp='water balloon'))
@@ -6871,7 +6871,7 @@ class TestShardRange(unittest.TestCase):
                               state=1, state_timestamp=ts_3, epoch=ts_4)
         sr_dict = dict(sr)
         expected = {
-            'name': 'a/test', 'created_at': ts_1.internal, 'lower': lower,
+            'name': 'a/test', 'timestamp': ts_1.internal, 'lower': lower,
             'upper': upper, 'object_count': 10, 'bytes_used': 100,
             'meta_timestamp': ts_2.internal, 'deleted': 0,
             'state': 1, 'state_timestamp': ts_3.internal, 'epoch': ts_4}
@@ -6892,7 +6892,7 @@ class TestShardRange(unittest.TestCase):
             with self.assertRaises(KeyError):
                 utils.ShardRange.from_dict(bad_dict)
             # But __init__ still (generally) works!
-            if key not in ('name', 'created_at'):
+            if key not in ('name', 'timestamp'):
                 utils.ShardRange(**bad_dict)
             else:
                 with self.assertRaises(TypeError):
@@ -7094,10 +7094,10 @@ class TestShardRange(unittest.TestCase):
         self.assertTrue(sr.deleted)
         old_sr_dict = dict(old_sr)
         old_sr_dict.pop('deleted')
-        old_sr_dict.pop('created_at')
+        old_sr_dict.pop('timestamp')
         sr_dict = dict(sr)
         sr_dict.pop('deleted')
-        sr_dict.pop('created_at')
+        sr_dict.pop('timestamp')
         self.assertEqual(old_sr_dict, sr_dict)
 
         # no change
@@ -7444,13 +7444,13 @@ class TestShardRange(unittest.TestCase):
 
         new_timestamp = next(self.ts_iter)
         new = sr.copy(timestamp=new_timestamp)
-        self.assertEqual(dict(sr, created_at=new_timestamp.internal,
+        self.assertEqual(dict(sr, timestamp=new_timestamp.internal,
                               meta_timestamp=new_timestamp.internal,
                               state_timestamp=new_timestamp.internal),
                          dict(new))
 
         new = sr.copy(timestamp=new_timestamp, object_count=99)
-        self.assertEqual(dict(sr, created_at=new_timestamp.internal,
+        self.assertEqual(dict(sr, timestamp=new_timestamp.internal,
                               meta_timestamp=new_timestamp.internal,
                               state_timestamp=new_timestamp.internal,
                               object_count=99),

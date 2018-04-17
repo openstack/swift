@@ -2282,7 +2282,7 @@ class TestContainerController(unittest.TestCase):
         check_bad_body('not json')
         check_bad_body('')
         bad_shard_range = dict(ShardRange('a/c', next(ts_iter)))
-        bad_shard_range.pop('created_at')
+        bad_shard_range.pop('timestamp')
         check_bad_body(json.dumps([bad_shard_range]))
 
         def check_not_shard_record_type(headers):
