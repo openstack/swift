@@ -247,7 +247,7 @@ No user metadata found in db file
 Sharding Metadata:
   Type: root
   State: sharded
-Shard Ranges:
+Shard Ranges (3):
   Name: .sharded_a/shard_range_1
     lower: '1a', upper: '1z'
     Object Count: 1, Bytes Used: 1, State: cleaved (2)
