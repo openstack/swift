@@ -314,8 +314,8 @@ def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False):
                   '%(bytes_used)d, State: %(state_text)s (%(state)d)'
                   % srange)
             print('    Created at: %s (%s)'
-                  % (Timestamp(srange['created_at']).isoformat,
-                     srange['created_at']))
+                  % (Timestamp(srange['timestamp']).isoformat,
+                     srange['timestamp']))
             print('    Meta Timestamp: %s (%s)'
                   % (Timestamp(srange['meta_timestamp']).isoformat,
                      srange['meta_timestamp']))

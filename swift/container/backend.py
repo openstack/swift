@@ -65,7 +65,7 @@ def db_state_text(state):
 
 # attribute names in order used when transforming shard ranges from dicts to
 # tuples and vice-versa
-SHARD_RANGE_KEYS = ('name', 'created_at', 'lower', 'upper', 'object_count',
+SHARD_RANGE_KEYS = ('name', 'timestamp', 'lower', 'upper', 'object_count',
                     'bytes_used', 'meta_timestamp', 'deleted', 'state',
                     'state_timestamp', 'epoch')
 
@@ -275,15 +275,15 @@ def merge_shards(shard_data, existing):
     # may have been updated with meta independently of the other.
     if not existing:
         return True
-    if existing['created_at'] < shard_data['created_at']:
+    if existing['timestamp'] < shard_data['timestamp']:
         # note that currently we do not roll forward any meta or state from
         # an item that was created at older time, newer created time trumps
         return True
-    elif existing['created_at'] > shard_data['created_at']:
+    elif existing['timestamp'] > shard_data['timestamp']:
         return False
 
     new_content = False
-    # created_at must be the same, so preserve existing range bounds
+    # timestamp must be the same, so preserve existing range bounds
     for k in ('lower', 'upper'):
         shard_data[k] = existing[k]
 
@@ -579,7 +579,7 @@ class ContainerBroker(DatabaseBroker):
                 upper TEXT,
                 object_count INTEGER DEFAULT 0,
                 bytes_used INTEGER DEFAULT 0,
-                created_at TEXT,
+                timestamp TEXT,
                 meta_timestamp TEXT,
                 state INTEGER,
                 state_timestamp TEXT,
@@ -1348,8 +1348,7 @@ class ContainerBroker(DatabaseBroker):
                         (', '.join(SHARD_RANGE_KEYS),
                          ','.join('?' * len(chunk))), chunk))
 
-            # Sort item_list into things that need adding and deleting, based
-            # on results of created_at query.
+            # Sort item_list into things that need adding and deleting
             to_delete = {}
             to_add = {}
             for item in item_list:

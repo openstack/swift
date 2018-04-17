@@ -4395,14 +4395,14 @@ class ShardRange(object):
     MIN = MinBound()
     MAX = MaxBound()
 
-    def __init__(self, name, created_at, lower=MIN, upper=MAX,
+    def __init__(self, name, timestamp, lower=MIN, upper=MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=0, state=None, state_timestamp=None, epoch=None):
         """
         A ShardRange encapsulates state related to a container shard.
 
         :param name: the name of the shard.
-        :param created_at: the timestamp at which the shard was created.
+        :param timestamp: the timestamp at which the shard was created.
         :param lower: the lower bound of object names contained in the shard;
             the lower bound *is not* included in the shard namespace.
         :param upper: the upper bound of object names contained in the shard;
@@ -4412,12 +4412,12 @@ class ShardRange(object):
         :param bytes_used: the number of bytes in the shard; defaults to zero.
         :param meta_timestamp: the timestamp at which the shard's object_count
             and bytes_used were last updated; defaults to the value of
-            ``created_at``.
+            ``timestamp``.
         :param deleted: if set the shard range is considered to be deleted.
         :param state: the state, must be one of ShardRange.STATES, defaults to
             CREATED
         :param state_timestamp: the timestamp at which the shard state was last
-            updated; defaults to the value of ``created_at``.
+            updated; defaults to the value of ``timestamp``.
         :param epoch: optional epoch timestamp
         """
         self.account, self.container = self._validate_path(name)
@@ -4426,7 +4426,7 @@ class ShardRange(object):
         self._upper = ShardRange.MAX
         self.lower = lower
         self.upper = upper
-        self.timestamp = created_at
+        self.timestamp = timestamp
         self._meta_timestamp = self._state_timestamp = self._epoch = None
         self.meta_timestamp = meta_timestamp
         self.object_count = object_count
@@ -4778,7 +4778,7 @@ class ShardRange(object):
 
     def __iter__(self):
         yield 'name', self.name
-        yield 'created_at', self.timestamp.internal
+        yield 'timestamp', self.timestamp.internal
         yield 'lower', str(self.lower)
         yield 'upper', str(self.upper)
         yield 'object_count', self.object_count
@@ -4816,7 +4816,7 @@ class ShardRange(object):
         :return: an instance of this class
         """
         return cls(
-            params['name'], params['created_at'], params['lower'],
+            params['name'], params['timestamp'], params['lower'],
             params['upper'], params['object_count'], params['bytes_used'],
             params['meta_timestamp'], params['deleted'], params['state'],
             params['state_timestamp'], params['epoch'])

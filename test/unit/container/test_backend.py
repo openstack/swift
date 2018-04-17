@@ -645,7 +645,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
@@ -670,7 +670,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
@@ -697,7 +697,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
@@ -722,7 +722,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)  # Not old_put_timestamp!
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
@@ -748,7 +748,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)  # Not old_delete_timestamp!
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
@@ -775,7 +775,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
                 "SELECT deleted FROM shard_ranges").fetchone()[0], 1)
@@ -792,7 +792,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
@@ -822,7 +822,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
@@ -849,7 +849,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT name FROM shard_ranges").fetchone()[0],
                 '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM shard_ranges").fetchone()[0],
+                "SELECT timestamp FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
@@ -3559,14 +3559,14 @@ class TestContainerBroker(unittest.TestCase):
         # Add some ShardRanges
         shard_ranges = [ShardRange(
             name='.sharded_a/shard_range_%s' % i,
-            created_at=next(ts_iter), lower='obj_%d' % i,
+            timestamp=next(ts_iter), lower='obj_%d' % i,
             upper='obj_%d' % (i + 2),
             object_count=len(objects[i:i + 2]),
             bytes_used=sum(obj['size'] for obj in objects[i:i + 2]),
             meta_timestamp=next(ts_iter)) for i in range(0, 6, 2)]
         deleted_range = ShardRange('.sharded_a/shard_range_z', next(ts_iter),
                                    'z', '', state=ShardRange.ACTIVE, deleted=1)
-        own_sr = ShardRange(name='a/c', created_at=next(ts_iter),
+        own_sr = ShardRange(name='a/c', timestamp=next(ts_iter),
                             state=ShardRange.ACTIVE)
         broker.merge_shard_ranges([own_sr] + shard_ranges + [deleted_range])
         ts_epoch = next(ts_iter)
