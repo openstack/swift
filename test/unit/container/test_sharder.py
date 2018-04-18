@@ -2881,7 +2881,7 @@ class TestSharder(BaseTestSharder):
         broker.delete_db(Timestamp.now().internal)
         self.assertFalse(sharding_enabled(broker))
         # but if broker has a shard range then sharding is enabled
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('acc/a_shard', Timestamp.now(), 'l', 'u'))
         self.assertTrue(sharding_enabled(broker))
 

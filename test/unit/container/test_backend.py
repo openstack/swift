@@ -624,8 +624,8 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(conn.execute(
                 "SELECT deleted FROM object").fetchone()[0], 0)
 
-    def test_update_shard_range(self):
-        # Test ContainerBroker.update_shard_range
+    def test_merge_shard_range_single_record(self):
+        # Test ContainerBroker.merge_shard_range
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
 
@@ -637,7 +637,7 @@ class TestContainerBroker(unittest.TestCase):
         # Create initial object
         timestamp = next(ts_iter).internal
         meta_timestamp = next(ts_iter).internal
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'low', 'up', meta_timestamp=meta_timestamp))
         with broker.get() as conn:
@@ -662,7 +662,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 0)
 
         # Reput same event
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'low', 'up', meta_timestamp=meta_timestamp))
         with broker.get() as conn:
@@ -689,7 +689,7 @@ class TestContainerBroker(unittest.TestCase):
         # Put new event
         timestamp = next(ts_iter).internal
         meta_timestamp = next(ts_iter).internal
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lower', 'upper', 1, 2, meta_timestamp=meta_timestamp))
         with broker.get() as conn:
@@ -714,7 +714,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 2)
 
         # Put old event
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', old_put_timestamp,
                        'lower', 'upper', 1, 2, meta_timestamp=meta_timestamp))
         with broker.get() as conn:
@@ -739,7 +739,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 2)
 
         # Put old delete event
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', old_delete_timestamp,
                        'lower', 'upper', meta_timestamp=meta_timestamp,
                        deleted=1))
@@ -766,7 +766,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put new delete event
         timestamp = next(ts_iter).internal
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lower', 'upper', meta_timestamp=meta_timestamp,
                        deleted=1))
@@ -783,7 +783,7 @@ class TestContainerBroker(unittest.TestCase):
         # Put new event
         timestamp = next(ts_iter).internal
         meta_timestamp = next(ts_iter).internal
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lowerer', 'upperer', 3, 4,
                        meta_timestamp=meta_timestamp))
@@ -813,7 +813,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # New update event, meta_timestamp increases
         meta_timestamp = next(ts_iter).internal
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lowerer', 'upperer', 3, 4,
                        meta_timestamp=meta_timestamp))
@@ -840,7 +840,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put event from after last put but before last post
         timestamp = in_between_timestamp
-        broker.update_shard_range(
+        broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lowererer', 'uppererer', 5, 6,
                        meta_timestamp=meta_timestamp))
@@ -865,13 +865,13 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(conn.execute(
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 6)
 
-    def test_update_shard_range_deleted(self):
-        # Test ContainerBroker.update_shard_range sets deleted attribute
+    def test_merge_shard_ranges_deleted(self):
+        # Test ContainerBroker.merge_shard_ranges sets deleted attribute
         ts_iter = make_timestamp_iter()
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
         # put shard range
-        broker.update_shard_range(ShardRange('a/o', next(ts_iter).internal))
+        broker.merge_shard_ranges(ShardRange('a/o', next(ts_iter).internal))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM shard_ranges "
@@ -881,7 +881,7 @@ class TestContainerBroker(unittest.TestCase):
                 "WHERE deleted = 1").fetchone()[0], 0)
 
         # delete shard range
-        broker.update_shard_range(ShardRange('a/o', next(ts_iter).internal,
+        broker.merge_shard_ranges(ShardRange('a/o', next(ts_iter).internal,
                                              deleted=1))
         with broker.get() as conn:
             self.assertEqual(conn.execute(

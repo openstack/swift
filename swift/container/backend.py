@@ -764,15 +764,6 @@ class ContainerBroker(DatabaseBroker):
             conn.execute(query, query_args)
             conn.commit()
 
-    def update_shard_range(self, shard_range):
-        """
-        Updates a shard range record in the DB, including the metadata and
-        deleted attributes.
-
-        :param shard_range: a :class:`~swift.common.utils.ShardRange`
-        """
-        self.put_record(dict(shard_range, record_type=RECORD_TYPE_SHARD_NODE))
-
     def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
                          **kwargs):
         """
@@ -1321,6 +1312,8 @@ class ContainerBroker(DatabaseBroker):
         """
         if not shard_ranges:
             return
+        if not isinstance(shard_ranges, list):
+            shard_ranges = [shard_ranges]
 
         item_list = []
         for item in shard_ranges:

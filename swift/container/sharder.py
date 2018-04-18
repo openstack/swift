@@ -414,7 +414,7 @@ class ContainerSharder(ContainerReplicator):
         shard_broker.get_info()
 
         if not shard_broker.get_sharding_info('Root') or force:
-            shard_broker.merge_shard_ranges([shard_range])
+            shard_broker.merge_shard_ranges(shard_range)
             shard_broker.update_sharding_info({'Root': root_path})
             shard_broker.update_metadata({
                 'X-Container-Sysmeta-Sharding':
@@ -798,7 +798,7 @@ class ContainerSharder(ContainerReplicator):
 
         if shard_range:
             self.logger.debug('Updating shard from root %s', dict(shard_range))
-            broker.merge_shard_ranges([shard_range])
+            broker.merge_shard_ranges(shard_range)
             own_shard_range = broker.get_own_shard_range()
             delete_age = time.time() - self.reclaim_age
             if (own_shard_range.state == ShardRange.SHARDED and
@@ -827,7 +827,7 @@ class ContainerSharder(ContainerReplicator):
             return
 
         # persist the reported shard metadata
-        broker.merge_shard_ranges([own_shard_range])
+        broker.merge_shard_ranges(own_shard_range)
         # now get a consistent list of own and other shard ranges
         shard_ranges = broker.get_shard_ranges(
             include_own=True,
@@ -1328,8 +1328,8 @@ class ContainerSharder(ContainerReplicator):
             # namespace should not be deleted until all shards are cleaved.
             if own_shard_range.update_state(ShardRange.SHARDED):
                 own_shard_range.set_deleted()
-                broker.merge_shard_ranges([own_shard_range])
-            shard_broker.merge_shard_ranges([own_shard_range])
+                broker.merge_shard_ranges(own_shard_range)
+            shard_broker.merge_shard_ranges(own_shard_range)
         elif shard_range.state == ShardRange.CREATED:
             # The shard range object stats may have changed since the shard
             # range was found, so update with stats of objects actually
@@ -1339,7 +1339,7 @@ class ContainerSharder(ContainerReplicator):
             shard_range.update_meta(
                 info['object_count'], info['bytes_used'])
             shard_range.update_state(ShardRange.CLEAVED)
-            shard_broker.merge_shard_ranges([shard_range])
+            shard_broker.merge_shard_ranges(shard_range)
 
         self.logger.info(
             'Replicating new shard container %s for %s',
@@ -1361,7 +1361,7 @@ class ContainerSharder(ContainerReplicator):
         elapsed = round(time.time() - start, 3)
         self._min_stat('cleaved', 'min_time', elapsed)
         self._max_stat('cleaved', 'max_time', elapsed)
-        broker.merge_shard_ranges([shard_range])
+        broker.merge_shard_ranges(shard_range)
         cleaving_context.cursor = str(shard_range.upper)
         if shard_range.upper >= own_shard_range.upper:
             # cleaving complete
