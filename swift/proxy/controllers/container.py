@@ -153,7 +153,7 @@ class ContainerController(Controller):
         # get the list of ShardRanges that contain the requested listing range
         # by using original request params
         ranges = self._get_shard_ranges(
-            req, self.account_name, self.container_name, state='listing')
+            req, self.account_name, self.container_name, states='listing')
         if not ranges:
             # can't find ranges or there was a problem getting the ranges. So
             # return what we have.

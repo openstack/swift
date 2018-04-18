@@ -273,7 +273,7 @@ class BaseObjectController(Controller):
         if db_state in (SHARDED, SHARDING):
             shard_ranges = self._get_shard_ranges(
                 req, self.account_name, self.container_name,
-                includes=self.object_name, state='updating')
+                includes=self.object_name, states='updating')
             if shard_ranges:
                 partition, nodes = self.app.container_ring.get_nodes(
                     shard_ranges[0].account, shard_ranges[0].container)

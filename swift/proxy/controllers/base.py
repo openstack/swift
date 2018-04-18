@@ -2045,7 +2045,7 @@ class Controller(object):
             return None, response
 
     def _get_shard_ranges(self, req, account, container, includes=None,
-                          state=None):
+                          states=None):
         """
         Fetch shard ranges from given `account/container`. If `includes` is
         given then the shard range for that object name is requested, otherwise
@@ -2056,7 +2056,7 @@ class Controller(object):
         :param container: container from which shard ranges should be fetched.
         :param includes: (optional) restricts the list of fetched shard ranges
             to those which include the given name.
-        :param state: (optional) the state of shard ranges to be fetched.
+        :param states: (optional) the states of shard ranges to be fetched.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`,
             or None if there was a problem fetching the shard ranges
         """
@@ -2065,8 +2065,8 @@ class Controller(object):
         params['format'] = 'json'
         if includes:
             params['includes'] = includes
-        if state:
-            params['state'] = state
+        if states:
+            params['states'] = states
         headers = {'X-Backend-Record-Type': 'shard'}
         listing, response = self._get_container_listing(
             req, account, container, headers=headers, params=params)

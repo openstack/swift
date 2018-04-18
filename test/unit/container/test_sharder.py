@@ -1080,7 +1080,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(8, context.max_row)
 
     def test_cleave_shard(self):
-        broker = self._make_broker(account='.sharded_a', container='shard_c')
+        broker = self._make_broker(account='.shards_a', container='shard_c')
         own_shard_range = ShardRange(
             broker.path, Timestamp.now(), 'here', 'where',
             state=ShardRange.SHARDING, epoch=Timestamp.now())
@@ -1728,7 +1728,8 @@ class TestSharder(BaseTestSharder):
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', 'yonder'),
                         ('yonder', ''))
-        initial_shard_ranges = self._make_shard_ranges(shard_bounds)
+        initial_shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.ACTIVE)
         expected_shard_dbs = []
         for shard_range in initial_shard_ranges:
             db_hash = hash_path(shard_range.account, shard_range.container)
@@ -1898,8 +1899,8 @@ class TestSharder(BaseTestSharder):
                         ('there', 'where'), ('where', 'yonder'),
                         ('yonder', ''))
         initial_shard_ranges = [
-            ShardRange('.sharded_a/%s-%s' % (lower, upper),
-                       Timestamp.now(), lower, upper)
+            ShardRange('.shards_a/%s-%s' % (lower, upper),
+                       Timestamp.now(), lower, upper, state=ShardRange.ACTIVE)
             for lower, upper in shard_bounds
         ]
         expected_dbs = []
@@ -2181,7 +2182,7 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(os.path.exists(expected_dbs[4]))
 
     def _check_misplaced_objects_shard_container_unsharded(self):
-        broker = self._make_broker(account='.sharded_a', container='.shard_c')
+        broker = self._make_broker(account='.shards_a', container='.shard_c')
         ts_shard = next(self.ts_iter)
         own_sr = ShardRange(broker.path, ts_shard, 'here', 'where')
         broker.merge_shard_ranges([own_sr])
@@ -2201,7 +2202,8 @@ class TestSharder(BaseTestSharder):
 
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', ''))
-        root_shard_ranges = self._make_shard_ranges(shard_bounds)
+        root_shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.ACTIVE)
         expected_shard_dbs = []
         for sr in root_shard_ranges:
             db_hash = hash_path(sr.account, sr.container)
@@ -2211,7 +2213,12 @@ class TestSharder(BaseTestSharder):
 
         # no objects
         with self._mock_sharder() as sharder:
+            sharder._fetch_shard_ranges = mock.MagicMock(
+                return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
+
+        sharder._fetch_shard_ranges.assert_not_called()
+
         sharder._replicate_object.assert_not_called()
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
                           'found': 0, 'placed': 0, 'unplaced': 0}
@@ -2227,9 +2234,17 @@ class TestSharder(BaseTestSharder):
 
         # NB final shard range not available
         with self._mock_sharder() as sharder:
-            sharder._fetch_shard_ranges = (lambda *a, **k:
-                                           root_shard_ranges[:-1])
+            sharder._fetch_shard_ranges = mock.MagicMock(
+                return_value=root_shard_ranges[:-1])
             sharder._move_misplaced_objects(broker)
+
+        sharder._fetch_shard_ranges.assert_has_calls(
+            [mock.call(broker, newest=True, params={'states': 'updating',
+                                                    'marker': '',
+                                                    'end_marker': 'here\x00'}),
+             mock.call(broker, newest=True, params={'states': 'updating',
+                                                    'marker': 'where',
+                                                    'end_marker': ''})])
         sharder._replicate_object.assert_called_with(
             0, expected_shard_dbs[0], 0),
 
@@ -2257,8 +2272,14 @@ class TestSharder(BaseTestSharder):
 
         # repeat with final shard range available
         with self._mock_sharder() as sharder:
-            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._fetch_shard_ranges = mock.MagicMock(
+                return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
+
+        sharder._fetch_shard_ranges.assert_has_calls(
+            [mock.call(broker, newest=True, params={'states': 'updating',
+                                                    'marker': 'where',
+                                                    'end_marker': ''})])
 
         sharder._replicate_object.assert_called_with(
             0, expected_shard_dbs[-1], 0),
@@ -2281,7 +2302,11 @@ class TestSharder(BaseTestSharder):
 
         # repeat - no work remaining
         with self._mock_sharder() as sharder:
+            sharder._fetch_shard_ranges = mock.MagicMock(
+                return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
+
+        sharder._fetch_shard_ranges.assert_not_called()
         sharder._replicate_object.assert_not_called()
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
                           'found': 0, 'placed': 0, 'unplaced': 0}
@@ -2302,8 +2327,17 @@ class TestSharder(BaseTestSharder):
                             broker.db_file)
 
         with self._mock_sharder() as sharder:
-            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._fetch_shard_ranges = mock.MagicMock(
+                return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
+
+        sharder._fetch_shard_ranges.assert_has_calls(
+            [mock.call(broker, newest=True, params={'states': 'updating',
+                                                    'marker': '',
+                                                    'end_marker': 'here\x00'}),
+             mock.call(broker, newest=True, params={'states': 'updating',
+                                                    'marker': 'where',
+                                                    'end_marker': ''})])
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0)
              for db in (expected_shard_dbs[0], expected_shard_dbs[3])],
@@ -2339,7 +2373,7 @@ class TestSharder(BaseTestSharder):
             self._check_misplaced_objects_shard_container_unsharded()
 
     def test_misplaced_objects_shard_container_sharding(self):
-        broker = self._make_broker(account='.sharded_a', container='shard_c')
+        broker = self._make_broker(account='.shards_a', container='shard_c')
         ts_shard = next(self.ts_iter)
         # note that own_sr spans two root shard ranges
         own_sr = ShardRange(broker.path, ts_shard, 'here', 'where')
@@ -2362,7 +2396,8 @@ class TestSharder(BaseTestSharder):
 
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', ''))
-        root_shard_ranges = self._make_shard_ranges(shard_bounds)
+        root_shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.ACTIVE)
         expected_shard_dbs = []
         for sr in root_shard_ranges:
             db_hash = hash_path(sr.account, sr.container)
@@ -2381,9 +2416,17 @@ class TestSharder(BaseTestSharder):
 
         # first destination is not available
         with self._mock_sharder() as sharder:
-            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges[1:]
+            sharder._fetch_shard_ranges = mock.MagicMock(
+                return_value=root_shard_ranges[1:])
             sharder._move_misplaced_objects(broker)
 
+        sharder._fetch_shard_ranges.assert_has_calls(
+            [mock.call(broker, newest=True, params={'states': 'updating',
+                                                    'marker': '',
+                                                    'end_marker': 'here\x00'}),
+             mock.call(broker, newest=True, params={'states': 'updating',
+                                                    'marker': 'where',
+                                                    'end_marker': ''})])
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, expected_shard_dbs[-1], 0)],
         )
@@ -2409,8 +2452,15 @@ class TestSharder(BaseTestSharder):
 
         # normality resumes and all destinations are available
         with self._mock_sharder() as sharder:
-            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._fetch_shard_ranges = mock.MagicMock(
+                return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
+
+        sharder._fetch_shard_ranges.assert_has_calls(
+            [mock.call(broker, newest=True, params={'states': 'updating',
+                                                    'marker': '',
+                                                    'end_marker': 'here\x00'})]
+        )
 
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, expected_shard_dbs[0], 0)],
@@ -2447,8 +2497,17 @@ class TestSharder(BaseTestSharder):
         # sanity check the puts landed in sharded broker
         self._check_objects(sorted(new_objects + objects[2:5]), broker.db_file)
         with self._mock_sharder() as sharder:
-            sharder._fetch_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._fetch_shard_ranges = mock.MagicMock(
+                return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
+
+        sharder._fetch_shard_ranges.assert_has_calls(
+            [mock.call(broker, newest=True,
+                       params={'states': 'updating', 'marker': '',
+                               'end_marker': 'there\x00'}),
+             mock.call(broker, newest=True,
+                       params={'states': 'updating', 'marker': 'where',
+                               'end_marker': ''})])
 
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in (expected_shard_dbs[0],
@@ -2484,7 +2543,8 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges([own_sr])
 
         shard_bounds = (('', 'here'), ('here', ''))
-        root_shard_ranges = self._make_shard_ranges(shard_bounds)
+        root_shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.ACTIVE)
         expected_shard_dbs = []
         for sr in root_shard_ranges:
             db_hash = hash_path(sr.account, sr.container)
@@ -2508,6 +2568,7 @@ class TestSharder(BaseTestSharder):
         self.assertTrue(broker.set_sharded_state())
 
         with self._mock_sharder() as sharder:
+            sharder.logger = debug_logger()
             sharder._move_misplaced_objects(broker)
 
         sharder._replicate_object.assert_has_calls(

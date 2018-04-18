@@ -2462,81 +2462,82 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(shard_ranges, 'a/c')
         check_shard_GET(reversed(shard_ranges), 'a/c', params='&reverse=true')
         # only created shards
-        check_shard_GET(shard_ranges[3:4], 'a/c', params='&state=created')
+        check_shard_GET(shard_ranges[3:4], 'a/c', params='&states=created')
         # only found shards
-        check_shard_GET(shard_ranges[4:5], 'a/c', params='&state=found')
+        check_shard_GET(shard_ranges[4:5], 'a/c', params='&states=found')
         # only cleaved shards
         check_shard_GET(shard_ranges[1:2], 'a/c',
-                        params='&state=cleaved')
+                        params='&states=cleaved')
         # only active shards
         check_shard_GET(shard_ranges[2:3], 'a/c',
-                        params='&state=active&end_marker=pickle')
+                        params='&states=active&end_marker=pickle')
         # only cleaved or active shards, reversed
         check_shard_GET(
             reversed(shard_ranges[1:3]), 'a/c',
-            params='&state=cleaved,active&reverse=true&marker=pickle')
+            params='&states=cleaved,active&reverse=true&marker=pickle')
         # only shrinking shards
         check_shard_GET(shard_ranges[:1], 'a/c',
-                        params='&state=shrinking&end_marker=pickle')
+                        params='&states=shrinking&end_marker=pickle')
         check_shard_GET(shard_ranges[:1], 'a/c',
-                        params='&state=shrinking&reverse=true&marker=pickle')
+                        params='&states=shrinking&reverse=true&marker=pickle')
         # only active or shrinking shards
         check_shard_GET([shard_ranges[0], shard_ranges[2]], 'a/c',
-                        params='&state=shrinking,active&end_marker=pickle')
+                        params='&states=shrinking,active&end_marker=pickle')
         check_shard_GET(
             [shard_ranges[2], shard_ranges[0]], 'a/c',
-            params='&state=active,shrinking&reverse=true&marker=pickle')
+            params='&states=active,shrinking&reverse=true&marker=pickle')
         # only active or shrinking shards using listing alias
         check_shard_GET(shard_ranges[:3], 'a/c',
-                        params='&state=listing&end_marker=pickle')
+                        params='&states=listing&end_marker=pickle')
         check_shard_GET(
             reversed(shard_ranges[:3]), 'a/c',
-            params='&state=listing&reverse=true&marker=pickle')
+            params='&states=listing&reverse=true&marker=pickle')
         # only created, cleaved, active, shrinking shards using updating alias
         check_shard_GET(shard_ranges[1:4], 'a/c',
-                        params='&state=updating&end_marker=treacle')
+                        params='&states=updating&end_marker=treacle')
         check_shard_GET(
             reversed(shard_ranges[1:4]), 'a/c',
-            params='&state=updating&reverse=true&marker=treacle')
+            params='&states=updating&reverse=true&marker=treacle')
 
         # active shards don't cover entire namespace so expect an extra filler
         extra_shard_range = ShardRange(
             'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX,
             state=ShardRange.ACTIVE)
         expected = shard_ranges[2:3] + [extra_shard_range]
-        check_shard_GET(expected, 'a/c', params='&state=active')
+        check_shard_GET(expected, 'a/c', params='&states=active')
         check_shard_GET(reversed(expected), 'a/c',
-                        params='&state=active&reverse=true')
+                        params='&states=active&reverse=true')
         expected = [shard_ranges[2], extra_shard_range]
-        check_shard_GET(expected, 'a/c', params='&state=active&marker=pickle')
+        check_shard_GET(expected, 'a/c', params='&states=active&marker=pickle')
         check_shard_GET(reversed(expected), 'a/c',
-                        params='&state=active&reverse=true&end_marker=pickle')
+                        params='&states=active&reverse=true&end_marker=pickle')
         # listing shards don't cover entire namespace so expect an extra filler
         expected = shard_ranges[:3] + [extra_shard_range]
-        check_shard_GET(expected, 'a/c', params='&state=listing')
+        check_shard_GET(expected, 'a/c', params='&states=listing')
         check_shard_GET(reversed(expected), 'a/c',
-                        params='&state=listing&reverse=true')
+                        params='&states=listing&reverse=true')
         # updating shards don't cover entire namespace so expect a filler
         extra_shard_range = ShardRange(
             'a/c', ts_now, shard_ranges[3].upper, ShardRange.MAX,
             state=ShardRange.ACTIVE)
         expected = shard_ranges[1:4] + [extra_shard_range]
-        check_shard_GET(expected, 'a/c', params='&state=updating')
+        check_shard_GET(expected, 'a/c', params='&states=updating')
         check_shard_GET(reversed(expected), 'a/c',
-                        params='&state=updating&reverse=true')
+                        params='&states=updating&reverse=true')
         # when no active shard ranges cover the requested namespace range then
         # filler is for entire requested namespace
         extra_shard_range = ShardRange(
             'a/c', ts_now, 'treacle', ShardRange.MAX, state=ShardRange.ACTIVE)
         check_shard_GET([extra_shard_range], 'a/c',
-                        params='&state=active&marker=treacle')
-        check_shard_GET([extra_shard_range], 'a/c',
-                        params='&state=active&reverse=true&end_marker=treacle')
+                        params='&states=active&marker=treacle')
+        check_shard_GET(
+            [extra_shard_range], 'a/c',
+            params='&states=active&reverse=true&end_marker=treacle')
         extra_shard_range = ShardRange(
             'a/c', ts_now, 'treacle', 'walnut', state=ShardRange.ACTIVE)
-        params = '&state=active&marker=treacle&end_marker=walnut'
+        params = '&states=active&marker=treacle&end_marker=walnut'
         check_shard_GET([extra_shard_range], 'a/c', params=params)
-        params = '&state=active&reverse=true&marker=walnut&end_marker=treacle'
+        params = '&states=active&reverse=true&marker=walnut&end_marker=treacle'
         check_shard_GET([extra_shard_range], 'a/c', params=params)
         # specific object
         check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=cheese')
@@ -2686,7 +2687,7 @@ class TestContainerController(unittest.TestCase):
 
         # root's shard ranges for listing
         root_path = container_path = 'a/c'
-        params = '&state=listing'
+        params = '&states=listing'
         expected_states = [
             ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
             ShardRange.SHRINKING]
@@ -2694,11 +2695,11 @@ class TestContainerController(unittest.TestCase):
 
         # shard's shard ranges for listing
         container_path = '.shards_a/c'
-        params = '&state=listing'
+        params = '&states=listing'
         do_test(root_path, container_path, params, expected_states)
 
         # root's shard ranges for updating
-        params = '&state=updating'
+        params = '&states=updating'
         expected_states = [
             ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
             ShardRange.SHARDING]

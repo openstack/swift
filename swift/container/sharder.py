@@ -27,7 +27,8 @@ from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
 from swift.container.replicator import ContainerReplicator
 from swift.container.backend import ContainerBroker, \
-    RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARDING, SHARDED, COLLAPSED
+    RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARDING, SHARDED, COLLAPSED, \
+    SHARD_UPDATE_STATES
 from swift.common import internal_client, db_replicator
 from swift.common.exceptions import DeviceUnavailable
 from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
@@ -570,6 +571,8 @@ class ContainerSharder(ContainerReplicator):
                 continue
 
             if dest_shard_range.name == src_broker.path:
+                self.logger.debug(
+                    'Skipping source as misplaced objects destination')
                 # in shrinking context, the misplaced objects might actually be
                 # correctly placed if the root has expanded this shard but this
                 # broker has not yet been updated
@@ -607,7 +610,7 @@ class ContainerSharder(ContainerReplicator):
         self.logger.debug('Moved %s misplaced objects' % placed)
         return success, placed + unplaced
 
-    def _make_shard_range_fetcher(self, broker):
+    def _make_shard_range_fetcher(self, broker, src_shard_range):
         # returns a function that will lazy load shard ranges on demand;
         # this means only one lookup is made for all misplaced ranges.
         outer = {}
@@ -615,12 +618,19 @@ class ContainerSharder(ContainerReplicator):
         def shard_range_fetcher():
             if not outer:
                 if broker.is_root_container():
-                    ranges = broker.get_shard_ranges()
+                    ranges = broker.get_shard_ranges(
+                        marker=src_shard_range.lower,
+                        end_marker=src_shard_range.end_marker,
+                        states=SHARD_UPDATE_STATES)
                 else:
                     # TODO: the root may not yet know about shard ranges to
-                    # which a shard is sharding - those need to come from
+                    # which a shard is sharding, but those could come from
                     # the broker
-                    ranges = self._fetch_shard_ranges(broker, newest=True)
+                    ranges = self._fetch_shard_ranges(
+                        broker, newest=True,
+                        params={'states': 'updating',
+                                'marker': src_shard_range.lower,
+                                'end_marker': src_shard_range.end_marker})
                 outer['ranges'] = iter(ranges)
             return outer['ranges']
         return shard_range_fetcher
@@ -645,9 +655,6 @@ class ContainerSharder(ContainerReplicator):
         if not bounds and state == SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
-            # TODO: if we redirect new udpates to CREATED shards then should we
-            # also treat objects in CREATED shards as misplaced, as well as
-            # ACTIVE shards?
             cleave_context = CleavingContext.load(broker)
             if cleave_context.cursor:
                 bounds.append(('', cleave_context.cursor))
@@ -691,10 +698,10 @@ class ContainerSharder(ContainerReplicator):
         # TODO: what about records for objects in the wrong storage policy?
         success = True
         num_found = 0
-        for query in src_ranges:
+        for src_shard_range in src_ranges:
             part_success, part_num_found = self._move_objects(
-                src_broker, query, policy_index,
-                self._make_shard_range_fetcher(broker))
+                src_broker, src_shard_range, policy_index,
+                self._make_shard_range_fetcher(broker, src_shard_range))
             success &= part_success
             num_found += part_num_found
 
