@@ -115,7 +115,7 @@ class ContainerReplicator(db_replicator.Replicator):
                 broker.db_file,
                 '%(ip)s:%(port)s/%(device)s' % node,
                 len(shard_ranges))
-            self.stats['aborted'] += 1
+            self.stats['deferred'] += 1
             return shard_range_success
 
         success = super(ContainerReplicator, self)._choose_replication_mode(

@@ -1192,7 +1192,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertTrue(res)
         self.assertTrue(os.path.exists(broker.db_file))
 
-        # db sharding, nor deleted
+        # db sharding, not deleted
         self._goto_sharding_state(broker, Timestamp.now())
         self.assertTrue(broker.requires_sharding())  # sanity check
         res = daemon.cleanup_post_replicate(broker, False, [True] * 3)
@@ -1235,7 +1235,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                 expected_shard_ranges,
                 to_broker.get_shard_ranges(include_deleted=True)
             )
-            self.assertEqual(1, daemon.stats['aborted'])
+            self.assertEqual(1, daemon.stats['deferred'])
             self.assertEqual(0, daemon.stats['rsync'])
             self.assertEqual(0, daemon.stats['diff'])
             local_info = self._get_broker(
@@ -1377,7 +1377,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for shard_range in shard_ranges:
             broker.merge_shard_ranges(shard_range)
         daemon = self._run_once(node)
-        self.assertEqual(2, daemon.stats['aborted'])
+        self.assertEqual(2, daemon.stats['deferred'])
         check_replicate(shard_ranges[:1] + [own_sr] + shard_ranges[1:])
 
     def check_replicate(self, from_broker, remote_node_index, repl_conf=None,
@@ -1514,7 +1514,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         daemon, repl_calls, rsync_calls = self.check_replicate(local_broker, 1)
         self.assertEqual(['sync', 'get_shard_ranges', 'merge_items'],
                          [call[0] for call in repl_calls])
-        self.assertEqual(1, daemon.stats['aborted'])
+        self.assertEqual(1, daemon.stats['deferred'])
         self.assertEqual(0, daemon.stats['rsync'])
         self.assertEqual(0, daemon.stats['diff'])
         self.assertFalse(rsync_calls)
@@ -1537,7 +1537,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             expect_success=expect_success)
 
         # we always expect only shard ranges to end in abort
-        self.assertEqual(1, daemon.stats['aborted'])
+        self.assertEqual(1, daemon.stats['deferred'])
         self.assertEqual(0, daemon.stats['diff'])
         self.assertEqual(0, daemon.stats['rsync'])
         self.assertEqual(['sync', 'get_shard_ranges', 'merge_items'],
@@ -1642,7 +1642,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(['sync', 'complete_rsync'],
                          [call[0] for call in repl_calls])
         self.assertEqual(1, daemon.stats['rsync'])
-        self.assertEqual(0, daemon.stats['aborted'])
+        self.assertEqual(0, daemon.stats['deferred'])
         self.assertEqual(0, daemon.stats['diff'])
 
         # fresh db is sync'd first...
