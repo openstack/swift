@@ -593,43 +593,17 @@ class ContainerController(BaseStorageServer):
                 req.headers.get('x-backend-include-deleted', False))
             includes = get_param(req, 'includes')
             states = get_param(req, 'states') or None
+            fill_gaps = False
             if states:
                 states = list_from_csv(states)
+                fill_gaps = any(('listing' in states, 'updating' in states))
                 try:
                     states = broker.resolve_shard_range_states(states)
                 except ValueError:
                     return HTTPBadRequest(request=req, body='Bad state')
             container_list = broker.get_shard_ranges(
                 marker, end_marker, includes, reverse, states=states,
-                include_deleted=include_deleted)
-            if states and ShardRange.ACTIVE in states:
-                # we might not get all required shard ranges if the container
-                # is part way through sharding, in which case add a filler
-                # shard range for the remainder of the container namespace
-                # TODO: consider making the broker supply this extra shard
-                # range when necessary to better separate implementation
-                # details and ensure the filler is always equal to the
-                # uncleaved namespace
-                if reverse:
-                    if container_list:
-                        last_upper = container_list[0].upper
-                    else:
-                        last_upper = end_marker or ShardRange.MIN
-                    required_upper = marker or ShardRange.MAX
-                    filler_index = 0
-                else:
-                    if container_list:
-                        last_upper = container_list[-1].upper
-                    else:
-                        last_upper = marker or ShardRange.MIN
-                    required_upper = end_marker or ShardRange.MAX
-                    filler_index = len(container_list)
-                if required_upper > last_upper:
-                    filler_sr = ShardRange(
-                        '%s/%s' % (account, container), Timestamp.now(),
-                        str(last_upper), str(required_upper),
-                        state=ShardRange.ACTIVE)
-                    container_list.insert(filler_index, filler_sr)
+                include_deleted=include_deleted, fill_gaps=fill_gaps)
         else:
             resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
             if is_deleted:

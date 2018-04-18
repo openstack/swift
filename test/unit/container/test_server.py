@@ -2499,45 +2499,45 @@ class TestContainerController(unittest.TestCase):
             reversed(shard_ranges[1:4]), 'a/c',
             params='&states=updating&reverse=true&marker=treacle')
 
-        # active shards don't cover entire namespace so expect an extra filler
-        extra_shard_range = ShardRange(
-            'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX,
-            state=ShardRange.ACTIVE)
-        expected = shard_ranges[2:3] + [extra_shard_range]
-        check_shard_GET(expected, 'a/c', params='&states=active')
-        check_shard_GET(reversed(expected), 'a/c',
-                        params='&states=active&reverse=true')
-        expected = [shard_ranges[2], extra_shard_range]
-        check_shard_GET(expected, 'a/c', params='&states=active&marker=pickle')
-        check_shard_GET(reversed(expected), 'a/c',
-                        params='&states=active&reverse=true&end_marker=pickle')
         # listing shards don't cover entire namespace so expect an extra filler
+        extra_shard_range = ShardRange(
+            'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX, 2, 1024,
+            state=ShardRange.ACTIVE)
         expected = shard_ranges[:3] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&states=listing')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&states=listing&reverse=true')
+        expected = [shard_ranges[2], extra_shard_range]
+        check_shard_GET(expected, 'a/c',
+                        params='&states=listing&marker=pickle')
+        check_shard_GET(
+            reversed(expected), 'a/c',
+            params='&states=listing&reverse=true&end_marker=pickle')
         # updating shards don't cover entire namespace so expect a filler
         extra_shard_range = ShardRange(
-            'a/c', ts_now, shard_ranges[3].upper, ShardRange.MAX,
+            'a/c', ts_now, shard_ranges[3].upper, ShardRange.MAX, 2, 1024,
             state=ShardRange.ACTIVE)
         expected = shard_ranges[1:4] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&states=updating')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&states=updating&reverse=true')
-        # when no active shard ranges cover the requested namespace range then
+        # when no listing shard ranges cover the requested namespace range then
         # filler is for entire requested namespace
         extra_shard_range = ShardRange(
-            'a/c', ts_now, 'treacle', ShardRange.MAX, state=ShardRange.ACTIVE)
+            'a/c', ts_now, 'treacle', ShardRange.MAX, 2, 1024,
+            state=ShardRange.ACTIVE)
         check_shard_GET([extra_shard_range], 'a/c',
-                        params='&states=active&marker=treacle')
+                        params='&states=listing&marker=treacle')
         check_shard_GET(
             [extra_shard_range], 'a/c',
-            params='&states=active&reverse=true&end_marker=treacle')
+            params='&states=listing&reverse=true&end_marker=treacle')
         extra_shard_range = ShardRange(
-            'a/c', ts_now, 'treacle', 'walnut', state=ShardRange.ACTIVE)
-        params = '&states=active&marker=treacle&end_marker=walnut'
+            'a/c', ts_now, 'treacle', 'walnut', 2, 1024,
+            state=ShardRange.ACTIVE)
+        params = '&states=listing&marker=treacle&end_marker=walnut'
         check_shard_GET([extra_shard_range], 'a/c', params=params)
-        params = '&states=active&reverse=true&marker=walnut&end_marker=treacle'
+        params = '&states=listing&reverse=true&marker=walnut' + \
+                 '&end_marker=treacle'
         check_shard_GET([extra_shard_range], 'a/c', params=params)
         # specific object
         check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=cheese')
@@ -2651,8 +2651,10 @@ class TestContainerController(unittest.TestCase):
         def do_test(root_path, path, params, expected_states):
             expected = [
                 sr for sr in shard_ranges if sr.state in expected_states]
-            expected.append(ShardRange(path, ts_now, expected[-1].upper, '',
-                                       state=ShardRange.ACTIVE))
+            own_shard_range = ShardRange(path, next(ts_iter), '', '',
+                                         state=ShardRange.ACTIVE)
+            expected.append(own_shard_range.copy(
+                lower=expected[-1].upper, meta_timestamp=ts_now))
             expected = [dict(sr, last_modified=sr.timestamp.isoformat)
                         for sr in expected]
             headers = {'X-Timestamp': next(ts_iter).normal}
@@ -2666,7 +2668,6 @@ class TestContainerController(unittest.TestCase):
             headers = {'X-Timestamp': next(ts_iter).normal,
                        'X-Container-Sysmeta-Shard-Root': root_path,
                        'X-Backend-Record-Type': 'shard'}
-            own_shard_range = ShardRange(path, next(ts_iter), 'apple', '')
             body = json.dumps(
                 [dict(sr) for sr in shard_ranges + [own_shard_range]])
             req = Request.blank(
