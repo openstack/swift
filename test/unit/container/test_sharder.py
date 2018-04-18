@@ -29,7 +29,7 @@ from collections import defaultdict
 
 import time
 
-from swift.common.internal_client import UnexpectedResponse
+from swift.common import internal_client
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED
 from swift.container.sharder import ContainerSharder, sharding_enabled, \
@@ -532,6 +532,96 @@ class TestSharder(BaseTestSharder):
         self.assertGreater(actual_dict.pop('meta_timestamp'),
                            expected_dict.pop('meta_timestamp'))
         self.assertEqual(expected_dict, actual_dict)
+
+    def test_fetch_shard_ranges_unexpected_response(self):
+        broker = self._make_broker()
+        exc = internal_client.UnexpectedResponse(
+            'Unexpected response: 404', None)
+        with self._mock_sharder() as sharder:
+            sharder.swift.make_request.side_effect = exc
+            self.assertIsNone(sharder._fetch_shard_ranges(broker))
+        lines = sharder.logger.get_lines_for_level('warning')
+        self.assertIn('Unexpected response: 404', lines[0])
+        self.assertFalse(lines[1:])
+
+    def test_fetch_shard_ranges_bad_record_type(self):
+        def do_test(mock_resp_headers):
+            with self._mock_sharder() as sharder:
+                mock_make_request = mock.MagicMock(
+                    return_value=mock.MagicMock(headers=mock_resp_headers))
+                sharder.swift.make_request = mock_make_request
+                self.assertIsNone(sharder._fetch_shard_ranges(broker))
+            lines = sharder.logger.get_lines_for_level('error')
+            self.assertIn('unexpected record type', lines[0])
+            self.assertFalse(lines[1:])
+
+        broker = self._make_broker()
+        do_test({})
+        do_test({'x-backend-record-type': 'object'})
+        do_test({'x-backend-record-type': 'disco'})
+
+    def test_fetch_shard_ranges_bad_data(self):
+        def do_test(mock_resp_body):
+            mock_resp_headers = {'x-backend-record-type': 'shard'}
+            with self._mock_sharder() as sharder:
+                mock_make_request = mock.MagicMock(
+                    return_value=mock.MagicMock(headers=mock_resp_headers,
+                                                body=mock_resp_body))
+                sharder.swift.make_request = mock_make_request
+                self.assertIsNone(sharder._fetch_shard_ranges(broker))
+            lines = sharder.logger.get_lines_for_level('error')
+            self.assertIn('invalid data', lines[0])
+            self.assertFalse(lines[1:])
+
+        broker = self._make_broker()
+        do_test({})
+        do_test('')
+        do_test(json.dumps({}))
+        do_test(json.dumps([{'account': 'a', 'container': 'c'}]))
+
+    def test_fetch_shard_ranges_ok(self):
+        def do_test(mock_resp_body, params):
+            mock_resp_headers = {'x-backend-record-type': 'shard'}
+            with self._mock_sharder() as sharder:
+                mock_make_request = mock.MagicMock(
+                    return_value=mock.MagicMock(headers=mock_resp_headers,
+                                                body=mock_resp_body))
+                sharder.swift.make_request = mock_make_request
+                mock_make_path = mock.MagicMock(return_value='/v1/a/c')
+                sharder.swift.make_path = mock_make_path
+                actual = sharder._fetch_shard_ranges(broker, params=params)
+            sharder.swift.make_path.assert_called_once_with('a', 'c')
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+            return actual, mock_make_request
+
+        expected_headers = {'X-Backend-Record-Type': 'shard',
+                            'X-Backend-Include-Deleted': 'False',
+                            'X-Backend-Override-Deleted': 'true'}
+        broker = self._make_broker()
+        shard_ranges = self._make_shard_ranges((('', 'm'), ('m', '')))
+
+        params = {'format': 'json'}
+        actual, mock_call = do_test(json.dumps([dict(shard_ranges[0])]),
+                                    params={})
+        mock_call.assert_called_once_with(
+            'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+            params=params)
+        self._assert_shard_ranges_equal([shard_ranges[0]], actual)
+
+        params = {'format': 'json', 'includes': 'thing'}
+        actual, mock_call = do_test(
+            json.dumps([dict(sr) for sr in shard_ranges]), params=params)
+        self._assert_shard_ranges_equal(shard_ranges, actual)
+        mock_call.assert_called_once_with(
+            'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+            params=params)
+
+        params = {'format': 'json', 'end_marker': 'there', 'marker': 'here'}
+        actual, mock_call = do_test(json.dumps([]), params=params)
+        self._assert_shard_ranges_equal([], actual)
+        mock_call.assert_called_once_with(
+            'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+            params=params)
 
     def test_cleave_root(self):
         broker = self._make_broker()
@@ -3215,22 +3305,27 @@ class TestSharder(BaseTestSharder):
 
         def call_audit_container(exc=None):
             with self._mock_sharder() as sharder:
+                sharder.logger = debug_logger()
                 with mock.patch.object(
                         sharder, '_audit_root_container') as mocked:
                     with mock.patch.object(sharder, 'swift') as mock_swift:
                         mock_response = mock.MagicMock()
+                        mock_response.headers = {'x-backend-record-type':
+                                                 'shard'}
                         mock_response.body = json.dumps(
                             [dict(sr) for sr in shard_ranges])
                         mock_swift.make_request.return_value = mock_response
                         mock_swift.make_request.side_effect = exc
+                        mock_swift.make_path = (lambda a, c:
+                                                '/v1/%s/%s' % (a, c))
                         sharder.reclaim_age = 0
                         sharder._audit_container(broker)
             mocked.assert_not_called()
-            return sharder
+            return sharder, mock_swift
 
         # bad account name
         broker.account = 'bad_account'
-        sharder = call_audit_container()
+        sharder, mock_swift = call_audit_container()
         lines = sharder.logger.get_lines_for_level('warning')
         self._assert_stats(expected_stats, sharder, 'audit_shard')
         self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
@@ -3240,12 +3335,11 @@ class TestSharder(BaseTestSharder):
         self.assertIn('Audit failed for shard %s' % broker.db_file, lines[1])
         self.assertIn('missing own shard range', lines[1])
         self.assertFalse(lines[2:])
-        self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertFalse(broker.is_deleted())
 
         # missing own shard range
         broker.get_info()
-        sharder = call_audit_container()
+        sharder, mock_swift = call_audit_container()
         lines = sharder.logger.get_lines_for_level('warning')
         self._assert_stats(expected_stats, sharder, 'audit_shard')
         self.assertIn('Audit failed for shard %s' % broker.db_file, lines[0])
@@ -3261,7 +3355,7 @@ class TestSharder(BaseTestSharder):
         own_shard_range.lower = 'j'
         own_shard_range.upper = 'k'
         broker.merge_shard_ranges([own_shard_range])
-        sharder = call_audit_container()
+        sharder, mock_swift = call_audit_container()
         lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
         self.assertNotIn('account not in shards namespace', lines[0])
@@ -3272,6 +3366,14 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(lines[1:])
         self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertFalse(broker.is_deleted())
+        expected_headers = {'X-Backend-Record-Type': 'shard',
+                            'X-Newest': 'true',
+                            'X-Backend-Include-Deleted': 'True',
+                            'X-Backend-Override-Deleted': 'true'}
+        params = {'format': 'json', 'marker': 'j', 'end_marker': 'k'}
+        mock_swift.make_request.assert_called_once_with(
+            'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+            params=params)
 
         # create own shard range, failed response from root
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
@@ -3279,25 +3381,32 @@ class TestSharder(BaseTestSharder):
         own_shard_range.lower = 'j'
         own_shard_range.upper = 'k'
         broker.merge_shard_ranges([own_shard_range])
-        sharder = call_audit_container(exc=UnexpectedResponse('bad', 'resp'))
+        sharder, mock_swift = call_audit_container(
+            exc=internal_client.UnexpectedResponse('bad', 'resp'))
         lines = sharder.logger.get_lines_for_level('warning')
-        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
-        self.assertNotIn('account not in shards namespace', lines[0])
-        self.assertNotIn('missing own shard range', lines[0])
-        self.assertNotIn('root has no matching shard range', lines[0])
-        self.assertIn('unable to get shard ranges from root', lines[0])
-        self._assert_stats(expected_stats, sharder, 'audit_shard')
-        self.assertFalse(lines[1:])
-        lines = sharder.logger.get_lines_for_level('error')
         self.assertIn('Failed to get shard ranges', lines[0])
-        self.assertFalse(lines[1:])
+        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[1])
+        self.assertNotIn('account not in shards namespace', lines[1])
+        self.assertNotIn('missing own shard range', lines[1])
+        self.assertNotIn('root has no matching shard range', lines[1])
+        self.assertIn('unable to get shard ranges from root', lines[1])
+        self._assert_stats(expected_stats, sharder, 'audit_shard')
+        self.assertFalse(lines[2:])
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
         self.assertFalse(broker.is_deleted())
+        mock_swift.make_request.assert_called_once_with(
+            'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+            params=params)
 
         def assert_ok():
-            sharder = call_audit_container()
+            sharder, mock_swift = call_audit_container()
             self.assertFalse(sharder.logger.get_lines_for_level('warning'))
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
             self._assert_stats(expected_stats, sharder, 'audit_shard')
+            params = {'format': 'json', 'marker': 'k', 'end_marker': 't'}
+            mock_swift.make_request.assert_called_once_with(
+                'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+                params=params)
 
         # make own shard range match one in root, but different state
         shard_ranges[1].timestamp = Timestamp.now()

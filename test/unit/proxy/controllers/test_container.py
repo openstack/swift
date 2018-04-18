@@ -473,6 +473,7 @@ class TestContainerController(TestRingBase):
                 for k, v in exp_headers.items():
                     self.assertIn(k, req['headers'])
                     self.assertEqual(v, req['headers'][k])
+                self.assertNotIn('X-Backend-Override-Delete', req['headers'])
         return resp
 
     def check_response(self, resp, root_resp_hdrs, expected_objects=None):
@@ -523,6 +524,8 @@ class TestContainerController(TestRingBase):
                           'X-Container-Bytes-Used': size_all_objects - 1,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
 
         # GET all objects
         # include some failed responses
@@ -531,7 +534,7 @@ class TestContainerController(TestRingBase):
             (404, '', {}),
             (200, {}, root_resp_hdrs),
             (404, '', {}),
-            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, sr_objs[1], shard_resp_hdrs[1]),
             (200, sr_objs[2], shard_resp_hdrs[2])
@@ -565,7 +568,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts[:2] + [dict(root_range)], root_resp_hdrs),
+            (200, sr_dicts[:2] + [dict(root_range)], root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, sr_objs[1], shard_resp_hdrs[1]),
             (200, sr_objs[2], root_resp_hdrs)
@@ -595,7 +598,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, list(reversed(sr_dicts)), root_resp_hdrs),
+            (200, list(reversed(sr_dicts)), root_shard_resp_hdrs),
             (200, list(reversed(sr_objs[2])), shard_resp_hdrs[2]),
             (200, list(reversed(sr_objs[1])), shard_resp_hdrs[1]),
             (200, list(reversed(sr_objs[0])), shard_resp_hdrs[0]),
@@ -631,7 +634,7 @@ class TestContainerController(TestRingBase):
             (404, '', {}),
             (200, {}, root_resp_hdrs),
             (404, '', {}),
-            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, sr_objs[1], shard_resp_hdrs[1]),
             (200, sr_objs[2][:1], shard_resp_hdrs[2])
@@ -666,7 +669,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             (404, '', {}),
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts[1:], root_resp_hdrs),
+            (200, sr_dicts[1:], root_shard_resp_hdrs),
             (404, '', {}),
             (200, sr_objs[1][2:], shard_resp_hdrs[1]),
             (200, sr_objs[2], shard_resp_hdrs[2])
@@ -698,7 +701,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             (404, '', {}),
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts[:2], root_resp_hdrs),
+            (200, sr_dicts[:2], root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (404, '', {}),
             (200, sr_objs[1][:6], shard_resp_hdrs[1])
@@ -730,7 +733,7 @@ class TestContainerController(TestRingBase):
             (404, '', {}),
             (200, {}, root_resp_hdrs),
             (404, '', {}),
-            (200, sr_dicts[1:2], root_resp_hdrs),
+            (200, sr_dicts[1:2], root_shard_resp_hdrs),
             (200, sr_objs[1][2:6], shard_resp_hdrs[1])
         ]
         expected_requests = [
@@ -762,7 +765,7 @@ class TestContainerController(TestRingBase):
             (404, '', {}),
             (200, {}, root_resp_hdrs),
             (404, '', {}),
-            (200, sr_dicts[1:2], root_resp_hdrs),
+            (200, sr_dicts[1:2], root_shard_resp_hdrs),
             (200, list(reversed(sr_objs[1][2:6])), shard_resp_hdrs[1])
         ]
         expected_requests = [
@@ -824,6 +827,8 @@ class TestContainerController(TestRingBase):
                           'X-Container-Bytes-Used': size_all_objects - 1,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
 
         # forwards listing
 
@@ -834,7 +839,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, objs_1, shard_resp_hdrs[1]),
             (200, objs_2, shard_resp_hdrs[2])
@@ -871,7 +876,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, list(reversed(sr_dicts)), root_resp_hdrs),
+            (200, list(reversed(sr_dicts)), root_shard_resp_hdrs),
             (200, list(reversed(sr_objs[2])), shard_resp_hdrs[2]),
             (200, list(reversed(objs_1)), shard_resp_hdrs[1]),
             (200, list(reversed(objs_0)), shard_resp_hdrs[0]),
@@ -928,11 +933,13 @@ class TestContainerController(TestRingBase):
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
 
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, sr_objs[1], shard_resp_hdrs[1]),
             (200, sr_objs[2], shard_resp_hdrs[2])
@@ -987,11 +994,13 @@ class TestContainerController(TestRingBase):
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
 
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, sr_objs[1], shard_resp_hdrs[1]),
             (200, sr_objs[2], shard_resp_hdrs[2])
@@ -1021,7 +1030,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts[1:], root_resp_hdrs),
+            (200, sr_dicts[1:], root_shard_resp_hdrs),
             (200, sr_objs[1], shard_resp_hdrs[1]),
             (200, sr_objs[2], shard_resp_hdrs[2])
         ]
@@ -1048,7 +1057,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, list(reversed(sr_dicts[:2])), root_resp_hdrs),
+            (200, list(reversed(sr_dicts[:2])), root_shard_resp_hdrs),
             (200, list(reversed(sr_objs[1])), shard_resp_hdrs[1]),
             (200, list(reversed(sr_objs[0])), shard_resp_hdrs[2])
         ]
@@ -1101,11 +1110,13 @@ class TestContainerController(TestRingBase):
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
 
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0])] + \
             [(error, [], {})] * 2 * self.CONTAINER_REPLICAS + \
             [(200, sr_objs[2], shard_resp_hdrs[2])]
@@ -1151,6 +1162,8 @@ class TestContainerController(TestRingBase):
              'X-Container-Meta-Flavour': 'flavour%d' % i,
              'X-Backend-Storage-Policy-Index': 0}
             for i in range(3)]
+        shard_1_shard_resp_hdrs = dict(shard_resp_hdrs[1])
+        shard_1_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
 
         # second shard is sharding and has cleaved two out of three sub shards
         shard_resp_hdrs[1]['X-Backend-Sharding-State'] = '2'
@@ -1180,14 +1193,16 @@ class TestContainerController(TestRingBase):
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
 
         mock_responses = [
             # status, body, headers
             (200, {}, root_resp_hdrs),
-            (200, sr_dicts, root_resp_hdrs),
+            (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, {}, shard_resp_hdrs[1]),
-            (200, sub_sr_dicts + [sr_dicts[1]], shard_resp_hdrs[1]),
+            (200, sub_sr_dicts + [sr_dicts[1]], shard_1_shard_resp_hdrs),
             (200, sub_sr_objs[0], sub_shard_resp_hdrs[0]),
             (200, sub_sr_objs[1], sub_shard_resp_hdrs[1]),
             (200, sr_objs[1][len(sub_sr_objs[0] + sub_sr_objs[1]):],

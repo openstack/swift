@@ -581,12 +581,16 @@ class ContainerController(BaseStorageServer):
                                             pending_timeout=0.1,
                                             stale_reads_ok=True)
         info, is_deleted = broker.get_info_is_deleted()
-        resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
-        if is_deleted:
-            return HTTPNotFound(request=req, headers=resp_headers)
-        include_deleted = False
         record_type = req.headers.get('x-backend-record-type', '').lower()
         if record_type == 'shard':
+            resp_headers = gen_resp_headers(info)
+            override_deleted = config_true_value(
+                req.headers.get('x-backend-override-deleted', False))
+            if is_deleted and not (info and override_deleted):
+                return HTTPNotFound(request=req, headers=resp_headers)
+            resp_headers['X-Backend-Record-Type'] = 'shard'
+            include_deleted = config_true_value(
+                req.headers.get('x-backend-include-deleted', False))
             includes = get_param(req, 'includes')
             states = get_param(req, 'state') or None
             if states:
@@ -596,7 +600,8 @@ class ContainerController(BaseStorageServer):
                 except ValueError:
                     return HTTPBadRequest(request=req, body='Bad state')
             container_list = broker.get_shard_ranges(
-                marker, end_marker, includes, reverse, states=states)
+                marker, end_marker, includes, reverse, states=states,
+                include_deleted=include_deleted)
             if states and ShardRange.ACTIVE in states:
                 # we might not get all required shard ranges if the container
                 # is part way through sharding, in which case add a filler
@@ -626,6 +631,10 @@ class ContainerController(BaseStorageServer):
                         state=ShardRange.ACTIVE)
                     container_list.insert(filler_index, filler_sr)
         else:
+            resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
+            if is_deleted:
+                return HTTPNotFound(request=req, headers=resp_headers)
+            resp_headers['X-Backend-Record-Type'] = 'object'
             # Use the retired db while container is in process of sharding,
             # otherwise use current db
             src_broker = broker.get_brokers()[0]

@@ -107,7 +107,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(str(policy_index),
                          resp.headers['X-Backend-Storage-Policy-Index'])
 
-    def _assertShardRangesEqual(self, x, y):
+    def _assert_shard_ranges_equal(self, x, y):
         # ShardRange.__eq__ only compares lower and upper; here we generate
         # dict representations to compare all attributes
         self.assertEqual([dict(sr) for sr in x], [dict(sr) for sr in y])
@@ -1389,19 +1389,96 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 500)
 
     def test_DELETE(self):
+        ts_iter = make_timestamp_iter()
         req = Request.blank(
             '/sda1/p/a/c',
-            environ={'REQUEST_METHOD': 'PUT'}, headers={'X-Timestamp': '1'})
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': next(ts_iter).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
+
+        # PUT an *empty* shard range
+        sr = ShardRange('.shards_a/c', next(ts_iter), 'l', 'u', 0, 0,
+                        state=ShardRange.ACTIVE)
         req = Request.blank(
             '/sda1/p/a/c',
-            environ={'REQUEST_METHOD': 'DELETE'}, headers={'X-Timestamp': '2'})
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard'},
+            body=json.dumps([dict(sr)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 202)
+
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': next(ts_iter).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
+
         req = Request.blank(
             '/sda1/p/a/c',
-            environ={'REQUEST_METHOD': 'GET'}, headers={'X-Timestamp': '3'})
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+
+        # the override-deleted header is ignored for object records
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Override-Deleted': 'true'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+
+        # but override-deleted header makes shard ranges available after DELETE
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Override-Deleted': 'true'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual([dict(sr, last_modified=sr.timestamp.isoformat)],
+                         json.loads(resp.body))
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+
+        # ... unless the override header equates to False
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Override-Deleted': 'no'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+
+        # ...or the db file is unlinked
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertTrue(broker._db_exists())
+        os.unlink(broker.db_file)
+        self.assertFalse(broker._db_exists())
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Override-Deleted': 'true'},
+            params={'format': 'json'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
 
@@ -2221,8 +2298,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(
             exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
-        self._assertShardRangesEqual(shard_ranges[:2],
-                                     broker.get_shard_ranges())
+        self._assert_shard_ranges_equal(shard_ranges[:2],
+                                        broker.get_shard_ranges())
 
         # empty json dict
         body = json.dumps({})
@@ -2233,8 +2310,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(202, resp.status_int)
         self.assertEqual(
             exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
-        self._assertShardRangesEqual(shard_ranges[:2],
-                                     broker.get_shard_ranges())
+        self._assert_shard_ranges_equal(shard_ranges[:2],
+                                        broker.get_shard_ranges())
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         # updated and new shard ranges
@@ -2248,7 +2325,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(202, resp.status_int)
         self.assertEqual(
             exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
-        self._assertShardRangesEqual(shard_ranges, broker.get_shard_ranges())
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         # deleted shard range
@@ -2261,7 +2339,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(202, resp.status_int)
         self.assertEqual(
             exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
-        self._assertShardRangesEqual(
+        self._assert_shard_ranges_equal(
             shard_ranges, broker.get_shard_ranges(include_deleted=True))
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
@@ -2275,7 +2353,7 @@ class TestContainerController(unittest.TestCase):
             self.assertIn('Invalid body', resp.body)
             self.assertEqual(
                 exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
-            self._assertShardRangesEqual(
+            self._assert_shard_ranges_equal(
                 shard_ranges, broker.get_shard_ranges(include_deleted=True))
             self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
@@ -2295,7 +2373,7 @@ class TestContainerController(unittest.TestCase):
                 '/sda1/p/a/c', method='PUT', headers=headers, body=body)
             resp = req.get_response(self.controller)
             self.assertEqual(202, resp.status_int)
-            self._assertShardRangesEqual(
+            self._assert_shard_ranges_equal(
                 shard_ranges, broker.get_shard_ranges(include_deleted=True))
             self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
@@ -2342,7 +2420,8 @@ class TestContainerController(unittest.TestCase):
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         self.assertTrue(broker.is_root_container())  # sanity
-        self._assertShardRangesEqual(shard_ranges, broker.get_shard_ranges())
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
 
         # sanity check - no shard ranges when GET is only for objects
         def check_object_GET(path):
@@ -2356,6 +2435,8 @@ class TestContainerController(unittest.TestCase):
                      last_modified=Timestamp(obj['x-timestamp']).isoformat,
                      name=obj['name']) for obj in objects]
             self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('object', resp.headers['X-Backend-Record-Type'])
 
         check_object_GET('/sda1/p/a/c?format=json')
         check_object_GET('/sda1/p/a/c?items=blah&format=json')
@@ -2370,9 +2451,12 @@ class TestContainerController(unittest.TestCase):
                 resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_type, 'application/json')
-            expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                        for p in expected_shard_ranges]
+            expected = [
+                dict(sr, last_modified=Timestamp(sr.timestamp).isoformat)
+                for sr in expected_shard_ranges]
             self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
 
         # all shards
         check_shard_GET(shard_ranges, 'a/c')
@@ -2529,8 +2613,8 @@ class TestContainerController(unittest.TestCase):
         shard_range.set_deleted(timestamp=next(ts_iter))
         self._put_shard_range(shard_range)
 
-        self._assertShardRangesEqual(shard_ranges[:1] + shard_ranges[2:],
-                                     broker.get_shard_ranges())
+        self._assert_shard_ranges_equal(shard_ranges[:1] + shard_ranges[2:],
+                                        broker.get_shard_ranges())
 
         check_shard_GET(shard_ranges[:1] + shard_ranges[2:], 'a/c')
         check_shard_GET(shard_ranges[2:3], 'a/c', params='&includes=jam')
@@ -2568,8 +2652,8 @@ class TestContainerController(unittest.TestCase):
                 sr for sr in shard_ranges if sr.state in expected_states]
             expected.append(ShardRange(path, ts_now, expected[-1].upper, '',
                                        state=ShardRange.ACTIVE))
-            expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                        for p in expected]
+            expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                        for sr in expected]
             headers = {'X-Timestamp': next(ts_iter).normal}
 
             # create container
@@ -2597,6 +2681,8 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_type, 'application/json')
             self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
 
         # root's shard ranges for listing
         root_path = container_path = 'a/c'
@@ -2622,6 +2708,79 @@ class TestContainerController(unittest.TestCase):
         # shard's shard ranges for updating
         container_path = '.shards_a/c'
         do_test(root_path, container_path, params, expected_states)
+
+    def test_GET_shard_ranges_include_deleted(self):
+        # make a shard container
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        shard_ranges = []
+        lower = ''
+        for state in sorted(ShardRange.STATES.keys()):
+            upper = str(state)
+            shard_ranges.append(
+                ShardRange('.shards_a/c_%s' % upper, next(ts_iter),
+                           lower, upper, state * 100, state * 1000,
+                           meta_timestamp=next(ts_iter),
+                           state=state, state_timestamp=next(ts_iter)))
+            lower = upper
+        # create container
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertIn(
+            req.get_response(self.controller).status_int, (201, 202))
+        # PUT some shard ranges
+        headers = {'X-Timestamp': next(ts_iter).normal,
+                   'X-Backend-Record-Type': 'shard'}
+        body = json.dumps([dict(sr) for sr in shard_ranges])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+
+        def do_test(include_deleted, expected):
+            expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                        for sr in expected]
+            headers = {'X-Backend-Record-Type': 'shard',
+                       'X-Backend-Include-Deleted': str(include_deleted)}
+            req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                                headers=headers)
+            with mock.patch('swift.common.utils.Timestamp.now',
+                            classmethod(lambda ts_cls: ts_now)):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+
+        do_test(False, shard_ranges)
+        do_test(True, shard_ranges)
+
+        headers = {'X-Timestamp': next(ts_iter).normal,
+                   'X-Backend-Record-Type': 'shard'}
+        for sr in shard_ranges[::2]:
+            sr.set_deleted(timestamp=next(ts_iter))
+        body = json.dumps([dict(sr) for sr in shard_ranges])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self._assert_shard_ranges_equal(
+            shard_ranges[1::2], broker.get_shard_ranges())
+        do_test(False, shard_ranges[1::2])
+        do_test(True, shard_ranges)
+
+        headers = {'X-Timestamp': next(ts_iter).normal,
+                   'X-Backend-Record-Type': 'shard'}
+        for sr in shard_ranges[1::2]:
+            sr.set_deleted(timestamp=next(ts_iter))
+        body = json.dumps([dict(sr) for sr in shard_ranges])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+        self.assertFalse(broker.get_shard_ranges())
+        do_test(False, [])
+        do_test(True, shard_ranges)
 
     def test_PUT_GET_to_sharding_container(self):
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')

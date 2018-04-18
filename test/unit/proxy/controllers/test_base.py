@@ -1045,8 +1045,10 @@ class TestFuncs(unittest.TestCase):
             for i in range(3)]
         base = Controller(self.app)
         req = Request.blank('/v1/a/c', method='GET')
+        resp_headers = {'X-Backend-Record-Type': 'shard'}
         with mocked_http_conn(
-            200, 200, body_iter=iter(['', json.dumps(shard_ranges)])
+            200, 200, body_iter=iter(['', json.dumps(shard_ranges)]),
+            headers=resp_headers
         ) as fake_conn:
             actual = base._get_shard_ranges(req, 'a', 'c')
 
@@ -1072,8 +1074,10 @@ class TestFuncs(unittest.TestCase):
             for i in range(3)]
         base = Controller(self.app)
         req = Request.blank('/v1/a/c/o', method='PUT')
+        resp_headers = {'X-Backend-Record-Type': 'shard'}
         with mocked_http_conn(
-            200, 200, body_iter=iter(['', json.dumps(shard_ranges[1:2])])
+            200, 200, body_iter=iter(['', json.dumps(shard_ranges[1:2])]),
+            headers=resp_headers
         ) as fake_conn:
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
 
@@ -1092,24 +1096,85 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
 
-    def test_get_shard_ranges_empty_response(self):
+    def _check_get_shard_ranges_bad_data(self, body):
         base = Controller(self.app)
         req = Request.blank('/v1/a/c/o', method='PUT')
         # empty response
-        with mocked_http_conn(200, 200, body_iter=iter(['', json.dumps({})])):
+        headers = {'X-Backend-Record-Type': 'shard'}
+        with mocked_http_conn(200, 200, body_iter=iter(['', body]),
+                              headers=headers):
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
-        self.assertEqual([], actual)
+        self.assertIsNone(actual)
+        lines = self.app.logger.get_lines_for_level('error')
+        return lines
 
-    def test_get_shard_ranges_invalid_response(self):
+    def test_get_shard_ranges_empty_body(self):
+        error_lines = self._check_get_shard_ranges_bad_data('')
+        self.assertIn('Problem with listing response', error_lines[0])
+        self.assertIn('No JSON', error_lines[0])
+        self.assertFalse(error_lines[1:])
+
+    def test_get_shard_ranges_not_a_list(self):
+        error_lines = self._check_get_shard_ranges_bad_data(json.dumps({}))
+        self.assertIn('Problem with listing response', error_lines[0])
+        self.assertIn('not a list', error_lines[0])
+        self.assertFalse(error_lines[1:])
+
+    def test_get_shard_ranges_key_missing(self):
+        error_lines = self._check_get_shard_ranges_bad_data(json.dumps([{}]))
+        self.assertIn('Failed to get shard ranges', error_lines[0])
+        self.assertIn('KeyError', error_lines[0])
+        self.assertFalse(error_lines[1:])
+
+    def test_get_shard_ranges_invalid_shard_range(self):
+        sr = ShardRange('a/c', Timestamp.now())
+        bad_sr_data = dict(sr, name='bad_name')
+        error_lines = self._check_get_shard_ranges_bad_data(
+            json.dumps([bad_sr_data]))
+        self.assertIn('Failed to get shard ranges', error_lines[0])
+        self.assertIn('ValueError', error_lines[0])
+        self.assertFalse(error_lines[1:])
+
+    def test_get_shard_ranges_missing_record_type(self):
         base = Controller(self.app)
         req = Request.blank('/v1/a/c/o', method='PUT')
-        # invalid response
-        invalid_range = {'created_at': Timestamp.now().internal}
+        sr = ShardRange('a/c', Timestamp.now())
+        body = json.dumps([dict(sr)])
         with mocked_http_conn(
-                200, 200, body_iter=iter(['', json.dumps([invalid_range])])):
+                200, 200, body_iter=iter(['', body])):
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
         self.assertIsNone(actual)
         error_lines = self.app.logger.get_lines_for_level('error')
-        self.assertIn('Problem decoding shard ranges', error_lines[0])
+        self.assertIn('Failed to get shard ranges', error_lines[0])
+        self.assertIn('unexpected record type', error_lines[0])
         self.assertIn('/a/c', error_lines[0])
         self.assertFalse(error_lines[1:])
+
+    def test_get_shard_ranges_wrong_record_type(self):
+        base = Controller(self.app)
+        req = Request.blank('/v1/a/c/o', method='PUT')
+        sr = ShardRange('a/c', Timestamp.now())
+        body = json.dumps([dict(sr)])
+        headers = {'X-Backend-Record-Type': 'object'}
+        with mocked_http_conn(
+                200, 200, body_iter=iter(['', body]),
+                headers=headers):
+            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertIsNone(actual)
+        error_lines = self.app.logger.get_lines_for_level('error')
+        self.assertIn('Failed to get shard ranges', error_lines[0])
+        self.assertIn('unexpected record type', error_lines[0])
+        self.assertIn('/a/c', error_lines[0])
+        self.assertFalse(error_lines[1:])
+
+    def test_get_shard_ranges_request_failed(self):
+        base = Controller(self.app)
+        req = Request.blank('/v1/a/c/o', method='PUT')
+        with mocked_http_conn(200, 404, 404, 404):
+            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertIsNone(actual)
+        self.assertFalse(self.app.logger.get_lines_for_level('error'))
+        warning_lines = self.app.logger.get_lines_for_level('warning')
+        self.assertIn('Failed to get container listing', warning_lines[0])
+        self.assertIn('/a/c', warning_lines[0])
+        self.assertFalse(warning_lines[1:])

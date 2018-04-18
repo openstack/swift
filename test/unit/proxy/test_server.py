@@ -3344,7 +3344,8 @@ class TestReplicatedObjectController(
             # acc HEAD, cont HEAD, cont shard GET, obj POSTs
             status_codes = (200, 200, 200, 202, 202, 202)
             resp_headers = {'X-Backend-Storage-Policy-Index': 1,
-                            'x-backend-sharding-state': sharding_state}
+                            'x-backend-sharding-state': sharding_state,
+                            'X-Backend-Record-Type': 'shard'}
             shard_range = utils.ShardRange(
                 '.sharded_a/c_shard', utils.Timestamp.now(), 'l', 'u')
             body = json.dumps([dict(shard_range)])
