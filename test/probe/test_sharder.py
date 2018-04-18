@@ -823,9 +823,7 @@ class TestContainerSharding(ReplProbeTest):
                     self.assertGreaterEqual(updated.meta_timestamp,
                                             orig['meta_timestamp'])
 
-        with self.assertRaises(ClientException) as cm:
-            client.delete_container(self.url, self.token, self.container_name)
-        self.assertEqual(409, cm.exception.http_status)
+        self.assert_container_delete_fails()
 
         for obj in final_listing:
             client.delete_object(
@@ -834,9 +832,13 @@ class TestContainerSharding(ReplProbeTest):
         # the objects won't be listed anymore
         self.assert_container_listing([])
         # but root container stats will not yet be aware of the deletions
-        with self.assertRaises(ClientException) as cm:
-            client.delete_container(self.url, self.token, self.container_name)
-        self.assertEqual(409, cm.exception.http_status)
+        self.assert_container_delete_fails()
+
+        # One server was down while the shard sharded its first two sub-shards,
+        # so there may be undeleted handoff db(s) for sub-shard(s) that were
+        # not fully replicated; run replicators now to clean up so they no
+        # longer report bogus stats to root.
+        self.replicators.once()
 
         # Run sharder so that shard containers update the root. Do not run
         # sharder on root container because that triggers shrinks which can

@@ -88,11 +88,14 @@ def roundrobin_datadirs(datadirs):
     found (in their proper places). The partitions within each data
     dir are walked randomly, however.
 
-    :param datadirs: a list of (path, node_id, partition_filter) to walk
-    :returns: A generator of (partition, path_to_db_file, node_id)
+    :param datadirs: a list of tuples of (path, context, partition_filter) to
+                     walk. The context may be any object; the context is not
+                     used by this function but is included with each yielded
+                     tuple.
+    :returns: A generator of (partition, path_to_db_file, context)
     """
 
-    def walk_datadir(datadir, node_id, part_filter):
+    def walk_datadir(datadir, context, part_filter):
         partitions = [pd for pd in os.listdir(datadir)
                       if looks_like_partition(pd) and part_filter(pd)]
         random.shuffle(partitions)
@@ -118,12 +121,12 @@ def roundrobin_datadirs(datadirs):
                         continue
                     object_file = os.path.join(hash_dir, hsh + '.db')
                     if os.path.exists(object_file):
-                        yield (partition, object_file, node_id)
+                        yield (partition, object_file, context)
                         continue
                     # look for any alternate db filenames
                     db_files = get_db_files(object_file)
                     if db_files:
-                        yield (partition, db_files[-1], node_id)
+                        yield (partition, db_files[-1], context)
                         continue
                     try:
                         os.rmdir(hash_dir)
@@ -131,8 +134,8 @@ def roundrobin_datadirs(datadirs):
                         if e.errno != errno.ENOTEMPTY:
                             raise
 
-    its = [walk_datadir(datadir, node_id, filt)
-           for datadir, node_id, filt in datadirs]
+    its = [walk_datadir(datadir, context, filt)
+           for datadir, context, filt in datadirs]
 
     rr_its = round_robin_iter(its)
     for datadir in rr_its:
@@ -683,13 +686,20 @@ class Replicator(Daemon):
         except (Exception, Timeout):
             self.logger.exception('UNHANDLED EXCEPTION: in post replicate '
                                   'hook for %s', broker.db_file)
-        if not shouldbehere and responses and all(responses):
-            # If the db shouldn't be on this node and has been successfully
-            # synced to all of its peers, it can be removed.
-            if not self.delete_db(broker):
-                failure_devs_info.update(
-                    [(failure_dev['replication_ip'], failure_dev['device'])
-                     for failure_dev in repl_nodes])
+        if not shouldbehere:
+            if responses and all(responses):
+                # If the db shouldn't be on this node and has been successfully
+                # synced to all of its peers, it can be removed.
+                if not self.delete_db(broker):
+                    failure_devs_info.update(
+                        [(failure_dev['replication_ip'], failure_dev['device'])
+                         for failure_dev in repl_nodes])
+                    self.logger.debug(
+                        'Failed to delete handoff db %s', broker.db_file)
+                else:
+                    self.logger.debug('Deleted handoff db %s', broker.db_file)
+            else:
+                self.logger.debug('Not deleting handoff db %s', broker.db_file)
 
         target_devs_info = set([(target_dev['replication_ip'],
                                  target_dev['device'])
