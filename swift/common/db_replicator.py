@@ -221,7 +221,7 @@ class Replicator(Daemon):
         self.stats = {'attempted': 0, 'success': 0, 'failure': 0, 'ts_repl': 0,
                       'no_change': 0, 'hashmatch': 0, 'rsync': 0, 'diff': 0,
                       'remove': 0, 'empty': 0, 'remote_merge': 0,
-                      'start': time.time(), 'diff_capped': 0,
+                      'start': time.time(), 'diff_capped': 0, 'aborted': 0,
                       'failure_nodes': {}}
 
     def _report_stats(self):
@@ -322,8 +322,7 @@ class Replicator(Daemon):
                                       os.path.basename(broker.db_file))
         return response and 200 <= response.status < 300
 
-    def _usync_db(self, point, broker, http, remote_id, local_id,
-                  diffs=0):
+    def _usync_db(self, point, broker, http, remote_id, local_id):
         """
         Sync a db by sending all records since the last sync.
 
@@ -332,12 +331,8 @@ class Replicator(Daemon):
         :param http: ReplConnection object for the remote server
         :param remote_id: database id for the remote replica
         :param local_id: database id for the local replica
-        :param diffs: number of diffs already sent to remote node; the
-            maximum number of diffs sent by this method will be reduced by this
-            number.
 
-        :returns: a tuple of (boolean indicating completion and success,
-            cumulative count of diffs sent)
+        :returns: boolean indicating completion and success
         """
         self.stats['diff'] += 1
         self.logger.increment('diffs')
@@ -347,7 +342,9 @@ class Replicator(Daemon):
                           point)
         sync_table = broker.get_syncs()
         objects = broker.get_items_since(point, self.per_diff)
+        diffs = 0
         while len(objects) and diffs < self.max_diffs:
+            diffs += 1
             with Timeout(self.node_timeout):
                 response = http.replicate('merge_items', objects, local_id)
             if not response or response.status >= 300 or response.status < 200:
@@ -356,12 +353,11 @@ class Replicator(Daemon):
                                         '%(host)s'),
                                       {'status': response.status,
                                        'host': http.host})
-                return False, diffs
+                return False
             # replication relies on db order to send the next merge batch in
             # order with no gaps
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
-            diffs += 1
 
         self.logger.debug('%s usyncing chunks to %s, finished at %s',
                           broker.db_file,
@@ -383,8 +379,8 @@ class Replicator(Daemon):
                 broker.merge_syncs([{'remote_id': remote_id,
                                      'sync_point': point}],
                                    incoming=False)
-                return True, diffs
-        return False, diffs
+                return True
+        return False
 
     def _sync_other_items(self, broker, http, local_id):
         # Attempt to sync other items
@@ -411,6 +407,7 @@ class Replicator(Daemon):
             self.logger.debug('%s usynced %s other items to %s',
                               broker.db_file, len(other_items),
                               '%(ip)s:%(port)s/%(device)s' % http.node)
+        return True
 
     def _other_items_hook(self, broker):
         return []
@@ -460,18 +457,6 @@ class Replicator(Daemon):
                            'put_timestamp', 'delete_timestamp', 'metadata')
         return tuple(info[key] for key in sync_args_order)
 
-    def _repl_db_to_node(self, node, broker, partition, info,
-                         different_region=False, diffs=0):
-        http = self._http_connect(node, partition, broker.db_file)
-        sync_args = self._gather_sync_args(info)
-        with Timeout(self.node_timeout):
-            response = http.replicate('sync', *sync_args)
-        if not response:
-            return False, 0
-        return self._handle_sync_response(node, response, info, broker, http,
-                                          different_region=different_region,
-                                          diffs=diffs)
-
     def _repl_to_node(self, node, broker, partition, info,
                       different_region=False):
         """
@@ -488,43 +473,22 @@ class Replicator(Daemon):
 
         :returns: True if successful, False otherwise
         """
-        diffs = 0
-        success = True
-        for sub_broker in broker.get_brokers()[:-1]:
-            sub_success, diffs = self._repl_db_to_node(
-                node, sub_broker, partition, sub_broker.get_replication_info(),
-                different_region=different_region, diffs=diffs)
-            success &= sub_success
-            if not success:
-                if diffs:
-                    # some but not all of previous broker rows were
-                    # successfully sync'd; proceed to subsequent broker, which
-                    # may have other items to sync, but prevent it from syncing
-                    # any *objects* by setting diffs to max_diffs
-                    diffs = self.max_diffs
-                else:
-                    # state of the destination is uncertain, bail out
-                    return False
-            # TODO: diffs>0 forces the subsequent broker to use usync up to
-            # max_diffs, but if success is True then this broker has
-            # successfully sync'd all its rows so we could force diffs to zero
-            # and as a consequence allow the subsequent broker to choose any
-            # sync method.
-            # TODO: if a sub-broker has sync'd with peers then its *outgoing*
-            # sync point table should probably be merged into subsequent
-            # broker, just like when we first created the shard broker.
-        sub_success, _ = self._repl_db_to_node(
-            node, broker, partition, info, different_region=different_region,
-            diffs=diffs)
-        return success & sub_success
+        http = self._http_connect(node, partition, broker.db_file)
+        sync_args = self._gather_sync_args(info)
+        with Timeout(self.node_timeout):
+            response = http.replicate('sync', *sync_args)
+        if not response:
+            return False
+        return self._handle_sync_response(node, response, info, broker, http,
+                                          different_region=different_region)
 
     def _handle_sync_response(self, node, response, info, broker, http,
-                              different_region=False, diffs=0):
+                              different_region=False):
         if response.status == HTTP_NOT_FOUND:  # completely missing, rsync
             self.stats['rsync'] += 1
             self.logger.increment('rsyncs')
             return self._rsync_db(broker, node, http, info['id'],
-                                  different_region=different_region), diffs
+                                  different_region=different_region)
         elif response.status == HTTP_INSUFFICIENT_STORAGE:
             raise DriveNotMounted()
         elif 200 <= response.status < 300:
@@ -536,32 +500,30 @@ class Replicator(Daemon):
                 self.logger.debug('%s in sync with %s, nothing to do',
                                   broker.db_file,
                                   '%(ip)s:%(port)s/%(device)s' % node)
-                return True, diffs
+                return True
             return self._choose_replication_mode(
                 node, rinfo, info, local_sync, broker, http,
-                different_region, diffs)
-        return False, diffs
+                different_region)
+        return False
 
     def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
-                                 http, different_region, diffs):
+                                 http, different_region):
         # if the difference in rowids between the two differs by
         # more than 50% and the difference is greater than per_diff,
         # rsync then do a remote merge.
         # NOTE: difference > per_diff stops us from dropping to rsync
         # on smaller containers, who have only a few rows to sync.
         if (rinfo['max_row'] / float(info['max_row']) < 0.5 and
-                info['max_row'] - rinfo['max_row'] > self.per_diff and
-                not diffs):
+                info['max_row'] - rinfo['max_row'] > self.per_diff):
             self.stats['remote_merge'] += 1
             self.logger.increment('remote_merges')
             return self._rsync_db(broker, node, http, info['id'],
                                   replicate_method='rsync_then_merge',
                                   replicate_timeout=(info['count'] / 2000),
-                                  different_region=different_region), diffs
+                                  different_region=different_region)
         # else send diffs over to the remote server
         return self._usync_db(max(rinfo['point'], local_sync),
-                              broker, http, rinfo['id'], info['id'],
-                              diffs=diffs)
+                              broker, http, rinfo['id'], info['id'])
 
     def _post_replicate_hook(self, broker, info, responses):
         """
@@ -570,6 +532,26 @@ class Replicator(Daemon):
         :param responses: a list of bools indicating success from nodes
         """
         pass
+
+    def cleanup_post_replicate(self, broker, shouldbehere, responses):
+        """
+        Cleanup any database state if needed.
+
+        :return success: bool, False indicates an error occurred
+        """
+        if not shouldbehere:
+            if responses and all(responses):
+                # If the db shouldn't be on this node and has been successfully
+                # synced to all of its peers, it can be removed.
+                if not self.delete_db(broker):
+                    self.logger.debug(
+                        'Failed to delete handoff db %s', broker.db_file)
+                    return False
+                else:
+                    self.logger.debug('Deleted handoff db %s', broker.db_file)
+            else:
+                self.logger.debug('Not deleting handoff db %s', broker.db_file)
+        return True
 
     def _replicate_object(self, partition, object_file, node_id):
         """
@@ -692,21 +674,10 @@ class Replicator(Daemon):
         except (Exception, Timeout):
             self.logger.exception('UNHANDLED EXCEPTION: in post replicate '
                                   'hook for %s', broker.db_file)
-        if not shouldbehere:
-            if responses and all(responses):
-                # If the db shouldn't be on this node and has been successfully
-                # synced to all of its peers, it can be removed.
-                if not self.delete_db(broker):
-                    failure_devs_info.update(
-                        [(failure_dev['replication_ip'], failure_dev['device'])
-                         for failure_dev in repl_nodes])
-                    self.logger.debug(
-                        'Failed to delete handoff db %s', broker.db_file)
-                else:
-                    self.logger.debug('Deleted handoff db %s', broker.db_file)
-            else:
-                self.logger.debug('Not deleting handoff db %s', broker.db_file)
-
+        if not self.cleanup_post_replicate(broker, shouldbehere, responses):
+            failure_devs_info.update(
+                [(failure_dev['replication_ip'], failure_dev['device'])
+                 for failure_dev in repl_nodes])
         target_devs_info = set([(target_dev['replication_ip'],
                                  target_dev['device'])
                                 for target_dev in repl_nodes])
@@ -872,7 +843,6 @@ class ReplicatorRpc(object):
         drive, partition, hsh = replicate_args
         if not check_drive(self.root, drive, self.mount_check):
             return Response(status='507 %s is not mounted' % drive)
-
         db_file = os.path.join(self.root, drive,
                                storage_directory(self.datadir, partition, hsh),
                                hsh + '.db')

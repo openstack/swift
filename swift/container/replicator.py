@@ -26,6 +26,7 @@ from swift.container.reconciler import (
     get_reconciler_container_name, get_row_to_q_entry_translator)
 from swift.common import db_replicator
 from swift.common.storage_policy import POLICIES
+from swift.common.swob import HTTPOk
 from swift.common.exceptions import DeviceUnavailable
 from swift.common.http import is_success
 from swift.common.db import DatabaseAlreadyExists
@@ -66,8 +67,7 @@ class ContainerReplicator(db_replicator.Replicator):
         return sync_args
 
     def _handle_sync_response(self, node, response, info, broker, http,
-                              different_region=False, diffs=0):
-        parent = super(ContainerReplicator, self)
+                              different_region=False):
         if is_success(response.status):
             remote_info = json.loads(response.data)
             if incorrect_policy_index(info, remote_info):
@@ -80,9 +80,39 @@ class ContainerReplicator(db_replicator.Replicator):
             if any(info[key] != remote_info[key] for key in sync_timestamps):
                 broker.merge_timestamps(*(remote_info[key] for key in
                                           sync_timestamps))
-        rv = parent._handle_sync_response(
-            node, response, info, broker, http, different_region, diffs=diffs)
-        return rv
+
+            # Grab remote's shard ranges, too
+            self._fetch_and_merge_shard_ranges(http, broker)
+
+        return super(ContainerReplicator, self)._handle_sync_response(
+            node, response, info, broker, http, different_region)
+
+    def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
+                                 http, different_region):
+        shard_ranges = broker.get_shard_ranges()
+        # TODO: also check that own shard range state > ACTIVE?
+        if shard_ranges:
+            # Keep replicating shard ranges -- may have newer info than remote
+            success = self._sync_other_items(broker, http, info['id'])
+            # ... but don't touch objects
+            self.logger.warning(
+                '%s is able to shard -- refusing to replicate objects to peer '
+                '%s; currently have %d shard ranges and will wait for '
+                'cleaving',
+                broker.db_file,
+                '%(ip)s:%(port)s/%(device)s' % node,
+                len(shard_ranges))
+            self.stats['aborted'] += 1
+            return success
+
+        return super(ContainerReplicator, self)._choose_replication_mode(
+            node, rinfo, info, local_sync, broker, http,
+            different_region)
+
+    def _fetch_and_merge_shard_ranges(self, http, broker):
+        response = http.replicate('get_shard_ranges')
+        if is_success(response.status):
+            broker.merge_shard_ranges(json.loads(response.data))
 
     def _initialize_broker(self, device, part, account, container, epoch=None,
                            **kwargs):
@@ -222,6 +252,15 @@ class ContainerReplicator(db_replicator.Replicator):
             # replication
             broker.update_reconciler_sync(max_sync)
 
+    def cleanup_post_replicate(self, broker, shouldbehere, responses):
+        if (not shouldbehere) and broker.requires_sharding():
+            # despite being a handoff, since we're sharding we're not going to
+            # do any cleanup so we can continue cleaving - this is still
+            # considered "success"
+            return True
+        return super(ContainerReplicator, self).cleanup_post_replicate(
+            broker, shouldbehere, responses)
+
     def delete_db(self, broker):
         """
         Ensure that reconciler databases are only cleaned up at the end of the
@@ -319,3 +358,9 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
                 timestamp=status_changed_at)
             info = broker.get_replication_info()
         return info
+
+    def get_shard_ranges(self, broker, args):
+        shard_ranges = broker.get_shard_ranges(include_deleted=True,
+                                               include_own=True)
+        return HTTPOk(headers={'Content-Type': 'application/json'},
+                      body=json.dumps([dict(sr) for sr in shard_ranges]))
