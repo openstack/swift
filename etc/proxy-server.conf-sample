@@ -361,7 +361,7 @@ user_test5_tester5 = testing5 service
 #
 # [filter:authtoken]
 # paste.filter_factory = keystonemiddleware.auth_token:filter_factory
-# auth_uri = http://keystonehost:5000
+# www_authenticate_uri = http://keystonehost:5000
 # auth_url = http://keystonehost:35357
 # auth_plugin = password
 # The following credentials must match the Keystone credentials for the Swift
