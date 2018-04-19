@@ -15,28 +15,27 @@
 
 import errno
 import json
-import os
 import time
-
+from collections import defaultdict
 from random import random
 
-from collections import defaultdict
+import os
 from eventlet import Timeout
 
+from swift.common import internal_client, db_replicator
+from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
-from swift.container.replicator import ContainerReplicator
-from swift.container.backend import ContainerBroker, \
-    RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARDING, SHARDED, COLLAPSED, \
-    SHARD_UPDATE_STATES
-from swift.common import internal_client, db_replicator
 from swift.common.exceptions import DeviceUnavailable
-from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
     config_float_value, config_positive_int_value, \
     quorum_size, parse_overrides, Everything
+from swift.container.backend import ContainerBroker, \
+    RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARDING, SHARDED, COLLAPSED, \
+    SHARD_UPDATE_STATES
+from swift.container.replicator import ContainerReplicator
 
 
 def sharding_enabled(broker):
@@ -267,6 +266,28 @@ class ContainerSharder(ContainerReplicator):
             statsd_key = '%s_%s' % (category, key)
             self.logger.increment(statsd_key)
 
+    def _make_stats_info(self, broker, node, own_shard_range):
+        try:
+            file_size = os.stat(broker.db_file).st_size
+        except OSError:
+            file_size = None
+
+        return {'path': broker.db_file,
+                'node_index': node.get('index'),
+                'account': broker.account,
+                'container': broker.container,
+                'root': broker.root_path,
+                'object_count': own_shard_range.object_count,
+                'meta_timestamp': own_shard_range.meta_timestamp.internal,
+                'file_size': file_size}
+
+    def _identify_sharding_candidate(self, broker, node):
+        own_shard_range = broker.get_own_shard_range()
+        if self._is_sharding_candidate(own_shard_range):
+            self._append_stat(
+                'sharding_candidates', 'all',
+                self._make_stats_info(broker, node, own_shard_range))
+
     def _transform_sharding_candidate_stats(self):
         category = self.stats['sharding']['sharding_candidates']
         candidates = category.pop('all', [])
@@ -276,6 +297,26 @@ class ContainerSharder(ContainerReplicator):
             category['top'] = candidates[:self.recon_candidates_limit]
         else:
             category['top'] = candidates
+
+    def _record_sharding_progress(self, broker, node, error):
+        own_shard_range = broker.get_own_shard_range()
+        if (broker.get_db_state() in (UNSHARDED, SHARDING) and
+                own_shard_range.state in (ShardRange.SHARDING,
+                                          ShardRange.SHARDED)):
+            info = self._make_stats_info(broker, node, own_shard_range)
+            info['state'] = own_shard_range.state_text
+            info['db_state'] = broker.get_db_state_text()
+            states = [ShardRange.FOUND, ShardRange.CREATED,
+                      ShardRange.CLEAVED, ShardRange.ACTIVE]
+            shard_ranges = broker.get_shard_ranges(states=states)
+            state_count = {}
+            for state in states:
+                state_count[ShardRange.STATES[state]] = 0
+            for shard_range in shard_ranges:
+                state_count[shard_range.state_text] += 1
+            info.update(state_count)
+            info['error'] = error and str(error)
+            self._append_stat('sharding_in_progress', 'all', info)
 
     def _report_stats(self):
         default_stats = ('attempted', 'success', 'failure')
@@ -311,6 +352,22 @@ class ContainerSharder(ContainerReplicator):
         if (time.time() - self.reported) >= 3600:  # once an hour
             self._report_stats()
             self._zero_stats()
+
+    def _check_node(self, node, devices_to_shard):
+        if not node:
+            return False
+        if node['device'] not in devices_to_shard:
+            return False
+        if not is_local_device(self.ips, self.port,
+                               node['replication_ip'],
+                               node['replication_port']):
+            return False
+        if not check_drive(self.root, node['device'],
+                           self.mount_check):
+            self.logger.warning(
+                'Skipping %(device)s as it is not mounted' % node)
+            return False
+        return True
 
     def _fetch_shard_ranges(self, broker, newest=False, params=None,
                             include_deleted=False):
@@ -422,6 +479,113 @@ class ContainerSharder(ContainerReplicator):
 
         return part, shard_broker, node['id']
 
+    def _audit_root_container(self, broker):
+        # This is the root container, and therefore the tome of knowledge,
+        # all we can do is check there is nothing screwy with the ranges
+        self._increment_stat('audit_root', 'attempted')
+        warnings = []
+        own_shard_range = broker.get_own_shard_range()
+
+        if own_shard_range.state in (ShardRange.SHARDING, ShardRange.SHARDED):
+            shard_ranges = broker.get_shard_ranges()
+            missing_ranges = find_missing_ranges(shard_ranges)
+            if missing_ranges:
+                warnings.append(
+                    'missing range(s): %s' %
+                    ' '.join(['%s-%s' % (lower, upper)
+                              for lower, upper in missing_ranges]))
+
+        for state in ShardRange.STATES:
+            shard_ranges = broker.get_shard_ranges(states=state)
+            overlaps = find_overlapping_ranges(shard_ranges)
+            for overlapping_ranges in overlaps:
+                warnings.append(
+                    'overlapping ranges in state %s: %s' %
+                    (ShardRange.STATES[state],
+                     ' '.join(['%s-%s' % (sr.lower, sr.upper)
+                               for sr in overlapping_ranges])))
+
+        if warnings:
+            self.logger.warning(
+                'Audit failed for root %s (%s): %s' %
+                (broker.db_file, broker.path, ', '.join(warnings)))
+            self._increment_stat('audit_root', 'failure', statsd=True)
+            return False
+
+        self._increment_stat('audit_root', 'success', statsd=True)
+        return True
+
+    def _audit_shard_container(self, broker):
+        # Get the root view of the world.
+        self._increment_stat('audit_shard', 'attempted')
+        warnings = []
+        errors = []
+        if not broker.account.startswith(self.shards_account_prefix):
+            warnings.append('account not in shards namespace %r' %
+                            self.shards_account_prefix)
+
+        own_shard_range = broker.get_own_shard_range(no_default=True)
+
+        shard_range = None
+        if own_shard_range:
+            shard_ranges = self._fetch_shard_ranges(
+                broker, newest=True,
+                params={'marker': own_shard_range.lower,
+                        'end_marker': own_shard_range.upper},
+                include_deleted=True)
+            if shard_ranges:
+                for shard_range in shard_ranges:
+                    if (shard_range.lower == own_shard_range.lower and
+                            shard_range.upper == own_shard_range.upper and
+                            shard_range.name == own_shard_range.name):
+                        break
+                else:
+                    # this is not necessarily an error - some replicas of the
+                    # root may not yet know about this shard container
+                    warnings.append('root has no matching shard range')
+                    shard_range = None
+            else:
+                warnings.append('unable to get shard ranges from root')
+        else:
+            errors.append('missing own shard range')
+
+        if warnings:
+            self.logger.warning(
+                'Audit warnings for shard %s (%s): %s' %
+                (broker.db_file, broker.path, ', '.join(warnings)))
+
+        if errors:
+            self.logger.warning(
+                'Audit failed for shard %s (%s) - skipping: %s' %
+                (broker.db_file, broker.path, ', '.join(errors)))
+            self._increment_stat('audit_shard', 'failure', statsd=True)
+            return False
+
+        if shard_range:
+            self.logger.debug('Updating shard from root %s', dict(shard_range))
+            broker.merge_shard_ranges(shard_range)
+            own_shard_range = broker.get_own_shard_range()
+            delete_age = time.time() - self.reclaim_age
+            if (own_shard_range.state == ShardRange.SHARDED and
+                    own_shard_range.deleted and
+                    own_shard_range.timestamp < delete_age and
+                    broker.empty()):
+                broker.delete_db(Timestamp.now().internal)
+                self.logger.debug('Deleted shard container %s (%s)',
+                                  broker.db_file, broker.path)
+        self._increment_stat('audit_shard', 'success', statsd=True)
+        return True
+
+    def _audit_container(self, broker):
+        if broker.is_deleted():
+            # if the container has been marked as deleted, all metadata will
+            # have been erased so no point auditing. But we want it to pass, in
+            # case any objects exist inside it.
+            return True
+        if broker.is_root_container():
+            return self._audit_root_container(broker)
+        return self._audit_shard_container(broker)
+
     def yield_objects(self, broker, src_shard_range, policy_index,
                       since_row=None):
         """
@@ -522,6 +686,10 @@ class ContainerSharder(ContainerReplicator):
                 yield (objs[last_index:next_index],
                        None if unplaced else dest_shard_range,
                        info)
+
+    def _post_replicate_hook(self, broker, info, responses):
+        # override superclass behaviour
+        pass
 
     def _replicate_and_delete(self, broker, policy_index, dest_shard_range,
                               part, dest_broker, node_id, info):
@@ -711,373 +879,6 @@ class ContainerSharder(ContainerReplicator):
         self.logger.info('Finished misplaced shard replication')
         return success
 
-    def _post_replicate_hook(self, broker, info, responses):
-        return
-
-    def _audit_root_container(self, broker):
-        # This is the root container, and therefore the tome of knowledge,
-        # all we can do is check there is nothing screwy with the ranges
-        self._increment_stat('audit_root', 'attempted')
-        warnings = []
-        own_shard_range = broker.get_own_shard_range()
-
-        if own_shard_range.state in (ShardRange.SHARDING, ShardRange.SHARDED):
-            shard_ranges = broker.get_shard_ranges()
-            missing_ranges = find_missing_ranges(shard_ranges)
-            if missing_ranges:
-                warnings.append(
-                    'missing range(s): %s' %
-                    ' '.join(['%s-%s' % (lower, upper)
-                              for lower, upper in missing_ranges]))
-
-        for state in ShardRange.STATES:
-            shard_ranges = broker.get_shard_ranges(states=state)
-            overlaps = find_overlapping_ranges(shard_ranges)
-            for overlapping_ranges in overlaps:
-                warnings.append(
-                    'overlapping ranges in state %s: %s' %
-                    (ShardRange.STATES[state],
-                     ' '.join(['%s-%s' % (sr.lower, sr.upper)
-                               for sr in overlapping_ranges])))
-
-        if warnings:
-            self.logger.warning(
-                'Audit failed for root %s (%s): %s' %
-                (broker.db_file, broker.path, ', '.join(warnings)))
-            self._increment_stat('audit_root', 'failure', statsd=True)
-            return False
-
-        self._increment_stat('audit_root', 'success', statsd=True)
-        return True
-
-    def _audit_shard_container(self, broker):
-        # Get the root view of the world.
-        self._increment_stat('audit_shard', 'attempted')
-        warnings = []
-        errors = []
-        if not broker.account.startswith(self.shards_account_prefix):
-            warnings.append('account not in shards namespace %r' %
-                            self.shards_account_prefix)
-
-        own_shard_range = broker.get_own_shard_range(no_default=True)
-
-        shard_range = None
-        if own_shard_range:
-            shard_ranges = self._fetch_shard_ranges(
-                broker, newest=True,
-                params={'marker': own_shard_range.lower,
-                        'end_marker': own_shard_range.upper},
-                include_deleted=True)
-            if shard_ranges:
-                for shard_range in shard_ranges:
-                    if (shard_range.lower == own_shard_range.lower and
-                            shard_range.upper == own_shard_range.upper and
-                            shard_range.name == own_shard_range.name):
-                        break
-                else:
-                    # this is not necessarily an error - some replicas of the
-                    # root may not yet know about this shard container
-                    warnings.append('root has no matching shard range')
-                    shard_range = None
-            else:
-                warnings.append('unable to get shard ranges from root')
-        else:
-            errors.append('missing own shard range')
-
-        if warnings:
-            self.logger.warning(
-                'Audit warnings for shard %s (%s): %s' %
-                (broker.db_file, broker.path, ', '.join(warnings)))
-
-        if errors:
-            self.logger.warning(
-                'Audit failed for shard %s (%s) - skipping: %s' %
-                (broker.db_file, broker.path, ', '.join(errors)))
-            self._increment_stat('audit_shard', 'failure', statsd=True)
-            return False
-
-        if shard_range:
-            self.logger.debug('Updating shard from root %s', dict(shard_range))
-            broker.merge_shard_ranges(shard_range)
-            own_shard_range = broker.get_own_shard_range()
-            delete_age = time.time() - self.reclaim_age
-            if (own_shard_range.state == ShardRange.SHARDED and
-                    own_shard_range.deleted and
-                    own_shard_range.timestamp < delete_age and
-                    broker.empty()):
-                broker.delete_db(Timestamp.now().internal)
-                self.logger.debug('Deleted shard container %s (%s)',
-                                  broker.db_file, broker.path)
-        self._increment_stat('audit_shard', 'success', statsd=True)
-        return True
-
-    def _audit_container(self, broker):
-        if broker.is_deleted():
-            # if the container has been marked as deleted, all metadata will
-            # have been erased so no point auditing. But we want it to pass, in
-            # case any objects exist inside it.
-            return True
-        if broker.is_root_container():
-            return self._audit_root_container(broker)
-        return self._audit_shard_container(broker)
-
-    def _update_root_container(self, broker):
-        own_shard_range = broker.get_own_shard_range(no_default=True)
-        if not own_shard_range:
-            return
-
-        # persist the reported shard metadata
-        broker.merge_shard_ranges(own_shard_range)
-        # now get a consistent list of own and other shard ranges
-        shard_ranges = broker.get_shard_ranges(
-            include_own=True,
-            include_deleted=True)
-        # send everything
-        self._send_shard_ranges(
-            broker.root_account, broker.root_container,
-            shard_ranges)
-
-    def _make_stats_info(self, broker, node, own_shard_range):
-        try:
-            file_size = os.stat(broker.db_file).st_size
-        except OSError:
-            file_size = None
-
-        return {'path': broker.db_file,
-                'node_index': node.get('index'),
-                'account': broker.account,
-                'container': broker.container,
-                'root': broker.root_path,
-                'object_count': own_shard_range.object_count,
-                'meta_timestamp': own_shard_range.meta_timestamp.internal,
-                'file_size': file_size}
-
-    def _identify_sharding_candidate(self, broker, node):
-        own_shard_range = broker.get_own_shard_range()
-        if self._is_sharding_candidate(own_shard_range):
-            self._append_stat(
-                'sharding_candidates', 'all',
-                self._make_stats_info(broker, node, own_shard_range))
-
-    def _record_sharding_progress(self, broker, node, error):
-        own_shard_range = broker.get_own_shard_range()
-        if (broker.get_db_state() in (UNSHARDED, SHARDING) and
-                own_shard_range.state in (ShardRange.SHARDING,
-                                          ShardRange.SHARDED)):
-            info = self._make_stats_info(broker, node, own_shard_range)
-            info['state'] = own_shard_range.state_text
-            info['db_state'] = broker.get_db_state_text()
-            states = [ShardRange.FOUND, ShardRange.CREATED,
-                      ShardRange.CLEAVED, ShardRange.ACTIVE]
-            shard_ranges = broker.get_shard_ranges(states=states)
-            state_count = {}
-            for state in states:
-                state_count[ShardRange.STATES[state]] = 0
-            for shard_range in shard_ranges:
-                state_count[shard_range.state_text] += 1
-            info.update(state_count)
-            info['error'] = error and str(error)
-            self._append_stat('sharding_in_progress', 'all', info)
-
-    def _process_broker(self, broker, node, part):
-        broker.get_info()  # make sure account/container are populated
-        state = broker.get_db_state()
-        self.logger.info('Starting processing %s state %s',
-                         broker.path, broker.get_db_state_text(state))
-
-        if not self._audit_container(broker):
-            return
-
-        # now look and deal with misplaced objects.
-        self._move_misplaced_objects(broker)
-
-        if broker.is_deleted():
-            # This container is deleted so we can skip it. We still want
-            # deleted containers to go via misplaced items because they may
-            # have new objects sitting in them that may need to move.
-            return
-
-        # TODO: bring back leader election (maybe?); if so make it
-        # on-demand since we may not need to know if we are leader for all
-        # states
-        is_leader = node['index'] == 0 and self.auto_shard
-        if state in (UNSHARDED, COLLAPSED):
-            if is_leader and broker.is_root_container():
-                # bootstrap sharding of root container
-                self._find_sharding_candidates(
-                    broker, shard_ranges=[broker.get_own_shard_range()])
-
-            own_shard_range = broker.get_own_shard_range()
-            if own_shard_range.state in (ShardRange.SHARDING,
-                                         ShardRange.SHRINKING,
-                                         ShardRange.SHARDED):
-                if broker.get_shard_ranges():
-                    # container has been given shard ranges rather than
-                    # found them e.g. via replication or a shrink event
-                    if broker.set_sharding_state():
-                        state = SHARDING
-                elif is_leader:
-                    if broker.set_sharding_state():
-                        state = SHARDING
-                else:
-                    self.logger.debug(
-                        'Own shard range in state %r but no shard ranges '
-                        'and not leader; remaining unsharded: %s'
-                        % (own_shard_range.state_text, broker.path))
-
-        if state == SHARDING:
-            if is_leader:
-                num_found = self._find_shard_ranges(broker)
-            else:
-                num_found = 0
-
-            # create shard containers for newly found ranges
-            num_created = self._create_shard_containers(broker)
-
-            if num_found or num_created:
-                # share updated shard range state with  other nodes
-                self._replicate_object(part, broker.db_file, node['id'])
-
-            # always try to cleave any pending shard ranges
-            cleave_complete = self._cleave(broker)
-
-            if cleave_complete:
-                self.logger.debug('Completed cleaving of %s', broker.path)
-                if self._complete_sharding(broker):
-                    state = SHARDED
-                    self._increment_stat('visited', 'completed', statsd=True)
-                else:
-                    self.logger.debug('Remaining in sharding state %s',
-                                      broker.path)
-
-        if state == SHARDED and broker.is_root_container():
-            if is_leader:
-                self._find_shrinks(broker)
-                self._find_sharding_candidates(broker)
-
-            # TODO: remove this once shards are pulling their state from
-            # root during audit - we don't want to push because it may
-            # revive a deleted shard
-            for shard_range in broker.get_shard_ranges(
-                    states=[ShardRange.SHARDING]):
-                self._send_shard_ranges(
-                    shard_range.account, shard_range.container,
-                    [shard_range])
-
-        if not broker.is_root_container():
-            # Update the root container with this container's shard range
-            # info; do this even when sharded in case previous attempts
-            # failed; don't do this if there is no own shard range. When
-            # sharding a shard, this is when the root will see the new
-            # shards move to ACTIVE state and the sharded shard
-            # simultaneously become deleted.
-            # TODO: the new shard ranges may have existed for some
-            # time and already be updating the root with their
-            # usage e.g. multiple cycles before we finished
-            # cleaving, or process failed right here. If so then
-            # the updates we send here probably have an out of date
-            # view of the shards' usage, but I think it is still ok
-            # to send these updates because the meta_timestamp
-            # should prevent these updates undoing any newer
-            # updates at the root from the actual shards. *It would
-            # be good to have a test to verify that.*
-            self._update_root_container(broker)
-
-        self.logger.info('Finished processing %s/%s state %s',
-                         broker.account, broker.container,
-                         broker.get_db_state_text())
-
-    def _check_node(self, node, devices_to_shard):
-        if not node:
-            return False
-        if node['device'] not in devices_to_shard:
-            return False
-        if not is_local_device(self.ips, self.port,
-                               node['replication_ip'],
-                               node['replication_port']):
-            return False
-        if not check_drive(self.root, node['device'],
-                           self.mount_check):
-            self.logger.warning(
-                'Skipping %(device)s as it is not mounted' % node)
-            return False
-        return True
-
-    def _one_shard_cycle(self, devices_to_shard, partitions_to_shard):
-        """
-        The main function, everything the sharder does forks from this method.
-
-        The sharder loops through each container with sharding enabled and each
-        sharded container on the server, on each container it:
-            - audits the container
-            - checks and deals with misplaced items
-            - 2 phase sharding (if no. objects > shard_container_size)
-                - Phase 1, if there is no shard defined, find it, then move
-                  to next container.
-                - Phase 2, if there is a shard defined, shard it.
-            - Shrinking (check to see if we need to shrink this container).
-        """
-        self.logger.info('Container sharder cycle starting, auto-sharding %s',
-                         self.auto_shard)
-        self._zero_stats()
-        if isinstance(devices_to_shard, (list, tuple)):
-            self.logger.info('(Override devices: %s)',
-                             ', '.join(str(d) for d in devices_to_shard))
-        if isinstance(partitions_to_shard, (list, tuple)):
-            self.logger.info('(Override partitions: %s)',
-                             ', '.join(str(p) for p in partitions_to_shard))
-        dirs = []
-        self.ips = whataremyips(bind_ip=self.bind_ip)
-        for node in self.ring.devs:
-            if not self._check_node(node, devices_to_shard):
-                continue
-            datadir = os.path.join(self.root, node['device'], self.datadir)
-            if os.path.isdir(datadir):
-                # Populate self._local_device_ids so we can find
-                # handoffs for shards later
-                self._local_device_ids.add(node['id'])
-                part_filt = self._partition_dir_filter(
-                    node['id'],
-                    partitions_to_shard)
-                dirs.append((datadir, node, part_filt))
-        if not dirs:
-            self.logger.warning('Found no data dirs!')
-        for part, path, node in db_replicator.roundrobin_datadirs(dirs):
-            # NB: get_part_nodes always provides an 'index' key;
-            # this will be used in leader selection
-            for primary in self.ring.get_part_nodes(int(part)):
-                if node['id'] == primary['id']:
-                    node = primary
-                    break
-            else:
-                # Set index such that we'll *never* be selected as a leader
-                node['index'] = 'handoff'
-
-            broker = ContainerBroker(path, logger=self.logger,
-                                     timeout=self.broker_timeout)
-            error = None
-            try:
-                self._identify_sharding_candidate(broker, node)
-                if sharding_enabled(broker):
-                    self._increment_stat('visited', 'attempted')
-                    self._process_broker(broker, node, part)
-                    self._increment_stat('visited', 'success', statsd=True)
-                else:
-                    self._increment_stat('visited', 'skipped')
-            except (Exception, Timeout) as error:
-                self._increment_stat('visited', 'failure', statsd=True)
-                self.logger.exception(
-                    'Unhandled exception while processing %s: %s', path, error)
-            try:
-                self._record_sharding_progress(broker, node, error)
-            except Exception as error:
-                self.logger.exception(
-                    'Unhandled exception while dumping progress for %s: %s',
-                    path, error)
-            self._periodic_report_stats()
-
-        self._report_stats()
-
     def _find_shard_ranges(self, broker):
         """
         Scans the container to find shard ranges and adds them to the shard
@@ -1171,126 +972,6 @@ class ContainerSharder(ContainerReplicator):
             "Completed creating shard range containers: %d created.",
             len(created_ranges))
         return len(created_ranges)
-
-    def _is_sharding_candidate(self, shard_range):
-        return (shard_range.state == ShardRange.ACTIVE and
-                shard_range.object_count >= self.shard_container_size)
-
-    def _find_sharding_candidates(self, broker, shard_ranges=None):
-        # this should only execute on root containers; the goal is to find
-        # large shard containers that should be sharded.
-        # First cut is simple: assume root container shard usage stats are good
-        # enough to make decision.
-        # TODO: object counts may well not be the appropriate metric for
-        # deciding to shrink because a shard with low object_count may have a
-        # large number of deleted object rows that will need to be merged with
-        # a neighbour. We may need to expose row count as well as object count.
-        if shard_ranges is None:
-            shard_ranges = broker.get_shard_ranges(states=[ShardRange.ACTIVE])
-        candidates = []
-        for shard_range in shard_ranges:
-            if not self._is_sharding_candidate(shard_range):
-                continue
-            shard_range.update_state(ShardRange.SHARDING,
-                                     state_timestamp=Timestamp.now())
-            shard_range.epoch = shard_range.state_timestamp
-            candidates.append(shard_range)
-        broker.merge_shard_ranges(candidates)
-        return len(candidates)
-
-    def _find_shrinks(self, broker):
-        # this should only execute on root containers that have sharded; the
-        # goal is to find small shard containers that could be retired by
-        # merging with a neighbour.
-        # First cut is simple: assume root container shard usage stats are good
-        # enough to make decision; only merge with upper neighbour so that
-        # upper bounds never change (shard names include upper bound).
-        # TODO: object counts may well not be the appropriate metric for
-        # deciding to shrink because a shard with low object_count may have a
-        # large number of deleted object rows that will need to be merged with
-        # a neighbour. We may need to expose row count as well as object count.
-        state = broker.get_db_state()
-        if state != SHARDED:
-            self.logger.warning(
-                'Cannot shrink a not yet sharded container %s/%s',
-                broker.account, broker.container)
-
-        shard_ranges = broker.get_shard_ranges()
-        own_shard_range = broker.get_own_shard_range()
-        if len(shard_ranges) == 1:
-            # special case to enable final shard to shrink into root
-            shard_ranges.append(own_shard_range)
-
-        merge_pairs = {}
-        for donor, acceptor in zip(shard_ranges, shard_ranges[1:]):
-            self.logger.debug('considering shrink donor    %r %s' %
-                              (donor, donor.name))
-            self.logger.debug('considering shrink acceptor %r %s' %
-                              (acceptor, acceptor.name))
-            if donor in merge_pairs:
-                # this range may already have been made an acceptor; if so then
-                # move on. In principle it might be that even after expansion
-                # this range and its donor(s) could all be merged with the next
-                # range. In practice it is much easier to reason about a single
-                # donor merging into a single acceptor. Don't fret - eventually
-                # all the small ranges will be retired.
-                continue
-            if (acceptor is not own_shard_range and
-                    acceptor.state != ShardRange.ACTIVE):
-                # don't shrink into a range that is not yet ACTIVE
-                continue
-            if donor.state not in (ShardRange.ACTIVE, ShardRange.SHRINKING):
-                # found? created? sharded? don't touch it
-                continue
-
-            proposed_object_count = donor.object_count + acceptor.object_count
-            if (donor.state == ShardRange.SHRINKING or
-                    (donor.object_count < self.shrink_size and
-                     proposed_object_count < self.merge_size)):
-                # include previously identified merge pairs on presumption that
-                # following shrink procedure is idempotent
-                merge_pairs[acceptor] = donor
-                self.logger.debug('selecting shrink pair %r %r' %
-                                  (donor, acceptor))
-
-        # TODO: think long and hard about the correct order for these remaining
-        # operations and what happens when one fails...
-        for acceptor, donor in merge_pairs.items():
-            # TODO: unit test to verify idempotent nature of this procedure
-            self.logger.debug('shrinking shard range %s into %s in %s' %
-                              (donor, acceptor, broker.db_file))
-            modified_shard_ranges = []
-            if donor.update_state(ShardRange.SHRINKING):
-                # Set donor state to shrinking so that next cycle won't use it
-                # as an acceptor; state_timestamp defines new epoch for donor
-                # and new timestamp for the expanded acceptor below.
-                donor.epoch = donor.state_timestamp = Timestamp.now()
-                modified_shard_ranges.append(donor)
-            if acceptor.lower != donor.lower:
-                # Update the acceptor container with its expanding state to
-                # prevent it treating objects cleaved from the donor
-                # as misplaced.
-                acceptor.lower = donor.lower
-                acceptor.timestamp = donor.state_timestamp
-                modified_shard_ranges.append(acceptor)
-            broker.merge_shard_ranges(modified_shard_ranges)
-            if acceptor is not own_shard_range:
-                self._send_shard_ranges(
-                    acceptor.account, acceptor.container, [acceptor])
-                acceptor.increment_meta(donor.object_count, donor.bytes_used)
-            else:
-                # no need to change namespace or stats
-                acceptor.update_state(ShardRange.ACTIVE,
-                                      state_timestamp=Timestamp.now())
-            # Now send a copy of the expanded acceptor, with an updated
-            # timestamp, to the donor container. This forces the donor to
-            # asynchronously cleave its entire contents to the acceptor and
-            # delete itself. The donor will pass its own deleted shard range to
-            # the acceptor when cleaving. Subsequent updates from the donor or
-            # the acceptor will then update the root to have the  deleted donor
-            # shard range.
-            self._send_shard_ranges(
-                donor.account, donor.container, [donor, acceptor])
 
     def _cleave_shard_range(self, broker, cleaving_context, shard_range):
         self.logger.info("Cleaving '%s': %r from row %s",
@@ -1455,6 +1136,325 @@ class ContainerSharder(ContainerReplicator):
         cleaving_context.reset()
         cleaving_context.store(broker)
         return False
+
+    def _is_sharding_candidate(self, shard_range):
+        return (shard_range.state == ShardRange.ACTIVE and
+                shard_range.object_count >= self.shard_container_size)
+
+    def _find_sharding_candidates(self, broker, shard_ranges=None):
+        # this should only execute on root containers; the goal is to find
+        # large shard containers that should be sharded.
+        # First cut is simple: assume root container shard usage stats are good
+        # enough to make decision.
+        # TODO: object counts may well not be the appropriate metric for
+        # deciding to shrink because a shard with low object_count may have a
+        # large number of deleted object rows that will need to be merged with
+        # a neighbour. We may need to expose row count as well as object count.
+        if shard_ranges is None:
+            shard_ranges = broker.get_shard_ranges(states=[ShardRange.ACTIVE])
+        candidates = []
+        for shard_range in shard_ranges:
+            if not self._is_sharding_candidate(shard_range):
+                continue
+            shard_range.update_state(ShardRange.SHARDING,
+                                     state_timestamp=Timestamp.now())
+            shard_range.epoch = shard_range.state_timestamp
+            candidates.append(shard_range)
+        broker.merge_shard_ranges(candidates)
+        return len(candidates)
+
+    def _find_shrinks(self, broker):
+        # this should only execute on root containers that have sharded; the
+        # goal is to find small shard containers that could be retired by
+        # merging with a neighbour.
+        # First cut is simple: assume root container shard usage stats are good
+        # enough to make decision; only merge with upper neighbour so that
+        # upper bounds never change (shard names include upper bound).
+        # TODO: object counts may well not be the appropriate metric for
+        # deciding to shrink because a shard with low object_count may have a
+        # large number of deleted object rows that will need to be merged with
+        # a neighbour. We may need to expose row count as well as object count.
+        state = broker.get_db_state()
+        if state != SHARDED:
+            self.logger.warning(
+                'Cannot shrink a not yet sharded container %s/%s',
+                broker.account, broker.container)
+
+        shard_ranges = broker.get_shard_ranges()
+        own_shard_range = broker.get_own_shard_range()
+        if len(shard_ranges) == 1:
+            # special case to enable final shard to shrink into root
+            shard_ranges.append(own_shard_range)
+
+        merge_pairs = {}
+        for donor, acceptor in zip(shard_ranges, shard_ranges[1:]):
+            self.logger.debug('considering shrink donor    %r %s' %
+                              (donor, donor.name))
+            self.logger.debug('considering shrink acceptor %r %s' %
+                              (acceptor, acceptor.name))
+            if donor in merge_pairs:
+                # this range may already have been made an acceptor; if so then
+                # move on. In principle it might be that even after expansion
+                # this range and its donor(s) could all be merged with the next
+                # range. In practice it is much easier to reason about a single
+                # donor merging into a single acceptor. Don't fret - eventually
+                # all the small ranges will be retired.
+                continue
+            if (acceptor is not own_shard_range and
+                    acceptor.state != ShardRange.ACTIVE):
+                # don't shrink into a range that is not yet ACTIVE
+                continue
+            if donor.state not in (ShardRange.ACTIVE, ShardRange.SHRINKING):
+                # found? created? sharded? don't touch it
+                continue
+
+            proposed_object_count = donor.object_count + acceptor.object_count
+            if (donor.state == ShardRange.SHRINKING or
+                    (donor.object_count < self.shrink_size and
+                     proposed_object_count < self.merge_size)):
+                # include previously identified merge pairs on presumption that
+                # following shrink procedure is idempotent
+                merge_pairs[acceptor] = donor
+                self.logger.debug('selecting shrink pair %r %r' %
+                                  (donor, acceptor))
+
+        # TODO: think long and hard about the correct order for these remaining
+        # operations and what happens when one fails...
+        for acceptor, donor in merge_pairs.items():
+            # TODO: unit test to verify idempotent nature of this procedure
+            self.logger.debug('shrinking shard range %s into %s in %s' %
+                              (donor, acceptor, broker.db_file))
+            modified_shard_ranges = []
+            if donor.update_state(ShardRange.SHRINKING):
+                # Set donor state to shrinking so that next cycle won't use it
+                # as an acceptor; state_timestamp defines new epoch for donor
+                # and new timestamp for the expanded acceptor below.
+                donor.epoch = donor.state_timestamp = Timestamp.now()
+                modified_shard_ranges.append(donor)
+            if acceptor.lower != donor.lower:
+                # Update the acceptor container with its expanding state to
+                # prevent it treating objects cleaved from the donor
+                # as misplaced.
+                acceptor.lower = donor.lower
+                acceptor.timestamp = donor.state_timestamp
+                modified_shard_ranges.append(acceptor)
+            broker.merge_shard_ranges(modified_shard_ranges)
+            if acceptor is not own_shard_range:
+                self._send_shard_ranges(
+                    acceptor.account, acceptor.container, [acceptor])
+                acceptor.increment_meta(donor.object_count, donor.bytes_used)
+            else:
+                # no need to change namespace or stats
+                acceptor.update_state(ShardRange.ACTIVE,
+                                      state_timestamp=Timestamp.now())
+            # Now send a copy of the expanded acceptor, with an updated
+            # timestamp, to the donor container. This forces the donor to
+            # asynchronously cleave its entire contents to the acceptor and
+            # delete itself. The donor will pass its own deleted shard range to
+            # the acceptor when cleaving. Subsequent updates from the donor or
+            # the acceptor will then update the root to have the  deleted donor
+            # shard range.
+            self._send_shard_ranges(
+                donor.account, donor.container, [donor, acceptor])
+
+    def _update_root_container(self, broker):
+        own_shard_range = broker.get_own_shard_range(no_default=True)
+        if not own_shard_range:
+            return
+
+        # persist the reported shard metadata
+        broker.merge_shard_ranges(own_shard_range)
+        # now get a consistent list of own and other shard ranges
+        shard_ranges = broker.get_shard_ranges(
+            include_own=True,
+            include_deleted=True)
+        # send everything
+        self._send_shard_ranges(
+            broker.root_account, broker.root_container,
+            shard_ranges)
+
+    def _process_broker(self, broker, node, part):
+        broker.get_info()  # make sure account/container are populated
+        state = broker.get_db_state()
+        self.logger.info('Starting processing %s state %s',
+                         broker.path, broker.get_db_state_text(state))
+
+        if not self._audit_container(broker):
+            return
+
+        # now look and deal with misplaced objects.
+        self._move_misplaced_objects(broker)
+
+        if broker.is_deleted():
+            # This container is deleted so we can skip it. We still want
+            # deleted containers to go via misplaced items because they may
+            # have new objects sitting in them that may need to move.
+            return
+
+        # TODO: bring back leader election (maybe?); if so make it
+        # on-demand since we may not need to know if we are leader for all
+        # states
+        is_leader = node['index'] == 0 and self.auto_shard
+        if state in (UNSHARDED, COLLAPSED):
+            if is_leader and broker.is_root_container():
+                # bootstrap sharding of root container
+                self._find_sharding_candidates(
+                    broker, shard_ranges=[broker.get_own_shard_range()])
+
+            own_shard_range = broker.get_own_shard_range()
+            if own_shard_range.state in (ShardRange.SHARDING,
+                                         ShardRange.SHRINKING,
+                                         ShardRange.SHARDED):
+                if broker.get_shard_ranges():
+                    # container has been given shard ranges rather than
+                    # found them e.g. via replication or a shrink event
+                    if broker.set_sharding_state():
+                        state = SHARDING
+                elif is_leader:
+                    if broker.set_sharding_state():
+                        state = SHARDING
+                else:
+                    self.logger.debug(
+                        'Own shard range in state %r but no shard ranges '
+                        'and not leader; remaining unsharded: %s'
+                        % (own_shard_range.state_text, broker.path))
+
+        if state == SHARDING:
+            if is_leader:
+                num_found = self._find_shard_ranges(broker)
+            else:
+                num_found = 0
+
+            # create shard containers for newly found ranges
+            num_created = self._create_shard_containers(broker)
+
+            if num_found or num_created:
+                # share updated shard range state with  other nodes
+                self._replicate_object(part, broker.db_file, node['id'])
+
+            # always try to cleave any pending shard ranges
+            cleave_complete = self._cleave(broker)
+
+            if cleave_complete:
+                self.logger.debug('Completed cleaving of %s', broker.path)
+                if self._complete_sharding(broker):
+                    state = SHARDED
+                    self._increment_stat('visited', 'completed', statsd=True)
+                else:
+                    self.logger.debug('Remaining in sharding state %s',
+                                      broker.path)
+
+        if state == SHARDED and broker.is_root_container():
+            if is_leader:
+                self._find_shrinks(broker)
+                self._find_sharding_candidates(broker)
+
+            # TODO: remove this once shards are pulling their state from
+            # root during audit - we don't want to push because it may
+            # revive a deleted shard
+            for shard_range in broker.get_shard_ranges(
+                    states=[ShardRange.SHARDING]):
+                self._send_shard_ranges(
+                    shard_range.account, shard_range.container,
+                    [shard_range])
+
+        if not broker.is_root_container():
+            # Update the root container with this container's shard range
+            # info; do this even when sharded in case previous attempts
+            # failed; don't do this if there is no own shard range. When
+            # sharding a shard, this is when the root will see the new
+            # shards move to ACTIVE state and the sharded shard
+            # simultaneously become deleted.
+            # TODO: the new shard ranges may have existed for some
+            # time and already be updating the root with their
+            # usage e.g. multiple cycles before we finished
+            # cleaving, or process failed right here. If so then
+            # the updates we send here probably have an out of date
+            # view of the shards' usage, but I think it is still ok
+            # to send these updates because the meta_timestamp
+            # should prevent these updates undoing any newer
+            # updates at the root from the actual shards. *It would
+            # be good to have a test to verify that.*
+            self._update_root_container(broker)
+
+        self.logger.info('Finished processing %s/%s state %s',
+                         broker.account, broker.container,
+                         broker.get_db_state_text())
+
+    def _one_shard_cycle(self, devices_to_shard, partitions_to_shard):
+        """
+        The main function, everything the sharder does forks from this method.
+
+        The sharder loops through each container with sharding enabled and each
+        sharded container on the server, on each container it:
+            - audits the container
+            - checks and deals with misplaced items
+            - 2 phase sharding (if no. objects > shard_container_size)
+                - Phase 1, if there is no shard defined, find it, then move
+                  to next container.
+                - Phase 2, if there is a shard defined, shard it.
+            - Shrinking (check to see if we need to shrink this container).
+        """
+        self.logger.info('Container sharder cycle starting, auto-sharding %s',
+                         self.auto_shard)
+        self._zero_stats()
+        if isinstance(devices_to_shard, (list, tuple)):
+            self.logger.info('(Override devices: %s)',
+                             ', '.join(str(d) for d in devices_to_shard))
+        if isinstance(partitions_to_shard, (list, tuple)):
+            self.logger.info('(Override partitions: %s)',
+                             ', '.join(str(p) for p in partitions_to_shard))
+        dirs = []
+        self.ips = whataremyips(bind_ip=self.bind_ip)
+        for node in self.ring.devs:
+            if not self._check_node(node, devices_to_shard):
+                continue
+            datadir = os.path.join(self.root, node['device'], self.datadir)
+            if os.path.isdir(datadir):
+                # Populate self._local_device_ids so we can find
+                # handoffs for shards later
+                self._local_device_ids.add(node['id'])
+                part_filt = self._partition_dir_filter(
+                    node['id'],
+                    partitions_to_shard)
+                dirs.append((datadir, node, part_filt))
+        if not dirs:
+            self.logger.warning('Found no data dirs!')
+        for part, path, node in db_replicator.roundrobin_datadirs(dirs):
+            # NB: get_part_nodes always provides an 'index' key;
+            # this will be used in leader selection
+            for primary in self.ring.get_part_nodes(int(part)):
+                if node['id'] == primary['id']:
+                    node = primary
+                    break
+            else:
+                # Set index such that we'll *never* be selected as a leader
+                node['index'] = 'handoff'
+
+            broker = ContainerBroker(path, logger=self.logger,
+                                     timeout=self.broker_timeout)
+            error = None
+            try:
+                self._identify_sharding_candidate(broker, node)
+                if sharding_enabled(broker):
+                    self._increment_stat('visited', 'attempted')
+                    self._process_broker(broker, node, part)
+                    self._increment_stat('visited', 'success', statsd=True)
+                else:
+                    self._increment_stat('visited', 'skipped')
+            except (Exception, Timeout) as error:
+                self._increment_stat('visited', 'failure', statsd=True)
+                self.logger.exception(
+                    'Unhandled exception while processing %s: %s', path, error)
+            try:
+                self._record_sharding_progress(broker, node, error)
+            except Exception as error:
+                self.logger.exception(
+                    'Unhandled exception while dumping progress for %s: %s',
+                    path, error)
+            self._periodic_report_stats()
+
+        self._report_stats()
 
     def run_forever(self, *args, **kwargs):
         """Run the container sharder until stopped."""
