@@ -27,7 +27,6 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound, HTTPServerError
-from swift.container.backend import SHARDING, UNSHARDED, SHARDED
 
 
 class ContainerController(Controller):
@@ -113,13 +112,13 @@ class ContainerController(Controller):
         resp = self.GETorHEAD_base(
             req, _('Container'), node_iter, part,
             req.swift_entity_path, concurrency)
-        sharding_state = \
-            int(resp.headers.get('X-Backend-Sharding-State',
-                                 UNSHARDED))
+        sharding_state = resp.headers.get(
+            'X-Backend-Sharding-State', 'unsharded')
         record_type = req.headers.get('X-Backend-Record-Type', '').lower()
         self.app.logger.debug('GET for container in state %s' % sharding_state)
-        if (req.method == "GET" and sharding_state in (SHARDING, SHARDED) and
-                record_type not in ('object', 'shard')):
+        if all([req.method == "GET",
+                sharding_state in ('sharding', 'sharded'),
+                record_type not in ('object', 'shard')]):
             resp = self._get_from_shards(req, resp)
 
         # Cache this. We just made a request to a storage node and got

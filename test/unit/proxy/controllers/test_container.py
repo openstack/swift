@@ -491,7 +491,7 @@ class TestContainerController(TestRingBase):
                          int(resp.headers['X-Container-Bytes-Used']))
         self.assertEqual(expected_obj_count,
                          int(resp.headers['X-Container-Object-Count']))
-        self.assertEqual('3', resp.headers['X-Backend-Sharding-State'])
+        self.assertEqual('sharded', resp.headers['X-Backend-Sharding-State'])
         # check that info cache is correct for root container
         info = get_container_info(resp.request.environ, self.app)
         self.assertEqual(headers_to_container_info(info_hdrs), info)
@@ -503,7 +503,7 @@ class TestContainerController(TestRingBase):
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
         shard_resp_hdrs = [
-            {'X-Backend-Sharding-State': '1',
+            {'X-Backend-Sharding-State': 'unsharded',
              'X-Container-Object-Count': len(sr_objs[i]),
              'X-Container-Bytes-Used':
                  sum([obj['bytes'] for obj in sr_objs[i]]),
@@ -518,7 +518,7 @@ class TestContainerController(TestRingBase):
         num_all_objects = len(all_objects)
         limit = CONTAINER_LISTING_LIMIT
         expected_objects = all_objects
-        root_resp_hdrs = {'X-Backend-Sharding-State': '3',
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
                           # pretend root object stats are not yet updated
                           'X-Container-Object-Count': num_all_objects - 1,
                           'X-Container-Bytes-Used': size_all_objects - 1,
@@ -807,7 +807,7 @@ class TestContainerController(TestRingBase):
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
         shard_resp_hdrs = [
-            {'X-Backend-Sharding-State': '1',
+            {'X-Backend-Sharding-State': 'unsharded',
              'X-Container-Object-Count': len(sr_objs[i]),
              'X-Container-Bytes-Used':
                  sum([obj['bytes'] for obj in sr_objs[i]]),
@@ -821,7 +821,7 @@ class TestContainerController(TestRingBase):
         size_all_objects = sum([obj['bytes'] for obj in all_objects])
         num_all_objects = len(all_objects)
         limit = CONTAINER_LISTING_LIMIT
-        root_resp_hdrs = {'X-Backend-Sharding-State': '3',
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
                           # pretend root object stats are not yet updated
                           'X-Container-Object-Count': num_all_objects - 1,
                           'X-Container-Bytes-Used': size_all_objects - 1,
@@ -914,7 +914,7 @@ class TestContainerController(TestRingBase):
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
         shard_resp_hdrs = [
-            {'X-Backend-Sharding-State': '1',
+            {'X-Backend-Sharding-State': 'unsharded',
              'X-Container-Object-Count': len(sr_objs[i]),
              'X-Container-Bytes-Used':
                  sum([obj['bytes'] for obj in sr_objs[i]]),
@@ -928,7 +928,7 @@ class TestContainerController(TestRingBase):
         size_all_objects = sum([obj['bytes'] for obj in all_objects])
         num_all_objects = len(all_objects)
         limit = CONTAINER_LISTING_LIMIT
-        root_resp_hdrs = {'X-Backend-Sharding-State': '3',
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
                           'X-Container-Object-Count': num_all_objects,
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
@@ -975,7 +975,7 @@ class TestContainerController(TestRingBase):
         # empty second shard range
         sr_objs[1] = []
         shard_resp_hdrs = [
-            {'X-Backend-Sharding-State': '1',
+            {'X-Backend-Sharding-State': 'unsharded',
              'X-Container-Object-Count': len(sr_objs[i]),
              'X-Container-Bytes-Used':
                  sum([obj['bytes'] for obj in sr_objs[i]]),
@@ -989,7 +989,7 @@ class TestContainerController(TestRingBase):
         size_all_objects = sum([obj['bytes'] for obj in all_objects])
         num_all_objects = len(all_objects)
         limit = CONTAINER_LISTING_LIMIT
-        root_resp_hdrs = {'X-Backend-Sharding-State': '3',
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
                           'X-Container-Object-Count': num_all_objects,
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
@@ -1091,7 +1091,7 @@ class TestContainerController(TestRingBase):
         # empty second shard range
         sr_objs[1] = []
         shard_resp_hdrs = [
-            {'X-Backend-Sharding-State': '1',
+            {'X-Backend-Sharding-State': 'unsharded',
              'X-Container-Object-Count': len(sr_objs[i]),
              'X-Container-Bytes-Used':
                  sum([obj['bytes'] for obj in sr_objs[i]]),
@@ -1105,7 +1105,7 @@ class TestContainerController(TestRingBase):
         size_all_objects = sum([obj['bytes'] for obj in all_objects])
         num_all_objects = len(all_objects)
         limit = CONTAINER_LISTING_LIMIT
-        root_resp_hdrs = {'X-Backend-Sharding-State': '3',
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
                           'X-Container-Object-Count': num_all_objects,
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
@@ -1155,7 +1155,7 @@ class TestContainerController(TestRingBase):
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
         shard_resp_hdrs = [
-            {'X-Backend-Sharding-State': '1',
+            {'X-Backend-Sharding-State': 'unsharded',
              'X-Container-Object-Count': len(sr_objs[i]),
              'X-Container-Bytes-Used':
                  sum([obj['bytes'] for obj in sr_objs[i]]),
@@ -1166,7 +1166,7 @@ class TestContainerController(TestRingBase):
         shard_1_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
 
         # second shard is sharding and has cleaved two out of three sub shards
-        shard_resp_hdrs[1]['X-Backend-Sharding-State'] = '2'
+        shard_resp_hdrs[1]['X-Backend-Sharding-State'] = 'sharding'
         sub_shard_bounds = (('ham', 'juice'), ('juice', 'lemon'))
         sub_shard_ranges = [
             ShardRange('a/c_sub_' + upper, Timestamp.now(), lower, upper)
@@ -1174,7 +1174,7 @@ class TestContainerController(TestRingBase):
         sub_sr_dicts = [dict(sr) for sr in sub_shard_ranges]
         sub_sr_objs = [self._make_shard_objects(sr) for sr in sub_shard_ranges]
         sub_shard_resp_hdrs = [
-            {'X-Backend-Sharding-State': '1',
+            {'X-Backend-Sharding-State': 'unsharded',
              'X-Container-Object-Count': len(sub_sr_objs[i]),
              'X-Container-Bytes-Used':
                  sum([obj['bytes'] for obj in sub_sr_objs[i]]),
@@ -1188,7 +1188,7 @@ class TestContainerController(TestRingBase):
         size_all_objects = sum([obj['bytes'] for obj in all_objects])
         num_all_objects = len(all_objects)
         limit = CONTAINER_LISTING_LIMIT
-        root_resp_hdrs = {'X-Backend-Sharding-State': '3',
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
                           'X-Container-Object-Count': num_all_objects,
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
