@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """ Tests for swift.container.backend """
-
+import errno
 import os
 import hashlib
 import inspect
@@ -40,7 +40,7 @@ import mock
 
 from test import annotate_failure
 from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
-                       EMPTY_ETAG)
+                       EMPTY_ETAG, FakeLogger)
 from test.unit.common import test_db
 
 
@@ -3721,6 +3721,35 @@ class TestContainerBroker(unittest.TestCase):
 
         do_revive_shard_delete(shard_ranges)
         do_revive_shard_delete(shard_ranges)
+
+    @with_tempdir
+    def test_set_sharded_state(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 logger=FakeLogger())
+        broker.initialize(next(ts_iter).internal, 0)
+        own_sr = broker.get_own_shard_range()
+        epoch = next(ts_iter)
+        own_sr.update_state(ShardRange.SHARDING, state_timestamp=epoch)
+        own_sr.epoch = epoch
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.set_sharding_state())
+        with mock.patch('os.unlink', side_effect=OSError(errno.EPERM)):
+            self.assertFalse(broker.set_sharded_state())
+        lines = broker.logger.get_lines_for_level('error')
+        self.assertIn('Failed to unlink', lines[0])
+        self.assertFalse(lines[1:])
+        self.assertFalse(broker.logger.get_lines_for_level('warning'))
+        broker.logger.clear()
+
+        os.unlink(db_path)
+        self.assertFalse(broker.set_sharded_state())
+        lines = broker.logger.get_lines_for_level('warning')
+        self.assertIn('Refusing to delete', lines[0])
+        self.assertFalse(lines[1:])
+        self.assertFalse(broker.logger.get_lines_for_level('error'))
 
     @with_tempdir
     def test_merge_shard_ranges(self, tempdir):

@@ -1129,12 +1129,17 @@ class ContainerSharder(ContainerReplicator):
             broker.merge_shard_ranges(modified_shard_ranges)
             if broker.set_sharded_state():
                 return True
+            else:
+                self.logger.warning(
+                    'Failed to remove retiring db file for %s',
+                    broker.path)
+        else:
+            self.logger.warning(
+                'Repeat cleaving required for %r with context: %s'
+                % (broker.db_files[0], dict(cleaving_context)))
+            cleaving_context.reset()
+            cleaving_context.store(broker)
 
-        self.logger.warning(
-            'Repeat cleaving required for %r with context: %s'
-            % (broker.db_files[0], dict(cleaving_context)))
-        cleaving_context.reset()
-        cleaving_context.store(broker)
         return False
 
     def _is_sharding_candidate(self, shard_range):

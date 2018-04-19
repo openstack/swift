@@ -1901,26 +1901,24 @@ class ContainerBroker(DatabaseBroker):
     def set_sharded_state(self):
         state = self.get_db_state()
         if not state == SHARDING:
-            self.logger.warning("Container '%s/%s' cannot be set to sharded "
-                                "state while in %s state", self.account,
-                                self.container, self.get_db_state_text(state))
+            self.logger.warning("Container %r cannot be set to sharded "
+                                "state while in %s state",
+                                self.path, self.get_db_state_text(state))
             return False
 
-        brokers = self.get_brokers()
-
-        if len(brokers) < 2:
+        self.reload_db_files()
+        if len(self.db_files) < 2:
             self.logger.warning(
-                'Refusing to delete db %r: no fresher db file.'
-                % brokers[0].db_file)
+                'Refusing to delete db file %r: no fresher db file.',
+                self.db_files)
             return False
 
         try:
             os.unlink(self.db_files[0])
         except OSError as err:
             if err.errno != errno.ENOENT:
-                raise
-            self.logger.debug('Failed to unlink %s' % self._db_file)
-
+                self.logger.exception('Failed to unlink %s' % self._db_file)
+            return False
         # now reset the connection so next time the correct database will
         # be used
         self.conn = None
