@@ -87,14 +87,27 @@ class ContainerReplicator(db_replicator.Replicator):
         return super(ContainerReplicator, self)._handle_sync_response(
             node, response, info, broker, http, different_region)
 
+    def _sync_other_items(self, broker, http, local_id):
+        # TODO: currently the number of shard ranges is expected to be _much_
+        # less than normal objects so all are sync'd on each cycle. However, in
+        # future there should be sync points maintained much like for object
+        # syncing so that only new shard range rows are sync'd.
+        other_items = broker.get_other_replication_items()
+        if other_items:
+            if not self._send_merge_items(http, local_id, other_items):
+                return False
+            self.logger.debug('%s synced %s other items to %s',
+                              broker.db_file, len(other_items),
+                              '%(ip)s:%(port)s/%(device)s' % http.node)
+        return True
+
     def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
                                  http, different_region):
+        # Always replicate shard ranges
+        shard_range_success = self._sync_other_items(broker, http, info['id'])
         shard_ranges = broker.get_shard_ranges()
         # TODO: also check that own shard range state > ACTIVE?
         if shard_ranges:
-            # Keep replicating shard ranges -- may have newer info than remote
-            success = self._sync_other_items(broker, http, info['id'])
-            # ... but don't touch objects
             self.logger.warning(
                 '%s is able to shard -- refusing to replicate objects to peer '
                 '%s; currently have %d shard ranges and will wait for '
@@ -103,11 +116,12 @@ class ContainerReplicator(db_replicator.Replicator):
                 '%(ip)s:%(port)s/%(device)s' % node,
                 len(shard_ranges))
             self.stats['aborted'] += 1
-            return success
+            return shard_range_success
 
-        return super(ContainerReplicator, self)._choose_replication_mode(
+        success = super(ContainerReplicator, self)._choose_replication_mode(
             node, rinfo, info, local_sync, broker, http,
             different_region)
+        return shard_range_success and success
 
     def _fetch_and_merge_shard_ranges(self, http, broker):
         response = http.replicate('get_shard_ranges')

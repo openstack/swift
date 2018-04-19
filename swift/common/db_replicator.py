@@ -322,6 +322,19 @@ class Replicator(Daemon):
                                       os.path.basename(broker.db_file))
         return response and 200 <= response.status < 300
 
+    def _send_merge_items(self, http, local_id, items):
+        with Timeout(self.node_timeout):
+            response = http.replicate('merge_items', items, local_id)
+        if not response or response.status >= 300 \
+                or response.status < 200:
+            if response:
+                self.logger.error(_('ERROR Bad response %(status)s '
+                                    'from %(host)s'),
+                                  {'status': response.status,
+                                   'host': http.host})
+            return False
+        return True
+
     def _usync_db(self, point, broker, http, remote_id, local_id):
         """
         Sync a db by sending all records since the last sync.
@@ -345,14 +358,7 @@ class Replicator(Daemon):
         diffs = 0
         while len(objects) and diffs < self.max_diffs:
             diffs += 1
-            with Timeout(self.node_timeout):
-                response = http.replicate('merge_items', objects, local_id)
-            if not response or response.status >= 300 or response.status < 200:
-                if response:
-                    self.logger.error(_('ERROR Bad response %(status)s from '
-                                        '%(host)s'),
-                                      {'status': response.status,
-                                       'host': http.host})
+            if not self._send_merge_items(http, local_id, objects):
                 return False
             # replication relies on db order to send the next merge batch in
             # order with no gaps
@@ -364,7 +370,6 @@ class Replicator(Daemon):
                           '%(ip)s:%(port)s/%(device)s' % http.node,
                           point)
 
-        self._sync_other_items(broker, http, local_id)
         if objects:
             self.logger.debug(
                 'Synchronization for %s has fallen more than '
@@ -381,36 +386,6 @@ class Replicator(Daemon):
                                    incoming=False)
                 return True
         return False
-
-    def _sync_other_items(self, broker, http, local_id):
-        # Attempt to sync other items
-        # TODO: the following will have to be cleaned up at some point. The
-        # hook here is to grab other items (non-objects) to replicate, namely
-        # the shard ranges stored in a container database. The number of these
-        # should always be _much_ less than normal objects, however for
-        # completeness we should probably have a limit and pointer here too.
-        other_items = broker.get_other_replication_items()
-        if other_items:
-            with Timeout(self.node_timeout):
-                response = http.replicate('merge_items', other_items,
-                                          local_id)
-            if not response or response.status >= 300 \
-                    or response.status < 200:
-                if response:
-                    self.logger.error(_('ERROR Bad response %(status)s '
-                                        'from %(host)s'),
-                                      {'status': response.status,
-                                       'host': http.host})
-                # TODO: we probably should pass this back so the replication
-                # marked as a failure.
-                return False
-            self.logger.debug('%s usynced %s other items to %s',
-                              broker.db_file, len(other_items),
-                              '%(ip)s:%(port)s/%(device)s' % http.node)
-        return True
-
-    def _other_items_hook(self, broker):
-        return []
 
     def _in_sync(self, rinfo, info, broker, local_sync):
         """
