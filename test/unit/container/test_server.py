@@ -2439,7 +2439,6 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual('object', resp.headers['X-Backend-Record-Type'])
 
         check_object_GET('/sda1/p/a/c?format=json')
-        check_object_GET('/sda1/p/a/c?items=blah&format=json')
 
         # GET only shard ranges
         def check_shard_GET(expected_shard_ranges, path, params=''):
@@ -3092,8 +3091,8 @@ class TestContainerController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(204, resp.status_int)
 
-        def check_object_GET(path, expected):
-            req = Request.blank(path, method='GET')
+        def check_object_GET(path, headers, expected):
+            req = Request.blank(path, method='GET', headers=headers)
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_type, 'application/json')
@@ -3106,11 +3105,12 @@ class TestContainerController(unittest.TestCase):
                  last_modified=Timestamp(obj['x-timestamp']).isoformat,
                  name=obj['name']) for obj in objects[2:]]
 
-        check_object_GET('/sda1/p/a/c?format=json', expected_without_deleted)
-        check_object_GET('/sda1/p/a/c?items=blah&format=json',
+        check_object_GET('/sda1/p/a/c?format=json', {},
                          expected_without_deleted)
+        check_object_GET('/sda1/p/a/c?format=json', {
+            'X-Backend-Include-Deleted': 'false'}, expected_without_deleted)
 
-        # using items=all
+        # using X-Backend-Include-Deleted
         expected_with_deleted = [
             dict(hash='noetag', bytes=0, deleted=1,
                  content_type='application/deleted',
@@ -3119,12 +3119,12 @@ class TestContainerController(unittest.TestCase):
         expected_with_deleted.extend([dict(obj, deleted=0)
                                       for obj in expected_without_deleted])
 
-        check_object_GET('/sda1/p/a/c?items=all&format=json',
-                         expected_with_deleted)
-        check_object_GET('/sda1/p/a/c?items=all&format=json&prefix=obj_1',
-                         expected_with_deleted[1:2])
-        check_object_GET('/sda1/p/a/c?items=all&format=json&marker=obj_0',
-                         expected_with_deleted[1:])
+        check_object_GET('/sda1/p/a/c?format=json', {
+            'X-Backend-Include-Deleted': 'true'}, expected_with_deleted)
+        check_object_GET('/sda1/p/a/c?format=json&prefix=obj_1', {
+            'X-Backend-Include-Deleted': 'true'}, expected_with_deleted[1:2])
+        check_object_GET('/sda1/p/a/c?format=json&marker=obj_0', {
+            'X-Backend-Include-Deleted': 'true'}, expected_with_deleted[1:])
 
     def test_GET_json(self):
         # make a container

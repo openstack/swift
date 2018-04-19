@@ -128,7 +128,7 @@ class ContainerController(Controller):
             self.app.recheck_container_existence)
         # TODO: seems like a good idea to not set cache for shard/all
         # requests, but revisit this at some point
-        if record_type != 'shard' and params.get('items') != 'all':
+        if record_type != 'shard':
             set_info_cache(self.app, req.environ, self.account_name,
                            self.container_name, resp)
         if 'swift.authorize' in req.environ:

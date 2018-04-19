@@ -558,7 +558,6 @@ class ContainerController(BaseStorageServer):
         path = get_param(req, 'path')
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
-        items = get_param(req, 'items', '').lower()
         if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
             # delimiters can be made more flexible later
             return HTTPPreconditionFailed(body='Bad delimiter')
@@ -582,6 +581,8 @@ class ContainerController(BaseStorageServer):
                                             stale_reads_ok=True)
         info, is_deleted = broker.get_info_is_deleted()
         record_type = req.headers.get('x-backend-record-type', '').lower()
+        include_deleted = config_true_value(
+            req.headers.get('x-backend-include-deleted', False))
         if record_type == 'shard':
             resp_headers = gen_resp_headers(info)
             override_deleted = config_true_value(
@@ -589,8 +590,6 @@ class ContainerController(BaseStorageServer):
             if is_deleted and not (info and override_deleted):
                 return HTTPNotFound(request=req, headers=resp_headers)
             resp_headers['X-Backend-Record-Type'] = 'shard'
-            include_deleted = config_true_value(
-                req.headers.get('x-backend-include-deleted', False))
             includes = get_param(req, 'includes')
             states = get_param(req, 'states') or None
             fill_gaps = False
@@ -612,7 +611,6 @@ class ContainerController(BaseStorageServer):
             # Use the retired db while container is in process of sharding,
             # otherwise use current db
             src_broker = broker.get_brokers()[0]
-            include_deleted = items == 'all'
             container_list = src_broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],
