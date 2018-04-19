@@ -18,7 +18,7 @@ import json
 
 from six.moves.urllib.parse import unquote
 from swift.common.utils import public, csv_append, Timestamp, \
-    config_true_value
+    config_true_value, ShardRange
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -106,30 +106,26 @@ class ContainerController(Controller):
         node_iter = self.app.iter_nodes(self.app.container_ring, part)
         params = req.params
         params['format'] = 'json'
+        record_type = req.headers.get('X-Backend-Record-Type', '').lower()
+        if not record_type:
+            record_type = 'auto'
+            req.headers['X-Backend-Record-Type'] = 'auto'
+            params['states'] = 'listing'
         req.params = params
-        # TODO: if cached container info tells us container is sharded then
-        # skip straight to _get_sharded
         resp = self.GETorHEAD_base(
             req, _('Container'), node_iter, part,
             req.swift_entity_path, concurrency)
-        sharding_state = resp.headers.get(
-            'X-Backend-Sharding-State', 'unsharded')
-        record_type = req.headers.get('X-Backend-Record-Type', '').lower()
-        self.app.logger.debug('GET for container in state %s' % sharding_state)
-        if all([req.method == "GET",
-                sharding_state in ('sharding', 'sharded'),
-                record_type not in ('object', 'shard')]):
+        resp_record_type = resp.headers.get('X-Backend-Record-Type', '')
+        if all((req.method == "GET", record_type == 'auto',
+               resp_record_type.lower() == 'shard')):
             resp = self._get_from_shards(req, resp)
 
         # Cache this. We just made a request to a storage node and got
         # up-to-date information for the container.
         resp.headers['X-Backend-Recheck-Container-Existence'] = str(
             self.app.recheck_container_existence)
-        # TODO: seems like a good idea to not set cache for shard/all
-        # requests, but revisit this at some point
-        if record_type != 'shard':
-            set_info_cache(self.app, req.environ, self.account_name,
-                           self.container_name, resp)
+        set_info_cache(self.app, req.environ, self.account_name,
+                       self.container_name, resp)
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
             aresp = req.environ['swift.authorize'](req)
@@ -149,11 +145,12 @@ class ContainerController(Controller):
         return resp
 
     def _get_from_shards(self, req, resp):
-        # get the list of ShardRanges that contain the requested listing range
-        # by using original request params
-        ranges = self._get_shard_ranges(
-            req, self.account_name, self.container_name, states='listing')
-        if not ranges:
+        # construct listing using shards described by the response body
+        shard_ranges = [ShardRange.from_dict(data)
+                        for data in json.loads(resp.body)]
+        self.app.logger.debug('GET listing from %s shards for: %s',
+                              len(shard_ranges), req.path_qs)
+        if not shard_ranges:
             # can't find ranges or there was a problem getting the ranges. So
             # return what we have.
             return resp
@@ -161,12 +158,14 @@ class ContainerController(Controller):
         objects = []
         req_limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
         params = req.params.copy()
+        params.pop('states', None)
+        req.headers.pop('X-Backend-Record-Type', None)
         reverse = config_true_value(params.get('reverse'))
         marker = params.get('marker')
         end_marker = params.get('end_marker')
 
         limit = req_limit
-        for shard_range in ranges:
+        for shard_range in shard_ranges:
             params['limit'] = limit
             # Always set marker to ensure that object names less than or equal
             # to those already in the listing are not fetched
@@ -194,9 +193,12 @@ class ContainerController(Controller):
 
             if (shard_range.account == self.account_name and
                     shard_range.container == self.container_name):
+                # directed back to same container - force GET of objects
                 headers = {'X-Backend-Record-Type': 'object'}
             else:
                 headers = None
+            self.app.logger.debug('Getting from %s %s with %s',
+                                  shard_range, shard_range.name, headers)
             objs, shard_resp = self._get_container_listing(
                 req, shard_range.account, shard_range.container,
                 headers=headers, params=params)

@@ -608,9 +608,9 @@ class TestContainerSharding(ReplProbeTest):
         self.run_sharders(shard_1)
         self.assert_container_object_count(len(more_obj_names + obj_names))
 
-        # we've added objects enough that we need to shard *again* into three
-        # new shards, but nothing happens until the root leader identifies
-        # shard candidate...
+        # we've added objects enough that we need to shard the first shard
+        # *again* into three new sub-shards, but nothing happens until the root
+        # leader identifies shard candidate...
         root_shard_ranges = self.direct_get_container_shard_ranges()
         for node, (hdrs, root_shards) in root_shard_ranges.items():
             self.assertLengthEqual(root_shards, 2)
@@ -628,7 +628,7 @@ class TestContainerSharding(ReplProbeTest):
         self.sharders.once(number=self.brain.node_numbers[0],
                            additional_args='--partitions=%s' % self.brain.part)
 
-        # ... so third shard replica state is not moved to sharding
+        # ... so third replica of first shard state is not moved to sharding
         found_for_shard = self.categorize_container_dir_content(
             shard_1.account, shard_1.container)
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
@@ -637,15 +637,15 @@ class TestContainerSharding(ReplProbeTest):
             [ContainerBroker(db_file).get_own_shard_range().state
              for db_file in found_for_shard['normal_dbs']])
 
-        # ...then run first cycle of shard sharders in order, leader first, to
-        # get to predictable state where all nodes have cleaved 2 out of 3
-        # ranges...starting with first two nodes
+        # ...then run first cycle of first shard sharders in order, leader
+        # first, to get to predictable state where all nodes have cleaved 2 out
+        # of 3 ranges...starting with first two nodes
         for node_number in shard_1_nodes[:2]:
             self.sharders.once(
                 number=node_number,
                 additional_args='--partitions=%s' % shard_1_part)
 
-        # ... first two replicas start sharding
+        # ... first two replicas start sharding to sub-shards
         found_for_shard = self.categorize_container_dir_content(
             shard_1.account, shard_1.container)
         self.assertLengthEqual(found_for_shard['shard_dbs'], 2)
@@ -682,7 +682,7 @@ class TestContainerSharding(ReplProbeTest):
             number=shard_1_nodes[2],
             additional_args='--partitions=%s' % shard_1_part)
 
-        # third replica is sharding but has no shard ranges yet...
+        # third replica is sharding but has no sub-shard ranges yet...
         found_for_shard = self.categorize_container_dir_content(
             shard_1.account, shard_1.container)
         self.assertLengthEqual(found_for_shard['shard_dbs'], 2)
@@ -693,7 +693,7 @@ class TestContainerSharding(ReplProbeTest):
             ShardRange.SHARDING, broker.get_own_shard_range().state)
         self.assertFalse(broker.get_shard_ranges())
 
-        # ...until shard ranges are replicated from another shard replica;
+        # ...until sub-shard ranges are replicated from another shard replica;
         # there may also be a sub-shard replica missing so run replicators on
         # all nodes to fix that if necessary
         self.brain.servers.start(number=shard_1_nodes[2])
@@ -704,7 +704,7 @@ class TestContainerSharding(ReplProbeTest):
             number=shard_1_nodes[2],
             additional_args='--partitions=%s' % shard_1_part)
 
-        # check original first shard range state and shards - all replicas
+        # check original first shard range state and sub-shards - all replicas
         # should now be in consistent state
         found_for_shard = self.categorize_container_dir_content(
             shard_1.account, shard_1.container)

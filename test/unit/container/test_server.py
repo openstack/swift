@@ -2783,6 +2783,146 @@ class TestContainerController(unittest.TestCase):
         do_test(False, [])
         do_test(True, shard_ranges)
 
+    def test_GET_auto_record_type(self):
+        # make a container
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        # PUT some objects
+        objects = [{'name': 'obj_%d' % i,
+                    'x-timestamp': next(ts_iter).normal,
+                    'x-content-type': 'text/plain',
+                    'x-etag': 'etag_%d' % i,
+                    'x-size': 1024 * i
+                    } for i in range(2)]
+        for obj in objects:
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
+                                headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+        # PUT some shard ranges
+        shard_bounds = [('', 'm', ShardRange.CLEAVED),
+                        ('m', '', ShardRange.CREATED)]
+        shard_ranges = [
+            ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
+                       lower, upper,
+                       i * 100, i * 1000, meta_timestamp=next(ts_iter),
+                       state=state, state_timestamp=next(ts_iter))
+            for i, (lower, upper, state) in enumerate(shard_bounds)]
+        for shard_range in shard_ranges:
+            self._put_shard_range(shard_range)
+
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+
+        def assert_GET_objects(req, expected_objects):
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [
+                dict(hash=obj['x-etag'], bytes=obj['x-size'],
+                     content_type=obj['x-content-type'],
+                     last_modified=Timestamp(obj['x-timestamp']).isoformat,
+                     name=obj['name']) for obj in expected_objects]
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual(
+                'object', resp.headers.pop('X-Backend-Record-Type'))
+            resp.headers.pop('Content-Length')
+            return resp
+
+        def assert_GET_shard_ranges(req, expected_shard_ranges):
+            with mock.patch('swift.common.utils.Timestamp.now',
+                            classmethod(lambda ts_cls: ts_now)):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [
+                dict(sr, last_modified=Timestamp(sr.timestamp).isoformat)
+                for sr in expected_shard_ranges]
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual(
+                'shard', resp.headers.pop('X-Backend-Record-Type'))
+            resp.headers.pop('Content-Length')
+            return resp
+
+        # unsharded
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'auto'})
+        resp = assert_GET_objects(req, objects)
+        headers = resp.headers
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'object'})
+        resp = assert_GET_objects(req, objects)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET')
+        resp = assert_GET_objects(req, objects)
+        self.assertEqual(headers, resp.headers)
+
+        # move to sharding state
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDING, state_timestamp=next(ts_iter))
+        own_sr.epoch = next(ts_iter)
+        broker.merge_shard_ranges(own_sr)
+        self.assertTrue(broker.set_sharding_state())
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'auto'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        headers = resp.headers
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'object'})
+        resp = assert_GET_objects(req, objects)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET')
+        resp = assert_GET_objects(req, objects)
+        self.assertEqual(headers, resp.headers)
+
+        # limit is applied to objects but not shard ranges
+        req = Request.blank('/sda1/p/a/c?format=json&limit=1', method='GET',
+                            headers={'X-Backend-Record-Type': 'auto'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        headers = resp.headers
+        req = Request.blank('/sda1/p/a/c?format=json&limit=1', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json&limit=1', method='GET',
+                            headers={'X-Backend-Record-Type': 'object'})
+        resp = assert_GET_objects(req, objects[:1])
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json&limit=1', method='GET')
+        resp = assert_GET_objects(req, objects[:1])
+        self.assertEqual(headers, resp.headers)
+
+        # move to sharded state
+        self.assertTrue(broker.set_sharded_state())
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'auto'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        headers = resp.headers
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'object'})
+        resp = assert_GET_objects(req, [])
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET')
+        resp = assert_GET_objects(req, [])
+        self.assertEqual(headers, resp.headers)
+
     def test_PUT_GET_to_sharding_container(self):
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         ts_iter = make_timestamp_iter()
