@@ -75,10 +75,10 @@ import sys
 import time
 
 import six
-from six.moves.urllib.parse import quote, unquote
+from six.moves.urllib.parse import quote
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
-                                get_valid_utf8_str, config_true_value,
+                                config_true_value,
                                 InputProxy, list_from_csv, get_policy_index)
 
 from swift.common.storage_policy import POLICIES
@@ -152,8 +152,7 @@ class ProxyLoggingMiddleware(object):
         :param resp_headers: dict of the response headers
         """
         resp_headers = resp_headers or {}
-        req_path = get_valid_utf8_str(req.path)
-        the_request = quote(unquote(req_path), QUOTE_SAFE)
+        the_request = req.path
         if req.query_string:
             the_request = the_request + '?' + req.query_string
         logged_headers = None
