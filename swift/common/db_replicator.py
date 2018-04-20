@@ -221,7 +221,7 @@ class Replicator(Daemon):
         self.stats = {'attempted': 0, 'success': 0, 'failure': 0, 'ts_repl': 0,
                       'no_change': 0, 'hashmatch': 0, 'rsync': 0, 'diff': 0,
                       'remove': 0, 'empty': 0, 'remote_merge': 0,
-                      'start': time.time(), 'diff_capped': 0, 'aborted': 0,
+                      'start': time.time(), 'diff_capped': 0, 'deferred': 0,
                       'failure_nodes': {}}
 
     def _report_stats(self):
@@ -512,7 +512,13 @@ class Replicator(Daemon):
         """
         Cleanup any database state if needed.
 
-        :return success: bool, False indicates an error occurred
+        :param broker: the broker for the database we're replicating
+        :param shouldbehere: boolean, True when the database path is in the
+                             correct part on a primary node
+        :param responses: a list of boolean success values for each replication
+                          request to other nodes
+
+        :return success: boolean, False indicates cleanup was not successful
         """
         if not shouldbehere:
             if responses and all(responses):
