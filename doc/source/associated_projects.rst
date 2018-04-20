@@ -51,6 +51,7 @@ Application Bindings
   * Go
 
     * `Go language bindings <https://github.com/ncw/swift>`_
+    * `Gophercloud an OpenStack SDK for Go <https://godoc.org/github.com/gophercloud/gophercloud>`_
 
 
 Authentication
