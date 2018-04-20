@@ -18,7 +18,7 @@ import json
 
 from six.moves.urllib.parse import unquote
 from swift.common.utils import public, csv_append, Timestamp, \
-    config_true_value, ShardRange
+    config_true_value, ShardRange, get_valid_utf8_str
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -170,14 +170,14 @@ class ContainerController(Controller):
             # Always set marker to ensure that object names less than or equal
             # to those already in the listing are not fetched
             if objects:
-                params['marker'] = objects[-1]['name']
+                params['marker'] = get_valid_utf8_str(objects[-1]['name'])
             elif reverse and marker and marker > shard_range.lower:
                 params['marker'] = marker
             elif marker and marker <= shard_range.upper:
                 params['marker'] = marker
             else:
-                params['marker'] = str(shard_range.upper) if reverse \
-                    else str(shard_range.lower)
+                params['marker'] = shard_range.upper_str if reverse \
+                    else shard_range.lower_str
                 if params['marker'] and reverse:
                     params['marker'] += '\x00'
 
@@ -186,8 +186,8 @@ class ContainerController(Controller):
             if end_marker and end_marker in shard_range:
                 params['end_marker'] = end_marker
             else:
-                params['end_marker'] = str(shard_range.lower) if reverse \
-                    else str(shard_range.upper)
+                params['end_marker'] = shard_range.lower_str if reverse \
+                    else shard_range.upper_str
                 if params['end_marker'] and not reverse:
                     params['end_marker'] += '\x00'
 
@@ -213,10 +213,11 @@ class ContainerController(Controller):
             # TODO: do we need these checks?
             if limit <= 0:
                 break
-            elif end_marker and reverse and end_marker >= objects[-1]['name']:
+            elif (end_marker and reverse and
+                  end_marker >= get_valid_utf8_str(objects[-1]['name'])):
                 break
-            elif end_marker and not reverse and end_marker <= \
-                    objects[-1]['name']:
+            elif (end_marker and not reverse and
+                  end_marker <= get_valid_utf8_str(objects[-1]['name'])):
                 break
 
         resp.body = json.dumps(objects)

@@ -4420,8 +4420,8 @@ class ShardRange(object):
             updated; defaults to the value of ``timestamp``.
         :param epoch: optional epoch timestamp
         """
-        self.account, self.container = self._validate_path(name)
-        self.name = name
+        self.name = self._validate_path(name)
+        self.account, self.container = self.name.split('/')
         self._lower = ShardRange.MIN
         self._upper = ShardRange.MAX
         self.lower = lower
@@ -4431,7 +4431,6 @@ class ShardRange(object):
         self.meta_timestamp = meta_timestamp
         self.object_count = object_count
         self.bytes_used = bytes_used
-        # TODO: add getter/setter for deleted similar to other attrs & validate
         self.deleted = deleted
         self._state = None
         self.state = self.FOUND if state is None else state
@@ -4440,14 +4439,26 @@ class ShardRange(object):
         self.epoch = epoch
 
     @classmethod
+    def _encode(cls, value):
+        if value is not None and six.PY2 and isinstance(value, six.text_type):
+            return value.encode('utf-8')
+        return value
+
+    def _encode_bound(self, bound):
+        if isinstance(bound, ShardRange.OuterBound):
+            return bound
+        if not isinstance(bound, string_types):
+            raise TypeError('must be a string type')
+        return self._encode(bound)
+
+    @classmethod
     def _validate_path(cls, path):
-        if path is not None and six.PY2 and isinstance(path, six.text_type):
-            path = path.encode('utf-8')
+        path = cls._encode(path)
         if not path or path.count('/') != 1 or path.strip('/').count('/') == 0:
             raise ValueError(
                 "Name must be of the form '<account>/<container>', got %r" %
                 path)
-        return tuple(path.split('/'))
+        return path
 
     @classmethod
     def _make_container_name(cls, root_container, parent_container, timestamp,
@@ -4499,12 +4510,18 @@ class ShardRange(object):
     def lower(self):
         return self._lower
 
+    @property
+    def lower_str(self):
+        return str(self.lower)
+
     @lower.setter
     def lower(self, value):
         if not value and value is not ShardRange.MAX:
             value = ShardRange.MIN
-        if not isinstance(value, (string_types, ShardRange.OuterBound)):
-            raise TypeError('lower must be a string')
+        try:
+            value = self._encode_bound(value)
+        except TypeError as err:
+            raise TypeError('lower %s' % err)
         if value > self._upper:
             raise ValueError(
                 'lower (%r) must be less than or equal to upper (%r)' %
@@ -4513,18 +4530,24 @@ class ShardRange(object):
 
     @property
     def end_marker(self):
-        return self.upper + '\x00' if self.upper else ''
+        return self.upper_str + '\x00' if self.upper else ''
 
     @property
     def upper(self):
         return self._upper
 
+    @property
+    def upper_str(self):
+        return str(self.upper)
+
     @upper.setter
     def upper(self, value):
         if not value and value is not ShardRange.MIN:
             value = ShardRange.MAX
-        if not isinstance(value, (string_types, ShardRange.OuterBound)):
-            raise TypeError('upper must be a string')
+        try:
+            value = self._encode_bound(value)
+        except TypeError as err:
+            raise TypeError('upper %s' % err)
         if value < self._lower:
             raise ValueError(
                 'upper (%r) must be greater than or equal to lower (%r)' %
@@ -4684,7 +4707,8 @@ class ShardRange(object):
         if self.lower == ShardRange.MIN and self.upper == ShardRange.MAX:
             # No limits so must match
             return True
-        elif self.lower == ShardRange.MIN:
+        item = self._encode_bound(item)
+        if self.lower == ShardRange.MIN:
             return item <= self.upper
         elif self.upper == ShardRange.MAX:
             return self.lower < item

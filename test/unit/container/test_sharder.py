@@ -3538,6 +3538,18 @@ class TestCleavingContext(BaseTestSharder):
                     'misplaced_done': True}
         self.assertEqual(expected, dict(ctx))
 
+    def test_cursor(self):
+        broker = self._make_broker()
+        ref = CleavingContext._make_ref(broker)
+
+        for curs in ('curs', u'curs\u00e4\u00fb'):
+            with annotate_failure('%r' % curs):
+                ctx = CleavingContext(ref, curs, 12, 11, 10, False, True)
+                self.assertEqual(curs.encode('utf8'), ctx.cursor)
+                ctx.store(broker)
+                ctx = CleavingContext.load(broker)
+                self.assertEqual(curs.encode('utf8'), ctx.cursor)
+
     def test_load(self):
         broker = self._make_broker()
         for i in range(6):

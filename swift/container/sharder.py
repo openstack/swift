@@ -20,6 +20,7 @@ from collections import defaultdict
 from random import random
 
 import os
+import six
 from eventlet import Timeout
 
 from swift.common import internal_client, db_replicator
@@ -114,6 +115,7 @@ class CleavingContext(object):
                  last_cleave_to_row=None, cleaving_done=False,
                  misplaced_done=False):
         self.ref = ref
+        self._cursor = None
         self.cursor = cursor
         self.max_row = max_row
         self.cleave_to_row = cleave_to_row
@@ -130,9 +132,26 @@ class CleavingContext(object):
         yield 'cleaving_done', self.cleaving_done
         yield 'misplaced_done', self.misplaced_done
 
+    def _encode(cls, value):
+        if value is not None and six.PY2 and isinstance(value, six.text_type):
+            return value.encode('utf-8')
+        return value
+
+    @property
+    def cursor(self):
+        return self._cursor
+
+    @cursor.setter
+    def cursor(self, value):
+        self._cursor = self._encode(value)
+
     @property
     def marker(self):
         return self.cursor + '\x00'
+
+    @classmethod
+    def _make_ref(cls, broker):
+        return broker.get_info()['id']
 
     @classmethod
     def load(cls, broker):
@@ -150,7 +169,7 @@ class CleavingContext(object):
             any caller.
         """
         brokers = broker.get_brokers()
-        ref = brokers[0].get_info()['id']
+        ref = cls._make_ref(brokers[0])
         data = brokers[-1].get_sharding_info('Context-' + ref)
         data = json.loads(data) if data else {}
         data['ref'] = ref
@@ -603,7 +622,7 @@ class ContainerSharder(ContainerReplicator):
             info['max_row'] = broker.get_max_row()
             objects = broker.get_objects(
                 CONTAINER_LISTING_LIMIT,
-                marker=str(src_shard_range.lower),
+                marker=src_shard_range.lower_str,
                 end_marker=src_shard_range.end_marker,
                 storage_policy_index=policy_index,
                 include_deleted=True, since_row=since_row)
@@ -709,7 +728,8 @@ class ContainerSharder(ContainerReplicator):
                 # after that point may not have been yielded and replicated so
                 # it is not safe to remove them yet
                 broker.remove_objects(
-                    str(dest_shard_range.lower), str(dest_shard_range.upper),
+                    dest_shard_range.lower_str,
+                    dest_shard_range.upper_str,
                     policy_index, info['max_row'])
                 success = True
         if not success:
@@ -782,7 +802,7 @@ class ContainerSharder(ContainerReplicator):
             if not outer:
                 if broker.is_root_container():
                     ranges = broker.get_shard_ranges(
-                        marker=src_shard_range.lower,
+                        marker=src_shard_range.lower_str,
                         end_marker=src_shard_range.end_marker,
                         states=SHARD_UPDATE_STATES)
                 else:
@@ -792,7 +812,7 @@ class ContainerSharder(ContainerReplicator):
                     ranges = self._fetch_shard_ranges(
                         broker, newest=True,
                         params={'states': 'updating',
-                                'marker': src_shard_range.lower,
+                                'marker': src_shard_range.lower_str,
                                 'end_marker': src_shard_range.end_marker})
                 outer['ranges'] = iter(ranges)
             return outer['ranges']
