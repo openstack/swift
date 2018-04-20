@@ -1055,8 +1055,7 @@ class ContainerSharder(ContainerReplicator):
     def _cleave(self, broker):
         # Returns True if misplaced objects have been moved and the entire
         # container namespace has been successfully cleaved, False otherwise
-        state = broker.get_db_state()
-        if state == SHARDED:
+        if broker.is_sharded():
             self.logger.debug('Passing over already sharded container %s/%s',
                               broker.account, broker.container)
             return True
@@ -1180,8 +1179,7 @@ class ContainerSharder(ContainerReplicator):
         # deciding to shrink because a shard with low object_count may have a
         # large number of deleted object rows that will need to be merged with
         # a neighbour. We may need to expose row count as well as object count.
-        state = broker.get_db_state()
-        if state != SHARDED:
+        if not broker.is_sharded():
             self.logger.warning(
                 'Cannot shrink a not yet sharded container %s/%s',
                 broker.account, broker.container)

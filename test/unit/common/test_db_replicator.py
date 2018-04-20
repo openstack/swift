@@ -1129,6 +1129,8 @@ class TestDBReplicator(unittest.TestCase):
             response = rpc.dispatch(('drive', 'part', 'hash'),
                                     ['rsync_then_merge', 'arg1', 'arg2'])
             expected_calls = [call('/part/ash/hash/hash.db'),
+                              call('/drive/tmp/arg1'),
+                              call(FakeBroker.db_file),
                               call('/drive/tmp/arg1')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)

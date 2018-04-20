@@ -2032,6 +2032,155 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     def test_replication_local_sharded_remote_sharded_large_diff(self):
         self._check_replication_local_sharded_remote_sharded({'per_diff': 1})
 
+    def test_replication_rsync_then_merge_aborts_before_merge_sharding(self):
+        # verify that rsync_then_merge aborts if remote starts sharding during
+        # the rsync
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=slice(0, 3), **local_context)
+        remote_context = self._setup_replication_test(1)
+        remote_broker = remote_context['broker']
+        remote_broker.logger = debug_logger()
+        self._merge_object(index=5, **remote_context)
+
+        orig_func = replicator.ContainerReplicatorRpc.rsync_then_merge
+
+        def mock_rsync_then_merge(*args):
+            self._goto_sharding_state(remote_broker, Timestamp.now())
+            return orig_func(*args)
+
+        with mock.patch(
+                'swift.container.replicator.ContainerReplicatorRpc.'
+                'rsync_then_merge',
+                mock_rsync_then_merge):
+            with mock.patch(
+                    'swift.container.backend.ContainerBroker.'
+                    'get_items_since') as mock_get_items_since:
+                daemon, repl_calls, rsync_calls = self.check_replicate(
+                    local_broker, 1, expect_success=False,
+                    repl_conf={'per_diff': 1})
+
+        mock_get_items_since.assert_not_called()
+        self.assertEqual(['sync', 'get_shard_ranges', 'rsync_then_merge'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_broker.get_info()['id'],
+                         os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
+    def test_replication_rsync_then_merge_aborts_before_merge_sharded(self):
+        # verify that rsync_then_merge aborts if remote completes sharding
+        # during the rsync
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=slice(0, 3), **local_context)
+        remote_context = self._setup_replication_test(1)
+        remote_broker = remote_context['broker']
+        remote_broker.logger = debug_logger()
+        self._merge_object(index=5, **remote_context)
+
+        orig_func = replicator.ContainerReplicatorRpc.rsync_then_merge
+
+        def mock_rsync_then_merge(*args):
+            remote_broker.merge_shard_ranges(
+                ShardRange('.shards_a/cc', Timestamp.now()))
+            self._goto_sharding_state(remote_broker, Timestamp.now())
+            self._goto_sharded_state(remote_broker)
+            return orig_func(*args)
+
+        with mock.patch(
+                'swift.container.replicator.ContainerReplicatorRpc.'
+                'rsync_then_merge',
+                mock_rsync_then_merge):
+            with mock.patch(
+                    'swift.container.backend.ContainerBroker.'
+                    'get_items_since') as mock_get_items_since:
+                daemon, repl_calls, rsync_calls = self.check_replicate(
+                    local_broker, 1, expect_success=False,
+                    repl_conf={'per_diff': 1})
+
+        mock_get_items_since.assert_not_called()
+        self.assertEqual(['sync', 'get_shard_ranges', 'rsync_then_merge'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_broker.get_info()['id'],
+                         os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
+    def test_replication_rsync_then_merge_aborts_after_merge_sharding(self):
+        # verify that rsync_then_merge aborts if remote starts sharding during
+        # the merge
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=slice(0, 3), **local_context)
+        remote_context = self._setup_replication_test(1)
+        remote_broker = remote_context['broker']
+        remote_broker.logger = debug_logger()
+        self._merge_object(index=5, **remote_context)
+
+        orig_get_items_since = backend.ContainerBroker.get_items_since
+        calls = []
+
+        def fake_get_items_since(broker, *args):
+            # remote starts sharding while rpc call is merging
+            if not calls:
+                self._goto_sharding_state(remote_broker, Timestamp.now())
+            calls.append(args)
+            return orig_get_items_since(broker, *args)
+
+        with mock.patch(
+                'swift.container.backend.ContainerBroker.get_items_since',
+                fake_get_items_since):
+            daemon, repl_calls, rsync_calls = self.check_replicate(
+                local_broker, 1, expect_success=False,
+                repl_conf={'per_diff': 1})
+
+        self.assertEqual(['sync', 'get_shard_ranges', 'rsync_then_merge'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_broker.get_info()['id'],
+                         os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
+    def test_replication_rsync_then_merge_aborts_after_merge_sharded(self):
+        # verify that rsync_then_merge aborts if remote completes sharding
+        # during the merge
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=slice(0, 3), **local_context)
+        remote_context = self._setup_replication_test(1)
+        remote_broker = remote_context['broker']
+        remote_broker.logger = debug_logger()
+        self._merge_object(index=5, **remote_context)
+
+        orig_get_items_since = backend.ContainerBroker.get_items_since
+        calls = []
+
+        def fake_get_items_since(broker, *args):
+            # remote starts sharding while rpc call is merging
+            result = orig_get_items_since(broker, *args)
+            if calls:
+                remote_broker.merge_shard_ranges(
+                    ShardRange('.shards_a/cc', Timestamp.now()))
+                self._goto_sharding_state(remote_broker, Timestamp.now())
+                self._goto_sharded_state(remote_broker)
+            calls.append(args)
+            return result
+
+        with mock.patch(
+                'swift.container.backend.ContainerBroker.get_items_since',
+                fake_get_items_since):
+            daemon, repl_calls, rsync_calls = self.check_replicate(
+                local_broker, 1, expect_success=False,
+                repl_conf={'per_diff': 1})
+
+        self.assertEqual(['sync', 'get_shard_ranges', 'rsync_then_merge'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_broker.get_info()['id'],
+                         os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
 
 if __name__ == '__main__':
     unittest.main()

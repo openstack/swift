@@ -373,6 +373,16 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
             info = broker.get_replication_info()
         return info
 
+    def _abort_rsync_then_merge(self, db_file, old_filename):
+        if super(ContainerReplicatorRpc, self)._abort_rsync_then_merge(
+                db_file, old_filename):
+            return True
+        # if the local db has started sharding since the original 'sync'
+        # request then abort object replication now; instantiate a fresh broker
+        # each time this check if performed so to get latest state
+        broker = ContainerBroker(db_file)
+        return broker.requires_sharding() or broker.is_sharded()
+
     def get_shard_ranges(self, broker, args):
         shard_ranges = broker.get_shard_ranges(include_deleted=True,
                                                include_own=True)
