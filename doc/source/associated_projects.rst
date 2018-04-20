@@ -10,7 +10,7 @@ Application Bindings
 
 * OpenStack supported binding:
 
-  * `Python-SwiftClient <https://pypi.python.org/pypi/python-swiftclient>`_
+  * `Python-SwiftClient <https://pypi.org/project/python-swiftclient>`_
 
 * Unofficial libraries and bindings:
 
