@@ -850,11 +850,12 @@ class ContainerSharder(ContainerReplicator):
         """
         if broker.is_deleted():
             self.logger.debug('Not looking for misplaced objects in deleted '
-                              'container %s (%s)', broker.path, broker.db_file)
+                              'container %s (%s)', broker.path.decode('utf-8'),
+                              broker.db_file)
             return True
 
         self.logger.debug('Looking for misplaced objects in %s (%s)',
-                          broker.path, broker.db_file)
+                          broker.path.decode('utf-8'), broker.db_file)
         self._increment_stat('misplaced', 'attempted')
         src_broker = src_broker or broker
         if src_bounds is None:

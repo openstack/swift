@@ -4441,6 +4441,8 @@ class ShardRange(object):
 
     @classmethod
     def _validate_path(cls, path):
+        if path is not None and six.PY2 and isinstance(path, six.text_type):
+            path = path.encode('utf-8')
         if not path or path.count('/') != 1 or path.strip('/').count('/') == 0:
             raise ValueError(
                 "Name must be of the form '<account>/<container>', got %r" %
