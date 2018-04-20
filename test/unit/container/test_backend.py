@@ -1232,6 +1232,33 @@ class TestContainerBroker(unittest.TestCase):
         check_sharded_db_files(broker)
 
     @with_tempdir
+    def test_requires_sharding(self, tempdir):
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', '%s.db' % uuid4())
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(Timestamp.now().internal, 0)
+        self.assertIs(False, broker.requires_sharding())
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDING)
+        own_sr.epoch = Timestamp.now()
+        broker.merge_shard_ranges(own_sr)
+        self.assertIs(False, broker.requires_sharding())
+
+        broker.merge_shard_ranges(ShardRange('.shards_a/cc', Timestamp.now()))
+        self.assertIs(True, broker.requires_sharding())
+
+        self.assertTrue(broker.set_sharding_state())
+        self.assertIs(True, broker.requires_sharding())
+
+        broker.merge_shard_ranges(ShardRange('.shards_a/cc', Timestamp.now(),
+                                             deleted=1))
+        self.assertIs(True, broker.requires_sharding())
+
+        broker.merge_shard_ranges(ShardRange('.shards_a/cc', Timestamp.now()))
+        self.assertTrue(broker.set_sharded_state())
+        self.assertIs(False, broker.requires_sharding())
+
+    @with_tempdir
     def test_get_items_since_include_sharding(self, tempdir):
         acct = 'account'
         cont = 'container'
