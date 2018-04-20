@@ -428,10 +428,17 @@ class TestSharder(BaseTestSharder):
             for i in range(11):
                 brokers[2].put_object('o%s' % i, next(self.ts_iter).internal,
                                       0, 'text/plain', 'etag', 0)
+
+            def mock_processing(broker, node, part):
+                if broker.path == 'a/c2':
+                    raise Exception('kapow!')
+                elif broker.path not in ('a/c1', 'a/c3'):
+                    raise BaseException("I don't know how to handle a broker "
+                                        "for %s" % broker.path)
+
             # check exceptions are handled
             with mock.patch.object(
-                    sharder, '_process_broker',
-                    side_effect=[None, Exception('kapow!'), None]
+                    sharder, '_process_broker', side_effect=mock_processing
             ) as mock_process_broker:
                 sharder._one_shard_cycle(Everything(), Everything())
 
