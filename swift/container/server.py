@@ -25,7 +25,8 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
-    RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARD_UPDATE_STATES, db_state_text
+    RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARD_UPDATE_STATES, db_state_text, \
+    SHARDING, SHARDED
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
@@ -584,6 +585,9 @@ class ContainerController(BaseStorageServer):
         record_type = req.headers.get('x-backend-record-type', '').lower()
         include_deleted = config_true_value(
             req.headers.get('x-backend-include-deleted', False))
+        if record_type == 'auto' and info.get('db_state') in (SHARDING,
+                                                              SHARDED):
+            record_type = 'shard'
         if record_type == 'shard':
             resp_headers = gen_resp_headers(info)
             override_deleted = config_true_value(

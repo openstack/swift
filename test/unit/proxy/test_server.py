@@ -3346,7 +3346,7 @@ class TestReplicatedObjectController(
                             'x-backend-sharding-state': sharding_state,
                             'X-Backend-Record-Type': 'shard'}
             shard_range = utils.ShardRange(
-                '.sharded_a/c_shard', utils.Timestamp.now(), 'l', 'u')
+                '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u')
             body = json.dumps([dict(shard_range)])
             with mocked_http_conn(*status_codes, headers=resp_headers,
                                   body=body) as fake_conn:
@@ -3398,7 +3398,7 @@ class TestReplicatedObjectController(
                         'Host': 'localhost:80',
                         'Referer': '%s http://localhost/v1/a/c/o' % method,
                         'X-Backend-Storage-Policy-Index': '1',
-                        'X-Backend-Container-Path': '.sharded_a/c_shard'
+                        'X-Backend-Container-Path': shard_range.name
                     },
                 }
                 check_request(request, **expectations)
