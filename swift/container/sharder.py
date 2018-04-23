@@ -966,7 +966,6 @@ class ContainerSharder(ContainerReplicator):
 
         broker.merge_shard_ranges(created_ranges)
         if not broker.is_root_container():
-            # TODO: check for success and do not proceed otherwise
             self._send_shard_ranges(
                 broker.root_account, broker.root_container, created_ranges)
         self.logger.info(
