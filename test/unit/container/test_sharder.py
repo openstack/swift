@@ -196,6 +196,20 @@ class TestSharder(BaseTestSharder):
             'greater than 0, less than 100, not "101"', cm.exception.message)
         self.assertIn('shard_shrink_merge_point', cm.exception.message)
 
+    def test_init_internal_client_conf_loading_error(self):
+        with mock.patch('swift.common.db_replicator.ring.Ring'):
+            with self.assertRaises(SystemExit) as cm:
+                ContainerSharder({})
+        self.assertIn('Unable to load internal client', str(cm.exception))
+
+        with mock.patch('swift.common.db_replicator.ring.Ring'):
+            with mock.patch(
+                    'swift.container.sharder.internal_client.InternalClient',
+                    side_effect=Exception('kaboom')):
+                with self.assertRaises(Exception) as cm:
+                    ContainerSharder({})
+        self.assertIn('kaboom', str(cm.exception))
+
     def _assert_stats(self, expected, sharder, category):
         # assertEqual doesn't work with a defaultdict
         stats = sharder.stats['sharding'][category]

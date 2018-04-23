@@ -225,9 +225,6 @@ class ContainerSharder(ContainerReplicator):
                 request_tries,
                 allow_modify_pipeline=False)
         except IOError as err:
-            # TODO: if sharder functions are moved into replicator then for
-            # backwards compatibility we need this to simply log a warning that
-            # sharding will be skipped due to missing internal client conf
             if err.errno != errno.ENOENT:
                 raise
             raise SystemExit(
