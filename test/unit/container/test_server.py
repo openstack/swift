@@ -2254,6 +2254,7 @@ class TestContainerController(unittest.TestCase):
 
     def test_PUT_shard_range_json_in_body(self):
         ts_iter = make_timestamp_iter()
+        oldest_ts = next(ts_iter)  # used for stale shard range PUT later
         shard_bounds = [('', 'ham', ShardRange.ACTIVE),
                         ('ham', 'salami', ShardRange.ACTIVE),
                         ('salami', '', ShardRange.CREATED)]
@@ -2314,10 +2315,30 @@ class TestContainerController(unittest.TestCase):
                                         broker.get_shard_ranges())
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
+        older_ts = next(ts_iter)  # used for stale shard range PUT later
         # updated and new shard ranges
         shard_ranges[1].bytes_used += 100
         shard_ranges[1].meta_timestamp = next(ts_iter)
         body = json.dumps([dict(sr) for sr in shard_ranges[1:]])
+        headers['X-Timestamp'] = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
+
+        # stale shard range
+        stale_shard_range = shard_ranges[1].copy()
+        stale_shard_range.bytes_used = 0
+        stale_shard_range.object_count = 0
+        stale_shard_range.meta_timestamp = older_ts
+        stale_shard_range.state = ShardRange.CREATED
+        stale_shard_range.state_timestamp = oldest_ts
+        body = json.dumps([dict(stale_shard_range)])
         headers['X-Timestamp'] = next(ts_iter).internal
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
