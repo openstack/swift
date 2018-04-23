@@ -269,10 +269,6 @@ def merge_shards(shard_data, existing):
     :returns: True if ``shard data`` has any item(s) that are considered to
         take precedence over the corresponding item in ``existing``
     """
-    # TODO: do we need to consider taking object_count and bytes_used from
-    # whichever has newest meta_timestamp regardless of created time? If we had
-    # two shard_ranges on two nodes with same created at and name, then one
-    # may have been updated with meta independently of the other.
     if not existing:
         return True
     if existing['timestamp'] < shard_data['timestamp']:
@@ -1955,13 +1951,9 @@ class ContainerBroker(DatabaseBroker):
         if not include_sharding:
             return super(ContainerBroker, self).get_items_since(start, count)
 
-        # TODO: do we need to support include_sharding? possibly for container
-        # sync
         objs = []
         for broker in self.get_brokers():
             if start < broker.get_max_row():
-                # TODO: the condition is not necessary so check if it is an
-                # optimisation, else remove
                 objs.extend(super(ContainerBroker, broker).get_items_since(
                     start, count - len(objs)))
                 if len(objs) == count:
