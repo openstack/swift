@@ -60,7 +60,7 @@ def db_state_text(state):
     try:
         return DB_STATES[state]
     except (TypeError, IndexError):
-        return 'unknown'
+        return 'unknown (%d)' % state
 
 
 # attribute names in order used when transforming shard ranges from dicts to

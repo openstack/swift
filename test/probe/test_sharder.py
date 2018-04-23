@@ -23,8 +23,7 @@ from swift.common import direct_client
 from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
     quorum_size, config_true_value
-from swift.container.backend import ContainerBroker, UNSHARDED, SHARDED, \
-    SHARDING, COLLAPSED
+from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
 from swift.common import utils
 from swift.common.manager import Manager
 from swiftclient import client, get_auth, ClientException
@@ -353,7 +352,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(num_shard_ranges, len(shard_ranges))
         self.assertIn('X-Backend-Sharding-State', headers)
         self.assertEqual(
-            str(expected_state), headers['X-Backend-Sharding-State'])
+            expected_state, headers['X-Backend-Sharding-State'])
         return [ShardRange.from_dict(sr) for sr in shard_ranges]
 
     def get_part_and_node_numbers(self, shard_range):
@@ -451,7 +450,7 @@ class TestContainerSharding(ReplProbeTest):
 
         # sanity check shard range states
         for number in self.brain.node_numbers:
-            self.assert_container_state(number, SHARDING, 4)
+            self.assert_container_state(number, 'sharding', 4)
         shard_ranges = self.get_container_shard_ranges()
         self.assertLengthEqual(shard_ranges, 4)
         self.assert_shard_range_state(ShardRange.CLEAVED, shard_ranges[:2])
@@ -1022,12 +1021,12 @@ class TestContainerSharding(ReplProbeTest):
             self.assert_shard_ranges_contiguous(exp_shards, range_data)
             self.assert_total_object_count(exp_obj_count, range_data)
 
-        def check_shard_nodes_data(node_data, expected_state=UNSHARDED,
+        def check_shard_nodes_data(node_data, expected_state='unsharded',
                                    expected_shards=0, exp_obj_count=0):
             # checks that shard range is consistent on all nodes
             root_path = '%s/%s' % (self.account, self.container_name)
             exp_shard_hdrs = {'X-Container-Sysmeta-Shard-Root': root_path,
-                              'X-Backend-Sharding-State': str(expected_state)}
+                              'X-Backend-Sharding-State': expected_state}
             object_counts = []
             bytes_used = []
             for node_id, node_data in node_data.items():
@@ -1075,7 +1074,7 @@ class TestContainerSharding(ReplProbeTest):
             # nodes on which sharder has not run are still in unsharded state
             # but have had shard ranges replicated to them
             exp_obj_count = len(obj_names)
-            exp_hdrs = {'X-Backend-Sharding-State': str(UNSHARDED),
+            exp_hdrs = {'X-Backend-Sharding-State': 'unsharded',
                         'X-Container-Object-Count': str(exp_obj_count)}
             node_id = self.brain.node_numbers[1] - 1
             check_node_data(
@@ -1085,7 +1084,7 @@ class TestContainerSharding(ReplProbeTest):
                 root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
 
             # only one that ran sharder is in sharded state
-            exp_hdrs['X-Backend-Sharding-State'] = str(SHARDED)
+            exp_hdrs['X-Backend-Sharding-State'] = 'sharded'
             node_id = self.brain.node_numbers[0] - 1
             check_node_data(
                 root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
@@ -1229,7 +1228,7 @@ class TestContainerSharding(ReplProbeTest):
                 orig_shard_ranges[0].account, orig_shard_ranges[0].container)
             # the donor's shard range will have the acceptor's projected stats
             obj_count, bytes_used = check_shard_nodes_data(
-                shard_nodes_data, expected_state=SHARDED, expected_shards=1,
+                shard_nodes_data, expected_state='sharded', expected_shards=1,
                 exp_obj_count=len(second_shard_objects) + 1)
             # but the donor is empty and so reports zero stats
             self.assertEqual(0, obj_count)
@@ -1255,13 +1254,13 @@ class TestContainerSharding(ReplProbeTest):
             shard_nodes_data = self.direct_get_container_shard_ranges(
                 orig_shard_ranges[1].account, orig_shard_ranges[1].container)
             check_shard_nodes_data(
-                shard_nodes_data, expected_state=3, expected_shards=1,
+                shard_nodes_data, expected_state='sharded', expected_shards=1,
                 exp_obj_count=1)
 
             # check root container
             root_nodes_data = self.direct_get_container_shard_ranges()
             self.assertEqual(3, len(root_nodes_data))
-            exp_hdrs = {'X-Backend-Sharding-State': str(COLLAPSED),
+            exp_hdrs = {'X-Backend-Sharding-State': 'collapsed',
                         # just the alpha object
                         'X-Container-Object-Count': '1'}
             for node_id, node_data in root_nodes_data.items():
@@ -1344,12 +1343,12 @@ class TestContainerSharding(ReplProbeTest):
         # replica does not replicate rows but does replicate shard ranges
         obj_names = self._setup_replication_scenario(3)
         node_numbers = self.brain.node_numbers
-        self.assert_container_state(node_numbers[0], SHARDING, 3)
-        self.assert_container_state(node_numbers[1], SHARDING, 3)
+        self.assert_container_state(node_numbers[0], 'sharding', 3)
+        self.assert_container_state(node_numbers[1], 'sharding', 3)
 
         # bring third server back up, run replicator
         self.brain.servers.start(number=node_numbers[2])
-        self.assert_container_state(node_numbers[2], UNSHARDED, 0)  # sanity
+        self.assert_container_state(node_numbers[2], 'unsharded', 0)  # sanity
         self.replicators.once(number=node_numbers[2])
         # check db files unchanged
         found = self.categorize_container_dir_content()
@@ -1365,7 +1364,7 @@ class TestContainerSharding(ReplProbeTest):
             with annotate_failure(
                     'Node number %s in %s' % (number, node_numbers[:2])):
                 self.assertFalse(misplaced)
-                self.assert_container_state(number, SHARDING, 3)
+                self.assert_container_state(number, 'sharding', 3)
         self.brain.servers.stop(number=node_numbers[2])
         self.assert_container_listing(obj_names)
 
@@ -1383,21 +1382,21 @@ class TestContainerSharding(ReplProbeTest):
                 number=number,
                 additional_args='--partitions=%s' % self.brain.part)
         # ...and now in sharded state
-        self.assert_container_state(node_numbers[0], SHARDED, 3)
-        self.assert_container_state(node_numbers[1], SHARDED, 3)
+        self.assert_container_state(node_numbers[0], 'sharded', 3)
+        self.assert_container_state(node_numbers[1], 'sharded', 3)
         # ...still no 'alpha' object in listing
         self.assert_container_listing(obj_names)
 
         # run the sharder on the third server, alpha object is included in
         # shards that it cleaves
         self.brain.servers.start(number=node_numbers[2])
-        self.assert_container_state(node_numbers[2], UNSHARDED, 3)
+        self.assert_container_state(node_numbers[2], 'unsharded', 3)
         self.sharders.once(number=node_numbers[2],
                            additional_args='--partitions=%s' % self.brain.part)
-        self.assert_container_state(node_numbers[2], SHARDING, 3)
+        self.assert_container_state(node_numbers[2], 'sharding', 3)
         self.sharders.once(number=node_numbers[2],
                            additional_args='--partitions=%s' % self.brain.part)
-        self.assert_container_state(node_numbers[2], SHARDED, 3)
+        self.assert_container_state(node_numbers[2], 'sharded', 3)
         self.assert_container_listing(['alpha'] + obj_names)
 
     def test_replication_to_sharded_container(self):
@@ -1405,8 +1404,8 @@ class TestContainerSharding(ReplProbeTest):
         # replica does not replicate rows but does replicate shard ranges
         obj_names = self._setup_replication_scenario(2)
         node_numbers = self.brain.node_numbers
-        self.assert_container_state(node_numbers[0], SHARDED, 2)
-        self.assert_container_state(node_numbers[1], SHARDED, 2)
+        self.assert_container_state(node_numbers[0], 'sharded', 2)
+        self.assert_container_state(node_numbers[1], 'sharded', 2)
 
         # sanity check
         found = self.categorize_container_dir_content()
@@ -1425,7 +1424,7 @@ class TestContainerSharding(ReplProbeTest):
 
         # bring third server back up, run replicator
         self.brain.servers.start(number=node_numbers[2])
-        self.assert_container_state(node_numbers[2], UNSHARDED, 0)  # sanity
+        self.assert_container_state(node_numbers[2], 'unsharded', 0)  # sanity
         self.replicators.once(number=node_numbers[2])
         # check db files unchanged
         found = self.categorize_container_dir_content()
@@ -1441,7 +1440,7 @@ class TestContainerSharding(ReplProbeTest):
             with annotate_failure(
                     'Node number %s in %s' % (number, node_numbers[:2])):
                 self.assertFalse(misplaced)
-                self.assert_container_state(number, SHARDED, 2)
+                self.assert_container_state(number, 'sharded', 2)
         self.brain.servers.stop(number=node_numbers[2])
         self.assert_container_listing(obj_names)
 
@@ -1454,10 +1453,10 @@ class TestContainerSharding(ReplProbeTest):
 
         # run the sharder on the third server, alpha object is included in
         # shards that it cleaves
-        self.assert_container_state(node_numbers[2], UNSHARDED, 2)
+        self.assert_container_state(node_numbers[2], 'unsharded', 2)
         self.sharders.once(number=node_numbers[2],
                            additional_args='--partitions=%s' % self.brain.part)
-        self.assert_container_state(node_numbers[2], SHARDED, 2)
+        self.assert_container_state(node_numbers[2], 'sharded', 2)
         self.assert_container_listing(['alpha'] + obj_names)
 
     def test_sharding_requires_sufficient_replication(self):
@@ -1479,7 +1478,7 @@ class TestContainerSharding(ReplProbeTest):
         # start sharding on the leader node
         self.sharders.once(number=leader_num,
                            additional_args='--partitions=%s' % self.brain.part)
-        shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
+        shard_ranges = self.assert_container_state(leader_num, 'sharding', 4)
         self.assertEqual([ShardRange.CLEAVED] * 2 + [ShardRange.CREATED] * 2,
                          [sr.state for sr in shard_ranges])
 
@@ -1495,7 +1494,7 @@ class TestContainerSharding(ReplProbeTest):
         # no cleaving progress was made
         for node_num in sr_node_nums:
             self.brain.servers.start(number=node_num)
-        shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
+        shard_ranges = self.assert_container_state(leader_num, 'sharding', 4)
         self.assertEqual([ShardRange.CLEAVED] * 2 + [ShardRange.CREATED] * 2,
                          [sr.state for sr in shard_ranges])
 
@@ -1517,7 +1516,7 @@ class TestContainerSharding(ReplProbeTest):
         # no cleaving progress was made
         for node_num in stopped:
             self.brain.servers.start(number=node_num)
-        shard_ranges = self.assert_container_state(leader_num, SHARDING, 4)
+        shard_ranges = self.assert_container_state(leader_num, 'sharding', 4)
         self.assertEqual([ShardRange.CLEAVED] * 2 + [ShardRange.CREATED] * 2,
                          [sr.state for sr in shard_ranges])
 
@@ -1536,7 +1535,7 @@ class TestContainerSharding(ReplProbeTest):
 
         # this time cleaving completed
         self.brain.servers.start(number=stopped[0])
-        shard_ranges = self.assert_container_state(leader_num, SHARDED, 4)
+        shard_ranges = self.assert_container_state(leader_num, 'sharded', 4)
         self.assertEqual([ShardRange.ACTIVE] * 4,
                          [sr.state for sr in shard_ranges])
 
@@ -1551,7 +1550,7 @@ class TestContainerSharding(ReplProbeTest):
                 number=n, additional_args='--partitions=%s' % self.brain.part)
         # sanity checks
         for number in self.brain.node_numbers:
-            self.assert_container_state(number, SHARDED, 2)
+            self.assert_container_state(number, 'sharded', 2)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
@@ -1602,7 +1601,7 @@ class TestContainerSharding(ReplProbeTest):
                 number=n, additional_args='--partitions=%s' % self.brain.part)
         # sanity checks
         for number in self.brain.node_numbers:
-            self.assert_container_state(number, SHARDED, 2)
+            self.assert_container_state(number, 'sharded', 2)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
@@ -1716,8 +1715,8 @@ class TestContainerSharding(ReplProbeTest):
         # start with two sharded replicas and one unsharded with extra object
         obj_names = self._setup_replication_scenario(2)
         node_numbers = self.brain.node_numbers
-        self.assert_container_state(node_numbers[0], SHARDED, 2)
-        self.assert_container_state(node_numbers[1], SHARDED, 2)
+        self.assert_container_state(node_numbers[0], 'sharded', 2)
+        self.assert_container_state(node_numbers[1], 'sharded', 2)
 
         # Fake a ring change - copy unsharded db which has no shard ranges to a
         # handoff to create illusion of a new unpopulated primary node
@@ -1776,7 +1775,7 @@ class TestContainerSharding(ReplProbeTest):
         broker = self.get_broker(self.brain.part, handoff_node)
         shard_ranges = broker.get_shard_ranges()
         self.assertLengthEqual(shard_ranges, 2)
-        self.assert_container_state(handoff_node, UNSHARDED, 2)
+        self.assert_container_state(handoff_node, 'unsharded', 2)
 
         # Replicate again, this time *including* "new primary"
         self.brain.servers.start(number=new_primary_node_number)
@@ -1796,7 +1795,7 @@ class TestContainerSharding(ReplProbeTest):
         # and delete the big db
         self.sharders.once(number=handoff_node['id'] + 1,
                            additional_args='--partitions=%s' % self.brain.part)
-        self.assert_container_state(handoff_node, SHARDED, 2)
+        self.assert_container_state(handoff_node, 'sharded', 2)
         self.assertFalse(os.path.exists(os.path.join(
             old_primary_dir, container_hash + '.db')))
         # the sharded db hangs around until replication confirms durability
@@ -1804,7 +1803,7 @@ class TestContainerSharding(ReplProbeTest):
         self.brain.servers.stop(number=node_numbers[0])
         self.replicators.once(number=handoff_node['id'] + 1)
         self.assertTrue(os.path.exists(old_primary_dir))
-        self.assert_container_state(handoff_node, SHARDED, 2)
+        self.assert_container_state(handoff_node, 'sharded', 2)
         # second attempt is successful and handoff db is deleted
         self.brain.servers.start(number=node_numbers[0])
         self.replicators.once(number=handoff_node['id'] + 1)
@@ -1831,9 +1830,9 @@ class TestContainerSharding(ReplProbeTest):
         leader_node = self.brain.nodes[0]
         leader_node_number = self.brain.node_numbers[0]
         self.sharders.once(number=leader_node_number)
-        self.assert_container_state(leader_node_number, SHARDING, 3)
+        self.assert_container_state(leader_node_number, 'sharding', 3)
         for number in self.brain.node_numbers[1:]:
-            self.assert_container_state(number, UNSHARDED, 3)
+            self.assert_container_state(number, 'unsharded', 3)
 
         # Fake a ring change - copy leader node db to a handoff to create
         # illusion of a new unpopulated primary leader node
@@ -1843,13 +1842,13 @@ class TestContainerSharding(ReplProbeTest):
             self.brain.part, handoff_node)
         utils.mkdirs(os.path.dirname(old_primary_dir))
         os.rename(new_primary_dir, old_primary_dir)
-        self.assert_container_state(handoff_node, SHARDING, 3)
+        self.assert_container_state(handoff_node, 'sharding', 3)
 
         # run replicator on handoff node to create a fresh db on new primary
         self.assertFalse(os.path.exists(new_primary_dir))
         self.replicators.once(number=handoff_node['id'] + 1)
         self.assertTrue(os.path.exists(new_primary_dir))
-        self.assert_container_state(leader_node, SHARDED, 3)
+        self.assert_container_state(leader_node, 'sharded', 3)
         broker = self.get_broker(self.brain.part, leader_node)
         shard_ranges = broker.get_shard_ranges()
         self.assertLengthEqual(shard_ranges, 3)
@@ -1859,19 +1858,19 @@ class TestContainerSharding(ReplProbeTest):
 
         # db still exists on handoff
         self.assertTrue(os.path.exists(old_primary_dir))
-        self.assert_container_state(handoff_node, SHARDING, 3)
+        self.assert_container_state(handoff_node, 'sharding', 3)
         # continue sharding it...
         self.sharders.once(number=handoff_node['id'] + 1)
-        self.assert_container_state(leader_node, SHARDED, 3)
+        self.assert_container_state(leader_node, 'sharded', 3)
         # now handoff is fully sharded the replicator will delete it
         self.replicators.once(number=handoff_node['id'] + 1)
         self.assertFalse(os.path.exists(old_primary_dir))
 
         # all primaries now have active shard ranges but only one is in sharded
         # state
-        self.assert_container_state(leader_node_number, SHARDED, 3)
+        self.assert_container_state(leader_node_number, 'sharded', 3)
         for number in self.brain.node_numbers[1:]:
-            self.assert_container_state(number, UNSHARDED, 3)
+            self.assert_container_state(number, 'unsharded', 3)
         node_data = self.direct_get_container_shard_ranges()
         for node_id, (hdrs, shard_ranges) in node_data.items():
             with annotate_failure(
@@ -1889,11 +1888,11 @@ class TestContainerSharding(ReplProbeTest):
             self.brain.servers.start(number=number)
 
         self.sharders.once()
-        self.assert_container_state(leader_node_number, SHARDED, 3)
+        self.assert_container_state(leader_node_number, 'sharded', 3)
         for number in self.brain.node_numbers[1:]:
-            self.assert_container_state(number, SHARDING, 3)
+            self.assert_container_state(number, 'sharding', 3)
         self.sharders.once()
         for number in self.brain.node_numbers:
-            self.assert_container_state(number, SHARDED, 3)
+            self.assert_container_state(number, 'sharded', 3)
 
         self.assert_container_listing(obj_names)

@@ -72,7 +72,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import update_etag_is_at_header, \
     resolve_etag_is_at_header
-from swift.container.backend import UNSHARDED, SHARDING, SHARDED
 
 
 def check_content_type(req):
@@ -269,8 +268,8 @@ class BaseObjectController(Controller):
 
     def _get_update_target(self, req, container_info):
         # find the sharded container to which we'll send the update
-        db_state = container_info.get('sharding_state', UNSHARDED)
-        if db_state in (SHARDED, SHARDING):
+        db_state = container_info.get('sharding_state', 'unsharded')
+        if db_state in ('sharded', 'sharding'):
             shard_ranges = self._get_shard_ranges(
                 req, self.account_name, self.container_name,
                 includes=self.object_name, states='updating')
