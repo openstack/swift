@@ -1371,16 +1371,6 @@ class ContainerSharder(ContainerReplicator):
             # sharding a shard, this is when the root will see the new
             # shards move to ACTIVE state and the sharded shard
             # simultaneously become deleted.
-            # TODO: the new shard ranges may have existed for some
-            # time and already be updating the root with their
-            # usage e.g. multiple cycles before we finished
-            # cleaving, or process failed right here. If so then
-            # the updates we send here probably have an out of date
-            # view of the shards' usage, but I think it is still ok
-            # to send these updates because the meta_timestamp
-            # should prevent these updates undoing any newer
-            # updates at the root from the actual shards. *It would
-            # be good to have a test to verify that.*
             self._update_root_container(broker)
 
         self.logger.info('Finished processing %s/%s state %s',
