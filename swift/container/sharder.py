@@ -457,11 +457,9 @@ class ContainerSharder(ContainerReplicator):
         part = self.ring.get_part(shard_range.account, shard_range.container)
         node = self.find_local_handoff_for_part(part)
         if not node:
-            # TODO: and when *do* we cleave? maybe we should just be picking
-            # one of the local devs
             raise DeviceUnavailable(
-                'No mounted devices found suitable to Handoff sharded '
-                'container %s in partition %s' % (shard_range.name, part))
+                'No mounted devices found suitable for creating shard broker'
+                'for %s in partition %s' % (shard_range.name, part))
 
         shard_broker = self._initialize_broker(
             node['device'], part, shard_range.account, shard_range.container,
