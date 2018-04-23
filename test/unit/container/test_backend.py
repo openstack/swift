@@ -30,7 +30,7 @@ import json
 
 from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, NOTFOUND, UNSHARDED, SHARDING, SHARDED, \
-    COLLAPSED
+    COLLAPSED, SHARD_LISTING_STATES
 from swift.common.db import DatabaseBroker, DatabaseAlreadyExists
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
     ShardRange
@@ -3192,8 +3192,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_get_shard_ranges(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(
-            db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
 
         # no rows
@@ -3214,11 +3213,12 @@ class TestContainerBroker(unittest.TestCase):
 
         # merge rows for other shard ranges
         shard_ranges = [
-            ShardRange('.a/c0', next(ts_iter), '', 'd'),
-            ShardRange('.a/c1', next(ts_iter), '', ''),
+            ShardRange('.a/c0', next(ts_iter), 'a', 'c'),
+            ShardRange('.a/c1', next(ts_iter), 'c', 'd'),
             ShardRange('.a/c2', next(ts_iter), 'd', 'f',
                        state=ShardRange.ACTIVE),
-            ShardRange('.a/c3', next(ts_iter), 'e', 'f', deleted=1),
+            ShardRange('.a/c3', next(ts_iter), 'e', 'f', deleted=1,
+                       state=ShardRange.SHARDED,),
             ShardRange('.a/c4', next(ts_iter), 'f', 'h',
                        state=ShardRange.CREATED),
             ShardRange('.a/c5', next(ts_iter), 'h', 'j', deleted=1)
@@ -3247,7 +3247,7 @@ class TestContainerBroker(unittest.TestCase):
                          [dict(sr) for sr in actual])
 
         actual = broker.get_shard_ranges(includes='f')
-        self.assertEqual([dict(sr) for sr in shard_ranges[1:2]],
+        self.assertEqual([dict(sr) for sr in shard_ranges[2:3]],
                          [dict(sr) for sr in actual])
 
         actual = broker.get_shard_ranges(includes='i')
@@ -3293,6 +3293,60 @@ class TestContainerBroker(unittest.TestCase):
         actual = broker.get_shard_ranges(
             include_own=False, exclude_others=True)
         self.assertFalse(actual)
+
+    @with_tempdir
+    def test_get_shard_ranges_with_sharding_overlaps(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+        shard_ranges = [
+            ShardRange('.shards_a/c0', next(ts_iter), 'a', 'd',
+                       state=ShardRange.ACTIVE),
+            ShardRange('.shards_a/c1', next(ts_iter), 'd', 'm',
+                       state=ShardRange.SHARDING),
+            ShardRange('.shards_a/c1_0', next(ts_iter), 'd', 'g',
+                       state=ShardRange.CLEAVED),
+            ShardRange('.shards_a/c1_1', next(ts_iter), 'g', 'j',
+                       state=ShardRange.CLEAVED),
+            ShardRange('.shards_a/c1_2', next(ts_iter), 'j', 'm',
+                       state=ShardRange.CREATED),
+            ShardRange('.shards_a/c2', next(ts_iter), 'm', '',
+                       state=ShardRange.ACTIVE),
+        ]
+        broker.merge_shard_ranges(shard_ranges)
+        actual = broker.get_shard_ranges()
+        expected = (shard_ranges[:1] + shard_ranges[2:5] + shard_ranges[1:2] +
+                    shard_ranges[5:])
+        self.assertEqual([dict(sr) for sr in expected],
+                         [dict(sr) for sr in actual])
+
+        actual = broker.get_shard_ranges(states=SHARD_LISTING_STATES)
+        expected = (shard_ranges[:1] + shard_ranges[2:4] + shard_ranges[1:2] +
+                    shard_ranges[5:])
+        self.assertEqual([dict(sr) for sr in expected],
+                         [dict(sr) for sr in actual])
+
+    @with_tempdir
+    def test_get_shard_ranges_with_shrinking_overlaps(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+        shard_ranges = [
+            ShardRange('.shards_a/c0', next(ts_iter), 'a', 'k',
+                       state=ShardRange.ACTIVE),
+            ShardRange('.shards_a/c1', next(ts_iter), 'k', 'm',
+                       state=ShardRange.SHRINKING),
+            ShardRange('.shards_a/c2', next(ts_iter), 'k', 't',
+                       state=ShardRange.ACTIVE),
+            ShardRange('.shards_a/c3', next(ts_iter), 't', '',
+                       state=ShardRange.ACTIVE),
+        ]
+        broker.merge_shard_ranges(shard_ranges)
+        actual = broker.get_shard_ranges()
+        self.assertEqual([dict(sr) for sr in shard_ranges],
+                         [dict(sr) for sr in actual])
 
     @with_tempdir
     def test_get_own_shard_range(self, tempdir):
@@ -3592,7 +3646,8 @@ class TestContainerBroker(unittest.TestCase):
             bytes_used=sum(obj['size'] for obj in objects[i:i + 2]),
             meta_timestamp=next(ts_iter)) for i in range(0, 6, 2)]
         deleted_range = ShardRange('.sharded_a/shard_range_z', next(ts_iter),
-                                   'z', '', state=ShardRange.ACTIVE, deleted=1)
+                                   'z', '', state=ShardRange.SHARDED,
+                                   deleted=1)
         own_sr = ShardRange(name='a/c', timestamp=next(ts_iter),
                             state=ShardRange.ACTIVE)
         broker.merge_shard_ranges([own_sr] + shard_ranges + [deleted_range])
@@ -3608,7 +3663,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(original_meta, meta)
             self.assertEqual(broker.get_syncs(True)[0], incoming_sync)
             self.assertEqual(broker.get_syncs(False)[0], outgoing_sync)
-            self.assertEqual([own_sr] + shard_ranges + [deleted_range],
+            self.assertEqual(shard_ranges + [own_sr, deleted_range],
                              broker.get_shard_ranges(include_own=True,
                                                      include_deleted=True))
 

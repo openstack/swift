@@ -1378,7 +1378,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             broker.merge_shard_ranges(shard_range)
         daemon = self._run_once(node)
         self.assertEqual(2, daemon.stats['deferred'])
-        check_replicate(shard_ranges[:1] + [own_sr] + shard_ranges[1:])
+        check_replicate(shard_ranges + [own_sr])
 
     def check_replicate(self, from_broker, remote_node_index, repl_conf=None,
                         expect_success=True, errors=None):

@@ -747,19 +747,18 @@ class TestContainerSharding(ReplProbeTest):
         for node, (hdrs, root_shards) in root_shard_ranges.items():
             self.assertLengthEqual(root_shards, 5)
             with annotate_failure('node %s. ' % node):
-                # shard ranges are sorted by lower, upper, so expect:
-                # sub-shard 0, orig shard 0, sub-shards 1 & 2, orig shard 1
+                # shard ranges are sorted by upper, state, lower, so expect:
+                # sub-shards, orig shard 0, orig shard 1
                 self.assertEqual(
-                    [ShardRange.CLEAVED, ShardRange.SHARDING,
-                     ShardRange.CLEAVED, ShardRange.CREATED,
+                    [ShardRange.CLEAVED, ShardRange.CLEAVED,
+                     ShardRange.CREATED, ShardRange.SHARDING,
                      ShardRange.ACTIVE],
                     [sr['state'] for sr in root_shards])
                 # sub-shards 0, 1, 2, orig shard 1 should be contiguous
                 self.assert_shard_ranges_contiguous(
-                    4, [root_shards[0]] + root_shards[2:])
+                    4, root_shards[:3] + root_shards[4:])
                 # orig shards 0, 1 should be contiguous
-                self.assert_shard_ranges_contiguous(
-                    2, [root_shards[1], root_shards[4]])
+                self.assert_shard_ranges_contiguous(2, root_shards[3:])
 
         self.assert_container_listing(more_obj_names + obj_names)
         self.assert_container_object_count(len(more_obj_names + obj_names))

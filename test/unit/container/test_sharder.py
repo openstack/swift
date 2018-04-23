@@ -3294,7 +3294,7 @@ class TestSharder(BaseTestSharder):
                         object_count=own_shard_range.object_count + 1,
                         bytes_used=own_shard_range.bytes_used + 1)] +
                     shard_ranges,
-                    key=lambda r: (r.lower, r.upper))
+                    key=lambda sr: (sr.upper, sr.state, sr.lower))
                 self.check_shard_ranges_sent(
                     broker, [dict(sr) for sr in expected_sent])
 
