@@ -912,8 +912,6 @@ class ContainerSharder(ContainerReplicator):
                 self._increment_stat('scanned', 'failure', statsd=True)
             return 0
 
-        # TODO: if we bring back leader election, this is about the spot where
-        # we should confirm we're still the scanner
         shard_ranges = make_shard_ranges(
             broker, shard_data, self.shards_account_prefix)
         broker.merge_shard_ranges(shard_ranges)
@@ -1294,9 +1292,6 @@ class ContainerSharder(ContainerReplicator):
             # have new objects sitting in them that may need to move.
             return
 
-        # TODO: bring back leader election (maybe?); if so make it
-        # on-demand since we may not need to know if we are leader for all
-        # states
         is_leader = node['index'] == 0 and self.auto_shard
         if state in (UNSHARDED, COLLAPSED):
             if is_leader and broker.is_root_container():
