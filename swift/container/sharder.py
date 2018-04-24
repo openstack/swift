@@ -207,6 +207,7 @@ class ContainerSharder(ContainerReplicator):
             conf.get('shard_batch_size', 2))
         self.reported = 0
         self.auto_shard = config_true_value(conf.get('auto_shard', False))
+        self.sharding_candidates = []
         self.recon_candidates_limit = int(
             conf.get('recon_candidates_limit', 5))
         self.broker_timeout = config_positive_int_value(
@@ -237,6 +238,7 @@ class ContainerSharder(ContainerReplicator):
         # all sharding stats that are additional to the inherited replicator
         # stats are maintained under the 'sharding' key in self.stats
         self.stats['sharding'] = defaultdict(lambda: defaultdict(int))
+        self.sharding_candidates = []
 
     def _append_stat(self, category, key, value):
         if not self.stats['sharding'][category][key]:
@@ -281,13 +283,12 @@ class ContainerSharder(ContainerReplicator):
     def _identify_sharding_candidate(self, broker, node):
         own_shard_range = broker.get_own_shard_range()
         if self._is_sharding_candidate(own_shard_range):
-            self._append_stat(
-                'sharding_candidates', 'all',
+            self.sharding_candidates.append(
                 self._make_stats_info(broker, node, own_shard_range))
 
     def _transform_sharding_candidate_stats(self):
         category = self.stats['sharding']['sharding_candidates']
-        candidates = category.pop('all', [])
+        candidates = self.sharding_candidates
         category['found'] = len(candidates)
         candidates.sort(key=lambda c: c['object_count'], reverse=True)
         if self.recon_candidates_limit >= 0:
@@ -316,6 +317,7 @@ class ContainerSharder(ContainerReplicator):
             self._append_stat('sharding_in_progress', 'all', info)
 
     def _report_stats(self):
+        # report accumulated stats since start of one sharder cycle
         default_stats = ('attempted', 'success', 'failure')
         category_keys = (
             ('visited', default_stats + ('skipped', 'completed')),
@@ -328,7 +330,7 @@ class ContainerSharder(ContainerReplicator):
         )
 
         now = time.time()
-        last_report = time.ctime(self.reported)
+        last_report = time.ctime(self.stats['start'])
         elapsed = now - self.stats['start']
         sharding_stats = self.stats['sharding']
         for category, keys in category_keys:
@@ -348,7 +350,6 @@ class ContainerSharder(ContainerReplicator):
     def _periodic_report_stats(self):
         if (time.time() - self.reported) >= 3600:  # once an hour
             self._report_stats()
-            self._zero_stats()
 
     def _check_node(self, node, devices_to_shard):
         if not node:
