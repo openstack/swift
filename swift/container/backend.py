@@ -1841,8 +1841,6 @@ class ContainerBroker(DatabaseBroker):
         # If there are shard_ranges defined.. which can happen when the scanner
         # node finds the first shard range then replicates out to the others
         # who are still in the UNSHARDED state.
-        # TODO: should we include deleted shard ranges here...just in case it
-        # ever happened and mattered?
         sub_broker.merge_shard_ranges(
             self.get_shard_ranges(include_own=True, include_deleted=True))
 
