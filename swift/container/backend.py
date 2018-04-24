@@ -1699,7 +1699,7 @@ class ContainerBroker(DatabaseBroker):
                 include_deleted=include_deleted, states=states,
                 exclude_states=exclude_states, include_own=include_own,
                 exclude_others=exclude_others)]
-        shard_ranges.sort(key=lambda sr: (sr.lower, sr.upper))
+        shard_ranges.sort(key=lambda sr: (sr.upper, sr.state, sr.lower))
         if includes:
             shard_range = find_shard_range(includes, shard_ranges)
             shard_ranges = [shard_range] if shard_range else []
