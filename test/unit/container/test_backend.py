@@ -3303,29 +3303,27 @@ class TestContainerBroker(unittest.TestCase):
         shard_ranges = [
             ShardRange('.shards_a/c0', next(ts_iter), 'a', 'd',
                        state=ShardRange.ACTIVE),
-            ShardRange('.shards_a/c1', next(ts_iter), 'd', 'm',
-                       state=ShardRange.SHARDING),
             ShardRange('.shards_a/c1_0', next(ts_iter), 'd', 'g',
                        state=ShardRange.CLEAVED),
             ShardRange('.shards_a/c1_1', next(ts_iter), 'g', 'j',
                        state=ShardRange.CLEAVED),
             ShardRange('.shards_a/c1_2', next(ts_iter), 'j', 'm',
                        state=ShardRange.CREATED),
+            ShardRange('.shards_a/c1', next(ts_iter), 'd', 'm',
+                       state=ShardRange.SHARDING),
             ShardRange('.shards_a/c2', next(ts_iter), 'm', '',
                        state=ShardRange.ACTIVE),
         ]
-        broker.merge_shard_ranges(shard_ranges)
+        broker.merge_shard_ranges(
+            random.sample(shard_ranges, len(shard_ranges)))
         actual = broker.get_shard_ranges()
-        expected = (shard_ranges[:1] + shard_ranges[2:5] + shard_ranges[1:2] +
-                    shard_ranges[5:])
-        self.assertEqual([dict(sr) for sr in expected],
+        self.assertEqual([dict(sr) for sr in shard_ranges],
                          [dict(sr) for sr in actual])
 
         actual = broker.get_shard_ranges(states=SHARD_LISTING_STATES)
-        expected = (shard_ranges[:1] + shard_ranges[2:4] + shard_ranges[1:2] +
-                    shard_ranges[5:])
-        self.assertEqual([dict(sr) for sr in expected],
-                         [dict(sr) for sr in actual])
+        self.assertEqual(
+            [dict(sr) for sr in shard_ranges[:3] + shard_ranges[4:]],
+            [dict(sr) for sr in actual])
 
     @with_tempdir
     def test_get_shard_ranges_with_shrinking_overlaps(self, tempdir):
@@ -3343,7 +3341,8 @@ class TestContainerBroker(unittest.TestCase):
             ShardRange('.shards_a/c3', next(ts_iter), 't', '',
                        state=ShardRange.ACTIVE),
         ]
-        broker.merge_shard_ranges(shard_ranges)
+        broker.merge_shard_ranges(
+            random.sample(shard_ranges, len(shard_ranges)))
         actual = broker.get_shard_ranges()
         self.assertEqual([dict(sr) for sr in shard_ranges],
                          [dict(sr) for sr in actual])
