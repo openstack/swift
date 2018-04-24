@@ -199,7 +199,9 @@ class TestSharder(BaseTestSharder):
     def test_init_internal_client_conf_loading_error(self):
         with mock.patch('swift.common.db_replicator.ring.Ring'):
             with self.assertRaises(SystemExit) as cm:
-                ContainerSharder({})
+                ContainerSharder(
+                    {'internal_client_conf_path':
+                     os.path.join(self.tempdir, 'nonexistent')})
         self.assertIn('Unable to load internal client', str(cm.exception))
 
         with mock.patch('swift.common.db_replicator.ring.Ring'):
