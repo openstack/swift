@@ -1346,9 +1346,6 @@ class ContainerSharder(ContainerReplicator):
                 self._find_shrinks(broker)
                 self._find_sharding_candidates(broker)
 
-            # TODO: remove this once shards are pulling their state from
-            # root during audit - we don't want to push because it may
-            # revive a deleted shard
             for shard_range in broker.get_shard_ranges(
                     states=[ShardRange.SHARDING]):
                 self._send_shard_ranges(
