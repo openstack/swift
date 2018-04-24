@@ -1386,11 +1386,9 @@ class TestContainerSharding(BaseTestContainerSharding):
         for number in node_numbers[:2]:
             broker = self.get_broker(
                 self.brain.part, self.brain.nodes_by_number[number])
-            policy = broker.get_info()['storage_policy_index']
-            misplaced = broker.get_objects(storage_policy_index=int(policy))
             with annotate_failure(
                     'Node number %s in %s' % (number, node_numbers[:2])):
-                self.assertFalse(misplaced)
+                self.assertFalse(broker.get_objects())
                 self.assert_container_state(number, 'sharding', 3)
         self.brain.servers.stop(number=node_numbers[2])
         self.assert_container_listing(obj_names)
@@ -1442,12 +1440,10 @@ class TestContainerSharding(BaseTestContainerSharding):
             broker = self.get_broker(
                 self.brain.part, self.brain.nodes_by_number[number])
             info = broker.get_info()
-            policy = info['storage_policy_index']
-            misplaced = broker.get_objects(storage_policy_index=int(policy))
             with annotate_failure(
                     'Node number %s in %s' % (number, node_numbers[:2])):
                 self.assertEqual(len(obj_names), info['object_count'])
-                self.assertFalse(misplaced)
+                self.assertFalse(broker.get_objects())
 
         # bring third server back up, run replicator
         self.brain.servers.start(number=node_numbers[2])
@@ -1462,11 +1458,9 @@ class TestContainerSharding(BaseTestContainerSharding):
         for number in node_numbers[:2]:
             broker = self.get_broker(
                 self.brain.part, self.brain.nodes_by_number[number])
-            policy = broker.get_info()['storage_policy_index']
-            misplaced = broker.get_objects(storage_policy_index=int(policy))
             with annotate_failure(
                     'Node number %s in %s' % (number, node_numbers[:2])):
-                self.assertFalse(misplaced)
+                self.assertFalse(broker.get_objects())
                 self.assert_container_state(number, 'sharded', 2)
         self.brain.servers.stop(number=node_numbers[2])
         self.assert_container_listing(obj_names)
@@ -1785,16 +1779,12 @@ class TestContainerSharding(BaseTestContainerSharding):
             failed_dir, container_hash + '.db')))
         self.assertLengthEqual(os.listdir(failed_dir), 1)
         broker = self.get_broker(self.brain.part, failed_node)
-        info = broker.get_info()
-        policy = info['storage_policy_index']
-        objs = broker.get_objects(storage_policy_index=int(policy))
-        self.assertLengthEqual(objs, len(obj_names) + 1)
+        self.assertLengthEqual(broker.get_objects(), len(obj_names) + 1)
 
         # The other out-of-date primary is within usync range but objects are
         # not replicated to it because the handoff db learns about shard ranges
         broker = self.get_broker(self.brain.part, self.brain.nodes[1])
-        misplaced_objs = broker.get_objects(storage_policy_index=int(policy))
-        self.assertLengthEqual(misplaced_objs, 0)
+        self.assertLengthEqual(broker.get_objects(), 0)
 
         # Handoff db still exists and now has shard ranges!
         self.assertTrue(os.path.exists(os.path.join(
@@ -1811,10 +1801,7 @@ class TestContainerSharding(BaseTestContainerSharding):
         # Ordinarily, we would have rsync_then_merge'd to "new primary"
         # but instead we wait
         broker = self.get_broker(self.brain.part, new_primary_node)
-        info = broker.get_info()
-        policy = info['storage_policy_index']
-        objs = broker.get_objects(storage_policy_index=int(policy))
-        self.assertLengthEqual(objs, 0)
+        self.assertLengthEqual(broker.get_objects(), 0)
         shard_ranges = broker.get_shard_ranges()
         self.assertLengthEqual(shard_ranges, 2)
 

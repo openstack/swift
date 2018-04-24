@@ -720,9 +720,12 @@ class ContainerBroker(DatabaseBroker):
                   'meta_timestamp': meta_timestamp}
         self.put_record(record)
 
-    def remove_objects(self, lower, upper, storage_policy_index, max_row=None):
+    def remove_objects(self, lower, upper, max_row=None):
         """
-        Removes items in the given namespace range from the object table.
+        Removes object records in the given namespace range from the object
+        table.
+
+        Note that objects are removed regardless of their storage_policy_index.
 
         :param lower: defines the lower bound of object names that will be
             removed; names greater than this value will be removed; names less
@@ -730,13 +733,11 @@ class ContainerBroker(DatabaseBroker):
         :param upper: defines the upper bound of object names that will be
             removed; names less than or equal to this value will be removed;
             names greater than this value will not be removed.
-        :param storage_policy_index: only object names with this storage
-            policy index will be removed
         :param max_row: if specified only rows less than or equal to max_row
             will be removed
         """
-        query_conditions = ['storage_policy_index = ?']
-        query_args = [storage_policy_index]
+        query_conditions = []
+        query_args = []
         if max_row is not None:
             query_conditions.append('ROWID <= ?')
             query_args.append(str(max_row))
@@ -1011,7 +1012,7 @@ class ContainerBroker(DatabaseBroker):
     def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
                           path=None, storage_policy_index=0, reverse=False,
                           include_deleted=False, since_row=None,
-                          transform_func=None):
+                          transform_func=None, all_policies=False):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -1033,6 +1034,8 @@ class ContainerBroker(DatabaseBroker):
             called for each object to get a transformed version of the object
             to include in the listing; should have same signature as
             :meth:`~_transform_record`; defaults to :meth:`~_transform_record`.
+        :param all_policies: if True, include objects for all storage policies
+            ignoring any value given for ``storage_policy_index``
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag, deleted)
         """
@@ -1058,12 +1061,12 @@ class ContainerBroker(DatabaseBroker):
         with self.get() as conn:
             results = []
             while len(results) < limit:
-                query = 'SELECT name, created_at, size, content_type, etag'
+                query_keys = ['name', 'created_at', 'size', 'content_type',
+                              'etag']
                 if self.get_db_version(conn) < 1:
-                    query += ', +deleted '
+                    query_keys.append('+deleted')
                 else:
-                    query += ', deleted '
-                query += 'FROM object '
+                    query_keys.append('deleted')
                 query_args = []
                 query_conditions = []
                 if end_marker and (not prefix or end_marker < end_prefix):
@@ -1095,29 +1098,34 @@ class ContainerBroker(DatabaseBroker):
                     query_conditions.append('ROWID > ?')
                     query_args.append(since_row)
 
+                def build_query(keys, conditions, args):
+                    query = 'SELECT ' + ', '.join(keys) + ' FROM object '
+                    if conditions:
+                        query += 'WHERE ' + ' AND '.join(conditions)
+                    tail_query = '''
+                        ORDER BY name %s LIMIT ?
+                    ''' % ('DESC' if reverse else '')
+                    return query + tail_query, args + [limit - len(results)]
+
                 # storage policy filter
-                query_conditions.append('storage_policy_index = ?')
-                query_args.append(storage_policy_index)
-                full_query = query
-                if query_conditions:
-                    full_query += 'WHERE ' + ' AND '.join(query_conditions)
-                tail_query = '''
-                    ORDER BY name %s LIMIT ?
-                ''' % ('DESC' if reverse else '')
-                tail_args = [limit - len(results)]
+                if all_policies:
+                    query, args = build_query(
+                        query_keys + ['storage_policy_index'],
+                        query_conditions,
+                        query_args)
+                else:
+                    query, args = build_query(
+                        query_keys + ['storage_policy_index'],
+                        query_conditions + ['storage_policy_index = ?'],
+                        query_args + [storage_policy_index])
                 try:
-                    curs = conn.execute(full_query + tail_query,
-                                        tuple(query_args + tail_args))
+                    curs = conn.execute(query, tuple(args))
                 except sqlite3.OperationalError as err:
                     if 'no such column: storage_policy_index' not in str(err):
                         raise
-                    query_conditions = query_conditions[:-1]
-                    query_args = query_args[:-1]
-                    full_query = query
-                    if query_conditions:
-                        full_query += 'WHERE ' + ' AND '.join(query_conditions)
-                    curs = conn.execute(full_query + tail_query,
-                                        tuple(query_args + tail_args))
+                    query, args = build_query(
+                        query_keys, query_conditions, query_args)
+                    curs = conn.execute(query, tuple(args))
                 curs.row_factory = None
 
                 # Delimiters without a prefix is ignored, further if there
@@ -1169,49 +1177,45 @@ class ContainerBroker(DatabaseBroker):
                     break
             return results
 
-    def get_objects(self, limit=None, marker='', end_marker='', prefix=None,
-                    delimiter=None, path=None, storage_policy_index=0,
-                    reverse=False, include_deleted=False, since_row=None):
+    def get_objects(self, limit=None, marker='', end_marker='',
+                    since_row=None):
         """
-        Return a list of objects.
+        Returns a list of objects, including deleted objects, in all policies.
+        Each object in the list is described by a dict with keys {'name',
+        'created_at', 'size', 'content_type', 'etag', 'deleted',
+        'storage_policy_index'}.
 
         :param limit: maximum number of entries to get
         :param marker: if set, objects with names less than or equal to this
             value will not be included in the list.
         :param end_marker: if set, objects with names greater than or equal to
             this value will not be included in the list.
-        :param prefix: prefix query
-        :param delimiter: delimiter for query
-        :param path: if defined, will set the prefix and delimiter based on
-                     the path
-        :param storage_policy_index: storage policy index for query
-        :param reverse: reverse the result order.
-        :param include_deleted: include items that have the delete marker set
         :param since_row: include only items whose ROWID is greater than
             the given row id; by default all rows are included.
         :return: a list of dicts, each describing an object.
         """
         def transform_record(record, policy_index):
             result = self._record_to_dict(record)
-            result['storage_policy_index'] = policy_index
+            result.setdefault('storage_policy_index', policy_index)
             return result
 
         limit = CONTAINER_LISTING_LIMIT if limit is None else limit
         return self.list_objects_iter(
-            limit, marker, end_marker, prefix, delimiter, path=path,
-            storage_policy_index=storage_policy_index, reverse=reverse,
-            include_deleted=include_deleted, transform_func=transform_record,
-            since_row=since_row
+            limit, marker, end_marker, prefix=None, delimiter=None, path=None,
+            reverse=False, include_deleted=True,
+            transform_func=transform_record, since_row=since_row,
+            all_policies=True
         )
 
     def _transform_record(self, record, storage_policy_index):
         """
         Decode the created_at timestamp into separate data, content-type and
         meta timestamps and replace the created_at timestamp with the
-        metadata timestamp i.e. the last-modified time.
+        metadata timestamp i.e. the last-modified time. Also, drop
+        storage_policy_index from the record.
         """
         t_data, t_ctype, t_meta = decode_timestamps(record[1])
-        return (record[0], t_meta.internal) + record[2:]
+        return (record[0], t_meta.internal) + record[2:6]
 
     def _record_to_dict(self, rec):
         if rec:

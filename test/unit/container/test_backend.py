@@ -1892,93 +1892,84 @@ class TestContainerBroker(unittest.TestCase):
             return broker
 
         broker = do_setup()
-        broker.remove_objects('', '', 0)
-        self.assertEqual([object_names[1]], get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('', '', 1)
-        self.assertEqual([object_names[0], object_names[2]], get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('deleted', '', 0)
-        self.assertEqual(object_names[1:], get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('', 'deleted', 0)
-        self.assertEqual(object_names[:2], get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('', 'deleted', 0, max_row=2)
-
-        broker = do_setup()
-        broker.remove_objects('deleted', 'un', 0)
-        self.assertEqual(object_names, get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('', '', 0, max_row=-1)
-        self.assertEqual(object_names, get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('', '', 0, max_row=0)
-        self.assertEqual(object_names, get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('', '', 0, max_row=1)
-        self.assertEqual(object_names[1:], get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('', '', 0, max_row=2)
-        self.assertEqual(object_names[1:], get_rows(broker))
-
-        broker = do_setup()
-        broker.remove_objects('', '', 0, max_row=3)
-        self.assertEqual([object_names[1]], get_rows(broker))
-        broker.remove_objects('', '', 1, max_row=99)
+        broker.remove_objects('', '')
         self.assertFalse(get_rows(broker))
 
         broker = do_setup()
-        broker.remove_objects('', 'deleted', 0, max_row=2)
+        broker.remove_objects('deleted', '')
+        self.assertEqual([object_names[2]], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', 'deleted', max_row=2)
         self.assertEqual(object_names, get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('deleted', 'un')
+        self.assertEqual([object_names[0], object_names[2]], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', max_row=-1)
+        self.assertEqual(object_names, get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', max_row=0)
+        self.assertEqual(object_names, get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', max_row=1)
+        self.assertEqual(object_names[1:], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', max_row=2)
+        self.assertEqual(object_names[2:], get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', max_row=3)
+        self.assertFalse(get_rows(broker))
+
+        broker = do_setup()
+        broker.remove_objects('', '', max_row=99)
+        self.assertFalse(get_rows(broker))
 
     def test_get_objects(self):
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        obj_names = ['obj%03d' % i for i in range(20)]
-        for name in obj_names:
-            broker.put_object(name, Timestamp.now().internal,
-                              0, 'text/plain', EMPTY_ETAG)
-        broker.put_object('other_policy', Timestamp.now().internal,
-                          0, 'text/plain', EMPTY_ETAG, storage_policy_index=1)
-        broker.put_object('deleted', Timestamp.now().internal,
-                          0, 'text/plain', EMPTY_ETAG, deleted=1)
+        ts_iter = make_timestamp_iter()
+        objects_0 = [{'name': 'obj_0_%d' % i,
+                      'created_at': next(ts_iter).normal,
+                      'content_type': 'text/plain',
+                      'etag': 'etag_%d' % i,
+                      'size': 1024 * i,
+                      'deleted': i % 2,
+                      'storage_policy_index': 0
+                      } for i in range(1, 8)]
+        objects_1 = [{'name': 'obj_1_%d' % i,
+                      'created_at': next(ts_iter).normal,
+                      'content_type': 'text/plain',
+                      'etag': 'etag_%d' % i,
+                      'size': 1024 * i,
+                      'deleted': i % 2,
+                      'storage_policy_index': 1
+                      } for i in range(1, 8)]
+        # merge_objects mutates items
+        broker.merge_objects([dict(obj) for obj in objects_0 + objects_1])
 
         actual = broker.get_objects()
-        self.assertEqual(obj_names, [o['name'] for o in actual])
+        self.assertEqual(objects_0 + objects_1, actual)
 
         with mock.patch('swift.container.backend.CONTAINER_LISTING_LIMIT', 2):
             actual = broker.get_objects()
-            self.assertEqual(obj_names[:2], [o['name'] for o in actual])
+            self.assertEqual(objects_0[:2], actual)
 
         with mock.patch('swift.container.backend.CONTAINER_LISTING_LIMIT', 2):
-            actual = broker.get_objects(limit=4)
-            self.assertEqual(obj_names[:4], [o['name'] for o in actual])
+            actual = broker.get_objects(limit=9)
+            self.assertEqual(objects_0 + objects_1[:2], actual)
 
-        actual = broker.get_objects(marker=obj_names[2])
-        self.assertEqual(obj_names[3:], [o['name'] for o in actual])
+        actual = broker.get_objects(marker=objects_0[2]['name'])
+        self.assertEqual(objects_0[3:] + objects_1, actual)
 
-        actual = broker.get_objects(end_marker=obj_names[2])
-        self.assertEqual(obj_names[:2], [o['name'] for o in actual])
-
-        actual = broker.get_objects(reverse=True)
-        self.assertEqual([n for n in reversed(obj_names)],
-                         [o['name'] for o in actual])
-
-        actual = broker.get_objects(storage_policy_index=1)
-        self.assertEqual(['other_policy'], [o['name'] for o in actual])
-
-        actual = broker.get_objects(include_deleted=1)
-        self.assertEqual(['deleted'] + obj_names, [o['name'] for o in actual])
-        # TODO: add tests for prefix, path, delimiter
+        actual = broker.get_objects(end_marker=objects_0[2]['name'])
+        self.assertEqual(objects_0[:2], actual)
 
     def test_get_objects_since_row(self):
         ts_iter = make_timestamp_iter()
@@ -1998,71 +1989,36 @@ class TestContainerBroker(unittest.TestCase):
 
         # sanity check
         self.assertEqual(30, broker.get_max_row())
-        actual = broker.get_objects(include_deleted=True)
+        actual = broker.get_objects()
         self.assertEqual(obj_names, [o['name'] for o in actual])
 
         # all rows included
         actual = broker.get_objects(since_row=None)
-        self.assertEqual(obj_names[:10], [o['name'] for o in actual])
-
-        actual = broker.get_objects(include_deleted=True, since_row=None)
         self.assertEqual(obj_names, [o['name'] for o in actual])
 
-        actual = broker.get_objects(include_deleted=True, since_row=-1)
+        actual = broker.get_objects(since_row=-1)
         self.assertEqual(obj_names, [o['name'] for o in actual])
 
         # selected rows
         for since_row in range(10):
-            actual = broker.get_objects(include_deleted=True,
-                                        since_row=since_row)
+            actual = broker.get_objects(since_row=since_row)
             with annotate_failure(since_row):
                 self.assertEqual(obj_names[since_row:],
                                  [o['name'] for o in actual])
-            actual = broker.get_objects(include_deleted=True,
-                                        since_row=since_row,
-                                        reverse=True)
-            with annotate_failure(since_row):
-                self.assertEqual(list(reversed(obj_names[since_row:])),
-                                 [o['name'] for o in actual])
 
         for since_row in range(10, 20):
-            actual = broker.get_objects(include_deleted=True,
-                                        since_row=since_row)
+            actual = broker.get_objects(since_row=since_row)
             with annotate_failure(since_row):
                 self.assertEqual(obj_names[10:],
                                  [o['name'] for o in actual])
-            actual = broker.get_objects(include_deleted=True,
-                                        since_row=since_row,
-                                        reverse=True)
-            with annotate_failure(since_row):
-                self.assertEqual(list(reversed(obj_names[10:])),
-                                 [o['name'] for o in actual])
 
         for since_row in range(20, len(obj_names) + 1):
-            actual = broker.get_objects(include_deleted=True,
-                                        since_row=since_row)
+            actual = broker.get_objects(since_row=since_row)
             with annotate_failure(since_row):
                 self.assertEqual(obj_names[since_row - 10:],
                                  [o['name'] for o in actual])
-            actual = broker.get_objects(include_deleted=True,
-                                        since_row=since_row,
-                                        reverse=True)
-            with annotate_failure(since_row):
-                self.assertEqual(list(reversed(obj_names[since_row - 10:])),
-                                 [o['name'] for o in actual])
-
-        for since_row in range(len(obj_names) + 1):
-            actual = broker.get_objects(since_row=since_row)
-            with annotate_failure(since_row):
-                self.assertEqual(obj_names[since_row:10],
-                                 [o['name'] for o in actual])
 
         self.assertFalse(broker.get_objects(end_marker=obj_names[5],
-                                            include_deleted=True,
-                                            since_row=5))
-        self.assertFalse(broker.get_objects(marker=obj_names[5],
-                                            include_deleted=True,
-                                            reverse=True,
                                             since_row=5))
 
     def test_list_objects_iter(self):

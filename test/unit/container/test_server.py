@@ -3051,9 +3051,7 @@ class TestContainerController(unittest.TestCase):
         def get_listing(broker_index):
             # index -1 is always the freshest db
             sub_broker = broker.get_brokers()[broker_index]
-            return sub_broker.get_objects(
-                include_deleted=True,
-                storage_policy_index=POLICIES.default.idx)
+            return sub_broker.get_objects()
 
         def assert_not_redirected(obj_name, timestamp=None, headers=None):
             resp = do_update(obj_name, timestamp=timestamp, headers=headers)

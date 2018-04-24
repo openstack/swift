@@ -696,8 +696,7 @@ class ContainerSharder(ContainerReplicator):
             return self._audit_root_container(broker)
         return self._audit_shard_container(broker)
 
-    def yield_objects(self, broker, src_shard_range, policy_index,
-                      since_row=None):
+    def yield_objects(self, broker, src_shard_range, since_row=None):
         """
         Iterates through all objects in ``src_shard_range`` in name order
         yielding them in lists of up to CONTAINER_LISTING_LIMIT length.
@@ -705,7 +704,6 @@ class ContainerSharder(ContainerReplicator):
         :param broker: A :class:`~swift.container.backend.ContainerBroker`.
         :param src_shard_range: A :class:`~swift.common.utils.ShardRange`
             describing the source range.
-        :param policy_index: The storage policy index.
         :param since_row: include only items whose ROWID is greater than
             the given row id; by default all rows are included.
         :return: a generator of tuples of (list of objects, broker info dict)
@@ -720,8 +718,7 @@ class ContainerSharder(ContainerReplicator):
                 CONTAINER_LISTING_LIMIT,
                 marker=src_shard_range.lower_str,
                 end_marker=src_shard_range.end_marker,
-                storage_policy_index=policy_index,
-                include_deleted=True, since_row=since_row)
+                since_row=since_row)
             yield objects, info
 
             if len(objects) < CONTAINER_LISTING_LIMIT:
@@ -729,7 +726,7 @@ class ContainerSharder(ContainerReplicator):
             src_shard_range.lower = objects[-1]['name']
 
     def yield_objects_to_shard_range(self, broker, src_shard_range,
-                                     policy_index, dest_shard_ranges):
+                                     dest_shard_ranges):
         """
         Iterates through all objects in ``src_shard_range`` to place them in
         destination shard ranges provided by the ``next_shard_range`` function.
@@ -740,15 +737,13 @@ class ContainerSharder(ContainerReplicator):
         :param broker: A :class:`~swift.container.backend.ContainerBroker`.
         :param src_shard_range: A :class:`~swift.common.utils.ShardRange`
             describing the source range.
-        :param policy_index: The storage policy index.
         :param dest_shard_ranges: A function which should return a list of
             destination shard ranges in name order.
         :return: a generator of tuples of
             (object list, shard range, broker info dict)
         """
         dest_shard_range_iter = dest_shard_range = None
-        for objs, info in self.yield_objects(broker, src_shard_range,
-                                             policy_index):
+        for objs, info in self.yield_objects(broker, src_shard_range):
             if not objs:
                 return
 
@@ -801,8 +796,8 @@ class ContainerSharder(ContainerReplicator):
         # override superclass behaviour
         pass
 
-    def _replicate_and_delete(self, broker, policy_index, dest_shard_range,
-                              part, dest_broker, node_id, info):
+    def _replicate_and_delete(self, broker, dest_shard_range, part,
+                              dest_broker, node_id, info):
         success, responses = self._replicate_object(
             part, dest_broker.db_file, node_id)
         quorum = quorum_size(self.ring.replica_count)
@@ -826,7 +821,7 @@ class ContainerSharder(ContainerReplicator):
                 broker.remove_objects(
                     dest_shard_range.lower_str,
                     dest_shard_range.upper_str,
-                    policy_index, info['max_row'])
+                    max_row=info['max_row'])
                 success = True
         if not success:
             self.logger.warning(
@@ -842,8 +837,7 @@ class ContainerSharder(ContainerReplicator):
         placed = unplaced = 0
         success = True
         for objs, dest_shard_range, info in self.yield_objects_to_shard_range(
-                src_broker, src_shard_range, policy_index,
-                shard_range_fetcher):
+                src_broker, src_shard_range, shard_range_fetcher):
             if not dest_shard_range:
                 unplaced += len(objs)
                 success = False
@@ -882,7 +876,7 @@ class ContainerSharder(ContainerReplicator):
             self.logger.debug('moving misplaced objects found in range %s' %
                               dest_shard_range)
             success &= self._replicate_and_delete(
-                src_broker, policy_index, dest_shard_range, **dest_args)
+                src_broker, dest_shard_range, **dest_args)
 
         self._increment_stat('misplaced', 'placed', step=placed)
         self._increment_stat('misplaced', 'unplaced', step=unplaced)
@@ -975,7 +969,6 @@ class ContainerSharder(ContainerReplicator):
                       for lower, upper in src_bounds]
         self.logger.debug('misplaced object source bounds %s' % src_bounds)
         policy_index = broker.storage_policy_index
-        # TODO: what about records for objects in the wrong storage policy?
         success = True
         num_found = 0
         for src_shard_range in src_ranges:
@@ -1112,7 +1105,7 @@ class ContainerSharder(ContainerReplicator):
                 sync_from_row = max(cleaving_context.last_cleave_to_row,
                                     sync_point)
                 for objects, info in self.yield_objects(
-                        source_broker, shard_range, policy_index,
+                        source_broker, shard_range,
                         since_row=sync_from_row):
                     shard_broker.merge_items(objects)
                 # note: the max row stored as a sync point is sampled *before*
