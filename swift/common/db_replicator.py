@@ -945,10 +945,13 @@ class ReplicatorRpc(object):
         renamer(old_filename, db_file)
         return HTTPNoContent()
 
+    def _abort_rsync_then_merge(self, db_file, old_filename):
+        return not (self._db_file_exists(db_file) and
+                    os.path.exists(old_filename))
+
     def rsync_then_merge(self, drive, db_file, args):
         old_filename = os.path.join(self.root, drive, 'tmp', args[0])
-        if (not self._db_file_exists(db_file) or not
-                os.path.exists(old_filename)):
+        if self._abort_rsync_then_merge(db_file, old_filename):
             return HTTPNotFound()
         new_broker = self.broker_class(old_filename)
         existing_broker = self.broker_class(db_file)
@@ -968,6 +971,8 @@ class ReplicatorRpc(object):
             new_broker.merge_items(other_items)
         new_broker.newid(args[0])
         new_broker.update_metadata(existing_broker.metadata)
+        if self._abort_rsync_then_merge(db_file, old_filename):
+            return HTTPNotFound()
         renamer(old_filename, db_file)
         return HTTPNoContent()
 

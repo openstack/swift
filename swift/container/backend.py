@@ -376,6 +376,9 @@ class ContainerBroker(DatabaseBroker):
         return (db_state == SHARDING or
                 (db_state == UNSHARDED and bool(self.get_shard_ranges())))
 
+    def is_sharded(self):
+        return self.get_db_state() == SHARDED
+
     def reload_db_files(self):
         """
         Reloads the cached list of valid on disk db files for this broker.
