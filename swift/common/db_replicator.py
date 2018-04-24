@@ -33,7 +33,7 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, Timestamp, parse_overrides, round_robin_iter, get_db_files, \
+    json, parse_overrides, round_robin_iter, get_db_files, \
     parse_db_filename
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
@@ -508,9 +508,9 @@ class Replicator(Daemon):
         """
         pass
 
-    def cleanup_post_replicate(self, broker, shouldbehere, responses):
+    def cleanup_post_replicate(self, broker, orig_info, responses):
         """
-        Cleanup any database state if needed.
+        Cleanup non primary database from disk if needed.
 
         :param broker: the broker for the database we're replicating
         :param shouldbehere: boolean, True when the database path is in the
@@ -520,18 +520,23 @@ class Replicator(Daemon):
 
         :return success: boolean, False indicates cleanup was not successful
         """
-        if not shouldbehere:
-            if responses and all(responses):
-                # If the db shouldn't be on this node and has been successfully
-                # synced to all of its peers, it can be removed.
-                if not self.delete_db(broker):
-                    self.logger.debug(
-                        'Failed to delete handoff db %s', broker.db_file)
-                    return False
-                else:
-                    self.logger.debug('Deleted handoff db %s', broker.db_file)
-            else:
-                self.logger.debug('Not deleting handoff db %s', broker.db_file)
+        debug_template = 'Not deleting db %s (%%s)' % broker.db_file
+        max_row_delta = broker.get_max_row() - orig_info['max_row']
+        if max_row_delta:
+            reason = '%s new rows' % max_row_delta
+            self.logger.debug(debug_template, reason)
+            return True
+        if not (responses and all(responses)):
+            reason = '%s/%s success' % (responses.count(True), len(responses))
+            self.logger.debug(debug_template, reason)
+            return True
+        # If the db should not be on this node and has been successfully synced
+        # to all of its peers, it can be removed.
+        if not self.delete_db(broker):
+            self.logger.debug(
+                'Failed to delete db %s', broker.db_file)
+            return False
+        self.logger.debug('Successfully deleted db %s', broker.db_file)
         return True
 
     def _replicate_object(self, partition, object_file, node_id):
@@ -557,9 +562,6 @@ class Replicator(Daemon):
         responses = []
         try:
             broker = self.brokerclass(object_file, pending_timeout=30)
-            if self._is_locked(broker):
-                # TODO should do something about stats here.
-                return
             broker.reclaim(now - self.reclaim_age,
                            now - (self.reclaim_age * 2))
             info = broker.get_replication_info()
@@ -588,12 +590,7 @@ class Replicator(Daemon):
                                      for failure_dev in nodes])
             self.logger.increment('failures')
             return False, responses
-        # The db is considered deleted if the delete_timestamp value is greater
-        # than the put_timestamp, and there are no objects.
-        delete_timestamp = Timestamp(info.get('delete_timestamp') or 0)
-        put_timestamp = Timestamp(info.get('put_timestamp') or 0)
-        if (now - self.reclaim_age) > delete_timestamp > put_timestamp and \
-                info['count'] in (None, '', 0, '0'):
+        if broker.is_reclaimable(now, self.reclaim_age):
             if self.report_up_to_date(info):
                 self.delete_db(broker)
             self.logger.timing_since('timing', start_time)
@@ -655,10 +652,12 @@ class Replicator(Daemon):
         except (Exception, Timeout):
             self.logger.exception('UNHANDLED EXCEPTION: in post replicate '
                                   'hook for %s', broker.db_file)
-        if not self.cleanup_post_replicate(broker, shouldbehere, responses):
-            failure_devs_info.update(
-                [(failure_dev['replication_ip'], failure_dev['device'])
-                 for failure_dev in repl_nodes])
+        if not shouldbehere:
+            success = self.cleanup_post_replicate(broker, info, responses)
+            if not success:
+                failure_devs_info.update(
+                    [(failure_dev['replication_ip'], failure_dev['device'])
+                     for failure_dev in repl_nodes])
         target_devs_info = set([(target_dev['replication_ip'],
                                  target_dev['device'])
                                 for target_dev in repl_nodes])

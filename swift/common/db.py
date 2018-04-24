@@ -71,6 +71,18 @@ def native_str_keys(metadata):
             metadata[k.decode('utf-8')] = sv
 
 
+ZERO_LIKE_VALUES = set((None, '', 0, '0'))
+
+
+def zero_like(count):
+    """
+    We've cargo culted our consumers to be tolerant of various expressions of
+    zero in our databases for backwards compatibility with less disciplined
+    producers.
+    """
+    return count in ZERO_LIKE_VALUES
+
+
 def _db_timeout(timeout, db_file, call):
     with LockTimeout(timeout, db_file):
         retry_wait = 0.001
@@ -511,6 +523,19 @@ class DatabaseBroker(object):
         self._commit_puts_stale_ok()
         with self.get() as conn:
             return self._is_deleted(conn)
+
+    def empty(self):
+        """
+        Check if the broker abstraction contains any undeleted records.
+        """
+        raise NotImplementedError()
+
+    def is_reclaimable(self, now, reclaim_age):
+        """
+        Check if the broker abstraction is empty, and has been is_deleted for
+        at least a reclaim age.
+        """
+        raise NotImplementedError()
 
     def merge_timestamps(self, created_at, put_timestamp, delete_timestamp):
         """
