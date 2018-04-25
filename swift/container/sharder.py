@@ -1100,7 +1100,6 @@ class ContainerSharder(ContainerReplicator):
                 cleaving_context.cleaving_done)
 
     def _complete_sharding(self, broker):
-        # TODO: wrap this in a lock
         cleaving_context = CleavingContext.load(broker)
         if cleaving_context.done():
             # Move all CLEAVED shards to ACTIVE state and if a shard then
