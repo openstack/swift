@@ -35,7 +35,7 @@ from swift.common import internal_client
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED
 from swift.container.sharder import ContainerSharder, sharding_enabled, \
-    CleavingContext
+    CleavingContext, DEFAULT_SHARD_SHRINK_POINT, DEFAULT_SHARD_CONTAINER_SIZE
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything
 from test import annotate_failure
@@ -88,9 +88,10 @@ class BaseTestSharder(unittest.TestCase):
         self.assertNotEqual(old_db_id, broker.get_info()['id'])  # sanity check
         return broker
 
-    def _make_shard_ranges(self, bounds, state=None):
+    def _make_shard_ranges(self, bounds, state=None, object_count=0):
         return [ShardRange('.shards_a/c_%s' % upper, Timestamp.now(),
-                           lower, upper, state=state)
+                           lower, upper, state=state,
+                           object_count=object_count)
                 for lower, upper in bounds]
 
     def ts_encoded(self):
@@ -310,13 +311,16 @@ class TestSharder(BaseTestSharder):
                 with mock.patch(
                         'swift.container.sharder.time.sleep') as mock_sleep:
                     with mock.patch(
-                            'swift.container.sharder.dump_recon_cache',
-                            mock_dump_recon_cache):
-                        fake_time.return_value = next(fake_periods_iter)
-                        sharder._is_sharding_candidate = lambda x: True
-                        sharder._process_broker = fake_process_broker
-                        with self.assertRaises(Exception) as cm:
-                            sharder.run_forever()
+                            'swift.container.sharder.is_sharding_candidate',
+                            return_value=True):
+                        with mock.patch(
+                                'swift.container.sharder.dump_recon_cache',
+                                mock_dump_recon_cache):
+                            fake_time.return_value = next(fake_periods_iter)
+                            sharder._is_sharding_candidate = lambda x: True
+                            sharder._process_broker = fake_process_broker
+                            with self.assertRaises(Exception) as cm:
+                                sharder.run_forever()
 
             self.assertEqual('Test over', cm.exception.message)
             # four cycles are started, two brokers visited per cycle, but
@@ -3565,6 +3569,194 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges([own_shard_range])
         assert_ok()
         self.assertTrue(broker.is_deleted())
+
+    def test_find_and_enable_sharding_candidates(self):
+        broker = self._make_broker()
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDING)
+        own_sr.epoch = next(self.ts_iter)
+        shard_bounds = (('', 'here'), ('here', 'there'), ('there', ''))
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CLEAVED)
+        shard_ranges[0].state = ShardRange.ACTIVE
+        broker.merge_shard_ranges(shard_ranges + [own_sr])
+        self.assertTrue(broker.set_sharding_state())
+        self.assertTrue(broker.set_sharded_state())
+        with self._mock_sharder() as sharder:
+            sharder._find_and_enable_sharding_candidates(broker)
+
+        # one range just below threshold
+        shard_ranges[0].update_meta(sharder.shard_container_size - 1, 0)
+        broker.merge_shard_ranges(shard_ranges[0])
+        with self._mock_sharder() as sharder:
+            sharder._find_and_enable_sharding_candidates(broker)
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+
+        # two ranges above threshold, only one ACTIVE
+        shard_ranges[0].update_meta(sharder.shard_container_size, 0)
+        shard_ranges[2].update_meta(sharder.shard_container_size + 1, 0)
+        broker.merge_shard_ranges([shard_ranges[0], shard_ranges[2]])
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                sharder._find_and_enable_sharding_candidates(broker)
+        expected = shard_ranges[0].copy(state=ShardRange.SHARDING,
+                                        state_timestamp=now, epoch=now)
+        self._assert_shard_ranges_equal([expected] + shard_ranges[1:],
+                                        broker.get_shard_ranges())
+
+        # check idempotency
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                sharder._find_and_enable_sharding_candidates(broker)
+        self._assert_shard_ranges_equal([expected] + shard_ranges[1:],
+                                        broker.get_shard_ranges())
+
+        # two ranges above threshold, both ACTIVE
+        shard_ranges[2].update_state(ShardRange.ACTIVE)
+        broker.merge_shard_ranges(shard_ranges[2])
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                sharder._find_and_enable_sharding_candidates(broker)
+        expected_2 = shard_ranges[2].copy(state=ShardRange.SHARDING,
+                                          state_timestamp=now, epoch=now)
+        self._assert_shard_ranges_equal(
+            [expected, shard_ranges[1], expected_2], broker.get_shard_ranges())
+
+        # check idempotency
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                sharder._find_and_enable_sharding_candidates(broker)
+        self._assert_shard_ranges_equal(
+            [expected, shard_ranges[1], expected_2], broker.get_shard_ranges())
+
+    def test_find_and_enable_sharding_candidates_bootstrap(self):
+        broker = self._make_broker()
+        with self._mock_sharder(conf={'shard_container_size': 1}) as sharder:
+            sharder._find_and_enable_sharding_candidates(broker)
+        self.assertEqual(ShardRange.ACTIVE, broker.get_own_shard_range().state)
+        broker.put_object('obj', next(self.ts_iter).internal, 1, '', '')
+        self.assertEqual(1, broker.get_info()['object_count'])
+        with self._mock_sharder(conf={'shard_container_size': 1}) as sharder:
+            with mock_timestamp_now() as now:
+                sharder._find_and_enable_sharding_candidates(
+                    broker, [broker.get_own_shard_range()])
+        own_sr = broker.get_own_shard_range()
+        self.assertEqual(ShardRange.SHARDING, own_sr.state)
+        self.assertEqual(now, own_sr.state_timestamp)
+        self.assertEqual(now, own_sr.epoch)
+
+        # check idempotency
+        with self._mock_sharder(conf={'shard_container_size': 1}) as sharder:
+            with mock_timestamp_now():
+                sharder._find_and_enable_sharding_candidates(
+                    broker, [broker.get_own_shard_range()])
+        own_sr = broker.get_own_shard_range()
+        self.assertEqual(ShardRange.SHARDING, own_sr.state)
+        self.assertEqual(now, own_sr.state_timestamp)
+        self.assertEqual(now, own_sr.epoch)
+
+    def test_find_and_enable_shrinking_candidates(self):
+        broker = self._make_broker()
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_state(ShardRange.SHARDING)
+        own_sr.epoch = next(self.ts_iter)
+        shard_bounds = (('', 'here'), ('here', 'there'), ('there', ''))
+        size = DEFAULT_SHARD_SHRINK_POINT * DEFAULT_SHARD_CONTAINER_SIZE / 100
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.ACTIVE, object_count=size)
+        broker.merge_shard_ranges(shard_ranges + [own_sr])
+        self.assertTrue(broker.set_sharding_state())
+        self.assertTrue(broker.set_sharded_state())
+        with self._mock_sharder() as sharder:
+            sharder._find_and_enable_shrinking_candidates(broker)
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+
+        # one range just below threshold
+        shard_ranges[0].update_meta(size - 1, 0)
+        broker.merge_shard_ranges(shard_ranges[0])
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                sharder._send_shard_ranges = mock.MagicMock()
+                sharder._find_and_enable_shrinking_candidates(broker)
+        acceptor = shard_ranges[1].copy(lower=shard_ranges[0].lower)
+        acceptor.timestamp = now
+        donor = shard_ranges[0].copy(state=ShardRange.SHRINKING,
+                                     state_timestamp=now, epoch=now)
+        self._assert_shard_ranges_equal([donor, acceptor, shard_ranges[2]],
+                                        broker.get_shard_ranges())
+        sharder._send_shard_ranges.assert_has_calls(
+            [mock.call(acceptor.account, acceptor.container, [acceptor]),
+             mock.call(donor.account, donor.container, [donor, acceptor])]
+        )
+
+        # check idempotency
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                sharder._send_shard_ranges = mock.MagicMock()
+                sharder._find_and_enable_shrinking_candidates(broker)
+        self._assert_shard_ranges_equal([donor, acceptor, shard_ranges[2]],
+                                        broker.get_shard_ranges())
+        sharder._send_shard_ranges.assert_has_calls(
+            [mock.call(acceptor.account, acceptor.container, [acceptor]),
+             mock.call(donor.account, donor.container, [donor, acceptor])]
+        )
+
+        # acceptor falls below threshold - not a candidate
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                acceptor.update_meta(0, 0, meta_timestamp=now)
+                broker.merge_shard_ranges(acceptor)
+                sharder._send_shard_ranges = mock.MagicMock()
+                sharder._find_and_enable_shrinking_candidates(broker)
+        self._assert_shard_ranges_equal([donor, acceptor, shard_ranges[2]],
+                                        broker.get_shard_ranges())
+        sharder._send_shard_ranges.assert_has_calls(
+            [mock.call(acceptor.account, acceptor.container, [acceptor]),
+             mock.call(donor.account, donor.container, [donor, acceptor])]
+        )
+
+        # ...until donor has shrunk
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                donor.update_state(ShardRange.SHARDED, state_timestamp=now)
+                donor.set_deleted(timestamp=now)
+                broker.merge_shard_ranges(donor)
+                sharder._send_shard_ranges = mock.MagicMock()
+                sharder._find_and_enable_shrinking_candidates(broker)
+        new_acceptor = shard_ranges[2].copy(lower=acceptor.lower)
+        new_acceptor.timestamp = now
+        new_donor = acceptor.copy(state=ShardRange.SHRINKING,
+                                  state_timestamp=now, epoch=now)
+        self._assert_shard_ranges_equal(
+            [donor, new_donor, new_acceptor],
+            broker.get_shard_ranges(include_deleted=True))
+        sharder._send_shard_ranges.assert_has_calls(
+            [mock.call(new_acceptor.account, new_acceptor.container,
+                       [new_acceptor]),
+             mock.call(new_donor.account, new_donor.container,
+                       [new_donor, new_acceptor])]
+        )
+
+        # ..finally last shard shrinks to root
+        with self._mock_sharder() as sharder:
+            with mock_timestamp_now() as now:
+                new_donor.update_state(ShardRange.SHARDED, state_timestamp=now)
+                new_donor.set_deleted(timestamp=now)
+                new_acceptor.update_meta(0, 0, meta_timestamp=now)
+                broker.merge_shard_ranges([new_donor, new_acceptor])
+                sharder._send_shard_ranges = mock.MagicMock()
+                sharder._find_and_enable_shrinking_candidates(broker)
+        final_donor = new_acceptor.copy(state=ShardRange.SHRINKING,
+                                        state_timestamp=now, epoch=now)
+        self._assert_shard_ranges_equal(
+            [donor, new_donor, final_donor],
+            broker.get_shard_ranges(include_deleted=True))
+        sharder._send_shard_ranges.assert_has_calls(
+            [mock.call(final_donor.account, final_donor.container,
+                       [final_donor, broker.get_own_shard_range()])]
+        )
 
 
 class TestCleavingContext(BaseTestSharder):

@@ -109,6 +109,89 @@ def find_overlapping_ranges(shard_ranges):
     return result
 
 
+def is_sharding_candidate(shard_range, threshold):
+    return (shard_range.state == ShardRange.ACTIVE and
+            shard_range.object_count >= threshold)
+
+
+def find_sharding_candidates(broker, threshold, shard_ranges=None):
+    # this should only execute on root containers; the goal is to find
+    # large shard containers that should be sharded.
+    # First cut is simple: assume root container shard usage stats are good
+    # enough to make decision.
+    # TODO: object counts may well not be the appropriate metric for
+    # deciding to shrink because a shard with low object_count may have a
+    # large number of deleted object rows that will need to be merged with
+    # a neighbour. We may need to expose row count as well as object count.
+    if shard_ranges is None:
+        shard_ranges = broker.get_shard_ranges(states=[ShardRange.ACTIVE])
+    candidates = []
+    for shard_range in shard_ranges:
+        if not is_sharding_candidate(shard_range, threshold):
+            continue
+        shard_range.update_state(ShardRange.SHARDING,
+                                 state_timestamp=Timestamp.now())
+        shard_range.epoch = shard_range.state_timestamp
+        candidates.append(shard_range)
+    return candidates
+
+
+def find_shrinking_candidates(broker, shrink_threshold, merge_size):
+    # this should only execute on root containers that have sharded; the
+    # goal is to find small shard containers that could be retired by
+    # merging with a neighbour.
+    # First cut is simple: assume root container shard usage stats are good
+    # enough to make decision; only merge with upper neighbour so that
+    # upper bounds never change (shard names include upper bound).
+    # TODO: object counts may well not be the appropriate metric for
+    # deciding to shrink because a shard with low object_count may have a
+    # large number of deleted object rows that will need to be merged with
+    # a neighbour. We may need to expose row count as well as object count.
+    shard_ranges = broker.get_shard_ranges()
+    own_shard_range = broker.get_own_shard_range()
+    if len(shard_ranges) == 1:
+        # special case to enable final shard to shrink into root
+        shard_ranges.append(own_shard_range)
+
+    merge_pairs = {}
+    for donor, acceptor in zip(shard_ranges, shard_ranges[1:]):
+        if donor in merge_pairs:
+            # this range may already have been made an acceptor; if so then
+            # move on. In principle it might be that even after expansion
+            # this range and its donor(s) could all be merged with the next
+            # range. In practice it is much easier to reason about a single
+            # donor merging into a single acceptor. Don't fret - eventually
+            # all the small ranges will be retired.
+            continue
+        if (acceptor.name != own_shard_range.name and
+                acceptor.state != ShardRange.ACTIVE):
+            # don't shrink into a range that is not yet ACTIVE
+            continue
+        if donor.state not in (ShardRange.ACTIVE, ShardRange.SHRINKING):
+            # found? created? sharded? don't touch it
+            continue
+
+        proposed_object_count = donor.object_count + acceptor.object_count
+        if (donor.state == ShardRange.SHRINKING or
+                (donor.object_count < shrink_threshold and
+                 proposed_object_count < merge_size)):
+            # include previously identified merge pairs on presumption that
+            # following shrink procedure is idempotent
+            merge_pairs[acceptor] = donor
+            if donor.update_state(ShardRange.SHRINKING):
+                # Set donor state to shrinking so that next cycle won't use
+                # it as an acceptor; state_timestamp defines new epoch for
+                # donor and new timestamp for the expanded acceptor below.
+                donor.epoch = donor.state_timestamp = Timestamp.now()
+            if acceptor.lower != donor.lower:
+                # Update the acceptor container with its expanding state to
+                # prevent it treating objects cleaved from the donor
+                # as misplaced.
+                acceptor.lower = donor.lower
+                acceptor.timestamp = donor.state_timestamp
+    return merge_pairs
+
+
 class CleavingContext(object):
     def __init__(self, ref, cursor='', max_row=None, cleave_to_row=None,
                  last_cleave_to_row=None, cleaving_done=False,
@@ -177,6 +260,11 @@ class CleavingContext(object):
                     self.max_row == self.cleave_to_row))
 
 
+DEFAULT_SHARD_CONTAINER_SIZE = 10000000
+DEFAULT_SHARD_SHRINK_POINT = 25
+DEFAULT_SHARD_MERGE_POINT = 75
+
+
 class ContainerSharder(ContainerReplicator):
     """Shards containers."""
 
@@ -186,18 +274,19 @@ class ContainerSharder(ContainerReplicator):
         self.shards_account_prefix = (
             (conf.get('auto_create_account_prefix') or '.') + 'shards_')
 
-        try:
-            self.shard_shrink_point = config_float_value(
-                conf.get('shard_shrink_point', 25), 0, 100) / 100.0
-        except ValueError as err:
-            raise ValueError(err.message + ": shard_shrink_point")
-        try:
-            self.shrink_merge_point = config_float_value(
-                conf.get('shard_shrink_merge_point', 75), 0, 100) / 100.0
-        except ValueError as err:
-            raise ValueError(err.message + ": shard_shrink_merge_point")
+        def percent_value(key, default):
+            try:
+                value = conf.get(key, default)
+                return config_float_value(value, 0, 100) / 100.0
+            except ValueError as err:
+                raise ValueError("%s: %s" % (str(err), key))
+
+        self.shard_shrink_point = percent_value('shard_shrink_point',
+                                                DEFAULT_SHARD_SHRINK_POINT)
+        self.shrink_merge_point = percent_value('shard_shrink_merge_point',
+                                                DEFAULT_SHARD_MERGE_POINT)
         self.shard_container_size = config_positive_int_value(
-            conf.get('shard_container_size', 10000000))
+            conf.get('shard_container_size', DEFAULT_SHARD_CONTAINER_SIZE))
         self.shrink_size = self.shard_container_size * self.shard_shrink_point
         self.merge_size = self.shard_container_size * self.shrink_merge_point
         self.split_size = self.shard_container_size // 2
@@ -282,7 +371,7 @@ class ContainerSharder(ContainerReplicator):
 
     def _identify_sharding_candidate(self, broker, node):
         own_shard_range = broker.get_own_shard_range()
-        if self._is_sharding_candidate(own_shard_range):
+        if is_sharding_candidate(own_shard_range, self.shard_container_size):
             self.sharding_candidates.append(
                 self._make_stats_info(broker, node, own_shard_range))
 
@@ -1135,108 +1224,29 @@ class ContainerSharder(ContainerReplicator):
 
         return False
 
-    def _is_sharding_candidate(self, shard_range):
-        return (shard_range.state == ShardRange.ACTIVE and
-                shard_range.object_count >= self.shard_container_size)
+    def _find_and_enable_sharding_candidates(self, broker, shard_ranges=None):
+        candidates = find_sharding_candidates(
+            broker, self.shard_container_size, shard_ranges)
+        if candidates:
+            self.logger.debug('Identified %s sharding candidates'
+                              % len(candidates))
+            broker.merge_shard_ranges(candidates)
 
-    def _find_sharding_candidates(self, broker, shard_ranges=None):
-        # this should only execute on root containers; the goal is to find
-        # large shard containers that should be sharded.
-        # First cut is simple: assume root container shard usage stats are good
-        # enough to make decision.
-        # TODO: object counts may well not be the appropriate metric for
-        # deciding to shrink because a shard with low object_count may have a
-        # large number of deleted object rows that will need to be merged with
-        # a neighbour. We may need to expose row count as well as object count.
-        if shard_ranges is None:
-            shard_ranges = broker.get_shard_ranges(states=[ShardRange.ACTIVE])
-        candidates = []
-        for shard_range in shard_ranges:
-            if not self._is_sharding_candidate(shard_range):
-                continue
-            shard_range.update_state(ShardRange.SHARDING,
-                                     state_timestamp=Timestamp.now())
-            shard_range.epoch = shard_range.state_timestamp
-            candidates.append(shard_range)
-        broker.merge_shard_ranges(candidates)
-        return len(candidates)
-
-    def _find_shrinks(self, broker):
-        # this should only execute on root containers that have sharded; the
-        # goal is to find small shard containers that could be retired by
-        # merging with a neighbour.
-        # First cut is simple: assume root container shard usage stats are good
-        # enough to make decision; only merge with upper neighbour so that
-        # upper bounds never change (shard names include upper bound).
-        # TODO: object counts may well not be the appropriate metric for
-        # deciding to shrink because a shard with low object_count may have a
-        # large number of deleted object rows that will need to be merged with
-        # a neighbour. We may need to expose row count as well as object count.
+    def _find_and_enable_shrinking_candidates(self, broker):
         if not broker.is_sharded():
-            self.logger.warning(
-                'Cannot shrink a not yet sharded container %s/%s',
-                broker.account, broker.container)
+            self.logger.warning('Cannot shrink a not yet sharded container %s',
+                                broker.path)
+            return
 
-        shard_ranges = broker.get_shard_ranges()
+        merge_pairs = find_shrinking_candidates(
+            broker, self.shrink_size, self.merge_size)
+        self.logger.debug('Found %s shrinking candidates' % len(merge_pairs))
         own_shard_range = broker.get_own_shard_range()
-        if len(shard_ranges) == 1:
-            # special case to enable final shard to shrink into root
-            shard_ranges.append(own_shard_range)
-
-        merge_pairs = {}
-        for donor, acceptor in zip(shard_ranges, shard_ranges[1:]):
-            self.logger.debug('considering shrink donor    %r %s' %
-                              (donor, donor.name))
-            self.logger.debug('considering shrink acceptor %r %s' %
-                              (acceptor, acceptor.name))
-            if donor in merge_pairs:
-                # this range may already have been made an acceptor; if so then
-                # move on. In principle it might be that even after expansion
-                # this range and its donor(s) could all be merged with the next
-                # range. In practice it is much easier to reason about a single
-                # donor merging into a single acceptor. Don't fret - eventually
-                # all the small ranges will be retired.
-                continue
-            if (acceptor is not own_shard_range and
-                    acceptor.state != ShardRange.ACTIVE):
-                # don't shrink into a range that is not yet ACTIVE
-                continue
-            if donor.state not in (ShardRange.ACTIVE, ShardRange.SHRINKING):
-                # found? created? sharded? don't touch it
-                continue
-
-            proposed_object_count = donor.object_count + acceptor.object_count
-            if (donor.state == ShardRange.SHRINKING or
-                    (donor.object_count < self.shrink_size and
-                     proposed_object_count < self.merge_size)):
-                # include previously identified merge pairs on presumption that
-                # following shrink procedure is idempotent
-                merge_pairs[acceptor] = donor
-                self.logger.debug('selecting shrink pair %r %r' %
-                                  (donor, acceptor))
-
-        # TODO: think long and hard about the correct order for these remaining
-        # operations and what happens when one fails...
         for acceptor, donor in merge_pairs.items():
-            # TODO: unit test to verify idempotent nature of this procedure
             self.logger.debug('shrinking shard range %s into %s in %s' %
                               (donor, acceptor, broker.db_file))
-            modified_shard_ranges = []
-            if donor.update_state(ShardRange.SHRINKING):
-                # Set donor state to shrinking so that next cycle won't use it
-                # as an acceptor; state_timestamp defines new epoch for donor
-                # and new timestamp for the expanded acceptor below.
-                donor.epoch = donor.state_timestamp = Timestamp.now()
-                modified_shard_ranges.append(donor)
-            if acceptor.lower != donor.lower:
-                # Update the acceptor container with its expanding state to
-                # prevent it treating objects cleaved from the donor
-                # as misplaced.
-                acceptor.lower = donor.lower
-                acceptor.timestamp = donor.state_timestamp
-                modified_shard_ranges.append(acceptor)
-            broker.merge_shard_ranges(modified_shard_ranges)
-            if acceptor is not own_shard_range:
+            broker.merge_shard_ranges([acceptor, donor])
+            if acceptor.name != own_shard_range.name:
                 self._send_shard_ranges(
                     acceptor.account, acceptor.container, [acceptor])
                 acceptor.increment_meta(donor.object_count, donor.bytes_used)
@@ -1292,7 +1302,7 @@ class ContainerSharder(ContainerReplicator):
         if state in (UNSHARDED, COLLAPSED):
             if is_leader and broker.is_root_container():
                 # bootstrap sharding of root container
-                self._find_sharding_candidates(
+                self._find_and_enable_sharding_candidates(
                     broker, shard_ranges=[broker.get_own_shard_range()])
 
             own_shard_range = broker.get_own_shard_range()
@@ -1340,9 +1350,8 @@ class ContainerSharder(ContainerReplicator):
 
         if state == SHARDED and broker.is_root_container():
             if is_leader:
-                self._find_shrinks(broker)
-                self._find_sharding_candidates(broker)
-
+                self._find_and_enable_shrinking_candidates(broker)
+                self._find_and_enable_sharding_candidates(broker)
             for shard_range in broker.get_shard_ranges(
                     states=[ShardRange.SHARDING]):
                 self._send_shard_ranges(
