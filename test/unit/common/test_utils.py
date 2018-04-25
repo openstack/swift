@@ -1533,6 +1533,25 @@ class TestUtils(unittest.TestCase):
         finally:
             rmtree(testdir_base)
 
+    def test_load_recon_cache(self):
+        stub_data = {'test': 'foo'}
+        with NamedTemporaryFile() as f:
+            f.write(json.dumps(stub_data).encode("utf-8"))
+            f.flush()
+            self.assertEqual(stub_data, utils.load_recon_cache(f.name))
+
+        # missing files are treated as empty
+        self.assertFalse(os.path.exists(f.name))  # sanity
+        self.assertEqual({}, utils.load_recon_cache(f.name))
+
+        # Corrupt files are treated as empty. We could crash and make an
+        # operator fix the corrupt file, but they'll "fix" it with "rm -f
+        # /var/cache/swift/*.recon", so let's just do it for them.
+        with NamedTemporaryFile() as f:
+            f.write(b"{not [valid (json")
+            f.flush()
+            self.assertEqual({}, utils.load_recon_cache(f.name))
+
     def test_get_logger(self):
         sio = StringIO()
         logger = logging.getLogger('server')
@@ -3557,21 +3576,51 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.get_hmac('GET', '/path', 1, 'abc'),
             'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
 
-    def test_parse_overrides(self):
-        devices, partitions = utils.parse_overrides(devices='sdb1,sdb2')
-        self.assertIn('sdb1', devices)
-        self.assertIn('sdb2', devices)
-        self.assertNotIn('sdb3', devices)
-        self.assertIn(1, partitions)
-        self.assertIn('1', partitions)  # matches because of Everything
-        self.assertIn(None, partitions)  # matches because of Everything
-        devices, partitions = utils.parse_overrides(partitions='1,2,3')
-        self.assertIn('sdb1', devices)
-        self.assertIn('1', devices)  # matches because of Everything
-        self.assertIn(None, devices)  # matches because of Everything
-        self.assertIn(1, partitions)
-        self.assertNotIn('1', partitions)
-        self.assertNotIn(None, partitions)
+    def test_parse_override_options(self):
+        # When override_<thing> is passed in, it takes precedence.
+        opts = utils.parse_override_options(
+            override_policies=[0, 1],
+            override_devices=['sda', 'sdb'],
+            override_partitions=[100, 200],
+            policies='0,1,2,3',
+            devices='sda,sdb,sdc,sdd',
+            partitions='100,200,300,400')
+        self.assertEqual(opts.policies, [0, 1])
+        self.assertEqual(opts.devices, ['sda', 'sdb'])
+        self.assertEqual(opts.partitions, [100, 200])
+
+        # When override_<thing> is passed in, it applies even in run-once
+        # mode.
+        opts = utils.parse_override_options(
+            once=True,
+            override_policies=[0, 1],
+            override_devices=['sda', 'sdb'],
+            override_partitions=[100, 200],
+            policies='0,1,2,3',
+            devices='sda,sdb,sdc,sdd',
+            partitions='100,200,300,400')
+        self.assertEqual(opts.policies, [0, 1])
+        self.assertEqual(opts.devices, ['sda', 'sdb'])
+        self.assertEqual(opts.partitions, [100, 200])
+
+        # In run-once mode, we honor the passed-in overrides.
+        opts = utils.parse_override_options(
+            once=True,
+            policies='0,1,2,3',
+            devices='sda,sdb,sdc,sdd',
+            partitions='100,200,300,400')
+        self.assertEqual(opts.policies, [0, 1, 2, 3])
+        self.assertEqual(opts.devices, ['sda', 'sdb', 'sdc', 'sdd'])
+        self.assertEqual(opts.partitions, [100, 200, 300, 400])
+
+        # In run-forever mode, we ignore the passed-in overrides.
+        opts = utils.parse_override_options(
+            policies='0,1,2,3',
+            devices='sda,sdb,sdc,sdd',
+            partitions='100,200,300,400')
+        self.assertEqual(opts.policies, [])
+        self.assertEqual(opts.devices, [])
+        self.assertEqual(opts.partitions, [])
 
     def test_get_policy_index(self):
         # Account has no information about a policy
