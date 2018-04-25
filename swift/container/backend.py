@@ -20,7 +20,6 @@ import errno
 
 import os
 from uuid import uuid4
-from contextlib import contextmanager
 
 import six
 import six.moves.cPickle as pickle
@@ -1800,20 +1799,6 @@ class ContainerBroker(DatabaseBroker):
                                              include_own=True)
         return [dict(sr, record_type=RECORD_TYPE_SHARD_NODE)
                 for sr in shard_ranges]
-
-    @contextmanager
-    def sharding_lock(self):
-        lockpath = '%s/.sharding' % self.db_dir
-        try:
-            fd = os.open(lockpath, os.O_WRONLY | os.O_CREAT)
-            yield fd
-        finally:
-            os.close(fd)
-            os.unlink(lockpath)
-
-    def has_sharding_lock(self):
-        lockpath = '%s/.sharding' % self.db_dir
-        return os.path.exists(lockpath)
 
     def set_sharding_state(self, epoch=None):
         epoch = epoch or self.get_own_shard_range().epoch

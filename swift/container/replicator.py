@@ -339,9 +339,6 @@ class ContainerReplicator(db_replicator.Replicator):
         return super(ContainerReplicator, self)._in_sync(
             rinfo, info, broker, local_sync)
 
-    def _is_locked(self, broker):
-        return broker.has_sharding_lock()
-
 
 class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
 
