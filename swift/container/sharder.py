@@ -962,7 +962,7 @@ class ContainerSharder(ContainerReplicator):
         if num_found:
             self._increment_stat('misplaced', 'found', statsd=True)
         self._increment_stat('misplaced', 'success' if success else 'failure')
-        self.logger.info('Finished misplaced shard replication')
+        self.logger.debug('Finished misplaced shard replication')
         return success
 
     def _find_shard_ranges(self, broker):
@@ -1047,13 +1047,14 @@ class ContainerSharder(ContainerReplicator):
                 break
             created_ranges.append(shard_range)
 
-        broker.merge_shard_ranges(created_ranges)
-        if not broker.is_root_container():
-            self._send_shard_ranges(
-                broker.root_account, broker.root_container, created_ranges)
-        self.logger.info(
-            "Completed creating shard range containers: %d created.",
-            len(created_ranges))
+        if created_ranges:
+            broker.merge_shard_ranges(created_ranges)
+            if not broker.is_root_container():
+                self._send_shard_ranges(
+                    broker.root_account, broker.root_container, created_ranges)
+            self.logger.info(
+                "Completed creating shard range containers: %d created.",
+                len(created_ranges))
         return len(created_ranges)
 
     def _cleave_shard_range(self, broker, cleaving_context, shard_range):
@@ -1130,7 +1131,8 @@ class ContainerSharder(ContainerReplicator):
             cleaving_context.cleaving_done = True
         cleaving_context.store(broker)
         self.logger.info(
-            'Cleaved %s for shard range %s.', broker.path, shard_range)
+            'Cleaved %s for shard range %s in %gs.',
+            broker.path, shard_range, elapsed)
         self._increment_stat('cleaved', 'success', statsd=True)
         return True
 
@@ -1283,8 +1285,8 @@ class ContainerSharder(ContainerReplicator):
     def _process_broker(self, broker, node, part):
         broker.get_info()  # make sure account/container are populated
         state = broker.get_db_state()
-        self.logger.info('Starting processing %s state %s',
-                         broker.path, broker.get_db_state_text(state))
+        self.logger.debug('Starting processing %s state %s',
+                          broker.path, broker.get_db_state_text(state))
 
         if not self._audit_container(broker):
             return
@@ -1340,7 +1342,7 @@ class ContainerSharder(ContainerReplicator):
             cleave_complete = self._cleave(broker)
 
             if cleave_complete:
-                self.logger.debug('Completed cleaving of %s', broker.path)
+                self.logger.info('Completed cleaving of %s', broker.path)
                 if self._complete_sharding(broker):
                     state = SHARDED
                     self._increment_stat('visited', 'completed', statsd=True)
@@ -1367,9 +1369,9 @@ class ContainerSharder(ContainerReplicator):
             # simultaneously become deleted.
             self._update_root_container(broker)
 
-        self.logger.info('Finished processing %s/%s state %s',
-                         broker.account, broker.container,
-                         broker.get_db_state_text())
+        self.logger.debug('Finished processing %s/%s state %s',
+                          broker.account, broker.container,
+                          broker.get_db_state_text())
 
     def _one_shard_cycle(self, devices_to_shard, partitions_to_shard):
         """
