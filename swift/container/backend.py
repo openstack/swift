@@ -1559,6 +1559,18 @@ class ContainerBroker(DatabaseBroker):
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
 
+    def _reclaim(self, conn, age_timestamp, sync_timestamp):
+        super(ContainerBroker, self)._reclaim(conn, age_timestamp,
+                                              sync_timestamp)
+        try:
+            conn.execute('''
+                DELETE FROM shard_ranges WHERE deleted = 1 AND timestamp < ?
+                AND name!= ?
+            ''', (sync_timestamp, self.path))
+        except sqlite3.OperationalError as err:
+            if 'no such table: shard_ranges' not in str(err):
+                raise
+
     def _get_shard_range_rows(self, connection=None, include_deleted=False,
                               states=None, exclude_states=None,
                               include_own=False, exclude_others=False):
