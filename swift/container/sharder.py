@@ -309,7 +309,7 @@ class ContainerSharder(ContainerReplicator):
         internal_client_conf_path = conf.get('internal_client_conf_path',
                                              '/etc/swift/internal-client.conf')
         try:
-            self.swift = internal_client.InternalClient(
+            self.int_client = internal_client.InternalClient(
                 internal_client_conf_path,
                 'Swift Container Sharder',
                 request_tries,
@@ -458,7 +458,8 @@ class ContainerSharder(ContainerReplicator):
 
     def _fetch_shard_ranges(self, broker, newest=False, params=None,
                             include_deleted=False):
-        path = self.swift.make_path(broker.root_account, broker.root_container)
+        path = self.int_client.make_path(broker.root_account,
+                                         broker.root_container)
         params = params or {}
         params.setdefault('format', 'json')
         headers = {'X-Backend-Record-Type': 'shard',
@@ -467,30 +468,34 @@ class ContainerSharder(ContainerReplicator):
         if newest:
             headers['X-Newest'] = 'true'
         try:
-            resp = self.swift.make_request(
-                'GET', path, headers, acceptable_statuses=(2,), params=params)
-        except internal_client.UnexpectedResponse as err:
-            self.logger.warning("Failed to get shard ranges from %s: %s",
-                                broker.root_path, err)
-            return None
-        record_type = resp.headers.get('x-backend-record-type')
-        if record_type != 'shard':
-            err = 'unexpected record type %r' % record_type
-            self.logger.error("Failed to get shard ranges from %s: %s",
-                              broker.root_path, err)
-            return None
+            try:
+                resp = self.int_client.make_request(
+                    'GET', path, headers, acceptable_statuses=(2,),
+                    params=params)
+            except internal_client.UnexpectedResponse as err:
+                self.logger.warning("Failed to get shard ranges from %s: %s",
+                                    broker.root_path, err)
+                return None
+            record_type = resp.headers.get('x-backend-record-type')
+            if record_type != 'shard':
+                err = 'unexpected record type %r' % record_type
+                self.logger.error("Failed to get shard ranges from %s: %s",
+                                  broker.root_path, err)
+                return None
 
-        try:
-            data = json.loads(resp.body)
-            if not isinstance(data, list):
-                raise ValueError('not a list')
-            return [ShardRange.from_dict(shard_range)
-                    for shard_range in data]
-        except (ValueError, TypeError, KeyError) as err:
-            self.logger.error(
-                "Failed to get shard ranges from %s: invalid data: %r",
-                broker.root_path, err)
-        return None
+            try:
+                data = json.loads(resp.body)
+                if not isinstance(data, list):
+                    raise ValueError('not a list')
+                return [ShardRange.from_dict(shard_range)
+                        for shard_range in data]
+            except (ValueError, TypeError, KeyError) as err:
+                self.logger.error(
+                    "Failed to get shard ranges from %s: invalid data: %r",
+                    broker.root_path, err)
+            return None
+        finally:
+            self.logger.txn_id = None
 
     def _put_container(self, node, part, account, container, headers, body):
         try:
