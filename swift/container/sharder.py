@@ -1429,7 +1429,7 @@ class ContainerSharder(ContainerReplicator):
                     'Unhandled exception while processing %s: %s', path, error)
             try:
                 self._record_sharding_progress(broker, node, error)
-            except Exception as error:
+            except (Exception, Timeout) as error:
                 self.logger.exception(
                     'Unhandled exception while dumping progress for %s: %s',
                     path, error)
