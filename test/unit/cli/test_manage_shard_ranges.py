@@ -56,7 +56,7 @@ class TestCliFindShardRanges(unittest.TestCase):
         broker.container = 'c'
         broker.initialize()
         ts = utils.Timestamp.now()
-        broker.merge_objects([
+        broker.merge_items([
             {'name': 'obj%02d' % i, 'created_at': ts.internal, 'size': 0,
              'content_type': 'application/octet-stream', 'etag': 'not-really',
              'deleted': 0, 'storage_policy_index': 0,

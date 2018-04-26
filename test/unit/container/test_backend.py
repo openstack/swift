@@ -124,13 +124,13 @@ class TestContainerBroker(unittest.TestCase):
             obj = {'name': 'o', 'created_at': next(ts_iter).internal,
                    'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
                    'deleted': 0}
-            broker_with_object.merge_objects([dict(obj)])
+            broker_with_object.merge_items([dict(obj)])
             self.assertFalse(broker_to_test.is_deleted())
             info, deleted = broker_to_test.get_info_is_deleted()
             self.assertFalse(deleted)
             self.assertEqual(1, info['object_count'])
             obj.update({'created_at': next(ts_iter).internal, 'deleted': 1})
-            broker_with_object.merge_objects([dict(obj)])
+            broker_with_object.merge_items([dict(obj)])
             self.assertTrue(broker_to_test.is_deleted())
             info, deleted = broker_to_test.get_info_is_deleted()
             self.assertTrue(deleted)
@@ -140,13 +140,13 @@ class TestContainerBroker(unittest.TestCase):
             obj = {'name': 'o', 'created_at': next(ts_iter).internal,
                    'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
                    'deleted': 0}
-            broker.merge_objects([dict(obj)])
+            broker.merge_items([dict(obj)])
             self.assertTrue(broker.is_deleted())
             info, deleted = broker.get_info_is_deleted()
             self.assertTrue(deleted)
             self.assertEqual(0, info['object_count'])
             obj.update({'created_at': next(ts_iter).internal, 'deleted': 1})
-            broker.merge_objects([dict(obj)])
+            broker.merge_items([dict(obj)])
             self.assertTrue(broker.is_deleted())
             info, deleted = broker.get_info_is_deleted()
             self.assertTrue(deleted)
@@ -227,11 +227,11 @@ class TestContainerBroker(unittest.TestCase):
             obj = {'name': 'o', 'created_at': next(ts_iter).internal,
                    'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
                    'deleted': 0}
-            broker_with_object.merge_objects([dict(obj)])
+            broker_with_object.merge_items([dict(obj)])
             self.assertFalse(broker_to_test.empty())
             # and delete it
             obj.update({'created_at': next(ts_iter).internal, 'deleted': 1})
-            broker_with_object.merge_objects([dict(obj)])
+            broker_with_object.merge_items([dict(obj)])
             self.assertTrue(broker_to_test.empty())
 
         self.assertTrue(broker.empty())
@@ -900,24 +900,23 @@ class TestContainerBroker(unittest.TestCase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
-                  'meta_timestamp': None,
-                  'record_type': 'object'}
+                  'meta_timestamp': None}
         broker = ContainerBroker(':memory:', account='a', container='c')
 
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', None, None, 'object')
+                  '1', '2', None, None)
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['ctype_timestamp'] = '2233445566.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', None, 'object')
+                  '1', '2', '2233445566.00000', None)
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['meta_timestamp'] = '5566778899.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', '5566778899.00000', 'object')
+                  '1', '2', '2233445566.00000', '5566778899.00000')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
@@ -936,8 +935,7 @@ class TestContainerBroker(unittest.TestCase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
-                  'meta_timestamp': None,
-                  'record_type': 'object'}
+                  'meta_timestamp': None}
 
         # sanity check
         self.assertFalse(os.path.isfile(broker.pending_file))
@@ -982,8 +980,7 @@ class TestContainerBroker(unittest.TestCase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': '1234567890.44444',
-                  'meta_timestamp': '1234567890.99999',
-                  'record_type': 'object'}
+                  'meta_timestamp': '1234567890.99999'}
 
         # sanity check
         self.assertFalse(os.path.isfile(broker.pending_file))
@@ -3618,8 +3615,8 @@ class TestContainerBroker(unittest.TestCase):
                     'size': 1024 * i,
                     'deleted': 0,
                     } for i in range(1, 6)]
-        # merge_objects mutates items
-        broker.merge_objects([dict(obj) for obj in objects])
+        # merge_items mutates items
+        broker.merge_items([dict(obj) for obj in objects])
         original_info = broker.get_info()
 
         # Add some metadata
@@ -3980,9 +3977,9 @@ class TestContainerBroker(unittest.TestCase):
             db_path, account=a, container=c)
         broker.initialize(next(ts_iter).internal, 0)
         broker.update_sharding_info({'Root': '%s/%s' % (root_a, root_c)})
-        broker.merge_objects([{'name': 'obj', 'size': 14, 'etag': 'blah',
-                               'content_type': 'text/plain', 'deleted': 0,
-                               'created_at': Timestamp.now().internal}])
+        broker.merge_items([{'name': 'obj', 'size': 14, 'etag': 'blah',
+                             'content_type': 'text/plain', 'deleted': 0,
+                             'created_at': Timestamp.now().internal}])
         self.assertEqual(1, broker.get_info()['object_count'])
         self.assertEqual(14, broker.get_info()['bytes_used'])
 

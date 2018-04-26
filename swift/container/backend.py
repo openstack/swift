@@ -624,28 +624,26 @@ class ContainerBroker(DatabaseBroker):
 
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
-        data = list(pickle.loads(entry.decode('base64')))
-        record_type = data.pop(9) if len(data) > 9 else RECORD_TYPE_OBJECT
-        if record_type == RECORD_TYPE_SHARD_NODE:
-            item = dict(zip(SHARD_RANGE_KEYS, data))
-            item['record_type'] = record_type
+        data = pickle.loads(entry.decode('base64'))
+        (name, timestamp, size, content_type, etag, deleted) = data[:6]
+        if len(data) > 6:
+            storage_policy_index = data[6]
         else:
-            (name, timestamp, size, content_type, etag, deleted) = data[:6]
-            storage_policy_index = data[6] if len(data) > 6 else 0
-            content_type_timestamp = data[7] if len(data) > 7 else None
-            meta_timestamp = data[8] if len(data) > 8 else None
-            item = {
-                'name': name,
-                'created_at': timestamp,
-                'size': size,
-                'content_type': content_type,
-                'etag': etag,
-                'deleted': deleted,
-                'storage_policy_index': storage_policy_index,
-                'ctype_timestamp': content_type_timestamp,
-                'meta_timestamp': meta_timestamp,
-                'record_type': record_type}
-        item_list.append(item)
+            storage_policy_index = 0
+        content_type_timestamp = meta_timestamp = None
+        if len(data) > 7:
+            content_type_timestamp = data[7]
+        if len(data) > 8:
+            meta_timestamp = data[8]
+        item_list.append({'name': name,
+                          'created_at': timestamp,
+                          'size': size,
+                          'content_type': content_type,
+                          'etag': etag,
+                          'deleted': deleted,
+                          'storage_policy_index': storage_policy_index,
+                          'ctype_timestamp': content_type_timestamp,
+                          'meta_timestamp': meta_timestamp})
 
     def _empty(self):
         self._commit_puts_stale_ok()
@@ -690,22 +688,11 @@ class ContainerBroker(DatabaseBroker):
                         deleted=1, storage_policy_index=storage_policy_index)
 
     def make_tuple_for_pickle(self, record):
-        record_type = record['record_type']
-        if record_type == RECORD_TYPE_SHARD_NODE:
-            # TODO: this is so brittle, could we use dicts for shard ranges and
-            # try/except when reading back in _commit_puts_load?
-            values = [record[key] for key in SHARD_RANGE_KEYS]
-            while len(values) < 9:
-                # pad as required since record_type *MUST* be at index 9
-                values.insert(8, 0)
-            values.insert(9, record_type)
-            return tuple(values)
         return (record['name'], record['created_at'], record['size'],
                 record['content_type'], record['etag'], record['deleted'],
                 record['storage_policy_index'],
                 record['ctype_timestamp'],
-                record['meta_timestamp'],
-                record['record_type'])
+                record['meta_timestamp'])
 
     def put_object(self, name, timestamp, size, content_type, etag, deleted=0,
                    storage_policy_index=0, ctype_timestamp=None,
@@ -730,8 +717,7 @@ class ContainerBroker(DatabaseBroker):
                   'deleted': deleted,
                   'storage_policy_index': storage_policy_index,
                   'ctype_timestamp': ctype_timestamp,
-                  'meta_timestamp': meta_timestamp,
-                  'record_type': RECORD_TYPE_OBJECT}
+                  'meta_timestamp': meta_timestamp}
         self.put_record(record)
 
     def remove_objects(self, lower, upper, storage_policy_index, max_row=None):

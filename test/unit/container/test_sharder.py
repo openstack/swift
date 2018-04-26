@@ -1362,7 +1362,7 @@ class TestSharder(BaseTestSharder):
         obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
                'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
                'deleted': 0}
-        broker.get_brokers()[0].merge_objects([obj])
+        broker.get_brokers()[0].merge_items([obj])
         self.assertEqual(2, len(broker.db_files))  # sanity check
 
         def check_not_complete():
@@ -1407,7 +1407,7 @@ class TestSharder(BaseTestSharder):
         obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
                'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
                'deleted': 1}
-        old_broker.merge_objects([obj])
+        old_broker.merge_items([obj])
         self.assertGreater(old_broker.get_max_row(), context.max_row)
         context.misplaced_done = True
         context.cleaving_done = True
