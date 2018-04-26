@@ -1104,6 +1104,8 @@ class ContainerBroker(DatabaseBroker):
                         query_conditions.append('+deleted = 0')
                     else:
                         query_conditions.append('deleted = 0')
+                else:
+                    query_conditions.append('deleted in (0, 1)')
                 if since_row:
                     query_conditions.append('ROWID > ?')
                     query_args.append(since_row)
