@@ -534,17 +534,20 @@ class ContainerSharder(ContainerReplicator):
         results = pool.waitall(None)
         return results.count(True) >= quorum_size(self.ring.replica_count)
 
-    def _get_shard_broker(self, shard_range, root_path, policy_index,
-                          force=False):
+    def _get_shard_broker(self, shard_range, root_path, policy_index):
         """
-        Get a container broker for given shard range.
+        Get a broker for a container db for the given shard range. If one of
+        the shard container's primary nodes is a local device then that will be
+        chosen for the db, otherwise the first of the shard container's handoff
+        nodes that is local will be chosen.
 
         :param shard_range: a :class:`~swift.common.utils.ShardRange`
         :param root_path: the path of the shard's root container
         :param policy_index: the storage policy index
-        :param force: if True set the broker's sharding metadata even if
-            sharding metadata already exists
-        :returns: a shard container broker
+        :returns: a tuple of ``(part, broker, node_id)`` where ``part`` is the
+            shard container's partition, ``broker`` is an instance of
+            :class:`~swift.container.backend.ContainerBroker`,
+            ``node_id`` is the id of the selected node.
         """
         part = self.ring.get_part(shard_range.account, shard_range.container)
         node = self.find_local_handoff_for_part(part)
@@ -559,13 +562,11 @@ class ContainerSharder(ContainerReplicator):
 
         # Get the valid info into the broker.container, etc
         shard_broker.get_info()
-
-        if not shard_broker.get_sharding_info('Root') or force:
-            shard_broker.merge_shard_ranges(shard_range)
-            shard_broker.update_sharding_info({'Root': root_path})
-            shard_broker.update_metadata({
-                'X-Container-Sysmeta-Sharding':
-                    ('True', Timestamp.now().internal)})
+        shard_broker.merge_shard_ranges(shard_range)
+        shard_broker.update_sharding_info({'Root': root_path})
+        shard_broker.update_metadata({
+            'X-Container-Sysmeta-Sharding':
+                ('True', Timestamp.now().internal)})
 
         return part, shard_broker, node['id']
 
@@ -1070,10 +1071,8 @@ class ContainerSharder(ContainerReplicator):
         start = time.time()
         policy_index = broker.storage_policy_index
         try:
-            # use force here because we may want to update existing shard
-            # metadata timestamps
             shard_part, shard_broker, node_id = self._get_shard_broker(
-                shard_range, broker.root_path, policy_index, force=True)
+                shard_range, broker.root_path, policy_index)
         except DeviceUnavailable as duex:
             self.logger.warning(str(duex))
             self._increment_stat('cleaved', 'failure', statsd=True)
