@@ -620,7 +620,7 @@ class TestSharder(BaseTestSharder):
         exc = internal_client.UnexpectedResponse(
             'Unexpected response: 404', None)
         with self._mock_sharder() as sharder:
-            sharder.swift.make_request.side_effect = exc
+            sharder.int_client.make_request.side_effect = exc
             self.assertIsNone(sharder._fetch_shard_ranges(broker))
         lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn('Unexpected response: 404', lines[0])
@@ -631,7 +631,7 @@ class TestSharder(BaseTestSharder):
             with self._mock_sharder() as sharder:
                 mock_make_request = mock.MagicMock(
                     return_value=mock.MagicMock(headers=mock_resp_headers))
-                sharder.swift.make_request = mock_make_request
+                sharder.int_client.make_request = mock_make_request
                 self.assertIsNone(sharder._fetch_shard_ranges(broker))
             lines = sharder.logger.get_lines_for_level('error')
             self.assertIn('unexpected record type', lines[0])
@@ -649,7 +649,7 @@ class TestSharder(BaseTestSharder):
                 mock_make_request = mock.MagicMock(
                     return_value=mock.MagicMock(headers=mock_resp_headers,
                                                 body=mock_resp_body))
-                sharder.swift.make_request = mock_make_request
+                sharder.int_client.make_request = mock_make_request
                 self.assertIsNone(sharder._fetch_shard_ranges(broker))
             lines = sharder.logger.get_lines_for_level('error')
             self.assertIn('invalid data', lines[0])
@@ -668,11 +668,11 @@ class TestSharder(BaseTestSharder):
                 mock_make_request = mock.MagicMock(
                     return_value=mock.MagicMock(headers=mock_resp_headers,
                                                 body=mock_resp_body))
-                sharder.swift.make_request = mock_make_request
+                sharder.int_client.make_request = mock_make_request
                 mock_make_path = mock.MagicMock(return_value='/v1/a/c')
-                sharder.swift.make_path = mock_make_path
+                sharder.int_client.make_path = mock_make_path
                 actual = sharder._fetch_shard_ranges(broker, params=params)
-            sharder.swift.make_path.assert_called_once_with('a', 'c')
+            sharder.int_client.make_path.assert_called_once_with('a', 'c')
             self.assertFalse(sharder.logger.get_lines_for_level('error'))
             return actual, mock_make_request
 
@@ -3445,20 +3445,20 @@ class TestSharder(BaseTestSharder):
         def call_audit_container(exc=None):
             with self._mock_sharder() as sharder:
                 sharder.logger = debug_logger()
-                with mock.patch.object(
-                        sharder, '_audit_root_container') as mocked:
-                    with mock.patch.object(sharder, 'swift') as mock_swift:
-                        mock_response = mock.MagicMock()
-                        mock_response.headers = {'x-backend-record-type':
-                                                 'shard'}
-                        mock_response.body = json.dumps(
-                            [dict(sr) for sr in shard_ranges])
-                        mock_swift.make_request.return_value = mock_response
-                        mock_swift.make_request.side_effect = exc
-                        mock_swift.make_path = (lambda a, c:
-                                                '/v1/%s/%s' % (a, c))
-                        sharder.reclaim_age = 0
-                        sharder._audit_container(broker)
+                with mock.patch.object(sharder, '_audit_root_container') \
+                        as mocked, mock.patch.object(
+                            sharder, 'int_client') as mock_swift:
+                    mock_response = mock.MagicMock()
+                    mock_response.headers = {'x-backend-record-type':
+                                             'shard'}
+                    mock_response.body = json.dumps(
+                        [dict(sr) for sr in shard_ranges])
+                    mock_swift.make_request.return_value = mock_response
+                    mock_swift.make_request.side_effect = exc
+                    mock_swift.make_path = (lambda a, c:
+                                            '/v1/%s/%s' % (a, c))
+                    sharder.reclaim_age = 0
+                    sharder._audit_container(broker)
             mocked.assert_not_called()
             return sharder, mock_swift
 
