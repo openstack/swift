@@ -1565,7 +1565,7 @@ class ContainerBroker(DatabaseBroker):
         try:
             conn.execute('''
                 DELETE FROM shard_ranges WHERE deleted = 1 AND timestamp < ?
-                AND name!= ?
+                AND name != ?
             ''', (sync_timestamp, self.path))
         except sqlite3.OperationalError as err:
             if 'no such table: shard_ranges' not in str(err):

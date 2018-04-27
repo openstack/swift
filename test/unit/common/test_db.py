@@ -1133,9 +1133,9 @@ class TestDatabaseBroker(unittest.TestCase):
 
     def test_metadata(self):
         def reclaim(broker, timestamp):
-            with broker.get() as conn:
-                broker._reclaim_metadata(conn, timestamp)
-                conn.commit()
+            # only testing _reclaim_metadata here
+            with patch.object(broker, '_reclaim'):
+                broker.reclaim(timestamp, timestamp)
         # Initializes a good broker for us
         broker = self.get_replication_info_tester(metadata=True)
         # Add our first item
