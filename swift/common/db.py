@@ -910,12 +910,15 @@ class DatabaseBroker(object):
 
     def reclaim(self, age_timestamp, sync_timestamp):
         """
-        Delete rows from the db_contains_type table that are marked deleted
-        and whose created_at timestamp is < age_timestamp.  Also deletes rows
-        from incoming_sync and outgoing_sync where the updated_at timestamp is
-        < sync_timestamp.
+        Delete reclaimable rows and metadata from the db.
 
-        In addition, this calls the DatabaseBroker's :func:`_reclaim` method.
+        By default this method will delete rows from the db_contains_type table
+        that are marked deleted and whose created_at timestamp is <
+        age_timestamp, and deletes rows from incoming_sync and outgoing_sync
+        where the updated_at timestamp is < sync_timestamp. In addition, this
+        calls the :meth:`_reclaim_metadata` method.
+
+        Subclasses may reclaim other items by overriding :meth:`_reclaim`.
 
         :param age_timestamp: max created_at timestamp of object rows to delete
         :param sync_timestamp: max update_at timestamp of sync rows to delete
@@ -926,7 +929,7 @@ class DatabaseBroker(object):
                 self._commit_puts()
         with self.get() as conn:
             self._reclaim(conn, age_timestamp, sync_timestamp)
-            DatabaseBroker._reclaim_metadata(self, conn, age_timestamp)
+            self._reclaim_metadata(conn, age_timestamp)
             conn.commit()
 
     def _reclaim(self, conn, age_timestamp, sync_timestamp):
