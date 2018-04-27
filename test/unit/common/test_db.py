@@ -1134,7 +1134,7 @@ class TestDatabaseBroker(unittest.TestCase):
     def test_metadata(self):
         def reclaim(broker, timestamp):
             with broker.get() as conn:
-                broker._reclaim(conn, timestamp)
+                broker._reclaim_metadata(conn, timestamp)
                 conn.commit()
         # Initializes a good broker for us
         broker = self.get_replication_info_tester(metadata=True)
@@ -1239,7 +1239,7 @@ class TestDatabaseBroker(unittest.TestCase):
         exc = None
         try:
             with broker.get() as conn:
-                broker._reclaim(conn, 0)
+                broker._reclaim_metadata(conn, 0)
         except Exception as err:
             exc = err
         self.assertEqual(

@@ -925,25 +925,28 @@ class DatabaseBroker(object):
                                        self.pending_timeout):
                 self._commit_puts()
         with self.get() as conn:
-            conn.execute('''
-                DELETE FROM %s WHERE deleted = 1 AND %s < ?
-            ''' % (self.db_contains_type, self.db_reclaim_timestamp),
-                (age_timestamp,))
-            try:
-                conn.execute('''
-                    DELETE FROM outgoing_sync WHERE updated_at < ?
-                ''', (sync_timestamp,))
-                conn.execute('''
-                    DELETE FROM incoming_sync WHERE updated_at < ?
-                ''', (sync_timestamp,))
-            except sqlite3.OperationalError as err:
-                # Old dbs didn't have updated_at in the _sync tables.
-                if 'no such column: updated_at' not in str(err):
-                    raise
-            DatabaseBroker._reclaim(self, conn, age_timestamp)
+            self._reclaim(conn, age_timestamp, sync_timestamp)
+            DatabaseBroker._reclaim_metadata(self, conn, age_timestamp)
             conn.commit()
 
-    def _reclaim(self, conn, timestamp):
+    def _reclaim(self, conn, age_timestamp, sync_timestamp):
+        conn.execute('''
+            DELETE FROM %s WHERE deleted = 1 AND %s < ?
+        ''' % (self.db_contains_type, self.db_reclaim_timestamp),
+            (age_timestamp,))
+        try:
+            conn.execute('''
+                DELETE FROM outgoing_sync WHERE updated_at < ?
+            ''', (sync_timestamp,))
+            conn.execute('''
+                DELETE FROM incoming_sync WHERE updated_at < ?
+            ''', (sync_timestamp,))
+        except sqlite3.OperationalError as err:
+            # Old dbs didn't have updated_at in the _sync tables.
+            if 'no such column: updated_at' not in str(err):
+                raise
+
+    def _reclaim_metadata(self, conn, timestamp):
         """
         Removes any empty metadata values older than the timestamp using the
         given database connection. This function will not call commit on the
