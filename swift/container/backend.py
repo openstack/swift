@@ -1602,25 +1602,30 @@ class ContainerBroker(DatabaseBroker):
             try:
                 condition = ''
                 conditions = []
+                params = []
                 if not include_deleted:
                     conditions.append('deleted=0')
                 if included_states:
-                    state_list = ','.join([str(st) for st in included_states])
-                    conditions.append('state in (%s)' % state_list)
+                    conditions.append('state in (%s)' % ','.join(
+                        '?' * len(included_states)))
+                    params.extend(included_states)
                 if excluded_states:
-                    state_list = ','.join([str(st) for st in excluded_states])
-                    conditions.append('state not in (%s)' % state_list)
+                    conditions.append('state not in (%s)' % ','.join(
+                        '?' * len(excluded_states)))
+                    params.extend(excluded_states)
                 if not include_own:
-                    conditions.append('name!="%s"' % self.path)
+                    conditions.append('name != ?')
+                    params.append(self.path)
                 if exclude_others:
-                    conditions.append('name="%s"' % self.path)
+                    conditions.append('name = ?')
+                    params.append(self.path)
                 if conditions:
                     condition = ' WHERE ' + ' AND '.join(conditions)
                 sql = '''
                 SELECT %s
                 FROM shard_ranges%s;
                 ''' % (', '.join(SHARD_RANGE_KEYS), condition)
-                data = conn.execute(sql)
+                data = conn.execute(sql, params)
                 data.row_factory = None
                 return [row for row in data]
             except sqlite3.OperationalError as err:
