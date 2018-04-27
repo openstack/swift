@@ -22,3 +22,4 @@
         - python-pyeclib
         - python-nose
         - python-swiftclient
+      become: true
