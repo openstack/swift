@@ -1078,13 +1078,31 @@ class ContainerSharder(ContainerReplicator):
             self._increment_stat('cleaved', 'failure', statsd=True)
             return False
 
-        brokers = broker.get_brokers()
+        # only cleave from the retiring db - misplaced objects handler will
+        # deal with any objects in the fresh db
+        source_broker = broker.get_brokers()[0]
         with shard_broker.sharding_lock():
-            for source_broker in brokers:
+            # if this range has been cleaved before but replication
+            # failed then the shard db may still exist and it may not be
+            # necessary to merge all the rows again
+            source_db_id = source_broker.get_info()['id']
+            source_max_row = source_broker.get_max_row()
+            sync_point = shard_broker.get_sync(source_db_id)
+            if sync_point < source_max_row:
+                sync_from_row = max(cleaving_context.last_cleave_to_row,
+                                    sync_point)
                 for objects, info in self.yield_objects(
                         source_broker, shard_range, policy_index,
-                        since_row=cleaving_context.last_cleave_to_row):
+                        since_row=sync_from_row):
                     shard_broker.merge_items(objects)
+                # note: the max row stored as a sync point is sampled *before*
+                # objects are yielded to ensure that is less than or equal to
+                # the last yielded row
+                shard_broker.merge_syncs([{'sync_point': source_max_row,
+                                           'remote_id': source_db_id}])
+            else:
+                self.logger.debug("Cleaving '%s': %r - already in sync",
+                                  broker.path, shard_range)
 
         own_shard_range = broker.get_own_shard_range()
         if shard_range.includes(own_shard_range):

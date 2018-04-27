@@ -1356,98 +1356,6 @@ class TestSharder(BaseTestSharder):
         # meta_timestamp
         self._check_objects(objects, expected_shard_db)
 
-    def _check_complete_sharding(self, account, container, shard_bounds):
-        broker = self._make_sharding_broker(
-            account=account, container=container, shard_bounds=shard_bounds)
-        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
-               'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
-               'deleted': 0}
-        broker.get_brokers()[0].merge_items([obj])
-        self.assertEqual(2, len(broker.db_files))  # sanity check
-
-        def check_not_complete():
-            with self._mock_sharder() as sharder:
-                self.assertFalse(sharder._complete_sharding(broker))
-            warning_lines = sharder.logger.get_lines_for_level('warning')
-            self.assertIn(
-                'Repeat cleaving required for %r' % broker.db_files[0],
-                warning_lines[0])
-            self.assertFalse(warning_lines[1:])
-            sharder.logger.clear()
-            context = CleavingContext.load(broker)
-            self.assertFalse(context.cleaving_done)
-            self.assertFalse(context.misplaced_done)
-            self.assertEqual('', context.cursor)
-            self.assertEqual(ShardRange.SHARDING,
-                             broker.get_own_shard_range().state)
-            for shard_range in broker.get_shard_ranges():
-                self.assertEqual(ShardRange.CLEAVED, shard_range.state)
-            self.assertEqual(SHARDING, broker.get_db_state())
-
-        # no cleave context progress
-        check_not_complete()
-
-        # cleaving_done is False
-        context = CleavingContext.load(broker)
-        self.assertEqual(1, context.max_row)
-        context.cleave_to_row = 1  # pretend all rows have been cleaved
-        context.cleaving_done = False
-        context.misplaced_done = True
-        context.store(broker)
-        check_not_complete()
-
-        # misplaced_done is False
-        context.misplaced_done = False
-        context.cleaving_done = True
-        context.store(broker)
-        check_not_complete()
-
-        # modified db max row
-        old_broker = broker.get_brokers()[0]
-        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
-               'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
-               'deleted': 1}
-        old_broker.merge_items([obj])
-        self.assertGreater(old_broker.get_max_row(), context.max_row)
-        context.misplaced_done = True
-        context.cleaving_done = True
-        context.store(broker)
-        check_not_complete()
-
-        # db id changes
-        broker.get_brokers()[0].newid('fake_remote_id')
-        context.cleave_to_row = 2  # pretend all rows have been cleaved, again
-        context.store(broker)
-        check_not_complete()
-
-        # context ok
-        context = CleavingContext.load(broker)
-        context.cleave_to_row = context.max_row
-        context.misplaced_done = True
-        context.cleaving_done = True
-        context.store(broker)
-        with self._mock_sharder() as sharder:
-            self.assertTrue(sharder._complete_sharding(broker))
-        self.assertEqual(SHARDED, broker.get_db_state())
-        self.assertEqual(ShardRange.SHARDED,
-                         broker.get_own_shard_range().state)
-        for shard_range in broker.get_shard_ranges():
-            self.assertEqual(ShardRange.ACTIVE, shard_range.state)
-        warning_lines = sharder.logger.get_lines_for_level('warning')
-        self.assertFalse(warning_lines)
-        sharder.logger.clear()
-        return broker
-
-    def test_complete_sharding_root(self):
-        broker = self._check_complete_sharding(
-            'a', 'c', (('', 'mid'), ('mid', '')))
-        self.assertEqual(0, broker.get_own_shard_range().deleted)
-
-    def test_complete_sharding_shard(self):
-        broker = self._check_complete_sharding(
-            '.shards_', 'shard_c', (('l', 'mid'), ('mid', 'u')))
-        self.assertEqual(1, broker.get_own_shard_range().deleted)
-
     def test_cleave_repeated(self):
         # verify that if new objects are merged into retiring db after cleaving
         # started then cleaving will repeat but only new objects are cleaved
@@ -1469,7 +1377,6 @@ class TestSharder(BaseTestSharder):
         own_shard_range.update_state(ShardRange.SHARDING, state_timestamp=now)
         own_shard_range.epoch = now
         broker.merge_shard_ranges([own_shard_range])
-        broker.update_sharding_info({'Scan-Done': 'True'})
         shard_bounds = (('', 'obj004'), ('obj004', ''))
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.CREATED)
@@ -1562,6 +1469,248 @@ class TestSharder(BaseTestSharder):
         self._check_shard_range(shard_ranges[1], updated_shard_ranges[1])
         self._check_objects(new_objects[1:], expected_shard_dbs[1])
         self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+
+    def test_cleave_insufficient_replication(self):
+        # verify that if replication of a cleaved shard range fails then rows
+        # are not merged again to the existing shard db
+        broker = self._make_broker()
+        retiring_db_id = broker.get_info()['id']
+        objects = [
+            {'name': 'obj%03d' % i, 'created_at': next(self.ts_iter),
+             'size': 1, 'content_type': 'text/plain', 'etag': 'etag',
+             'deleted': 0, 'storage_policy_index': 0}
+            for i in range(10)
+        ]
+        broker.merge_objects([dict(obj) for obj in objects])
+        broker._commit_puts()
+        own_shard_range = broker.get_own_shard_range()
+        now = Timestamp.now()
+        own_shard_range.update_state(ShardRange.SHARDING, state_timestamp=now)
+        own_shard_range.epoch = now
+        broker.merge_shard_ranges([own_shard_range])
+        shard_bounds = (('', 'obj004'), ('obj004', ''))
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CREATED)
+        expected_shard_dbs = []
+        for shard_range in shard_ranges:
+            db_hash = hash_path(shard_range.account, shard_range.container)
+            expected_shard_dbs.append(
+                os.path.join(self.tempdir, 'sda', 'containers', '0',
+                             db_hash[-3:], db_hash, db_hash + '.db'))
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.set_sharding_state())
+        new_object = {'name': 'alpha', 'created_at': next(self.ts_iter),
+                      'size': 0, 'content_type': 'text/plain', 'etag': 'etag',
+                      'deleted': 0, 'storage_policy_index': 0}
+        broker.merge_objects([dict(new_object)])
+
+        node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
+                'index': 0}
+        orig_merge_items = ContainerBroker.merge_items
+
+        def mock_merge_items(broker, items):
+            merge_items_calls.append((broker.path,
+                                      # merge mutates item so make a copy
+                                      [dict(item) for item in items]))
+            orig_merge_items(broker, items)
+
+        # first shard range cleaved but fails to replicate
+        merge_items_calls = []
+        with mock.patch('swift.container.backend.ContainerBroker.merge_items',
+                        mock_merge_items):
+            with self._mock_sharder() as sharder:
+                sharder._replicate_object = mock.MagicMock(
+                    return_value=(False, [False, False, True]))
+                sharder._audit_container = mock.MagicMock()
+                sharder._process_broker(broker, node, 99)
+
+        self.assertEqual(SHARDING, broker.get_db_state())
+        self.assertEqual(ShardRange.SHARDING,
+                         broker.get_own_shard_range().state)
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+        # first shard range cleaved to shard broker
+        self.assertEqual([(shard_ranges[0].name, objects[:5])],
+                         merge_items_calls)
+        # replication of first shard range fails - no more shards attempted
+        sharder._replicate_object.assert_called_once_with(
+            0, expected_shard_dbs[0], 0)
+        # shard broker has sync points
+        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        self.assertEqual(
+            [{'remote_id': retiring_db_id, 'sync_point': len(objects)}],
+            shard_broker.get_syncs())
+        self.assertEqual(objects[:5], shard_broker.get_objects())
+
+        # first shard range replicates ok, no new merges required, second is
+        # cleaved but fails to replicate
+        merge_items_calls = []
+        with mock.patch('swift.container.backend.ContainerBroker.merge_items',
+                        mock_merge_items):
+            with self._mock_sharder() as sharder:
+                sharder._replicate_object = mock.MagicMock(
+                    side_effect=[(False, [False, True, True]),
+                                 (False, [False, False, True])])
+                sharder._audit_container = mock.MagicMock()
+                sharder._process_broker(broker, node, 99)
+
+        self.assertEqual(SHARDING, broker.get_db_state())
+        self.assertEqual(ShardRange.SHARDING,
+                         broker.get_own_shard_range().state)
+
+        broker_shard_ranges = broker.get_shard_ranges()
+        shard_ranges[0].object_count = 5
+        shard_ranges[0].bytes_used = sum(obj['size'] for obj in objects[:5])
+        shard_ranges[0].state = ShardRange.CLEAVED
+        self._check_shard_range(shard_ranges[0], broker_shard_ranges[0])
+        # second shard range still in created state
+        self._assert_shard_ranges_equal([shard_ranges[1]],
+                                        [broker_shard_ranges[1]])
+        # only second shard range rows were merged to shard db
+        self.assertEqual([(shard_ranges[1].name, objects[5:])],
+                         merge_items_calls)
+        sharder._replicate_object.assert_has_calls(
+            [mock.call(0, expected_shard_dbs[0], 0),
+             mock.call(0, expected_shard_dbs[1], 0)])
+        # shard broker has sync points
+        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        self.assertEqual(
+            [{'remote_id': retiring_db_id, 'sync_point': len(objects)}],
+            shard_broker.get_syncs())
+        self.assertEqual(objects[5:], shard_broker.get_objects())
+
+        # repeat - second shard range cleaves fully because its previously
+        # cleaved shard db no longer exists
+        unlink_files(expected_shard_dbs)
+        merge_items_calls = []
+        with mock.patch('swift.container.backend.ContainerBroker.merge_items',
+                        mock_merge_items):
+            with self._mock_sharder() as sharder:
+                sharder._replicate_object = mock.MagicMock(
+                    side_effect=[(True, [True, True, True]),  # misplaced obj
+                                 (False, [False, True, True])])
+                sharder._audit_container = mock.MagicMock()
+                sharder.logger = debug_logger()
+                sharder._process_broker(broker, node, 99)
+
+        self.assertEqual(SHARDED, broker.get_db_state())
+        self.assertEqual(ShardRange.SHARDED,
+                         broker.get_own_shard_range().state)
+
+        broker_shard_ranges = broker.get_shard_ranges()
+        shard_ranges[1].object_count = 5
+        shard_ranges[1].bytes_used = sum(obj['size'] for obj in objects[5:])
+        shard_ranges[1].state = ShardRange.ACTIVE
+        self._check_shard_range(shard_ranges[1], broker_shard_ranges[1])
+        # second shard range rows were merged to shard db again
+        self.assertEqual([(shard_ranges[0].name, [new_object]),
+                          (shard_ranges[1].name, objects[5:])],
+                         merge_items_calls)
+        sharder._replicate_object.assert_has_calls(
+            [mock.call(0, expected_shard_dbs[0], 0),
+             mock.call(0, expected_shard_dbs[1], 0)])
+        # first shard broker was created by misplaced object - no sync point
+        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        self.assertFalse(shard_broker.get_syncs())
+        self.assertEqual([new_object], shard_broker.get_objects())
+        # second shard broker has sync points
+        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        self.assertEqual(
+            [{'remote_id': retiring_db_id, 'sync_point': len(objects)}],
+            shard_broker.get_syncs())
+        self.assertEqual(objects[5:], shard_broker.get_objects())
+
+    def _check_complete_sharding(self, account, container, shard_bounds):
+        broker = self._make_sharding_broker(
+            account=account, container=container, shard_bounds=shard_bounds)
+        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+               'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
+               'deleted': 0}
+        broker.get_brokers()[0].merge_items([obj])
+        self.assertEqual(2, len(broker.db_files))  # sanity check
+
+        def check_not_complete():
+            with self._mock_sharder() as sharder:
+                self.assertFalse(sharder._complete_sharding(broker))
+            warning_lines = sharder.logger.get_lines_for_level('warning')
+            self.assertIn(
+                'Repeat cleaving required for %r' % broker.db_files[0],
+                warning_lines[0])
+            self.assertFalse(warning_lines[1:])
+            sharder.logger.clear()
+            context = CleavingContext.load(broker)
+            self.assertFalse(context.cleaving_done)
+            self.assertFalse(context.misplaced_done)
+            self.assertEqual('', context.cursor)
+            self.assertEqual(ShardRange.SHARDING,
+                             broker.get_own_shard_range().state)
+            for shard_range in broker.get_shard_ranges():
+                self.assertEqual(ShardRange.CLEAVED, shard_range.state)
+            self.assertEqual(SHARDING, broker.get_db_state())
+
+        # no cleave context progress
+        check_not_complete()
+
+        # cleaving_done is False
+        context = CleavingContext.load(broker)
+        self.assertEqual(1, context.max_row)
+        context.cleave_to_row = 1  # pretend all rows have been cleaved
+        context.cleaving_done = False
+        context.misplaced_done = True
+        context.store(broker)
+        check_not_complete()
+
+        # misplaced_done is False
+        context.misplaced_done = False
+        context.cleaving_done = True
+        context.store(broker)
+        check_not_complete()
+
+        # modified db max row
+        old_broker = broker.get_brokers()[0]
+        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+               'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
+               'deleted': 1}
+        old_broker.merge_items([obj])
+        self.assertGreater(old_broker.get_max_row(), context.max_row)
+        context.misplaced_done = True
+        context.cleaving_done = True
+        context.store(broker)
+        check_not_complete()
+
+        # db id changes
+        broker.get_brokers()[0].newid('fake_remote_id')
+        context.cleave_to_row = 2  # pretend all rows have been cleaved, again
+        context.store(broker)
+        check_not_complete()
+
+        # context ok
+        context = CleavingContext.load(broker)
+        context.cleave_to_row = context.max_row
+        context.misplaced_done = True
+        context.cleaving_done = True
+        context.store(broker)
+        with self._mock_sharder() as sharder:
+            self.assertTrue(sharder._complete_sharding(broker))
+        self.assertEqual(SHARDED, broker.get_db_state())
+        self.assertEqual(ShardRange.SHARDED,
+                         broker.get_own_shard_range().state)
+        for shard_range in broker.get_shard_ranges():
+            self.assertEqual(ShardRange.ACTIVE, shard_range.state)
+        warning_lines = sharder.logger.get_lines_for_level('warning')
+        self.assertFalse(warning_lines)
+        sharder.logger.clear()
+        return broker
+
+    def test_complete_sharding_root(self):
+        broker = self._check_complete_sharding(
+            'a', 'c', (('', 'mid'), ('mid', '')))
+        self.assertEqual(0, broker.get_own_shard_range().deleted)
+
+    def test_complete_sharding_shard(self):
+        broker = self._check_complete_sharding(
+            '.shards_', 'shard_c', (('l', 'mid'), ('mid', 'u')))
+        self.assertEqual(1, broker.get_own_shard_range().deleted)
 
     def test_identify_sharding_candidate(self):
         brokers = [self._make_broker(container='c%03d' % i) for i in range(6)]
