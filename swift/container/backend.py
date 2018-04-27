@@ -789,7 +789,6 @@ class ContainerBroker(DatabaseBroker):
         return self._is_deleted_info(**info)
 
     def is_reclaimable(self, now, reclaim_age):
-        self._commit_puts_stale_ok()
         with self.get() as conn:
             info = conn.execute('''
                 SELECT put_timestamp, delete_timestamp
@@ -1617,7 +1616,6 @@ class ContainerBroker(DatabaseBroker):
                     raise
                 return []
 
-        self._commit_puts_stale_ok()
         if connection:
             return do_query(connection)
         else:
