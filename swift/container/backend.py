@@ -742,10 +742,10 @@ class ContainerBroker(DatabaseBroker):
             query_args.append(str(max_row))
         if lower:
             query_conditions.append('name > ?')
-            query_args.append(str(lower))
+            query_args.append(lower)
         if upper:
             query_conditions.append('name <= ?')
-            query_args.append(str(upper))
+            query_args.append(upper)
 
         query = 'DELETE FROM object WHERE deleted in (0, 1)'
         if query_conditions:

@@ -52,7 +52,7 @@ class ShardCollector(object):
             headers={'X-Backend-Record-Type': 'shard'})
 
 
-class TestContainerSharding(ReplProbeTest):
+class BaseTestContainerSharding(ReplProbeTest):
 
     def _maybe_skip_test(self):
         try:
@@ -92,24 +92,27 @@ class TestContainerSharding(ReplProbeTest):
             raise SkipTest(', '.join(skip_reasons))
 
     def _load_rings_and_configs(self):
-        super(TestContainerSharding, self)._load_rings_and_configs()
+        super(BaseTestContainerSharding, self)._load_rings_and_configs()
         # perform checks for skipping test before starting services
         self._maybe_skip_test()
 
-    def setup_container_brain(self, container_name):
-        self.container_name = container_name
-        self.brain = BrainSplitter(self.url, self.token, self.container_name,
-                                   None, 'container')
-        self.brain.put_container(policy_index=int(self.policy))
+    def _make_object_names(self, number):
+        return ['obj-%04d' % x for x in range(number)]
+
+    def _setup_container_name(self):
+        self.container_name = 'container-%s' % uuid.uuid4()
 
     def setUp(self):
         client.logger.setLevel(client.logging.WARNING)
         client.requests.logging.getLogger().setLevel(
             client.requests.logging.WARNING)
-        super(TestContainerSharding, self).setUp()
+        super(BaseTestContainerSharding, self).setUp()
         _, self.admin_token = get_auth(
             'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
-        self.setup_container_brain('container-%s' % uuid.uuid4())
+        self._setup_container_name()
+        self.brain = BrainSplitter(self.url, self.token, self.container_name,
+                                   None, 'container')
+        self.brain.put_container(policy_index=int(self.policy))
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
 
@@ -379,14 +382,11 @@ class TestContainerSharding(ReplProbeTest):
             self.sharders.once(number=node_number,
                                additional_args='--partitions=%s' % part)
 
+
+class TestContainerShardingNonUTF8(BaseTestContainerSharding):
     def test_sharding_listing(self):
         # verify parameterised listing of a container during sharding
-        name_length = self.cluster_info['swift']['max_container_name_length']
-        cont_name = self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb'
-        cont_name = cont_name.encode('utf8')
-        cont_name = cont_name.ljust(name_length, 'x')
-        self.setup_container_brain(cont_name)
-        all_obj_names = ['obj%03d' % x for x in range(4 * self.max_shard_size)]
+        all_obj_names = self._make_object_names(4 * self.max_shard_size)
         obj_names = all_obj_names[::2]
         self.put_objects(obj_names)
         # choose some names approx in middle of each expected shard range
@@ -487,8 +487,36 @@ class TestContainerSharding(ReplProbeTest):
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
 
+        # delete original objects
+        self.delete_objects(obj_names)
+        do_listing_checks(new_obj_names)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
+
+
+class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
+    def _make_object_names(self, number):
+        # override default with names that include non-ascii chars
+        name_length = self.cluster_info['swift']['max_object_name_length']
+        obj_names = []
+        for x in range(number):
+            name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb-%04d' % x)
+            name = name.encode('utf8').ljust(name_length, 'o')
+            obj_names.append(name)
+        return obj_names
+
+    def _setup_container_name(self):
+        # override default with max length name that includes non-ascii chars
+        super(TestContainerShardingUTF8, self)._setup_container_name()
+        name_length = self.cluster_info['swift']['max_container_name_length']
+        cont_name = self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb'
+        self.conainer_name = cont_name.encode('utf8').ljust(name_length, 'x')
+
+
+class TestContainerSharding(BaseTestContainerSharding):
     def _test_sharded_listing(self, run_replicators=False):
-        obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
+        obj_names = self._make_object_names(self.max_shard_size)
         self.put_objects(obj_names)
 
         # Verify that we start out with normal DBs, no shards
@@ -867,7 +895,7 @@ class TestContainerSharding(ReplProbeTest):
         self._test_sharded_listing(run_replicators=True)
 
     def test_async_pendings(self):
-        obj_names = ['obj%03d' % x for x in range(self.max_shard_size * 2)]
+        obj_names = self._make_object_names(self.max_shard_size * 2)
 
         # There are some updates *everyone* gets
         self.put_objects(obj_names[::5])
@@ -1305,8 +1333,8 @@ class TestContainerSharding(ReplProbeTest):
         # replica is unsharded and has an object that the first 2 are missing.
 
         # put objects while all servers are up
-        obj_names = ['obj%03d' % x
-                     for x in range(num_shards * self.max_shard_size / 2)]
+        obj_names = self._make_object_names(
+            num_shards * self.max_shard_size / 2)
         self.put_objects(obj_names)
 
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -1463,7 +1491,7 @@ class TestContainerSharding(ReplProbeTest):
         # sufficiently replicated
 
         # put enough objects for 4 shard ranges
-        obj_names = ['obj%03d' % x for x in range(2 * self.max_shard_size)]
+        obj_names = self._make_object_names(2 * self.max_shard_size)
         self.put_objects(obj_names)
 
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -1539,7 +1567,7 @@ class TestContainerSharding(ReplProbeTest):
                          [sr.state for sr in shard_ranges])
 
     def test_sharded_delete(self):
-        all_obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
+        all_obj_names = self._make_object_names(self.max_shard_size)
         self.put_objects(all_obj_names)
         # Shard the container
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -1590,7 +1618,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assert_container_post_ok('revived')
 
     def test_misplaced_object_movement(self):
-        all_obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
+        all_obj_names = self._make_object_names(self.max_shard_size)
         self.put_objects(all_obj_names)
         # Shard the container
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -1817,8 +1845,8 @@ class TestContainerSharding(ReplProbeTest):
         handoff_node = next(n for n in self.brain.ring.devs
                             if n['id'] not in primary_ids)
         num_shards = 3
-        obj_names = ['obj%03d' % x
-                     for x in range(num_shards * self.max_shard_size / 2)]
+        obj_names = self._make_object_names(
+            num_shards * self.max_shard_size / 2)
         self.put_objects(obj_names)
         client.post_container(self.url, self.admin_token, self.container_name,
                               headers={'X-Container-Sharding': 'on'})

@@ -6735,11 +6735,12 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse('' > utils.ShardRange.MAX)
         self.assertFalse(utils.ShardRange.MAX > utils.ShardRange.MAX)
 
-        self.assertFalse(utils.ShardRange.MAX == 'z')
-        self.assertFalse('z' > utils.ShardRange.MAX)
-        self.assertTrue('z' < utils.ShardRange.MAX)
-        self.assertTrue(utils.ShardRange.MAX > 'z')
-        self.assertFalse(utils.ShardRange.MAX < 'z')
+        for val in 'z', u'\u00e4':
+            self.assertFalse(utils.ShardRange.MAX == val)
+            self.assertFalse(val > utils.ShardRange.MAX)
+            self.assertTrue(val < utils.ShardRange.MAX)
+            self.assertTrue(utils.ShardRange.MAX > val)
+            self.assertFalse(utils.ShardRange.MAX < val)
 
         self.assertEqual('', str(utils.ShardRange.MAX))
         self.assertFalse(utils.ShardRange.MAX)
@@ -6757,12 +6758,13 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse('' > utils.ShardRange.MIN)
         self.assertFalse(utils.ShardRange.MIN > utils.ShardRange.MIN)
 
-        self.assertFalse(utils.ShardRange.MIN == 'z')
-        self.assertFalse('z' < utils.ShardRange.MIN)
-        self.assertTrue('z' > utils.ShardRange.MIN)
-        self.assertTrue(utils.ShardRange.MIN < 'z')
-        self.assertFalse(utils.ShardRange.MIN > 'z')
-        self.assertFalse(utils.ShardRange.MIN)
+        for val in 'z', u'\u00e4':
+            self.assertFalse(utils.ShardRange.MIN == val)
+            self.assertFalse(val < utils.ShardRange.MIN)
+            self.assertTrue(val > utils.ShardRange.MIN)
+            self.assertTrue(utils.ShardRange.MIN < val)
+            self.assertFalse(utils.ShardRange.MIN > val)
+            self.assertFalse(utils.ShardRange.MIN)
 
         self.assertEqual('', str(utils.ShardRange.MIN))
         self.assertFalse(utils.ShardRange.MIN)
@@ -7199,6 +7201,32 @@ class TestShardRange(unittest.TestCase):
         self.assertEqual('y\x00', sr.end_marker)
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', '')
         self.assertEqual('', sr.end_marker)
+
+    def test_bounds_serialization(self):
+        sr = utils.ShardRange('a/c', utils.Timestamp.now())
+        self.assertEqual('a/c', sr.name)
+        self.assertEqual(utils.ShardRange.MIN, sr.lower)
+        self.assertEqual('', sr.lower_str)
+        self.assertEqual(utils.ShardRange.MAX, sr.upper)
+        self.assertEqual('', sr.upper_str)
+        self.assertEqual('', sr.end_marker)
+
+        lower = u'\u00e4'
+        upper = u'\u00fb'
+        sr = utils.ShardRange('a/%s-%s' % (lower, upper),
+                              utils.Timestamp.now(), lower, upper)
+        if six.PY3:
+            self.assertEqual(u'\u00e4', sr.lower)
+            self.assertEqual(u'\u00e4', sr.lower_str)
+            self.assertEqual(u'\u00fb', sr.upper)
+            self.assertEqual(u'\u00fb', sr.upper_str)
+            self.assertEqual(u'\u00fb\x00', sr.end_marker)
+        else:
+            self.assertEqual(u'\u00e4'.encode('utf8'), sr.lower)
+            self.assertEqual(u'\u00e4'.encode('utf8'), sr.lower_str)
+            self.assertEqual(u'\u00fb'.encode('utf8'), sr.upper)
+            self.assertEqual(u'\u00fb'.encode('utf8'), sr.upper_str)
+            self.assertEqual(u'\u00fb\x00'.encode('utf8'), sr.end_marker)
 
     def test_entire_namespace(self):
         # test infinite range (no boundaries)
