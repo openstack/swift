@@ -710,15 +710,13 @@ class ContainerSharder(ContainerReplicator):
             the given row id; by default all rows are included.
         :return: a generator of tuples of (list of objects, broker info dict)
         """
-        # Since we're going to change lower attribute in the loop...
-        src_shard_range = src_shard_range.copy()
-
+        marker = src_shard_range.lower_str
         while True:
             info = broker.get_info()
             info['max_row'] = broker.get_max_row()
             objects = broker.get_objects(
                 CONTAINER_LISTING_LIMIT,
-                marker=src_shard_range.lower_str,
+                marker=marker,
                 end_marker=src_shard_range.end_marker,
                 storage_policy_index=policy_index,
                 include_deleted=True, since_row=since_row)
@@ -726,7 +724,7 @@ class ContainerSharder(ContainerReplicator):
 
             if len(objects) < CONTAINER_LISTING_LIMIT:
                 break
-            src_shard_range.lower = objects[-1]['name']
+            marker = objects[-1]['name']
 
     def yield_objects_to_shard_range(self, broker, src_shard_range,
                                      policy_index, dest_shard_ranges):

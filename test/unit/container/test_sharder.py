@@ -705,7 +705,7 @@ class TestSharder(BaseTestSharder):
             'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
             params=params)
 
-    def test_cleave_root(self):
+    def _check_cleave_root(self):
         broker = self._make_broker()
         objects = [
             # shard 0
@@ -1051,6 +1051,15 @@ class TestSharder(BaseTestSharder):
             self.assertTrue(sharder._cleave(broker))
 
         sharder._replicate_object.assert_not_called()
+
+    def test_cleave_root(self):
+        self._check_cleave_root()
+
+    def test_cleave_root_listing_limit_one(self):
+        # force yield_objects to update its marker and call to the broker's
+        # get_objects() for each shard range, to check the marker moves on
+        with mock.patch('swift.container.sharder.CONTAINER_LISTING_LIMIT', 1):
+            self._check_cleave_root()
 
     def test_cleave_root_ranges_change(self):
         # verify that objects are not missed if shard ranges change between
