@@ -1422,13 +1422,14 @@ class ContainerSharder(ContainerReplicator):
         """
         self.logger.info('Container sharder cycle starting, auto-sharding %s',
                          self.auto_shard)
-        self._zero_stats()
         if isinstance(devices_to_shard, (list, tuple)):
             self.logger.info('(Override devices: %s)',
                              ', '.join(str(d) for d in devices_to_shard))
         if isinstance(partitions_to_shard, (list, tuple)):
             self.logger.info('(Override partitions: %s)',
                              ', '.join(str(p) for p in partitions_to_shard))
+        self._zero_stats()
+        self._local_device_ids = set()
         dirs = []
         self.ips = whataremyips(bind_ip=self.bind_ip)
         for node in self.ring.devs:
