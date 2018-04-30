@@ -340,42 +340,51 @@ use = egg:swift#xprofile
 # If the auto_shard option is true then the sharder will automatically select
 # containers to shard, scan for shard ranges, and select shards to shrink.
 # The default is false.
-# Warning: auto_sharding is still under development and should not be used in
+# Warning: auto-sharding is still under development and should not be used in
 # production; do not set this option to true in a production cluster.
 # auto_shard = false
 #
-# shard_container_size defines the size at which a container with
-# container-sharding enabled would start to shard. It also indirectly
-# determines how big a slice to take off a container when sharding, the slice
-# size being shard_container_size // 2, as well as determining when it's safe
-# to shrink and merge into neighbours.
+# When auto-sharding is enabled shard_container_size defines the object count
+# at which a container with container-sharding enabled will start to shard.
+# shard_container_size also indirectly determines the initial nominal size of
+# shard containers, which is shard_container_size // 2, as well as determining
+# the thresholds for shrinking and merging shard containers.
 # shard_container_size = 1000000
 #
-# Shrinking, when smaller shards merge, has a few settings, the first is the
-# shard_shrink_point. This is the point at which to start looking to shrink the
-# sharded container. The point is a percentage of shard_container_size. 50
-# means 50% of the shard_container_size. Shard_shrink_merge_point is the second
-# shrink related setting, it is similar to shard_shrink_size, but is the max
-# size the sharded container plus the neighbour needs to be to continue with
-# the merge. Again this is a percentage of shard_container_size.
+# When auto-sharding is enabled shard_shrink_point defines the object count
+# below which a 'donor' shard container will be considered for shrinking into
+# another 'acceptor' shard container. shard_shrink_point is a percentage of
+# shard_container_size e.g. the default value of 5 means 5% of the
+# shard_container_size. shard_shrink_point = 5
 #
-# For example, say the shard_container_size is 1 million, shard_shrink_point is
-# 50 and shard_shrink_merge_point is 75. Meaning start looking to merge with
-# neighbours when the current shard container is <= 500k, and only merge if
-# this container and a neighbour's combined object count <= 750k.
+# When auto-sharding is enabled shard_shrink_merge_point defines the maximum
+# allowed size of an acceptor shard container after having a donor merged into
+# it. Shard_shrink_merge_point is a percentage of shard_container_size. e.g.
+# the default value of 75 means that the projected sum of a donor object count
+# and acceptor count must be less than 75% of shard_container_size for the
+# donor to be allowed to merge into the acceptor.
 #
-# shard_shrink_point = 50
+# For example, if the shard_container_size is 1 million, shard_shrink_point is
+# 5, and shard_shrink_merge_point is 75 then a shard will be considered for
+# shrinking if it has less than or equal to 50 thousand objects but will only
+# merge into an acceptor if the combined object count would be less than or
+# equal to 750 thousand objects.
+#
 # shard_shrink_merge_point = 75
 #
-# When sharding, one primary node becomes the scanner and scans for pivot
-# points. In one shard pass a scanner identifies up to shard_scanner_batch_size
-# shard ranges before moving to the next container and will find more on the
-# next pass.
+# When auto-sharding is enabled shard_scanner_batch_size defines the maximum
+# number of shard ranges that will be found each time the sharder daemon visits
+# a sharding container. If necessary the sharder daemon will continue to search
+# for more shard ranges each time it visits the container.
 # shard_scanner_batch_size = 10
 #
-# When sharding how many pivots should it shard in one shard pass before moving
-# onto the next.
-# shard_batch_size = 2
+# cleave_batch_size defines the number of shard ranges that will be cleaved
+# each time the sharder daemon visits a sharding container.
+# cleave_batch_size = 2
+#
+# cleave_row_batch_size defines the size of batches of object rows read from a
+# sharding container and merged to a shard container during cleaving.
+# cleave_row_batch_size = 10000
 #
 # The sharder uses an internal client to create and make requests to
 # containers. The absolute path to the client config file can be configured.
@@ -383,33 +392,6 @@ use = egg:swift#xprofile
 #
 # The number of time the internal client will retry requests.
 # request_tries = 3
-#
-# Because the container-sharder is a type of container-replicator, it accepts
-# the same configuration.
-#
-# per_diff = 1000
-# max_diffs = 100
-# concurrency = 8
-#
-# Time in seconds to wait between replication passes
-# interval = 30
-#
-# node_timeout = 10
-# conn_timeout = 0.5
-#
-# The replicator also performs reclamation
-# reclaim_age = 604800
-#
-# Allow rsync to compress data which is transmitted to destination node
-# during sync. However, this is applicable only when destination node is in
-# a different region than the local one.
-# rsync_compress = no
-#
-# Format of the rsync module where the replicator will send data. See
-# etc/rsyncd.conf-sample for some usage examples.
-# rsync_module = {replication_ip}::container
-#
-# recon_cache_path = /var/cache/swift
 #
 # Each time the sharder dumps stats to the recon cache file it includes a list
 # of containers that appear to need sharding but are not yet sharding. By
@@ -422,3 +404,20 @@ use = egg:swift#xprofile
 # we write down our progress. Use a larger-than-normal broker timeout to make
 # us less likely to bomb out on a LockTimeout.
 # broker_timeout = 60
+#
+# Time in seconds to wait between sharder cycles
+# interval = 30
+#
+# The container-sharder accepts the following configuration options as defined
+# in the container-replicator section:
+#
+# per_diff = 1000
+# max_diffs = 100
+# concurrency = 8
+# node_timeout = 10
+# conn_timeout = 0.5
+# reclaim_age = 604800
+# rsync_compress = no
+# rsync_module = {replication_ip}::container
+# recon_cache_path = /var/cache/swift
+#
