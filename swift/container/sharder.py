@@ -708,20 +708,23 @@ class ContainerSharder(ContainerReplicator):
             the given row id; by default all rows are included.
         :return: a generator of tuples of (list of objects, broker info dict)
         """
-        marker = src_shard_range.lower_str
-        while True:
-            info = broker.get_info()
-            info['max_row'] = broker.get_max_row()
-            objects = broker.get_objects(
-                CONTAINER_LISTING_LIMIT,
-                marker=marker,
-                end_marker=src_shard_range.end_marker,
-                since_row=since_row)
-            yield objects, info
+        for include_deleted in (False, True):
+            marker = src_shard_range.lower_str
+            while True:
+                info = broker.get_info()
+                info['max_row'] = broker.get_max_row()
+                objects = broker.get_objects(
+                    CONTAINER_LISTING_LIMIT,
+                    marker=marker,
+                    end_marker=src_shard_range.end_marker,
+                    include_deleted=include_deleted,
+                    since_row=since_row)
+                if objects:
+                    yield objects, info
 
-            if len(objects) < CONTAINER_LISTING_LIMIT:
-                break
-            marker = objects[-1]['name']
+                if len(objects) < CONTAINER_LISTING_LIMIT:
+                    break
+                marker = objects[-1]['name']
 
     def yield_objects_to_shard_range(self, broker, src_shard_range,
                                      dest_shard_ranges):

@@ -1027,7 +1027,9 @@ class ContainerBroker(DatabaseBroker):
                      the path
         :param storage_policy_index: storage policy index for query
         :param reverse: reverse the result order.
-        :param include_deleted: Include items that have the delete marker set
+        :param include_deleted: if True, include only deleted objects; if
+            False (default), include only undeleted objects; otherwise, include
+            both deleted and undeleted objects.
         :param since_row: include only items whose ROWID is greater than
             the given row id; by default all rows are included.
         :param transform_func: an optional function that if given will be
@@ -1039,6 +1041,13 @@ class ContainerBroker(DatabaseBroker):
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag, deleted)
         """
+        if include_deleted is True:
+            deleted_arg = ' = 1'
+        elif include_deleted is False:
+            deleted_arg = ' = 0'
+        else:
+            deleted_arg = ' in (0, 1)'
+
         if transform_func is None:
             transform_func = self._transform_record
         delim_force_gte = False
@@ -1087,10 +1096,7 @@ class ContainerBroker(DatabaseBroker):
                 elif prefix:
                     query_conditions.append('name >= ?')
                     query_args.append(prefix)
-                if not include_deleted:
-                    query_conditions.append(deleted_key + ' = 0')
-                else:
-                    query_conditions.append(deleted_key + ' in (0, 1)')
+                query_conditions.append(deleted_key + deleted_arg)
                 if since_row:
                     query_conditions.append('ROWID > ?')
                     query_args.append(since_row)
@@ -1175,7 +1181,7 @@ class ContainerBroker(DatabaseBroker):
             return results
 
     def get_objects(self, limit=None, marker='', end_marker='',
-                    since_row=None):
+                    include_deleted=None, since_row=None):
         """
         Returns a list of objects, including deleted objects, in all policies.
         Each object in the list is described by a dict with keys {'name',
@@ -1187,6 +1193,9 @@ class ContainerBroker(DatabaseBroker):
             value will not be included in the list.
         :param end_marker: if set, objects with names greater than or equal to
             this value will not be included in the list.
+        :param include_deleted: if True, include only deleted objects; if
+            False, include only undeleted objects; otherwise (default), include
+            both deleted and undeleted objects.
         :param since_row: include only items whose ROWID is greater than
             the given row id; by default all rows are included.
         :return: a list of dicts, each describing an object.
@@ -1199,7 +1208,7 @@ class ContainerBroker(DatabaseBroker):
         limit = CONTAINER_LISTING_LIMIT if limit is None else limit
         return self.list_objects_iter(
             limit, marker, end_marker, prefix=None, delimiter=None, path=None,
-            reverse=False, include_deleted=True,
+            reverse=False, include_deleted=include_deleted,
             transform_func=transform_record, since_row=since_row,
             all_policies=True
         )

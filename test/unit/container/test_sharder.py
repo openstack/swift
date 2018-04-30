@@ -599,7 +599,7 @@ class TestSharder(BaseTestSharder):
         # use list_objects_iter with no-op transform_func to get back actual
         # un-transformed rows with encoded timestamps
         return [list(obj) for obj in broker.list_objects_iter(
-            10, '', '', '', '', include_deleted=True, all_policies=True,
+            10, '', '', '', '', include_deleted=None, all_policies=True,
             transform_func=lambda record, policy_index: record)]
 
     def _check_objects(self, expected_objs, shard_db):
