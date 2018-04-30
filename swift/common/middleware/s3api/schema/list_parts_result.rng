@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <include href="common.rng"/>
+  <start>
+    <element name="ListPartsResult">
+      <element name="Bucket">
+        <data type="string"/>
+      </element>
+      <element name="Key">
+        <data type="string"/>
+      </element>
+      <element name="UploadId">
+        <data type="string"/>
+      </element>
+      <element name="Initiator">
+        <ref name="CanonicalUser"/>
+      </element>
+      <element name="Owner">
+        <ref name="CanonicalUser"/>
+      </element>
+      <element name="StorageClass">
+        <ref name="StorageClass"/>
+      </element>
+      <element name="PartNumberMarker">
+        <data type="int"/>
+      </element>
+      <element name="NextPartNumberMarker">
+        <data type="int"/>
+      </element>
+      <element name="MaxParts">
+        <data type="int"/>
+      </element>
+      <optional>
+        <element name="EncodingType">
+          <data type="string"/>
+        </element>
+      </optional>
+      <element name="IsTruncated">
+        <data type="boolean"/>
+      </element>
+      <zeroOrMore>
+        <element name="Part">
+          <element name="PartNumber">
+            <data type="int"/>
+          </element>
+          <element name="LastModified">
+            <data type="dateTime"/>
+          </element>
+          <element name="ETag">
+            <data type="string"/>
+          </element>
+          <element name="Size">
+            <data type="long"/>
+          </element>
+        </element>
+      </zeroOrMore>
+    </element>
+  </start>
+</grammar>

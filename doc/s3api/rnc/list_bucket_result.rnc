@@ -1,0 +1,33 @@
+include "common.rnc"
+
+start =
+  element ListBucketResult {
+    element Name { xsd:string },
+    element Prefix { xsd:string },
+    (
+      (
+        element Marker { xsd:string },
+        element NextMarker { xsd:string }?
+      ) | (
+        element NextContinuationToken { xsd:string }?,
+        element ContinuationToken { xsd:string }?,
+        element StartAfter { xsd:string }?,
+        element KeyCount { xsd:int }
+      )
+    ),
+    element MaxKeys { xsd:int },
+    element EncodingType { xsd:string }?,
+    element Delimiter { xsd:string }?,
+    element IsTruncated { xsd:boolean },
+    element Contents {
+      element Key { xsd:string },
+      element LastModified { xsd:dateTime },
+      element ETag { xsd:string },
+      element Size { xsd:long },
+      element Owner { CanonicalUser }?,
+      element StorageClass { StorageClass }
+    }*,
+    element CommonPrefixes {
+      element Prefix { xsd:string }
+    }*
+  }

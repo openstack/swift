@@ -442,6 +442,145 @@ user_test5_tester5 = testing5 service
 # in ACLs by setting allow_names_in_acls to false:
 # allow_names_in_acls = true
 
+[filter:s3api]
+use = egg:swift#s3api
+
+# s3api setup:
+#
+# With either tempauth or your custom auth:
+# - Put s3api just before your auth filter(s) in the pipeline
+# With keystone:
+# - Put s3api and s3token before keystoneauth in the pipeline
+#
+# Swift has no concept of the S3's resource owner; the resources
+# (i.e. containers and objects) created via the Swift API have no owner
+# information. This option specifies how the s3api middleware handles them
+# with the S3 API.  If this option is 'false', such kinds of resources will be
+# invisible and no users can access them with the S3 API.  If set to 'true',
+# a resource without an owner belongs to everyone and everyone can access it
+# with the S3 API.  If you care about S3 compatibility, set 'false' here.  This
+# option makes sense only when the s3_acl option is set to 'true' and your
+# Swift cluster has the resources created via the Swift API.
+# allow_no_owner = false
+#
+# Set a region name of your Swift cluster.  Note that the s3api doesn't choose
+# a region of the newly created bucket.  This value is used for the
+# GET Bucket location API and v4 signatures calculation.
+# location = US
+#
+# Set whether to enforce DNS-compliant bucket names. Note that S3 enforces
+# these conventions in all regions except the US Standard region.
+# dns_compliant_bucket_names = True
+#
+# Set the default maximum number of objects returned in the GET Bucket
+# response.
+# max_bucket_listing = 1000
+#
+# Set the maximum number of parts returned in the List Parts operation.
+# (default: 1000 as well as S3 specification)
+# If setting it larger than 10000 (swift container_listing_limit default)
+# make sure you also increase the container_listing_limit in swift.conf.
+# max_parts_listing = 1000
+#
+# Set the maximum number of objects we can delete with the Multi-Object Delete
+# operation.
+# max_multi_delete_objects = 1000
+#
+# If set to 'true', s3api uses its own metadata for ACLs
+# (e.g. X-Container-Sysmeta-S3Api-Acl) to achieve the best S3 compatibility.
+# If set to 'false', s3api tries to use Swift ACLs (e.g. X-Container-Read)
+# instead of S3 ACLs as far as possible.
+# There are some caveats that one should know about this setting. Firstly,
+# if set to 'false' after being previously set to 'true' any new objects or
+# containers stored while 'true' setting will be accessible to all users
+# because the s3 ACLs will be ignored under s3_acl=False setting. Secondly,
+# s3_acl True mode don't keep ACL consistency between both the S3 and Swift
+# API. Meaning with s3_acl enabled S3 ACLs only effect objects and buckets
+# via the S3 API. As this ACL information wont be available via the Swift API
+# and so the ACL wont be applied.
+# Note that s3_acl currently supports only keystone and tempauth.
+# DON'T USE THIS for production before enough testing for your use cases.
+# This stuff is still under development and it might cause something
+# you don't expect.
+# s3_acl = false
+#
+# Specify a host name of your Swift cluster.  This enables virtual-hosted style
+# requests.
+# storage_domain =
+#
+# Enable pipeline order check for SLO, s3token, authtoken, keystoneauth
+# according to standard s3api/Swift construction using either tempauth or
+# keystoneauth. If the order is incorrect, it raises an exception to stop
+# proxy. Turn auth_pipeline_check off only when you want to bypass these
+# authenticate middlewares in order to use other 3rd party (or your
+# proprietary) authenticate middleware.
+# auth_pipeline_check = True
+#
+# Enable multi-part uploads. (default: true)
+# This is required to store files larger than Swift's max_file_size (by
+# default, 5GiB). Note that has performance implications when deleting objects,
+# as we now have to check for whether there are also segments to delete.
+# allow_multipart_uploads = True
+#
+# Set the maximum number of parts for Upload Part operation.(default: 1000)
+# When setting it to be larger than the default value in order to match the
+# specification of S3, set to be larger max_manifest_segments for slo
+# middleware.(specification of S3: 10000)
+# max_upload_part_num = 1000
+#
+# Enable returning only buckets which owner are the user who requested
+# GET Service operation. (default: false)
+# If you want to enable the above feature, set this and s3_acl to true.
+# That might cause significant performance degradation. So, only if your
+# service absolutely need this feature, set this setting to true.
+# If you set this to false, s3api returns all buckets.
+# check_bucket_owner = false
+#
+# By default, Swift reports only S3 style access log.
+# (e.g. PUT /bucket/object) If set force_swift_request_proxy_log
+# to be 'true', Swift will become to output Swift style log
+# (e.g. PUT /v1/account/container/object) in addition to S3 style log.
+# Note that they will be reported twice (i.e. s3api doesn't care about
+# the duplication) and Swift style log will includes also various subrequests
+# to achieve S3 compatibilities when force_swift_request_proxy_log is set to
+# 'true'
+# force_swift_request_proxy_log = false
+#
+# AWS S3 document says that each part must be at least 5 MB in a multipart
+# upload, except the last part.
+# min_segment_size = 5242880
+
+# You can override the default log routing for this filter here:
+# log_name = s3api
+
+[filter:s3token]
+# s3token middleware authenticates with keystone using the s3 credentials
+# provided in the request header. Please put s3token between s3api
+# and keystoneauth if you're using keystoneauth.
+use = egg:swift#s3token
+
+# Prefix that will be prepended to the tenant to form the account
+reseller_prefix = AUTH_
+
+# By default, s3token will reject all invalid S3-style requests. Set this to
+# True to delegate that decision to downstream WSGI components. This may be
+# useful if there are multiple auth systems in the proxy pipeline.
+delay_auth_decision = False
+
+# Keystone server details
+auth_uri = http://keystonehost:35357/v3
+
+# Connect/read timeout to use when communicating with Keystone
+http_timeout = 10.0
+
+# SSL-related options
+# insecure = False
+# certfile =
+# keyfile =
+
+# You can override the default log routing for this filter here:
+# log_name = s3token
+
 [filter:healthcheck]
 use = egg:swift#healthcheck
 # An optional filesystem path, which if present, will cause the healthcheck

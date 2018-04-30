@@ -1,0 +1,12 @@
+include "common.rnc"
+
+start =
+  element ListAllMyBucketsResult {
+    element Owner { CanonicalUser },
+    element Buckets {
+      element Bucket {
+        element Name { xsd:string },
+        element CreationDate { xsd:dateTime }
+      }*
+    }
+  }

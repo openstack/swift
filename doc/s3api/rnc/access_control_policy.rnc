@@ -1,0 +1,7 @@
+include "common.rnc"
+
+start =
+  element AccessControlPolicy {
+    element Owner { CanonicalUser } &
+    element AccessControlList { AccessControlList }
+  }

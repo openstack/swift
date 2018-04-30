@@ -412,6 +412,46 @@ def _load_domain_remap_staticweb(proxy_conf_file, swift_conf_file, **kwargs):
     return test_conf_file, swift_conf_file
 
 
+def _load_s3api(proxy_conf_file, swift_conf_file, **kwargs):
+    """
+    Load s3api configuration and override proxy-server.conf contents.
+
+    :param proxy_conf_file: Source proxy conf filename
+    :param swift_conf_file: Source swift conf filename
+    :returns: Tuple of paths to the proxy conf file and swift conf file to use
+    :raises InProcessException: raised if proxy conf contents are invalid
+    """
+    _debug('Setting configuration for s3api')
+
+    # The global conf dict cannot be used to modify the pipeline.
+    # The pipeline loader requires the pipeline to be set in the local_conf.
+    # If pipeline is set in the global conf dict (which in turn populates the
+    # DEFAULTS options) then it prevents pipeline being loaded into the local
+    # conf during wsgi load_app.
+    # Therefore we must modify the [pipeline:main] section.
+
+    conf = ConfigParser()
+    conf.read(proxy_conf_file)
+    try:
+        section = 'pipeline:main'
+        pipeline = conf.get(section, 'pipeline')
+        pipeline = pipeline.replace(
+            "tempauth",
+            "s3api tempauth")
+        conf.set(section, 'pipeline', pipeline)
+        conf.set('filter:s3api', 's3_acl', 'true')
+    except NoSectionError as err:
+        msg = 'Error problem with proxy conf file %s: %s' % \
+              (proxy_conf_file, err)
+        raise InProcessException(msg)
+
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with open(test_conf_file, 'w') as fp:
+        conf.write(fp)
+
+    return test_conf_file, swift_conf_file
+
+
 # Mapping from possible values of the variable
 # SWIFT_TEST_IN_PROCESS_CONF_LOADER
 # to the method to call for loading the associated configuration
@@ -421,6 +461,7 @@ conf_loaders = {
     'encryption': _load_encryption,
     'ec': _load_ec_as_default_policy,
     'domain_remap_staticweb': _load_domain_remap_staticweb,
+    's3api': _load_s3api,
 }
 
 
@@ -520,6 +561,12 @@ def in_process_setup(the_object_server=object_server):
         'account_autocreate': 'true',
         'allow_versions': 'True',
         'allow_versioned_writes': 'True',
+        # TODO: move this into s3api config loader because they are
+        #       required by only s3api
+        'allowed_headers':
+            "Content-Disposition, Content-Encoding, X-Delete-At, "
+            "X-Object-Manifest, X-Static-Large-Object, Cache-Control, "
+            "Content-Language, Expires, X-Robots-Tag",
         # Below are values used by the functional test framework, as well as
         # by the various in-process swift servers
         'auth_host': '127.0.0.1',
@@ -531,6 +578,8 @@ def in_process_setup(the_object_server=object_server):
         'account': 'test',
         'username': 'tester',
         'password': 'testing',
+        's3_access_key': 'test:tester',
+        's3_secret_key': 'testing',
         # User on a second account (needs admin access to the account)
         'account2': 'test2',
         'username2': 'tester2',
@@ -538,6 +587,8 @@ def in_process_setup(the_object_server=object_server):
         # User on same account as first, but without admin access
         'username3': 'tester3',
         'password3': 'testing3',
+        's3_access_key2': 'test:tester3',
+        's3_secret_key2': 'testing3',
         # Service user and prefix (emulates glance, cinder, etc. user)
         'account5': 'test5',
         'username5': 'tester5',
