@@ -459,10 +459,8 @@ class ContainerSharder(ContainerReplicator):
         if (time.time() - self.reported) >= 3600:  # once an hour
             self._report_stats()
 
-    def _check_node(self, node, devices_to_shard):
+    def _check_node(self, node):
         if not node:
-            return False
-        if node['device'] not in devices_to_shard:
             return False
         if not is_local_device(self.ips, self.port,
                                node['replication_ip'],
@@ -1440,13 +1438,15 @@ class ContainerSharder(ContainerReplicator):
         dirs = []
         self.ips = whataremyips(bind_ip=self.bind_ip)
         for node in self.ring.devs:
-            if not self._check_node(node, devices_to_shard):
+            if not self._check_node(node):
                 continue
             datadir = os.path.join(self.root, node['device'], self.datadir)
             if os.path.isdir(datadir):
-                # Populate self._local_device_ids so we can find
-                # handoffs for shards later
+                # Populate self._local_device_ids so we can find devices for
+                # shard containers later
                 self._local_device_ids.add(node['id'])
+                if node['device'] not in devices_to_shard:
+                    continue
                 part_filt = self._partition_dir_filter(
                     node['id'],
                     partitions_to_shard)

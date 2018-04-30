@@ -3924,6 +3924,77 @@ class TestSharder(BaseTestSharder):
                        [final_donor, broker.get_own_shard_range()])]
         )
 
+    def test_partition_and_device_filters(self):
+        # verify partitions and devices kwargs result in filtering of processed
+        # containers but not of the local device ids.
+        ring = FakeRing()
+        dev_ids = set()
+        container_data = []
+        for dev in ring.devs:
+            dev_ids.add(dev['id'])
+            part = str(dev['id'])
+            broker = self._make_broker(
+                container='c%s' % dev['id'], hash_='c%shash' % dev['id'],
+                device=dev['device'], part=part)
+            broker.update_metadata({'X-Container-Sysmeta-Sharding':
+                                    ('true', next(self.ts_iter).internal)})
+            container_data.append((broker.path, dev['id'], part))
+
+        with self._mock_sharder() as sharder:
+            sharder.ring = ring
+            sharder._check_node = lambda *args: True
+            with mock.patch.object(
+                    sharder, '_process_broker') as mock_process_broker:
+                sharder.run_once()
+        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(set(container_data),
+                         set((call[0][0].path, call[0][1]['id'], call[0][2])
+                             for call in mock_process_broker.call_args_list))
+
+        with self._mock_sharder() as sharder:
+            sharder.ring = ring
+            sharder._check_node = lambda *args: True
+            with mock.patch.object(
+                    sharder, '_process_broker') as mock_process_broker:
+                sharder.run_once(partitions='0')
+        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(set([container_data[0]]),
+                         set((call[0][0].path, call[0][1]['id'], call[0][2])
+                             for call in mock_process_broker.call_args_list))
+
+        with self._mock_sharder() as sharder:
+            sharder.ring = ring
+            sharder._check_node = lambda *args: True
+            with mock.patch.object(
+                    sharder, '_process_broker') as mock_process_broker:
+                sharder.run_once(partitions='2,0')
+        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(set([container_data[0], container_data[2]]),
+                         set((call[0][0].path, call[0][1]['id'], call[0][2])
+                             for call in mock_process_broker.call_args_list))
+
+        with self._mock_sharder() as sharder:
+            sharder.ring = ring
+            sharder._check_node = lambda *args: True
+            with mock.patch.object(
+                    sharder, '_process_broker') as mock_process_broker:
+                sharder.run_once(partitions='2,0', devices='sdc')
+        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(set([container_data[2]]),
+                         set((call[0][0].path, call[0][1]['id'], call[0][2])
+                             for call in mock_process_broker.call_args_list))
+
+        with self._mock_sharder() as sharder:
+            sharder.ring = ring
+            sharder._check_node = lambda *args: True
+            with mock.patch.object(
+                    sharder, '_process_broker') as mock_process_broker:
+                sharder.run_once(devices='sdb,sdc')
+        self.assertEqual(dev_ids, set(sharder._local_device_ids))
+        self.assertEqual(set(container_data[1:]),
+                         set((call[0][0].path, call[0][1]['id'], call[0][2])
+                             for call in mock_process_broker.call_args_list))
+
 
 class TestCleavingContext(BaseTestSharder):
     def test_init(self):
