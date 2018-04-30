@@ -67,6 +67,10 @@ class TestDaemon(unittest.TestCase):
 
 class MyWorkerDaemon(MyDaemon):
 
+    def __init__(self, *a, **kw):
+        super(MyWorkerDaemon, self).__init__(*a, **kw)
+        MyWorkerDaemon.post_multiprocess_run_called = False
+
     def get_worker_args(self, once=False, **kwargs):
         return [kwargs for i in range(int(self.conf.get('workers', 0)))]
 
@@ -75,6 +79,9 @@ class MyWorkerDaemon(MyDaemon):
             return getattr(self, 'health_side_effects', []).pop(0)
         except IndexError:
             return True
+
+    def post_multiprocess_run(self):
+        MyWorkerDaemon.post_multiprocess_run_called = True
 
 
 class TestWorkerDaemon(unittest.TestCase):
@@ -231,6 +238,7 @@ class TestRunDaemon(unittest.TestCase):
         })
         self.assertEqual([], self.mock_kill.call_args_list)
         self.assertIn('Finished', d.logger.get_lines_for_level('notice')[-1])
+        self.assertTrue(MyWorkerDaemon.post_multiprocess_run_called)
 
     def test_forked_worker(self):
         d = MyWorkerDaemon({'workers': 3})

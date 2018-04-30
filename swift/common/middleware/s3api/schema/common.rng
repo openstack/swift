@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <define name="CanonicalUser">
+    <interleave>
+      <element name="ID">
+        <data type="string"/>
+      </element>
+      <optional>
+        <element name="DisplayName">
+          <data type="string"/>
+        </element>
+      </optional>
+    </interleave>
+  </define>
+  <define name="StorageClass">
+    <choice>
+      <value>STANDARD</value>
+      <value>REDUCED_REDUNDANCY</value>
+      <value>GLACIER</value>
+      <value>UNKNOWN</value>
+    </choice>
+  </define>
+  <define name="AccessControlList">
+    <zeroOrMore>
+      <element name="Grant">
+        <interleave>
+          <element name="Grantee">
+            <choice>
+              <group>
+                <attribute name="xsi:type">
+                  <value>AmazonCustomerByEmail</value>
+                </attribute>
+                <element name="EmailAddress">
+                  <data type="string"/>
+                </element>
+              </group>
+              <group>
+                <attribute name="xsi:type">
+                  <value>CanonicalUser</value>
+                </attribute>
+                <ref name="CanonicalUser"/>
+              </group>
+              <group>
+                <attribute name="xsi:type">
+                  <value>Group</value>
+                </attribute>
+                <element name="URI">
+                  <data type="string"/>
+                </element>
+              </group>
+            </choice>
+          </element>
+          <element name="Permission">
+            <choice>
+              <value>READ</value>
+              <value>WRITE</value>
+              <value>READ_ACP</value>
+              <value>WRITE_ACP</value>
+              <value>FULL_CONTROL</value>
+            </choice>
+          </element>
+        </interleave>
+      </element>
+    </zeroOrMore>
+  </define>
+</grammar>

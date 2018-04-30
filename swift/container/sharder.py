@@ -32,7 +32,7 @@ from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
     config_float_value, config_positive_int_value, \
-    quorum_size, parse_overrides, Everything
+    quorum_size, parse_override_options, Everything
 from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD_NODE, UNSHARDED, SHARDING, SHARDED, COLLAPSED, \
     SHARD_UPDATE_STATES
@@ -1503,8 +1503,9 @@ class ContainerSharder(ContainerReplicator):
     def run_once(self, *args, **kwargs):
         """Run the container sharder once."""
         self.logger.info('Begin container sharder "once" mode')
-        devices_to_shard, partitions_to_shard = parse_overrides(
-            **kwargs)
+        override_options = parse_override_options(once=True, **kwargs)
+        devices_to_shard = override_options.devices or Everything()
+        partitions_to_shard = override_options.partitions or Everything()
         begin = self.reported = time.time()
         self._one_shard_cycle(devices_to_shard=devices_to_shard,
                               partitions_to_shard=partitions_to_shard)

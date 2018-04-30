@@ -1,0 +1,17 @@
+start =
+  element DeleteResult {
+    (
+      element Deleted {
+        element Key { xsd:string },
+        element VersionId { xsd:string }?,
+        element DeleteMarker { xsd:boolean }?,
+        element DeleteMarkerVersionId { xsd:string }?
+      } |
+      element Error {
+        element Key { xsd:string },
+        element VersionId { xsd:string }?,
+        element Code { xsd:string },
+        element Message { xsd:string }
+      }
+    )*
+  }

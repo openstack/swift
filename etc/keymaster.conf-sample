@@ -52,7 +52,7 @@
 # project_id = changeme
 
 # The Keystone URL to authenticate to. The value of auth_endpoint may be
-# set according to the value of auth_uri in [filter:authtoken] in
+# set according to the value of www_authenticate_uri in [filter:authtoken] in
 # proxy-server.conf.
 # auth_endpoint = http://keystonehost/identity
 

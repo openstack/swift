@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <start>
+    <element name="DeleteResult">
+      <zeroOrMore>
+        <choice>
+          <element name="Deleted">
+            <element name="Key">
+              <data type="string"/>
+            </element>
+            <optional>
+              <element name="VersionId">
+                <data type="string"/>
+              </element>
+            </optional>
+            <optional>
+              <element name="DeleteMarker">
+                <data type="boolean"/>
+              </element>
+            </optional>
+            <optional>
+              <element name="DeleteMarkerVersionId">
+                <data type="string"/>
+              </element>
+            </optional>
+          </element>
+          <element name="Error">
+            <element name="Key">
+              <data type="string"/>
+            </element>
+            <optional>
+              <element name="VersionId">
+                <data type="string"/>
+              </element>
+            </optional>
+            <element name="Code">
+              <data type="string"/>
+            </element>
+            <element name="Message">
+              <data type="string"/>
+            </element>
+          </element>
+        </choice>
+      </zeroOrMore>
+    </element>
+  </start>
+</grammar>

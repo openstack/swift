@@ -39,7 +39,7 @@ There are many clients in the :ref:`ecosystem <application-bindings>`. The offic
 and SDK is python-swiftclient.
 
 * `Source code <https://github.com/openstack/python-swiftclient>`_
-* `Python Package Index <https://pypi.python.org/pypi/python-swiftclient>`_
+* `Python Package Index <https://pypi.org/project/python-swiftclient>`_
 
 ----------
 Production

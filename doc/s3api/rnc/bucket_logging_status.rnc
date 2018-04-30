@@ -1,0 +1,10 @@
+include "common.rnc"
+
+start =
+  element BucketLoggingStatus {
+    element LoggingEnabled {
+      element TargetBucket { xsd:string } &
+      element TargetPrefix { xsd:string } &
+      element TargetGrants { AccessControlList }?
+    }?
+  }

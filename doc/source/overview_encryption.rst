@@ -334,7 +334,7 @@ Encryption scheme
 
 Plaintext data is encrypted to ciphertext using the AES cipher with 256-bit
 keys implemented by the python `cryptography package
-<https://pypi.python.org/pypi/cryptography>`_. The cipher is used in counter
+<https://pypi.org/project/cryptography>`_. The cipher is used in counter
 (CTR) mode so that any byte or range of bytes in the ciphertext may be
 decrypted independently of any other bytes in the ciphertext. This enables very
 simple handling of ranged GETs.

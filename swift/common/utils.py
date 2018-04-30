@@ -20,6 +20,7 @@ from __future__ import print_function
 import base64
 import binascii
 import bisect
+import collections
 import errno
 import fcntl
 import grp
@@ -208,8 +209,8 @@ def set_swift_dir(swift_dir):
             swift_dir != os.path.dirname(SWIFT_CONF_FILE)):
         SWIFT_CONF_FILE = os.path.join(
             swift_dir, os.path.basename(SWIFT_CONF_FILE))
-        HASH_PATH_PREFIX = ''
-        HASH_PATH_SUFFIX = ''
+        HASH_PATH_PREFIX = b''
+        HASH_PATH_SUFFIX = b''
         validate_configuration()
         return True
     return False
@@ -1713,6 +1714,51 @@ def timing_stats(**dec_kwargs):
 
         return _timing_stats
     return decorating_func
+
+
+class SwiftLoggerAdapter(logging.LoggerAdapter):
+    """
+    A logging.LoggerAdapter subclass that also passes through StatsD method
+    calls.
+
+    Like logging.LoggerAdapter, you have to subclass this and override the
+    process() method to accomplish anything useful.
+    """
+    def update_stats(self, *a, **kw):
+        return self.logger.update_stats(*a, **kw)
+
+    def increment(self, *a, **kw):
+        return self.logger.increment(*a, **kw)
+
+    def decrement(self, *a, **kw):
+        return self.logger.decrement(*a, **kw)
+
+    def timing(self, *a, **kw):
+        return self.logger.timing(*a, **kw)
+
+    def timing_since(self, *a, **kw):
+        return self.logger.timing_since(*a, **kw)
+
+    def transfer_rate(self, *a, **kw):
+        return self.logger.transfer_rate(*a, **kw)
+
+
+class PrefixLoggerAdapter(SwiftLoggerAdapter):
+    """
+    Adds an optional prefix to all its log messages. When the prefix has not
+    been set, messages are unchanged.
+    """
+    def set_prefix(self, prefix):
+        self.extra['prefix'] = prefix
+
+    def exception(self, *a, **kw):
+        self.logger.exception(*a, **kw)
+
+    def process(self, msg, kwargs):
+        msg, kwargs = super(PrefixLoggerAdapter, self).process(msg, kwargs)
+        if 'prefix' in self.extra:
+            msg = self.extra['prefix'] + msg
+        return (msg, kwargs)
 
 
 # double inheritance to support property with setter
@@ -3280,8 +3326,24 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
                     except OSError as err:
                         if err.errno != errno.ENOENT:
                             raise
-    except (Exception, Timeout):
-        logger.exception(_('Exception dumping recon cache'))
+    except (Exception, Timeout) as err:
+        logger.exception('Exception dumping recon cache: %s' % err)
+
+
+def load_recon_cache(cache_file):
+    """
+    Load a recon cache file. Treats missing file as empty.
+    """
+    try:
+        with open(cache_file) as fh:
+            return json.load(fh)
+    except IOError as e:
+        if e.errno == errno.ENOENT:
+            return {}
+        else:
+            raise
+    except ValueError:  # invalid JSON
+        return {}
 
 
 def listdir(path):
@@ -3452,27 +3514,6 @@ def list_from_csv(comma_separated_str):
     if comma_separated_str:
         return [v.strip() for v in comma_separated_str.split(',') if v.strip()]
     return []
-
-
-def parse_overrides(devices='', partitions='', **kwargs):
-    """
-    Given daemon kwargs parse out device and partition overrides or Everything.
-
-    :returns: a tuple of (devices, partitions) which an used like containers to
-              check if a given partition (integer) or device (string) is "in"
-              the collection on which we should act.
-    """
-    devices = list_from_csv(devices)
-    if not devices:
-        devices = Everything()
-
-    partitions = [
-        int(part) for part in
-        list_from_csv(partitions)]
-    if not partitions:
-        partitions = Everything()
-
-    return devices, partitions
 
 
 def csv_append(csv_string, item):
@@ -5179,6 +5220,68 @@ def round_robin_iter(its):
                 yield next(it)
             except StopIteration:
                 its.remove(it)
+
+
+OverrideOptions = collections.namedtuple(
+    'OverrideOptions', ['devices', 'partitions', 'policies'])
+
+
+def parse_override_options(**kwargs):
+    """
+    Figure out which policies, devices, and partitions we should operate on,
+    based on kwargs.
+
+    If 'override_policies' is already present in kwargs, then return that
+    value. This happens when using multiple worker processes; the parent
+    process supplies override_policies=X to each child process.
+
+    Otherwise, in run-once mode, look at the 'policies' keyword argument.
+    This is the value of the "--policies" command-line option. In
+    run-forever mode or if no --policies option was provided, an empty list
+    will be returned.
+
+    The procedures for devices and partitions are similar.
+
+    :returns: a named tuple with fields "devices", "partitions", and
+      "policies".
+    """
+    run_once = kwargs.get('once', False)
+
+    if 'override_policies' in kwargs:
+        policies = kwargs['override_policies']
+    elif run_once:
+        policies = [
+            int(p) for p in list_from_csv(kwargs.get('policies'))]
+    else:
+        policies = []
+
+    if 'override_devices' in kwargs:
+        devices = kwargs['override_devices']
+    elif run_once:
+        devices = list_from_csv(kwargs.get('devices'))
+    else:
+        devices = []
+
+    if 'override_partitions' in kwargs:
+        partitions = kwargs['override_partitions']
+    elif run_once:
+        partitions = [
+            int(p) for p in list_from_csv(kwargs.get('partitions'))]
+    else:
+        partitions = []
+
+    return OverrideOptions(devices=devices, partitions=partitions,
+                           policies=policies)
+
+
+def distribute_evenly(items, num_buckets):
+    """
+    Distribute items as evenly as possible into N buckets.
+    """
+    out = [[] for _ in range(num_buckets)]
+    for index, item in enumerate(items):
+        out[index % num_buckets].append(item)
+    return out
 
 
 def get_redirect_data(response):
