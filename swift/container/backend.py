@@ -1060,13 +1060,13 @@ class ContainerBroker(DatabaseBroker):
         orig_marker = marker
         with self.get() as conn:
             results = []
+            if self.get_db_version(conn) < 1:
+                deleted_key = '+deleted'
+            else:
+                deleted_key = 'deleted'
             while len(results) < limit:
                 query_keys = ['name', 'created_at', 'size', 'content_type',
-                              'etag']
-                if self.get_db_version(conn) < 1:
-                    query_keys.append('+deleted')
-                else:
-                    query_keys.append('deleted')
+                              'etag', deleted_key]
                 query_args = []
                 query_conditions = []
                 if end_marker and (not prefix or end_marker < end_prefix):
@@ -1088,12 +1088,9 @@ class ContainerBroker(DatabaseBroker):
                     query_conditions.append('name >= ?')
                     query_args.append(prefix)
                 if not include_deleted:
-                    if self.get_db_version(conn) < 1:
-                        query_conditions.append('+deleted = 0')
-                    else:
-                        query_conditions.append('deleted = 0')
+                    query_conditions.append(deleted_key + ' = 0')
                 else:
-                    query_conditions.append('deleted in (0, 1)')
+                    query_conditions.append(deleted_key + ' in (0, 1)')
                 if since_row:
                     query_conditions.append('ROWID > ?')
                     query_args.append(since_row)
