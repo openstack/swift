@@ -8356,6 +8356,29 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(res.content_length, 0)
             self.assertNotIn('transfer-encoding', res.headers)
 
+    def test_GET_account_non_existent(self):
+        with save_globals():
+            set_http_connect(404, 404, 404)
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
+            req = Request.blank('/v1/a/c')
+            self.app.update_request(req)
+            res = controller.GET(req)
+            self.assertEqual(res.status_int, 404)
+            self.assertNotIn('container/a/c', res.environ['swift.infocache'])
+
+    def test_GET_auto_create_prefix_account_non_existent(self):
+        with save_globals():
+            set_http_connect(404, 404, 404, 204, 204, 204)
+            controller = proxy_server.ContainerController(self.app, '.a', 'c')
+            req = Request.blank('/v1/a/c')
+            self.app.update_request(req)
+            res = controller.GET(req)
+            self.assertEqual(res.status_int, 204)
+            ic = res.environ['swift.infocache']
+            self.assertEqual(ic['container/.a/c']['status'], 204)
+            self.assertEqual(res.content_length, 0)
+            self.assertNotIn('transfer-encoding', res.headers)
+
     def test_GET_calls_authorize(self):
         called = [False]
 

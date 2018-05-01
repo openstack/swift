@@ -84,7 +84,9 @@ class ContainerController(Controller):
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         ai = self.account_info(self.account_name, req)
-        if not ai[1]:
+        auto_account = self.account_name.startswith(
+            self.app.auto_create_account_prefix)
+        if not (auto_account or ai[1]):
             if 'swift.authorize' in req.environ:
                 aresp = req.environ['swift.authorize'](req)
                 if aresp:
