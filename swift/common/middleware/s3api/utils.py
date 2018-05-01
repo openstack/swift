@@ -20,7 +20,6 @@ import re
 import time
 import uuid
 
-# Need for check_path_header
 from swift.common import utils
 
 MULTIUPLOAD_SUFFIX = '+segments'
