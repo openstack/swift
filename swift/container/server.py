@@ -523,7 +523,7 @@ class ContainerController(BaseStorageServer):
         resp.last_modified = math.ceil(float(headers['X-PUT-Timestamp']))
         return resp
 
-    def update_data_record(self, record, include_deleted=False):
+    def update_data_record(self, record):
         """
         Perform any mutations to container listing records that are common to
         all serialization formats, and returns it as a dict.
@@ -545,8 +545,6 @@ class ContainerController(BaseStorageServer):
             response = {
                 'bytes': size, 'hash': etag, 'name': name.decode('utf8'),
                 'content_type': content_type}
-            if include_deleted and len(record) > 5:
-                response['deleted'] = record[5]
             override_bytes_from_content_type(response, logger=self.logger)
         response['last_modified'] = Timestamp(created).isoformat
         return response
@@ -583,8 +581,6 @@ class ContainerController(BaseStorageServer):
                                             stale_reads_ok=True)
         info, is_deleted = broker.get_info_is_deleted()
         record_type = req.headers.get('x-backend-record-type', '').lower()
-        include_deleted = config_true_value(
-            req.headers.get('x-backend-include-deleted', False))
         if record_type == 'auto' and info.get('db_state') in (SHARDING,
                                                               SHARDED):
             record_type = 'shard'
@@ -605,6 +601,8 @@ class ContainerController(BaseStorageServer):
                     states = broker.resolve_shard_range_states(states)
                 except ValueError:
                     return HTTPBadRequest(request=req, body='Bad state')
+            include_deleted = config_true_value(
+                req.headers.get('x-backend-include-deleted', False))
             container_list = broker.get_shard_ranges(
                 marker, end_marker, includes, reverse, states=states,
                 include_deleted=include_deleted, fill_gaps=fill_gaps)
@@ -619,20 +617,18 @@ class ContainerController(BaseStorageServer):
             container_list = src_broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],
-                reverse=reverse, include_deleted=include_deleted)
+                reverse=reverse)
 
         return self.create_listing(req, out_content_type, info, resp_headers,
-                                   broker.metadata, container_list, container,
-                                   include_deleted)
+                                   broker.metadata, container_list, container)
 
     def create_listing(self, req, out_content_type, info, resp_headers,
-                       metadata, container_list, container,
-                       include_deleted=False):
+                       metadata, container_list, container):
         for key, (value, timestamp) in metadata.items():
             if value and (key.lower() in self.save_headers or
                           is_sys_or_user_meta('container', key)):
                 resp_headers[key] = value
-        listing = [self.update_data_record(record, include_deleted)
+        listing = [self.update_data_record(record)
                    for record in container_list]
         if out_content_type.endswith('/xml'):
             body = listing_formats.container_to_xml(listing, container)
