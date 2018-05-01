@@ -751,6 +751,8 @@ class FakeStatus(object):
         :param response_sleep: float, time to eventlet sleep during response
         """
         # connect exception
+        if inspect.isclass(status) and issubclass(status, Exception):
+            raise status('FakeStatus Error')
         if isinstance(status, (Exception, eventlet.Timeout)):
             raise status
         if isinstance(status, tuple):
@@ -1063,6 +1065,15 @@ def make_timestamp_iter(offset=0):
                 for t in itertools.count(int(time.time()) + offset))
 
 
+@contextmanager
+def mock_timestamp_now(now=None):
+    if now is None:
+        now = Timestamp.now()
+    with mocklib.patch('swift.common.utils.Timestamp.now',
+                       classmethod(lambda c: now)):
+        yield now
+
+
 class Timeout(object):
     def __init__(self, seconds):
         self.seconds = seconds
@@ -1323,3 +1334,12 @@ def skip_if_no_xattrs():
     if not xattr_supported_check():
         raise SkipTest('Large xattrs not supported in `%s`. Skipping test' %
                        gettempdir())
+
+
+def unlink_files(paths):
+    for path in paths:
+        try:
+            os.unlink(path)
+        except OSError as err:
+            if err.errno != errno.ENOENT:
+                raise

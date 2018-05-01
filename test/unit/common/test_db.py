@@ -38,12 +38,36 @@ from swift.common.constraints import \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
-    GreenDBConnection, PICKLE_PROTOCOL
+    GreenDBConnection, PICKLE_PROTOCOL, zero_like
 from swift.common.utils import normalize_timestamp, mkdirs, Timestamp
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
 
 from test.unit import with_tempdir
+
+
+class TestHelperFunctions(unittest.TestCase):
+
+    def test_zero_like(self):
+        expectations = {
+            # value => expected
+            None: True,
+            True: False,
+            '': True,
+            'asdf': False,
+            0: True,
+            1: False,
+            '0': True,
+            '1': False,
+        }
+        errors = []
+        for value, expected in expectations.items():
+            rv = zero_like(value)
+            if rv != expected:
+                errors.append('zero_like(%r) => %r expected %r' % (
+                    value, rv, expected))
+        if errors:
+            self.fail('Some unexpected return values:\n' + '\n'.join(errors))
 
 
 class TestDatabaseConnectionError(unittest.TestCase):
@@ -989,6 +1013,19 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEqual(broker.get_sync(uuid3), 2)
         broker.merge_syncs([{'sync_point': 5, 'remote_id': uuid2}])
         self.assertEqual(broker.get_sync(uuid2), 5)
+        # max sync point sticks
+        broker.merge_syncs([{'sync_point': 5, 'remote_id': uuid2}])
+        self.assertEqual(broker.get_sync(uuid2), 5)
+        self.assertEqual(broker.get_sync(uuid3), 2)
+        broker.merge_syncs([{'sync_point': 4, 'remote_id': uuid2}])
+        self.assertEqual(broker.get_sync(uuid2), 5)
+        self.assertEqual(broker.get_sync(uuid3), 2)
+        broker.merge_syncs([{'sync_point': -1, 'remote_id': uuid2},
+                            {'sync_point': 3, 'remote_id': uuid3}])
+        self.assertEqual(broker.get_sync(uuid2), 5)
+        self.assertEqual(broker.get_sync(uuid3), 3)
+        self.assertEqual(broker.get_sync(uuid2, incoming=False), 3)
+        self.assertEqual(broker.get_sync(uuid3, incoming=False), 4)
 
     def test_get_replication_info(self):
         self.get_replication_info_tester(metadata=False)
@@ -1089,11 +1126,9 @@ class TestDatabaseBroker(unittest.TestCase):
             'max_row': 1, 'id': broker_uuid, 'metadata': broker_metadata})
         return broker
 
-    def test_metadata(self):
-        def reclaim(broker, timestamp):
-            with broker.get() as conn:
-                broker._reclaim(conn, timestamp)
-                conn.commit()
+    # only testing _reclaim_metadata here
+    @patch.object(DatabaseBroker, '_reclaim')
+    def test_metadata(self, mock_reclaim):
         # Initializes a good broker for us
         broker = self.get_replication_info_tester(metadata=True)
         # Add our first item
@@ -1134,7 +1169,7 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEqual(broker.metadata['Second'],
                          [second_value, second_timestamp])
         # Reclaim at point before second item was deleted
-        reclaim(broker, normalize_timestamp(3))
+        broker.reclaim(normalize_timestamp(3), normalize_timestamp(3))
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
@@ -1142,7 +1177,7 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEqual(broker.metadata['Second'],
                          [second_value, second_timestamp])
         # Reclaim at point second item was deleted
-        reclaim(broker, normalize_timestamp(4))
+        broker.reclaim(normalize_timestamp(4), normalize_timestamp(4))
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
@@ -1150,11 +1185,18 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEqual(broker.metadata['Second'],
                          [second_value, second_timestamp])
         # Reclaim after point second item was deleted
-        reclaim(broker, normalize_timestamp(5))
+        broker.reclaim(normalize_timestamp(5), normalize_timestamp(5))
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
         self.assertNotIn('Second', broker.metadata)
+        # Delete first item (by setting to empty string)
+        first_timestamp = normalize_timestamp(6)
+        broker.update_metadata({'First': ['', first_timestamp]})
+        self.assertIn('First', broker.metadata)
+        # Check that sync_timestamp doesn't cause item to be reclaimed
+        broker.reclaim(normalize_timestamp(5), normalize_timestamp(99))
+        self.assertIn('First', broker.metadata)
 
     def test_update_metadata_missing_container_info(self):
         # Test missing container_info/container_stat row
@@ -1197,7 +1239,7 @@ class TestDatabaseBroker(unittest.TestCase):
         exc = None
         try:
             with broker.get() as conn:
-                broker._reclaim(conn, 0)
+                broker._reclaim_metadata(conn, 0)
         except Exception as err:
             exc = err
         self.assertEqual(
@@ -1332,6 +1374,142 @@ class TestDatabaseBroker(unittest.TestCase):
                         (dbpath, qpath, hint))
                 else:
                     self.fail('Expected an exception to be raised')
+
+    def test_skip_commits(self):
+        broker = DatabaseBroker(':memory:')
+        self.assertTrue(broker._skip_commit_puts())
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+        self.assertTrue(broker._skip_commit_puts())
+
+        # not initialized
+        db_file = os.path.join(self.testdir, '1.db')
+        broker = DatabaseBroker(db_file)
+        self.assertFalse(os.path.exists(broker.db_file))  # sanity check
+        self.assertTrue(broker._skip_commit_puts())
+
+        # no pending file
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+        self.assertTrue(os.path.exists(broker.db_file))  # sanity check
+        self.assertFalse(os.path.exists(broker.pending_file))  # sanity check
+        self.assertTrue(broker._skip_commit_puts())
+
+        # pending file exists
+        with open(broker.pending_file, 'wb'):
+            pass
+        self.assertTrue(os.path.exists(broker.pending_file))  # sanity check
+        self.assertFalse(broker._skip_commit_puts())
+
+        # skip_commits is True
+        broker.skip_commits = True
+        self.assertTrue(broker._skip_commit_puts())
+
+        # re-init
+        broker = DatabaseBroker(db_file)
+        self.assertFalse(broker._skip_commit_puts())
+
+        # constructor can override
+        broker = DatabaseBroker(db_file, skip_commits=True)
+        self.assertTrue(broker._skip_commit_puts())
+
+    def test_commit_puts(self):
+        db_file = os.path.join(self.testdir, '1.db')
+        broker = DatabaseBroker(db_file)
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+        with open(broker.pending_file, 'wb'):
+            pass
+
+        # merge given list
+        with patch.object(broker, 'merge_items') as mock_merge_items:
+            broker._commit_puts(['test'])
+        mock_merge_items.assert_called_once_with(['test'])
+
+        # load file and merge
+        with open(broker.pending_file, 'wb') as fd:
+            fd.write(':1:2:99')
+        with patch.object(broker, 'merge_items') as mock_merge_items:
+            broker._commit_puts_load = lambda l, e: l.append(e)
+            broker._commit_puts()
+        mock_merge_items.assert_called_once_with(['1', '2', '99'])
+        self.assertEqual(0, os.path.getsize(broker.pending_file))
+
+        # load file and merge with given list
+        with open(broker.pending_file, 'wb') as fd:
+            fd.write(':bad')
+        with patch.object(broker, 'merge_items') as mock_merge_items:
+            broker._commit_puts_load = lambda l, e: l.append(e)
+            broker._commit_puts(['not'])
+        mock_merge_items.assert_called_once_with(['not', 'bad'])
+        self.assertEqual(0, os.path.getsize(broker.pending_file))
+
+        # skip_commits True - no merge
+        db_file = os.path.join(self.testdir, '2.db')
+        broker = DatabaseBroker(db_file, skip_commits=True)
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+        with open(broker.pending_file, 'wb') as fd:
+            fd.write(':ignored')
+        with patch.object(broker, 'merge_items') as mock_merge_items:
+            with self.assertRaises(DatabaseConnectionError) as cm:
+                broker._commit_puts(['hmmm'])
+        mock_merge_items.assert_not_called()
+        self.assertIn('commits not accepted', str(cm.exception))
+        with open(broker.pending_file, 'rb') as fd:
+            self.assertEqual(':ignored', fd.read())
+
+    def test_put_record(self):
+        db_file = os.path.join(self.testdir, '1.db')
+        broker = DatabaseBroker(db_file)
+        broker._initialize = MagicMock()
+        broker.initialize(Timestamp.now())
+
+        # pending file created and record written
+        broker.make_tuple_for_pickle = lambda x: x.upper()
+        with patch.object(broker, '_commit_puts') as mock_commit_puts:
+            broker.put_record('pinky')
+        mock_commit_puts.assert_not_called()
+        with open(broker.pending_file, 'rb') as fd:
+            pending = fd.read()
+        items = pending.split(':')
+        self.assertEqual(['PINKY'],
+                         [pickle.loads(i.decode('base64')) for i in items[1:]])
+
+        # record appended
+        with patch.object(broker, '_commit_puts') as mock_commit_puts:
+            broker.put_record('perky')
+        mock_commit_puts.assert_not_called()
+        with open(broker.pending_file, 'rb') as fd:
+            pending = fd.read()
+        items = pending.split(':')
+        self.assertEqual(['PINKY', 'PERKY'],
+                         [pickle.loads(i.decode('base64')) for i in items[1:]])
+
+        # pending file above cap
+        cap = swift.common.db.PENDING_CAP
+        while os.path.getsize(broker.pending_file) < cap:
+            with open(broker.pending_file, 'ab') as fd:
+                fd.write('x' * 100000)
+        with patch.object(broker, '_commit_puts') as mock_commit_puts:
+            broker.put_record('direct')
+        mock_commit_puts.called_once_with(['direct'])
+
+        # records shouldn't be put to brokers with skip_commits True because
+        # they cannot be accepted if the pending file is full
+        broker.skip_commits = True
+        with open(broker.pending_file, 'wb'):
+            # empty the pending file
+            pass
+        with patch.object(broker, '_commit_puts') as mock_commit_puts:
+            with self.assertRaises(DatabaseConnectionError) as cm:
+                broker.put_record('unwelcome')
+        self.assertIn('commits not accepted', str(cm.exception))
+        mock_commit_puts.assert_not_called()
+        with open(broker.pending_file, 'rb') as fd:
+            pending = fd.read()
+        self.assertFalse(pending)
+
 
 if __name__ == '__main__':
     unittest.main()

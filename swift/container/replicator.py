@@ -28,9 +28,7 @@ from swift.common import db_replicator
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DeviceUnavailable
 from swift.common.http import is_success
-from swift.common.db import DatabaseAlreadyExists
-from swift.common.utils import (Timestamp, hash_path,
-                                storage_directory, majority_size)
+from swift.common.utils import Timestamp, majority_size
 
 
 class ContainerReplicator(db_replicator.Replicator):
@@ -38,6 +36,10 @@ class ContainerReplicator(db_replicator.Replicator):
     brokerclass = ContainerBroker
     datadir = DATADIR
     default_port = 6201
+
+    def __init__(self, conf, logger=None):
+        super(ContainerReplicator, self).__init__(conf, logger=logger)
+        self.reconciler_cleanups = self.sync_store = None
 
     def report_up_to_date(self, full_info):
         reported_key_map = {
@@ -61,8 +63,7 @@ class ContainerReplicator(db_replicator.Replicator):
         return sync_args
 
     def _handle_sync_response(self, node, response, info, broker, http,
-                              different_region):
-        parent = super(ContainerReplicator, self)
+                              different_region=False):
         if is_success(response.status):
             remote_info = json.loads(response.data)
             if incorrect_policy_index(info, remote_info):
@@ -75,9 +76,8 @@ class ContainerReplicator(db_replicator.Replicator):
             if any(info[key] != remote_info[key] for key in sync_timestamps):
                 broker.merge_timestamps(*(remote_info[key] for key in
                                           sync_timestamps))
-        rv = parent._handle_sync_response(
+        return super(ContainerReplicator, self)._handle_sync_response(
             node, response, info, broker, http, different_region)
-        return rv
 
     def find_local_handoff_for_part(self, part):
         """
@@ -114,15 +114,10 @@ class ContainerReplicator(db_replicator.Replicator):
             raise DeviceUnavailable(
                 'No mounted devices found suitable to Handoff reconciler '
                 'container %s in partition %s' % (container, part))
-        hsh = hash_path(account, container)
-        db_dir = storage_directory(DATADIR, part, hsh)
-        db_path = os.path.join(self.root, node['device'], db_dir, hsh + '.db')
-        broker = ContainerBroker(db_path, account=account, container=container)
-        if not os.path.exists(broker.db_file):
-            try:
-                broker.initialize(timestamp, 0)
-            except DatabaseAlreadyExists:
-                pass
+        broker = ContainerBroker.create_broker(
+            os.path.join(self.root, node['device']), part, account, container,
+            logger=self.logger, put_timestamp=timestamp,
+            storage_policy_index=0)
         if self.reconciler_containers is not None:
             self.reconciler_containers[container] = part, broker, node['id']
         return broker
@@ -217,12 +212,13 @@ class ContainerReplicator(db_replicator.Replicator):
             # this container shouldn't be here, make sure it's cleaned up
             self.reconciler_cleanups[broker.container] = broker
             return
-        try:
-            # DB is going to get deleted. Be preemptive about it
-            self.sync_store.remove_synced_container(broker)
-        except Exception:
-            self.logger.exception('Failed to remove sync_store entry %s' %
-                                  broker.db_file)
+        if self.sync_store:
+            try:
+                # DB is going to get deleted. Be preemptive about it
+                self.sync_store.remove_synced_container(broker)
+            except Exception:
+                self.logger.exception('Failed to remove sync_store entry %s' %
+                                      broker.db_file)
 
         return super(ContainerReplicator, self).delete_db(broker)
 

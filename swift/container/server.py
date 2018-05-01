@@ -343,6 +343,40 @@ class ContainerController(BaseStorageServer):
             broker.update_status_changed_at(timestamp)
         return recreated
 
+    def _maybe_autocreate(self, broker, req_timestamp, account,
+                          policy_index):
+        created = False
+        if account.startswith(self.auto_create_account_prefix) and \
+                not os.path.exists(broker.db_file):
+            if policy_index is None:
+                raise HTTPBadRequest(
+                    'X-Backend-Storage-Policy-Index header is required')
+            try:
+                broker.initialize(req_timestamp.internal, policy_index)
+            except DatabaseAlreadyExists:
+                pass
+            else:
+                created = True
+        if not os.path.exists(broker.db_file):
+            raise HTTPNotFound()
+        return created
+
+    def _update_metadata(self, req, broker, req_timestamp, method):
+        metadata = {}
+        metadata.update(
+            (key, (value, req_timestamp.internal))
+            for key, value in req.headers.items()
+            if key.lower() in self.save_headers or
+            is_sys_or_user_meta('container', key))
+        if metadata:
+            if 'X-Container-Sync-To' in metadata:
+                if 'X-Container-Sync-To' not in broker.metadata or \
+                        metadata['X-Container-Sync-To'][0] != \
+                        broker.metadata['X-Container-Sync-To'][0]:
+                    broker.set_x_container_sync_points(-1, -1)
+            broker.update_metadata(metadata, validate_metadata=True)
+            self._update_sync_store(broker, method)
+
     @public
     @timing_stats()
     def PUT(self, req):
@@ -364,14 +398,8 @@ class ContainerController(BaseStorageServer):
             # obj put expects the policy_index header, default is for
             # legacy support during upgrade.
             obj_policy_index = requested_policy_index or 0
-            if account.startswith(self.auto_create_account_prefix) and \
-                    not os.path.exists(broker.db_file):
-                try:
-                    broker.initialize(req_timestamp.internal, obj_policy_index)
-                except DatabaseAlreadyExists:
-                    pass
-            if not os.path.exists(broker.db_file):
-                return HTTPNotFound()
+            self._maybe_autocreate(broker, req_timestamp, account,
+                                   obj_policy_index)
             broker.put_object(obj, req_timestamp.internal,
                               int(req.headers['x-size']),
                               req.headers['x-content-type'],
@@ -391,20 +419,7 @@ class ContainerController(BaseStorageServer):
                                              req_timestamp.internal,
                                              new_container_policy,
                                              requested_policy_index)
-            metadata = {}
-            metadata.update(
-                (key, (value, req_timestamp.internal))
-                for key, value in req.headers.items()
-                if key.lower() in self.save_headers or
-                is_sys_or_user_meta('container', key))
-            if 'X-Container-Sync-To' in metadata:
-                if 'X-Container-Sync-To' not in broker.metadata or \
-                        metadata['X-Container-Sync-To'][0] != \
-                        broker.metadata['X-Container-Sync-To'][0]:
-                    broker.set_x_container_sync_points(-1, -1)
-            broker.update_metadata(metadata, validate_metadata=True)
-            if metadata:
-                self._update_sync_store(broker, 'PUT')
+            self._update_metadata(req, broker, req_timestamp, 'PUT')
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp
@@ -562,20 +577,7 @@ class ContainerController(BaseStorageServer):
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         broker.update_put_timestamp(req_timestamp.internal)
-        metadata = {}
-        metadata.update(
-            (key, (value, req_timestamp.internal))
-            for key, value in req.headers.items()
-            if key.lower() in self.save_headers or
-            is_sys_or_user_meta('container', key))
-        if metadata:
-            if 'X-Container-Sync-To' in metadata:
-                if 'X-Container-Sync-To' not in broker.metadata or \
-                        metadata['X-Container-Sync-To'][0] != \
-                        broker.metadata['X-Container-Sync-To'][0]:
-                    broker.set_x_container_sync_points(-1, -1)
-            broker.update_metadata(metadata, validate_metadata=True)
-            self._update_sync_store(broker, 'POST')
+        self._update_metadata(req, broker, req_timestamp, 'POST')
         return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):

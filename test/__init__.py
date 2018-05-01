@@ -17,7 +17,11 @@
 # The code below enables nosetests to work with i18n _() blocks
 from __future__ import print_function
 import sys
+from contextlib import contextmanager
+
 import os
+from six import reraise
+
 try:
     from unittest.util import safe_repr
 except ImportError:
@@ -86,3 +90,26 @@ def listen_zero():
     sock.bind(("127.0.0.1", 0))
     sock.listen(50)
     return sock
+
+
+@contextmanager
+def annotate_failure(msg):
+    """
+    Catch AssertionError and annotate it with a message. Useful when making
+    assertions in a loop where the message can indicate the loop index or
+    richer context about the failure.
+
+    :param msg: A message to be prefixed to the AssertionError message.
+    """
+    try:
+        yield
+    except AssertionError as err:
+        err_typ, err_val, err_tb = sys.exc_info()
+        if err_val.args:
+            msg = '%s Failed with %s' % (msg, err_val.args[0])
+            err_val.args = (msg, ) + err_val.args[1:]
+        else:
+            # workaround for some IDE's raising custom AssertionErrors
+            err_val = '%s Failed with %s' % (msg, err)
+            err_typ = AssertionError
+        reraise(err_typ, err_val, err_tb)

@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import errno
-import os
 import random
 import time
 import uuid
@@ -143,31 +141,6 @@ class TestObjectExpirer(ReplProbeTest):
         # tha the object server does not write out any async pendings; this
         # test asserts that this is the case.
 
-        def gather_async_pendings(onodes):
-            async_pendings = []
-            for onode in onodes:
-                device_dir = self.device_dir('', onode)
-                for ap_pol_dir in os.listdir(device_dir):
-                    if not ap_pol_dir.startswith('async_pending'):
-                        # skip 'objects', 'containers', etc.
-                        continue
-                    async_pending_dir = os.path.join(device_dir, ap_pol_dir)
-                    try:
-                        ap_dirs = os.listdir(async_pending_dir)
-                    except OSError as err:
-                        if err.errno == errno.ENOENT:
-                            pass
-                        else:
-                            raise
-                    else:
-                        for ap_dir in ap_dirs:
-                            ap_dir_fullpath = os.path.join(
-                                async_pending_dir, ap_dir)
-                            async_pendings.extend([
-                                os.path.join(ap_dir_fullpath, ent)
-                                for ent in os.listdir(ap_dir_fullpath)])
-            return async_pendings
-
         # Make an expiring object in each policy
         for policy in ENABLED_POLICIES:
             container_name = "expirer-test-%d" % policy.idx
@@ -191,15 +164,12 @@ class TestObjectExpirer(ReplProbeTest):
         # Make sure there's no async_pendings anywhere. Probe tests only run
         # on single-node installs anyway, so this set should be small enough
         # that an exhaustive check doesn't take too long.
-        all_obj_nodes = {}
-        for policy in ENABLED_POLICIES:
-            for dev in policy.object_ring.devs:
-                all_obj_nodes[dev['device']] = dev
-        pendings_before = gather_async_pendings(all_obj_nodes.values())
+        all_obj_nodes = self.get_all_object_nodes()
+        pendings_before = self.gather_async_pendings(all_obj_nodes)
 
         # expire the objects
         Manager(['object-expirer']).once()
-        pendings_after = gather_async_pendings(all_obj_nodes.values())
+        pendings_after = self.gather_async_pendings(all_obj_nodes)
         self.assertEqual(pendings_after, pendings_before)
 
     def test_expirer_object_should_not_be_expired(self):

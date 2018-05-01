@@ -15,7 +15,6 @@
 """
 Pluggable Back-ends for Container Server
 """
-
 import os
 from uuid import uuid4
 
@@ -25,9 +24,9 @@ from six.moves import range
 import sqlite3
 
 from swift.common.utils import Timestamp, encode_timestamps, \
-    decode_timestamps, extract_swift_bytes
-from swift.common.db import DatabaseBroker, utf8encode
-
+    decode_timestamps, extract_swift_bytes, storage_directory, hash_path
+from swift.common.db import DatabaseBroker, utf8encode, \
+    zero_like, DatabaseAlreadyExists
 
 SQLITE_ARG_LIMIT = 999
 
@@ -227,6 +226,35 @@ class ContainerBroker(DatabaseBroker):
     db_contains_type = 'object'
     db_reclaim_timestamp = 'created_at'
 
+    @classmethod
+    def create_broker(self, device_path, part, account, container, logger=None,
+                      put_timestamp=None, storage_policy_index=None):
+        """
+        Create a ContainerBroker instance. If the db doesn't exist, initialize
+        the db file.
+
+        :param device_path: device path
+        :param part: partition number
+        :param account: account name string
+        :param container: container name string
+        :param logger: a logger instance
+        :param put_timestamp: initial timestamp if broker needs to be
+            initialized
+        :param storage_policy_index: the storage policy index
+        :return: a :class:`swift.container.backend.ContainerBroker` instance
+        """
+        hsh = hash_path(account, container)
+        db_dir = storage_directory(DATADIR, part, hsh)
+        db_path = os.path.join(device_path, db_dir, hsh + '.db')
+        broker = ContainerBroker(db_path, account=account, container=container,
+                                 logger=logger)
+        if not os.path.exists(broker.db_file):
+            try:
+                broker.initialize(put_timestamp, storage_policy_index)
+            except DatabaseAlreadyExists:
+                pass
+        return broker
+
     @property
     def storage_policy_index(self):
         if not hasattr(self, '_storage_policy_index'):
@@ -401,7 +429,7 @@ class ContainerBroker(DatabaseBroker):
                     raise
                 row = conn.execute(
                     'SELECT object_count from container_stat').fetchone()
-            return (row[0] == 0)
+            return zero_like(row[0])
 
     def delete_object(self, name, timestamp, storage_policy_index=0):
         """
@@ -457,7 +485,7 @@ class ContainerBroker(DatabaseBroker):
         # The container is considered deleted if the delete_timestamp
         # value is greater than the put_timestamp, and there are no
         # objects in the container.
-        return (object_count in (None, '', 0, '0')) and (
+        return zero_like(object_count) and (
             Timestamp(delete_timestamp) > Timestamp(put_timestamp))
 
     def _is_deleted(self, conn):
@@ -472,6 +500,17 @@ class ContainerBroker(DatabaseBroker):
             SELECT put_timestamp, delete_timestamp, object_count
             FROM container_stat''').fetchone()
         return self._is_deleted_info(**info)
+
+    def is_reclaimable(self, now, reclaim_age):
+        with self.get() as conn:
+            info = conn.execute('''
+                SELECT put_timestamp, delete_timestamp
+                FROM container_stat''').fetchone()
+        if (Timestamp(now - reclaim_age) >
+            Timestamp(info['delete_timestamp']) >
+                Timestamp(info['put_timestamp'])):
+            return self.empty()
+        return False
 
     def get_info_is_deleted(self):
         """

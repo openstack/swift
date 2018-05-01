@@ -1454,6 +1454,15 @@ class TestUtils(unittest.TestCase):
             with open(testcache_file) as fd:
                 file_dict = json.loads(fd.readline())
             self.assertEqual(expect_dict, file_dict)
+            # nested dict items are not sticky
+            submit_dict = {'key1': {'key2': {'value3': 3}}}
+            expect_dict = {'key0': 101,
+                           'key1': {'key2': {'value3': 3},
+                                    'value1': 1, 'value2': 2}}
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
+            self.assertEqual(expect_dict, file_dict)
             # cached entries are sticky
             submit_dict = {}
             utils.dump_recon_cache(submit_dict, testcache_file, logger)
