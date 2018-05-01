@@ -125,6 +125,7 @@ class TestSharder(BaseTestSharder):
         expected = {
             'mount_check': True, 'bind_ip': '0.0.0.0', 'port': 6201,
             'per_diff': 1000, 'max_diffs': 100, 'interval': 30,
+            'cleave_row_batch_size': 10000,
             'node_timeout': 10, 'conn_timeout': 5,
             'rsync_compress': False,
             'rsync_module': '{replication_ip}::container',
@@ -133,7 +134,7 @@ class TestSharder(BaseTestSharder):
             'shrink_merge_point': 0.75,
             'shard_container_size': 10000000,
             'split_size': 5000000,
-            'shard_batch_size': 2,
+            'cleave_batch_size': 2,
             'scanner_batch_size': 10,
             'rcache': '/var/cache/swift/container.recon',
             'shards_account_prefix': '.shards_',
@@ -148,6 +149,7 @@ class TestSharder(BaseTestSharder):
         conf = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'bind_port': 62010,
             'per_diff': 2000, 'max_diffs': 200, 'interval': 60,
+            'cleave_row_batch_size': 3000,
             'node_timeout': 20, 'conn_timeout': 1,
             'rsync_compress': True,
             'rsync_module': '{replication_ip}::container_sda/',
@@ -155,7 +157,7 @@ class TestSharder(BaseTestSharder):
             'shard_shrink_point': 35,
             'shard_shrink_merge_point': 85,
             'shard_container_size': 20000000,
-            'shard_batch_size': 4,
+            'cleave_batch_size': 4,
             'shard_scanner_batch_size': 8,
             'request_tries': 2,
             'internal_client_conf_path': '/etc/swift/my-sharder-ic.conf',
@@ -167,6 +169,7 @@ class TestSharder(BaseTestSharder):
         expected = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'port': 62010,
             'per_diff': 2000, 'max_diffs': 200, 'interval': 60,
+            'cleave_row_batch_size': 3000,
             'node_timeout': 20, 'conn_timeout': 1,
             'rsync_compress': True,
             'rsync_module': '{replication_ip}::container_sda',
@@ -175,7 +178,7 @@ class TestSharder(BaseTestSharder):
             'shrink_merge_point': 0.85,
             'shard_container_size': 20000000,
             'split_size': 10000000,
-            'shard_batch_size': 4,
+            'cleave_batch_size': 4,
             'scanner_batch_size': 8,
             'rcache': '/var/cache/swift-alt/container.recon',
             'shards_account_prefix': '...shards_',
@@ -713,7 +716,7 @@ class TestSharder(BaseTestSharder):
             'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
             params=params)
 
-    def _check_cleave_root(self):
+    def _check_cleave_root(self, conf=None):
         broker = self._make_broker()
         objects = [
             # shard 0
@@ -754,7 +757,7 @@ class TestSharder(BaseTestSharder):
         # used to accumulate stats from sharded dbs
         total_shard_stats = {'object_count': 0, 'bytes_used': 0}
         # run cleave - no shard ranges, nothing happens
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             self.assertFalse(sharder._cleave(broker))
 
         context = CleavingContext.load(broker)
@@ -774,7 +777,7 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges(shard_ranges[:4])
         self.assertTrue(broker.set_sharding_state())
 
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             self.assertFalse(sharder._cleave(broker))
 
         context = CleavingContext.load(broker)
@@ -796,7 +799,7 @@ class TestSharder(BaseTestSharder):
         # move first shard range to created state, first shard range is cleaved
         shard_ranges[0].update_state(ShardRange.CREATED)
         broker.merge_shard_ranges(shard_ranges[:1])
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             self.assertFalse(sharder._cleave(broker))
 
         expected = {'attempted': 1, 'success': 1, 'failure': 0,
@@ -847,7 +850,7 @@ class TestSharder(BaseTestSharder):
         broker.merge_shard_ranges(shard_ranges[1:4])
 
         # replication of next shard range is not sufficiently successful
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             quorum = quorum_size(sharder.ring.replica_count)
             successes = [True] * (quorum - 1)
             fails = [False] * (sharder.ring.replica_count - len(successes))
@@ -874,7 +877,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(9, context.max_row)
 
         # try again, this time replication is sufficiently successful
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             successes = [True] * quorum
             fails = [False] * (sharder.ring.replica_count - len(successes))
             responses1 = successes + fails
@@ -938,7 +941,7 @@ class TestSharder(BaseTestSharder):
         unlink_files(expected_shard_dbs)
 
         # run cleave again - should process the fourth range
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             self.assertFalse(sharder._cleave(broker))
 
         expected = {'attempted': 1, 'success': 1, 'failure': 0,
@@ -991,7 +994,7 @@ class TestSharder(BaseTestSharder):
         unlink_files(expected_shard_dbs)
 
         # run cleave - should be a no-op, all existing ranges have been cleaved
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             self.assertFalse(sharder._cleave(broker))
 
         self.assertEqual(SHARDING, broker.get_db_state())
@@ -1003,7 +1006,7 @@ class TestSharder(BaseTestSharder):
         shard_ranges[4].update_meta(2, 15)
         broker.merge_shard_ranges(shard_ranges[4:])
 
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             self.assertTrue(sharder._cleave(broker))
 
         expected = {'attempted': 1, 'success': 1, 'failure': 0,
@@ -1050,13 +1053,13 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(9, context.cleave_to_row)
         self.assertEqual(9, context.max_row)
 
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             self.assertTrue(sharder._cleave(broker))
         sharder._replicate_object.assert_not_called()
 
         self.assertTrue(broker.set_sharded_state())
         # run cleave - should be a no-op
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             self.assertTrue(sharder._cleave(broker))
 
         sharder._replicate_object.assert_not_called()
@@ -1067,8 +1070,7 @@ class TestSharder(BaseTestSharder):
     def test_cleave_root_listing_limit_one(self):
         # force yield_objects to update its marker and call to the broker's
         # get_objects() for each shard range, to check the marker moves on
-        with mock.patch('swift.container.sharder.CONTAINER_LISTING_LIMIT', 1):
-            self._check_cleave_root()
+        self._check_cleave_root(conf={'cleave_row_batch_size': 1})
 
     def test_cleave_root_ranges_change(self):
         # verify that objects are not missed if shard ranges change between
@@ -1229,7 +1231,7 @@ class TestSharder(BaseTestSharder):
 
         # run cleave - first range is cleaved but move of misplaced objects is
         # not successful
-        sharder_conf = {'shard_batch_size': 1}
+        sharder_conf = {'cleave_batch_size': 1}
         with self._mock_sharder(sharder_conf) as sharder:
             with mock.patch.object(
                     sharder, '_make_shard_range_fetcher',
@@ -2115,11 +2117,10 @@ class TestSharder(BaseTestSharder):
         for obj in new_objects:
             broker.put_object(*obj)
 
-        with mock.patch('swift.container.sharder.CONTAINER_LISTING_LIMIT', 2):
-            # check that *all* misplaced objects are moved despite exceeding
-            # the listing limit
-            with self._mock_sharder() as sharder:
-                sharder._move_misplaced_objects(broker)
+        # check that *all* misplaced objects are moved despite exceeding
+        # the listing limit
+        with self._mock_sharder(conf={'cleave_row_batch_size': 2}) as sharder:
+            sharder._move_misplaced_objects(broker)
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
                           'found': 1, 'placed': 4, 'unplaced': 0}
         self._assert_stats(expected_stats, sharder, 'misplaced')
@@ -2477,7 +2478,7 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(os.path.exists(expected_dbs[0]))
         self.assertFalse(os.path.exists(expected_dbs[4]))
 
-    def _check_misplaced_objects_shard_container_unsharded(self):
+    def _check_misplaced_objects_shard_container_unsharded(self, conf=None):
         broker = self._make_broker(account='.shards_a', container='.shard_c')
         ts_shard = next(self.ts_iter)
         own_sr = ShardRange(broker.path, ts_shard, 'here', 'where')
@@ -2508,7 +2509,7 @@ class TestSharder(BaseTestSharder):
                              db_hash[-3:], db_hash, db_hash + '.db'))
 
         # no objects
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             sharder._fetch_shard_ranges = mock.MagicMock(
                 return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
@@ -2529,7 +2530,7 @@ class TestSharder(BaseTestSharder):
         self._check_objects(objects, broker.db_file)  # sanity check
 
         # NB final shard range not available
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             sharder._fetch_shard_ranges = mock.MagicMock(
                 return_value=root_shard_ranges[:-1])
             sharder._move_misplaced_objects(broker)
@@ -2567,7 +2568,7 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(os.path.exists(expected_shard_dbs[3]))
 
         # repeat with final shard range available
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             sharder._fetch_shard_ranges = mock.MagicMock(
                 return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
@@ -2597,7 +2598,7 @@ class TestSharder(BaseTestSharder):
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
 
         # repeat - no work remaining
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             sharder._fetch_shard_ranges = mock.MagicMock(
                 return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
@@ -2622,7 +2623,7 @@ class TestSharder(BaseTestSharder):
         self._check_objects(new_objects[:1] + objects[2:4] + new_objects[1:],
                             broker.db_file)
 
-        with self._mock_sharder() as sharder:
+        with self._mock_sharder(conf=conf) as sharder:
             sharder._fetch_shard_ranges = mock.MagicMock(
                 return_value=root_shard_ranges)
             sharder._move_misplaced_objects(broker)
@@ -2661,12 +2662,12 @@ class TestSharder(BaseTestSharder):
         self._check_misplaced_objects_shard_container_unsharded()
 
     def test_misplaced_objects_shard_container_unsharded_limit_two(self):
-        with mock.patch('swift.container.sharder.CONTAINER_LISTING_LIMIT', 2):
-            self._check_misplaced_objects_shard_container_unsharded()
+        self._check_misplaced_objects_shard_container_unsharded(
+            conf={'cleave_row_batch_size': 2})
 
     def test_misplaced_objects_shard_container_unsharded_limit_one(self):
-        with mock.patch('swift.container.sharder.CONTAINER_LISTING_LIMIT', 1):
-            self._check_misplaced_objects_shard_container_unsharded()
+        self._check_misplaced_objects_shard_container_unsharded(
+            conf={'cleave_row_batch_size': 1})
 
     def test_misplaced_objects_shard_container_sharding(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')

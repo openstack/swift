@@ -24,7 +24,7 @@ import six
 from eventlet import Timeout
 
 from swift.common import internal_client, db_replicator
-from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
+from swift.common.constraints import check_drive
 from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
 from swift.common.exceptions import DeviceUnavailable
@@ -311,9 +311,10 @@ class ContainerSharder(ContainerReplicator):
         self.split_size = self.shard_container_size // 2
         self.scanner_batch_size = config_positive_int_value(
             conf.get('shard_scanner_batch_size', 10))
-        self.shard_batch_size = config_positive_int_value(
-            conf.get('shard_batch_size', 2))
-        self.reported = 0
+        self.cleave_batch_size = config_positive_int_value(
+            conf.get('cleave_batch_size', 2))
+        self.cleave_row_batch_size = config_positive_int_value(
+            conf.get('cleave_row_batch_size', 10000))
         self.auto_shard = config_true_value(conf.get('auto_shard', False))
         self.sharding_candidates = []
         self.recon_candidates_limit = int(
@@ -339,6 +340,7 @@ class ContainerSharder(ContainerReplicator):
             raise SystemExit(
                 'Unable to load internal client from config: %r (%s)' %
                 (internal_client_conf_path, err))
+        self.reported = 0
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -711,16 +713,20 @@ class ContainerSharder(ContainerReplicator):
             while True:
                 info = broker.get_info()
                 info['max_row'] = broker.get_max_row()
+                start = time.time()
                 objects = broker.get_objects(
-                    CONTAINER_LISTING_LIMIT,
+                    self.cleave_row_batch_size,
                     marker=marker,
                     end_marker=src_shard_range.end_marker,
                     include_deleted=include_deleted,
                     since_row=since_row)
                 if objects:
+                    self.logger.debug('got %s objects from %s in %ss',
+                                      len(objects), broker.db_file,
+                                      time.time() - start)
                     yield objects, info
 
-                if len(objects) < CONTAINER_LISTING_LIMIT:
+                if len(objects) < self.cleave_row_batch_size:
                     break
                 marker = objects[-1]['name']
 
@@ -1202,7 +1208,7 @@ class ContainerSharder(ContainerReplicator):
 
         ranges_todo = broker.get_shard_ranges(marker=cleaving_context.marker)
         ranges_done = []
-        for shard_range in ranges_todo[:self.shard_batch_size]:
+        for shard_range in ranges_todo[:self.cleave_batch_size]:
             if shard_range.state == ShardRange.FOUND:
                 break
             elif shard_range.state in (ShardRange.CREATED,
