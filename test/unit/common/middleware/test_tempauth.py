@@ -277,7 +277,7 @@ class TestAuth(unittest.TestCase):
         local_auth = auth.filter_factory(
             {'user_s3_s3': 'secret .admin'})(local_app)
         req = self._make_request('/v1/s3:s3', environ={
-            'swift3.auth_details': {
+            's3api.auth_details': {
                 'access_key': 's3:s3',
                 'signature': b64encode('sig'),
                 'string_to_sign': 't',
@@ -295,7 +295,7 @@ class TestAuth(unittest.TestCase):
         local_auth = auth.filter_factory(
             {'user_s3_s3': 'secret .admin'})(local_app)
         req = self._make_request('/v1/s3:s3', environ={
-            'swift3.auth_details': {
+            's3api.auth_details': {
                 'access_key': 's3:s3',
                 'signature': b64encode('sig'),
                 'string_to_sign': 't',
@@ -313,7 +313,7 @@ class TestAuth(unittest.TestCase):
         local_auth = auth.filter_factory(
             {'user_s3_s3': 'secret .admin'})(local_app)
         req = self._make_request('/v1/s3:s3', environ={
-            'swift3.auth_details': {
+            's3api.auth_details': {
                 'access_key': 's3:s3',
                 'signature': b64encode('sig'),
                 'string_to_sign': 't'}})

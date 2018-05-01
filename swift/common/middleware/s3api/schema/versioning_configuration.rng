@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0">
+  <start>
+    <element name="VersioningConfiguration">
+      <interleave>
+        <optional>
+          <element name="Status">
+            <choice>
+              <value>Enabled</value>
+              <value>Suspended</value>
+            </choice>
+          </element>
+        </optional>
+        <optional>
+          <element name="MfaDelete">
+            <choice>
+              <value>Enabled</value>
+              <value>Disabled</value>
+            </choice>
+          </element>
+        </optional>
+      </interleave>
+    </element>
+  </start>
+</grammar>

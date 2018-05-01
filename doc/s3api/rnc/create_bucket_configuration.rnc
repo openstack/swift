@@ -1,0 +1,4 @@
+start =
+  element * {
+    element LocationConstraint { xsd:string }
+  }

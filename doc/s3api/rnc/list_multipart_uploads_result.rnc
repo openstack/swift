@@ -1,0 +1,26 @@
+include "common.rnc"
+
+start =
+  element ListMultipartUploadsResult {
+    element Bucket { xsd:string },
+    element KeyMarker { xsd:string },
+    element UploadIdMarker { xsd:string },
+    element NextKeyMarker { xsd:string },
+    element NextUploadIdMarker { xsd:string },
+    element Delimiter { xsd:string }?,
+    element Prefix { xsd:string }?,
+    element MaxUploads { xsd:int },
+    element EncodingType { xsd:string }?,
+    element IsTruncated { xsd:boolean },
+    element Upload {
+      element Key { xsd:string },
+      element UploadId { xsd:string },
+      element Initiator { CanonicalUser },
+      element Owner { CanonicalUser },
+      element StorageClass { StorageClass },
+      element Initiated { xsd:dateTime }
+    }*,
+    element CommonPrefixes {
+      element Prefix { xsd:string }
+    }*
+  }

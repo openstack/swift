@@ -15,7 +15,6 @@
 
 import json
 import errno
-import math
 import os
 from os.path import join
 import random
@@ -32,8 +31,9 @@ from eventlet.support.greenlets import GreenletExit
 from swift import gettext_ as _
 from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
-    dump_recon_cache, mkdirs, config_true_value, list_from_csv,
-    tpool_reraise, GreenAsyncPile, Timestamp, remove_file)
+    dump_recon_cache, mkdirs, config_true_value,
+    tpool_reraise, GreenAsyncPile, Timestamp, remove_file,
+    load_recon_cache, parse_override_options, distribute_evenly)
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
@@ -88,30 +88,6 @@ def _full_path(node, part, relative_path, policy):
             'part': part, 'path': relative_path,
             'policy': policy,
         }
-
-
-def parse_override_options(**kwargs):
-    """
-    Return a dict with keys `override_devices` and `override_partitions` whose
-    values have been parsed from `kwargs`. If either key is found in `kwargs`
-    then copy its value from kwargs. Otherwise, if `once` is set in `kwargs`
-    then parse `devices` and `partitions` keys for the value of
-    `override_devices` and `override_partitions` respectively.
-
-    :return: a dict with keys `override_devices` and `override_partitions`
-    """
-    if kwargs.get('once', False):
-        devices = list_from_csv(kwargs.get('devices'))
-        partitions = [
-            int(p) for p in list_from_csv(kwargs.get('partitions'))]
-    else:
-        devices = []
-        partitions = []
-
-    return {
-        'override_devices': kwargs.get('override_devices', devices),
-        'override_partitions': kwargs.get('override_partitions', partitions),
-    }
 
 
 class RebuildingECDiskFileStream(object):
@@ -236,29 +212,29 @@ class ObjectReconstructor(Daemon):
         """
         if self.reconstructor_workers < 1:
             return
-        override_options = parse_override_options(once=once, **kwargs)
+        override_opts = parse_override_options(once=once, **kwargs)
 
         # Note that this get re-used when dumping stats and in is_healthy
         self.all_local_devices = self.get_local_devices()
 
-        if override_options['override_devices']:
-            devices = [d for d in override_options['override_devices']
+        if override_opts.devices:
+            devices = [d for d in override_opts.devices
                        if d in self.all_local_devices]
         else:
             devices = list(self.all_local_devices)
         if not devices:
             # we only need a single worker to do nothing until a ring change
-            yield dict(override_options)
+            yield dict(override_devices=override_opts.devices,
+                       override_partitions=override_opts.partitions)
             return
-        # for somewhat uniform load per worker use same max_devices_per_worker
-        # when handling all devices or just override devices...
-        max_devices_per_worker = int(math.ceil(
-            1.0 * len(self.all_local_devices) / self.reconstructor_workers))
-        # ...but only use enough workers for the actual devices being handled
-        n = int(math.ceil(1.0 * len(devices) / max_devices_per_worker))
-        override_devices_per_worker = [devices[i::n] for i in range(n)]
-        for override_devices in override_devices_per_worker:
-            yield dict(override_options, override_devices=override_devices)
+        # for somewhat uniform load per worker use same
+        # max_devices_per_worker when handling all devices or just override
+        # devices, but only use enough workers for the actual devices being
+        # handled
+        n_workers = min(self.reconstructor_workers, len(devices))
+        for ods in distribute_evenly(devices, n_workers):
+            yield dict(override_partitions=override_opts.partitions,
+                       override_devices=ods)
 
     def is_healthy(self):
         """
@@ -276,14 +252,7 @@ class ObjectReconstructor(Daemon):
         """
         Aggregate per-disk rcache updates from child workers.
         """
-        try:
-            with open(self.rcache) as f:
-                existing_data = json.load(f)
-        except IOError as e:
-            if e.errno != errno.ENOENT:
-                raise
-            # dump_recon_cache will create new file and dirs
-            existing_data = {}
+        existing_data = load_recon_cache(self.rcache)
         first_start = time.time()
         last_finish = 0
         all_devices_reporting = True
@@ -1247,18 +1216,20 @@ class ObjectReconstructor(Daemon):
     def run_once(self, *args, **kwargs):
         start = time.time()
         self.logger.info(_("Running object reconstructor in script mode."))
-        override_options = parse_override_options(once=True, **kwargs)
-        self.reconstruct(**override_options)
+        override_opts = parse_override_options(once=True, **kwargs)
+        self.reconstruct(override_devices=override_opts.devices,
+                         override_partitions=override_opts.partitions)
         total = (time.time() - start) / 60
         self.logger.info(
             _("Object reconstruction complete (once). (%.02f minutes)"), total)
         # Only dump stats if they would actually be meaningful -- i.e. we're
         # collecting per-disk stats and covering all partitions, or we're
         # covering all partitions, all disks.
-        if not override_options['override_partitions'] and (
-                self.reconstructor_workers > 0 or
-                not override_options['override_devices']):
-            self.final_recon_dump(total, **override_options)
+        if not override_opts.partitions and (
+                self.reconstructor_workers > 0 or not override_opts.devices):
+            self.final_recon_dump(
+                total, override_devices=override_opts.devices,
+                override_partitions=override_opts.partitions)
 
     def run_forever(self, *args, **kwargs):
         self.logger.info(_("Starting object reconstructor in daemon mode."))
@@ -1266,13 +1237,16 @@ class ObjectReconstructor(Daemon):
         while True:
             start = time.time()
             self.logger.info(_("Starting object reconstruction pass."))
-            override_options = parse_override_options(**kwargs)
+            override_opts = parse_override_options(**kwargs)
             # Run the reconstructor
-            self.reconstruct(**override_options)
+            self.reconstruct(override_devices=override_opts.devices,
+                             override_partitions=override_opts.partitions)
             total = (time.time() - start) / 60
             self.logger.info(
                 _("Object reconstruction complete. (%.02f minutes)"), total)
-            self.final_recon_dump(total, **override_options)
+            self.final_recon_dump(
+                total, override_devices=override_opts.devices,
+                override_partitions=override_opts.partitions)
             self.logger.debug('reconstruction sleeping for %s seconds.',
                               self.interval)
             sleep(self.interval)

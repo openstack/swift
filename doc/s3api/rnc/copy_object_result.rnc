@@ -1,0 +1,5 @@
+start =
+  element CopyObjectResult {
+    element LastModified { xsd:dateTime },
+    element ETag { xsd:string }
+  }

@@ -1709,7 +1709,7 @@ swift (1.11.0)
       from the codebase and is now in its own repository at
       https://github.com/openstack/swift-bench. New swift-bench
       binaries and packages may be found on PyPI at
-      https://pypi.python.org/pypi/swift-bench
+      https://pypi.org/project/swift-bench
 
     * Bulk delete now also supports the POST verb, in addition to DELETE
 

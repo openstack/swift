@@ -288,10 +288,8 @@ def _resp_status_property():
             self.status_int = value
             self.explanation = self.title = RESPONSE_REASONS[value][0]
         else:
-            if isinstance(value, six.text_type):
-                value = value.encode('utf-8')
-            self.status_int = int(value.split(b' ', 1)[0])
-            self.explanation = self.title = value.split(b' ', 1)[1]
+            self.status_int = int(value.split(' ', 1)[0])
+            self.explanation = self.title = value.split(' ', 1)[1]
 
     return property(getter, setter,
                     doc="Retrieve and set the Response status, e.g. '200 OK'")
@@ -309,7 +307,7 @@ def _resp_body_property():
             if not self._app_iter:
                 return ''
             with closing_if_possible(self._app_iter):
-                self._body = ''.join(self._app_iter)
+                self._body = b''.join(self._app_iter)
             self._app_iter = None
         return self._body
 
@@ -1400,7 +1398,7 @@ class Response(object):
         if 'location' in self.headers and \
                 not env.get('swift.leave_relative_location'):
             self.location = self.absolute_location()
-        start_response(self.status, self.headers.items())
+        start_response(self.status, list(self.headers.items()))
         return self.response_iter
 
 

@@ -33,7 +33,7 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, parse_overrides, round_robin_iter, get_db_files, \
+    json, parse_override_options, round_robin_iter, Everything, get_db_files, \
     parse_db_filename
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
@@ -721,8 +721,10 @@ class Replicator(Daemon):
 
     def run_once(self, *args, **kwargs):
         """Run a replication pass once."""
-        devices_to_replicate, partitions_to_replicate = parse_overrides(
-            **kwargs)
+        override_options = parse_override_options(once=True, **kwargs)
+
+        devices_to_replicate = override_options.devices or Everything()
+        partitions_to_replicate = override_options.partitions or Everything()
 
         self._zero_stats()
         dirs = []

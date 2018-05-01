@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <start>
+    <element name="Delete">
+      <interleave>
+        <optional>
+          <element name="Quiet">
+            <data type="boolean"/>
+          </element>
+        </optional>
+        <oneOrMore>
+          <element name="Object">
+            <interleave>
+              <element name="Key">
+                <data type="string"/>
+              </element>
+              <optional>
+                <element name="VersionId">
+                  <data type="string"/>
+                </element>
+              </optional>
+            </interleave>
+          </element>
+        </oneOrMore>
+      </interleave>
+    </element>
+  </start>
+</grammar>

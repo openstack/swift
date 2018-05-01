@@ -199,7 +199,7 @@ automated and not get `caught` by Jenkins.
 
 For example for Vim the `syntastic`_ plugin can do this for you.
 
-.. _`hacking`: https://pypi.python.org/pypi/hacking
+.. _`hacking`: https://pypi.org/project/hacking
 .. _`syntastic`: https://github.com/scrooloose/syntastic
 
 ------------------------

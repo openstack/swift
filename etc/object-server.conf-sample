@@ -120,6 +120,8 @@ use = egg:swift#object
 # Comma separated list of headers that can be set in metadata on an object.
 # This list is in addition to X-Object-Meta-* headers and cannot include
 # Content-Type, etag, Content-Length, or deleted
+# Note that you may add some extra headers for better S3 compatibility, they are:
+# Cache-Control, Content-Language, Expires, and X-Robots-Tag
 # allowed_headers = Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest, X-Static-Large-Object
 #
 # auto_create_account_prefix = .
@@ -225,7 +227,16 @@ use = egg:swift#recon
 # run_pause is deprecated, use interval instead
 # run_pause = 30
 #
+# Number of concurrent replication jobs to run. This is per-process,
+# so replicator_workers=W and concurrency=C will result in W*C
+# replication jobs running at once.
 # concurrency = 1
+#
+# Number of worker processes to use. No matter how big this number is,
+# at most one worker per disk will be used. 0 means no forking; all work
+# is done in the main process.
+# replicator_workers = 0
+#
 # stats_interval = 300
 #
 # default is rsync, alternative is ssync

@@ -92,7 +92,7 @@ class GatekeeperMiddleware(object):
         def gatekeeper_response(status, response_headers, exc_info=None):
             def fixed_response_headers():
                 def relative_path(value):
-                    parsed = urlsplit(v)
+                    parsed = urlsplit(value)
                     new_path = parsed.path
                     if parsed.query:
                         new_path += ('?%s' % parsed.query)

@@ -64,6 +64,16 @@ class Daemon(object):
         else:
             self.run_forever(**kwargs)
 
+    def post_multiprocess_run(self):
+        """
+        Override this to do something after running using multiple worker
+        processes. This method is called in the parent process.
+
+        This is probably only useful for run-once mode since there is no
+        "after running" in run-forever mode.
+        """
+        pass
+
     def get_worker_args(self, once=False, **kwargs):
         """
         For each worker yield a (possibly empty) dict of kwargs to pass along
@@ -229,6 +239,7 @@ class DaemonStrategy(object):
                     self.logger.notice('Finished %s', os.getpid())
                     break
             time.sleep(0.1)
+        self.daemon.post_multiprocess_run()
         return 0
 
     def cleanup(self):

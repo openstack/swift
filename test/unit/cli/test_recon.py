@@ -39,8 +39,10 @@ from test.unit import patch_policies
 
 if six.PY3:
     from eventlet.green.urllib import request as urllib2
+    GREEN_URLLIB_URLOPEN = 'eventlet.green.urllib.request.urlopen'
 else:
     from eventlet.green import urllib2
+    GREEN_URLLIB_URLOPEN = 'eventlet.green.urllib2.urlopen'
 
 
 class TestHelpers(unittest.TestCase):
@@ -68,7 +70,7 @@ class TestScout(unittest.TestCase):
         self.url = 'http://127.0.0.1:8080/recon/type'
         self.server_type_url = 'http://127.0.0.1:8080/'
 
-    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_ok(self, mock_urlopen):
         mock_urlopen.return_value.read = lambda: json.dumps([])
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
@@ -77,7 +79,7 @@ class TestScout(unittest.TestCase):
         self.assertEqual(content, [])
         self.assertEqual(status, 200)
 
-    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_url_error(self, mock_urlopen):
         mock_urlopen.side_effect = urllib2.URLError("")
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
@@ -86,7 +88,7 @@ class TestScout(unittest.TestCase):
         self.assertEqual(url, self.url)
         self.assertEqual(status, -1)
 
-    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_http_error(self, mock_urlopen):
         mock_urlopen.side_effect = urllib2.HTTPError(
             self.url, 404, "Internal error", None, None)
@@ -96,7 +98,7 @@ class TestScout(unittest.TestCase):
         self.assertIsInstance(content, urllib2.HTTPError)
         self.assertEqual(status, 404)
 
-    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_socket_timeout(self, mock_urlopen):
         mock_urlopen.side_effect = socket.timeout("timeout")
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
@@ -105,19 +107,19 @@ class TestScout(unittest.TestCase):
         self.assertEqual(url, self.url)
         self.assertEqual(status, -1)
 
-    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_server_type_ok(self, mock_urlopen):
         def getheader(name):
             d = {'Server': 'server-type'}
             return d.get(name)
-        mock_urlopen.return_value.info.return_value.getheader = getheader
+        mock_urlopen.return_value.info.return_value.get = getheader
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
         self.assertEqual(url, self.server_type_url)
         self.assertEqual(content, 'server-type')
         self.assertEqual(status, 200)
 
-    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_server_type_url_error(self, mock_urlopen):
         mock_urlopen.side_effect = urllib2.URLError("")
         url, content, status = self.scout_instance.scout_server_type(
@@ -126,7 +128,7 @@ class TestScout(unittest.TestCase):
         self.assertEqual(url, self.server_type_url)
         self.assertEqual(status, -1)
 
-    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_server_type_http_error(self, mock_urlopen):
         mock_urlopen.side_effect = urllib2.HTTPError(
             self.server_type_url, 404, "Internal error", None, None)
@@ -136,7 +138,7 @@ class TestScout(unittest.TestCase):
         self.assertIsInstance(content, urllib2.HTTPError)
         self.assertEqual(status, 404)
 
-    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch(GREEN_URLLIB_URLOPEN)
     def test_scout_server_type_socket_timeout(self, mock_urlopen):
         mock_urlopen.side_effect = socket.timeout("timeout")
         url, content, status = self.scout_instance.scout_server_type(
@@ -160,9 +162,8 @@ class TestRecon(unittest.TestCase):
             self.swift_dir, self.ring_name2 + '.ring.gz')
 
         swift_conf = os.path.join(self.swift_dir, 'swift.conf')
-        self.policy_name = ''.join(random.sample(string.letters, 20))
-        with open(swift_conf, "wb") as sc:
-            sc.write('''
+        self.policy_name = ''.join(random.sample(string.ascii_letters, 20))
+        swift_conf_data = '''
 [swift-hash]
 swift_hash_path_suffix = changeme
 
@@ -173,7 +174,9 @@ default = yes
 [storage-policy:1]
 name = unu
 aliases = %s
-''' % self.policy_name)
+''' % self.policy_name
+        with open(swift_conf, "wb") as sc:
+            sc.write(swift_conf_data.encode('utf8'))
 
     def tearDown(self, *_args, **_kwargs):
         utils.SWIFT_CONF_FILE = self.swift_conf_file
@@ -668,10 +671,11 @@ class TestReconCommands(unittest.TestCase):
             response_body = resps[(host, port, path[7:])]
 
             resp = mock.MagicMock()
-            resp.read = mock.MagicMock(side_effect=[response_body])
+            resp.read = mock.MagicMock(side_effect=[
+                response_body if six.PY2 else response_body.encode('utf8')])
             return resp
 
-        return mock.patch('eventlet.green.urllib2.urlopen', fake_urlopen)
+        return mock.patch(GREEN_URLLIB_URLOPEN, fake_urlopen)
 
     def test_server_type_check(self):
         hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6011),
@@ -870,7 +874,9 @@ class TestReconCommands(unittest.TestCase):
             mock.call('Disk usage: space used: 260 of 300'),
             mock.call('Disk usage: space free: 40 of 300'),
             mock.call('Disk usage: lowest: 85.0%, ' +
-                      'highest: 90.0%, avg: 86.6666666667%'),
+                      'highest: 90.0%%, avg: %s' %
+                      ('86.6666666667%' if six.PY2 else
+                       '86.66666666666667%')),
             mock.call('=' * 79),
         ]
 
