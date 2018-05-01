@@ -26,9 +26,10 @@ from swift.container.reconciler import (
     get_reconciler_container_name, get_row_to_q_entry_translator)
 from swift.common import db_replicator
 from swift.common.storage_policy import POLICIES
+from swift.common.swob import HTTPOk, HTTPAccepted
 from swift.common.exceptions import DeviceUnavailable
 from swift.common.http import is_success
-from swift.common.utils import Timestamp, majority_size
+from swift.common.utils import Timestamp, majority_size, get_db_files
 
 
 class ContainerReplicator(db_replicator.Replicator):
@@ -76,8 +77,50 @@ class ContainerReplicator(db_replicator.Replicator):
             if any(info[key] != remote_info[key] for key in sync_timestamps):
                 broker.merge_timestamps(*(remote_info[key] for key in
                                           sync_timestamps))
+
+            # Grab remote's shard ranges, too
+            self._fetch_and_merge_shard_ranges(http, broker)
+
         return super(ContainerReplicator, self)._handle_sync_response(
             node, response, info, broker, http, different_region)
+
+    def _sync_shard_ranges(self, broker, http, local_id):
+        # TODO: currently the number of shard ranges is expected to be _much_
+        # less than normal objects so all are sync'd on each cycle. However, in
+        # future there should be sync points maintained much like for object
+        # syncing so that only new shard range rows are sync'd.
+        shard_range_data = broker.get_all_shard_range_data()
+        if shard_range_data:
+            if not self._send_replicate_request(
+                    http, 'merge_shard_ranges', shard_range_data, local_id):
+                return False
+            self.logger.debug('%s synced %s shard ranges to %s',
+                              broker.db_file, len(shard_range_data),
+                              '%(ip)s:%(port)s/%(device)s' % http.node)
+        return True
+
+    def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
+                                 http, different_region):
+        # Always replicate shard ranges
+        shard_range_success = self._sync_shard_ranges(broker, http, info['id'])
+        if broker.sharding_initiated():
+            self.logger.warning(
+                '%s is able to shard -- refusing to replicate objects to peer '
+                '%s; have shard ranges and will wait for cleaving',
+                broker.db_file,
+                '%(ip)s:%(port)s/%(device)s' % node)
+            self.stats['deferred'] += 1
+            return shard_range_success
+
+        success = super(ContainerReplicator, self)._choose_replication_mode(
+            node, rinfo, info, local_sync, broker, http,
+            different_region)
+        return shard_range_success and success
+
+    def _fetch_and_merge_shard_ranges(self, http, broker):
+        response = http.replicate('get_shard_ranges')
+        if is_success(response.status):
+            broker.merge_shard_ranges(json.loads(response.data))
 
     def find_local_handoff_for_part(self, part):
         """
@@ -202,6 +245,18 @@ class ContainerReplicator(db_replicator.Replicator):
             # replication
             broker.update_reconciler_sync(max_sync)
 
+    def cleanup_post_replicate(self, broker, orig_info, responses):
+        debug_template = 'Not deleting db %s (%%s)' % broker.db_file
+        if broker.sharding_required():
+            # despite being a handoff, since we're sharding we're not going to
+            # do any cleanup so we can continue cleaving - this is still
+            # considered "success"
+            reason = 'requires sharding, state %s' % broker.get_db_state()
+            self.logger.debug(debug_template, reason)
+            return True
+        return super(ContainerReplicator, self).cleanup_post_replicate(
+            broker, orig_info, responses)
+
     def delete_db(self, broker):
         """
         Ensure that reconciler databases are only cleaned up at the end of the
@@ -255,8 +310,19 @@ class ContainerReplicator(db_replicator.Replicator):
             self.replicate_reconcilers()
         return rv
 
+    def _in_sync(self, rinfo, info, broker, local_sync):
+        # TODO: don't always sync shard ranges!
+        if broker.get_shard_ranges(include_own=True, include_deleted=True):
+            return False
+
+        return super(ContainerReplicator, self)._in_sync(
+            rinfo, info, broker, local_sync)
+
 
 class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
+
+    def _db_file_exists(self, db_path):
+        return bool(get_db_files(db_path))
 
     def _parse_sync_args(self, args):
         parent = super(ContainerReplicatorRpc, self)
@@ -285,3 +351,27 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
                 timestamp=status_changed_at)
             info = broker.get_replication_info()
         return info
+
+    def _abort_rsync_then_merge(self, db_file, old_filename):
+        if super(ContainerReplicatorRpc, self)._abort_rsync_then_merge(
+                db_file, old_filename):
+            return True
+        # if the local db has started sharding since the original 'sync'
+        # request then abort object replication now; instantiate a fresh broker
+        # each time this check if performed so to get latest state
+        broker = ContainerBroker(db_file)
+        return broker.sharding_initiated()
+
+    def _post_rsync_then_merge_hook(self, existing_broker, new_broker):
+        # Note the following hook will need to change to using a pointer and
+        # limit in the future.
+        new_broker.merge_shard_ranges(
+            existing_broker.get_all_shard_range_data())
+
+    def merge_shard_ranges(self, broker, args):
+        broker.merge_shard_ranges(args[0])
+        return HTTPAccepted()
+
+    def get_shard_ranges(self, broker, args):
+        return HTTPOk(headers={'Content-Type': 'application/json'},
+                      body=json.dumps(broker.get_all_shard_range_data()))

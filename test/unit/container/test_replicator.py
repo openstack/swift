@@ -26,12 +26,16 @@ from swift.common import db_replicator
 from swift.container import replicator, backend, server, sync_store
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, get_reconciler_container_name)
-from swift.common.utils import Timestamp, encode_timestamps
+from swift.common.utils import Timestamp, encode_timestamps, ShardRange, \
+    get_db_files, make_db_file_path
 from swift.common.storage_policy import POLICIES
 
 from test.unit.common import test_db_replicator
-from test.unit import patch_policies, make_timestamp_iter, mock_check_drive
+from test.unit import patch_policies, make_timestamp_iter, mock_check_drive, \
+    debug_logger
 from contextlib import contextmanager
+
+from test.unit.common.test_db_replicator import attach_fake_replication_rpc
 
 
 @patch_policies
@@ -41,6 +45,16 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     datadir = server.DATADIR
     replicator_daemon = replicator.ContainerReplicator
     replicator_rpc = replicator.ContainerReplicatorRpc
+
+    def assertShardRangesEqual(self, x, y):
+        # ShardRange.__eq__ only compares lower and upper; here we generate
+        # dict representations to compare all attributes
+        self.assertEqual([dict(sr) for sr in x], [dict(sr) for sr in y])
+
+    def assertShardRangesNotEqual(self, x, y):
+        # ShardRange.__eq__ only compares lower and upper; here we generate
+        # dict representations to compare all attributes
+        self.assertNotEqual([dict(sr) for sr in x], [dict(sr) for sr in y])
 
     def test_report_up_to_date(self):
         broker = self._get_broker('a', 'c', node_index=0)
@@ -1147,6 +1161,1037 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(0, mock_add.call_count)
         self.assertEqual(1, mock_remove.call_count)
         self.assertEqual(broker_2.db_file, mock_remove.call_args[0][0].db_file)
+
+    def test_cleanup_post_replicate(self):
+        broker = self._get_broker('a', 'c', node_index=0)
+        put_timestamp = Timestamp.now()
+        broker.initialize(put_timestamp.internal, POLICIES.default.idx)
+        orig_info = broker.get_replication_info()
+        daemon = replicator.ContainerReplicator({}, logger=self.logger)
+
+        # db should not be here, replication ok, deleted
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
+        self.assertTrue(res)
+        self.assertFalse(os.path.exists(broker.db_file))
+        self.assertEqual(['Successfully deleted db %s' % broker.db_file],
+                         daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
+
+        # failed replication, not deleted
+        broker.initialize(put_timestamp.internal, POLICIES.default.idx)
+        orig_info = broker.get_replication_info()
+        res = daemon.cleanup_post_replicate(broker, orig_info,
+                                            [False, True, True])
+        self.assertTrue(res)
+        self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(['Not deleting db %s (2/3 success)' % broker.db_file],
+                         daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
+
+        # db has shard ranges, not deleted
+        broker.enable_sharding(Timestamp.now())
+        broker.merge_shard_ranges(
+            [ShardRange('.shards_a/c', Timestamp.now(), '', 'm')])
+        self.assertTrue(broker.sharding_required())  # sanity check
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
+        self.assertTrue(res)
+        self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(
+            ['Not deleting db %s (requires sharding, state unsharded)' %
+             broker.db_file],
+            daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
+
+        # db sharding, not deleted
+        self._goto_sharding_state(broker, Timestamp.now())
+        self.assertTrue(broker.sharding_required())  # sanity check
+        orig_info = broker.get_replication_info()
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
+        self.assertTrue(res)
+        self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(
+            ['Not deleting db %s (requires sharding, state sharding)' %
+             broker.db_file],
+            daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
+
+        # db sharded, should not be here, failed replication, not deleted
+        self._goto_sharded_state(broker)
+        self.assertFalse(broker.sharding_required())  # sanity check
+        res = daemon.cleanup_post_replicate(broker, orig_info,
+                                            [True, False, True])
+        self.assertTrue(res)
+        self.assertTrue(os.path.exists(broker.db_file))
+        self.assertEqual(['Not deleting db %s (2/3 success)' %
+                          broker.db_file],
+                         daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
+
+        # db sharded, should not be here, new shard ranges (e.g. from reverse
+        # replication), deleted
+        broker.merge_shard_ranges(
+            [ShardRange('.shards_a/c', Timestamp.now(), '', 'm')])
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
+        self.assertTrue(res)
+        self.assertFalse(os.path.exists(broker.db_file))
+        daemon.logger.clear()
+
+        # db sharded, should not be here, replication ok, deleted
+        broker.initialize(put_timestamp.internal, POLICIES.default.idx)
+        self.assertTrue(os.path.exists(broker.db_file))
+        orig_info = broker.get_replication_info()
+        res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
+        self.assertTrue(res)
+        self.assertFalse(os.path.exists(broker.db_file))
+        self.assertEqual(['Successfully deleted db %s' % broker.db_file],
+                         daemon.logger.get_lines_for_level('debug'))
+        daemon.logger.clear()
+
+    def test_sync_shard_ranges(self):
+        put_timestamp = Timestamp.now().internal
+        # create "local" broker
+        broker = self._get_broker('a', 'c', node_index=0)
+        broker.initialize(put_timestamp, POLICIES.default.idx)
+        # create "remote" broker
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        remote_broker.initialize(put_timestamp, POLICIES.default.idx)
+
+        def check_replicate(expected_shard_ranges, from_broker, to_broker):
+            daemon = replicator.ContainerReplicator({})
+            part, node = self._get_broker_part_node(to_broker)
+            info = broker.get_replication_info()
+            success = daemon._repl_to_node(node, from_broker, part, info)
+            self.assertTrue(success)
+            self.assertEqual(
+                expected_shard_ranges,
+                to_broker.get_all_shard_range_data()
+            )
+            self.assertEqual(1, daemon.stats['deferred'])
+            self.assertEqual(0, daemon.stats['rsync'])
+            self.assertEqual(0, daemon.stats['diff'])
+            local_info = self._get_broker(
+                'a', 'c', node_index=0).get_info()
+            remote_info = self._get_broker(
+                'a', 'c', node_index=1).get_info()
+            for k, v in local_info.items():
+                if k == 'id':
+                    continue
+                self.assertEqual(remote_info[k], v,
+                                 "mismatch remote %s %r != %r" % (
+                                     k, remote_info[k], v))
+
+        bounds = (('', 'g'), ('g', 'r'), ('r', ''))
+        shard_ranges = [
+            ShardRange('.shards_a/sr-%s' % upper, Timestamp.now(), lower,
+                       upper, i + 1, 10 * (i + 1))
+            for i, (lower, upper) in enumerate(bounds)
+        ]
+        # add first two shard_ranges to both brokers
+        for shard_range in shard_ranges[:2]:
+            for db in (broker, remote_broker):
+                db.merge_shard_ranges(shard_range)
+        # now add a shard range to the "local" broker only
+        own_sr = broker.enable_sharding(Timestamp.now())
+        broker.merge_shard_ranges(shard_ranges[2])
+        broker_ranges = broker.get_all_shard_range_data()
+        self.assertShardRangesEqual(shard_ranges + [own_sr], broker_ranges)
+        check_replicate(broker_ranges, broker, remote_broker)
+
+        # update one shard range
+        shard_ranges[1].update_meta(99, 0)
+        broker.merge_shard_ranges(shard_ranges[1])
+        # sanity check
+        broker_ranges = broker.get_all_shard_range_data()
+        self.assertShardRangesEqual(shard_ranges + [own_sr], broker_ranges)
+        check_replicate(broker_ranges, broker, remote_broker)
+
+        # delete one shard range
+        shard_ranges[0].deleted = 1
+        shard_ranges[0].timestamp = Timestamp.now()
+        broker.merge_shard_ranges(shard_ranges[0])
+        # sanity check
+        broker_ranges = broker.get_all_shard_range_data()
+        self.assertShardRangesEqual(shard_ranges + [own_sr], broker_ranges)
+        check_replicate(broker_ranges, broker, remote_broker)
+
+        # put a shard range again
+        shard_ranges[2].timestamp = Timestamp.now()
+        shard_ranges[2].object_count = 0
+        broker.merge_shard_ranges(shard_ranges[2])
+        # sanity check
+        broker_ranges = broker.get_all_shard_range_data()
+        self.assertShardRangesEqual(shard_ranges + [own_sr], broker_ranges)
+        check_replicate(broker_ranges, broker, remote_broker)
+
+        # update same shard range on local and remote, remote later
+        shard_ranges[-1].meta_timestamp = Timestamp.now()
+        shard_ranges[-1].bytes_used += 1000
+        broker.merge_shard_ranges(shard_ranges[-1])
+        remote_shard_ranges = remote_broker.get_shard_ranges(
+            include_deleted=True)
+        remote_shard_ranges[-1].meta_timestamp = Timestamp.now()
+        remote_shard_ranges[-1].bytes_used += 2000
+        remote_broker.merge_shard_ranges(remote_shard_ranges[-1])
+        # sanity check
+        remote_broker_ranges = remote_broker.get_all_shard_range_data()
+        self.assertShardRangesEqual(remote_shard_ranges + [own_sr],
+                                    remote_broker_ranges)
+        self.assertShardRangesNotEqual(shard_ranges, remote_shard_ranges)
+        check_replicate(remote_broker_ranges, broker, remote_broker)
+
+        # undelete shard range *on the remote*
+        deleted_ranges = [sr for sr in remote_shard_ranges if sr.deleted]
+        self.assertEqual([shard_ranges[0]], deleted_ranges)
+        deleted_ranges[0].deleted = 0
+        deleted_ranges[0].timestamp = Timestamp.now()
+        remote_broker.merge_shard_ranges(deleted_ranges[0])
+        # sanity check
+        remote_broker_ranges = remote_broker.get_all_shard_range_data()
+        self.assertShardRangesEqual(remote_shard_ranges + [own_sr],
+                                    remote_broker_ranges)
+        self.assertShardRangesNotEqual(shard_ranges, remote_shard_ranges)
+        check_replicate(remote_broker_ranges, broker, remote_broker)
+
+        # reverse replication direction and expect syncs to propagate
+        check_replicate(remote_broker_ranges, remote_broker, broker)
+
+    def test_sync_shard_ranges_with_rsync(self):
+        broker = self._get_broker('a', 'c', node_index=0)
+        put_timestamp = time.time()
+        broker.initialize(put_timestamp, POLICIES.default.idx)
+
+        bounds = (('', 'g'), ('g', 'r'), ('r', ''))
+        shard_ranges = [
+            ShardRange('.shards_a/sr-%s' % upper, Timestamp.now(), lower,
+                       upper, i + 1, 10 * (i + 1))
+            for i, (lower, upper) in enumerate(bounds)
+        ]
+        # add first shard range
+        own_sr = broker.enable_sharding(Timestamp.now())
+        broker.merge_shard_ranges(shard_ranges[:1])
+
+        # "replicate"
+        part, node = self._get_broker_part_node(broker)
+        daemon = self._run_once(node)
+        self.assertEqual(2, daemon.stats['rsync'])
+
+        # complete rsync to all other nodes
+        def check_replicate(expected_ranges):
+            for i in range(1, 3):
+                remote_broker = self._get_broker('a', 'c', node_index=i)
+                self.assertTrue(os.path.exists(remote_broker.db_file))
+                self.assertShardRangesEqual(
+                    expected_ranges,
+                    remote_broker.get_shard_ranges(include_deleted=True,
+                                                   include_own=True)
+                )
+                remote_info = remote_broker.get_info()
+                local_info = self._get_broker(
+                    'a', 'c', node_index=0).get_info()
+                for k, v in local_info.items():
+                    if k == 'id':
+                        continue
+                    if k == 'hash':
+                        self.assertEqual(remote_info[k], '0' * 32)
+                        continue
+                    if k == 'object_count':
+                        self.assertEqual(remote_info[k], 0)
+                        continue
+                    self.assertEqual(remote_info[k], v,
+                                     "mismatch remote %s %r != %r" % (
+                                         k, remote_info[k], v))
+
+        check_replicate([shard_ranges[0], own_sr])
+
+        # delete and add some more shard ranges
+        shard_ranges[0].deleted = 1
+        shard_ranges[0].timestamp = Timestamp.now()
+        for shard_range in shard_ranges:
+            broker.merge_shard_ranges(shard_range)
+        daemon = self._run_once(node)
+        self.assertEqual(2, daemon.stats['deferred'])
+        check_replicate(shard_ranges + [own_sr])
+
+    def check_replicate(self, from_broker, remote_node_index, repl_conf=None,
+                        expect_success=True, errors=None):
+        repl_conf = repl_conf or {}
+        repl_calls = []
+        rsync_calls = []
+
+        def repl_hook(op, *sync_args):
+            repl_calls.append((op, sync_args))
+
+        fake_repl_connection = attach_fake_replication_rpc(
+            self.rpc, replicate_hook=repl_hook, errors=errors)
+        db_replicator.ReplConnection = fake_repl_connection
+        daemon = replicator.ContainerReplicator(
+            repl_conf, logger=debug_logger())
+        self._install_fake_rsync_file(daemon, rsync_calls)
+        part, nodes = self._ring.get_nodes(from_broker.account,
+                                           from_broker.container)
+
+        def find_node(node_index):
+            for node in nodes:
+                if node['index'] == node_index:
+                    return node
+            else:
+                self.fail('Failed to find node index %s' % remote_node_index)
+
+        remote_node = find_node(remote_node_index)
+        info = from_broker.get_replication_info()
+        success = daemon._repl_to_node(remote_node, from_broker, part, info)
+        self.assertEqual(expect_success, success)
+        return daemon, repl_calls, rsync_calls
+
+    def assert_synced_shard_ranges(self, expected, synced_items):
+        expected.sort(key=lambda sr: (sr.lower, sr.upper))
+        for item in synced_items:
+            item.pop('record_type', None)
+        self.assertEqual([dict(ex) for ex in expected], synced_items)
+
+    def assert_info_synced(self, local, remote_node_index, mismatches=None):
+        mismatches = mismatches or []
+        mismatches.append('id')
+        remote = self._get_broker(local.account, local.container,
+                                  node_index=remote_node_index)
+        local_info = local.get_info()
+        remote_info = remote.get_info()
+        errors = []
+        for k, v in local_info.items():
+            if remote_info.get(k) == v:
+                if k in mismatches:
+                    errors.append(
+                        "unexpected match remote %s %r == %r" % (
+                            k, remote_info[k], v))
+                    continue
+            else:
+                if k not in mismatches:
+                    errors.append(
+                        "unexpected mismatch remote %s %r != %r" % (
+                            k, remote_info[k], v))
+        if errors:
+            self.fail('Found sync errors:\n' + '\n'.join(errors))
+
+    def assert_shard_ranges_synced(self, local_broker, remote_broker):
+        self.assertShardRangesEqual(
+            local_broker.get_shard_ranges(include_deleted=True,
+                                          include_own=True),
+            remote_broker.get_shard_ranges(include_deleted=True,
+                                           include_own=True)
+        )
+
+    def _setup_replication_test(self, node_index):
+        ts_iter = make_timestamp_iter()
+        policy_idx = POLICIES.default.idx
+        put_timestamp = Timestamp.now().internal
+        # create "local" broker
+        broker = self._get_broker('a', 'c', node_index=node_index)
+        broker.initialize(put_timestamp, policy_idx)
+
+        objs = [{'name': 'blah%03d' % i, 'created_at': next(ts_iter).internal,
+                 'size': i, 'content_type': 'text/plain', 'etag': 'etag%s' % i,
+                 'deleted': 0, 'storage_policy_index': policy_idx}
+                for i in range(20)]
+        bounds = (('', 'a'), ('a', 'b'), ('b', 'c'), ('c', ''))
+        shard_ranges = [
+            ShardRange(
+                '.sharded_a/sr-%s' % upper, Timestamp.now(), lower, upper)
+            for i, (lower, upper) in enumerate(bounds)
+        ]
+        return {'broker': broker,
+                'objects': objs,
+                'shard_ranges': shard_ranges}
+
+    def _merge_object(self, broker, objects, index, **kwargs):
+        if not isinstance(index, slice):
+            index = slice(index, index + 1)
+        objs = [dict(obj) for obj in objects[index]]
+        broker.merge_items(objs)
+
+    def _merge_shard_range(self, broker, shard_ranges, index, **kwargs):
+        broker.merge_shard_ranges(shard_ranges[index:index + 1])
+
+    def _goto_sharding_state(self, broker, epoch):
+        broker.enable_sharding(epoch)
+        self.assertTrue(broker.set_sharding_state())
+        self.assertEqual(backend.SHARDING, broker.get_db_state())
+
+    def _goto_sharded_state(self, broker):
+        self.assertTrue(broker.set_sharded_state())
+        self.assertEqual(backend.SHARDED, broker.get_db_state())
+
+    def _assert_local_sharded_in_sync(self, local_broker, local_id):
+        daemon, repl_calls, rsync_calls = self.check_replicate(local_broker, 1)
+        self.assertEqual(['sync', 'get_shard_ranges', 'merge_shard_ranges'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(1, daemon.stats['deferred'])
+        self.assertEqual(0, daemon.stats['rsync'])
+        self.assertEqual(0, daemon.stats['diff'])
+        self.assertFalse(rsync_calls)
+        # new db sync
+        self.assertEqual(local_id, repl_calls[0][1][2])
+        # ...but we still get a merge_shard_ranges for shard ranges
+        self.assert_synced_shard_ranges(
+            local_broker.get_shard_ranges(include_own=True),
+            repl_calls[2][1][0])
+        self.assertEqual(local_id, repl_calls[2][1][1])
+
+    def _check_only_shard_ranges_replicated(self, local_broker,
+                                            remote_node_index,
+                                            repl_conf,
+                                            expected_shard_ranges,
+                                            expect_success=True):
+        # expected_shard_ranges is expected final list of sync'd ranges
+        daemon, repl_calls, rsync_calls = self.check_replicate(
+            local_broker, remote_node_index, repl_conf,
+            expect_success=expect_success)
+
+        # we always expect only shard ranges to end in abort
+        self.assertEqual(1, daemon.stats['deferred'])
+        self.assertEqual(0, daemon.stats['diff'])
+        self.assertEqual(0, daemon.stats['rsync'])
+        self.assertEqual(['sync', 'get_shard_ranges', 'merge_shard_ranges'],
+                         [call[0] for call in repl_calls])
+        self.assertFalse(rsync_calls)
+        # sync
+        local_id = local_broker.get_info()['id']
+        self.assertEqual(local_id, repl_calls[0][1][2])
+        # get_shard_ranges
+        self.assertEqual((), repl_calls[1][1])
+        # merge_shard_ranges for sending local shard ranges
+        self.assertShardRangesEqual(expected_shard_ranges, repl_calls[2][1][0])
+        self.assertEqual(local_id, repl_calls[2][1][1])
+        remote_broker = self._get_broker(
+            local_broker.account, local_broker.container, node_index=1)
+        self.assertNotEqual(local_id, remote_broker.get_info()['id'])
+        self.assert_shard_ranges_synced(remote_broker, local_broker)
+
+    def test_replication_local_unsharded_remote_missing(self):
+        context = self._setup_replication_test(0)
+        local_broker = context['broker']
+        local_id = local_broker.get_info()['id']
+        objs = context['objects']
+        self._merge_object(index=0, **context)
+
+        daemon, repl_calls, rsync_calls = self.check_replicate(local_broker, 1)
+
+        self.assert_info_synced(local_broker, 1)
+        self.assertEqual(1, daemon.stats['rsync'])
+        self.assertEqual(['sync', 'complete_rsync'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_id, repl_calls[1][1][0])
+        self.assertEqual(os.path.basename(local_broker.db_file),
+                         repl_calls[1][1][1])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_id, os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        self.assert_shard_ranges_synced(local_broker, remote_broker)
+        self.assertTrue(os.path.exists(remote_broker._db_file))
+        self.assertNotEqual(local_id, remote_broker.get_info()['id'])
+        self.assertEqual(objs[:1], remote_broker.get_objects())
+
+    def _check_replication_local_unsharded_remote_sharded(self, repl_conf):
+        context = self._setup_replication_test(0)
+        local_broker = context['broker']
+        local_id = local_broker.get_info()['id']
+        self._merge_object(index=slice(0, 6), **context)
+
+        remote_context = self._setup_replication_test(1)
+        self._merge_object(index=4, **remote_context)
+        remote_broker = remote_context['broker']
+        epoch = Timestamp.now()
+        self._goto_sharding_state(remote_broker, epoch=epoch)
+        remote_context['shard_ranges'][0].object_count = 101
+        remote_context['shard_ranges'][0].bytes_used = 1010
+        remote_context['shard_ranges'][0].state = ShardRange.ACTIVE
+        self._merge_shard_range(index=0, **remote_context)
+        self._merge_object(index=5, **remote_context)
+        self._goto_sharded_state(remote_broker)
+        self.assertEqual(backend.SHARDED, remote_broker.get_db_state())
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            remote_broker.get_shard_ranges(include_own=True))
+
+        remote_broker = self._get_broker(
+            local_broker.account, local_broker.container, node_index=1)
+        self.assertEqual(backend.SHARDED, remote_broker.get_db_state())
+        self.assertFalse(os.path.exists(remote_broker._db_file))
+        self.assertNotEqual(local_id, remote_broker.get_info()['id'])
+        self.assertEqual(remote_context['objects'][5:6],
+                         remote_broker.get_objects())
+
+        # Now that we have shard ranges, we're never considered in-sync :-/
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            remote_broker.get_shard_ranges(include_own=True))
+
+    def test_replication_local_unsharded_remote_sharded(self):
+        self._check_replication_local_unsharded_remote_sharded({})
+
+    def test_replication_local_unsharded_remote_sharded_large_diff(self):
+        self._check_replication_local_unsharded_remote_sharded({'per_diff': 1})
+
+    def _check_replication_local_sharding_remote_missing(self, repl_conf):
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=0, **local_context)
+        self._merge_object(index=1, **local_context)
+        epoch = Timestamp.now()
+        self._goto_sharding_state(local_broker, epoch)
+        self._merge_shard_range(index=0, **local_context)
+        self._merge_object(index=slice(2, 8), **local_context)
+        objs = local_context['objects']
+
+        daemon, repl_calls, rsync_calls = self.check_replicate(
+            local_broker, 1, repl_conf=repl_conf)
+
+        self.assertEqual(['sync', 'complete_rsync'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(1, daemon.stats['rsync'])
+        self.assertEqual(0, daemon.stats['deferred'])
+        self.assertEqual(0, daemon.stats['diff'])
+
+        # fresh db is sync'd first...
+        fresh_id = local_broker.get_info()['id']
+        self.assertEqual(fresh_id, repl_calls[0][1][2])
+        self.assertEqual(fresh_id, repl_calls[1][1][0])
+        # retired db is not sync'd at all
+        old_broker = self.backend(
+            local_broker._db_file, account=local_broker.account,
+            container=local_broker.container, force_db_file=True)
+        old_id = old_broker.get_info()['id']
+        bad_calls = []
+        for call in repl_calls:
+            if old_id in call[1]:
+                bad_calls.append(
+                    'old db id %r in %r call args %r' % (
+                        old_id, call[0], call[1]))
+        if bad_calls:
+            self.fail('Found some bad calls:\n' + '\n'.join(bad_calls))
+        # complete_rsync
+        self.assertEqual(os.path.basename(local_broker.db_file),
+                         repl_calls[1][1][1])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(fresh_id, os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
+        # TODO: make these stats better; in sharding state local broker pulls
+        # stats for 2 objects from old db, whereas remote thinks it's sharded
+        # and has an empty shard range table
+        self.assert_info_synced(local_broker, 1, mismatches=[
+            'object_count', 'bytes_used', 'db_state'])
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        remote_id = remote_broker.get_info()['id']
+        self.assertNotEqual(old_id, remote_id)
+        self.assertNotEqual(fresh_id, remote_id)
+        self.assertEqual(
+            [remote_broker.db_file], get_db_files(remote_broker.db_file))
+        self.assertEqual(os.path.basename(remote_broker.db_file),
+                         os.path.basename(local_broker.db_file))
+        self.assertEqual(epoch, remote_broker.db_epoch)
+        # remote db has only the misplaced objects
+        self.assertEqual(objs[2:8], remote_broker.get_objects())
+        self.assert_shard_ranges_synced(local_broker, remote_broker)
+
+        # replicate again, check asserts abort
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            local_broker.get_shard_ranges(include_own=True))
+
+        # sanity
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        self.assertEqual(
+            [remote_broker.db_file], get_db_files(remote_broker.db_file))
+        self.assertEqual(os.path.basename(remote_broker.db_file),
+                         os.path.basename(local_broker.db_file))
+        self.assertEqual(objs[2:8], remote_broker.get_objects())
+        self.assertEqual(epoch, remote_broker.db_epoch)
+
+    def test_replication_local_sharding_remote_missing(self):
+        self._check_replication_local_sharding_remote_missing({})
+
+    def test_replication_local_sharding_remote_missing_large_diff(self):
+        # the local shard db has large diff with respect to the old db
+        self._check_replication_local_sharding_remote_missing({'per_diff': 1})
+
+    def _check_replication_local_sharding_remote_unsharded(self, repl_conf):
+        local_context = self._setup_replication_test(0)
+        self._merge_object(index=slice(0, 3), **local_context)
+        local_broker = local_context['broker']
+        epoch = Timestamp.now()
+        self._goto_sharding_state(local_broker, epoch)
+        self._merge_shard_range(index=0, **local_context)
+        self._merge_object(index=slice(3, 11), **local_context)
+
+        remote_context = self._setup_replication_test(1)
+        self._merge_object(index=11, **remote_context)
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            local_broker.get_shard_ranges(include_own=True))
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        self.assertEqual(
+            [remote_broker._db_file], get_db_files(remote_broker.db_file))
+        self.assertEqual(remote_context['objects'][11:12],
+                         remote_broker.get_objects())
+
+        self.assert_info_synced(
+            local_broker, 1,
+            mismatches=['db_state', 'object_count', 'bytes_used',
+                        'status_changed_at', 'hash'])
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            local_broker.get_shard_ranges(include_own=True))
+
+    def test_replication_local_sharding_remote_unsharded(self):
+        self._check_replication_local_sharding_remote_unsharded({})
+
+    def test_replication_local_sharding_remote_unsharded_large_diff(self):
+        self._check_replication_local_sharding_remote_unsharded(
+            {'per_diff': 1})
+
+    def _check_replication_local_sharding_remote_sharding(self, repl_conf):
+        local_context = self._setup_replication_test(0)
+        self._merge_object(index=slice(0, 5), **local_context)
+        local_broker = local_context['broker']
+        epoch = Timestamp.now()
+        self._goto_sharding_state(local_broker, epoch)
+        self._merge_shard_range(index=0, **local_context)
+        self._merge_object(index=slice(5, 10), **local_context)
+
+        remote_context = self._setup_replication_test(1)
+        self._merge_object(index=12, **remote_context)
+        # take snapshot of info now before transition to sharding...
+        orig_remote_info = remote_context['broker'].get_info()
+        remote_broker = remote_context['broker']
+        self._goto_sharding_state(remote_broker, epoch)
+        self._merge_shard_range(index=0, **remote_context)
+        self._merge_object(index=13, **remote_context)
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            remote_broker.get_shard_ranges(include_own=True))
+
+        # in sharding state brokers only reports object stats from old db, and
+        # they are different
+        self.assert_info_synced(
+            local_broker, 1, mismatches=['object_count', 'bytes_used',
+                                         'status_changed_at', 'hash'])
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        shard_db = make_db_file_path(remote_broker._db_file, epoch)
+        self.assertEqual([remote_broker._db_file, shard_db],
+                         get_db_files(remote_broker.db_file))
+        shard_db = make_db_file_path(remote_broker._db_file, epoch)
+        self.assertEqual([remote_broker._db_file, shard_db],
+                         get_db_files(remote_broker.db_file))
+        # no local objects have been sync'd to remote shard db
+        self.assertEqual(remote_context['objects'][13:14],
+                         remote_broker.get_objects())
+        # remote *old db* is unchanged
+        remote_old_broker = self.backend(
+            remote_broker._db_file, account=remote_broker.account,
+            container=remote_broker.container, force_db_file=True)
+        self.assertEqual(remote_context['objects'][12:13],
+                         remote_old_broker.get_objects())
+        self.assertFalse(remote_old_broker.get_shard_ranges())
+        remote_old_info = remote_old_broker.get_info()
+        orig_remote_info.pop('db_state')
+        remote_old_info.pop('db_state')
+        self.assertEqual(orig_remote_info, remote_old_info)
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            local_broker.get_shard_ranges(include_own=True))
+
+    def test_replication_local_sharding_remote_sharding(self):
+        self._check_replication_local_sharding_remote_sharding({})
+
+    def test_replication_local_sharding_remote_sharding_large_diff(self):
+        self._check_replication_local_sharding_remote_sharding({'per_diff': 1})
+
+    def test_replication_local_sharded_remote_missing(self):
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        epoch = Timestamp.now()
+        self._goto_sharding_state(local_broker, epoch)
+        local_context['shard_ranges'][0].object_count = 99
+        local_context['shard_ranges'][0].state = ShardRange.ACTIVE
+        self._merge_shard_range(index=0, **local_context)
+        self._merge_object(index=slice(0, 3), **local_context)
+        self._goto_sharded_state(local_broker)
+        objs = local_context['objects']
+
+        daemon, repl_calls, rsync_calls = self.check_replicate(local_broker, 1)
+
+        self.assertEqual(['sync', 'complete_rsync'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(1, daemon.stats['rsync'])
+
+        # sync
+        local_id = local_broker.get_info()['id']
+        self.assertEqual(local_id, repl_calls[0][1][2])
+        # complete_rsync
+        self.assertEqual(local_id, repl_calls[1][1][0])
+        self.assertEqual(
+            os.path.basename(local_broker.db_file), repl_calls[1][1][1])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_id, os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
+        self.assert_info_synced(local_broker, 1)
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        remote_id = remote_broker.get_info()['id']
+        self.assertNotEqual(local_id, remote_id)
+        shard_db = make_db_file_path(remote_broker._db_file, epoch)
+        self.assertEqual([shard_db],
+                         get_db_files(remote_broker.db_file))
+        self.assertEqual(objs[:3], remote_broker.get_objects())
+        self.assertEqual(local_broker.get_shard_ranges(),
+                         remote_broker.get_shard_ranges())
+
+        # sanity check - in sync
+        self._assert_local_sharded_in_sync(local_broker, local_id)
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        shard_db = make_db_file_path(remote_broker._db_file, epoch)
+        self.assertEqual([shard_db],
+                         get_db_files(remote_broker.db_file))
+        # the remote broker object_count comes from replicated shard range...
+        self.assertEqual(99, remote_broker.get_info()['object_count'])
+        # these are replicated misplaced objects...
+        self.assertEqual(objs[:3], remote_broker.get_objects())
+        self.assertEqual(local_broker.get_shard_ranges(),
+                         remote_broker.get_shard_ranges())
+
+    def _check_replication_local_sharded_remote_unsharded(self, repl_conf):
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        epoch = Timestamp.now()
+        self._goto_sharding_state(local_broker, epoch)
+        local_context['shard_ranges'][0].object_count = 99
+        local_context['shard_ranges'][0].state = ShardRange.ACTIVE
+        self._merge_shard_range(index=0, **local_context)
+        self._merge_object(index=slice(0, 3), **local_context)
+        self._goto_sharded_state(local_broker)
+
+        remote_context = self._setup_replication_test(1)
+        self._merge_object(index=4, **remote_context)
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            local_broker.get_shard_ranges(include_own=True),
+            expect_success=True)
+
+        # sharded broker takes object count from shard range whereas remote
+        # unsharded broker takes it from object table
+        self.assert_info_synced(
+            local_broker, 1,
+            mismatches=['db_state', 'object_count', 'bytes_used',
+                        'status_changed_at', 'hash'])
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        self.assertEqual([remote_broker._db_file],
+                         get_db_files(remote_broker.db_file))
+        self.assertEqual(remote_context['objects'][4:5],
+                         remote_broker.get_objects())
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            local_broker.get_shard_ranges(include_own=True),
+            expect_success=True)
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        self.assertEqual([remote_broker._db_file],
+                         get_db_files(remote_broker.db_file))
+        self.assertEqual(remote_context['objects'][4:5],
+                         remote_broker.get_objects())
+
+    def test_replication_local_sharded_remote_unsharded(self):
+        self._check_replication_local_sharded_remote_unsharded({})
+
+    def test_replication_local_sharded_remote_unsharded_large_diff(self):
+        self._check_replication_local_sharded_remote_unsharded({'per_diff': 1})
+
+    def _check_replication_local_sharded_remote_sharding(self, repl_conf):
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        epoch = Timestamp.now()
+        self._goto_sharding_state(local_broker, epoch=epoch)
+        local_context['shard_ranges'][0].object_count = 99
+        local_context['shard_ranges'][0].bytes_used = 999
+        local_context['shard_ranges'][0].state = ShardRange.ACTIVE
+        self._merge_shard_range(index=0, **local_context)
+        self._merge_object(index=slice(0, 5), **local_context)
+        self._goto_sharded_state(local_broker)
+
+        remote_context = self._setup_replication_test(1)
+        self._merge_object(index=6, **remote_context)
+        remote_broker = remote_context['broker']
+        remote_info_orig = remote_broker.get_info()
+        self._goto_sharding_state(remote_broker, epoch=epoch)
+        self._merge_shard_range(index=0, **remote_context)
+        self._merge_object(index=7, **remote_context)
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            # remote has newer timestamp for shard range
+            remote_broker.get_shard_ranges(include_own=True),
+            expect_success=True)
+
+        # sharded broker takes object count from shard range whereas remote
+        # sharding broker takes it from object table
+        self.assert_info_synced(
+            local_broker, 1,
+            mismatches=['db_state', 'object_count', 'bytes_used',
+                        'status_changed_at', 'hash'])
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        shard_db = make_db_file_path(remote_broker._db_file, epoch)
+        self.assertEqual([remote_broker._db_file, shard_db],
+                         get_db_files(remote_broker.db_file))
+        # remote fresh db objects are unchanged
+        self.assertEqual(remote_context['objects'][7:8],
+                         remote_broker.get_objects())
+        # remote old hash.db objects are unchanged
+        remote_old_broker = self.backend(
+            remote_broker._db_file, account=remote_broker.account,
+            container=remote_broker.container, force_db_file=True)
+        self.assertEqual(
+            remote_context['objects'][6:7],
+            remote_old_broker.get_objects())
+        remote_info = remote_old_broker.get_info()
+        remote_info_orig.pop('db_state')
+        remote_info.pop('db_state')
+        self.assertEqual(remote_info_orig, remote_info)
+        self.assertEqual(local_broker.get_shard_ranges(),
+                         remote_broker.get_shard_ranges())
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            remote_broker.get_shard_ranges(include_own=True),
+            expect_success=True)
+
+    def test_replication_local_sharded_remote_sharding(self):
+        self._check_replication_local_sharded_remote_sharding({})
+
+    def test_replication_local_sharded_remote_sharding_large_diff(self):
+        self._check_replication_local_sharded_remote_sharding({'per_diff': 1})
+
+    def _check_replication_local_sharded_remote_sharded(self, repl_conf):
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        epoch = Timestamp.now()
+        self._goto_sharding_state(local_broker, epoch)
+        local_context['shard_ranges'][0].object_count = 99
+        local_context['shard_ranges'][0].bytes_used = 999
+        local_context['shard_ranges'][0].state = ShardRange.ACTIVE
+        self._merge_shard_range(index=0, **local_context)
+        self._merge_object(index=slice(0, 6), **local_context)
+        self._goto_sharded_state(local_broker)
+
+        remote_context = self._setup_replication_test(1)
+        self._merge_object(index=6, **remote_context)
+        remote_broker = remote_context['broker']
+        self._goto_sharding_state(remote_broker, epoch)
+        remote_context['shard_ranges'][0].object_count = 101
+        remote_context['shard_ranges'][0].bytes_used = 1010
+        remote_context['shard_ranges'][0].state = ShardRange.ACTIVE
+        self._merge_shard_range(index=0, **remote_context)
+        self._merge_object(index=7, **remote_context)
+        self._goto_sharded_state(remote_broker)
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            # remote has newer timestamp for shard range
+            remote_broker.get_shard_ranges(include_own=True),
+            expect_success=True)
+
+        self.assert_info_synced(
+            local_broker, 1,
+            mismatches=['status_changed_at', 'hash'])
+
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        shard_db = make_db_file_path(remote_broker._db_file, epoch)
+        self.assertEqual([shard_db],
+                         get_db_files(remote_broker.db_file))
+        self.assertEqual(remote_context['objects'][7:8],
+                         remote_broker.get_objects())
+        # remote shard range was newer than local so object count is not
+        # updated by sync'd shard range
+        self.assertEqual(
+            101, remote_broker.get_shard_ranges()[0].object_count)
+
+        self._check_only_shard_ranges_replicated(
+            local_broker, 1, repl_conf,
+            # remote has newer timestamp for shard range
+            remote_broker.get_shard_ranges(include_own=True),
+            expect_success=True)
+
+    def test_replication_local_sharded_remote_sharded(self):
+        self._check_replication_local_sharded_remote_sharded({})
+
+    def test_replication_local_sharded_remote_sharded_large_diff(self):
+        self._check_replication_local_sharded_remote_sharded({'per_diff': 1})
+
+    def test_replication_rsync_then_merge_aborts_before_merge_sharding(self):
+        # verify that rsync_then_merge aborts if remote starts sharding during
+        # the rsync
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=slice(0, 3), **local_context)
+        remote_context = self._setup_replication_test(1)
+        remote_broker = remote_context['broker']
+        remote_broker.logger = debug_logger()
+        self._merge_object(index=5, **remote_context)
+
+        orig_func = replicator.ContainerReplicatorRpc.rsync_then_merge
+
+        def mock_rsync_then_merge(*args):
+            remote_broker.merge_shard_ranges(
+                ShardRange('.shards_a/cc', Timestamp.now()))
+            self._goto_sharding_state(remote_broker, Timestamp.now())
+            return orig_func(*args)
+
+        with mock.patch(
+                'swift.container.replicator.ContainerReplicatorRpc.'
+                'rsync_then_merge',
+                mock_rsync_then_merge):
+            with mock.patch(
+                    'swift.container.backend.ContainerBroker.'
+                    'get_items_since') as mock_get_items_since:
+                daemon, repl_calls, rsync_calls = self.check_replicate(
+                    local_broker, 1, expect_success=False,
+                    repl_conf={'per_diff': 1})
+
+        mock_get_items_since.assert_not_called()
+        self.assertEqual(['sync', 'get_shard_ranges', 'rsync_then_merge'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_broker.get_info()['id'],
+                         os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
+    def test_replication_rsync_then_merge_aborts_before_merge_sharded(self):
+        # verify that rsync_then_merge aborts if remote completes sharding
+        # during the rsync
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=slice(0, 3), **local_context)
+        remote_context = self._setup_replication_test(1)
+        remote_broker = remote_context['broker']
+        remote_broker.logger = debug_logger()
+        self._merge_object(index=5, **remote_context)
+
+        orig_func = replicator.ContainerReplicatorRpc.rsync_then_merge
+
+        def mock_rsync_then_merge(*args):
+            remote_broker.merge_shard_ranges(
+                ShardRange('.shards_a/cc', Timestamp.now()))
+            self._goto_sharding_state(remote_broker, Timestamp.now())
+            self._goto_sharded_state(remote_broker)
+            return orig_func(*args)
+
+        with mock.patch(
+                'swift.container.replicator.ContainerReplicatorRpc.'
+                'rsync_then_merge',
+                mock_rsync_then_merge):
+            with mock.patch(
+                    'swift.container.backend.ContainerBroker.'
+                    'get_items_since') as mock_get_items_since:
+                daemon, repl_calls, rsync_calls = self.check_replicate(
+                    local_broker, 1, expect_success=False,
+                    repl_conf={'per_diff': 1})
+
+        mock_get_items_since.assert_not_called()
+        self.assertEqual(['sync', 'get_shard_ranges', 'rsync_then_merge'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_broker.get_info()['id'],
+                         os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
+    def test_replication_rsync_then_merge_aborts_after_merge_sharding(self):
+        # verify that rsync_then_merge aborts if remote starts sharding during
+        # the merge
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=slice(0, 3), **local_context)
+        remote_context = self._setup_replication_test(1)
+        remote_broker = remote_context['broker']
+        remote_broker.logger = debug_logger()
+        self._merge_object(index=5, **remote_context)
+
+        orig_get_items_since = backend.ContainerBroker.get_items_since
+        calls = []
+
+        def fake_get_items_since(broker, *args):
+            # remote starts sharding while rpc call is merging
+            if not calls:
+                remote_broker.merge_shard_ranges(
+                    ShardRange('.shards_a/cc', Timestamp.now()))
+                self._goto_sharding_state(remote_broker, Timestamp.now())
+            calls.append(args)
+            return orig_get_items_since(broker, *args)
+
+        with mock.patch(
+                'swift.container.backend.ContainerBroker.get_items_since',
+                fake_get_items_since):
+            daemon, repl_calls, rsync_calls = self.check_replicate(
+                local_broker, 1, expect_success=False,
+                repl_conf={'per_diff': 1})
+
+        self.assertEqual(['sync', 'get_shard_ranges', 'rsync_then_merge'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_broker.get_info()['id'],
+                         os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
+
+    def test_replication_rsync_then_merge_aborts_after_merge_sharded(self):
+        # verify that rsync_then_merge aborts if remote completes sharding
+        # during the merge
+        local_context = self._setup_replication_test(0)
+        local_broker = local_context['broker']
+        self._merge_object(index=slice(0, 3), **local_context)
+        remote_context = self._setup_replication_test(1)
+        remote_broker = remote_context['broker']
+        remote_broker.logger = debug_logger()
+        self._merge_object(index=5, **remote_context)
+
+        orig_get_items_since = backend.ContainerBroker.get_items_since
+        calls = []
+
+        def fake_get_items_since(broker, *args):
+            # remote starts sharding while rpc call is merging
+            result = orig_get_items_since(broker, *args)
+            if calls:
+                remote_broker.merge_shard_ranges(
+                    ShardRange('.shards_a/cc', Timestamp.now()))
+                self._goto_sharding_state(remote_broker, Timestamp.now())
+                self._goto_sharded_state(remote_broker)
+            calls.append(args)
+            return result
+
+        with mock.patch(
+                'swift.container.backend.ContainerBroker.get_items_since',
+                fake_get_items_since):
+            daemon, repl_calls, rsync_calls = self.check_replicate(
+                local_broker, 1, expect_success=False,
+                repl_conf={'per_diff': 1})
+
+        self.assertEqual(['sync', 'get_shard_ranges', 'rsync_then_merge'],
+                         [call[0] for call in repl_calls])
+        self.assertEqual(local_broker.db_file, rsync_calls[0][0])
+        self.assertEqual(local_broker.get_info()['id'],
+                         os.path.basename(rsync_calls[0][1]))
+        self.assertFalse(rsync_calls[1:])
 
 
 if __name__ == '__main__':

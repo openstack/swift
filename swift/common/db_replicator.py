@@ -33,7 +33,8 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, parse_override_options, round_robin_iter, Everything
+    json, parse_override_options, round_robin_iter, Everything, get_db_files, \
+    parse_db_filename
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE, \
@@ -120,14 +121,20 @@ def roundrobin_datadirs(datadirs):
                     if not os.path.isdir(hash_dir):
                         continue
                     object_file = os.path.join(hash_dir, hsh + '.db')
+                    # common case
                     if os.path.exists(object_file):
                         yield (partition, object_file, context)
-                    else:
-                        try:
-                            os.rmdir(hash_dir)
-                        except OSError as e:
-                            if e.errno != errno.ENOTEMPTY:
-                                raise
+                        continue
+                    # look for any alternate db filenames
+                    db_files = get_db_files(object_file)
+                    if db_files:
+                        yield (partition, db_files[-1], context)
+                        continue
+                    try:
+                        os.rmdir(hash_dir)
+                    except OSError as e:
+                        if e.errno != errno.ENOTEMPTY:
+                            raise
 
     its = [walk_datadir(datadir, context, filt)
            for datadir, context, filt in datadirs]
@@ -216,7 +223,7 @@ class Replicator(Daemon):
         self.stats = {'attempted': 0, 'success': 0, 'failure': 0, 'ts_repl': 0,
                       'no_change': 0, 'hashmatch': 0, 'rsync': 0, 'diff': 0,
                       'remove': 0, 'empty': 0, 'remote_merge': 0,
-                      'start': time.time(), 'diff_capped': 0,
+                      'start': time.time(), 'diff_capped': 0, 'deferred': 0,
                       'failure_nodes': {}}
 
     def _report_stats(self):
@@ -313,12 +320,13 @@ class Replicator(Daemon):
                                         different_region=different_region):
                     return False
         with Timeout(replicate_timeout or self.node_timeout):
-            response = http.replicate(replicate_method, local_id)
+            response = http.replicate(replicate_method, local_id,
+                                      os.path.basename(broker.db_file))
         return response and 200 <= response.status < 300
 
-    def _send_merge_items(self, http, local_id, items):
+    def _send_replicate_request(self, http, *repl_args):
         with Timeout(self.node_timeout):
-            response = http.replicate('merge_items', items, local_id)
+            response = http.replicate(*repl_args)
         if not response or not is_success(response.status):
             if response:
                 self.logger.error('ERROR Bad response %s from %s',
@@ -350,7 +358,8 @@ class Replicator(Daemon):
         diffs = 0
         while len(objects) and diffs < self.max_diffs:
             diffs += 1
-            if not self._send_merge_items(http, local_id, objects):
+            if not self._send_replicate_request(
+                    http, 'merge_items', objects, local_id):
                 return False
             # replication relies on db order to send the next merge batch in
             # order with no gaps
@@ -413,9 +422,8 @@ class Replicator(Daemon):
 
         :returns: ReplConnection object
         """
-        return ReplConnection(node, partition,
-                              os.path.basename(db_file).split('.', 1)[0],
-                              self.logger)
+        hsh, other, ext = parse_db_filename(db_file)
+        return ReplConnection(node, partition, hsh, self.logger)
 
     def _gather_sync_args(self, info):
         """
@@ -931,6 +939,8 @@ class ReplicatorRpc(object):
 
     def complete_rsync(self, drive, db_file, args):
         old_filename = os.path.join(self.root, drive, 'tmp', args[0])
+        if args[1:]:
+            db_file = os.path.join(os.path.dirname(db_file), args[1])
         if os.path.exists(db_file):
             return HTTPNotFound()
         if not os.path.exists(old_filename):
@@ -943,6 +953,10 @@ class ReplicatorRpc(object):
     def _abort_rsync_then_merge(self, db_file, tmp_filename):
         return not (self._db_file_exists(db_file) and
                     os.path.exists(tmp_filename))
+
+    def _post_rsync_then_merge_hook(self, existing_broker, new_broker):
+        # subclasses may override to make custom changes to the new broker
+        pass
 
     def rsync_then_merge(self, drive, db_file, args):
         tmp_filename = os.path.join(self.root, drive, 'tmp', args[0])
@@ -959,6 +973,7 @@ class ReplicatorRpc(object):
             objects = existing_broker.get_items_since(point, 1000)
             sleep()
         new_broker.merge_syncs(existing_broker.get_syncs())
+        self._post_rsync_then_merge_hook(existing_broker, new_broker)
         new_broker.newid(args[0])
         new_broker.update_metadata(existing_broker.metadata)
         if self._abort_rsync_then_merge(db_file, tmp_filename):

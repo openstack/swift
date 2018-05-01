@@ -1460,7 +1460,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(True, db.is_deleted())
         # now save a copy of this db (and remove it from the "current node")
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        db_path = db.db_file
+        db_path = db._db_file
         other_path = os.path.join(self.testdir, 'othernode.db')
         os.rename(db_path, other_path)
         # that should make it missing on this node
@@ -1474,6 +1474,8 @@ class TestContainerController(unittest.TestCase):
 
         def mock_exists(db_path):
             rv = _real_exists(db_path)
+            if db_path != db._db_file:
+                return rv
             if not mock_called:
                 # be as careful as we might hope backend replication can be...
                 with lock_parent_directory(db_path, timeout=1):

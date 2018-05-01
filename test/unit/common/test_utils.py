@@ -3878,6 +3878,47 @@ cluster_dfw1 = http://dfw1.host/v1/
         found = utils.find_shard_range('l', overlapping_ranges)
         self.assertEqual(found, ktol)
 
+    def test_parse_db_filename(self):
+        actual = utils.parse_db_filename('hash.db')
+        self.assertEqual(('hash', None, '.db'), actual)
+        actual = utils.parse_db_filename('hash_1234567890.12345.db')
+        self.assertEqual(('hash', '1234567890.12345', '.db'), actual)
+        actual = utils.parse_db_filename(
+            '/dev/containers/part/ash/hash/hash_1234567890.12345.db')
+        self.assertEqual(('hash', '1234567890.12345', '.db'), actual)
+        self.assertRaises(ValueError, utils.parse_db_filename, '/path/to/dir/')
+        # These shouldn't come up in practice; included for completeness
+        self.assertEqual(utils.parse_db_filename('hashunder_.db'),
+                         ('hashunder', '', '.db'))
+        self.assertEqual(utils.parse_db_filename('lots_of_underscores.db'),
+                         ('lots', 'of', '.db'))
+
+    def test_make_db_file_path(self):
+        epoch = utils.Timestamp.now()
+        actual = utils.make_db_file_path('hash.db', epoch)
+        self.assertEqual('hash_%s.db' % epoch.internal, actual)
+
+        actual = utils.make_db_file_path('hash_oldepoch.db', epoch)
+        self.assertEqual('hash_%s.db' % epoch.internal, actual)
+
+        actual = utils.make_db_file_path('/path/to/hash.db', epoch)
+        self.assertEqual('/path/to/hash_%s.db' % epoch.internal, actual)
+
+        epoch = utils.Timestamp.now()
+        actual = utils.make_db_file_path(actual, epoch)
+        self.assertEqual('/path/to/hash_%s.db' % epoch.internal, actual)
+
+        # epochs shouldn't have offsets
+        epoch = utils.Timestamp.now(offset=10)
+        actual = utils.make_db_file_path(actual, epoch)
+        self.assertEqual('/path/to/hash_%s.db' % epoch.normal, actual)
+
+        self.assertRaises(ValueError, utils.make_db_file_path,
+                          '/path/to/hash.db', 'bad epoch')
+
+        self.assertRaises(ValueError, utils.make_db_file_path,
+                          '/path/to/hash.db', None)
+
     def test_modify_priority(self):
         pid = os.getpid()
         logger = debug_logger()
@@ -4167,6 +4208,70 @@ cluster_dfw1 = http://dfw1.host/v1/
         # Expect that items get fetched in a round-robin fashion from the
         # iterators
         self.assertListEqual([1, 4, 6, 2, 5, 7, 3, 8, 9], got)
+
+    @with_tempdir
+    def test_get_db_files(self, tempdir):
+        dbdir = os.path.join(tempdir, 'dbdir')
+        self.assertEqual([], utils.get_db_files(dbdir))
+        path_1 = os.path.join(dbdir, 'dbfile.db')
+        self.assertEqual([], utils.get_db_files(path_1))
+        os.mkdir(dbdir)
+        self.assertEqual([], utils.get_db_files(path_1))
+        with open(path_1, 'wb'):
+            pass
+        self.assertEqual([path_1], utils.get_db_files(path_1))
+
+        path_2 = os.path.join(dbdir, 'dbfile_2.db')
+        self.assertEqual([path_1], utils.get_db_files(path_2))
+
+        with open(path_2, 'wb'):
+            pass
+
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_2))
+
+        path_3 = os.path.join(dbdir, 'dbfile_3.db')
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_3))
+
+        with open(path_3, 'wb'):
+            pass
+
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_3))
+
+        other_hash = os.path.join(dbdir, 'other.db')
+        self.assertEqual([], utils.get_db_files(other_hash))
+        other_hash = os.path.join(dbdir, 'other_1.db')
+        self.assertEqual([], utils.get_db_files(other_hash))
+
+        pending = os.path.join(dbdir, 'dbfile.pending')
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(pending))
+
+        with open(pending, 'wb'):
+            pass
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(pending))
+
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_3))
+        self.assertEqual([], utils.get_db_files(dbdir))
+
+        os.unlink(path_1)
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_3))
+
+        os.unlink(path_2)
+        self.assertEqual([path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_3], utils.get_db_files(path_3))
+
+        os.unlink(path_3)
+        self.assertEqual([], utils.get_db_files(path_1))
+        self.assertEqual([], utils.get_db_files(path_2))
+        self.assertEqual([], utils.get_db_files(path_3))
+        self.assertEqual([], utils.get_db_files('/path/to/nowhere'))
 
 
 class ResellerConfReader(unittest.TestCase):

@@ -5300,3 +5300,86 @@ def distribute_evenly(items, num_buckets):
     for index, item in enumerate(items):
         out[index % num_buckets].append(item)
     return out
+
+
+def parse_db_filename(filename):
+    """
+    Splits a db filename into three parts: the hash, the epoch, and the
+    extension.
+
+    >>> parse_db_filename("ab2134.db")
+    ('ab2134', None, '.db')
+    >>> parse_db_filename("ab2134_1234567890.12345.db")
+    ('ab2134', '1234567890.12345', '.db')
+
+    :param filename: A db file basename or path to a db file.
+    :return: A tuple of (hash , epoch, extension). ``epoch`` may be None.
+    :raises ValueError: if ``filename`` is not a path to a file.
+    """
+    filename = os.path.basename(filename)
+    if not filename:
+        raise ValueError('Path to a file required.')
+    name, ext = os.path.splitext(filename)
+    parts = name.split('_')
+    hash_ = parts.pop(0)
+    epoch = parts[0] if parts else None
+    return hash_, epoch, ext
+
+
+def make_db_file_path(db_path, epoch):
+    """
+    Given a path to a db file, return a modified path whose filename part has
+    the given epoch.
+
+    A db filename takes the form <hash>[_<epoch>].db; this method replaces the
+    <epoch> part of the given ``db_path`` with the given ``epoch`` value.
+
+    :param db_path: Path to a db file that does not necessarily exist.
+    :param epoch: A string that will be used as the epoch in the new path's
+        filename; the value will be normalized to the normal string
+        representation of a :class:`~swift.common.utils.Timestamp`.
+    :return: A modified path to a db file.
+    :raises ValueError: if the ``epoch`` is not valid for constructing a
+        :class:`~swift.common.utils.Timestamp`.
+    """
+    if epoch is None:
+        raise ValueError('epoch must not be None')
+    epoch = Timestamp(epoch).normal
+    hash_, _, ext = parse_db_filename(db_path)
+    db_dir = os.path.dirname(db_path)
+    return os.path.join(db_dir, '%s_%s%s' % (hash_, epoch, ext))
+
+
+def get_db_files(db_path):
+    """
+    Given the path to a db file, return a sorted list of all valid db files
+    that actually exist in that path's dir. A valid db filename has the form:
+
+        <hash>[_<epoch>].db
+
+    where <hash> matches the <hash> part of the given db_path as would be
+    parsed by :meth:`~swift.utils.common.parse_db_filename`.
+
+    :param db_path: Path to a db file that does not necessarily exist.
+    :return: List of valid db files that do exist in the dir of the
+        ``db_path``. This list may be empty.
+    """
+    db_dir, db_file = os.path.split(db_path)
+    try:
+        files = os.listdir(db_dir)
+    except OSError as err:
+        if err.errno == errno.ENOENT:
+            return []
+        raise
+    if not files:
+        return []
+    match_hash, epoch, ext = parse_db_filename(db_file)
+    results = []
+    for f in files:
+        hash_, epoch, ext = parse_db_filename(f)
+        if ext != '.db':
+            continue
+        if hash_ != match_hash:
+            continue
+        results.append(os.path.join(db_dir, f))
+    return sorted(results)

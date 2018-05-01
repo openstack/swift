@@ -274,6 +274,9 @@ class FakeBroker(object):
         self.put_timestamp = put_timestamp
         self.delete_timestamp = delete_timestamp
 
+    def get_brokers(self):
+        return [self]
+
 
 class FakeAccountBroker(FakeBroker):
     db_type = 'account'
@@ -1205,8 +1208,21 @@ class TestDBReplicator(unittest.TestCase):
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.side_effect = [False, True]
             response = rpc.dispatch(('drive', 'part', 'hash'),
-                                    ['complete_rsync', 'arg1', 'arg2'])
+                                    ['complete_rsync', 'arg1'])
             expected_calls = [call('/part/ash/hash/hash.db'),
+                              call('/drive/tmp/arg1')]
+            self.assertEqual(mock_os.path.exists.call_args_list,
+                             expected_calls)
+            self.assertEqual('204 No Content', response.status)
+            self.assertEqual(204, response.status_int)
+
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
+            mock_os.path.exists.side_effect = [False, True]
+            response = rpc.dispatch(('drive', 'part', 'hash'),
+                                    ['complete_rsync', 'arg1', 'arg2'])
+            expected_calls = [call('/part/ash/hash/arg2'),
                               call('/drive/tmp/arg1')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)
@@ -1271,9 +1287,18 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os, \
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
+            response = rpc.complete_rsync('drive', '/data/db.db', ['arg1'])
+            mock_os.path.exists.assert_called_with('/data/db.db')
+            self.assertEqual('404 Not Found', response.status)
+            self.assertEqual(404, response.status_int)
+
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
+            mock_os.path.exists.return_value = True
             response = rpc.complete_rsync('drive', '/data/db.db',
                                           ['arg1', 'arg2'])
-            mock_os.path.exists.assert_called_with('/data/db.db')
+            mock_os.path.exists.assert_called_with('/data/arg2')
             self.assertEqual('404 Not Found', response.status)
             self.assertEqual(404, response.status_int)
 
@@ -1286,8 +1311,20 @@ class TestDBReplicator(unittest.TestCase):
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = False
             response = rpc.complete_rsync('drive', '/data/db.db',
-                                          ['arg1', 'arg2'])
+                                          ['arg1'])
             expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1')]
+            self.assertEqual(expected_calls,
+                             mock_os.path.exists.call_args_list)
+            self.assertEqual('404 Not Found', response.status)
+            self.assertEqual(404, response.status_int)
+
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
+            mock_os.path.exists.return_value = False
+            response = rpc.complete_rsync('drive', '/data/db.db',
+                                          ['arg1', 'arg2'])
+            expected_calls = [call('/data/arg2'), call('/drive/tmp/arg1')]
             self.assertEqual(expected_calls,
                              mock_os.path.exists.call_args_list)
             self.assertEqual('404 Not Found', response.status)
@@ -1297,26 +1334,34 @@ class TestDBReplicator(unittest.TestCase):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
 
-        def mock_exists(path):
-            if path == '/data/db.db':
-                return False
-            self.assertEqual('/drive/tmp/arg1', path)
-            return True
-
         def mock_renamer(old, new):
-            self.assertEqual('/drive/tmp/arg1', old)
-            self.assertEqual('/data/db.db', new)
+            renamer_calls.append((old, new))
 
         self._patch(patch.object, db_replicator, 'renamer', mock_renamer)
 
+        renamer_calls = []
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
+            mock_os.path.exists.side_effect = [False, True]
+            response = rpc.complete_rsync('drive', '/data/db.db',
+                                          ['arg1'])
+        self.assertEqual('204 No Content', response.status)
+        self.assertEqual(204, response.status_int)
+        self.assertEqual(('/drive/tmp/arg1', '/data/db.db'), renamer_calls[0])
+        self.assertFalse(renamer_calls[1:])
+
+        renamer_calls = []
         with patch('swift.common.db_replicator.os',
                    new=mock.MagicMock(wraps=os)) as mock_os, \
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.side_effect = [False, True]
             response = rpc.complete_rsync('drive', '/data/db.db',
                                           ['arg1', 'arg2'])
-            self.assertEqual('204 No Content', response.status)
-            self.assertEqual(204, response.status_int)
+        self.assertEqual('204 No Content', response.status)
+        self.assertEqual(204, response.status_int)
+        self.assertEqual(('/drive/tmp/arg1', '/data/arg2'), renamer_calls[0])
+        self.assertFalse(renamer_calls[1:])
 
     def test_replicator_sync_with_broker_replication_missing_table(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
@@ -1675,10 +1720,10 @@ class TestDBReplicator(unittest.TestCase):
         db_file = __file__
         replicator = TestReplicator({})
         replicator._http_connect(node, partition, db_file)
+        expected_hsh = os.path.basename(db_file).split('.', 1)[0]
+        expected_hsh = expected_hsh.split('_', 1)[0]
         db_replicator.ReplConnection.assert_has_calls([
-            mock.call(node, partition,
-                      os.path.basename(db_file).split('.', 1)[0],
-                      replicator.logger)])
+            mock.call(node, partition, expected_hsh, replicator.logger)])
 
 
 class TestHandoffsOnly(unittest.TestCase):
