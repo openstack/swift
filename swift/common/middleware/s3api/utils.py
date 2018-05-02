@@ -68,40 +68,40 @@ def utf8decode(s):
 
 
 def validate_bucket_name(name, dns_compliant_bucket_names):
-        """
-        Validates the name of the bucket against S3 criteria,
-        http://docs.amazonwebservices.com/AmazonS3/latest/BucketRestrictions.html
-        True is valid, False is invalid.
-        """
-        valid_chars = '-.a-z0-9'
-        if not dns_compliant_bucket_names:
-            valid_chars += 'A-Z_'
-        max_len = 63 if dns_compliant_bucket_names else 255
+    """
+    Validates the name of the bucket against S3 criteria,
+    http://docs.amazonwebservices.com/AmazonS3/latest/BucketRestrictions.html
+    True is valid, False is invalid.
+    """
+    valid_chars = '-.a-z0-9'
+    if not dns_compliant_bucket_names:
+        valid_chars += 'A-Z_'
+    max_len = 63 if dns_compliant_bucket_names else 255
 
-        if len(name) < 3 or len(name) > max_len or not name[0].isalnum():
-            # Bucket names should be between 3 and 63 (or 255) characters long
-            # Bucket names must start with a letter or a number
-            return False
-        elif dns_compliant_bucket_names and (
-                '.-' in name or '-.' in name or '..' in name or
-                not name[-1].isalnum()):
-            # Bucket names cannot contain dashes next to periods
-            # Bucket names cannot contain two adjacent periods
-            # Bucket names must end with a letter or a number
-            return False
-        elif name.endswith('.'):
-            # Bucket names must not end with dot
-            return False
-        elif re.match("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.)"
-                      "{3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$",
-                      name):
-            # Bucket names cannot be formatted as an IP Address
-            return False
-        elif not re.match("^[%s]*$" % valid_chars, name):
-            # Bucket names can contain lowercase letters, numbers, and hyphens.
-            return False
-        else:
-            return True
+    if len(name) < 3 or len(name) > max_len or not name[0].isalnum():
+        # Bucket names should be between 3 and 63 (or 255) characters long
+        # Bucket names must start with a letter or a number
+        return False
+    elif dns_compliant_bucket_names and (
+            '.-' in name or '-.' in name or '..' in name or
+            not name[-1].isalnum()):
+        # Bucket names cannot contain dashes next to periods
+        # Bucket names cannot contain two adjacent periods
+        # Bucket names must end with a letter or a number
+        return False
+    elif name.endswith('.'):
+        # Bucket names must not end with dot
+        return False
+    elif re.match("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.)"
+                  "{3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$",
+                  name):
+        # Bucket names cannot be formatted as an IP Address
+        return False
+    elif not re.match("^[%s]*$" % valid_chars, name):
+        # Bucket names can contain lowercase letters, numbers, and hyphens.
+        return False
+    else:
+        return True
 
 
 class S3Timestamp(utils.Timestamp):
@@ -134,7 +134,7 @@ def mktime(timestamp_str, time_format='%Y-%m-%dT%H:%M:%S'):
                           (a) RFC2822 (e.g. date header)
                           (b) %Y-%m-%dT%H:%M:%S (e.g. copy result)
     :param time_format: a string of format to parse in (b) process
-    :return : a float instance in epoch time
+    :returns: a float instance in epoch time
     """
     # time_tuple is the *remote* local time
     time_tuple = email.utils.parsedate_tz(timestamp_str)
