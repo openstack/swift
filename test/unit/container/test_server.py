@@ -47,7 +47,7 @@ from test.unit import fake_http_connect, debug_logger, mock_check_drive
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
 
-from test import listen_zero
+from test import listen_zero, annotate_failure
 from test.unit import patch_policies
 
 
@@ -3078,6 +3078,199 @@ class TestContainerController(unittest.TestCase):
         assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
         assert_broker_rows(broker.get_brokers()[1],
                            ['sharding', 'racing_update'], 3)
+
+    def _check_object_update_redirected_to_shard(self, method):
+        expected_status = 204 if method == 'DELETE' else 201
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+
+        def do_update(name, timestamp=None, headers=None):
+            # Make a PUT request to container controller to update an object
+            timestamp = timestamp or next(ts_iter)
+            headers = headers or {}
+            headers.update({'X-Timestamp': timestamp.internal,
+                            'X-Size': 17,
+                            'X-Content-Type': 'text/plain',
+                            'X-Etag': 'fake etag'})
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % name, method=method, headers=headers)
+            self._update_object_put_headers(req)
+            return req.get_response(self.controller)
+
+        def get_listing(broker_index):
+            # index -1 is always the freshest db
+            sub_broker = broker.get_brokers()[broker_index]
+            return sub_broker.get_objects()
+
+        def assert_not_redirected(obj_name, timestamp=None, headers=None):
+            resp = do_update(obj_name, timestamp=timestamp, headers=headers)
+            self.assertEqual(expected_status, resp.status_int)
+            self.assertNotIn('Location', resp.headers)
+            self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
+
+        def assert_redirected(obj_name, shard_range, headers=None):
+            resp = do_update(obj_name, headers=headers)
+            self.assertEqual(301, resp.status_int)
+            self.assertEqual('/%s/%s' % (shard_range.name, obj_name),
+                             resp.headers['Location'])
+            self.assertEqual(shard_range.timestamp.internal,
+                             resp.headers['X-Backend-Redirect-Timestamp'])
+
+        # sanity check
+        ts_bashful_orig = next(ts_iter)
+        mocked_fn = 'swift.container.backend.ContainerBroker.get_shard_ranges'
+        with mock.patch(mocked_fn) as mock_get_shard_ranges:
+            assert_not_redirected('bashful', ts_bashful_orig)
+        mock_get_shard_ranges.assert_not_called()
+
+        shard_ranges = {
+            'dopey': ShardRange(
+                '.sharded_a/sr_dopey', next(ts_iter), '', 'dopey'),
+            'happy': ShardRange(
+                '.sharded_a/sr_happy', next(ts_iter), 'dopey', 'happy'),
+            '': ShardRange('.sharded_a/sr_', next(ts_iter), 'happy', '')
+        }
+        # start with only the middle shard range
+        self._put_shard_range(shard_ranges['happy'])
+
+        # db not yet sharding but shard ranges exist
+        sr_happy = shard_ranges['happy']
+        redirect_states = (
+            ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHARDING)
+        headers = {'X-Backend-Accept-Redirect': 'true'}
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpy%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                obj_name = 'grumpy%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
+
+        # set broker to sharding state
+        broker.enable_sharding(next(ts_iter))
+        self.assertTrue(broker.set_sharding_state())
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpier%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    # update goes to fresh db, misplaced
+                    self.assertIn(
+                        obj_name, [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(
+                        obj_name, [obj['name'] for obj in get_listing(0)])
+                obj_name = 'grumpier%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(
+                    obj_name, [obj['name'] for obj in get_listing(-1)])
+                # update is misplaced, not in retiring db
+                self.assertNotIn(
+                    obj_name, [obj['name'] for obj in get_listing(0)])
+
+        # no shard for this object yet so it is accepted by root container
+        # and stored in misplaced objects...
+        assert_not_redirected('dopey', timestamp=next(ts_iter))
+        self.assertIn('dopey', [obj['name'] for obj in get_listing(-1)])
+        self.assertNotIn('dopey', [obj['name'] for obj in get_listing(0)])
+
+        # now PUT the first shard range
+        sr_dopey = shard_ranges['dopey']
+        sr_dopey.update_state(ShardRange.CLEAVED,
+                              state_timestamp=next(ts_iter))
+        self._put_shard_range(sr_dopey)
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'dopey%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(0)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(0)])
+                obj_name = 'dopey%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
+                self.assertNotIn(obj_name,
+                                 [obj['name'] for obj in get_listing(0)])
+
+        # further updates to bashful and dopey are now redirected...
+        assert_redirected('bashful', sr_dopey, headers=headers)
+        assert_redirected('dopey', sr_dopey, headers=headers)
+        # ...and existing updates in this container are *not* updated
+        self.assertEqual([ts_bashful_orig.internal],
+                         [obj['created_at'] for obj in get_listing(0)
+                          if obj['name'] == 'bashful'])
+
+        # set broker to sharded state
+        self.assertTrue(broker.set_sharded_state())
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpiest%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                obj_name = 'grumpiest%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
+
+    def test_PUT_object_update_redirected_to_shard(self):
+        self._check_object_update_redirected_to_shard('PUT')
+
+    def test_DELETE_object_update_redirected_to_shard(self):
+        self._check_object_update_redirected_to_shard('DELETE')
 
     def test_GET_json(self):
         # make a container

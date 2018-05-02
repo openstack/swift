@@ -4273,6 +4273,51 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual([], utils.get_db_files(path_3))
         self.assertEqual([], utils.get_db_files('/path/to/nowhere'))
 
+    def test_get_redirect_data(self):
+        ts_now = utils.Timestamp.now()
+        headers = {'X-Backend-Redirect-Timestamp': ts_now.internal}
+        response = FakeResponse(200, headers, '')
+        self.assertIsNone(utils.get_redirect_data(response))
+
+        headers = {'Location': '/a/c/o',
+                   'X-Backend-Redirect-Timestamp': ts_now.internal}
+        response = FakeResponse(200, headers, '')
+        path, ts = utils.get_redirect_data(response)
+        self.assertEqual('a/c', path)
+        self.assertEqual(ts_now, ts)
+
+        headers = {'Location': '/a/c',
+                   'X-Backend-Redirect-Timestamp': ts_now.internal}
+        response = FakeResponse(200, headers, '')
+        path, ts = utils.get_redirect_data(response)
+        self.assertEqual('a/c', path)
+        self.assertEqual(ts_now, ts)
+
+        def do_test(headers):
+            response = FakeResponse(200, headers, '')
+            with self.assertRaises(ValueError) as cm:
+                utils.get_redirect_data(response)
+            return cm.exception
+
+        exc = do_test({'Location': '/a',
+                       'X-Backend-Redirect-Timestamp': ts_now.internal})
+        self.assertIn('Invalid path', str(exc))
+
+        exc = do_test({'Location': '',
+                       'X-Backend-Redirect-Timestamp': ts_now.internal})
+        self.assertIn('Invalid path', str(exc))
+
+        exc = do_test({'Location': '/a/c',
+                       'X-Backend-Redirect-Timestamp': 'bad'})
+        self.assertIn('Invalid timestamp', str(exc))
+
+        exc = do_test({'Location': '/a/c'})
+        self.assertIn('Invalid timestamp', str(exc))
+
+        exc = do_test({'Location': '/a/c',
+                       'X-Backend-Redirect-Timestamp': '-1'})
+        self.assertIn('Invalid timestamp', str(exc))
+
 
 class ResellerConfReader(unittest.TestCase):
 

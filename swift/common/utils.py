@@ -5302,6 +5302,30 @@ def distribute_evenly(items, num_buckets):
     return out
 
 
+def get_redirect_data(response):
+    """
+    Extract a redirect location from a response's headers.
+
+    :param response: a response
+    :return: a tuple of (path, Timestamp) if a Location header is found,
+        otherwise None
+    :raises ValueError: if the Location header is found but a
+        X-Backend-Redirect-Timestamp is not found, or if there is a problem
+        with the format of etiher header
+    """
+    headers = HeaderKeyDict(response.getheaders())
+    if 'Location' not in headers:
+        return None
+    location = urlparse(headers['Location']).path
+    account, container, _junk = split_path(location, 2, 3, True)
+    timestamp_val = headers.get('X-Backend-Redirect-Timestamp')
+    try:
+        timestamp = Timestamp(timestamp_val)
+    except (TypeError, ValueError):
+        raise ValueError('Invalid timestamp value: %s' % timestamp_val)
+    return '%s/%s' % (account, container), timestamp
+
+
 def parse_db_filename(filename):
     """
     Splits a db filename into three parts: the hash, the epoch, and the

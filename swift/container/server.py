@@ -25,7 +25,7 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
-    RECORD_TYPE_SHARD, UNSHARDED, SHARDING, SHARDED
+    RECORD_TYPE_SHARD, UNSHARDED, SHARDING, SHARDED, SHARD_UPDATE_STATES
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
@@ -34,8 +34,7 @@ from swift.common.request_helpers import get_param, \
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
-    override_bytes_from_content_type, get_log_line, ShardRange, \
-    list_from_csv
+    override_bytes_from_content_type, get_log_line, ShardRange, list_from_csv
 
 from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
@@ -49,7 +48,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
-    HTTPInsufficientStorage, HTTPException
+    HTTPInsufficientStorage, HTTPException, HTTPMovedPermanently
 
 
 def gen_resp_headers(info, is_deleted=False):
@@ -265,6 +264,40 @@ class ContainerController(BaseStorageServer):
             self.logger.exception('Failed to update sync_store %s during %s' %
                                   (broker.db_file, method))
 
+    def _redirect_to_shard(self, req, broker, obj_name):
+        """
+        If the request indicates that it can accept a redirection, look for a
+        shard range that contains ``obj_name`` and if one exists return a
+        HTTPMovedPermanently response.
+
+        :param req: an instance of :class:`~swift.common.swob.Request`
+        :param broker: a container broker
+        :param obj_name: an object name
+        :return: an instance of :class:`swift.common.swob.HTTPMovedPermanently`
+            if a shard range exists for the given ``obj_name``, otherwise None.
+        """
+        if not config_true_value(
+                req.headers.get('x-backend-accept-redirect', False)):
+            return None
+
+        shard_ranges = broker.get_shard_ranges(
+            includes=obj_name, states=SHARD_UPDATE_STATES)
+        if not shard_ranges:
+            return None
+
+        # note: obj_name may be included in both a created sub-shard and its
+        # sharding parent. get_shard_ranges will return the created sub-shard
+        # in preference to the parent, which is the desired result.
+        containing_range = shard_ranges[0]
+        location = "/%s/%s" % (containing_range.name, obj_name)
+        headers = {'Location': location,
+                   'X-Backend-Redirect-Timestamp':
+                       containing_range.timestamp.internal}
+
+        # we do not want the host added to the location
+        req.environ['swift.leave_relative_location'] = True
+        return HTTPMovedPermanently(headers=headers, request=req)
+
     @public
     @timing_stats()
     def DELETE(self, req):
@@ -287,6 +320,11 @@ class ContainerController(BaseStorageServer):
         if not os.path.exists(broker.db_file):
             return HTTPNotFound()
         if obj:     # delete object
+            # redirect if a shard range exists for the object name
+            redirect = self._redirect_to_shard(req, broker, obj)
+            if redirect:
+                return redirect
+
             broker.delete_object(obj, req.headers.get('x-timestamp'),
                                  obj_policy_index)
             return HTTPNoContent(request=req)
@@ -404,6 +442,11 @@ class ContainerController(BaseStorageServer):
             obj_policy_index = requested_policy_index or 0
             self._maybe_autocreate(broker, req_timestamp, account,
                                    obj_policy_index)
+            # redirect if a shard exists for this object name
+            response = self._redirect_to_shard(req, broker, obj)
+            if response:
+                return response
+
             broker.put_object(obj, req_timestamp.internal,
                               int(req.headers['x-size']),
                               req.headers['x-content-type'],

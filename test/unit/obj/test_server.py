@@ -1053,7 +1053,7 @@ class TestObjectController(unittest.TestCase):
             mock_ring = mock.MagicMock()
             mock_ring.get_nodes.return_value = (99, [node])
             object_updater.container_ring = mock_ring
-            mock_update.return_value = ((True, 1))
+            mock_update.return_value = ((True, 1, None))
             object_updater.run_once()
         self.assertEqual(1, mock_update.call_count)
         self.assertEqual((node, 99, 'PUT', '/a/c/o'),
@@ -1061,6 +1061,7 @@ class TestObjectController(unittest.TestCase):
         actual_headers = mock_update.call_args_list[0][0][4]
         # User-Agent is updated.
         expected_post_headers['User-Agent'] = 'object-updater %s' % os.getpid()
+        expected_post_headers['X-Backend-Accept-Redirect'] = 'true'
         self.assertDictEqual(expected_post_headers, actual_headers)
         self.assertFalse(
             os.listdir(os.path.join(
@@ -1072,6 +1073,104 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_then_POST_async_pendings_with_EC_policy(self):
         self._test_PUT_then_POST_async_pendings(
             POLICIES[1], update_etag='override_etag')
+
+    def _check_PUT_redirected_async_pending(self, container_path=None):
+        # When container update is redirected verify that the redirect location
+        # is persisted in the async pending file.
+        policy = POLICIES[0]
+        device_dir = os.path.join(self.testdir, 'sda1')
+        t_put = next(self.ts)
+        update_etag = '098f6bcd4621d373cade4e832627b4f6'
+
+        put_headers = {
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'Content-Length': '4',
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'X-Container-Host': 'chost:3200',
+            'X-Container-Partition': '99',
+            'X-Container-Device': 'cdevice'}
+
+        if container_path:
+            # the proxy may include this header
+            put_headers['X-Backend-Container-Path'] = container_path
+            expected_update_path = '/cdevice/99/%s/o' % container_path
+        else:
+            expected_update_path = '/cdevice/99/a/c/o'
+
+        if policy.policy_type == EC_POLICY:
+            put_headers.update({
+                'X-Object-Sysmeta-Ec-Frag-Index': '2',
+                'X-Backend-Container-Update-Override-Etag': update_etag,
+                'X-Object-Sysmeta-Ec-Etag': update_etag})
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=put_headers, body='test')
+        resp_headers = {'Location': '/.sharded_a/c_shard_1/o',
+                        'X-Backend-Redirect-Timestamp': next(self.ts).internal}
+
+        with mocked_http_conn(301, headers=[resp_headers]) as conn, \
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''),\
+                fake_spawn():
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(1, len(conn.requests))
+
+        self.assertEqual(expected_update_path, conn.requests[0]['path'])
+
+        # whether or not an X-Backend-Container-Path was received from the
+        # proxy, the async pending file should now have the container_path
+        # equal to the Location header received in the update response.
+        async_pending_file_put = os.path.join(
+            device_dir, diskfile.get_async_dir(policy), 'a83',
+            '06fbf0b514e5199dfc4e00f42eb5ea83-%s' % t_put.internal)
+        self.assertTrue(os.path.isfile(async_pending_file_put),
+                        'Expected %s to be a file but it is not.'
+                        % async_pending_file_put)
+        expected_put_headers = {
+            'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'X-Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'X-Size': '4',
+            'X-Etag': '098f6bcd4621d373cade4e832627b4f6',
+            'User-Agent': 'object-server %s' % os.getpid(),
+            'X-Backend-Storage-Policy-Index': '%d' % int(policy)}
+        if policy.policy_type == EC_POLICY:
+            expected_put_headers['X-Etag'] = update_etag
+        self.assertEqual(
+            {'headers': expected_put_headers,
+             'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
+             'container_path': '.sharded_a/c_shard_1'},
+            pickle.load(open(async_pending_file_put)))
+
+        # when updater is run its first request will be to the redirect
+        # location that is persisted in the async pending file
+        with mocked_http_conn(201) as conn:
+            with mock.patch('swift.obj.updater.dump_recon_cache',
+                            lambda *args: None):
+                object_updater = updater.ObjectUpdater(
+                    {'devices': self.testdir,
+                     'mount_check': 'false'}, logger=debug_logger())
+                node = {'id': 1, 'ip': 'chost', 'port': 3200,
+                        'device': 'cdevice'}
+                mock_ring = mock.MagicMock()
+                mock_ring.get_nodes.return_value = (99, [node])
+                object_updater.container_ring = mock_ring
+                object_updater.run_once()
+
+        self.assertEqual(1, len(conn.requests))
+        self.assertEqual('/cdevice/99/.sharded_a/c_shard_1/o',
+                         conn.requests[0]['path'])
+
+    def test_PUT_redirected_async_pending(self):
+        self._check_PUT_redirected_async_pending()
+
+    def test_PUT_redirected_async_pending_with_container_path(self):
+        self._check_PUT_redirected_async_pending(container_path='.another/c')
 
     def test_POST_quarantine_zbyte(self):
         timestamp = normalize_timestamp(time())
@@ -5263,6 +5362,95 @@ class TestObjectController(unittest.TestCase):
             'X-Backend-Container-Update-Override-Content-Type': 'ignored',
             'X-Backend-Container-Update-Override-Foo': 'ignored'})
 
+    def test_PUT_container_update_to_shard(self):
+        # verify that alternate container update path is respected when
+        # included in request headers
+        def do_test(container_path, expected_path, expected_container_path):
+            policy = random.choice(list(POLICIES))
+            container_updates = []
+
+            def capture_updates(
+                    ip, port, method, path, headers, *args, **kwargs):
+                container_updates.append((ip, port, method, path, headers))
+
+            pickle_async_update_args = []
+
+            def fake_pickle_async_update(*args):
+                pickle_async_update_args.append(args)
+
+            diskfile_mgr = self.object_controller._diskfile_router[policy]
+            diskfile_mgr.pickle_async_update = fake_pickle_async_update
+
+            ts_put = next(self.ts)
+            headers = {
+                'X-Timestamp': ts_put.internal,
+                'X-Trans-Id': '123',
+                'X-Container-Host': 'chost:cport',
+                'X-Container-Partition': 'cpartition',
+                'X-Container-Device': 'cdevice',
+                'Content-Type': 'text/plain',
+                'X-Object-Sysmeta-Ec-Frag-Index': 0,
+                'X-Backend-Storage-Policy-Index': int(policy),
+            }
+            if container_path is not None:
+                headers['X-Backend-Container-Path'] = container_path
+
+            req = Request.blank('/sda1/0/a/c/o', method='PUT',
+                                headers=headers, body='')
+            with mocked_http_conn(
+                    500, give_connect=capture_updates) as fake_conn:
+                with fake_spawn():
+                    resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            self.assertEqual(resp.status_int, 201)
+            self.assertEqual(len(container_updates), 1)
+            # verify expected path used in update request
+            ip, port, method, path, headers = container_updates[0]
+            self.assertEqual(ip, 'chost')
+            self.assertEqual(port, 'cport')
+            self.assertEqual(method, 'PUT')
+            self.assertEqual(path, '/cdevice/cpartition/%s/o' % expected_path)
+
+            # verify that the picked update *always* has root container
+            self.assertEqual(1, len(pickle_async_update_args))
+            (objdevice, account, container, obj, data, timestamp,
+             policy) = pickle_async_update_args[0]
+            self.assertEqual(objdevice, 'sda1')
+            self.assertEqual(account, 'a')  # NB user account
+            self.assertEqual(container, 'c')  # NB root container
+            self.assertEqual(obj, 'o')
+            self.assertEqual(timestamp, ts_put.internal)
+            self.assertEqual(policy, policy)
+            expected_data = {
+                'headers': HeaderKeyDict({
+                    'X-Size': '0',
+                    'User-Agent': 'object-server %s' % os.getpid(),
+                    'X-Content-Type': 'text/plain',
+                    'X-Timestamp': ts_put.internal,
+                    'X-Trans-Id': '123',
+                    'Referer': 'PUT http://localhost/sda1/0/a/c/o',
+                    'X-Backend-Storage-Policy-Index': int(policy),
+                    'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e'}),
+                'obj': 'o',
+                'account': 'a',
+                'container': 'c',
+                'op': 'PUT'}
+            if expected_container_path:
+                expected_data['container_path'] = expected_container_path
+            self.assertEqual(expected_data, data)
+
+        do_test('a_shard/c_shard', 'a_shard/c_shard', 'a_shard/c_shard')
+        do_test('', 'a/c', None)
+        do_test(None, 'a/c', None)
+        # TODO: should these cases trigger a 400 response rather than
+        # defaulting to root path?
+        do_test('garbage', 'a/c', None)
+        do_test('/', 'a/c', None)
+        do_test('/no-acct', 'a/c', None)
+        do_test('no-cont/', 'a/c', None)
+        do_test('too/many/parts', 'a/c', None)
+        do_test('/leading/slash', 'a/c', None)
+
     def test_container_update_async(self):
         policy = random.choice(list(POLICIES))
         req = Request.blank(
@@ -5335,23 +5523,21 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5',
                      'X-Container-Device': 'sdb1'})
-        with mock.patch.object(object_server, 'spawn',
-                               local_fake_spawn):
-            with mock.patch.object(self.object_controller,
-                                   'async_update',
-                                   local_fake_async_update):
-                resp = req.get_response(self.object_controller)
-        # check the response is completed and successful
-        self.assertEqual(resp.status_int, 201)
-        # check that async_update hasn't been called
-        self.assertFalse(len(called_async_update_args))
-        # now do the work in greenthreads
-        for func, a, kw in saved_spawn_calls:
-            gt = spawn(func, *a, **kw)
-            greenthreads.append(gt)
-        # wait for the greenthreads to finish
-        for gt in greenthreads:
-            gt.wait()
+        with mock.patch.object(object_server, 'spawn', local_fake_spawn), \
+                mock.patch.object(self.object_controller, 'async_update',
+                                  local_fake_async_update):
+            resp = req.get_response(self.object_controller)
+            # check the response is completed and successful
+            self.assertEqual(resp.status_int, 201)
+            # check that async_update hasn't been called
+            self.assertFalse(len(called_async_update_args))
+            # now do the work in greenthreads
+            for func, a, kw in saved_spawn_calls:
+                gt = spawn(func, *a, **kw)
+                greenthreads.append(gt)
+            # wait for the greenthreads to finish
+            for gt in greenthreads:
+                gt.wait()
         # check that the calls to async_update have happened
         headers_out = {'X-Size': '0',
                        'X-Content-Type': 'application/burrito',
@@ -5362,7 +5548,8 @@ class TestObjectController(unittest.TestCase):
                        'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e'}
         expected = [('PUT', 'a', 'c', 'o', '1.2.3.4:5', '20', 'sdb1',
                      headers_out, 'sda1', POLICIES[0]),
-                    {'logger_thread_locals': (None, None)}]
+                    {'logger_thread_locals': (None, None),
+                     'container_path': None}]
         self.assertEqual(called_async_update_args, [expected])
 
     def test_container_update_as_greenthread_with_timeout(self):
