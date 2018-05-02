@@ -746,6 +746,43 @@ class ContainerBroker(DatabaseBroker):
                   'meta_timestamp': meta_timestamp}
         self.put_record(record)
 
+    def remove_objects(self, lower, upper, max_row=None):
+        """
+        Removes object records in the given namespace range from the object
+        table.
+
+        Note that objects are removed regardless of their storage_policy_index.
+
+        :param lower: defines the lower bound of object names that will be
+            removed; names greater than this value will be removed; names less
+            than or equal to this value will not be removed.
+        :param upper: defines the upper bound of object names that will be
+            removed; names less than or equal to this value will be removed;
+            names greater than this value will not be removed. The empty string
+            is interpreted as there being no upper bound.
+        :param max_row: if specified only rows less than or equal to max_row
+            will be removed
+        """
+        query_conditions = []
+        query_args = []
+        if max_row is not None:
+            query_conditions.append('ROWID <= ?')
+            query_args.append(str(max_row))
+        if lower:
+            query_conditions.append('name > ?')
+            query_args.append(lower)
+        if upper:
+            query_conditions.append('name <= ?')
+            query_args.append(upper)
+
+        query = 'DELETE FROM object WHERE deleted in (0, 1)'
+        if query_conditions:
+            query += ' AND ' + ' AND '.join(query_conditions)
+
+        with self.get() as conn:
+            conn.execute(query, query_args)
+            conn.commit()
+
     def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
                          **kwargs):
         """

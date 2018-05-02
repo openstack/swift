@@ -21,6 +21,7 @@ from swift.common.utils import public, csv_append, Timestamp, \
     config_true_value, ShardRange
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
+from swift.common.request_helpers import get_sys_meta_prefix
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, set_info_cache, clear_info_cache
 from swift.common.storage_policy import POLICIES
@@ -136,6 +137,11 @@ class ContainerController(Controller):
             for key in self.app.swift_owner_headers:
                 if key in resp.headers:
                     del resp.headers[key]
+        # Expose sharding state in reseller requests
+        if req.environ.get('reseller_request', False):
+            resp.headers['X-Container-Sharding'] = config_true_value(
+                resp.headers.get(get_sys_meta_prefix('container') + 'Sharding',
+                                 'False'))
         return resp
 
     def _get_from_shards(self, req, resp):
@@ -257,6 +263,10 @@ class ContainerController(Controller):
         if not req.environ.get('swift_owner'):
             for key in self.app.swift_owner_headers:
                 req.headers.pop(key, None)
+        if req.environ.get('reseller_request', False) and \
+                'X-Container-Sharding' in req.headers:
+            req.headers[get_sys_meta_prefix('container') + 'Sharding'] = \
+                str(config_true_value(req.headers['X-Container-Sharding']))
         length_limit = self.get_name_length_limit()
         if len(self.container_name) > length_limit:
             resp = HTTPBadRequest(request=req)
@@ -305,6 +315,10 @@ class ContainerController(Controller):
         if not req.environ.get('swift_owner'):
             for key in self.app.swift_owner_headers:
                 req.headers.pop(key, None)
+        if req.environ.get('reseller_request', False) and \
+                'X-Container-Sharding' in req.headers:
+            req.headers[get_sys_meta_prefix('container') + 'Sharding'] = \
+                str(config_true_value(req.headers['X-Container-Sharding']))
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)
         if not accounts:

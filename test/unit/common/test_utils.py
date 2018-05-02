@@ -2766,6 +2766,53 @@ cluster_dfw1 = http://dfw1.host/v1/
             else:
                 self.assertEqual(expected, rv)
 
+    def test_config_float_value(self):
+        for args, expected in (
+                ((99, None, None), 99.0),
+                ((99.01, None, None), 99.01),
+                (('99', None, None), 99.0),
+                (('99.01', None, None), 99.01),
+                ((99, 99, None), 99.0),
+                ((99.01, 99.01, None), 99.01),
+                (('99', 99, None), 99.0),
+                (('99.01', 99.01, None), 99.01),
+                ((99, None, 99), 99.0),
+                ((99.01, None, 99.01), 99.01),
+                (('99', None, 99), 99.0),
+                (('99.01', None, 99.01), 99.01),
+                ((-99, -99, -99), -99.0),
+                ((-99.01, -99.01, -99.01), -99.01),
+                (('-99', -99, -99), -99.0),
+                (('-99.01', -99.01, -99.01), -99.01),):
+            actual = utils.config_float_value(*args)
+            self.assertEqual(expected, actual)
+
+        for val, minimum in ((99, 100),
+                             ('99', 100),
+                             (-99, -98),
+                             ('-98.01', -98)):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, minimum=minimum)
+            self.assertIn('greater than %s' % minimum, cm.exception.args[0])
+            self.assertNotIn('less than', cm.exception.args[0])
+
+        for val, maximum in ((99, 98),
+                             ('99', 98),
+                             (-99, -100),
+                             ('-97.9', -98)):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, maximum=maximum)
+            self.assertIn('less than %s' % maximum, cm.exception.args[0])
+            self.assertNotIn('greater than', cm.exception.args[0])
+
+        for val, minimum, maximum in ((99, 99, 98),
+                                      ('99', 100, 100),
+                                      (99, 98, 98),):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, minimum=minimum, maximum=maximum)
+            self.assertIn('greater than %s' % minimum, cm.exception.args[0])
+            self.assertIn('less than %s' % maximum, cm.exception.args[0])
+
     def test_config_auto_int_value(self):
         expectations = {
             # (value, default) : expected,

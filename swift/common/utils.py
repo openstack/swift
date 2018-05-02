@@ -412,6 +412,21 @@ def config_positive_int_value(value):
     return result
 
 
+def config_float_value(value, minimum=None, maximum=None):
+    try:
+        val = float(value)
+        if minimum is not None and val < minimum:
+            raise ValueError()
+        if maximum is not None and val > maximum:
+            raise ValueError()
+        return val
+    except (TypeError, ValueError):
+        min_ = ', greater than %s' % minimum if minimum is not None else ''
+        max_ = ', less than %s' % maximum if maximum is not None else ''
+        raise ValueError('Config option must be a number%s%s, not "%s".' %
+                         (min_, max_, value))
+
+
 def config_auto_int_value(value, default):
     """
     Returns default if value is None or 'auto'.

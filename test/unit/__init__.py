@@ -1343,3 +1343,46 @@ def unlink_files(paths):
         except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
+
+
+class FakeHTTPResponse(object):
+
+    def __init__(self, resp):
+        self.resp = resp
+
+    @property
+    def status(self):
+        return self.resp.status_int
+
+    @property
+    def data(self):
+        return self.resp.body
+
+
+def attach_fake_replication_rpc(rpc, replicate_hook=None, errors=None):
+    class FakeReplConnection(object):
+
+        def __init__(self, node, partition, hash_, logger):
+            self.logger = logger
+            self.node = node
+            self.partition = partition
+            self.path = '/%s/%s/%s' % (node['device'], partition, hash_)
+            self.host = node['replication_ip']
+
+        def replicate(self, op, *sync_args):
+            print('REPLICATE: %s, %s, %r' % (self.path, op, sync_args))
+            resp = None
+            if errors and op in errors and errors[op]:
+                resp = errors[op].pop(0)
+            if not resp:
+                replicate_args = self.path.lstrip('/').split('/')
+                args = [op] + copy.deepcopy(list(sync_args))
+                with mock_check_drive(isdir=not rpc.mount_check,
+                                      ismount=rpc.mount_check):
+                    swob_response = rpc.dispatch(replicate_args, args)
+                resp = FakeHTTPResponse(swob_response)
+            if replicate_hook:
+                replicate_hook(op, *sync_args)
+            return resp
+
+    return FakeReplConnection
