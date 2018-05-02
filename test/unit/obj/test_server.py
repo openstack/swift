@@ -6671,12 +6671,7 @@ class TestObjectController(unittest.TestCase):
                 resp = delete_request.get_response(self.object_controller)
                 # we won't even create the tombstone
                 self.assertFalse(os.path.exists(tombstone_file))
-                # hashdir sticks around tho
-                self.assertTrue(os.path.exists(objfile._datadir))
-                # REPLICATE will clean it all up
-                resp = replicate_request.get_response(self.object_controller)
-                self.assertEqual(resp.status_int, 200)
-                self.assertEqual({}, pickle.loads(resp.body))
+                # hashdir's empty, so it gets cleaned up
                 self.assertFalse(os.path.exists(objfile._datadir))
 
     def test_SSYNC_can_be_called(self):
