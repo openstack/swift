@@ -14,10 +14,12 @@
 # limitations under the License.
 
 from swift import gettext_ as _
+import json
 
 from six.moves.urllib.parse import unquote
-from swift.common.utils import public, csv_append, Timestamp
-from swift.common.constraints import check_metadata
+from swift.common.utils import public, csv_append, Timestamp, \
+    config_true_value, ShardRange
+from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, set_info_cache, clear_info_cache
@@ -103,10 +105,20 @@ class ContainerController(Controller):
         node_iter = self.app.iter_nodes(self.app.container_ring, part)
         params = req.params
         params['format'] = 'json'
+        record_type = req.headers.get('X-Backend-Record-Type', '').lower()
+        if not record_type:
+            record_type = 'auto'
+            req.headers['X-Backend-Record-Type'] = 'auto'
+            params['states'] = 'listing'
         req.params = params
         resp = self.GETorHEAD_base(
             req, _('Container'), node_iter, part,
             req.swift_entity_path, concurrency)
+        resp_record_type = resp.headers.get('X-Backend-Record-Type', '')
+        if all((req.method == "GET", record_type == 'auto',
+               resp_record_type.lower() == 'shard')):
+            resp = self._get_from_shards(req, resp)
+
         # Cache this. We just made a request to a storage node and got
         # up-to-date information for the container.
         resp.headers['X-Backend-Recheck-Container-Existence'] = str(
@@ -124,6 +136,99 @@ class ContainerController(Controller):
             for key in self.app.swift_owner_headers:
                 if key in resp.headers:
                     del resp.headers[key]
+        return resp
+
+    def _get_from_shards(self, req, resp):
+        # construct listing using shards described by the response body
+        shard_ranges = [ShardRange.from_dict(data)
+                        for data in json.loads(resp.body)]
+        self.app.logger.debug('GET listing from %s shards for: %s',
+                              len(shard_ranges), req.path_qs)
+        if not shard_ranges:
+            # can't find ranges or there was a problem getting the ranges. So
+            # return what we have.
+            return resp
+
+        objects = []
+        req_limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
+        params = req.params.copy()
+        params.pop('states', None)
+        req.headers.pop('X-Backend-Record-Type', None)
+        reverse = config_true_value(params.get('reverse'))
+        marker = params.get('marker')
+        end_marker = params.get('end_marker')
+
+        limit = req_limit
+        for shard_range in shard_ranges:
+            params['limit'] = limit
+            # Always set marker to ensure that object names less than or equal
+            # to those already in the listing are not fetched
+            if objects:
+                last_name = objects[-1].get('name',
+                                            objects[-1].get('subdir', u''))
+                params['marker'] = last_name.encode('utf-8')
+            elif reverse and marker and marker > shard_range.lower:
+                params['marker'] = marker
+            elif marker and marker <= shard_range.upper:
+                params['marker'] = marker
+            else:
+                params['marker'] = shard_range.upper_str if reverse \
+                    else shard_range.lower_str
+                if params['marker'] and reverse:
+                    params['marker'] += '\x00'
+
+            # Always set end_marker to ensure that misplaced objects beyond
+            # the expected shard range are not fetched
+            if end_marker and end_marker in shard_range:
+                params['end_marker'] = end_marker
+            else:
+                params['end_marker'] = shard_range.lower_str if reverse \
+                    else shard_range.upper_str
+                if params['end_marker'] and not reverse:
+                    params['end_marker'] += '\x00'
+
+            if (shard_range.account == self.account_name and
+                    shard_range.container == self.container_name):
+                # directed back to same container - force GET of objects
+                headers = {'X-Backend-Record-Type': 'object'}
+            else:
+                headers = None
+            self.app.logger.debug('Getting from %s %s with %s',
+                                  shard_range, shard_range.name, headers)
+            objs, shard_resp = self._get_container_listing(
+                req, shard_range.account, shard_range.container,
+                headers=headers, params=params)
+
+            if not objs:
+                # tolerate errors or empty shard containers
+                continue
+
+            objects.extend(objs)
+            limit -= len(objs)
+
+            if limit <= 0:
+                break
+            elif (end_marker and reverse and
+                  end_marker >= objects[-1]['name'].encode('utf-8')):
+                break
+            elif (end_marker and not reverse and
+                  end_marker <= objects[-1]['name'].encode('utf-8')):
+                break
+
+        resp.body = json.dumps(objects)
+        constrained = any(req.params.get(constraint) for constraint in (
+            'marker', 'end_marker', 'path', 'prefix', 'delimiter'))
+        if not constrained and len(objects) < req_limit:
+            self.app.logger.debug('Setting object count to %s' % len(objects))
+            # prefer the actual listing stats over the potentially outdated
+            # root stats. This condition is only likely when a sharded
+            # container is shrinking or in tests; typically a sharded container
+            # will have more than CONTAINER_LISTING_LIMIT objects so any
+            # unconstrained listing will be capped by the limit and total
+            # object stats cannot therefore be inferred from the listing.
+            resp.headers['X-Container-Object-Count'] = len(objects)
+            resp.headers['X-Container-Bytes-Used'] = sum(
+                [o['bytes'] for o in objects])
         return resp
 
     @public
