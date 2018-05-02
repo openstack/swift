@@ -64,6 +64,7 @@ from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_object_transient_sysmeta_prefix
 from swift.common.storage_policy import POLICIES
 
+
 DEFAULT_RECHECK_ACCOUNT_EXISTENCE = 60  # seconds
 DEFAULT_RECHECK_CONTAINER_EXISTENCE = 60  # seconds
 

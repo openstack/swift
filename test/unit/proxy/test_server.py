@@ -35,7 +35,6 @@ from tempfile import mkdtemp, NamedTemporaryFile
 import weakref
 import operator
 import functools
-
 from swift.obj import diskfile
 import re
 import random

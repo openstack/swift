@@ -49,18 +49,19 @@ SHARDED = 3
 COLLAPSED = 4
 DB_STATES = ['not_found', 'unsharded', 'sharding', 'sharded', 'collapsed']
 
-SHARD_STATS_STATES = [ShardRange.ACTIVE, ShardRange.SHARDING,
-                      ShardRange.SHRINKING]
-SHARD_LISTING_STATES = SHARD_STATS_STATES + [ShardRange.CLEAVED]
-SHARD_UPDATE_STATES = [ShardRange.CREATED, ShardRange.CLEAVED,
-                       ShardRange.ACTIVE, ShardRange.SHARDING]
-
 
 def db_state_text(state):
     try:
         return DB_STATES[state]
     except (TypeError, IndexError):
         return 'unknown (%d)' % state
+
+
+SHARD_STATS_STATES = [ShardRange.ACTIVE, ShardRange.SHARDING,
+                      ShardRange.SHRINKING]
+SHARD_LISTING_STATES = SHARD_STATS_STATES + [ShardRange.CLEAVED]
+SHARD_UPDATE_STATES = [ShardRange.CREATED, ShardRange.CLEAVED,
+                       ShardRange.ACTIVE, ShardRange.SHARDING]
 
 
 # attribute names in order used when transforming shard ranges from dicts to
@@ -420,51 +421,19 @@ class ContainerBroker(DatabaseBroker):
         hash_, epoch, ext = parse_db_filename(self.db_file)
         return epoch
 
-    # TODO: needs unit test
-    def update_sharding_info(self, info):
-        """
-        Updates the broker's metadata with the given ``info``. Each key in
-        ``info`` is prefixed with a sharding specific namespace.
-
-        :param info: a dict of info to be persisted
-        """
-        prefix = 'X-Container-Sysmeta-Shard-'
-        timestamp = Timestamp.now()
-        metadata = dict(
-            ('%s%s' % (prefix, key),
-             (value, timestamp.internal))
-            for key, value in info.items()
-        )
-        self.update_metadata(metadata)
-
-    # TODO: needs unit test
-    def get_sharding_info(self, key=None, default=None):
-        """
-        Returns sharding specific info from the broker's metadata.
-
-        :param key: if given the value stored under ``key`` in the sharding
-            info will be returned. If ``key`` is not found in the info then the
-            value of ``default`` will be returned or None if ``default`` is not
-            given.
-        :param default: a default value to return if ``key`` is given but not
-            found in the sharding info.
-        :return: either a dict of sharding info or the value stored under
-            ``key`` in that dict.
-        """
-        prefix = 'X-Container-Sysmeta-Shard-'
-        metadata = self.metadata
-        info = dict((k[len(prefix):], v[0]) for
-                    k, v in metadata.items() if k.startswith(prefix))
-        if key:
-            return info.get(key, default)
-        return info
-
     @property
     def storage_policy_index(self):
         if not hasattr(self, '_storage_policy_index'):
             self._storage_policy_index = \
                 self.get_info()['storage_policy_index']
         return self._storage_policy_index
+
+    @property
+    def path(self):
+        if self.container is None:
+            # Ensure account/container get populated
+            self.get_info()
+        return '%s/%s' % (self.account, self.container)
 
     def _initialize(self, conn, put_timestamp, storage_policy_index):
         """
@@ -837,7 +806,7 @@ class ContainerBroker(DatabaseBroker):
                 except sqlite3.OperationalError as err:
                     err_msg = str(err)
                     if err_msg in errors:
-                        # only attempt each migration once
+                        # only attempt migration once
                         raise
                     errors.add(err_msg)
                     if 'no such column: storage_policy_index' in err_msg:
@@ -1954,6 +1923,45 @@ class ContainerBroker(DatabaseBroker):
         brokers.append(self)
         return brokers
 
+    # TODO: needs unit test
+    def update_sharding_info(self, info):
+        """
+        Updates the broker's metadata with the given ``info``. Each key in
+        ``info`` is prefixed with a sharding specific namespace.
+
+        :param info: a dict of info to be persisted
+        """
+        prefix = 'X-Container-Sysmeta-Shard-'
+        timestamp = Timestamp.now()
+        metadata = dict(
+            ('%s%s' % (prefix, key),
+             (value, timestamp.internal))
+            for key, value in info.items()
+        )
+        self.update_metadata(metadata)
+
+    # TODO: needs unit test
+    def get_sharding_info(self, key=None, default=None):
+        """
+        Returns sharding specific info from the broker's metadata.
+
+        :param key: if given the value stored under ``key`` in the sharding
+            info will be returned. If ``key`` is not found in the info then the
+            value of ``default`` will be returned or None if ``default`` is not
+            given.
+        :param default: a default value to return if ``key`` is given but not
+            found in the sharding info.
+        :return: either a dict of sharding info or the value stored under
+            ``key`` in that dict.
+        """
+        prefix = 'X-Container-Sysmeta-Shard-'
+        metadata = self.metadata
+        info = dict((k[len(prefix):], v[0]) for
+                    k, v in metadata.items() if k.startswith(prefix))
+        if key:
+            return info.get(key, default)
+        return info
+
     def get_items_since(self, start, count, include_sharding=False):
         """
         Get a list of objects in the database between start and end.
@@ -2002,13 +2010,6 @@ class ContainerBroker(DatabaseBroker):
             raise ValueError('Expected X-Container-Sysmeta-Shard-Root to be '
                              "of the form 'account/container', got %r" % path)
         self._root_account, self._root_container = tuple(path.split('/'))
-
-    @property
-    def path(self):
-        if self.container is None:
-            # Ensure account/container get populated
-            self.get_info()
-        return '%s/%s' % (self.account, self.container)
 
     @property
     def root_account(self):

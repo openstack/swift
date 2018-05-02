@@ -800,9 +800,6 @@ class Replicator(Daemon):
             if elapsed < self.interval:
                 sleep(self.interval - elapsed)
 
-    def _is_locked(self, broker):
-        return False
-
 
 class ReplicatorRpc(object):
     """Handle Replication RPC calls.  TODO(redbo): document please :)"""

@@ -35,8 +35,7 @@ from swift.common.request_helpers import get_param, \
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
-    override_bytes_from_content_type, get_log_line, whataremyips, ShardRange, \
-    list_from_csv
+    override_bytes_from_content_type, get_log_line, ShardRange, list_from_csv
 
 from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
@@ -98,13 +97,12 @@ class ContainerController(BaseStorageServer):
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.node_timeout = float(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
-        swift_dir = conf.get('swift_dir', '/etc/swift')
         #: ContainerSyncCluster instance for validating sync-to values.
         self.realms_conf = ContainerSyncRealms(
-            os.path.join(swift_dir, 'container-sync-realms.conf'),
+            os.path.join(
+                conf.get('swift_dir', '/etc/swift'),
+                'container-sync-realms.conf'),
             self.logger)
-        self.ips = whataremyips()
-        self.port = int(conf.get('bind_port', 6201))
         #: The list of hosts we're allowed to send syncs to. This can be
         #: overridden by data in self.realms_conf
         self.allowed_sync_hosts = [
@@ -527,8 +525,10 @@ class ContainerController(BaseStorageServer):
         """
         Perform any mutations to container listing records that are common to
         all serialization formats, and returns it as a dict.
+
         Converts created time to iso timestamp.
         Replaces size with 'swift_bytes' content type parameter.
+
         :params record: object entry record
         :returns: modified record
         """
@@ -618,7 +618,6 @@ class ContainerController(BaseStorageServer):
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],
                 reverse=reverse)
-
         return self.create_listing(req, out_content_type, info, resp_headers,
                                    broker.metadata, container_list, container)
 
