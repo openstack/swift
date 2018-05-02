@@ -172,6 +172,8 @@ replicator for Replication type policies.  See :doc:`overview_erasure_code`
 for complete information on both Erasure Code support as well as the
 reconstructor.
 
+.. _architecture_updaters:
+
 --------
 Updaters
 --------

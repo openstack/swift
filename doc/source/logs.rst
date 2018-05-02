@@ -105,6 +105,7 @@ RL                      :ref:`ratelimit`
 VW                      :ref:`versioned_writes`
 SSC                     :ref:`copy`
 SYM                     :ref:`symlink`
+SH                      :ref:`sharding_doc`
 ======================= =============================
 
 

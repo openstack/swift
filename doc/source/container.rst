@@ -24,6 +24,16 @@ Container Backend
     :undoc-members:
     :show-inheritance:
 
+.. _container-replicator:
+
+Container Replicator
+====================
+
+.. automodule:: swift.container.replicator
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. _container-server:
 
 Container Server
@@ -44,12 +54,12 @@ Container Reconciler
     :undoc-members:
     :show-inheritance:
 
-.. _container-replicator:
+.. _container-sharder:
 
-Container Replicator
-====================
+Container Sharder
+=================
 
-.. automodule:: swift.container.replicator
+.. automodule:: swift.container.sharder
     :members:
     :undoc-members:
     :show-inheritance:
