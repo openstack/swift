@@ -58,7 +58,6 @@ from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid
 from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
     sysmeta_header
-from contextlib import contextmanager
 
 
 def get_acl_handler(controller_name):
@@ -85,19 +84,18 @@ class BaseAclHandler(object):
         self.headers = req.headers if headers is None else headers
         self.logger = logger
 
-    @contextmanager
     def request_with(self, container, obj, headers):
-        yield type(self)(self.req, self.logger,
-                         container=container, obj=obj, headers=headers)
+        return type(self)(self.req, self.logger,
+                          container=container, obj=obj, headers=headers)
 
     def handle_acl(self, app, method, container=None, obj=None, headers=None):
         method = method or self.method
 
-        with self.request_with(container, obj, headers) as ah:
-            if hasattr(ah, method):
-                return getattr(ah, method)(app)
-            else:
-                return ah._handle_acl(app, method)
+        ah = self.request_with(container, obj, headers)
+        if hasattr(ah, method):
+            return getattr(ah, method)(app)
+        else:
+            return ah._handle_acl(app, method)
 
     def _handle_acl(self, app, sw_method, container=None, obj=None,
                     permission=None, headers=None):
@@ -332,12 +330,10 @@ class MultiUploadAclHandler(BaseAclHandler):
 
     def handle_acl(self, app, method, container=None, obj=None, headers=None):
         method = method or self.method
-        with self.request_with(container, obj, headers) as ah:
-            # MultiUpload stuffs don't need acl check basically.
-            if hasattr(ah, method):
-                return getattr(ah, method)(app)
-            else:
-                pass
+        ah = self.request_with(container, obj, headers)
+        # MultiUpload stuffs don't need acl check basically.
+        if hasattr(ah, method):
+            return getattr(ah, method)(app)
 
     def HEAD(self, app):
         # For _check_upload_info
