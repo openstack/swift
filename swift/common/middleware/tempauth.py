@@ -183,7 +183,7 @@ from eventlet import Timeout
 import six
 from swift.common.swob import Response, Request
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
-    HTTPUnauthorized
+    HTTPUnauthorized, HTTPMethodNotAllowed
 
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.middleware.acl import (
@@ -677,6 +677,9 @@ class TempAuth(object):
         """
         req.start_time = time()
         handler = None
+        if req.method != 'GET':
+            req.response = HTTPMethodNotAllowed(request=req)
+            return req.response
         try:
             version, account, user, _junk = split_path(req.path_info,
                                                        1, 4, True)
