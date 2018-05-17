@@ -1,0 +1,174 @@
+# Copyright (c) 2018 OpenStack Foundation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- hosts: all
+  become: true
+  tasks:
+    - name: assure /srv directory exists
+      file: path=/srv state=directory
+
+    - name: create loopback device
+      command: truncate -s 1GB /srv/swift-disk creates=/srv/swift-disk
+
+    - name: create filesystem /srv/swift-disk
+      become: true
+      filesystem: fstype=xfs dev=/srv/swift-disk
+
+    - name: create mount path /mnt/sdb1
+      file: path=/mnt/sdb1 state=directory
+
+    - name: mount /mnt/sdb1
+      mount: name=/mnt/sdb1 src=/srv/swift-disk fstype=xfs opts="loop,noatime,nodiratime,nobarrier,logbufs=8" dump=0 passno=0 state=mounted
+
+    - name: create sub-partitions
+      file: >
+        path=/mnt/sdb1/{{ item }}
+        state=directory
+        owner={{ ansible_user_id }}
+        group={{ ansible_user_gid }}
+      with_items:
+        - 1
+        - 2
+        - 3
+        - 4
+
+    - name: create symlinks
+      become: true
+      file: >
+        src=/mnt/sdb1/{{ item }}
+        dest=/srv/{{ item }}
+        owner={{ ansible_user_id }}
+        group={{ ansible_user_gid }}
+        state=link
+      with_items:
+        - 1
+        - 2
+        - 3
+        - 4
+
+    - name: create node partition directories
+      file: >
+        path=/srv/{{ item[1] }}/node/sdb{{ item[0] + item[1] }}
+        owner={{ ansible_user_id }}
+        group={{ ansible_user_gid }}
+        state=directory
+      with_nested:
+        - [0, 4]
+        - [1, 2, 3, 4]
+
+    - name: create /var/run/swift
+      file: >
+        path=/var/run/swift
+        owner={{ ansible_user_id }}
+        group={{ ansible_user_gid }}
+        state=directory
+
+    - name: create /var/cache/swift
+      file: >
+        path=/var/cache/swift
+        owner={{ ansible_user_id }}
+        group={{ ansible_user_gid }}
+        state=directory
+
+    - name: create /var/cache/swift[n]
+      file: >
+        path=/var/cache/swift{{ item }}
+        owner={{ ansible_user_id }}
+        group={{ ansible_user_gid }}
+        state=directory
+      with_items:
+        - 2
+        - 3
+        - 4
+
+    - name: create rc.local from template
+      template: src=rc.local.j2 dest=/etc/rc.d/rc.local owner=root group=root mode=0755
+
+    - name: create /etc/rsyncd.conf
+      command: cp {{ zuul.project.src_dir }}/doc/saio/rsyncd.conf /etc/
+
+    - name: update rsyncd.conf with correct username
+      replace: dest=/etc/rsyncd.conf regexp=<your-user-name> replace={{ ansible_user_id }}
+
+    - name: enable rsync
+      lineinfile: dest=/etc/xinetd.d/rsync line="disable = no" create=yes
+
+    - name: set selinux to permissive
+      selinux: policy=targeted state=disabled
+
+    - name: restart rsync
+      service: name=rsyncd state=restarted enabled=yes
+
+    - name: start memcache
+      service: name=memcached state=started enabled=yes
+
+    - name: configure rsyslog
+      command: cp {{ zuul.project.src_dir }}/doc/saio/rsyslog.d/10-swift.conf /etc/rsyslog.d/
+
+    - name: modify /etc/rsyslog.conf
+      lineinfile: dest=/etc/rsyslog.conf
+                  line="$PrivDropToGroup adm"
+                  create=yes
+                  insertafter="^#### GLOBAL DIRECTIVES"
+
+    - name: assure /var/log/swift directory exists
+      file: path=/var/log/swift
+            state=directory
+            owner=root
+            group=adm
+            mode="g+w"
+
+    - name: restart rsyslog
+      service: name=rsyslog state=restarted enabled=yes
+
+    - name: clean up /etc/swift directory
+      file: path=/etc/swift state=absent
+
+    - name: create clean /etc/swift
+      command: cp -r {{ zuul.project.src_dir }}/doc/saio/swift /etc/swift
+
+    - name: copy the sample configuration files for running tests
+      command: cp -r {{ zuul.project.src_dir }}/test/sample.conf /etc/swift/test.conf
+
+    - name: set correct ownership of /etc/swift
+      file: path=/etc/swift owner={{ ansible_user_id }} group={{ ansible_user_gid }} recurse=yes
+
+    - name: find config files to modify user option
+      find: paths="/etc/swift" patterns="*.conf" recurse=yes
+      register: find_result
+
+    - name: replace user name
+      replace: dest={{ item.path }} regexp=<your-user-name> replace={{ ansible_user_id }}
+      with_items: "{{ find_result.files }}"
+
+    - name: copy the SAIO scripts for resetting the environment
+      command: cp -r {{ zuul.project.src_dir }}/doc/saio/bin /home/{{ ansible_ssh_user }}/bin creates=/home/{{ ansible_ssh_user }}/bin
+
+    - name: set the correct file mode for SAIO scripts
+      file: dest=/home/{{ ansible_ssh_user }}/bin mode=0777 recurse=yes
+
+    - name: add new env. variable for loopback device
+      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="export SAIO_BLOCK_DEVICE=/srv/swift-disk"
+
+    - name: remove line from resetswift
+      lineinfile: dest=/home/{{ ansible_ssh_user }}/bin/resetswift line="sudo find /var/log/swift -type f -exec rm -f {} \;" state=absent
+
+    - name: add new env. variable for running tests
+      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf"
+
+    - name: make sure PATH includes the bin directory
+      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="export PATH=${PATH}:/home/{{ ansible_ssh_user }}/bin"
+
+    - name: increase open files limit to run probe tests
+      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="ulimit -n 4096"

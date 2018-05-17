@@ -1,0 +1,119 @@
+---
+features:
+  - |
+    Added symlink objects support.
+
+    Symlink objects reference one other object. They are created by
+    creating an empty object with an X-Symlink-Target header. The value of
+    the header is of the format <container>/<object>, and the target does
+    not need to exist at the time of symlink creation. Cross-account
+    symlinks can be created by including the
+    X-Symlink-Target-Account header.
+
+    GET and HEAD requests to a symlink will operate on the
+    referenced object and require appropriate permission in the
+    target container. DELETE and PUT requests will operate on the
+    symlink object itself. POST requests are not forwarded to the
+    referenced object. POST requests sent to a symlink will result
+    in a 307 Temporary Redirect response.
+
+  - |
+    Added support for inline data segments in SLO manifests.
+
+    Upgrade impact -- during a rolling upgrade, an updated proxy server
+    may write a manifest that an out-of-date proxy server will not be
+    able to read. This will resolve itself once the upgrade completes
+    on all nodes.
+
+  - |
+    The tempurl digest algorithm is now configurable, and Swift added
+    support for both SHA-256 and SHA-512. Supported tempurl digests
+    are exposed to clients in ``/info``. Additionally, tempurl signatures
+    can now be base64 encoded.
+
+  - |
+    Object expiry improvements
+
+    - Disallow X-Delete-At header values equal to the X-Timestamp header.
+
+    - X-Delete-At computation now uses X-Timestamp instead of
+      system time. This prevents clock skew causing inconsistent
+      expiry data.
+
+    - Deleting an expiring object will now cause less work in the system.
+      The number of async pending files written has been reduced for all
+      objects and greatly reduced for erasure-coded objects. This
+      dramatically reduces the burden on container servers.
+
+    - Stopped logging tracebacks when receiving an unexpected response.
+
+    - Allow the expirer to gracefully move past updating stale work items.
+
+  - |
+    When the object auditor examines an object, it will now add any
+    missing metadata checksums.
+
+  - |
+    ``swift-ring-builder`` improvements
+
+    - Save the ring when dispersion improves, even if balance
+      doesn't improve.
+
+    - Improved the granularity of the ring dispersion metric so that
+      small improvements after a rebalance can show changes in the
+      dispersion number. Dispersion in existing and new rings can be
+      recalculated using the new ``--recalculate`` option to
+      ``swift-ring-builder``.
+
+    - Display more info on empty rings.
+
+  - |
+    Fixed rare socket leak on range requests to erasure-coded objects.
+
+  - |
+    The number of container updates on object PUTs (ie to update listings)
+    has been recomputed to be far more efficient  while maintaining
+    durability guarantees. Specifically, object PUTs to erasure-coded
+    policies will now normally result in far fewer container updates.
+
+  - |
+    Moved Zuul v3 tox jobs into the Swift code repo.
+
+  - |
+    Changed where liberasurecode-devel for CentOS 7 is referenced and
+    installed as a dependency.
+
+  - |
+    Added container/object listing with prefix to InternalClient.
+
+  - |
+    Added ``--swift-versions`` to ``swift-recon`` CLI to compare installed
+    versions in the cluster.
+
+  - |
+    Stop logging tracebacks in the ``object-replicator`` when it runs
+    out of handoff locations.
+
+  - |
+    Send ETag header in 206 Partial Content responses to SLO reads.
+
+  - |
+    Now ``swift-recon-cron`` works with conf.d configs.
+
+  - |
+    Improved ``object-updater`` stats logging. It now tells you all of
+    its stats (successes, failures, quarantines due to bad pickles,
+    unlinks, and errors), and it tells you incremental progress every
+    five minutes. The logging at the end of a pass remains and has
+    been expanded to also include all stats.
+
+  - |
+    If a proxy server is configured to autocreate accounts and the
+    account create fails, it will now return a server error (500)
+    instead of Not Found (404).
+
+  - |
+    Fractional replicas are no longer allowed for erasure code policies.
+
+  - |
+    Various other minor bug fixes and improvements.

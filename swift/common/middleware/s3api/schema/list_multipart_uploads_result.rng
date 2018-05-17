@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <include href="common.rng"/>
+  <start>
+    <element name="ListMultipartUploadsResult">
+      <element name="Bucket">
+        <data type="string"/>
+      </element>
+      <element name="KeyMarker">
+        <data type="string"/>
+      </element>
+      <element name="UploadIdMarker">
+        <data type="string"/>
+      </element>
+      <element name="NextKeyMarker">
+        <data type="string"/>
+      </element>
+      <element name="NextUploadIdMarker">
+        <data type="string"/>
+      </element>
+      <optional>
+        <element name="Delimiter">
+          <data type="string"/>
+        </element>
+      </optional>
+      <optional>
+        <element name="Prefix">
+          <data type="string"/>
+        </element>
+      </optional>
+      <element name="MaxUploads">
+        <data type="int"/>
+      </element>
+      <optional>
+        <element name="EncodingType">
+          <data type="string"/>
+        </element>
+      </optional>
+      <element name="IsTruncated">
+        <data type="boolean"/>
+      </element>
+      <zeroOrMore>
+        <element name="Upload">
+          <element name="Key">
+            <data type="string"/>
+          </element>
+          <element name="UploadId">
+            <data type="string"/>
+          </element>
+          <element name="Initiator">
+            <ref name="CanonicalUser"/>
+          </element>
+          <element name="Owner">
+            <ref name="CanonicalUser"/>
+          </element>
+          <element name="StorageClass">
+            <ref name="StorageClass"/>
+          </element>
+          <element name="Initiated">
+            <data type="dateTime"/>
+          </element>
+        </element>
+      </zeroOrMore>
+      <zeroOrMore>
+        <element name="CommonPrefixes">
+          <element name="Prefix">
+            <data type="string"/>
+          </element>
+        </element>
+      </zeroOrMore>
+    </element>
+  </start>
+</grammar>

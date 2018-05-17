@@ -26,11 +26,12 @@ from swift.common.storage_policy import (
 
 from swift.obj.diskfile import write_metadata
 
-from test.unit import FakeLogger
+from test.unit import FakeLogger, skip_if_no_xattrs
 
 
 class TestRelinker(unittest.TestCase):
     def setUp(self):
+        skip_if_no_xattrs()
         self.logger = FakeLogger()
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')
@@ -61,7 +62,7 @@ class TestRelinker(unittest.TestCase):
         self.object_fname = "1278553064.00000.data"
         self.objname = os.path.join(self.objdir, self.object_fname)
         with open(self.objname, "wb") as dummy:
-            dummy.write("Hello World!")
+            dummy.write(b"Hello World!")
             write_metadata(dummy, {'name': '/a/c/o', 'Content-Length': '12'})
 
         test_policies = [StoragePolicy(0, 'platin', True)]
@@ -163,7 +164,7 @@ class TestRelinker(unittest.TestCase):
         self._common_test_cleanup()
         # Pretend the object in the new place got corrupted
         with open(self.expected_file, "wb") as obj:
-            obj.write('trash')
+            obj.write(b'trash')
 
         self.assertEqual(
             1, relinker.cleanup(self.testdir, self.devices, True, self.logger))

@@ -15,6 +15,7 @@
 
 """ Object Server for Swift """
 
+import six
 import six.moves.cPickle as pickle
 import json
 import os
@@ -55,7 +56,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
     HTTPServerError
-from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileRouter
+from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 
 
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
@@ -148,7 +149,7 @@ class ObjectController(BaseStorageServer):
         ]
         self.allowed_headers = set()
         for header in extra_allowed_headers:
-            if header not in DATAFILE_SYSTEM_META:
+            if header not in RESERVED_DATAFILE_META:
                 self.allowed_headers.add(header)
         self.auto_create_account_prefix = \
             conf.get('auto_create_account_prefix') or '.'
@@ -170,7 +171,9 @@ class ObjectController(BaseStorageServer):
         # disk_chunk_size parameter. However, it affects all created sockets
         # using this class so we have chosen to tie it to the
         # network_chunk_size parameter value instead.
-        socket._fileobject.default_bufsize = self.network_chunk_size
+        if six.PY2:
+            socket._fileobject.default_bufsize = self.network_chunk_size
+        # TODO: find a way to enable similar functionality in py3
 
         # Provide further setup specific to an object server implementation.
         self.setup(conf)
@@ -389,19 +392,26 @@ class ObjectController(BaseStorageServer):
             'x-trans-id': headers_in.get('x-trans-id', '-'),
             'referer': request.as_referer()})
         if op != 'DELETE':
+            hosts = headers_in.get('X-Delete-At-Host', None)
+            if hosts is None:
+                # If header is missing, no update needed as sufficient other
+                # object servers should perform the required update.
+                return
             delete_at_container = headers_in.get('X-Delete-At-Container', None)
             if not delete_at_container:
+                # older proxy servers did not send X-Delete-At-Container so for
+                # backwards compatibility calculate the value here, but also
+                # log a warning because this is prone to inconsistent
+                # expiring_objects_container_divisor configurations.
+                # See https://bugs.launchpad.net/swift/+bug/1187200
                 self.logger.warning(
                     'X-Delete-At-Container header must be specified for '
                     'expiring objects background %s to work properly. Making '
                     'best guess as to the container name for now.' % op)
-                # TODO(gholt): In a future release, change the above warning to
-                # a raised exception and remove the guess code below.
                 delete_at_container = get_expirer_container(
                     delete_at, self.expiring_objects_container_divisor,
                     account, container, obj)
             partition = headers_in.get('X-Delete-At-Partition', None)
-            hosts = headers_in.get('X-Delete-At-Host', '')
             contdevices = headers_in.get('X-Delete-At-Device', '')
             updates = [upd for upd in
                        zip((h.strip() for h in hosts.split(',')),
@@ -413,6 +423,11 @@ class ObjectController(BaseStorageServer):
             headers_out['x-content-type'] = 'text/plain'
             headers_out['x-etag'] = 'd41d8cd98f00b204e9800998ecf8427e'
         else:
+            if not config_true_value(
+                request.headers.get(
+                    'X-Backend-Clean-Expiring-Object-Queue', 't')):
+                return
+
             # DELETEs of old expiration data have no way of knowing what the
             # old X-Delete-At-Container was at the time of the initial setting
             # of the data, so a best guess is made here.
@@ -526,11 +541,6 @@ class ObjectController(BaseStorageServer):
                     override = key.lower().replace(override_prefix, 'x-')
                     update_headers[override] = val
 
-    def _preserve_slo_manifest(self, update_metadata, orig_metadata):
-        if 'X-Static-Large-Object' in orig_metadata:
-            update_metadata['X-Static-Large-Object'] = \
-                orig_metadata['X-Static-Large-Object']
-
     @public
     @timing_stats()
     def POST(self, request):
@@ -573,7 +583,6 @@ class ObjectController(BaseStorageServer):
 
         if req_timestamp > orig_timestamp:
             metadata = {'X-Timestamp': req_timestamp.internal}
-            self._preserve_slo_manifest(metadata, orig_metadata)
             metadata.update(val for val in request.headers.items()
                             if (is_user_meta('object', val[0]) or
                                 is_object_transient_sysmeta(val[0])))
@@ -1054,10 +1063,10 @@ class ObjectController(BaseStorageServer):
             else:
                 response_class = HTTPConflict
         response_timestamp = max(orig_timestamp, req_timestamp)
-        orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
+        orig_delete_at = Timestamp(orig_metadata.get('X-Delete-At') or 0)
         try:
             req_if_delete_at_val = request.headers['x-if-delete-at']
-            req_if_delete_at = int(req_if_delete_at_val)
+            req_if_delete_at = Timestamp(req_if_delete_at_val)
         except KeyError:
             pass
         except ValueError:
@@ -1070,6 +1079,9 @@ class ObjectController(BaseStorageServer):
             if not orig_timestamp:
                 # no object found at all
                 return HTTPNotFound()
+            if orig_timestamp >= req_timestamp:
+                # Found a newer object -- return 409 as work item is stale
+                return HTTPConflict()
             if orig_delete_at != req_if_delete_at:
                 return HTTPPreconditionFailed(
                     request=request,

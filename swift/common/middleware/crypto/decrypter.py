@@ -103,13 +103,14 @@ class BaseDecrypterContext(CryptoWSGIContext):
                                      to be decrypted but crypto meta was not
                                      found.
         """
-        value, crypto_meta = extract_crypto_meta(value)
+        extracted_value, crypto_meta = extract_crypto_meta(value)
         if crypto_meta:
             self.crypto.check_crypto_meta(crypto_meta)
-            value = self.decrypt_value(value, key, crypto_meta)
+            value = self.decrypt_value(extracted_value, key, crypto_meta)
         elif required:
             raise EncryptionException(
                 "Missing crypto meta in value %s" % value)
+
         return value
 
     def decrypt_value(self, value, key, crypto_meta):

@@ -386,7 +386,11 @@ Connection timeout to external services. The default is 0.5 seconds.
 .IP \fBdelay_reaping\fR
 Normally, the reaper begins deleting account information for deleted accounts
 immediately; you can set this to delay its work however. The value is in
-seconds. The default is 0.
+seconds. The default is 0.  The sum of this value and the
+container-updater interval should be less than the account-replicator
+reclaim_age. This ensures that once the account-reaper has deleted a
+container there is sufficient time for the container-updater to report to the
+account before the account DB is removed.
 .IP \fBreap_warn_after\fR
 If the account fails to be be reaped due to a persistent error, the
 account reaper will log a message such as:

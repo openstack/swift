@@ -20,11 +20,12 @@ import unittest
 import os
 import mock
 from uuid import uuid4
+from tempfile import gettempdir
 
 from swift.common.linkat import linkat
 from swift.common.utils import O_TMPFILE
 
-from test.unit import requires_o_tmpfile_support
+from test.unit import requires_o_tmpfile_support_in_tmp
 
 
 class TestLinkat(unittest.TestCase):
@@ -37,12 +38,12 @@ class TestLinkat(unittest.TestCase):
     def test_available(self):
         self.assertFalse(linkat.available)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_errno(self):
         with open('/dev/null', 'r') as fd:
             self.assertRaises(IOError, linkat,
                               linkat.AT_FDCWD, "/proc/self/fd/%s" % (fd),
-                              linkat.AT_FDCWD, "/tmp/testlinkat",
+                              linkat.AT_FDCWD, "%s/testlinkat" % gettempdir(),
                               linkat.AT_SYMLINK_FOLLOW)
         self.assertEqual(ctypes.get_errno(), 0)
 
@@ -76,15 +77,15 @@ class TestLinkat(unittest.TestCase):
         mock_cdll.assert_called_once_with(libc_name, use_errno=True)
         self.assertTrue(libc.linkat_retrieved)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_linkat_success(self):
 
         fd = None
         path = None
         ret = -1
         try:
-            fd = os.open('/tmp', O_TMPFILE | os.O_WRONLY)
-            path = os.path.join('/tmp', uuid4().hex)
+            fd = os.open(gettempdir(), O_TMPFILE | os.O_WRONLY)
+            path = os.path.join(gettempdir(), uuid4().hex)
             ret = linkat(linkat.AT_FDCWD, "/proc/self/fd/%d" % (fd),
                          linkat.AT_FDCWD, path, linkat.AT_SYMLINK_FOLLOW)
             self.assertEqual(ret, 0)

@@ -968,7 +968,9 @@ class TestContainerSync(unittest.TestCase):
                                         logger=self.logger)
             cs.http_proxies = ['http://proxy']
 
-            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses,
+                                params=None):
+                self.assertEqual({'symlink': 'get'}, params)
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  '0')
                 return (200,
@@ -1004,7 +1006,9 @@ class TestContainerSync(unittest.TestCase):
             expected_put_count += 1
             self.assertEqual(cs.container_puts, expected_put_count)
 
-            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses,
+                                params=None):
+                self.assertEqual({'symlink': 'get'}, params)
                 self.assertEqual(headers['X-Newest'], True)
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  '0')
@@ -1055,7 +1059,9 @@ class TestContainerSync(unittest.TestCase):
             expected_put_count += 1
             self.assertEqual(cs.container_puts, expected_put_count)
 
-            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses,
+                                params=None):
+                self.assertEqual({'symlink': 'get'}, params)
                 self.assertEqual(headers['X-Newest'], True)
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  '0')
@@ -1090,7 +1096,9 @@ class TestContainerSync(unittest.TestCase):
 
             exc = []
 
-            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses,
+                                params=None):
+                self.assertEqual({'symlink': 'get'}, params)
                 self.assertEqual(headers['X-Newest'], True)
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  '0')
@@ -1114,7 +1122,9 @@ class TestContainerSync(unittest.TestCase):
 
             exc = []
 
-            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses,
+                                params=None):
+                self.assertEqual({'symlink': 'get'}, params)
                 self.assertEqual(headers['X-Newest'], True)
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  '0')
@@ -1137,7 +1147,9 @@ class TestContainerSync(unittest.TestCase):
             self.assertEqual(len(exc), 1)
             self.assertEqual(str(exc[-1]), 'test client exception')
 
-            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses,
+                                params=None):
+                self.assertEqual({'symlink': 'get'}, params)
                 self.assertEqual(headers['X-Newest'], True)
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  '0')

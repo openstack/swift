@@ -177,8 +177,6 @@ from __future__ import print_function
 from time import time
 from traceback import format_exc
 from uuid import uuid4
-from hashlib import sha1
-import hmac
 import base64
 
 from eventlet import Timeout
@@ -275,7 +273,7 @@ class TempAuth(object):
             return self.app(env, start_response)
         if env.get('PATH_INFO', '').startswith(self.auth_prefix):
             return self.handle(env, start_response)
-        s3 = env.get('swift3.auth_details')
+        s3 = env.get('s3api.auth_details')
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         service_token = env.get('HTTP_X_SERVICE_TOKEN')
         if s3 or (token and token.startswith(self.reseller_prefix)):
@@ -434,23 +432,26 @@ class TempAuth(object):
             expires, groups = cached_auth_data
             if expires < time():
                 groups = None
+            else:
+                groups = groups.encode('utf8')
 
-        s3_auth_details = env.get('swift3.auth_details')
+        s3_auth_details = env.get('s3api.auth_details')
         if s3_auth_details:
+            if 'check_signature' not in s3_auth_details:
+                self.logger.warning(
+                    'Swift3 did not provide a check_signature function; '
+                    'upgrade Swift3 if you want to use it with tempauth')
+                return None
             account_user = s3_auth_details['access_key']
-            signature_from_user = s3_auth_details['signature']
             if account_user not in self.users:
                 return None
-            account, user = account_user.split(':', 1)
-            account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
-            path = env['PATH_INFO']
-            env['PATH_INFO'] = path.replace(account_user, account_id, 1)
-            valid_signature = base64.encodestring(hmac.new(
-                self.users[account_user]['key'],
-                s3_auth_details['string_to_sign'],
-                sha1).digest()).strip()
-            if signature_from_user != valid_signature:
+            user = self.users[account_user]
+            account = account_user.split(':', 1)[0]
+            account_id = user['url'].rsplit('/', 1)[-1]
+            if not s3_auth_details['check_signature'](user['key']):
                 return None
+            env['PATH_INFO'] = env['PATH_INFO'].replace(
+                account_user, account_id, 1)
             groups = self._get_user_groups(account, account_user, account_id)
 
         return groups
@@ -789,7 +790,8 @@ class TempAuth(object):
             cached_auth_data = memcache_client.get(memcache_token_key)
             if cached_auth_data:
                 expires, old_groups = cached_auth_data
-                old_groups = old_groups.split(',')
+                old_groups = [group.encode('utf8')
+                              for group in old_groups.split(',')]
                 new_groups = self._get_user_groups(account, account_user,
                                                    account_id)
 

@@ -164,7 +164,7 @@ ETag_obj_req:
     manifest objects, this value is the MD5 checksum of the
     concatenated string of ETag values for each of the segments in
     the manifest. You are strongly recommended to compute
-    the MD5 checksum value and include it in the request. This 
+    the MD5 checksum value and include it in the request. This
     enables the Object Storage API to check the integrity of the
     upload. The value is not quoted.
   in: header
@@ -434,7 +434,7 @@ X-Container-Meta-Access-Control-Expose-Headers:
     request response, separated by spaces.  By default the Object
     Storage service returns the following headers:
 
-    - All “simple response headers” as listed on
+    - All "simple response headers" as listed on
       `http://www.w3.org/TR/cors/#simple-response-header
       <http://www.w3.org/TR/cors/#simple-response-header>`_.
     - The headers ``etag``, ``x-timestamp``, ``x-trans-id``,
@@ -692,18 +692,31 @@ X-Copy-From-Account:
   type: string
 X-Delete-After:
   description: |
-    The number of seconds after which the system
-    removes the object. Internally, the Object Storage system stores
-    this value in the ``X-Delete-At`` metadata item.
+    The number of seconds after which the system removes the object. The value
+    should be a positive integer. Internally, the Object Storage system uses
+    this value to generate an ``X-Delete-At`` metadata item. If both
+    ``X-Delete-After`` and ``X-Delete-At`` are set then ``X-Delete-After``
+    takes precedence.
   in: header
   required: false
   type: integer
 X-Delete-At:
   description: |
-    The date and time in `UNIX Epoch time stamp
-    format <https://en.wikipedia.org/wiki/Unix_time>`_ when the system
-    removes the object.  For example, ``1440619048`` is equivalent to
-    ``Mon, Wed, 26 Aug 2015 19:57:28 GMT``.
+    The date and time in `UNIX Epoch time stamp format
+    <https://en.wikipedia.org/wiki/Unix_time>`_ when the system removes the
+    object.  For example, ``1440619048`` is equivalent to ``Mon, Wed, 26 Aug
+    2015 19:57:28 GMT``.  The value should be a positive integer corresponding
+    to a time in the future. If both ``X-Delete-After`` and ``X-Delete-At`` are
+    set then ``X-Delete-After`` takes precedence.
+  in: header
+  required: false
+  type: integer
+X-Delete-At_resp:
+  description: |
+    If present, specifies date and time in `UNIX Epoch time stamp format
+    <https://en.wikipedia.org/wiki/Unix_time>`_ when the system removes the
+    object.  For example, ``1440619048`` is equivalent to ``Mon, Wed, 26 Aug
+    2015 19:57:28 GMT``.
   in: header
   required: false
   type: integer
@@ -847,6 +860,44 @@ X-Storage-Policy:
     In requests, specifies the name of the storage policy to use for
     the container. In responses, is the storage policy name.
     The storage policy of the container cannot be changed.
+  in: header
+  required: false
+  type: string
+X-Symlink-Target:
+  description: |
+    Set to specify that this is a symlink object.
+    The value is the relative path of the target object in the
+    format <container>/<object>.  The target object does not need to
+    exist at the time of symlink creation.
+    You must UTF-8-encode and then URL-encode the names of the
+    container and object before you include them in this header.
+  in: header
+  required: false
+  type: string
+X-Symlink-Target-Account:
+  description: |
+    Set to specify that this is a cross-account symlink to
+    an object in the account specified in the value.
+    The ``X-Symlink-Target`` must also be set for this to
+    be effective.
+    You must UTF-8-encode and then URL-encode the account name
+    before you include it in this header.
+  in: header
+  required: false
+  type: string
+X-Symlink-Target-Account_resp:
+  description: |
+    If present, and ``X-Symlink-Target`` is present, then
+    this is a cross-account symlink to
+    an object in the account specified in the value.
+  in: header
+  required: false
+  type: string
+X-Symlink-Target_resp:
+  description: |
+    If present, this is a symlink object.
+    The value is the relative path of the target object in the
+    format <container>/<object>.
   in: header
   required: false
   type: string
@@ -1092,6 +1143,23 @@ swiftinfo_sig:
   in: query
   required: false
   type: string
+symlink:
+  description: |
+    If you include the ``symlink=get`` query parameter
+    and the object is a symlink, then the response will include
+    data and metadata from the symlink itself rather than from the target.
+  in: query
+  required: false
+  type: string
+symlink_copy:
+  description: |
+    If you include the ``symlink=get`` query parameter
+    and the object is a symlink, the target object
+    contents are not copied. Instead, the symlink is copied to
+    create a new symlink to the same target.
+  in: query
+  required: false
+  type: string
 temp_url_expires:
   description: |
     The date and time in `UNIX Epoch time stamp
@@ -1177,6 +1245,13 @@ name_in_account_get:
 name_in_container_get:
   description: |
     The name of the object.
+  in: body
+  required: true
+  type: string
+symlink_path:
+  description: |
+    This field exists only when the object is symlink.
+    This is the target path of the symlink object.
   in: body
   required: true
   type: string

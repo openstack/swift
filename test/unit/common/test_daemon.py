@@ -15,7 +15,6 @@
 
 import os
 from six import StringIO
-from six.moves import reload_module
 import time
 import unittest
 from getpass import getuser
@@ -68,6 +67,10 @@ class TestDaemon(unittest.TestCase):
 
 class MyWorkerDaemon(MyDaemon):
 
+    def __init__(self, *a, **kw):
+        super(MyWorkerDaemon, self).__init__(*a, **kw)
+        MyWorkerDaemon.post_multiprocess_run_called = False
+
     def get_worker_args(self, once=False, **kwargs):
         return [kwargs for i in range(int(self.conf.get('workers', 0)))]
 
@@ -76,6 +79,9 @@ class MyWorkerDaemon(MyDaemon):
             return getattr(self, 'health_side_effects', []).pop(0)
         except IndexError:
             return True
+
+    def post_multiprocess_run(self):
+        MyWorkerDaemon.post_multiprocess_run_called = True
 
 
 class TestWorkerDaemon(unittest.TestCase):
@@ -102,13 +108,14 @@ class TestWorkerDaemon(unittest.TestCase):
 class TestRunDaemon(unittest.TestCase):
 
     def setUp(self):
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
-        utils.drop_privileges = lambda *args: None
-        utils.capture_stdio = lambda *args: None
-
-    def tearDown(self):
-        reload_module(utils)
+        for patcher in [
+            mock.patch.object(utils, 'HASH_PATH_PREFIX', 'startcap'),
+            mock.patch.object(utils, 'HASH_PATH_SUFFIX', 'endcap'),
+            mock.patch.object(utils, 'drop_privileges', lambda *args: None),
+            mock.patch.object(utils, 'capture_stdio', lambda *args: None),
+        ]:
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_run(self):
         d = MyDaemon({})
@@ -139,13 +146,16 @@ class TestRunDaemon(unittest.TestCase):
 
     def test_run_daemon(self):
         sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
-        with tmpfile(sample_conf) as conf_file:
-            with mock.patch.dict('os.environ', {'TZ': ''}):
-                with mock.patch('time.tzset') as mock_tzset:
-                    daemon.run_daemon(MyDaemon, conf_file)
-                    self.assertTrue(MyDaemon.forever_called)
-                    self.assertEqual(os.environ['TZ'], 'UTC+0')
-                    self.assertEqual(mock_tzset.mock_calls, [mock.call()])
+        with tmpfile(sample_conf) as conf_file, \
+                mock.patch('swift.common.daemon.use_hub') as mock_use_hub:
+            with mock.patch.dict('os.environ', {'TZ': ''}), \
+                    mock.patch('time.tzset') as mock_tzset:
+                daemon.run_daemon(MyDaemon, conf_file)
+                self.assertTrue(MyDaemon.forever_called)
+                self.assertEqual(os.environ['TZ'], 'UTC+0')
+                self.assertEqual(mock_tzset.mock_calls, [mock.call()])
+                self.assertEqual(mock_use_hub.mock_calls,
+                                 [mock.call(utils.get_hub())])
             daemon.run_daemon(MyDaemon, conf_file, once=True)
             self.assertEqual(MyDaemon.once_called, True)
 
@@ -182,7 +192,8 @@ class TestRunDaemon(unittest.TestCase):
             self.assertEqual(18000, time.timezone)
 
             sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
-            with tmpfile(sample_conf) as conf_file:
+            with tmpfile(sample_conf) as conf_file, \
+                    mock.patch('swift.common.daemon.use_hub'):
                 daemon.run_daemon(MyDaemon, conf_file)
                 self.assertFalse(MyDaemon.once_called)
                 self.assertTrue(MyDaemon.forever_called)
@@ -227,6 +238,7 @@ class TestRunDaemon(unittest.TestCase):
         })
         self.assertEqual([], self.mock_kill.call_args_list)
         self.assertIn('Finished', d.logger.get_lines_for_level('notice')[-1])
+        self.assertTrue(MyWorkerDaemon.post_multiprocess_run_called)
 
     def test_forked_worker(self):
         d = MyWorkerDaemon({'workers': 3})

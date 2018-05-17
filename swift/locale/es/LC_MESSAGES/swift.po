@@ -7,9 +7,9 @@
 # Pablo Caruana <pcaruana@redhat.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.15.2.dev9\n"
+"Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2017-08-24 21:08+0000\n"
+"POT-Creation-Date: 2018-02-28 19:39+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Language: es\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
-"X-Generator: Zanata 3.9.6\n"
+"X-Generator: Zanata 4.3.3\n"
 "Language-Team: Spanish\n"
 
 msgid ""
@@ -546,9 +546,6 @@ msgstr ""
 "ERROR: No se han podido obtener las vías de acceso a las particiones de "
 "unidad: %s"
 
-msgid "ERROR: An error occurred while retrieving segments"
-msgstr "ERROR: se ha producido un error al recuperar los segmentos"
-
 #, python-format
 msgid "ERROR: Unable to access %(path)s: %(error)s"
 msgstr "ERROR: no se ha podido acceder a %(path)s: %(error)s"
@@ -622,14 +619,6 @@ msgstr "Excepción en el bucle de réplica de nivel superior"
 
 msgid "Exception in top-levelreconstruction loop"
 msgstr "Excepción en el bucle de reconstrucción de nivel superior"
-
-#, python-format
-msgid "Exception while deleting container %(container)s %(err)s"
-msgstr "Excepción al suprimir el contenedor %(container)s %(err)s"
-
-#, python-format
-msgid "Exception while deleting object %(container)s %(obj)s %(err)s"
-msgstr "Excepción al suprimir el objeto %(container)s %(obj)s %(err)s"
 
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
@@ -855,24 +844,8 @@ msgstr ""
 "Los servidores de objeto han devuelvo %s etiquetas (etags) no coincidentes"
 
 #, python-format
-msgid ""
-"Object update single threaded sweep completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures"
-msgstr ""
-"Barrido de hebra única de actualización del objeto finalizado: "
-"%(elapsed).02fs, %(success)s éxitos, %(fail)s fallos"
-
-#, python-format
 msgid "Object update sweep completed: %.02fs"
 msgstr "Barrido de actualización del objeto finalizado: %.02fs"
-
-#, python-format
-msgid ""
-"Object update sweep of %(device)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures"
-msgstr ""
-"Barrido de actualización del objeto de %(device)s finalizado: "
-"%(elapsed).02fs, %(success)s con éxito, %(fail)s fallos"
 
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr ""
@@ -882,14 +855,6 @@ msgstr ""
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr ""
 "Tiempos de partición: máximo %(max).4fs, mínimo %(min).4fs, medio %(med).4fs"
-
-#, python-format
-msgid ""
-"Pass beginning; %(containers)s possible containers; %(objects)s possible "
-"objects"
-msgstr ""
-"Inicio del paso;  %(containers)s posibles contenedores; %(objects)s posibles "
-"objetos"
 
 #, python-format
 msgid "Pass completed in %(time)ds; %(objects)d objects expired"
@@ -913,11 +878,6 @@ msgstr "Problema al limpiar %s"
 #, python-format
 msgid "Profiling Error: %s"
 msgstr "Error de perfil: %s"
-
-#, python-format
-msgid "Quarantined %(db_dir)s to %(quar_path)s due to %(exc_hint)s database"
-msgstr ""
-"En cuarentena%(db_dir)s hasta %(quar_path)s debido a %(exc_hint)s database"
 
 #, python-format
 msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
@@ -1147,10 +1107,6 @@ msgstr "No se ha podido leer la configuración de %s"
 #, python-format
 msgid "Unauth %(sync_from)r => %(sync_to)r"
 msgstr "%(sync_from)r => %(sync_to)r sin autorización"
-
-#, python-format
-msgid "Unexpected response: %s"
-msgstr "Respuesta inesperada : %s "
 
 msgid "Unhandled exception"
 msgstr "Excepción no controlada"

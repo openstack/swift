@@ -20,7 +20,6 @@ import uuid
 from random import shuffle
 
 from keystoneclient.v3 import client
-from nose import SkipTest
 from swiftclient import get_auth, http_connection
 
 import test.functional as tf
@@ -3223,7 +3222,7 @@ class TestRBAC(BaseTestAC):
     def test_rbac(self):
         if any((tf.skip, tf.skip2, tf.skip3, tf.skip_if_not_v3,
                 tf.skip_if_no_reseller_admin)):
-            raise SkipTest
+            raise unittest.SkipTest
         scenario_rbac = RBAC_PUT + RBAC_DELETE + RBAC_GET +\
             RBAC_HEAD + RBAC_POST + RBAC_OPTIONS
         shuffle(scenario_rbac)
@@ -3232,7 +3231,7 @@ class TestRBAC(BaseTestAC):
     def test_rbac_with_service_prefix(self):
         if any((tf.skip, tf.skip2, tf.skip3, tf.skip_if_not_v3,
                 tf.skip_service_tokens, tf.skip_if_no_reseller_admin)):
-            raise SkipTest
+            raise unittest.SkipTest
         scenario_rbac = RBAC_PUT_WITH_SERVICE_PREFIX +\
             RBAC_DELETE_WITH_SERVICE_PREFIX +\
             RBAC_GET_WITH_SERVICE_PREFIX +\
@@ -3271,7 +3270,7 @@ class TestRBACInfo(BaseTestAC):
     def test_rbac_info(self):
         if any((tf.skip, tf.skip2, tf.skip3, tf.skip_if_not_v3,
                 tf.skip_if_no_reseller_admin)):
-            raise SkipTest
+            raise unittest.SkipTest
         self.info_url = self._get_info_url()
         scenario_rbac_info = RBAC_INFO_GET + RBAC_INFO_HEAD + RBAC_INFO_OPTIONS
         shuffle(scenario_rbac_info)
@@ -3280,7 +3279,7 @@ class TestRBACInfo(BaseTestAC):
     def test_rbac_info_with_service_prefix(self):
         if any((tf.skip, tf.skip2, tf.skip3, tf.skip_if_not_v3,
                 tf.skip_service_tokens, tf.skip_if_no_reseller_admin)):
-            raise SkipTest
+            raise unittest.SkipTest
         self.info_url = self._get_info_url()
         scenario_rbac_info = RBAC_INFO_GET_WITH_SERVICE_PREFIX +\
             RBAC_INFO_HEAD_WITH_SERVICE_PREFIX +\
@@ -3302,7 +3301,7 @@ class TestContainerACL(BaseTestAC):
     def test_container_acl(self):
         if any((tf.skip, tf.skip2, tf.skip3, tf.skip_if_not_v3,
                 tf.skip_if_no_reseller_admin)):
-            raise SkipTest
+            raise unittest.SkipTest
         self.id_info = KeystoneClient().get_id_info()
         scenario_container_acl = ACL_PUT + ACL_DELETE + ACL_GET +\
             ACL_HEAD + ACL_POST + ACL_OPTIONS

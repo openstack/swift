@@ -111,6 +111,7 @@ Request
    - temp_url_expires: temp_url_expires
    - filename: filename
    - multipart-manifest: multipart-manifest_get
+   - symlink: symlink
    - Range: Range
    - If-Match: If-Match
    - If-None-Match: If-None-Match-get-request
@@ -129,7 +130,7 @@ Response Parameters
    - X-Object-Meta-name: X-Object-Meta-name_resp
    - Content-Disposition: Content-Disposition_resp
    - Content-Encoding: Content-Encoding_resp
-   - X-Delete-At: X-Delete-At
+   - X-Delete-At: X-Delete-At_resp
    - Accept-Ranges: Accept-Ranges
    - X-Object-Manifest: X-Object-Manifest_resp
    - Last-Modified: Last-Modified
@@ -139,7 +140,8 @@ Response Parameters
    - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Date: Date
    - X-Static-Large-Object: X-Static-Large-Object
-
+   - X-Symlink-Target: X-Symlink-Target_resp
+   - X-Symlink-Target-Account: X-Symlink-Target-Account_resp
 
 
 Response Example
@@ -263,6 +265,8 @@ Request
    - X-Object-Meta-name: X-Object-Meta-name
    - If-None-Match: If-None-Match-put-request
    - X-Trans-Id-Extra: X-Trans-Id-Extra
+   - X-Symlink-Target: X-Symlink-Target
+   - X-Symlink-Target-Account: X-Symlink-Target-Account
 
 
 Response Parameters
@@ -320,6 +324,12 @@ To copy the manifest object, you include the
 The new object contains the same manifest as the original.
 The segment objects are not copied. Instead, both the original
 and new manifest objects share the same set of segment objects.
+
+To copy a symlink either with a COPY or a PUT with the
+``X-Copy-From`` request, include the ``symlink=get`` query string.
+The new symlink will have the same target as the original.
+The target object is not copied. Instead, both the original
+and new symlinks point to the same target object.
 
 All metadata is
 preserved during the object copy. If you specify metadata on the
@@ -396,6 +406,7 @@ Request
    - container: container
    - object: object
    - multipart-manifest: multipart-manifest_copy
+   - symlink: symlink_copy
    - X-Auth-Token: X-Auth-Token
    - X-Service-Token: X-Service-Token
    - Destination: Destination
@@ -444,6 +455,9 @@ For static large object manifests, you can add the ``?multipart-
 manifest=delete`` query parameter. This operation deletes the
 segment objects and, if all deletions succeed, this operation
 deletes the manifest object.
+
+A DELETE request made to a symlink path will delete the symlink
+rather than the target object.
 
 An alternative to using the DELETE operation is to use
 the POST operation with the ``bulk-delete`` query parameter.
@@ -570,6 +584,7 @@ Request
    - temp_url_expires: temp_url_expires
    - filename: filename
    - multipart-manifest: multipart-manifest_head
+   - symlink: symlink
    - X-Newest: X-Newest
    - If-Match: If-Match
    - If-None-Match: If-None-Match-get-request
@@ -587,7 +602,7 @@ Response Parameters
    - X-Object-Meta-name: X-Object-Meta-name
    - Content-Disposition: Content-Disposition_resp
    - Content-Encoding: Content-Encoding_resp
-   - X-Delete-At: X-Delete-At
+   - X-Delete-At: X-Delete-At_resp
    - X-Object-Manifest: X-Object-Manifest_resp
    - Last-Modified: Last-Modified
    - ETag: ETag_obj_resp
@@ -597,7 +612,8 @@ Response Parameters
    - Date: Date
    - X-Static-Large-Object: X-Static-Large-Object
    - Content-Type: Content-Type_obj_resp
-
+   - X-Symlink-Target: X-Symlink-Target_resp
+   - X-Symlink-Target-Account: X-Symlink-Target-Account_resp
 
 
 Response Example
@@ -634,6 +650,12 @@ metadata on the request to copy the object, either PUT or COPY ,
 the metadata overwrites any conflicting keys on the target (new)
 object.
 
+.. note::
+
+  While using COPY instead of POST allows sending only a subset of
+  the metadata, it carries the cost of reading and rewriting the entire
+  contents of the object.
+
 A POST request deletes any existing custom metadata that you added
 with a previous PUT or POST request. Consequently, you must specify
 all custom metadata in the request. However, system metadata is
@@ -658,6 +680,15 @@ body. There are alternate uses of the POST operation as follows:
 - The POST operation when used with the ``extract-archive`` query parameter
   can be used to upload an archive (tar file). The archive is then extracted
   to create objects.
+
+A POST request must not include X-Symlink-Target header. If it does then a
+400 status code is returned and the object metadata is not modified.
+
+When a POST request is sent to a symlink, the metadata will be applied to the
+symlink, but the request will result in a ``307 Temporary Redirect`` response
+to the client. The POST is never redirected to the target object, thus a
+GET/HEAD request to the symlink without ``symlink=get`` will not return the
+metadata that was sent as part of the POST request.
 
 Example requests and responses:
 
@@ -727,9 +758,9 @@ Request
    - X-Service-Token: X-Service-Token
    - X-Object-Meta-name: X-Object-Meta-name
    - X-Delete-At: X-Delete-At
+   - X-Delete-After: X-Delete-After
    - Content-Disposition: Content-Disposition
    - Content-Encoding: Content-Encoding
-   - X-Delete-After: X-Delete-After
    - Content-Type: Content-Type_obj_cu_req
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 

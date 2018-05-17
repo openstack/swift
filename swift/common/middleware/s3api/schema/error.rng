@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <start>
+    <element name="Error">
+      <element name="Code">
+        <data type="string"/>
+      </element>
+      <element name="Message">
+        <data type="string"/>
+      </element>
+      <zeroOrMore>
+        <ref name="DebugInfo"/>
+      </zeroOrMore>
+    </element>
+  </start>
+  <define name="DebugInfo">
+    <element>
+      <anyName/>
+      <zeroOrMore>
+        <choice>
+          <attribute>
+            <anyName/>
+          </attribute>
+          <text/>
+          <ref name="DebugInfo"/>
+        </choice>
+      </zeroOrMore>
+    </element>
+  </define>
+</grammar>

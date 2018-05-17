@@ -5,10 +5,11 @@
 
 SRC_DIR=$(python -c "import os; print os.path.dirname(os.path.realpath('$0'))")
 
-cd ${SRC_DIR}
+cd ${SRC_DIR} > /dev/null
 export TESTS_DIR=${SRC_DIR}/test/functional
-ostestr --serial --pretty $@
+ARGS="--serial ${@:-"--pretty"}"
+ostestr $ARGS
 rvalue=$?
-cd -
+cd -  > /dev/null
 
 exit $rvalue

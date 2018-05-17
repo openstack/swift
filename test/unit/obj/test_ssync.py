@@ -34,8 +34,9 @@ from swift.obj.reconstructor import RebuildingECDiskFileStream, \
 from swift.obj.replicator import ObjectReplicator
 
 from test import listen_zero
-from test.unit import patch_policies, debug_logger, encode_frag_archive_bodies
 from test.unit.obj.common import BaseTest
+from test.unit import patch_policies, debug_logger, \
+    encode_frag_archive_bodies, skip_if_no_xattrs
 
 
 class TestBaseSsync(BaseTest):
@@ -47,6 +48,7 @@ class TestBaseSsync(BaseTest):
     about the final state of the sender and receiver diskfiles.
     """
     def setUp(self):
+        skip_if_no_xattrs()
         super(TestBaseSsync, self).setUp()
         # rx side setup
         self.rx_testdir = os.path.join(self.tmpdir, 'tmp_test_ssync_receiver')
@@ -54,7 +56,7 @@ class TestBaseSsync(BaseTest):
         conf = {
             'devices': self.rx_testdir,
             'mount_check': 'false',
-            'replication_one_per_device': 'false',
+            'replication_concurrency_per_device': '0',
             'log_requests': 'false'}
         self.rx_logger = debug_logger()
         self.rx_controller = server.ObjectController(conf, self.rx_logger)

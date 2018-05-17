@@ -18,14 +18,13 @@
 import datetime
 import json
 import unittest2
-from unittest2 import SkipTest
 from uuid import uuid4
 import time
 
 from six.moves import range
 
 from test.functional import check_response, retry, requires_acls, \
-    requires_policies
+    requires_policies, SkipTest
 import test.functional as tf
 
 
@@ -40,8 +39,11 @@ def tearDownModule():
 class TestObject(unittest2.TestCase):
 
     def setUp(self):
-        if tf.skip:
+        if tf.skip or tf.skip2:
             raise SkipTest
+
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
         self.container = uuid4().hex
 
         self.containers = []
@@ -327,8 +329,10 @@ class TestObject(unittest2.TestCase):
                               'Content-Length': '0'})
             return check_response(conn)
         ts_before = time.time()
+        time.sleep(0.05)
         resp = retry(put)
         body = resp.read()
+        time.sleep(0.05)
         ts_after = time.time()
         if resp.status == 400:
             # shunt_inbound_x_timestamp must be false
@@ -358,8 +362,10 @@ class TestObject(unittest2.TestCase):
                               'Content-Length': '0'})
             return check_response(conn)
         ts_before = time.time()
+        time.sleep(0.05)
         resp = retry(put)
         body = resp.read()
+        time.sleep(0.05)
         ts_after = time.time()
         if resp.status == 400:
             # shunt_inbound_x_timestamp must be false
@@ -379,7 +385,7 @@ class TestObject(unittest2.TestCase):
                                               'x_delete_after'),
                          '', {'X-Auth-Token': token,
                               'Content-Length': '0',
-                              'X-Delete-After': '1'})
+                              'X-Delete-After': '2'})
             return check_response(conn)
         resp = retry(put)
         resp.read()
@@ -400,7 +406,7 @@ class TestObject(unittest2.TestCase):
             resp = retry(get)
             resp.read()
             count += 1
-            time.sleep(1)
+            time.sleep(0.5)
 
         self.assertEqual(resp.status, 404)
 
@@ -583,7 +589,7 @@ class TestObject(unittest2.TestCase):
         self.assertIn(resp.status, (204, 404))
 
     def test_copy_between_accounts(self):
-        if tf.skip:
+        if tf.skip2:
             raise SkipTest
 
         source = '%s/%s' % (self.container, self.obj)

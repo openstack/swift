@@ -10,18 +10,18 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.15.2.dev9\n"
+"Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2017-08-24 21:08+0000\n"
+"POT-Creation-Date: 2018-02-28 19:39+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "PO-Revision-Date: 2016-04-12 06:43+0000\n"
 "Last-Translator: Copied by Zanata <copied-by-zanata@zanata.org>\n"
-"Language: pt-BR\n"
+"Language: pt_BR\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 "Generated-By: Babel 2.0\n"
-"X-Generator: Zanata 3.9.6\n"
+"X-Generator: Zanata 4.3.3\n"
 "Language-Team: Portuguese (Brazil)\n"
 
 msgid ""
@@ -431,9 +431,6 @@ msgstr "ERRO com o servidor remoto %(ip)s:%(port)s/%(device)s"
 msgid "ERROR:  Failed to get paths to drive partitions: %s"
 msgstr "ERRO: Falha ao obter caminhos para partições de unidade: %s"
 
-msgid "ERROR: An error occurred while retrieving segments"
-msgstr "ERRO: Ocorreu um erro ao recuperar segmentos"
-
 #, python-format
 msgid "ERROR: Unable to access %(path)s: %(error)s"
 msgstr "ERRO: Não é possível acessar %(path)s: %(error)s"
@@ -692,24 +689,8 @@ msgid "Object servers returned %s mismatched etags"
 msgstr "Servidores de objeto retornaram %s etags incompatíveis"
 
 #, python-format
-msgid ""
-"Object update single threaded sweep completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures"
-msgstr ""
-"Varredura de encadeamento único da atualização do objeto concluída: "
-"%(elapsed).02fs, %(success)s com êxito, %(fail)s com falha"
-
-#, python-format
 msgid "Object update sweep completed: %.02fs"
 msgstr "Varredura da atualização de objeto concluída: %.02fs"
-
-#, python-format
-msgid ""
-"Object update sweep of %(device)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures"
-msgstr ""
-"Varredura da atualização do objeto de %(device)s concluída: %(elapsed).02fs, "
-"%(success)s com êxito, %(fail)s com falha"
 
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr ""
@@ -926,10 +907,6 @@ msgstr "Não é possível ler a configuração a partir de %s"
 #, python-format
 msgid "Unauth %(sync_from)r => %(sync_to)r"
 msgstr "Não autorizado %(sync_from)r => %(sync_to)r"
-
-#, python-format
-msgid "Unexpected response: %s"
-msgstr "Resposta inesperada: %s"
 
 msgid "Unhandled exception"
 msgstr "Exceção não-tratada"

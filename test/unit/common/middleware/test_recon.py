@@ -19,6 +19,7 @@ import mock
 import os
 from posix import stat_result, statvfs_result
 from shutil import rmtree
+import tempfile
 import unittest
 from unittest import TestCase
 
@@ -212,9 +213,7 @@ class FakeRecon(object):
 class TestReconSuccess(TestCase):
 
     def setUp(self):
-        # can't use mkdtemp here as 2.6 gzip puts the filename in the header
-        # which will cause ring md5 checks to fail
-        self.tempdir = '/tmp/swift_recon_md5_test'
+        self.tempdir = tempfile.mkdtemp(prefix='swift_recon_md5_test')
         utils.mkdirs(self.tempdir)
         self.app = self._get_app()
         self.mockos = MockOS()
@@ -269,21 +268,8 @@ class TestReconSuccess(TestCase):
         return app
 
     def _create_ring(self, ringpath, replica_map, devs, part_shift):
-        def fake_time():
-            return 0
-
-        def fake_base(fname):
-            # least common denominator with gzip versions is to
-            # not use the .gz extension in the gzip header
-            return fname[:-3]
-
-        # eliminate time from the equation as gzip 2.6 includes
-        # it in the header resulting in md5 file mismatch, also
-        # have to mock basename as one version uses it, one doesn't
-        with mock.patch("time.time", fake_time):
-            with mock.patch("os.path.basename", fake_base):
-                ring.RingData(replica_map, devs, part_shift).save(ringpath,
-                                                                  mtime=None)
+        ring.RingData(replica_map, devs, part_shift).save(ringpath,
+                                                          mtime=None)
 
     def _create_rings(self):
         # make the rings unique so they have different md5 sums

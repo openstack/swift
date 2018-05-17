@@ -26,8 +26,9 @@ from swift.common.utils import Timestamp
 from swift.obj import ssync_sender, diskfile, ssync_receiver
 from swift.obj.replicator import ObjectReplicator
 
-from test.unit import patch_policies, make_timestamp_iter, debug_logger
 from test.unit.obj.common import BaseTest
+from test.unit import patch_policies, make_timestamp_iter, skip_if_no_xattrs, \
+    debug_logger
 
 
 class NullBufferedHTTPConnection(object):
@@ -84,9 +85,11 @@ class FakeConnection(object):
 class TestSender(BaseTest):
 
     def setUp(self):
+        skip_if_no_xattrs()
         super(TestSender, self).setUp()
+        self.daemon_logger = debug_logger('test-ssync-sender')
         self.daemon = ObjectReplicator(self.daemon_conf,
-                                       debug_logger('test-ssync-sender'))
+                                       self.daemon_logger)
         job = {'policy': POLICIES.legacy}  # sufficient for Sender.__init__
         self.sender = ssync_sender.Sender(self.daemon, None, job, None)
 
@@ -107,7 +110,7 @@ class TestSender(BaseTest):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEqual(candidates, {})
-        error_lines = self.daemon.logger.get_lines_for_level('error')
+        error_lines = self.daemon_logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertEqual('1.2.3.4:5678/sda1/9 1 second: test connect',
                          error_lines[0])
@@ -126,7 +129,7 @@ class TestSender(BaseTest):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEqual(candidates, {})
-        error_lines = self.daemon.logger.get_lines_for_level('error')
+        error_lines = self.daemon_logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertEqual('1.2.3.4:5678/sda1/9 test connect',
                          error_lines[0])
@@ -141,10 +144,10 @@ class TestSender(BaseTest):
         success, candidates = self.sender()
         self.assertFalse(success)
         self.assertEqual(candidates, {})
-        error_lines = self.daemon.logger.get_lines_for_level('error')
+        error_lines = self.daemon_logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
-                '1.2.3.4:5678/sda1/9 EXCEPTION in ssync.Sender:'))
+                '1.2.3.4:5678/sda1/9 EXCEPTION in ssync.Sender: '))
 
     def test_call_catches_exception_handling_exception(self):
         self.sender.node = None  # Will cause inside exception handler to fail
@@ -153,7 +156,7 @@ class TestSender(BaseTest):
         success, candidates = self.sender()
         self.assertFalse(success)
         self.assertEqual(candidates, {})
-        error_lines = self.daemon.logger.get_lines_for_level('error')
+        error_lines = self.daemon_logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
                 'EXCEPTION in ssync.Sender'))
@@ -596,7 +599,7 @@ class TestSender(BaseTest):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEqual(candidates, {})
-        error_lines = self.daemon.logger.get_lines_for_level('error')
+        error_lines = self.daemon_logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
                 '1.2.3.4:5678/sda1/9 0.01 seconds: connect send'))
@@ -620,7 +623,7 @@ class TestSender(BaseTest):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEqual(candidates, {})
-        error_lines = self.daemon.logger.get_lines_for_level('error')
+        error_lines = self.daemon_logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
                 '1.2.3.4:5678/sda1/9 0.02 seconds: connect receive'))
@@ -648,7 +651,7 @@ class TestSender(BaseTest):
                 success, candidates = self.sender()
                 self.assertFalse(success)
                 self.assertEqual(candidates, {})
-        error_lines = self.daemon.logger.get_lines_for_level('error')
+        error_lines = self.daemon_logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
                 '1.2.3.4:5678/sda1/9 Expected status 200; got 503'))

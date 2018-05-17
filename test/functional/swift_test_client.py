@@ -122,8 +122,7 @@ class Connection(object):
         self.username = config['username']
         self.password = config['password']
 
-        self.storage_host = None
-        self.storage_port = None
+        self.storage_netloc = None
         self.storage_url = None
 
         self.conn_class = None
@@ -134,9 +133,8 @@ class Connection(object):
     def authenticate(self, clone_conn=None):
         if clone_conn:
             self.conn_class = clone_conn.conn_class
-            self.storage_host = clone_conn.storage_host
+            self.storage_netloc = clone_conn.storage_netloc
             self.storage_url = clone_conn.storage_url
-            self.storage_port = clone_conn.storage_port
             self.storage_token = clone_conn.storage_token
             return
 
@@ -162,26 +160,23 @@ class Connection(object):
         if not (storage_url and storage_token):
             raise AuthenticationFailed()
 
-        x = storage_url.split('/')
+        url = urllib.parse.urlparse(storage_url)
 
-        if x[0] == 'http:':
+        if url.scheme == 'http':
             self.conn_class = http_client.HTTPConnection
-            self.storage_port = 80
-        elif x[0] == 'https:':
+        elif url.scheme == 'https':
             self.conn_class = http_client.HTTPSConnection
-            self.storage_port = 443
         else:
-            raise ValueError('unexpected protocol %s' % (x[0]))
+            raise ValueError('unexpected protocol %s' % (url.scheme))
 
-        self.storage_host = x[2].split(':')[0]
-        if ':' in x[2]:
-            self.storage_port = int(x[2].split(':')[1])
+        self.storage_netloc = url.netloc
         # Make sure storage_url is a string and not unicode, since
         # keystoneclient (called by swiftclient) returns them in
         # unicode and this would cause troubles when doing
         # no_safe_quote query.
-        self.storage_url = str('/%s/%s' % (x[3], x[4]))
-        self.account_name = str(x[4])
+        x = url.path.split('/')
+        self.storage_url = str('/%s/%s' % (x[1], x[2]))
+        self.account_name = str(x[2])
         self.auth_user = auth_user
         # With v2 keystone, storage_token is unicode.
         # We want it to be string otherwise this would cause
@@ -206,9 +201,7 @@ class Connection(object):
         return json.loads(self.response.read())
 
     def http_connect(self):
-        self.connection = self.conn_class(self.storage_host,
-                                          port=self.storage_port)
-        # self.connection.set_debuglevel(3)
+        self.connection = self.conn_class(self.storage_netloc)
 
     def make_path(self, path=None, cfg=None):
         if path is None:
@@ -335,9 +328,7 @@ class Connection(object):
                           for (x, y) in parms.items()]
             path = '%s?%s' % (path, '&'.join(query_args))
 
-        self.connection = self.conn_class(self.storage_host,
-                                          port=self.storage_port)
-        # self.connection.set_debuglevel(3)
+        self.connection = self.conn_class(self.storage_netloc)
         self.connection.putrequest('PUT', path)
         for key, value in headers.items():
             self.connection.putheader(key, value)
@@ -354,6 +345,8 @@ class Connection(object):
             self.connection.send('0\r\n\r\n')
 
         self.response = self.connection.getresponse()
+        # Hope it isn't big!
+        self.response.body = self.response.read()
         self.connection.close()
         return self.response.status
 
@@ -550,7 +543,7 @@ class Container(Base):
     def delete_files(self):
         for f in listing_items(self.files):
             file_item = self.file(f)
-            if not file_item.delete():
+            if not file_item.delete(tolerate_missing=True):
                 return False
 
         return listing_empty(self.files)
@@ -771,14 +764,19 @@ class File(Base):
                                 self.conn.make_path(self.path))
         return True
 
-    def delete(self, hdrs=None, parms=None, cfg=None):
+    def delete(self, hdrs=None, parms=None, cfg=None, tolerate_missing=False):
         if hdrs is None:
             hdrs = {}
         if parms is None:
             parms = {}
-        if self.conn.make_request('DELETE', self.path, hdrs=hdrs,
-                                  cfg=cfg, parms=parms) != 204:
+        if tolerate_missing:
+            allowed_statuses = (204, 404)
+        else:
+            allowed_statuses = (204,)
 
+        if self.conn.make_request(
+                'DELETE', self.path, hdrs=hdrs, cfg=cfg,
+                parms=parms) not in allowed_statuses:
             raise ResponseError(self.conn.response, 'DELETE',
                                 self.conn.make_path(self.path))
 
@@ -801,7 +799,8 @@ class File(Base):
                   ['content_type', 'content-type'],
                   ['last_modified', 'last-modified'],
                   ['etag', 'etag']]
-        optional_fields = [['x_object_manifest', 'x-object-manifest']]
+        optional_fields = [['x_object_manifest', 'x-object-manifest'],
+                           ['x_symlink_target', 'x-symlink-target']]
 
         header_fields = self.header_fields(fields,
                                            optional_fields=optional_fields)

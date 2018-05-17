@@ -22,7 +22,6 @@ import itertools
 from contextlib import contextmanager
 from shutil import rmtree
 from tempfile import mkdtemp
-from test.unit import FakeLogger
 from time import gmtime
 from xml.dom import minidom
 import time
@@ -62,7 +61,7 @@ def save_globals():
 
 @patch_policies
 class TestContainerController(unittest.TestCase):
-    """Test swift.container.server.ContainerController"""
+
     def setUp(self):
         self.testdir = os.path.join(
             mkdtemp(), 'tmp_test_container_server_ContainerController')
@@ -70,8 +69,10 @@ class TestContainerController(unittest.TestCase):
         rmtree(self.testdir)
         mkdirs(os.path.join(self.testdir, 'sda1'))
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+        self.logger = debug_logger()
         self.controller = container_server.ContainerController(
-            {'devices': self.testdir, 'mount_check': 'false'})
+            {'devices': self.testdir, 'mount_check': 'false'},
+            logger=self.logger)
         # some of the policy tests want at least two policies
         self.assertTrue(len(POLICIES) > 1)
 
@@ -311,6 +312,14 @@ class TestContainerController(unittest.TestCase):
             headers={'Accept': 'application/plain'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 406)
+
+    def test_HEAD_invalid_accept(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'Accept': 'application/plain;q'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(resp.body, '')
 
     def test_HEAD_invalid_format(self):
         format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
@@ -2367,6 +2376,14 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.content_type, 'text/xml')
         self.assertEqual(resp.body, xml_body)
 
+    def test_GET_invalid_accept(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'},
+            headers={'Accept': 'application/plain;q'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(resp.body, 'Invalid Accept header')
+
     def test_GET_marker(self):
         # make a container
         req = Request.blank(
@@ -3178,7 +3195,6 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test_GET_log_requests_true(self):
-        self.controller.logger = FakeLogger()
         self.controller.log_requests = True
 
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
@@ -3187,7 +3203,6 @@ class TestContainerController(unittest.TestCase):
         self.assertTrue(self.controller.logger.log_dict['info'])
 
     def test_GET_log_requests_false(self):
-        self.controller.logger = FakeLogger()
         self.controller.log_requests = False
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
@@ -3198,19 +3213,18 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
-        self.controller.logger = FakeLogger()
-        with mock.patch(
-                'time.gmtime', mock.MagicMock(side_effect=[gmtime(10001.0)])):
-            with mock.patch(
-                    'time.time',
-                    mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0])):
-                with mock.patch(
-                        'os.getpid', mock.MagicMock(return_value=1234)):
-                    req.get_response(self.controller)
-        self.assertEqual(
-            self.controller.logger.log_dict['info'],
-            [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c" '
-             '404 - "-" "-" "-" 2.0000 "-" 1234 0',), {})])
+        with mock.patch('time.gmtime',
+                        mock.MagicMock(side_effect=[gmtime(10001.0)])), \
+                mock.patch('time.time',
+                           mock.MagicMock(side_effect=[
+                               10000.0, 10001.0, 10002.0])), \
+                mock.patch('os.getpid', mock.MagicMock(return_value=1234)):
+            req.get_response(self.controller)
+        info_lines = self.controller.logger.get_lines_for_level('info')
+        self.assertEqual(info_lines, [
+            '1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c" '
+            '404 - "-" "-" "-" 2.0000 "-" 1234 0',
+        ])
 
 
 @patch_policies([

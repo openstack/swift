@@ -24,10 +24,15 @@
 # log_statsd_metric_prefix =
 
 [pipeline:main]
-pipeline = catch_errors proxy-logging cache proxy-server
+pipeline = catch_errors proxy-logging cache symlink proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
+account_autocreate = true
+# See proxy-server.conf-sample for options
+
+[filter:symlink]
+use = egg:swift#symlink
 # See proxy-server.conf-sample for options
 
 [filter:cache]

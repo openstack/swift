@@ -18,14 +18,13 @@
 import unittest2
 import json
 from uuid import uuid4
-from unittest2 import SkipTest
 from string import ascii_letters
 
 from six.moves import range
 from swift.common.middleware.acl import format_acl
 
 from test.functional import check_response, retry, requires_acls, \
-    load_constraint
+    load_constraint, SkipTest
 import test.functional as tf
 
 
@@ -833,6 +832,9 @@ class TestAccount(unittest2.TestCase):
     def test_bad_metadata3(self):
         if tf.skip:
             raise SkipTest
+
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
 
         def post(url, token, parsed, conn, extra_headers):
             headers = {'X-Auth-Token': token}

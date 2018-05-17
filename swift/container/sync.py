@@ -73,10 +73,15 @@ ic_conf_body = """
 # log_statsd_metric_prefix =
 
 [pipeline:main]
-pipeline = catch_errors proxy-logging cache proxy-server
+pipeline = catch_errors proxy-logging cache symlink proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
+account_autocreate = true
+# See proxy-server.conf-sample for options
+
+[filter:symlink]
+use = egg:swift#symlink
 # See proxy-server.conf-sample for options
 
 [filter:cache]
@@ -567,7 +572,10 @@ class ContainerSync(Daemon):
                                                     realm_key, ts_meta):
                     return True
                 exc = None
-                # look up for the newest one
+                # look up for the newest one; the symlink=get query-string has
+                # no effect unless symlinks are enabled in the internal client
+                # in which case it ensures that symlink objects retain their
+                # symlink property when sync'd.
                 headers_out = {'X-Newest': True,
                                'X-Backend-Storage-Policy-Index':
                                str(info['storage_policy_index'])}
@@ -576,7 +584,8 @@ class ContainerSync(Daemon):
                         self.swift.get_object(info['account'],
                                               info['container'], row['name'],
                                               headers=headers_out,
-                                              acceptable_statuses=(2, 4))
+                                              acceptable_statuses=(2, 4),
+                                              params={'symlink': 'get'})
 
                 except (Exception, UnexpectedResponse, Timeout) as err:
                     headers = {}

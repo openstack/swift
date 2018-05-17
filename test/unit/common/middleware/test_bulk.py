@@ -243,9 +243,11 @@ class TestUntar(unittest.TestCase):
 
     def handle_extract_and_iter(self, req, compress_format,
                                 out_content_type='application/json'):
-        resp_body = ''.join(
-            self.bulk.handle_extract_iter(req, compress_format,
-                                          out_content_type=out_content_type))
+        iter = self.bulk.handle_extract_iter(
+            req, compress_format, out_content_type=out_content_type)
+        first_chunk = next(iter)
+        self.assertEqual(req.environ['eventlet.minimum_write_chunk_size'], 0)
+        resp_body = first_chunk + ''.join(iter)
         return resp_body
 
     def test_create_container_for_path(self):
@@ -604,11 +606,15 @@ class TestUntar(unittest.TestCase):
 
     def test_get_response_body(self):
         txt_body = bulk.get_response_body(
-            'bad_formay', {'hey': 'there'}, [['json > xml', '202 Accepted']])
+            'bad_formay', {'hey': 'there'}, [['json > xml', '202 Accepted']],
+            "doesn't matter for text")
         self.assertTrue('hey: there' in txt_body)
         xml_body = bulk.get_response_body(
-            'text/xml', {'hey': 'there'}, [['json > xml', '202 Accepted']])
+            'text/xml', {'hey': 'there'}, [['json > xml', '202 Accepted']],
+            'root_tag')
         self.assertTrue('&gt' in xml_body)
+        self.assertTrue(xml_body.startswith('<root_tag>\n'))
+        self.assertTrue(xml_body.endswith('\n</root_tag>\n'))
 
 
 class TestDelete(unittest.TestCase):
@@ -623,8 +629,11 @@ class TestDelete(unittest.TestCase):
         self.app.delete_paths = []
 
     def handle_delete_and_iter(self, req, out_content_type='application/json'):
-        resp_body = ''.join(self.bulk.handle_delete_iter(
-            req, out_content_type=out_content_type))
+        iter = self.bulk.handle_delete_iter(
+            req, out_content_type=out_content_type)
+        first_chunk = next(iter)
+        self.assertEqual(req.environ['eventlet.minimum_write_chunk_size'], 0)
+        resp_body = first_chunk + ''.join(iter)
         return resp_body
 
     def test_bulk_delete_uses_predefined_object_errors(self):

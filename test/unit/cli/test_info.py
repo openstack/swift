@@ -20,7 +20,7 @@ from shutil import rmtree
 from tempfile import mkdtemp
 
 from six.moves import cStringIO as StringIO
-from test.unit import patch_policies, write_fake_ring
+from test.unit import patch_policies, write_fake_ring, skip_if_no_xattrs
 
 from swift.common import ring, utils
 from swift.common.swob import Request
@@ -40,9 +40,10 @@ from swift.obj.diskfile import write_metadata
                  StoragePolicy(3, 'three', False)])
 class TestCliInfoBase(unittest.TestCase):
     def setUp(self):
+        skip_if_no_xattrs()
         self.orig_hp = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
-        utils.HASH_PATH_PREFIX = 'info'
-        utils.HASH_PATH_SUFFIX = 'info'
+        utils.HASH_PATH_PREFIX = b'info'
+        utils.HASH_PATH_SUFFIX = b'info'
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_cli_info')
         utils.mkdirs(self.testdir)
         rmtree(self.testdir)
@@ -133,7 +134,7 @@ Metadata:
   UUID: abadf100d0ddba11
   X-Other-Something: boo
 No system metadata found in db file
-  User Metadata: {'mydata': 'swift'}'''
+  User Metadata: {'x-account-meta-mydata': 'swift'}'''
 
         self.assertEqual(sorted(out.getvalue().strip().split('\n')),
                          sorted(exp_out.split('\n')))
@@ -159,7 +160,7 @@ No system metadata found in db file
         md = {'x-container-sysmeta-mydata': ('swift', '0000000000.00000')}
         out = StringIO()
         with mock.patch('sys.stdout', out):
-            print_db_info_metadata('container', info, md)
+            print_db_info_metadata('container', info, md, True)
         exp_out = '''Path: /acct/cont
   Account: acct
   Container: cont
@@ -874,7 +875,7 @@ class TestPrintObj(TestCliInfoBase):
         self.assertRaises(InfoSystemExit, print_obj, datafile)
 
         with open(datafile, 'wb') as fp:
-            fp.write('1234')
+            fp.write(b'1234')
 
         out = StringIO()
         with mock.patch('sys.stdout', out):
@@ -1128,7 +1129,7 @@ Other Metadata:
         })
         out = StringIO()
         with mock.patch('sys.stdout', out):
-            print_obj_metadata(metadata)
+            print_obj_metadata(metadata, True)
         exp_out = '''Path: /AUTH_admin/c/dummy
   Account: AUTH_admin
   Container: c
@@ -1137,8 +1138,8 @@ Other Metadata:
 Content-Type: application/octet-stream
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
 System Metadata:
-  X-Object-Sysmeta-Mtime: 107.3
-  X-Object-Sysmeta-Name: Obj name
+  Mtime: 107.3
+  Name: Obj name
 Transient System Metadata:
   No metadata found
 User Metadata:
@@ -1208,7 +1209,7 @@ Other Metadata:
         del metadata['name']
         out = StringIO()
         with mock.patch('sys.stdout', out):
-            print_obj_metadata(metadata)
+            print_obj_metadata(metadata, True)
         exp_out = '''Path: Not found in metadata
 Content-Type: application/octet-stream
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
@@ -1217,7 +1218,7 @@ System Metadata:
 Transient System Metadata:
   No metadata found
 User Metadata:
-  X-Object-Meta-Mtime: 107.3
+  Mtime: 107.3
 Other Metadata:
   No metadata found''' % (
             utils.Timestamp(106.3).internal)
@@ -1252,7 +1253,7 @@ Other Metadata:
         del metadata['X-Timestamp']
         out = StringIO()
         with mock.patch('sys.stdout', out):
-            print_obj_metadata(metadata)
+            print_obj_metadata(metadata, True)
         exp_out = '''Path: /AUTH_admin/c/dummy
   Account: AUTH_admin
   Container: c
@@ -1265,7 +1266,7 @@ System Metadata:
 Transient System Metadata:
   No metadata found
 User Metadata:
-  X-Object-Meta-Mtime: 107.3
+  Mtime: 107.3
 Other Metadata:
   No metadata found'''
 
@@ -1293,6 +1294,34 @@ Transient System Metadata:
   X-Object-Transient-Sysmeta-Mtime: 105.3
 User Metadata:
   X-Object-Meta-Mtime: 107.3
+Other Metadata:
+  X-Object-Mtime: 104.3''' % (
+            utils.Timestamp(106.3).internal)
+
+        self.assertEqual(out.getvalue().strip(), exp_out)
+
+        metadata = get_metadata({
+            'X-Object-Meta-Mtime': '107.3',
+            'X-Object-Sysmeta-Mtime': '106.3',
+            'X-Object-Transient-Sysmeta-Mtime': '105.3',
+            'X-Object-Mtime': '104.3',
+        })
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata, True)
+        exp_out = '''Path: /AUTH_admin/c/dummy
+  Account: AUTH_admin
+  Container: c
+  Object: dummy
+  Object hash: 128fdf98bddd1b1e8695f4340e67a67a
+Content-Type: application/octet-stream
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+System Metadata:
+  Mtime: 106.3
+Transient System Metadata:
+  Mtime: 105.3
+User Metadata:
+  Mtime: 107.3
 Other Metadata:
   X-Object-Mtime: 104.3''' % (
             utils.Timestamp(106.3).internal)

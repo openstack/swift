@@ -19,18 +19,21 @@ import unittest
 import zlib
 from textwrap import dedent
 import os
+from itertools import izip_longest
 
 import six
 from six import StringIO
 from six.moves import range
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, parse_qsl
 from test.unit import FakeLogger
 from swift.common import exceptions, internal_client, swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
+from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 
-from test.unit import with_tempdir, write_fake_ring, patch_policies
-from test.unit.common.middleware.helpers import FakeSwift
+from test.unit import with_tempdir, write_fake_ring, patch_policies, \
+    DebugLogger
+from test.unit.common.middleware.helpers import FakeSwift, LeakTrackingIter
 
 if six.PY3:
     from eventlet.green.urllib import request as urllib2
@@ -136,19 +139,23 @@ class SetMetadataInternalClient(internal_client.InternalClient):
 
 class IterInternalClient(internal_client.InternalClient):
     def __init__(
-            self, test, path, marker, end_marker, acceptable_statuses, items):
+            self, test, path, marker, end_marker, prefix, acceptable_statuses,
+            items):
         self.test = test
         self.path = path
         self.marker = marker
         self.end_marker = end_marker
+        self.prefix = prefix
         self.acceptable_statuses = acceptable_statuses
         self.items = items
 
     def _iter_items(
-            self, path, marker='', end_marker='', acceptable_statuses=None):
+            self, path, marker='', end_marker='', prefix='',
+            acceptable_statuses=None):
         self.test.assertEqual(self.path, path)
         self.test.assertEqual(self.marker, marker)
         self.test.assertEqual(self.end_marker, end_marker)
+        self.test.assertEqual(self.prefix, prefix)
         self.test.assertEqual(self.acceptable_statuses, acceptable_statuses)
         for item in self.items:
             yield item
@@ -316,6 +323,29 @@ class TestInternalClient(unittest.TestCase):
         client = InternalClient(self)
         client.make_request('GET', '/', {}, (200,))
 
+    def test_make_request_sets_query_string(self):
+        captured_envs = []
+
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, test):
+                self.test = test
+                self.app = self.fake_app
+                self.user_agent = 'some_agent'
+                self.request_tries = 1
+
+            def fake_app(self, env, start_response):
+                captured_envs.append(env)
+                start_response('200 Ok', [('Content-Length', '0')])
+                return []
+
+        client = InternalClient(self)
+        params = {'param1': 'p1', 'tasty': 'soup'}
+        client.make_request('GET', '/', {}, (200,), params=params)
+        actual_params = dict(parse_qsl(captured_envs[0]['QUERY_STRING'],
+                                       keep_blank_values=True,
+                                       strict_parsing=True))
+        self.assertEqual(params, actual_params)
+
     def test_make_request_retries(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self, test):
@@ -411,6 +441,91 @@ class TestInternalClient(unittest.TestCase):
             self.assertEqual(client.env['PATH_INFO'], path)
             self.assertEqual(client.env['HTTP_X_TEST'], path)
 
+    def test_make_request_error_case(self):
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self):
+                self.logger = DebugLogger()
+                # wrap the fake app with ProxyLoggingMiddleware
+                self.app = ProxyLoggingMiddleware(
+                    self.fake_app, {}, self.logger)
+                self.user_agent = 'some_agent'
+                self.request_tries = 3
+
+            def fake_app(self, env, start_response):
+                body = 'fake error response'
+                start_response('409 Conflict',
+                               [('Content-Length', str(len(body)))])
+                return [body]
+
+        client = InternalClient()
+        with self.assertRaises(internal_client.UnexpectedResponse), \
+                mock.patch('swift.common.internal_client.sleep'):
+            client.make_request('DELETE', '/container', {}, (200,))
+
+        # Since we didn't provide an X-Timestamp, retrying gives us a chance to
+        # succeed (assuming the failure was due to clock skew between servers)
+        expected = (' HTTP/1.0 409 ',)
+        loglines = client.logger.get_lines_for_level('info')
+        for expected, logline in izip_longest(expected, loglines):
+            if not expected:
+                self.fail('Unexpected extra log line: %r' % logline)
+            self.assertIn(expected, logline)
+
+    def test_make_request_acceptable_status_not_2xx(self):
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, resp_status):
+                self.logger = DebugLogger()
+                # wrap the fake app with ProxyLoggingMiddleware
+                self.app = ProxyLoggingMiddleware(
+                    self.fake_app, {}, self.logger)
+                self.user_agent = 'some_agent'
+                self.resp_status = resp_status
+                self.request_tries = 3
+                self.closed_paths = []
+
+            def fake_app(self, env, start_response):
+                body = 'fake error response'
+                start_response(self.resp_status,
+                               [('Content-Length', str(len(body)))])
+                return LeakTrackingIter(body, self.closed_paths.append,
+                                        env['PATH_INFO'])
+
+        def do_test(resp_status):
+            client = InternalClient(resp_status)
+            with self.assertRaises(internal_client.UnexpectedResponse) as ctx, \
+                    mock.patch('swift.common.internal_client.sleep'):
+                # This is obvious strange tests to expect only 400 Bad Request
+                # but this test intended to avoid extra body drain if it's
+                # correct object body with 2xx.
+                client.make_request('GET', '/cont/obj', {}, (400,))
+            loglines = client.logger.get_lines_for_level('info')
+            return client.closed_paths, ctx.exception.resp, loglines
+
+        closed_paths, resp, loglines = do_test('200 OK')
+        # Since the 200 is considered "properly handled", it won't be retried
+        self.assertEqual(closed_paths, [])
+        # ...and it'll be on us (the caller) to close (for example, by using
+        # swob.Response's body property)
+        self.assertEqual(resp.body, 'fake error response')
+        self.assertEqual(closed_paths, ['/cont/obj'])
+
+        expected = (' HTTP/1.0 200 ', )
+        for expected, logline in izip_longest(expected, loglines):
+            if not expected:
+                self.fail('Unexpected extra log line: %r' % logline)
+            self.assertIn(expected, logline)
+
+        closed_paths, resp, loglines = do_test('503 Service Unavailable')
+        # But since 5xx is neither "properly handled" not likely to include
+        # a large body, it will be retried and responses will already be closed
+        self.assertEqual(closed_paths, ['/cont/obj'] * 3)
+
+        expected = (' HTTP/1.0 503 ', ' HTTP/1.0 503 ', ' HTTP/1.0 503 ', )
+        for expected, logline in izip_longest(expected, loglines):
+            if not expected:
+                self.fail('Unexpected extra log line: %r' % logline)
+            self.assertIn(expected, logline)
+
     def test_make_request_codes(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self):
@@ -464,30 +579,33 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(0, whence)
 
         class InternalClient(internal_client.InternalClient):
-            def __init__(self):
+            def __init__(self, status):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.status = status
+                self.call_count = 0
 
             def fake_app(self, env, start_response):
-                start_response('404 Not Found', [('Content-Length', '0')])
+                self.call_count += 1
+                start_response(self.status, [('Content-Length', '0')])
                 return []
 
-        fobj = FileObject(self)
-        client = InternalClient()
+        def do_test(status, expected_calls):
+            fobj = FileObject(self)
+            client = InternalClient(status)
 
-        try:
-            old_sleep = internal_client.sleep
-            internal_client.sleep = not_sleep
-            try:
-                client.make_request('PUT', '/', {}, (2,), fobj)
-            except Exception as err:
-                pass
-            self.assertEqual(404, err.resp.status_int)
-        finally:
-            internal_client.sleep = old_sleep
+            with mock.patch.object(internal_client, 'sleep', not_sleep):
+                with self.assertRaises(Exception) as exc_mgr:
+                    client.make_request('PUT', '/', {}, (2,), fobj)
+                self.assertEqual(int(status[:3]),
+                                 exc_mgr.exception.resp.status_int)
 
-        self.assertEqual(client.request_tries, fobj.seek_called)
+            self.assertEqual(client.call_count, fobj.seek_called)
+            self.assertEqual(client.call_count, expected_calls)
+
+        do_test('404 Not Found', 1)
+        do_test('503 Service Unavailable', 3)
 
     def test_make_request_request_exception(self):
         class InternalClient(internal_client.InternalClient):
@@ -552,17 +670,15 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, client.make_request_called)
 
     def test_get_metadata_invalid_status(self):
-        class FakeApp(object):
-
-            def __call__(self, environ, start_response):
-                start_response('404 Not Found', [('x-foo', 'bar')])
-                return ['nope']
-
         class InternalClient(internal_client.InternalClient):
             def __init__(self):
                 self.user_agent = 'test'
                 self.request_tries = 1
-                self.app = FakeApp()
+                self.app = self.fake_app
+
+            def fake_app(self, environ, start_response):
+                start_response('404 Not Found', [('x-foo', 'bar')])
+                return ['nope']
 
         client = InternalClient()
         self.assertRaises(internal_client.UnexpectedResponse,
@@ -644,9 +760,9 @@ class TestInternalClient(unittest.TestCase):
                 return self.responses.pop(0)
 
         paths = [
-            '/?format=json&marker=start&end_marker=end',
-            '/?format=json&marker=one%C3%A9&end_marker=end',
-            '/?format=json&marker=two&end_marker=end',
+            '/?format=json&marker=start&end_marker=end&prefix=',
+            '/?format=json&marker=one%C3%A9&end_marker=end&prefix=',
+            '/?format=json&marker=two&end_marker=end&prefix=',
         ]
 
         responses = [
@@ -661,6 +777,49 @@ class TestInternalClient(unittest.TestCase):
             items.append(item['name'].encode('utf8'))
 
         self.assertEqual('one\xc3\xa9 two'.split(), items)
+
+    def test_iter_items_with_markers_and_prefix(self):
+        class Response(object):
+            def __init__(self, status_int, body):
+                self.status_int = status_int
+                self.body = body
+
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, test, paths, responses):
+                self.test = test
+                self.paths = paths
+                self.responses = responses
+
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
+                exp_path = self.paths.pop(0)
+                self.test.assertEqual(exp_path, path)
+                return self.responses.pop(0)
+
+        paths = [
+            '/?format=json&marker=prefixed_start&end_marker=prefixed_end'
+            '&prefix=prefixed_',
+            '/?format=json&marker=prefixed_one%C3%A9&end_marker=prefixed_end'
+            '&prefix=prefixed_',
+            '/?format=json&marker=prefixed_two&end_marker=prefixed_end'
+            '&prefix=prefixed_',
+        ]
+
+        responses = [
+            Response(200, json.dumps([{'name': 'prefixed_one\xc3\xa9'}, ])),
+            Response(200, json.dumps([{'name': 'prefixed_two'}, ])),
+            Response(204, ''),
+        ]
+
+        items = []
+        client = InternalClient(self, paths, responses)
+        for item in client._iter_items('/', marker='prefixed_start',
+                                       end_marker='prefixed_end',
+                                       prefix='prefixed_'):
+            items.append(item['name'].encode('utf8'))
+
+        self.assertEqual('prefixed_one\xc3\xa9 prefixed_two'.split(), items)
 
     def test_iter_item_read_response_if_status_is_acceptable(self):
         class Response(object):
@@ -756,12 +915,13 @@ class TestInternalClient(unittest.TestCase):
         items = '0 1 2'.split()
         marker = 'some_marker'
         end_marker = 'some_end_marker'
+        prefix = 'some_prefix'
         acceptable_statuses = 'some_status_list'
         client = IterInternalClient(
-            self, path, marker, end_marker, acceptable_statuses, items)
+            self, path, marker, end_marker, prefix, acceptable_statuses, items)
         ret_items = []
         for container in client.iter_containers(
-                account, marker, end_marker,
+                account, marker, end_marker, prefix,
                 acceptable_statuses=acceptable_statuses):
             ret_items.append(container)
         self.assertEqual(items, ret_items)
@@ -964,13 +1124,15 @@ class TestInternalClient(unittest.TestCase):
         path = make_path(account, container)
         marker = 'some_maker'
         end_marker = 'some_end_marker'
+        prefix = 'some_prefix'
         acceptable_statuses = 'some_status_list'
         items = '0 1 2'.split()
         client = IterInternalClient(
-            self, path, marker, end_marker, acceptable_statuses, items)
+            self, path, marker, end_marker, prefix, acceptable_statuses, items)
         ret_items = []
         for obj in client.iter_objects(
-                account, container, marker, end_marker, acceptable_statuses):
+                account, container, marker, end_marker, prefix,
+                acceptable_statuses):
             ret_items.append(obj)
         self.assertEqual(items, ret_items)
 
@@ -1047,10 +1209,11 @@ class TestInternalClient(unittest.TestCase):
         client, app = get_client_app()
         headers = {'foo': 'bar'}
         body = 'some_object_body'
+        params = {'symlink': 'get'}
         app.register('GET', path_info, swob.HTTPOk, headers, body)
         req_headers = {'x-important-header': 'some_important_value'}
         status_int, resp_headers, obj_iter = client.get_object(
-            account, container, obj, req_headers)
+            account, container, obj, req_headers, params=params)
         self.assertEqual(status_int // 100, 2)
         for k, v in headers.items():
             self.assertEqual(v, resp_headers[k])
@@ -1062,7 +1225,7 @@ class TestInternalClient(unittest.TestCase):
             'user-agent': 'test',   # from InternalClient.make_request
         })
         self.assertEqual(app.calls_with_headers, [(
-            'GET', path_info, HeaderKeyDict(req_headers))])
+            'GET', path_info + '?symlink=get', HeaderKeyDict(req_headers))])
 
     def test_iter_object_lines(self):
         class InternalClient(internal_client.InternalClient):

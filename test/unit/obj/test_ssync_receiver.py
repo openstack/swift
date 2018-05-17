@@ -35,7 +35,7 @@ from swift.obj.reconstructor import ObjectReconstructor
 
 from test import listen_zero, unit
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       mock_check_drive)
+                       mock_check_drive, skip_if_no_xattrs)
 from test.unit.obj.common import write_diskfile
 
 
@@ -43,19 +43,18 @@ from test.unit.obj.common import write_diskfile
 class TestReceiver(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
         # Not sure why the test.unit stuff isn't taking effect here; so I'm
         # reinforcing it.
-        diskfile.getxattr = unit._getxattr
-        diskfile.setxattr = unit._setxattr
         self.testdir = os.path.join(
             tempfile.mkdtemp(), 'tmp_test_ssync_receiver')
         utils.mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         self.conf = {
             'devices': self.testdir,
             'mount_check': 'false',
-            'replication_one_per_device': 'false',
+            'replication_concurrency_per_device': '0',
             'log_requests': 'false'}
         utils.mkdirs(os.path.join(self.testdir, 'device', 'partition'))
         self.controller = server.ObjectController(self.conf)
@@ -1963,6 +1962,7 @@ class TestSsyncRxServer(unittest.TestCase):
     # server socket.
 
     def setUp(self):
+        skip_if_no_xattrs()
         # dirs
         self.tmpdir = tempfile.mkdtemp()
         self.tempdir = os.path.join(self.tmpdir, 'tmp_test_obj_server')

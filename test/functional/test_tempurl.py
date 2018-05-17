@@ -14,19 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
+import functools
 import hmac
 import hashlib
 import json
 from copy import deepcopy
 from six.moves import urllib
-from unittest2 import SkipTest
 from time import time, strftime, gmtime
 
 import test.functional as tf
 from swift.common.middleware import tempurl
 from test.functional import cluster_info
 from test.functional.tests import Utils, Base, Base2, BaseEnv
-from test.functional import requires_acls
+from test.functional import requires_acls, SkipTest
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 
@@ -88,6 +89,7 @@ class TestTempurlEnv(TestTempurlBaseEnv):
 
 class TestTempurl(Base):
     env = TestTempurlEnv
+    digest_name = 'sha1'
 
     def setUp(self):
         super(TestTempurl, self).setUp()
@@ -99,6 +101,12 @@ class TestTempurl(Base):
                 "Expected tempurl_enabled to be True/False, got %r" %
                 (self.env.tempurl_enabled,))
 
+        if self.digest_name not in cluster_info['tempurl'].get(
+                'allowed_digests', ['sha1']):
+            raise SkipTest("tempurl does not support %s signatures" %
+                           self.digest_name)
+
+        self.digest = getattr(hashlib, self.digest_name)
         self.expires = int(time()) + 86400
         self.expires_8601 = strftime(
             tempurl.EXPIRES_ISO8601_FORMAT, gmtime(self.expires))
@@ -110,7 +118,7 @@ class TestTempurl(Base):
         sig = hmac.new(
             key,
             '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
-            hashlib.sha1).hexdigest()
+            self.digest).hexdigest()
         return {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
 
     def test_GET(self):
@@ -333,7 +341,7 @@ class TestTempURLPrefix(TestTempurl):
             key,
             '%s\n%s\nprefix:%s' % (method, expires,
                                    '/'.join(path_parts[0:4]) + '/' + prefix),
-            hashlib.sha1).hexdigest()
+            self.digest).hexdigest()
         return {
             'temp_url_sig': sig, 'temp_url_expires': str(expires),
             'temp_url_prefix': prefix}
@@ -429,6 +437,7 @@ class TestContainerTempurlEnv(BaseEnv):
 
 class TestContainerTempurl(Base):
     env = TestContainerTempurlEnv
+    digest_name = 'sha1'
 
     def setUp(self):
         super(TestContainerTempurl, self).setUp()
@@ -440,6 +449,12 @@ class TestContainerTempurl(Base):
                 "Expected tempurl_enabled to be True/False, got %r" %
                 (self.env.tempurl_enabled,))
 
+        if self.digest_name not in cluster_info['tempurl'].get(
+                'allowed_digests', ['sha1']):
+            raise SkipTest("tempurl does not support %s signatures" %
+                           self.digest_name)
+
+        self.digest = getattr(hashlib, self.digest_name)
         expires = int(time()) + 86400
         sig = self.tempurl_sig(
             'GET', expires, self.env.conn.make_path(self.env.obj.path),
@@ -451,7 +466,7 @@ class TestContainerTempurl(Base):
         return hmac.new(
             key,
             '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
-            hashlib.sha1).hexdigest()
+            self.digest).hexdigest()
 
     def test_GET(self):
         contents = self.env.obj.read(
@@ -572,10 +587,8 @@ class TestContainerTempurl(Base):
     def test_tempurl_keys_hidden_from_acl_readonly(self):
         if not tf.cluster_info.get('tempauth'):
             raise SkipTest('TEMP AUTH SPECIFIC TEST')
-        original_token = self.env.container.conn.storage_token
-        self.env.container.conn.storage_token = self.env.conn2.storage_token
-        metadata = self.env.container.info()
-        self.env.container.conn.storage_token = original_token
+        metadata = self.env.container.info(cfg={
+            'use_token': self.env.conn2.storage_token})
 
         self.assertNotIn(
             'tempurl_key', metadata,
@@ -695,6 +708,7 @@ class TestSloTempurlEnv(TestTempurlBaseEnv):
 
 class TestSloTempurl(Base):
     env = TestSloTempurlEnv
+    digest_name = 'sha1'
 
     def setUp(self):
         super(TestSloTempurl, self).setUp()
@@ -706,11 +720,17 @@ class TestSloTempurl(Base):
                 "Expected enabled to be True/False, got %r" %
                 (self.env.enabled,))
 
+        if self.digest_name not in cluster_info['tempurl'].get(
+                'allowed_digests', ['sha1']):
+            raise SkipTest("tempurl does not support %s signatures" %
+                           self.digest_name)
+        self.digest = getattr(hashlib, self.digest_name)
+
     def tempurl_sig(self, method, expires, path, key):
         return hmac.new(
             key,
             '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
-            hashlib.sha1).hexdigest()
+            self.digest).hexdigest()
 
     def test_GET(self):
         expires = int(time()) + 86400
@@ -731,3 +751,95 @@ class TestSloTempurl(Base):
 
 class TestSloTempurlUTF8(Base2, TestSloTempurl):
     pass
+
+
+def requires_digest(digest):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if digest not in cluster_info['tempurl'].get(
+                    'allowed_digests', ['sha1']):
+                raise SkipTest("tempurl does not support %s signatures" %
+                               digest)
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+class TestTempurlAlgorithms(Base):
+    env = TestTempurlEnv
+
+    def get_sig(self, expires, digest, encoding):
+        path = self.env.conn.make_path(self.env.obj.path)
+
+        sig = hmac.new(
+            self.env.tempurl_key,
+            '%s\n%s\n%s' % ('GET', expires,
+                            urllib.parse.unquote(path)),
+            getattr(hashlib, digest))
+
+        if encoding == 'hex':
+            return sig.hexdigest()
+        elif encoding == 'base64':
+            return digest + ':' + base64.b64encode(sig.digest())
+        elif encoding == 'base64-no-padding':
+            return digest + ':' + base64.b64encode(sig.digest()).strip('=')
+        elif encoding == 'url-safe-base64':
+            return digest + ':' + base64.urlsafe_b64encode(sig.digest())
+        else:
+            raise ValueError('Unrecognized encoding: %r' % encoding)
+
+    def _do_test(self, digest, encoding, expect_failure=False):
+        expires = int(time()) + 86400
+        sig = self.get_sig(expires, digest, encoding)
+
+        if encoding == 'url-safe-base64':
+            # Make sure that we're actually testing url-safe-ness
+            while '-' not in sig and '_' not in sig:
+                expires += 1
+                sig = self.get_sig(expires, digest, encoding)
+
+        parms = {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
+
+        if expect_failure:
+            with self.assertRaises(ResponseError):
+                self.env.obj.read(parms=parms, cfg={'no_auth_token': True})
+            self.assert_status([401])
+
+            # ditto for HEADs
+            with self.assertRaises(ResponseError):
+                self.env.obj.info(parms=parms, cfg={'no_auth_token': True})
+            self.assert_status([401])
+        else:
+            contents = self.env.obj.read(
+                parms=parms,
+                cfg={'no_auth_token': True})
+            self.assertEqual(contents, "obj contents")
+
+            # GET tempurls also allow HEAD requests
+            self.assertTrue(self.env.obj.info(
+                parms=parms, cfg={'no_auth_token': True}))
+
+    @requires_digest('sha1')
+    def test_sha1(self):
+        self._do_test('sha1', 'hex')
+        self._do_test('sha1', 'base64')
+        self._do_test('sha1', 'base64-no-padding')
+        self._do_test('sha1', 'url-safe-base64')
+
+    @requires_digest('sha256')
+    def test_sha256(self):
+        # apparently Cloud Files supports hex-encoded SHA-256
+        # let's not break that just for the sake of being different
+        self._do_test('sha256', 'hex')
+        self._do_test('sha256', 'base64')
+        self._do_test('sha256', 'base64-no-padding')
+        self._do_test('sha256', 'url-safe-base64')
+
+    @requires_digest('sha512')
+    def test_sha512(self):
+        # 128 chars seems awfully long for a signature -- let's require base64
+        self._do_test('sha512', 'hex', expect_failure=True)
+        self._do_test('sha512', 'base64')
+        self._do_test('sha512', 'base64-no-padding')
+        self._do_test('sha512', 'url-safe-base64')

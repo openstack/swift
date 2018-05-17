@@ -1,0 +1,107 @@
+---
+features:
+  - Add checksum to object extended attributes.
+
+  - |
+    Let clients request heartbeats during SLO PUTs by including
+    the query parameter ``heartbeat=on``.
+
+    With heartbeating turned on, the proxy will start its response
+    immediately with 202 Accepted then send a single whitespace
+    character periodically until the request completes. At that
+    point, a final summary chunk will be sent which includes a
+    "Response Status" key indicating success or failure and (if
+    successful) an "Etag" key indicating the Etag of the resulting
+    SLO.
+
+  - |
+    Added support for retrieving the encryption root secret from an
+    external key management system. In practice, this is currently limited
+    to Barbican.
+
+  - |
+    Move listing formatting out to a new proxy middleware named
+    ``listing_formats``. ``listing_formats`` should be just right of the
+    first proxy-logging middleware, and left of most other
+    middlewares. If it is not already present, it will be
+    automatically inserted for you.
+
+    Note: if you have a custom middleware that makes account or
+    container listings, it will only receive listings in JSON format.
+
+  - |
+    Log deprecation warning for ``allow_versions`` in the container
+    server config. Configure the ``versioned_writes`` middleware in
+    the proxy server instead. This option will be ignored in a
+    future release.
+
+  - |
+    Replaced ``replication_one_per_device`` by custom count defined by
+    ``replication_concurrency_per_device``. The original config value
+    is deprecated, but continues to function for now. If both values
+    are defined, the old ``replication_one_per_device`` is ignored.
+
+  - |
+    Fixed a rare issue where multiple backend timeouts could result
+    in bad data being returned to the client.
+
+  - Cleaned up logged tracebacks when talking to memcached servers.
+
+  - |
+    Account and container replication stats logs now include
+    ``remote_merges``, the number of times a whole database was sent
+    to another node.
+
+  - |
+    Respond 400 Bad Request when Accept headers fail to parse
+    instead of returning 406 Not Acceptable.
+
+  - |
+    The ``domain_remap`` middleware now supports the
+    ``mangle_client_paths`` option. Its default "false" value changes
+    ``domain_remap`` parsing to stop stripping the ``path_root`` value
+    from URL paths. If users depend on this path mangling, operators
+    should set ``mangle_client_paths`` to "True" before upgrading.
+
+  - |
+    Remove ``swift-temp-url`` script. The functionality has been in
+    swiftclient for a long time and this script has been deprecated
+    since 2.10.0.
+
+  - |
+    Removed all ``post_as_copy`` related code and configs. The option
+    has been deprecated since 2.13.0.
+
+  - |
+    Fixed XML responses (eg on bulk extractions and SLO upload
+    failures) to be more correct. The enclosing "delete" tag was
+    removed where it doesn't make sense and replaced with "extract"
+    or "upload" depending on the context.
+
+  - |
+    Static Large Object (SLO) manifest may now (again) have zero-byte
+    last segments.
+
+  - |
+    Fixed an issue where background consistency daemon child
+    processes would deadlock waiting on the same file descriptor.
+
+  - |
+    Removed a race condition where a POST to an SLO could modify the
+    X-Static-Large-Object metadata.
+
+  - |
+    Accept a trade off of dispersion for balance in the ring builder
+    that will result in getting to balanced rings much more quickly
+    in some cases.
+
+  - |
+    Fixed using ``swift-ring-builder set_weight`` with more than one
+    device.
+
+  - |
+    When requesting objects, return 404 if a tombstone is found and
+    is newer than any data found. Previous behavior was to return
+    stale data.
+other:
+  - Various other minor bug fixes and improvements.

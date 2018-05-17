@@ -21,7 +21,7 @@ from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
-from test.unit import FakeLogger
+from test.unit import debug_logger, mock_check_drive
 
 from eventlet import spawn, Timeout
 
@@ -55,6 +55,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(self.devices_dir)
         self.sda1 = os.path.join(self.devices_dir, 'sda1')
         os.mkdir(self.sda1)
+        self.logger = debug_logger('test')
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
@@ -71,7 +72,7 @@ class TestContainerUpdater(unittest.TestCase):
         }
         if conf_updates:
             conf.update(conf_updates)
-        return container_updater.ContainerUpdater(conf)
+        return container_updater.ContainerUpdater(conf, logger=self.logger)
 
     def test_creation(self):
         cu = self._get_container_updater({'concurrency': '2',
@@ -127,11 +128,8 @@ class TestContainerUpdater(unittest.TestCase):
         check_bad({'slowdown': 'baz'})
         check_bad({'containers_per_second': 'quux'})
 
-    @mock.patch.object(container_updater, 'ismount')
     @mock.patch.object(container_updater.ContainerUpdater, 'container_sweep')
-    def test_run_once_with_device_unmounted(self, mock_sweep, mock_ismount):
-
-        mock_ismount.return_value = False
+    def test_run_once_with_device_unmounted(self, mock_sweep):
         cu = self._get_container_updater()
         containers_dir = os.path.join(self.sda1, DATADIR)
         os.mkdir(containers_dir)
@@ -146,9 +144,9 @@ class TestContainerUpdater(unittest.TestCase):
 
         mock_sweep.reset_mock()
         cu = self._get_container_updater({'mount_check': 'true'})
-        cu.logger = FakeLogger()
-        cu.run_once()
-        log_lines = cu.logger.get_lines_for_level('warning')
+        with mock_check_drive():
+            cu.run_once()
+        log_lines = self.logger.get_lines_for_level('warning')
         self.assertGreater(len(log_lines), 0)
         msg = 'sda1 is not mounted'
         self.assertEqual(log_lines[0], msg)
@@ -237,10 +235,9 @@ class TestContainerUpdater(unittest.TestCase):
         e = OSError('permission_denied')
         mock_listdir.side_effect = e
         cu = self._get_container_updater()
-        cu.logger = FakeLogger()
         paths = cu.get_paths()
         self.assertEqual(paths, [])
-        log_lines = cu.logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         msg = ('ERROR:  Failed to get paths to drive partitions: '
                'permission_denied')
         self.assertEqual(log_lines[0], msg)
@@ -248,10 +245,9 @@ class TestContainerUpdater(unittest.TestCase):
     @mock.patch('os.listdir', return_value=['foo', 'bar'])
     def test_listdir_without_exception(self, mock_listdir):
         cu = self._get_container_updater()
-        cu.logger = FakeLogger()
         path = cu._listdir('foo/bar/')
         self.assertEqual(path, ['foo', 'bar'])
-        log_lines = cu.logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(len(log_lines), 0)
 
     def test_unicode(self):

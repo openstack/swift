@@ -105,6 +105,10 @@ class DiskFileXattrNotSupported(DiskFileError):
     pass
 
 
+class DiskFileBadMetadataChecksum(DiskFileError):
+    pass
+
+
 class DeviceUnavailable(SwiftException):
     pass
 
@@ -192,6 +196,10 @@ class ListingIterNotAuthorized(ListingIterError):
 
 
 class SegmentError(SwiftException):
+    pass
+
+
+class LinkIterError(SwiftException):
     pass
 
 

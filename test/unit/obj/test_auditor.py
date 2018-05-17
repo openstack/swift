@@ -14,19 +14,21 @@
 # limitations under the License.
 import json
 
-from test import unit
 import unittest
 import mock
 import os
+import sys
+import signal
 import time
 import string
+import xattr
 from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
-from test.unit import (FakeLogger, patch_policies, make_timestamp_iter,
-                       DEFAULT_TEST_EC_TYPE)
+from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
+                       DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs)
 from swift.obj import auditor, replicator
 from swift.obj.diskfile import (
     DiskFile, write_metadata, invalidate_hash, get_data_dir,
@@ -63,10 +65,11 @@ def works_only_once(callable_thing, exception):
 class TestAuditor(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_object_auditor')
         self.devices = os.path.join(self.testdir, 'node')
         self.rcache = os.path.join(self.testdir, 'object.recon')
-        self.logger = FakeLogger()
+        self.logger = debug_logger()
         rmtree(self.testdir, ignore_errors=1)
         mkdirs(os.path.join(self.devices, 'sda'))
         os.mkdir(os.path.join(self.devices, 'sdb'))
@@ -118,7 +121,6 @@ class TestAuditor(unittest.TestCase):
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
-        unit.xattr_data = {}
 
     def test_worker_conf_parms(self):
         def check_common_defaults():
@@ -189,6 +191,74 @@ class TestAuditor(unittest.TestCase):
         run_tests(self.disk_file_p1)
         run_tests(self.disk_file_ec)
 
+    def test_object_audit_adds_metadata_checksums(self):
+        disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o-md',
+                                             policy=POLICIES.legacy)
+
+        # simulate a PUT
+        now = time.time()
+        data = b'boots and cats and ' * 1024
+        hasher = md5()
+        with disk_file.create() as writer:
+            writer.write(data)
+            hasher.update(data)
+            etag = hasher.hexdigest()
+            metadata = {
+                'ETag': etag,
+                'X-Timestamp': str(normalize_timestamp(now)),
+                'Content-Length': len(data),
+                'Content-Type': 'the old type',
+            }
+            writer.put(metadata)
+            writer.commit(Timestamp(now))
+
+        # simulate a subsequent POST
+        post_metadata = metadata.copy()
+        post_metadata['Content-Type'] = 'the new type'
+        post_metadata['X-Object-Meta-Biff'] = 'buff'
+        post_metadata['X-Timestamp'] = str(normalize_timestamp(now + 1))
+        disk_file.write_metadata(post_metadata)
+
+        file_paths = [os.path.join(disk_file._datadir, fname)
+                      for fname in os.listdir(disk_file._datadir)
+                      if fname not in ('.', '..')]
+        file_paths.sort()
+
+        # sanity check: make sure we have a .data and a .meta file
+        self.assertEqual(len(file_paths), 2)
+        self.assertTrue(file_paths[0].endswith(".data"))
+        self.assertTrue(file_paths[1].endswith(".meta"))
+
+        # Go remove the xattr "user.swift.metadata_checksum" as if this
+        # object were written before Swift supported metadata checksums.
+        for file_path in file_paths:
+            xattr.removexattr(file_path, "user.swift.metadata_checksum")
+
+        # Run the auditor...
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        auditor_worker.object_audit(
+            AuditLocation(disk_file._datadir, 'sda', '0',
+                          policy=disk_file.policy))
+        self.assertEqual(auditor_worker.quarantines, 0)  # sanity
+
+        # ...and the checksums are back
+        for file_path in file_paths:
+            metadata = xattr.getxattr(file_path, "user.swift.metadata")
+            i = 1
+            while True:
+                try:
+                    metadata += xattr.getxattr(
+                        file_path, "user.swift.metadata%d" % i)
+                    i += 1
+                except (IOError, OSError):
+                    break
+
+            checksum = xattr.getxattr(
+                file_path, "user.swift.metadata_checksum")
+
+            self.assertEqual(checksum, md5(metadata).hexdigest())
+
     def test_object_audit_diff_data(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
@@ -246,7 +316,8 @@ class TestAuditor(unittest.TestCase):
                 writer.put(metadata)
                 writer.commit(Timestamp(timestamp))
 
-            auditor_worker = auditor.AuditorWorker(self.conf, FakeLogger(),
+            self.logger.clear()
+            auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                    self.rcache, self.devices)
             self.assertEqual(0, auditor_worker.quarantines)  # sanity check
             auditor_worker.object_audit(
@@ -600,20 +671,19 @@ class TestAuditor(unittest.TestCase):
         self.assertEqual(auditor_worker.stats_buckets['OVER'], 2)
 
     def test_object_run_logging(self):
-        logger = FakeLogger()
-        auditor_worker = auditor.AuditorWorker(self.conf, logger,
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
         auditor_worker.audit_all_objects(device_dirs=['sda'])
-        log_lines = logger.get_lines_for_level('info')
+        log_lines = self.logger.get_lines_for_level('info')
         self.assertGreater(len(log_lines), 0)
         self.assertTrue(log_lines[0].index('ALL - parallel, sda'))
 
-        logger = FakeLogger()
-        auditor_worker = auditor.AuditorWorker(self.conf, logger,
+        self.logger.clear()
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices,
                                                zero_byte_only_at_fps=50)
         auditor_worker.audit_all_objects(device_dirs=['sda'])
-        log_lines = logger.get_lines_for_level('info')
+        log_lines = self.logger.get_lines_for_level('info')
         self.assertGreater(len(log_lines), 0)
         self.assertTrue(log_lines[0].index('ZBF - sda'))
 
@@ -782,7 +852,7 @@ class TestAuditor(unittest.TestCase):
         self.auditor.run_audit(**kwargs)
         self.assertFalse(os.path.isdir(quarantine_path))
         del(kwargs['zero_byte_fps'])
-        clear_auditor_status(self.devices)
+        clear_auditor_status(self.devices, 'objects')
         self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.isdir(quarantine_path))
 
@@ -984,8 +1054,7 @@ class TestAuditor(unittest.TestCase):
 
     def _test_expired_object_is_ignored(self, zero_byte_fps):
         # verify that an expired object does not get mistaken for a tombstone
-        audit = auditor.ObjectAuditor(self.conf)
-        audit.logger = FakeLogger()
+        audit = auditor.ObjectAuditor(self.conf, logger=self.logger)
         audit.log_time = 0
         now = time.time()
         write_diskfile(self.disk_file, Timestamp(now - 20),
@@ -1185,6 +1254,12 @@ class TestAuditor(unittest.TestCase):
                 self.wait_called += 1
                 return (self.wait_called, 0)
 
+            def mock_signal(self, sig, action):
+                pass
+
+            def mock_exit(self):
+                pass
+
         for i in string.ascii_letters[2:26]:
             mkdirs(os.path.join(self.devices, 'sd%s' % i))
 
@@ -1200,8 +1275,12 @@ class TestAuditor(unittest.TestCase):
         my_auditor.run_audit = mocker.mock_run
         was_fork = os.fork
         was_wait = os.wait
+        was_signal = signal.signal
+        was_exit = sys.exit
         os.fork = mocker.mock_fork
         os.wait = mocker.mock_wait
+        signal.signal = mocker.mock_signal
+        sys.exit = mocker.mock_exit
         try:
             my_auditor._sleep = mocker.mock_sleep_stop
             my_auditor.run_once(zero_byte_fps=50)
@@ -1213,6 +1292,12 @@ class TestAuditor(unittest.TestCase):
                 'ERROR auditing: %s', loop_error)
             my_auditor.audit_loop = real_audit_loop
 
+            # sleep between ZBF scanner forks
+            self.assertRaises(StopForever, my_auditor.fork_child, True, True)
+
+            mocker.fork_called = 0
+            signal.signal = was_signal
+            sys.exit = was_exit
             self.assertRaises(StopForever,
                               my_auditor.run_forever, zero_byte_fps=50)
             self.assertEqual(mocker.check_kwargs['zero_byte_fps'], 50)
@@ -1239,11 +1324,11 @@ class TestAuditor(unittest.TestCase):
 
             mocker.fork_called = 0
             self.assertRaises(StopForever, my_auditor.run_forever)
-            # Fork is called 2 times since the zbf process is forked just
-            # once before self._sleep() is called and StopForever is raised
-            # Also wait is called just once before StopForever is raised
-            self.assertEqual(mocker.fork_called, 2)
-            self.assertEqual(mocker.wait_called, 1)
+            # Fork or Wait are called greate than or equal to 2 times in the
+            # main process. 2 times if zbf run once and 3 times if zbf run
+            # again
+            self.assertGreaterEqual(mocker.fork_called, 2)
+            self.assertGreaterEqual(mocker.wait_called, 2)
 
             my_auditor._sleep = mocker.mock_sleep_continue
             my_auditor.audit_loop = works_only_once(my_auditor.audit_loop,
@@ -1253,13 +1338,13 @@ class TestAuditor(unittest.TestCase):
             mocker.fork_called = 0
             mocker.wait_called = 0
             self.assertRaises(LetMeOut, my_auditor.run_forever)
-            # Fork is called no. of devices + (no. of devices)/2 + 1 times
-            # since zbf process is forked (no.of devices)/2 + 1 times
+            # Fork or Wait are called greater than or equal to
+            # no. of devices + (no. of devices)/2 + 1 times in main process
             no_devices = len(os.listdir(self.devices))
-            self.assertEqual(mocker.fork_called, no_devices + no_devices / 2
-                             + 1)
-            self.assertEqual(mocker.wait_called, no_devices + no_devices / 2
-                             + 1)
+            self.assertGreaterEqual(mocker.fork_called, no_devices +
+                                    no_devices / 2 + 1)
+            self.assertGreaterEqual(mocker.wait_called, no_devices +
+                                    no_devices / 2 + 1)
 
         finally:
             os.fork = was_fork

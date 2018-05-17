@@ -24,12 +24,11 @@ from collections import defaultdict
 import unittest
 from hashlib import md5
 from uuid import uuid4
-from nose import SkipTest
-
-from six.moves.http_client import HTTPConnection
 import shutil
+from six.moves.http_client import HTTPConnection
+from six.moves.urllib.parse import urlparse
 
-from swiftclient import get_auth, head_account
+from swiftclient import get_auth, head_account, client
 from swift.common import internal_client
 from swift.obj.diskfile import get_data_dir
 from swift.common.ring import Ring
@@ -204,12 +203,12 @@ def get_ring(ring_name, required_replicas, required_devices,
         return ring
     # easy sanity checks
     if ring.replica_count != required_replicas:
-        raise SkipTest('%s has %s replicas instead of %s' % (
+        raise unittest.SkipTest('%s has %s replicas instead of %s' % (
             ring.serialized_path, ring.replica_count, required_replicas))
 
     devs = [dev for dev in ring.devs if dev is not None]
     if len(devs) != required_devices:
-        raise SkipTest('%s has %s devices instead of %s' % (
+        raise unittest.SkipTest('%s has %s devices instead of %s' % (
             ring.serialized_path, len(devs), required_devices))
     for dev in devs:
         # verify server is exposing mounted device
@@ -221,12 +220,12 @@ def get_ring(ring_name, required_replicas, required_devices,
                 dev_path = os.path.join(conf['devices'], device)
                 full_path = os.path.realpath(dev_path)
                 if not os.path.exists(full_path):
-                    raise SkipTest(
+                    raise unittest.SkipTest(
                         'device %s in %s was not found (%s)' %
                         (device, conf['devices'], full_path))
                 break
         else:
-            raise SkipTest(
+            raise unittest.SkipTest(
                 "unable to find ring device %s under %s's devices (%s)" % (
                     dev['device'], server, conf['devices']))
         # verify server is exposing rsync device
@@ -237,15 +236,15 @@ def get_ring(ring_name, required_replicas, required_devices,
         p = Popen(cmd, shell=True, stdout=PIPE)
         stdout, _stderr = p.communicate()
         if p.returncode:
-            raise SkipTest('unable to connect to rsync '
-                           'export %s (%s)' % (rsync_export, cmd))
+            raise unittest.SkipTest('unable to connect to rsync '
+                                    'export %s (%s)' % (rsync_export, cmd))
         for line in stdout.splitlines():
             if line.rsplit(None, 1)[-1] == dev['device']:
                 break
         else:
-            raise SkipTest("unable to find ring device %s under rsync's "
-                           "exported devices for %s (%s)" %
-                           (dev['device'], rsync_export, cmd))
+            raise unittest.SkipTest("unable to find ring device %s under "
+                                    "rsync's exported devices for %s (%s)" %
+                                    (dev['device'], rsync_export, cmd))
     return ring
 
 
@@ -264,19 +263,27 @@ def get_policy(**kwargs):
                 matches = False
         if matches:
             return policy
-    raise SkipTest('No policy matching %s' % kwargs)
+    raise unittest.SkipTest('No policy matching %s' % kwargs)
 
 
-def resetswift():
-    p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
+def run_cleanup(cmd):
+    p = Popen(cmd + " 2>&1", shell=True, stdout=PIPE)
     stdout, _stderr = p.communicate()
     if p.returncode:
         raise AssertionError(
-            'Cleanup with "resetswift" failed: stdout: %s, stderr: %s'
-            % (stdout, _stderr))
+            'Cleanup with %r failed: stdout: %s, stderr: %s'
+            % (cmd, stdout, _stderr))
 
     print(stdout)
     Manager(['all']).stop()
+
+
+def resetswift():
+    run_cleanup("resetswift")
+
+
+def kill_orphans():
+    run_cleanup("swift-orphans -a 0 -k 9")
 
 
 class Body(object):
@@ -329,6 +336,7 @@ class ProbeTest(unittest.TestCase):
 
     def setUp(self):
         resetswift()
+        kill_orphans()
         try:
             self.ipport2server = {}
             self.configs = defaultdict(dict)
@@ -385,6 +393,10 @@ class ProbeTest(unittest.TestCase):
                     Manager(['all']).kill()
                 except Exception:
                     pass
+        info_url = "%s://%s/info" % (urlparse(self.url).scheme,
+                                     urlparse(self.url).netloc)
+        proxy_conn = client.http_connection(info_url)
+        self.cluster_info = client.get_capabilities(proxy_conn)
 
     def tearDown(self):
         Manager(['all']).kill()
@@ -444,7 +456,7 @@ class ProbeTest(unittest.TestCase):
     def revive_drive(self, device):
         disabled_name = device + "X"
         if os.path.isdir(disabled_name):
-            renamer(device + "X", device)
+            renamer(disabled_name, device)
         else:
             os.system('sudo mount %s' % device)
 
@@ -501,13 +513,13 @@ if __name__ == "__main__":
         try:
             get_ring(server, 3, 4,
                      force_validate=True)
-        except SkipTest as err:
+        except unittest.SkipTest as err:
             sys.exit('%s ERROR: %s' % (server, err))
         print('%s OK' % server)
     for policy in POLICIES:
         try:
             get_ring(policy.ring_name, 3, 4,
                      server='object', force_validate=True)
-        except SkipTest as err:
+        except unittest.SkipTest as err:
             sys.exit('object ERROR (%s): %s' % (policy.name, err))
         print('object OK (%s)' % policy.name)

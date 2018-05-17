@@ -1,0 +1,22 @@
+include "common.rnc"
+
+start =
+    element ListPartsResult {
+    element Bucket { xsd:string },
+    element Key { xsd:string },
+    element UploadId { xsd:string },
+    element Initiator { CanonicalUser },
+    element Owner { CanonicalUser },
+    element StorageClass { StorageClass },
+    element PartNumberMarker { xsd:int },
+    element NextPartNumberMarker { xsd:int },
+    element MaxParts { xsd:int },
+    element EncodingType { xsd:string }?,
+    element IsTruncated { xsd:boolean },
+    element Part {
+      element PartNumber { xsd:int },
+      element LastModified { xsd:dateTime },
+      element ETag { xsd:string },
+      element Size { xsd:long }
+    }*
+  }

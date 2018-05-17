@@ -1,4 +1,4 @@
-# Copyright (c) 2013 OpenStack Foundation
+# Copyright (c) 2018 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
+r"""
 Middleware that will provide Static Large Object (SLO) support.
 
 This feature is very similar to Dynamic Large Object (DLO) support in that
@@ -27,12 +27,12 @@ Uploading the Manifest
 ----------------------
 
 After the user has uploaded the objects to be concatenated, a manifest is
-uploaded. The request must be a PUT with the query parameter::
+uploaded. The request must be a ``PUT`` with the query parameter::
 
     ?multipart-manifest=put
 
 The body of this request will be an ordered list of segment descriptions in
-JSON format. The data to be supplied for each segment is:
+JSON format. The data to be supplied for each segment is either:
 
 =========== ========================================================
 Key         Description
@@ -44,55 +44,99 @@ etag        (optional) the ETag given back when the segment object
 size_bytes  (optional) the size of the complete segment object in
             bytes
 range       (optional) the (inclusive) range within the object to
-            use as a segment. If omitted, the entire object is used.
+            use as a segment. If omitted, the entire object is used
 =========== ========================================================
 
-The format of the list will be:
+Or:
 
-  .. code::
+=========== ========================================================
+Key         Description
+=========== ========================================================
+data        base64-encoded data to be returned
+=========== ========================================================
+
+.. note::
+    At least one object-backed segment must be included. If you'd like
+    to create a manifest consisting purely of data segments, consider
+    uploading a normal object instead.
+
+The format of the list will be::
 
     [{"path": "/cont/object",
       "etag": "etagoftheobjectsegment",
       "size_bytes": 10485760,
-      "range": "1048576-2097151"}, ...]
+      "range": "1048576-2097151"},
+     {"data": base64.b64encode("interstitial data")},
+     {"path": "/cont/another-object", ...},
+     ...]
 
-The number of object segments is limited to a configurable amount, default
-1000. Each segment must be at least 1 byte. On upload, the middleware will
-head every segment passed in to verify:
+The number of object-backed segments is limited to ``max_manifest_segments``
+(configurable in proxy-server.conf, default 1000). Each segment must be at
+least 1 byte. On upload, the middleware will head every object-backed segment
+passed in to verify:
 
- 1. the segment exists (i.e. the HEAD was successful);
- 2. the segment meets minimum size requirements;
- 3. if the user provided a non-null etag, the etag matches;
- 4. if the user provided a non-null size_bytes, the size_bytes matches; and
- 5. if the user provided a range, it is a singular, syntactically correct range
-    that is satisfiable given the size of the object.
+1. the segment exists (i.e. the ``HEAD`` was successful);
+2. the segment meets minimum size requirements;
+3. if the user provided a non-null ``etag``, the etag matches;
+4. if the user provided a non-null ``size_bytes``, the size_bytes matches; and
+5. if the user provided a ``range``, it is a singular, syntactically correct
+   range that is satisfiable given the size of the object referenced.
 
-Note that the etag and size_bytes keys are optional; if omitted, the
+For inlined data segments, the middleware verifies each is valid, non-empty
+base64-encoded binary data. Note that data segments *do not* count against
+``max_manifest_segments``.
+
+Note that the ``etag`` and ``size_bytes`` keys are optional; if omitted, the
 verification is not performed. If any of the objects fail to verify (not
 found, size/etag mismatch, below minimum size, invalid range) then the user
 will receive a 4xx error response. If everything does match, the user will
 receive a 2xx response and the SLO object is ready for downloading.
 
-Behind the scenes, on success, a json manifest generated from the user input is
-sent to object servers with an extra "X-Static-Large-Object: True" header
-and a modified Content-Type. The items in this manifest will include the etag
-and size_bytes for each segment, regardless of whether the client specified
-them for verification. The parameter: swift_bytes=$total_size will be
-appended to the existing Content-Type, where total_size is the sum of all
-the included segments' size_bytes. This extra parameter will be hidden from
-the user.
+Note that large manifests may take a long time to verify; historically,
+clients would need to use a long read timeout for the connection to give
+Swift enough time to send a final ``201 Created`` or ``400 Bad Request``
+response. Now, clients should use the query parameters::
+
+    ?multipart-manifest=put&heartbeat=on
+
+to request that Swift send an immediate ``202 Accepted`` response and periodic
+whitespace to keep the connection alive. A final response code will appear in
+the body. The format of the response body defaults to text/plain but can be
+either json or xml depending on the ``Accept`` header. An example body is as
+follows::
+
+    Response Status: 201 Created
+    Response Body:
+    Etag: "8f481cede6d2ddc07cb36aa084d9a64d"
+    Last Modified: Wed, 25 Oct 2017 17:08:55 GMT
+    Errors:
+
+Or, as a json response::
+
+    {"Response Status": "201 Created",
+     "Response Body": "",
+     "Etag": "\"8f481cede6d2ddc07cb36aa084d9a64d\"",
+     "Last Modified": "Wed, 25 Oct 2017 17:08:55 GMT",
+     "Errors": []}
+
+Behind the scenes, on success, a JSON manifest generated from the user input is
+sent to object servers with an extra ``X-Static-Large-Object: True`` header
+and a modified ``Content-Type``. The items in this manifest will include the
+``etag`` and ``size_bytes`` for each segment, regardless of whether the client
+specified them for verification. The parameter ``swift_bytes=$total_size`` will
+be appended to the existing ``Content-Type``, where ``$total_size`` is the sum
+of all the included segments' ``size_bytes``. This extra parameter will be
+hidden from the user.
 
 Manifest files can reference objects in separate containers, which will improve
 concurrent upload speed. Objects can be referenced by multiple manifests. The
 segments of a SLO manifest can even be other SLO manifests. Treat them as any
-other object i.e., use the Etag and Content-Length given on the PUT of the
-sub-SLO in the manifest to the parent SLO.
+other object i.e., use the ``Etag`` and ``Content-Length`` given on the ``PUT``
+of the sub-SLO in the manifest to the parent SLO.
 
-While uploading a manifest, a user can send Etag for verification. It needs to
-be md5 of the segments' etags, if there is no range specified. For example, if
-the manifest to be uploaded looks like this:
-
-  .. code::
+While uploading a manifest, a user can send ``Etag`` for verification. It needs
+to be md5 of the segments' etags, if there is no range specified. For example,
+if the manifest to be uploaded looks like this::
 
     [{"path": "/cont/object1",
       "etag": "etagoftheobjectsegment1",
@@ -101,16 +145,12 @@ the manifest to be uploaded looks like this:
       "etag": "etagoftheobjectsegment2",
       "size_bytes": 10485760}]
 
-The Etag of the above manifest would be md5 of etagoftheobjectsegment1 and
-etagoftheobjectsegment2. This could be computed in the following way:
-
-  .. code::
+The Etag of the above manifest would be md5 of ``etagoftheobjectsegment1`` and
+``etagoftheobjectsegment2``. This could be computed in the following way::
 
     echo -n 'etagoftheobjectsegment1etagoftheobjectsegment2' | md5sum
 
-If a manifest to be uploaded with a segment range looks like this:
-
-  .. code::
+If a manifest to be uploaded with a segment range looks like this::
 
     [{"path": "/cont/object1",
       "etag": "etagoftheobjectsegmentone",
@@ -122,13 +162,14 @@ If a manifest to be uploaded with a segment range looks like this:
       "range": "3-4"}]
 
 While computing the Etag of the above manifest, internally each segment's etag
-will be taken in the form of 'etagvalue:rangevalue;'. Hence the Etag of the
-above manifest would be:
-
-  .. code::
+will be taken in the form of ``etagvalue:rangevalue;``. Hence the Etag of the
+above manifest would be::
 
     echo -n 'etagoftheobjectsegmentone:1-2;etagoftheobjectsegmenttwo:3-4;' \
     | md5sum
+
+For the purposes of Etag computations, inlined data segments are considered to
+have an etag of the md5 of the raw data (i.e., *not* base64-encoded).
 
 
 -------------------
@@ -136,65 +177,82 @@ Range Specification
 -------------------
 
 Users now have the ability to specify ranges for SLO segments.
-Users can now include an optional 'range' field in segment descriptions
+Users can include an optional ``range`` field in segment descriptions
 to specify which bytes from the underlying object should be used for the
 segment data. Only one range may be specified per segment.
 
-  .. note::
+.. note::
 
-     The 'etag' and 'size_bytes' fields still describe the backing object as a
-     whole.
+    The ``etag`` and ``size_bytes`` fields still describe the backing object
+    as a whole.
 
-If a user uploads this manifest:
+If a user uploads this manifest::
 
-  .. code::
-
-     [{"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "0-1048576"},
-      {"path": "/con/obj_seg_2", "size_bytes": 2097152,
-       "range": "512-1550000"},
-      {"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "-2048"}]
+    [{"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "0-1048576"},
+     {"path": "/con/obj_seg_2", "size_bytes": 2097152,
+      "range": "512-1550000"},
+     {"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "-2048"}]
 
 The segment will consist of the first 1048576 bytes of /con/obj_seg_1,
 followed by bytes 513 through 1550000 (inclusive) of /con/obj_seg_2, and
 finally bytes 2095104 through 2097152 (i.e., the last 2048 bytes) of
 /con/obj_seg_1.
 
-  .. note::
+.. note::
+
+    The minimum sized range is 1 byte. This is the same as the minimum
+    segment size.
 
 
-     The minimum sized range is 1 byte. This is the same as the minimum
-     segment size.
+-------------------------
+Inline Data Specification
+-------------------------
+
+When uploading a manifest, users can include 'data' segments that should
+be included along with objects. The data in these segments must be
+base64-encoded binary data and will be included in the etag of the
+resulting large object exactly as if that data had been uploaded and
+referenced as separate objects.
+
+.. note::
+
+    This feature is primarily aimed at reducing the need for storing
+    many tiny objects, and as such any supplied data must fit within
+    the maximum manifest size (default is 8MiB). This maximum size
+    can be configured via ``max_manifest_size`` in proxy-server.conf.
 
 
 -------------------------
 Retrieving a Large Object
 -------------------------
 
-A GET request to the manifest object will return the concatenation of the
+A ``GET`` request to the manifest object will return the concatenation of the
 objects from the manifest much like DLO. If any of the segments from the
-manifest are not found or their Etag/Content Length have changed since upload,
-the connection will drop. In this case a 409 Conflict will be logged in the
-proxy logs and the user will receive incomplete results. Note that this will be
-enforced regardless of whether the user performed per-segment validation during
-upload.
+manifest are not found or their ``Etag``/``Content-Length`` have changed since
+upload, the connection will drop. In this case a ``409 Conflict`` will be
+logged in the proxy logs and the user will receive incomplete results. Note
+that this will be enforced regardless of whether the user performed per-segment
+validation during upload.
 
-The headers from this GET or HEAD request will return the metadata attached
-to the manifest object itself with some exceptions::
+The headers from this ``GET`` or ``HEAD`` request will return the metadata
+attached to the manifest object itself with some exceptions:
 
-    Content-Length: the total size of the SLO (the sum of the sizes of
-                    the segments in the manifest)
-    X-Static-Large-Object: True
-    Etag: the etag of the SLO (generated the same way as DLO)
+===================== ==================================================
+Header                Value
+===================== ==================================================
+Content-Length        the total size of the SLO (the sum of the sizes of
+                      the segments in the manifest)
+X-Static-Large-Object the string "True"
+Etag                  the etag of the SLO (generated the same way as DLO)
+===================== ==================================================
 
-A GET request with the query parameter::
+A ``GET`` request with the query parameter::
 
     ?multipart-manifest=get
 
 will return a transformed version of the original manifest, containing
 additional fields and different key names. For example, the first manifest in
-the example above would look like this:
-
-  .. code::
+the example above would look like this::
 
     [{"name": "/cont/object",
       "hash": "etagoftheobjectsegment",
@@ -222,9 +280,10 @@ left to the user to use caution in handling the segments.
 Deleting a Large Object
 -----------------------
 
-A DELETE request will just delete the manifest object itself.
+A ``DELETE`` request will just delete the manifest object itself. The segment
+data referenced by the manifest will remain unchanged.
 
-A DELETE with a query parameter::
+A ``DELETE`` with a query parameter::
 
     ?multipart-manifest=delete
 
@@ -235,42 +294,45 @@ itself. The failure response will be similar to the bulk delete middleware.
 Modifying a Large Object
 ------------------------
 
-PUTs / POSTs will work as expected, PUTs will just overwrite the manifest
-object for example.
+``PUT`` and ``POST`` requests will work as expected; ``PUT``\s will just
+overwrite the manifest object for example.
 
 ------------------
 Container Listings
 ------------------
 
 In a container listing the size listed for SLO manifest objects will be the
-total_size of the concatenated segments in the manifest. The overall
-X-Container-Bytes-Used for the container (and subsequently for the account)
-will not reflect total_size of the manifest but the actual size of the json
+``total_size`` of the concatenated segments in the manifest. The overall
+``X-Container-Bytes-Used`` for the container (and subsequently for the account)
+will not reflect ``total_size`` of the manifest but the actual size of the JSON
 data stored. The reason for this somewhat confusing discrepancy is we want the
 container listing to reflect the size of the manifest object when it is
 downloaded. We do not, however, want to count the bytes-used twice (for both
 the manifest and the segments it's referring to) in the container and account
-metadata which can be used for stats purposes.
+metadata which can be used for stats and billing purposes.
 """
 
+import base64
 from collections import defaultdict
 from datetime import datetime
 import json
 import mimetypes
 import re
 import six
+import time
 from hashlib import md5
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
-    HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, Response, Range
+    HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, Response, Range, \
+    RESPONSE_REASONS
 from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
-    closing_if_possible, LRUCache, StreamingPile
+    closing_if_possible, LRUCache, StreamingPile, strict_b64decode
 from swift.common.request_helpers import SegmentedIterable, \
-    get_sys_meta_prefix, update_etag_is_at_header
+    get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
 from swift.common.wsgi import WSGIContext, make_subrequest
@@ -278,14 +340,17 @@ from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
 
-DEFAULT_RATE_LIMIT_UNDER_SIZE = 1024 * 1024  # 1 MiB
+DEFAULT_RATE_LIMIT_UNDER_SIZE = 1024 ** 2  # 1 MiB
 DEFAULT_MAX_MANIFEST_SEGMENTS = 1000
-DEFAULT_MAX_MANIFEST_SIZE = 1024 * 1024 * 2  # 2 MiB
+DEFAULT_MAX_MANIFEST_SIZE = 8 * (1024 ** 2)  # 8 MiB
+DEFAULT_YIELD_FREQUENCY = 10
 
 
-REQUIRED_SLO_KEYS = set(['path'])
-OPTIONAL_SLO_KEYS = set(['range', 'etag', 'size_bytes'])
-ALLOWED_SLO_KEYS = REQUIRED_SLO_KEYS | OPTIONAL_SLO_KEYS
+SLO_KEYS = {
+    # required: optional
+    'data': set(),
+    'path': {'range', 'etag', 'size_bytes'},
+}
 
 SYSMETA_SLO_ETAG = get_sys_meta_prefix('object') + 'slo-etag'
 SYSMETA_SLO_SIZE = get_sys_meta_prefix('object') + 'slo-size'
@@ -296,23 +361,25 @@ def parse_and_validate_input(req_body, req_path):
     Given a request body, parses it and returns a list of dictionaries.
 
     The output structure is nearly the same as the input structure, but it
-    is not an exact copy. Given a valid input dictionary `d_in`, its
-    corresponding output dictionary `d_out` will be as follows:
+    is not an exact copy. Given a valid object-backed input dictionary
+    ``d_in``, its corresponding output dictionary ``d_out`` will be as follows:
 
-      * d_out['etag'] == d_in['etag']
+    * d_out['etag'] == d_in['etag']
 
-      * d_out['path'] == d_in['path']
+    * d_out['path'] == d_in['path']
 
-      * d_in['size_bytes'] can be a string ("12") or an integer (12), but
-        d_out['size_bytes'] is an integer.
+    * d_in['size_bytes'] can be a string ("12") or an integer (12), but
+      d_out['size_bytes'] is an integer.
 
-      * (optional) d_in['range'] is a string of the form "M-N", "M-", or
-        "-N", where M and N are non-negative integers. d_out['range'] is the
-        corresponding swob.Range object. If d_in does not have a key
-        'range', neither will d_out.
+    * (optional) d_in['range'] is a string of the form "M-N", "M-", or
+      "-N", where M and N are non-negative integers. d_out['range'] is the
+      corresponding swob.Range object. If d_in does not have a key
+      'range', neither will d_out.
 
-    :raises HTTPException: on parse errors or semantic errors (e.g. bogus
-        JSON structure, syntactically invalid ranges)
+    Inlined data dictionaries will have any extraneous padding stripped.
+
+    :raises: HTTPException on parse errors or semantic errors (e.g. bogus
+             JSON structure, syntactically invalid ranges)
 
     :returns: a list of dictionaries on success
     """
@@ -334,15 +401,19 @@ def parse_and_validate_input(req_body, req_path):
             errors.append("Index %d: not a JSON object" % seg_index)
             continue
 
-        missing_keys = [k for k in REQUIRED_SLO_KEYS if k not in seg_dict]
-        if missing_keys:
+        for required in SLO_KEYS:
+            if required in seg_dict:
+                segment_type = required
+                break
+        else:
             errors.append(
-                "Index %d: missing keys %s"
+                "Index %d: expected keys to include one of %s"
                 % (seg_index,
-                   ", ".join('"%s"' % (mk,) for mk in sorted(missing_keys))))
+                   " or ".join(repr(required) for required in SLO_KEYS)))
             continue
 
-        extraneous_keys = [k for k in seg_dict if k not in ALLOWED_SLO_KEYS]
+        allowed_keys = SLO_KEYS[segment_type].union([segment_type])
+        extraneous_keys = [k for k in seg_dict if k not in allowed_keys]
         if extraneous_keys:
             errors.append(
                 "Index %d: extraneous keys %s"
@@ -351,61 +422,84 @@ def parse_and_validate_input(req_body, req_path):
                              for ek in sorted(extraneous_keys))))
             continue
 
-        if not isinstance(seg_dict['path'], six.string_types):
-            errors.append("Index %d: \"path\" must be a string" % seg_index)
-            continue
-        if not (seg_dict.get('etag') is None or
-                isinstance(seg_dict['etag'], six.string_types)):
-            errors.append('Index %d: "etag" must be a string or null '
-                          '(if provided)' % seg_index)
-            continue
-
-        if '/' not in seg_dict['path'].strip('/'):
-            errors.append(
-                "Index %d: path does not refer to an object. Path must be of "
-                "the form /container/object." % seg_index)
-            continue
-
-        seg_size = seg_dict.get('size_bytes')
-        if seg_size is not None:
-            try:
-                seg_size = int(seg_size)
-                seg_dict['size_bytes'] = seg_size
-            except (TypeError, ValueError):
-                errors.append("Index %d: invalid size_bytes" % seg_index)
+        if segment_type == 'path':
+            if not isinstance(seg_dict['path'], six.string_types):
+                errors.append("Index %d: \"path\" must be a string" %
+                              seg_index)
                 continue
-            if seg_size < 1:
+            if not (seg_dict.get('etag') is None or
+                    isinstance(seg_dict['etag'], six.string_types)):
+                errors.append('Index %d: "etag" must be a string or null '
+                              '(if provided)' % seg_index)
+                continue
+
+            if '/' not in seg_dict['path'].strip('/'):
+                errors.append(
+                    "Index %d: path does not refer to an object. Path must "
+                    "be of the form /container/object." % seg_index)
+                continue
+
+            seg_size = seg_dict.get('size_bytes')
+            if seg_size is not None:
+                try:
+                    seg_size = int(seg_size)
+                    seg_dict['size_bytes'] = seg_size
+                except (TypeError, ValueError):
+                    errors.append("Index %d: invalid size_bytes" % seg_index)
+                    continue
+                if seg_size < 1 and seg_index != (len(parsed_data) - 1):
+                    errors.append("Index %d: too small; each segment must be "
+                                  "at least 1 byte."
+                                  % (seg_index,))
+                    continue
+
+            obj_path = '/'.join(['', vrs, account,
+                                 seg_dict['path'].lstrip('/')])
+            if req_path == quote(obj_path):
+                errors.append(
+                    "Index %d: manifest must not include itself as a segment"
+                    % seg_index)
+                continue
+
+            if seg_dict.get('range'):
+                try:
+                    seg_dict['range'] = Range('bytes=%s' % seg_dict['range'])
+                except ValueError:
+                    errors.append("Index %d: invalid range" % seg_index)
+                    continue
+
+                if len(seg_dict['range'].ranges) > 1:
+                    errors.append("Index %d: multiple ranges "
+                                  "(only one allowed)" % seg_index)
+                    continue
+
+                # If the user *told* us the object's size, we can check range
+                # satisfiability right now. If they lied about the size, we'll
+                # fail that validation later.
+                if (seg_size is not None and 1 != len(
+                        seg_dict['range'].ranges_for_length(seg_size))):
+                    errors.append("Index %d: unsatisfiable range" % seg_index)
+                    continue
+
+        elif segment_type == 'data':
+            # Validate that the supplied data is non-empty and base64-encoded
+            try:
+                data = strict_b64decode(seg_dict['data'])
+            except ValueError:
+                errors.append(
+                    "Index %d: data must be valid base64" % seg_index)
+                continue
+            if len(data) < 1:
                 errors.append("Index %d: too small; each segment must be "
                               "at least 1 byte."
                               % (seg_index,))
                 continue
+            # re-encode to normalize padding
+            seg_dict['data'] = base64.b64encode(data)
 
-        obj_path = '/'.join(['', vrs, account, seg_dict['path'].lstrip('/')])
-        if req_path == quote(obj_path):
-            errors.append(
-                "Index %d: manifest must not include itself as a segment"
-                % seg_index)
-            continue
-
-        if seg_dict.get('range'):
-            try:
-                seg_dict['range'] = Range('bytes=%s' % seg_dict['range'])
-            except ValueError:
-                errors.append("Index %d: invalid range" % seg_index)
-                continue
-
-            if len(seg_dict['range'].ranges) > 1:
-                errors.append("Index %d: multiple ranges (only one allowed)"
-                              % seg_index)
-                continue
-
-            # If the user *told* us the object's size, we can check range
-            # satisfiability right now. If they lied about the size, we'll
-            # fail that validation later.
-            if (seg_size is not None and
-                    len(seg_dict['range'].ranges_for_length(seg_size)) != 1):
-                errors.append("Index %d: unsatisfiable range" % seg_index)
-                continue
+    if parsed_data and all('data' in d for d in parsed_data):
+        errors.append("Inline data segments require at least one "
+                      "object-backed segment.")
 
     if errors:
         error_message = "".join(e + "\n" for e in errors)
@@ -435,10 +529,10 @@ class SloGetContext(WSGIContext):
             agent='%(orig)s SLO MultipartGET', swift_source='SLO')
         sub_resp = sub_req.get_response(self.slo.app)
 
-        if not is_success(sub_resp.status_int):
+        if not sub_resp.is_success:
             close_if_possible(sub_resp.app_iter)
             raise ListingIterError(
-                'ERROR: while fetching %s, GET of submanifest %s '
+                'while fetching %s, GET of submanifest %s '
                 'failed with status %d' % (req.path, sub_req.path,
                                            sub_resp.status_int))
 
@@ -447,14 +541,23 @@ class SloGetContext(WSGIContext):
                 return json.loads(''.join(sub_resp.app_iter))
         except ValueError as err:
             raise ListingIterError(
-                'ERROR: while fetching %s, JSON-decoding of submanifest %s '
+                'while fetching %s, JSON-decoding of submanifest %s '
                 'failed with %s' % (req.path, sub_req.path, err))
+
+    def _segment_path(self, version, account, seg_dict):
+        return "/{ver}/{acc}/{conobj}".format(
+            ver=version, acc=account,
+            conobj=seg_dict['name'].lstrip('/')
+        )
 
     def _segment_length(self, seg_dict):
         """
         Returns the number of bytes that will be fetched from the specified
         segment on a plain GET request for this SLO manifest.
         """
+        if 'raw_data' in seg_dict:
+            return len(seg_dict['raw_data'])
+
         seg_range = seg_dict.get('range')
         if seg_range is not None:
             # The range is of the form N-M, where N and M are both positive
@@ -462,7 +565,7 @@ class SloGetContext(WSGIContext):
             # only thing that creates the SLO manifests stored in the
             # cluster.
             range_start, range_end = [int(x) for x in seg_range.split('-')]
-            return range_end - range_start + 1
+            return (range_end - range_start) + 1
         else:
             return int(seg_dict['bytes'])
 
@@ -511,6 +614,9 @@ class SloGetContext(WSGIContext):
                                     recursion_depth=1):
         last_sub_path = None
         for seg_dict in segments:
+            if 'data' in seg_dict:
+                seg_dict['raw_data'] = strict_b64decode(seg_dict.pop('data'))
+
             seg_length = self._segment_length(seg_dict)
             if first_byte >= seg_length:
                 # don't need any bytes from this segment
@@ -522,19 +628,30 @@ class SloGetContext(WSGIContext):
                 # no bytes are needed from this or any future segment
                 return
 
+            if 'raw_data' in seg_dict:
+                yield dict(seg_dict,
+                           first_byte=max(0, first_byte),
+                           last_byte=min(seg_length - 1, last_byte))
+                first_byte -= seg_length
+                last_byte -= seg_length
+                continue
+
             seg_range = seg_dict.get('range')
             if seg_range is None:
                 range_start, range_end = 0, seg_length - 1
             else:
-                # We already validated and supplied concrete values
-                # for the range on upload
+                # This simple parsing of the range is valid because we already
+                # validated and supplied concrete values for the range
+                # during SLO manifest creation
                 range_start, range_end = map(int, seg_range.split('-'))
 
             if config_true_value(seg_dict.get('sub_slo')):
-                # do this check here so that we can avoid fetching this last
+                # Do this check here so that we can avoid fetching this last
                 # manifest before raising the exception
                 if recursion_depth >= self.max_slo_recursion_depth:
-                    raise ListingIterError("Max recursion depth exceeded")
+                    raise ListingIterError(
+                        "While processing manifest %r, "
+                        "max recursion depth was exceeded" % req.path)
 
                 sub_path = get_valid_utf8_str(seg_dict['name'])
                 sub_cont, sub_obj = split_path(sub_path, 2, 2, True)
@@ -544,7 +661,7 @@ class SloGetContext(WSGIContext):
                 last_sub_path = sub_path
 
                 # Use the existing machinery to slice into the sub-SLO.
-                for sub_seg_dict, sb, eb in self._byterange_listing_iterator(
+                for sub_seg_dict in self._byterange_listing_iterator(
                         req, version, account, sub_segments,
                         # This adjusts first_byte and last_byte to be
                         # relative to the sub-SLO.
@@ -553,13 +670,13 @@ class SloGetContext(WSGIContext):
 
                         cached_fetch_sub_slo_segments,
                         recursion_depth=recursion_depth + 1):
-                    yield sub_seg_dict, sb, eb
+                    yield sub_seg_dict
             else:
                 if isinstance(seg_dict['name'], six.text_type):
                     seg_dict['name'] = seg_dict['name'].encode("utf-8")
-                yield (seg_dict,
-                       max(0, first_byte) + range_start,
-                       min(range_end, range_start + last_byte))
+                yield dict(seg_dict,
+                           first_byte=max(0, first_byte) + range_start,
+                           last_byte=min(range_end, range_start + last_byte))
 
             first_byte -= seg_length
             last_byte -= seg_length
@@ -615,8 +732,9 @@ class SloGetContext(WSGIContext):
         thing with them. Returns an iterator suitable for sending up the WSGI
         chain.
 
-        :param req: swob.Request object; is a GET or HEAD request aimed at
-                    what may be a static large object manifest (or may not).
+        :param req: :class:`~swift.common.swob.Request` object; is a ``GET`` or
+                    ``HEAD`` request aimed at what may (or may not) be a static
+                    large object manifest.
         :param start_response: WSGI start_response callable
         """
         if req.params.get('multipart-manifest') != 'get':
@@ -674,16 +792,19 @@ class SloGetContext(WSGIContext):
         if slo_etag and slo_size and (
                 req.method == 'HEAD' or is_conditional):
             # Since we have length and etag, we can respond immediately
-            for i, (header, _value) in enumerate(self._response_headers):
-                lheader = header.lower()
-                if lheader == 'etag':
-                    self._response_headers[i] = (header, '"%s"' % slo_etag)
-                elif lheader == 'content-length' and not is_conditional:
-                    self._response_headers[i] = (header, slo_size)
-            start_response(self._response_status,
-                           self._response_headers,
-                           self._response_exc_info)
-            return resp_iter
+            resp = Response(
+                status=self._response_status,
+                headers=self._response_headers,
+                app_iter=resp_iter,
+                request=req,
+                conditional_etag=resolve_etag_is_at_header(
+                    req, self._response_headers),
+                conditional_response=True)
+            resp.headers.update({
+                'Etag': '"%s"' % slo_etag,
+                'Content-Length': slo_size,
+            })
+            return resp(req.environ, start_response)
 
         if self._need_to_refetch_manifest(req):
             req.environ['swift.non_client_disconnect'] = True
@@ -716,6 +837,8 @@ class SloGetContext(WSGIContext):
         segments = self._get_manifest_read(resp_iter)
 
         for seg_dict in segments:
+            if 'data' in seg_dict:
+                continue
             seg_dict.pop('content_type', None)
             seg_dict.pop('last_modified', None)
             seg_dict.pop('sub_slo', None)
@@ -749,36 +872,53 @@ class SloGetContext(WSGIContext):
 
     def get_or_head_response(self, req, resp_headers, resp_iter):
         segments = self._get_manifest_read(resp_iter)
-
         slo_etag = None
         content_length = None
         response_headers = []
         for header, value in resp_headers:
             lheader = header.lower()
+            if lheader not in ('etag', 'content-length'):
+                response_headers.append((header, value))
+
             if lheader == SYSMETA_SLO_ETAG:
                 slo_etag = value
             elif lheader == SYSMETA_SLO_SIZE:
                 # it's from sysmeta, so we don't worry about non-integer
                 # values here
                 content_length = int(value)
-            elif lheader not in ('etag', 'content-length'):
-                response_headers.append((header, value))
 
-        if slo_etag is None or content_length is None:
-            etag = md5()
-            content_length = 0
-            for seg_dict in segments:
-                if seg_dict.get('range'):
-                    etag.update('%s:%s;' % (seg_dict['hash'],
-                                            seg_dict['range']))
+        # Prep to calculate content_length & etag if necessary
+        if slo_etag is None:
+            calculated_etag = md5()
+        if content_length is None:
+            calculated_content_length = 0
+
+        for seg_dict in segments:
+            # Decode any inlined data; it's important that we do this *before*
+            # calculating the segment length and etag
+            if 'data' in seg_dict:
+                seg_dict['raw_data'] = base64.b64decode(seg_dict.pop('data'))
+
+            if slo_etag is None:
+                if 'raw_data' in seg_dict:
+                    calculated_etag.update(
+                        md5(seg_dict['raw_data']).hexdigest())
+                elif seg_dict.get('range'):
+                    calculated_etag.update(
+                        '%s:%s;' % (seg_dict['hash'], seg_dict['range']))
                 else:
-                    etag.update(seg_dict['hash'])
+                    calculated_etag.update(seg_dict['hash'])
 
+            if content_length is None:
                 if config_true_value(seg_dict.get('sub_slo')):
                     override_bytes_from_content_type(
                         seg_dict, logger=self.slo.logger)
-                content_length += self._segment_length(seg_dict)
-            slo_etag = etag.hexdigest()
+                calculated_content_length += self._segment_length(seg_dict)
+
+        if slo_etag is None:
+            slo_etag = calculated_etag.hexdigest()
+        if content_length is None:
+            content_length = calculated_content_length
 
         response_headers.append(('Content-Length', str(content_length)))
         response_headers.append(('Etag', '"%s"' % slo_etag))
@@ -790,7 +930,9 @@ class SloGetContext(WSGIContext):
                 req, content_length, response_headers, segments)
 
     def _manifest_head_response(self, req, response_headers):
+        conditional_etag = resolve_etag_is_at_header(req, response_headers)
         return HTTPOk(request=req, headers=response_headers, body='',
+                      conditional_etag=conditional_etag,
                       conditional_response=True)
 
     def _manifest_get_response(self, req, content_length, response_headers,
@@ -808,9 +950,13 @@ class SloGetContext(WSGIContext):
         plain_listing_iter = self._segment_listing_iterator(
             req, ver, account, segments, byteranges)
 
-        def is_small_segment((seg_dict, start_byte, end_byte)):
-            start = 0 if start_byte is None else start_byte
-            end = int(seg_dict['bytes']) - 1 if end_byte is None else end_byte
+        def ratelimit_predicate(seg_dict):
+            if 'raw_data' in seg_dict:
+                return False  # it's already in memory anyway
+            start = seg_dict.get('start_byte') or 0
+            end = seg_dict.get('end_byte')
+            if end is None:
+                end = int(seg_dict['bytes']) - 1
             is_small = (end - start + 1) < self.slo.rate_limit_under_size
             return is_small
 
@@ -818,17 +964,14 @@ class SloGetContext(WSGIContext):
             plain_listing_iter,
             self.slo.rate_limit_segments_per_sec,
             limit_after=self.slo.rate_limit_after_segment,
-            ratelimit_if=is_small_segment)
+            ratelimit_if=ratelimit_predicate)
 
-        # self._segment_listing_iterator gives us 3-tuples of (segment dict,
-        # start byte, end byte), but SegmentedIterable wants (obj path, etag,
-        # size, start byte, end byte), so we clean that up here
+        # data segments are already in the correct format, but object-backed
+        # segments need a path key added
         segment_listing_iter = (
-            ("/{ver}/{acc}/{conobj}".format(
-                ver=ver, acc=account, conobj=seg_dict['name'].lstrip('/')),
-                seg_dict['hash'], int(seg_dict['bytes']),
-                start_byte, end_byte)
-            for seg_dict, start_byte, end_byte in ratelimited_listing_iter)
+            seg_dict if 'raw_data' in seg_dict else
+            dict(seg_dict, path=self._segment_path(ver, account, seg_dict))
+            for seg_dict in ratelimited_listing_iter)
 
         segmented_iter = SegmentedIterable(
             req, self.slo.app, segment_listing_iter,
@@ -847,12 +990,12 @@ class SloGetContext(WSGIContext):
             # the proxy logs and the user will receive incomplete results.
             return HTTPConflict(request=req)
 
+        conditional_etag = resolve_etag_is_at_header(req, response_headers)
         response = Response(request=req, content_length=content_length,
                             headers=response_headers,
                             conditional_response=True,
+                            conditional_etag=conditional_etag,
                             app_iter=segmented_iter)
-        if req.range:
-            response.headers.pop('Etag')
         return response
 
 
@@ -867,16 +1010,26 @@ class StaticLargeObject(object):
 
     :param app: The next WSGI filter or app in the paste.deploy chain.
     :param conf: The configuration dict for the middleware.
+    :param max_manifest_segments: The maximum number of segments allowed in
+                                  newly-created static large objects.
+    :param max_manifest_size: The maximum size (in bytes) of newly-created
+                              static-large-object manifests.
+    :param yield_frequency: If the client included ``heartbeat=on`` in the
+                            query parameters when creating a new static large
+                            object, the period of time to wait between sending
+                            whitespace to keep the connection alive.
     """
 
     def __init__(self, app, conf,
                  max_manifest_segments=DEFAULT_MAX_MANIFEST_SEGMENTS,
-                 max_manifest_size=DEFAULT_MAX_MANIFEST_SIZE):
+                 max_manifest_size=DEFAULT_MAX_MANIFEST_SIZE,
+                 yield_frequency=DEFAULT_YIELD_FREQUENCY):
         self.conf = conf
         self.app = app
         self.logger = get_logger(conf, log_route='slo')
         self.max_manifest_segments = max_manifest_segments
         self.max_manifest_size = max_manifest_size
+        self.yield_frequency = yield_frequency
         self.max_get_time = int(self.conf.get('max_get_time', 86400))
         self.rate_limit_under_size = int(self.conf.get(
             'rate_limit_under_size', DEFAULT_RATE_LIMIT_UNDER_SIZE))
@@ -898,7 +1051,9 @@ class StaticLargeObject(object):
         The response body (only on GET, of course) will consist of the
         concatenation of the segments.
 
-        :params req: a swob.Request with a path referencing an object
+        :param req: a :class:`~swift.common.swob.Request` with a path
+                    referencing an object
+        :param start_response: WSGI start_response callable
         :raises HttpException: on errors
         """
         return SloGetContext(self).handle_slo_get_or_head(req, start_response)
@@ -910,13 +1065,11 @@ class StaticLargeObject(object):
         save a manifest generated from the user input. Uses WSGIContext to
         call self and start_response and returns a WSGI iterator.
 
-        :params req: a swob.Request with an obj in path
+        :param req: a :class:`~swift.common.swob.Request` with an obj in path
+        :param start_response: WSGI start_response callable
         :raises HttpException: on errors
         """
-        try:
-            vrs, account, container, obj = req.split_path(1, 4, True)
-        except ValueError:
-            return self.app(req.environ, start_response)
+        vrs, account, container, obj = req.split_path(4, rest_with_last=True)
         if req.content_length > self.max_manifest_size:
             raise HTTPRequestEntityTooLarge(
                 "Manifest File > %d bytes" % self.max_manifest_size)
@@ -931,18 +1084,26 @@ class StaticLargeObject(object):
             req.path)
         problem_segments = []
 
-        if len(parsed_data) > self.max_manifest_segments:
+        object_segments = [seg for seg in parsed_data if 'path' in seg]
+        if len(object_segments) > self.max_manifest_segments:
             raise HTTPRequestEntityTooLarge(
-                'Number of segments must be <= %d' %
+                'Number of object-backed segments must be <= %d' %
                 self.max_manifest_segments)
-        total_size = 0
-        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = 'text/plain'  # Ignore invalid header
         if not out_content_type:
             out_content_type = 'text/plain'
-        data_for_storage = []
+        data_for_storage = [None] * len(parsed_data)
+        total_size = 0
         path2indices = defaultdict(list)
         for index, seg_dict in enumerate(parsed_data):
-            path2indices[seg_dict['path']].append(index)
+            if 'data' in seg_dict:
+                data_for_storage[index] = seg_dict
+                total_size += len(base64.b64decode(seg_dict['data']))
+            else:
+                path2indices[seg_dict['path']].append(index)
 
         def do_head(obj_name):
             obj_path = '/'.join(['', vrs, account,
@@ -955,7 +1116,8 @@ class StaticLargeObject(object):
                 agent='%(orig)s SLO MultipartPUT', swift_source='SLO')
             return obj_name, sub_req.get_response(self)
 
-        def validate_seg_dict(seg_dict, head_seg_resp):
+        def validate_seg_dict(seg_dict, head_seg_resp, allow_empty_segment):
+            obj_name = seg_dict['path']
             if not head_seg_resp.is_success:
                 problem_segments.append([quote(obj_name),
                                          head_seg_resp.status])
@@ -983,97 +1145,169 @@ class StaticLargeObject(object):
                     seg_dict['range'] = '%d-%d' % (rng[0], rng[1] - 1)
                     segment_length = rng[1] - rng[0]
 
-            if segment_length < 1:
+            if segment_length < 1 and not allow_empty_segment:
                 problem_segments.append(
                     [quote(obj_name),
                      'Too small; each segment must be at least 1 byte.'])
-            if seg_dict.get('size_bytes') is not None and \
-                    seg_dict['size_bytes'] != head_seg_resp.content_length:
+
+            _size_bytes = seg_dict.get('size_bytes')
+            size_mismatch = (
+                _size_bytes is not None and
+                _size_bytes != head_seg_resp.content_length
+            )
+            if size_mismatch:
                 problem_segments.append([quote(obj_name), 'Size Mismatch'])
-            if seg_dict.get('etag') is not None and \
-                    seg_dict['etag'] != head_seg_resp.etag:
+
+            _etag = seg_dict.get('etag')
+            etag_mismatch = (
+                _etag is not None and
+                _etag != head_seg_resp.etag
+            )
+            if etag_mismatch:
                 problem_segments.append([quote(obj_name), 'Etag Mismatch'])
+
             if head_seg_resp.last_modified:
                 last_modified = head_seg_resp.last_modified
             else:
                 # shouldn't happen
                 last_modified = datetime.now()
 
-            last_modified_formatted = \
-                last_modified.strftime('%Y-%m-%dT%H:%M:%S.%f')
-            seg_data = {'name': '/' + seg_dict['path'].lstrip('/'),
-                        'bytes': head_seg_resp.content_length,
-                        'hash': head_seg_resp.etag,
-                        'content_type': head_seg_resp.content_type,
-                        'last_modified': last_modified_formatted}
+            last_modified_formatted = last_modified.strftime(
+                '%Y-%m-%dT%H:%M:%S.%f'
+            )
+            seg_data = {
+                'name': '/' + seg_dict['path'].lstrip('/'),
+                'bytes': head_seg_resp.content_length,
+                'hash': head_seg_resp.etag,
+                'content_type': head_seg_resp.content_type,
+                'last_modified': last_modified_formatted
+            }
             if seg_dict.get('range'):
                 seg_data['range'] = seg_dict['range']
             if config_true_value(
                     head_seg_resp.headers.get('X-Static-Large-Object')):
                 seg_data['sub_slo'] = True
+
             return segment_length, seg_data
 
-        data_for_storage = [None] * len(parsed_data)
-        with StreamingPile(self.concurrency) as pile:
-            for obj_name, resp in pile.asyncstarmap(do_head, (
-                    (path, ) for path in path2indices)):
-                for i in path2indices[obj_name]:
-                    segment_length, seg_data = validate_seg_dict(
-                        parsed_data[i], resp)
-                    data_for_storage[i] = seg_data
-                    total_size += segment_length
+        heartbeat = config_true_value(req.params.get('heartbeat'))
+        separator = ''
+        if heartbeat:
+            # Apparently some ways of deploying require that this to happens
+            # *before* the return? Not sure why.
+            req.environ['eventlet.minimum_write_chunk_size'] = 0
+            start_response('202 Accepted', [  # NB: not 201 !
+                ('Content-Type', out_content_type),
+            ])
+            separator = '\r\n\r\n'
 
-        if problem_segments:
-            resp_body = get_response_body(
-                out_content_type, {}, problem_segments)
-            raise HTTPBadRequest(resp_body, content_type=out_content_type)
+        def resp_iter(total_size=total_size):
+            # wsgi won't propagate start_response calls until some data has
+            # been yielded so make sure first heartbeat is sent immediately
+            if heartbeat:
+                yield ' '
+            last_yield_time = time.time()
+            with StreamingPile(self.concurrency) as pile:
+                for obj_name, resp in pile.asyncstarmap(do_head, (
+                        (path, ) for path in path2indices)):
+                    now = time.time()
+                    if heartbeat and (now - last_yield_time >
+                                      self.yield_frequency):
+                        # Make sure we've called start_response before
+                        # sending data
+                        yield ' '
+                        last_yield_time = now
+                    for i in path2indices[obj_name]:
+                        segment_length, seg_data = validate_seg_dict(
+                            parsed_data[i], resp,
+                            allow_empty_segment=(i == len(parsed_data) - 1))
+                        data_for_storage[i] = seg_data
+                        total_size += segment_length
 
-        slo_etag = md5()
-        for seg_data in data_for_storage:
-            if seg_data.get('range'):
-                slo_etag.update('%s:%s;' % (seg_data['hash'],
-                                            seg_data['range']))
+            if problem_segments:
+                err = HTTPBadRequest(content_type=out_content_type)
+                resp_dict = {}
+                if heartbeat:
+                    resp_dict['Response Status'] = err.status
+                    resp_dict['Response Body'] = err.body or '\n'.join(
+                        RESPONSE_REASONS.get(err.status_int, ['']))
+                else:
+                    start_response(err.status,
+                                   [(h, v) for h, v in err.headers.items()
+                                    if h.lower() != 'content-length'])
+                yield separator + get_response_body(
+                    out_content_type, resp_dict, problem_segments, 'upload')
+                return
+
+            slo_etag = md5()
+            for seg_data in data_for_storage:
+                if 'data' in seg_data:
+                    raw_data = base64.b64decode(seg_data['data'])
+                    slo_etag.update(md5(raw_data).hexdigest())
+                elif seg_data.get('range'):
+                    slo_etag.update('%s:%s;' % (seg_data['hash'],
+                                                seg_data['range']))
+                else:
+                    slo_etag.update(seg_data['hash'])
+
+            slo_etag = slo_etag.hexdigest()
+            client_etag = req.headers.get('Etag')
+            if client_etag and client_etag.strip('"') != slo_etag:
+                err = HTTPUnprocessableEntity(request=req)
+                if heartbeat:
+                    yield separator + get_response_body(out_content_type, {
+                        'Response Status': err.status,
+                        'Response Body': err.body or '\n'.join(
+                            RESPONSE_REASONS.get(err.status_int, [''])),
+                    }, problem_segments, 'upload')
+                else:
+                    for chunk in err(req.environ, start_response):
+                        yield chunk
+                return
+
+            json_data = json.dumps(data_for_storage)
+            if six.PY3:
+                json_data = json_data.encode('utf-8')
+            req.body = json_data
+            req.headers.update({
+                SYSMETA_SLO_ETAG: slo_etag,
+                SYSMETA_SLO_SIZE: total_size,
+                'X-Static-Large-Object': 'True',
+                'Etag': md5(json_data).hexdigest(),
+            })
+
+            env = req.environ
+            if not env.get('CONTENT_TYPE'):
+                guessed_type, _junk = mimetypes.guess_type(req.path_info)
+                env['CONTENT_TYPE'] = (guessed_type or
+                                       'application/octet-stream')
+            env['swift.content_type_overridden'] = True
+            env['CONTENT_TYPE'] += ";swift_bytes=%d" % total_size
+
+            resp = req.get_response(self.app)
+            resp_dict = {'Response Status': resp.status}
+            if resp.is_success:
+                resp.etag = slo_etag
+                resp_dict['Etag'] = resp.headers['Etag']
+                resp_dict['Last Modified'] = resp.headers['Last-Modified']
+
+            if heartbeat:
+                resp_dict['Response Body'] = resp.body
+                yield separator + get_response_body(
+                    out_content_type, resp_dict, [], 'upload')
             else:
-                slo_etag.update(seg_data['hash'])
+                for chunk in resp(req.environ, start_response):
+                    yield chunk
 
-        slo_etag = slo_etag.hexdigest()
-        client_etag = req.headers.get('Etag')
-        if client_etag and client_etag.strip('"') != slo_etag:
-            raise HTTPUnprocessableEntity(request=req)
-
-        json_data = json.dumps(data_for_storage)
-        if six.PY3:
-            json_data = json_data.encode('utf-8')
-        req.body = json_data
-        req.headers.update({
-            SYSMETA_SLO_ETAG: slo_etag,
-            SYSMETA_SLO_SIZE: total_size,
-            'X-Static-Large-Object': 'True',
-            'Etag': md5(json_data).hexdigest(),
-        })
-
-        env = req.environ
-        if not env.get('CONTENT_TYPE'):
-            guessed_type, _junk = mimetypes.guess_type(req.path_info)
-            env['CONTENT_TYPE'] = guessed_type or 'application/octet-stream'
-        env['swift.content_type_overridden'] = True
-        env['CONTENT_TYPE'] += ";swift_bytes=%d" % total_size
-
-        def start_response_wrapper(status, headers, exc_info=None):
-            for i, (header, _value) in enumerate(headers):
-                if header.lower() == 'etag':
-                    headers[i] = ('Etag', '"%s"' % slo_etag)
-                    break
-            return start_response(status, headers, exc_info)
-
-        return self.app(env, start_response_wrapper)
+        return resp_iter()
 
     def get_segments_to_delete_iter(self, req):
         """
         A generator function to be used to delete all the segments and
         sub-segments referenced in a manifest.
 
-        :params req: a swob.Request with an SLO manifest in path
+        :param req: a :class:`~swift.common.swob.Request` with an SLO manifest
+                    in path
         :raises HTTPPreconditionFailed: on invalid UTF8 in request path
         :raises HTTPBadRequest: on too many buffered sub segments and
                                 on invalid SLO manifest path
@@ -1091,6 +1325,8 @@ class StaticLargeObject(object):
                 raise HTTPBadRequest(
                     'Too many buffered slo segments to delete.')
             seg_data = segments.pop(0)
+            if 'data' in seg_data:
+                continue
             if seg_data.get('sub_slo'):
                 try:
                     segments.extend(
@@ -1109,8 +1345,12 @@ class StaticLargeObject(object):
 
     def get_slo_segments(self, obj_name, req):
         """
-        Performs a swob.Request and returns the SLO manifest's segments.
+        Performs a :class:`~swift.common.swob.Request` and returns the SLO
+        manifest's segments.
 
+        :param obj_name: the name of the object being deleted,
+                         as ``/container/object``
+        :param req: the base :class:`~swift.common.swob.Request`
         :raises HTTPServerError: on unable to load obj_name or
                                  on unable to load the SLO manifest data.
         :raises HTTPBadRequest: on not an SLO manifest
@@ -1151,12 +1391,15 @@ class StaticLargeObject(object):
         Will delete all the segments in the SLO manifest and then, if
         successful, will delete the manifest file.
 
-        :params req: a swob.Request with an obj in path
+        :param req: a :class:`~swift.common.swob.Request` with an obj in path
         :returns: swob.Response whose app_iter set to Bulk.handle_delete_iter
         """
         req.headers['Content-Type'] = None  # Ignore content-type from client
         resp = HTTPOk(request=req)
-        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = None  # Ignore invalid header
         if out_content_type:
             resp.content_type = out_content_type
         resp.app_iter = self.bulk_deleter.handle_delete_iter(
@@ -1207,10 +1450,13 @@ def filter_factory(global_conf, **local_conf):
                                          DEFAULT_MAX_MANIFEST_SEGMENTS))
     max_manifest_size = int(conf.get('max_manifest_size',
                                      DEFAULT_MAX_MANIFEST_SIZE))
+    yield_frequency = int(conf.get('yield_frequency',
+                                   DEFAULT_YIELD_FREQUENCY))
 
     register_swift_info('slo',
                         max_manifest_segments=max_manifest_segments,
                         max_manifest_size=max_manifest_size,
+                        yield_frequency=yield_frequency,
                         # this used to be configurable; report it as 1 for
                         # clients that might still care
                         min_segment_size=1)
@@ -1219,5 +1465,6 @@ def filter_factory(global_conf, **local_conf):
         return StaticLargeObject(
             app, conf,
             max_manifest_segments=max_manifest_segments,
-            max_manifest_size=max_manifest_size)
+            max_manifest_size=max_manifest_size,
+            yield_frequency=yield_frequency)
     return slo_filter

@@ -19,7 +19,6 @@ import unittest
 from contextlib import contextmanager
 from base64 import b64encode
 from time import time
-import mock
 
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
@@ -38,6 +37,14 @@ class FakeMemcache(object):
         return self.store.get(key)
 
     def set(self, key, value, time=0):
+        if isinstance(value, (tuple, list)):
+            decoded = []
+            for elem in value:
+                if type(elem) == str:
+                    decoded.append(elem.decode('utf8'))
+                else:
+                    decoded.append(elem)
+            value = tuple(decoded)
         self.store[key] = value
         return True
 
@@ -265,27 +272,58 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(req.environ['swift.authorize'],
                          local_auth.denied_response)
 
-    def test_auth_with_s3_authorization(self):
+    def test_auth_with_s3_authorization_good(self):
         local_app = FakeApp()
         local_auth = auth.filter_factory(
             {'user_s3_s3': 'secret .admin'})(local_app)
-        req = self._make_request('/v1/AUTH_s3', environ={
-            'swift3.auth_details': {
+        req = self._make_request('/v1/s3:s3', environ={
+            's3api.auth_details': {
                 'access_key': 's3:s3',
                 'signature': b64encode('sig'),
-                'string_to_sign': 't'}})
-
-        with mock.patch('hmac.new') as hmac:
-            hmac.return_value.digest.return_value = 'sig'
-            resp = req.get_response(local_auth)
-            self.assertEqual(hmac.mock_calls, [
-                mock.call('secret', 't', mock.ANY),
-                mock.call().digest()])
+                'string_to_sign': 't',
+                'check_signature': lambda secret: True}})
+        resp = req.get_response(local_auth)
 
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_s3')
         self.assertEqual(req.environ['swift.authorize'],
                          local_auth.authorize)
+
+    def test_auth_with_s3_authorization_invalid(self):
+        local_app = FakeApp()
+        local_auth = auth.filter_factory(
+            {'user_s3_s3': 'secret .admin'})(local_app)
+        req = self._make_request('/v1/s3:s3', environ={
+            's3api.auth_details': {
+                'access_key': 's3:s3',
+                'signature': b64encode('sig'),
+                'string_to_sign': 't',
+                'check_signature': lambda secret: False}})
+        resp = req.get_response(local_auth)
+
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/s3:s3')
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.denied_response)
+
+    def test_auth_with_old_s3_details(self):
+        local_app = FakeApp()
+        local_auth = auth.filter_factory(
+            {'user_s3_s3': 'secret .admin'})(local_app)
+        req = self._make_request('/v1/s3:s3', environ={
+            's3api.auth_details': {
+                'access_key': 's3:s3',
+                'signature': b64encode('sig'),
+                'string_to_sign': 't'}})
+        resp = req.get_response(local_auth)
+
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/s3:s3')
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.denied_response)
 
     def test_auth_no_reseller_prefix_no_token(self):
         # Check that normally we set up a call back to our authorize.
@@ -877,6 +915,37 @@ class TestAuth(unittest.TestCase):
         self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEqual(resp.headers.get('Www-Authenticate'),
                          'Swift realm="BLAH_account"')
+
+    def test_successful_token_unicode_user(self):
+        app = FakeApp(iter(NO_CONTENT_RESP))
+        ath = auth.filter_factory(
+            {u'user_t\u00e9st_t\u00e9ster'.encode('utf8'):
+             u'p\u00e1ss .admin'.encode('utf8')})(app)
+        memcache = FakeMemcache()
+
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': u't\u00e9st:t\u00e9ster',
+                     'X-Auth-Key': u'p\u00e1ss'})
+        req.environ['swift.cache'] = memcache
+        resp = req.get_response(ath)
+        self.assertEqual(resp.status_int, 200)
+        auth_token = resp.headers['X-Auth-Token']
+
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': u't\u00e9st:t\u00e9ster',
+                     'X-Auth-Key': u'p\u00e1ss'})
+        req.environ['swift.cache'] = memcache
+        resp = req.get_response(ath)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(auth_token, resp.headers['X-Auth-Token'])
+
+        req = self._make_request(
+            u'/v1/AUTH_t\u00e9st', headers={'X-Auth-Token': auth_token})
+        req.environ['swift.cache'] = memcache
+        resp = req.get_response(ath)
+        self.assertEqual(204, resp.status_int)
 
 
 class TestAuthWithMultiplePrefixes(TestAuth):

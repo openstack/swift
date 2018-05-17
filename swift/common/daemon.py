@@ -21,6 +21,7 @@ import signal
 from re import sub
 
 import eventlet.debug
+from eventlet.hubs import use_hub
 
 from swift.common import utils
 
@@ -62,6 +63,16 @@ class Daemon(object):
             self.run_once(**kwargs)
         else:
             self.run_forever(**kwargs)
+
+    def post_multiprocess_run(self):
+        """
+        Override this to do something after running using multiple worker
+        processes. This method is called in the parent process.
+
+        This is probably only useful for run-once mode since there is no
+        "after running" in run-forever mode.
+        """
+        pass
 
     def get_worker_args(self, once=False, **kwargs):
         """
@@ -172,7 +183,7 @@ class DaemonStrategy(object):
             yield per_worker_options
 
     def spawned_pids(self):
-        return self.options_by_pid.keys()
+        return list(self.options_by_pid.keys())
 
     def register_worker_start(self, pid, per_worker_options):
         self.logger.debug('Spawned worker %s with %r', pid, per_worker_options)
@@ -228,6 +239,7 @@ class DaemonStrategy(object):
                     self.logger.notice('Finished %s', os.getpid())
                     break
             time.sleep(0.1)
+        self.daemon.post_multiprocess_run()
         return 0
 
     def cleanup(self):
@@ -265,6 +277,8 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
         # The message will be printed to stderr
         # and results in an exit code of 1.
         sys.exit(e)
+
+    use_hub(utils.get_hub())
 
     # once on command line (i.e. daemonize=false) will over-ride config
     once = once or not utils.config_true_value(conf.get('daemonize', 'true'))

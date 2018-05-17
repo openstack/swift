@@ -271,15 +271,31 @@ class TestMatch(unittest.TestCase):
         self.assertIn('a', match)
         self.assertIn('b', match)
         self.assertNotIn('c', match)
+        self.assertEqual(repr(match), "Match('a, b')")
 
     def test_match_star(self):
         match = swift.common.swob.Match('"a", "*"')
         self.assertIn('a', match)
         self.assertIn('b', match)
         self.assertIn('c', match)
+        self.assertEqual(repr(match), "Match('*, a')")
 
     def test_match_noquote(self):
         match = swift.common.swob.Match('a, b')
+        self.assertEqual(match.tags, set(('a', 'b')))
+        self.assertIn('a', match)
+        self.assertIn('b', match)
+        self.assertNotIn('c', match)
+
+    def test_match_no_optional_white_space(self):
+        match = swift.common.swob.Match('"a","b"')
+        self.assertEqual(match.tags, set(('a', 'b')))
+        self.assertIn('a', match)
+        self.assertIn('b', match)
+        self.assertNotIn('c', match)
+
+    def test_match_lots_of_optional_white_space(self):
+        match = swift.common.swob.Match('"a"   ,  ,   "b"   ')
         self.assertEqual(match.tags, set(('a', 'b')))
         self.assertIn('a', match)
         self.assertIn('b', match)
@@ -358,11 +374,11 @@ class TestAccept(unittest.TestCase):
                        'text /plain', 'text\x7f/plain',
                        'text/plain;a=b=c',
                        'text/plain;q=1;q=2',
+                       'text/plain;q=not-a-number',
                        'text/plain; ubq="unbalanced " quotes"'):
             acc = swift.common.swob.Accept(accept)
-            match = acc.best_match(['text/plain', 'application/xml',
-                                   'text/xml'])
-            self.assertIsNone(match)
+            with self.assertRaises(ValueError):
+                acc.best_match(['text/plain', 'application/xml', 'text/xml'])
 
     def test_repr(self):
         acc = swift.common.swob.Accept("application/json")

@@ -888,6 +888,8 @@ class TestFuncs(unittest.TestCase):
                     return ''
 
             def getheader(self, header):
+                # content-length for the whole object is generated dynamically
+                # by summing non-None chunks initialized as source1
                 if header.lower() == "content-length":
                     return str(sum(len(c) for c in self.chunks
                                    if c is not None))
@@ -897,13 +899,11 @@ class TestFuncs(unittest.TestCase):
 
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
-        data = ['abcd', '1234', 'efgh', '5678', 'lots', 'more', 'data']
-
-        # NB: content length on source1 should be correct
-        # but that reversed piece never makes it to the client
-        source1 = TestSource(data[:2] + [data[2][::-1], None] + data[3:])
-        source2 = TestSource(data[2:4] + ['nope', None])
-        source3 = TestSource(data[4:])
+        source1 = TestSource(['abcd', '1234', None,
+                              'efgh', '5678', 'lots', 'more', 'data'])
+        # incomplete reads of client_chunk_size will be re-fetched
+        source2 = TestSource(['efgh', '5678', 'lots', None])
+        source3 = TestSource(['lots', 'more', 'data'])
         req = Request.blank('/v1/a/c/o')
         handler = GetOrHeadHandler(
             self.app, req, 'Object', None, None, None, {},

@@ -455,7 +455,7 @@ class CompositeRingBuilder(object):
                             metadata
         """
         try:
-            with open(path_to_file, 'rb') as fp:
+            with open(path_to_file, 'rt') as fp:
                 metadata = json.load(fp)
             builder_files = [metadata['component_builder_files'][comp['id']]
                              for comp in metadata['components']]
@@ -494,7 +494,7 @@ class CompositeRingBuilder(object):
         if not self.components or not self._builder_files:
             raise ValueError("No composed ring to save.")
         # persist relative paths to builder files
-        with open(path_to_file, 'wb') as fp:
+        with open(path_to_file, 'wt') as fp:
             metadata = self.to_dict()
             # future-proofing:
             # - saving abs path to component builder files and this file should
@@ -639,7 +639,8 @@ class CompositeRingBuilder(object):
             component builder.
         """
         self._load_components()
-        component_builders = zip(self._builder_files, self._builders)
+        self.update_last_part_moves()
+        component_builders = list(zip(self._builder_files, self._builders))
         # don't let the same builder go first each time
         shuffle(component_builders)
         results = {}
@@ -678,10 +679,10 @@ class CompositeRingBuilder(object):
         Updates the record of how many hours ago each partition was moved in
         all component builders.
         """
-        # Called by component builders. We need all component builders to be at
-        # same last_part_moves epoch before any builder starts moving parts;
-        # this will effectively be a no-op for builders that have already been
-        # updated in last hour
+        # Called at start of each composite rebalance. We need all component
+        # builders to be at same last_part_moves epoch before any builder
+        # starts moving parts; this will effectively be a no-op for builders
+        # that have already been updated in last hour
         for b in self._builders:
             b.update_last_part_moves()
 
@@ -723,8 +724,11 @@ class CooperativeRingBuilder(RingBuilder):
                 super(CooperativeRingBuilder, self)._can_part_move(part))
 
     def _update_last_part_moves(self):
-        # overrides superclass method to delegate to parent builder
-        return self.parent_builder.update_last_part_moves()
+        # overrides superclass method - parent builder should have called
+        # update_last_part_moves() before rebalance; calling the superclass
+        # method here would reset _part_moved_bitmap which is state we rely on
+        # when min_part_hours is zero
+        pass
 
     def update_last_part_moves(self):
         """

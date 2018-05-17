@@ -119,6 +119,8 @@ class ConfigString(NamedConfigLoader):
         }
         self.parser = loadwsgi.NicerConfigParser("string", defaults=defaults)
         self.parser.optionxform = str  # Don't lower-case keys
+        # Defaults don't need interpolation (crazy PasteDeploy...)
+        self.parser.defaults = lambda: dict(self.parser._defaults, **defaults)
         self.parser.readfp(self.contents)
 
 
@@ -397,6 +399,24 @@ def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
     return ctx.create()
 
 
+def load_app_config(conf_file):
+    """
+    Read the app config section from a config file.
+
+    :param conf_file: path to a config file
+    :return: a dict
+    """
+    app_conf = {}
+    try:
+        ctx = loadcontext(loadwsgi.APP, conf_file)
+    except LookupError:
+        pass
+    else:
+        app_conf.update(ctx.app_context.global_conf)
+        app_conf.update(ctx.app_context.local_conf)
+    return app_conf
+
+
 def run_server(conf, logger, sock, global_conf=None):
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
     # some platforms. This locks in reported times to UTC.
@@ -412,12 +432,6 @@ def run_server(conf, logger, sock, global_conf=None):
     wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
 
     eventlet.hubs.use_hub(get_hub())
-    # NOTE(sileht):
-    #     monkey-patching thread is required by python-keystoneclient;
-    #     monkey-patching select is required by oslo.messaging pika driver
-    #         if thread is monkey-patched.
-    eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
-                                  thread=True)
     eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
     eventlet.debug.hub_exceptions(eventlet_debug)
     wsgi_logger = NullLogger()
@@ -891,6 +905,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             conf, logger, servers_per_port=servers_per_port)
     else:
         strategy = WorkersStrategy(conf, logger)
+
+    # patch event before loadapp
+    utils.eventlet_monkey_patch()
 
     # Ensure the configuration and application can be loaded before proceeding.
     global_conf = {'log_name': log_name}

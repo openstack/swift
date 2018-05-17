@@ -38,7 +38,6 @@ from swift.common.swob import HTTPException
 
 from test import unit
 from test.unit.common.test_db import ExampleBroker
-from test.unit import with_tempdir
 
 
 TEST_ACCOUNT_NAME = 'a c t'
@@ -517,13 +516,14 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(replicator.mount_check, True)
         self.assertEqual(replicator.port, 6200)
 
-        def mock_ismount(path):
-            self.assertEqual(path,
-                             os.path.join(replicator.root,
-                                          replicator.ring.devs[0]['device']))
-            return False
+        def mock_check_drive(root, device, mount_check):
+            self.assertEqual(root, replicator.root)
+            self.assertEqual(device, replicator.ring.devs[0]['device'])
+            self.assertEqual(mount_check, True)
+            return None
 
-        self._patch(patch.object, db_replicator, 'ismount', mock_ismount)
+        self._patch(patch.object, db_replicator, 'check_drive',
+                    mock_check_drive)
         replicator.run_once()
 
         self.assertEqual(
@@ -552,7 +552,6 @@ class TestDBReplicator(unittest.TestCase):
 
         self._patch(patch.object, db_replicator, 'whataremyips',
                     lambda *a, **kw: ['1.1.1.1'])
-        self._patch(patch.object, db_replicator, 'ismount', lambda *args: True)
         self._patch(patch.object, db_replicator, 'unlink_older_than',
                     mock_unlink_older_than)
         self._patch(patch.object, db_replicator, 'roundrobin_datadirs',
@@ -560,13 +559,19 @@ class TestDBReplicator(unittest.TestCase):
         self._patch(patch.object, replicator.cpool, 'spawn_n', mock_spawn_n)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(ismount=True) as mocks:
             mock_os.path.isdir.return_value = True
             replicator.run_once()
             mock_os.path.isdir.assert_called_with(
                 os.path.join(replicator.root,
                              replicator.ring.devs[0]['device'],
                              replicator.datadir))
+            self.assertEqual([
+                mock.call(os.path.join(
+                    replicator.root,
+                    replicator.ring.devs[0]['device'])),
+            ], mocks['ismount'].call_args_list)
 
     def test_usync(self):
         fake_http = ReplHttp()
@@ -871,27 +876,28 @@ class TestDBReplicator(unittest.TestCase):
             '/some/foo/some_device/deeper/and/deeper'))
 
     def test_dispatch_no_arg_pop(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
-        response = rpc.dispatch(('a',), 'arg')
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
+        with unit.mock_check_drive(isdir=True):
+            response = rpc.dispatch(('a',), 'arg')
         self.assertEqual('Invalid object type', response.body)
         self.assertEqual(400, response.status_int)
 
     def test_dispatch_drive_not_mounted(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, True)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=True)
 
-        def mock_ismount(path):
-            self.assertEqual('/drive', path)
-            return False
-
-        self._patch(patch.object, db_replicator, 'ismount', mock_ismount)
-
-        response = rpc.dispatch(('drive', 'part', 'hash'), ['method'])
+        with unit.mock_check_drive() as mocks:
+            response = rpc.dispatch(('drive', 'part', 'hash'), ['method'])
+        self.assertEqual([mock.call(os.path.join('/drive'))],
+                         mocks['ismount'].call_args_list)
 
         self.assertEqual('507 drive is not mounted', response.status)
         self.assertEqual(507, response.status_int)
 
     def test_dispatch_unexpected_operation_db_does_not_exist(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         def mock_mkdirs(path):
             self.assertEqual('/drive/tmp', path)
@@ -899,7 +905,8 @@ class TestDBReplicator(unittest.TestCase):
         self._patch(patch.object, db_replicator, 'mkdirs', mock_mkdirs)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = False
             response = rpc.dispatch(('drive', 'part', 'hash'), ['unexpected'])
 
@@ -907,7 +914,8 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(404, response.status_int)
 
     def test_dispatch_operation_unexpected(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         self._patch(patch.object, db_replicator, 'mkdirs', lambda *args: True)
 
@@ -919,7 +927,8 @@ class TestDBReplicator(unittest.TestCase):
         rpc.unexpected = unexpected_method
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
             response = rpc.dispatch(('drive', 'part', 'hash'),
                                     ['unexpected', 'arg1', 'arg2'])
@@ -928,12 +937,14 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual('unexpected-called', response)
 
     def test_dispatch_operation_rsync_then_merge(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         self._patch(patch.object, db_replicator, 'renamer', lambda *args: True)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
             response = rpc.dispatch(('drive', 'part', 'hash'),
                                     ['rsync_then_merge', 'arg1', 'arg2'])
@@ -945,12 +956,14 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(204, response.status_int)
 
     def test_dispatch_operation_complete_rsync(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         self._patch(patch.object, db_replicator, 'renamer', lambda *args: True)
 
-        with patch('swift.common.db_replicator.os', new=mock.MagicMock(
-                wraps=os)) as mock_os:
+        with patch('swift.common.db_replicator.os',
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.side_effect = [False, True]
             response = rpc.dispatch(('drive', 'part', 'hash'),
                                     ['complete_rsync', 'arg1', 'arg2'])
@@ -962,10 +975,12 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(204, response.status_int)
 
     def test_rsync_then_merge_db_does_not_exist(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = False
             response = rpc.rsync_then_merge('drive', '/data/db.db',
                                             ('arg1', 'arg2'))
@@ -974,10 +989,12 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(404, response.status_int)
 
     def test_rsync_then_merge_old_does_not_exist(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.side_effect = [True, False]
             response = rpc.rsync_then_merge('drive', '/data/db.db',
                                             ('arg1', 'arg2'))
@@ -988,7 +1005,8 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(404, response.status_int)
 
     def test_rsync_then_merge_with_objects(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         def mock_renamer(old, new):
             self.assertEqual('/drive/tmp/arg1', old)
@@ -997,7 +1015,8 @@ class TestDBReplicator(unittest.TestCase):
         self._patch(patch.object, db_replicator, 'renamer', mock_renamer)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
             response = rpc.rsync_then_merge('drive', '/data/db.db',
                                             ['arg1', 'arg2'])
@@ -1005,10 +1024,12 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(204, response.status_int)
 
     def test_complete_rsync_db_does_not_exist(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
             response = rpc.complete_rsync('drive', '/data/db.db',
                                           ['arg1', 'arg2'])
@@ -1017,10 +1038,12 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(404, response.status_int)
 
     def test_complete_rsync_old_file_does_not_exist(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = False
             response = rpc.complete_rsync('drive', '/data/db.db',
                                           ['arg1', 'arg2'])
@@ -1031,7 +1054,8 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(404, response.status_int)
 
     def test_complete_rsync_rename(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
 
         def mock_exists(path):
             if path == '/data/db.db':
@@ -1046,7 +1070,8 @@ class TestDBReplicator(unittest.TestCase):
         self._patch(patch.object, db_replicator, 'renamer', mock_renamer)
 
         with patch('swift.common.db_replicator.os',
-                   new=mock.MagicMock(wraps=os)) as mock_os:
+                   new=mock.MagicMock(wraps=os)) as mock_os, \
+                unit.mock_check_drive(isdir=True):
             mock_os.path.exists.side_effect = [False, True]
             response = rpc.complete_rsync('drive', '/data/db.db',
                                           ['arg1', 'arg2'])
@@ -1054,7 +1079,8 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(204, response.status_int)
 
     def test_replicator_sync_with_broker_replication_missing_table(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
         rpc.logger = unit.debug_logger()
         broker = FakeBroker()
         broker.get_repl_missing_table = True
@@ -1069,9 +1095,10 @@ class TestDBReplicator(unittest.TestCase):
         self._patch(patch.object, db_replicator, 'quarantine_db',
                     mock_quarantine_db)
 
-        response = rpc.sync(broker, ('remote_sync', 'hash_', 'id_',
-                                     'created_at', 'put_timestamp',
-                                     'delete_timestamp', 'metadata'))
+        with unit.mock_check_drive(isdir=True):
+            response = rpc.sync(broker, ('remote_sync', 'hash_', 'id_',
+                                         'created_at', 'put_timestamp',
+                                         'delete_timestamp', 'metadata'))
 
         self.assertEqual('404 Not Found', response.status)
         self.assertEqual(404, response.status_int)
@@ -1082,13 +1109,15 @@ class TestDBReplicator(unittest.TestCase):
                           "Quarantining DB %s" % broker])
 
     def test_replicator_sync(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
         broker = FakeBroker()
 
-        response = rpc.sync(broker, (broker.get_sync() + 1, 12345, 'id_',
-                                     'created_at', 'put_timestamp',
-                                     'delete_timestamp',
-                                     '{"meta1": "data1", "meta2": "data2"}'))
+        with unit.mock_check_drive(isdir=True):
+            response = rpc.sync(broker, (
+                broker.get_sync() + 1, 12345, 'id_',
+                'created_at', 'put_timestamp', 'delete_timestamp',
+                '{"meta1": "data1", "meta2": "data2"}'))
 
         self.assertEqual({'meta1': 'data1', 'meta2': 'data2'},
                          broker.metadata)
@@ -1100,39 +1129,49 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(200, response.status_int)
 
     def test_rsync_then_merge(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
-        rpc.rsync_then_merge('sda1', '/srv/swift/blah', ('a', 'b'))
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
+        with unit.mock_check_drive(isdir=True):
+            rpc.rsync_then_merge('sda1', '/srv/swift/blah', ('a', 'b'))
 
     def test_merge_items(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
         fake_broker = FakeBroker()
         args = ('a', 'b')
-        rpc.merge_items(fake_broker, args)
+        with unit.mock_check_drive(isdir=True):
+            rpc.merge_items(fake_broker, args)
         self.assertEqual(fake_broker.args, args)
 
     def test_merge_syncs(self):
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
         fake_broker = FakeBroker()
         args = ('a', 'b')
-        rpc.merge_syncs(fake_broker, args)
+        with unit.mock_check_drive(isdir=True):
+            rpc.merge_syncs(fake_broker, args)
         self.assertEqual(fake_broker.args, (args[0],))
 
     def test_complete_rsync_with_bad_input(self):
         drive = '/some/root'
         db_file = __file__
         args = ['old_file']
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
-        resp = rpc.complete_rsync(drive, db_file, args)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
+        with unit.mock_check_drive(isdir=True):
+            resp = rpc.complete_rsync(drive, db_file, args)
         self.assertTrue(isinstance(resp, HTTPException))
         self.assertEqual(404, resp.status_int)
-        resp = rpc.complete_rsync(drive, 'new_db_file', args)
+        with unit.mock_check_drive(isdir=True):
+            resp = rpc.complete_rsync(drive, 'new_db_file', args)
         self.assertTrue(isinstance(resp, HTTPException))
         self.assertEqual(404, resp.status_int)
 
     def test_complete_rsync(self):
         drive = mkdtemp()
         args = ['old_file']
-        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
+                                          mount_check=False)
         os.mkdir('%s/tmp' % drive)
         old_file = '%s/tmp/old_file' % drive
         new_file = '%s/new_db_file' % drive
@@ -1145,7 +1184,7 @@ class TestDBReplicator(unittest.TestCase):
         finally:
             rmtree(drive)
 
-    @with_tempdir
+    @unit.with_tempdir
     def test_empty_suffix_and_hash_dirs_get_cleanedup(self, tempdir):
         datadir = os.path.join(tempdir, 'containers')
         db_path = ('450/afd/7089ab48d955ab0851fc51cc17a34afd/'
@@ -1181,7 +1220,8 @@ class TestDBReplicator(unittest.TestCase):
             self.assertTrue(os.path.isdir(dirpath))
 
         node_id = 1
-        results = list(db_replicator.roundrobin_datadirs([(datadir, node_id)]))
+        results = list(db_replicator.roundrobin_datadirs(
+            [(datadir, node_id, lambda p: True)]))
         expected = [
             ('450', os.path.join(datadir, db_path), node_id),
         ]
@@ -1202,12 +1242,14 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual({'18', '1054', '1060', '450'},
                          set(os.listdir(datadir)))
 
-        results = list(db_replicator.roundrobin_datadirs([(datadir, node_id)]))
+        results = list(db_replicator.roundrobin_datadirs(
+            [(datadir, node_id, lambda p: True)]))
         self.assertEqual(results, expected)
         self.assertEqual({'1054', '1060', '450'},
                          set(os.listdir(datadir)))
 
-        results = list(db_replicator.roundrobin_datadirs([(datadir, node_id)]))
+        results = list(db_replicator.roundrobin_datadirs(
+            [(datadir, node_id, lambda p: True)]))
         self.assertEqual(results, expected)
         # non db file in '1060' dir is not deleted and exception is handled
         self.assertEqual({'1060', '450'},
@@ -1227,9 +1269,11 @@ class TestDBReplicator(unittest.TestCase):
                 return []
             path = path[len('/srv/node/sdx/containers'):]
             if path == '':
-                return ['123', '456', '789', '9999']
+                return ['123', '456', '789', '9999', "-5", "not-a-partition"]
                 # 456 will pretend to be a file
                 # 9999 will be an empty partition with no contents
+                # -5 and not-a-partition were created by something outside
+                #   Swift
             elif path == '/123':
                 return ['abc', 'def.db']  # def.db will pretend to be a file
             elif path == '/123/abc':
@@ -1253,6 +1297,10 @@ class TestDBReplicator(unittest.TestCase):
                         'weird2']  # weird2 will pretend to be a dir, if asked
             elif path == '9999':
                 return []
+            elif path == 'not-a-partition':
+                raise Exception("shouldn't look in not-a-partition")
+            elif path == '-5':
+                raise Exception("shouldn't look in -5")
             return []
 
         def _isdir(path):
@@ -1288,8 +1336,8 @@ class TestDBReplicator(unittest.TestCase):
                 mock.patch(base + 'random.shuffle', _shuffle), \
                 mock.patch(base + 'os.rmdir', _rmdir):
 
-            datadirs = [('/srv/node/sda/containers', 1),
-                        ('/srv/node/sdb/containers', 2)]
+            datadirs = [('/srv/node/sda/containers', 1, lambda p: True),
+                        ('/srv/node/sdb/containers', 2, lambda p: True)]
             results = list(db_replicator.roundrobin_datadirs(datadirs))
             # The results show that the .db files are returned, the devices
             # interleaved.
@@ -1393,6 +1441,215 @@ class TestDBReplicator(unittest.TestCase):
                       replicator.logger)])
 
 
+class TestHandoffsOnly(unittest.TestCase):
+    class FakeRing3Nodes(object):
+        _replicas = 3
+
+        # Three nodes, two disks each
+        devs = [
+            dict(id=0, region=1, zone=1,
+                 meta='', weight=500.0, ip='10.0.0.1', port=6201,
+                 replication_ip='10.0.0.1', replication_port=6201,
+                 device='sdp'),
+            dict(id=1, region=1, zone=1,
+                 meta='', weight=500.0, ip='10.0.0.1', port=6201,
+                 replication_ip='10.0.0.1', replication_port=6201,
+                 device='sdq'),
+
+            dict(id=2, region=1, zone=1,
+                 meta='', weight=500.0, ip='10.0.0.2', port=6201,
+                 replication_ip='10.0.0.2', replication_port=6201,
+                 device='sdp'),
+            dict(id=3, region=1, zone=1,
+                 meta='', weight=500.0, ip='10.0.0.2', port=6201,
+                 replication_ip='10.0.0.2', replication_port=6201,
+                 device='sdq'),
+
+            dict(id=4, region=1, zone=1,
+                 meta='', weight=500.0, ip='10.0.0.3', port=6201,
+                 replication_ip='10.0.0.3', replication_port=6201,
+                 device='sdp'),
+            dict(id=5, region=1, zone=1,
+                 meta='', weight=500.0, ip='10.0.0.3', port=6201,
+                 replication_ip='10.0.0.3', replication_port=6201,
+                 device='sdq'),
+        ]
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def get_part(self, account, container=None, obj=None):
+            return 0
+
+        def get_part_nodes(self, part):
+            nodes = []
+            for offset in range(self._replicas):
+                i = (part + offset) % len(self.devs)
+                nodes.append(self.devs[i])
+            return nodes
+
+        def get_more_nodes(self, part):
+            for offset in range(self._replicas, len(self.devs)):
+                i = (part + offset) % len(self.devs)
+                yield self.devs[i]
+
+    def _make_fake_db(self, disk, partition, db_hash):
+        directories = [
+            os.path.join(self.root, disk),
+            os.path.join(self.root, disk, 'containers'),
+            os.path.join(self.root, disk, 'containers', str(partition)),
+            os.path.join(self.root, disk, 'containers', str(partition),
+                         db_hash[-3:]),
+            os.path.join(self.root, disk, 'containers', str(partition),
+                         db_hash[-3:], db_hash)]
+
+        for d in directories:
+            try:
+                os.mkdir(d)
+            except OSError as err:
+                if err.errno != errno.EEXIST:
+                    raise
+        file_path = os.path.join(directories[-1], db_hash + ".db")
+        with open(file_path, 'w'):
+            pass
+
+    def setUp(self):
+        self.root = mkdtemp()
+
+        # object disks; they're just here to make sure they don't trip us up
+        os.mkdir(os.path.join(self.root, 'sdc'))
+        os.mkdir(os.path.join(self.root, 'sdc', 'objects'))
+        os.mkdir(os.path.join(self.root, 'sdd'))
+        os.mkdir(os.path.join(self.root, 'sdd', 'objects'))
+
+        # part 0 belongs on sdp
+        self._make_fake_db('sdp', 0, '010101013cf2b7979af9eaa71cb67220')
+
+        # part 1 does not belong on sdp
+        self._make_fake_db('sdp', 1, 'abababab2b5368158355e799323b498d')
+
+        # part 1 belongs on sdq
+        self._make_fake_db('sdq', 1, '02020202e30f696a3cfa63d434a3c94e')
+
+        # part 2 does not belong on sdq
+        self._make_fake_db('sdq', 2, 'bcbcbcbc15d3835053d568c57e2c83b5')
+
+    def cleanUp(self):
+        rmtree(self.root, ignore_errors=True)
+
+    def test_scary_warnings(self):
+        logger = unit.FakeLogger()
+        replicator = TestReplicator({
+            'handoffs_only': 'yes',
+            'devices': self.root,
+            'bind_port': 6201,
+            'mount_check': 'no',
+        }, logger=logger)
+
+        with patch.object(db_replicator, 'whataremyips',
+                          return_value=['10.0.0.1']), \
+                patch.object(replicator, '_replicate_object'), \
+                patch.object(replicator, 'ring', self.FakeRing3Nodes()):
+            replicator.run_once()
+
+        self.assertEqual(
+            logger.get_lines_for_level('warning'),
+            [('Starting replication pass with handoffs_only enabled. This '
+              'mode is not intended for normal operation; use '
+              'handoffs_only with care.'),
+             ('Finished replication pass with handoffs_only enabled. '
+              'If handoffs_only is no longer required, disable it.')])
+
+    def test_skips_primary_partitions(self):
+        replicator = TestReplicator({
+            'handoffs_only': 'yes',
+            'devices': self.root,
+            'bind_port': 6201,
+            'mount_check': 'no',
+        })
+
+        with patch.object(db_replicator, 'whataremyips',
+                          return_value=['10.0.0.1']), \
+                patch.object(replicator, '_replicate_object') as mock_repl, \
+                patch.object(replicator, 'ring', self.FakeRing3Nodes()):
+            replicator.run_once()
+
+        self.assertEqual(sorted(mock_repl.mock_calls), [
+            mock.call('1', os.path.join(
+                self.root, 'sdp', 'containers', '1', '98d',
+                'abababab2b5368158355e799323b498d',
+                'abababab2b5368158355e799323b498d.db'), 0),
+            mock.call('2', os.path.join(
+                self.root, 'sdq', 'containers', '2', '3b5',
+                'bcbcbcbc15d3835053d568c57e2c83b5',
+                'bcbcbcbc15d3835053d568c57e2c83b5.db'), 1)])
+
+    def test_override_partitions(self):
+        replicator = TestReplicator({
+            'devices': self.root,
+            'bind_port': 6201,
+            'mount_check': 'no',
+        })
+
+        with patch.object(db_replicator, 'whataremyips',
+                          return_value=['10.0.0.1']), \
+                patch.object(replicator, '_replicate_object') as mock_repl, \
+                patch.object(replicator, 'ring', self.FakeRing3Nodes()):
+            replicator.run_once(partitions="0,2")
+
+        self.assertEqual(sorted(mock_repl.mock_calls), [
+            mock.call('0', os.path.join(
+                self.root, 'sdp', 'containers', '0', '220',
+                '010101013cf2b7979af9eaa71cb67220',
+                '010101013cf2b7979af9eaa71cb67220.db'), 0),
+            mock.call('2', os.path.join(
+                self.root, 'sdq', 'containers', '2', '3b5',
+                'bcbcbcbc15d3835053d568c57e2c83b5',
+                'bcbcbcbc15d3835053d568c57e2c83b5.db'), 1)])
+
+    def test_override_devices(self):
+        replicator = TestReplicator({
+            'devices': self.root,
+            'bind_port': 6201,
+            'mount_check': 'no',
+        })
+
+        with patch.object(db_replicator, 'whataremyips',
+                          return_value=['10.0.0.1']), \
+                patch.object(replicator, '_replicate_object') as mock_repl, \
+                patch.object(replicator, 'ring', self.FakeRing3Nodes()):
+            replicator.run_once(devices="sdp")
+
+        self.assertEqual(sorted(mock_repl.mock_calls), [
+            mock.call('0', os.path.join(
+                self.root, 'sdp', 'containers', '0', '220',
+                '010101013cf2b7979af9eaa71cb67220',
+                '010101013cf2b7979af9eaa71cb67220.db'), 0),
+            mock.call('1', os.path.join(
+                self.root, 'sdp', 'containers', '1', '98d',
+                'abababab2b5368158355e799323b498d',
+                'abababab2b5368158355e799323b498d.db'), 0)])
+
+    def test_override_devices_and_partitions(self):
+        replicator = TestReplicator({
+            'devices': self.root,
+            'bind_port': 6201,
+            'mount_check': 'no',
+        })
+
+        with patch.object(db_replicator, 'whataremyips',
+                          return_value=['10.0.0.1']), \
+                patch.object(replicator, '_replicate_object') as mock_repl, \
+                patch.object(replicator, 'ring', self.FakeRing3Nodes()):
+            replicator.run_once(partitions="0,2", devices="sdp")
+
+        self.assertEqual(sorted(mock_repl.mock_calls), [
+            mock.call('0', os.path.join(
+                self.root, 'sdp', 'containers', '0', '220',
+                '010101013cf2b7979af9eaa71cb67220',
+                '010101013cf2b7979af9eaa71cb67220.db'), 0)])
+
+
 class TestReplToNode(unittest.TestCase):
     def setUp(self):
         db_replicator.ring = FakeRing()
@@ -1458,7 +1715,9 @@ class TestReplToNode(unittest.TestCase):
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
         metadata = self.broker.metadata
-        self.assertEqual({}, metadata)
+        self.assertIn("X-Container-Sysmeta-Test", metadata)
+        self.assertEqual("XYZ", metadata["X-Container-Sysmeta-Test"][0])
+        self.assertEqual(now, metadata["X-Container-Sysmeta-Test"][1])
 
     def test_repl_to_node_not_found(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=404)
@@ -1538,7 +1797,9 @@ def attach_fake_replication_rpc(rpc, replicate_hook=None):
             print('REPLICATE: %s, %s, %r' % (self.path, op, sync_args))
             replicate_args = self.path.lstrip('/').split('/')
             args = [op] + list(sync_args)
-            swob_response = rpc.dispatch(replicate_args, args)
+            with unit.mock_check_drive(isdir=not rpc.mount_check,
+                                       ismount=rpc.mount_check):
+                swob_response = rpc.dispatch(replicate_args, args)
             resp = FakeHTTPResponse(swob_response)
             if replicate_hook:
                 replicate_hook(op, *sync_args)
@@ -1565,7 +1826,7 @@ class TestReplicatorSync(unittest.TestCase):
     def setUp(self):
         self.root = mkdtemp()
         self.rpc = self.replicator_rpc(
-            self.root, self.datadir, self.backend, False,
+            self.root, self.datadir, self.backend, mount_check=False,
             logger=unit.debug_logger())
         FakeReplConnection = attach_fake_replication_rpc(self.rpc)
         self._orig_ReplConnection = db_replicator.ReplConnection
@@ -1621,7 +1882,9 @@ class TestReplicatorSync(unittest.TestCase):
             return True
         daemon._rsync_file = _rsync_file
         with mock.patch('swift.common.db_replicator.whataremyips',
-                        new=lambda *a, **kw: [node['replication_ip']]):
+                        new=lambda *a, **kw: [node['replication_ip']]), \
+                unit.mock_check_drive(isdir=not daemon.mount_check,
+                                      ismount=daemon.mount_check):
             daemon.run_once()
         return daemon
 

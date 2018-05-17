@@ -31,7 +31,6 @@ from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
-from unittest2 import SkipTest
 
 from six.moves.configparser import ConfigParser, NoSectionError
 from six.moves import http_client
@@ -44,10 +43,13 @@ from swift.common.utils import set_swift_dir
 from test import get_config, listen_zero
 from test.functional.swift_test_client import Account, Connection, Container, \
     ResponseError
-# This has the side effect of mocking out the xattr module so that unit tests
-# (and in this case, when in-process functional tests are called for) can run
-# on file systems that don't support extended attributes.
+
 from test.unit import debug_logger, FakeMemcache
+# importing skip_if_no_xattrs so that functional tests can grab it from the
+# test.functional namespace. Importing SkipTest so this works under both
+# nose and testr test runners.
+from test.unit import skip_if_no_xattrs as real_skip_if_no_xattrs
+from test.unit import SkipTest
 
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
@@ -101,8 +103,8 @@ swift_test_domain = ['', '', '', '', '', '']
 swift_test_user_id = ['', '', '', '', '', '']
 swift_test_tenant_id = ['', '', '', '', '', '']
 
-skip, skip2, skip3, skip_service_tokens, skip_if_no_reseller_admin = \
-    False, False, False, False, False
+skip, skip2, skip3, skip_if_not_v3, skip_service_tokens, \
+    skip_if_no_reseller_admin = False, False, False, False, False, False
 
 orig_collate = ''
 insecure = False
@@ -110,6 +112,7 @@ insecure = False
 in_process = False
 _testdir = _test_servers = _test_coros = _test_socks = None
 policy_specified = None
+skip_if_no_xattrs = None
 
 
 class FakeMemcacheMiddleware(MemcacheMiddleware):
@@ -366,6 +369,89 @@ def _load_ec_as_default_policy(proxy_conf_file, swift_conf_file, **kwargs):
     return proxy_conf_file, swift_conf_file
 
 
+def _load_domain_remap_staticweb(proxy_conf_file, swift_conf_file, **kwargs):
+    """
+    Load domain_remap and staticweb into proxy server pipeline.
+
+    :param proxy_conf_file: Source proxy conf filename
+    :param swift_conf_file: Source swift conf filename
+    :returns: Tuple of paths to the proxy conf file and swift conf file to use
+    :raises InProcessException: raised if proxy conf contents are invalid
+    """
+    _debug('Setting configuration for domain_remap')
+
+    # The global conf dict cannot be used to modify the pipeline.
+    # The pipeline loader requires the pipeline to be set in the local_conf.
+    # If pipeline is set in the global conf dict (which in turn populates the
+    # DEFAULTS options) then it prevents pipeline being loaded into the local
+    # conf during wsgi load_app.
+    # Therefore we must modify the [pipeline:main] section.
+
+    conf = ConfigParser()
+    conf.read(proxy_conf_file)
+    try:
+        section = 'pipeline:main'
+        old_pipeline = conf.get(section, 'pipeline')
+        pipeline = old_pipeline.replace(
+            "tempauth",
+            "domain_remap tempauth staticweb")
+        if pipeline == old_pipeline:
+            raise InProcessException(
+                "Failed to insert domain_remap and staticweb into pipeline: %s"
+                % old_pipeline)
+        conf.set(section, 'pipeline', pipeline)
+    except NoSectionError as err:
+        msg = 'Error problem with proxy conf file %s: %s' % \
+              (proxy_conf_file, err)
+        raise InProcessException(msg)
+
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with open(test_conf_file, 'w') as fp:
+        conf.write(fp)
+
+    return test_conf_file, swift_conf_file
+
+
+def _load_s3api(proxy_conf_file, swift_conf_file, **kwargs):
+    """
+    Load s3api configuration and override proxy-server.conf contents.
+
+    :param proxy_conf_file: Source proxy conf filename
+    :param swift_conf_file: Source swift conf filename
+    :returns: Tuple of paths to the proxy conf file and swift conf file to use
+    :raises InProcessException: raised if proxy conf contents are invalid
+    """
+    _debug('Setting configuration for s3api')
+
+    # The global conf dict cannot be used to modify the pipeline.
+    # The pipeline loader requires the pipeline to be set in the local_conf.
+    # If pipeline is set in the global conf dict (which in turn populates the
+    # DEFAULTS options) then it prevents pipeline being loaded into the local
+    # conf during wsgi load_app.
+    # Therefore we must modify the [pipeline:main] section.
+
+    conf = ConfigParser()
+    conf.read(proxy_conf_file)
+    try:
+        section = 'pipeline:main'
+        pipeline = conf.get(section, 'pipeline')
+        pipeline = pipeline.replace(
+            "tempauth",
+            "s3api tempauth")
+        conf.set(section, 'pipeline', pipeline)
+        conf.set('filter:s3api', 's3_acl', 'true')
+    except NoSectionError as err:
+        msg = 'Error problem with proxy conf file %s: %s' % \
+              (proxy_conf_file, err)
+        raise InProcessException(msg)
+
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with open(test_conf_file, 'w') as fp:
+        conf.write(fp)
+
+    return test_conf_file, swift_conf_file
+
+
 # Mapping from possible values of the variable
 # SWIFT_TEST_IN_PROCESS_CONF_LOADER
 # to the method to call for loading the associated configuration
@@ -373,7 +459,9 @@ def _load_ec_as_default_policy(proxy_conf_file, swift_conf_file, **kwargs):
 # conf_filename_to_use loader(input_conf_filename, **kwargs)
 conf_loaders = {
     'encryption': _load_encryption,
-    'ec': _load_ec_as_default_policy
+    'ec': _load_ec_as_default_policy,
+    'domain_remap_staticweb': _load_domain_remap_staticweb,
+    's3api': _load_s3api,
 }
 
 
@@ -473,6 +561,12 @@ def in_process_setup(the_object_server=object_server):
         'account_autocreate': 'true',
         'allow_versions': 'True',
         'allow_versioned_writes': 'True',
+        # TODO: move this into s3api config loader because they are
+        #       required by only s3api
+        'allowed_headers':
+            "Content-Disposition, Content-Encoding, X-Delete-At, "
+            "X-Object-Manifest, X-Static-Large-Object, Cache-Control, "
+            "Content-Language, Expires, X-Robots-Tag",
         # Below are values used by the functional test framework, as well as
         # by the various in-process swift servers
         'auth_host': '127.0.0.1',
@@ -484,6 +578,8 @@ def in_process_setup(the_object_server=object_server):
         'account': 'test',
         'username': 'tester',
         'password': 'testing',
+        's3_access_key': 'test:tester',
+        's3_secret_key': 'testing',
         # User on a second account (needs admin access to the account)
         'account2': 'test2',
         'username2': 'tester2',
@@ -491,6 +587,8 @@ def in_process_setup(the_object_server=object_server):
         # User on same account as first, but without admin access
         'username3': 'tester3',
         'password3': 'testing3',
+        's3_access_key2': 'test:tester3',
+        's3_secret_key2': 'testing3',
         # Service user and prefix (emulates glance, cinder, etc. user)
         'account5': 'test5',
         'username5': 'tester5',
@@ -660,6 +758,7 @@ def get_cluster_info():
 def setup_package():
 
     global policy_specified
+    global skip_if_no_xattrs
     policy_specified = os.environ.get('SWIFT_TEST_POLICY')
     in_process_env = os.environ.get('SWIFT_TEST_IN_PROCESS')
     if in_process_env is not None:
@@ -698,6 +797,7 @@ def setup_package():
     if in_process:
         in_mem_obj_env = os.environ.get('SWIFT_TEST_IN_MEMORY_OBJ')
         in_mem_obj = utils.config_true_value(in_mem_obj_env)
+        skip_if_no_xattrs = real_skip_if_no_xattrs
         try:
             in_process_setup(the_object_server=(
                 mem_object_server if in_mem_obj else object_server))
@@ -705,6 +805,8 @@ def setup_package():
             print(('Exception during in-process setup: %s'
                    % str(exc)), file=sys.stderr)
             raise
+    else:
+        skip_if_no_xattrs = lambda: None
 
     global web_front_end
     web_front_end = config.get('web_front_end', 'integral')

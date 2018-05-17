@@ -35,7 +35,7 @@ from time import time
 from swift.common import exceptions
 from swift.common.ring import RingData
 from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
-    validate_and_normalize_address, pretty_dev
+    validate_and_normalize_address, validate_replicas_by_tier, pretty_dev
 
 # we can't store None's in the replica2part2dev array, so we high-jack
 # the max value for magic to represent the part is not currently
@@ -130,7 +130,7 @@ class RingBuilder(object):
         # within a given number of hours (24 is my usual test). Removing
         # a device overrides this behavior as it's assumed that's only
         # done because of device failure.
-        self._last_part_moves = None
+        self._last_part_moves = array('B', itertools.repeat(0, self.parts))
         # _part_moved_bitmap record parts have been moved
         self._part_moved_bitmap = None
         # _last_part_moves_epoch indicates the time the offsets in
@@ -167,7 +167,7 @@ class RingBuilder(object):
 
     @property
     def ever_rebalanced(self):
-        return self._last_part_moves is not None
+        return self._replica2part2dev is not None
 
     def _set_part_moved(self, part):
         self._last_part_moves[part] = 0
@@ -247,7 +247,11 @@ class RingBuilder(object):
             self.version = builder.version
             self._replica2part2dev = builder._replica2part2dev
             self._last_part_moves_epoch = builder._last_part_moves_epoch
-            self._last_part_moves = builder._last_part_moves
+            if builder._last_part_moves is None:
+                self._last_part_moves = array(
+                    'B', itertools.repeat(0, self.parts))
+            else:
+                self._last_part_moves = builder._last_part_moves
             self._last_part_gather_start = builder._last_part_gather_start
             self._remove_devs = builder._remove_devs
             self._id = getattr(builder, '_id', None)
@@ -263,7 +267,11 @@ class RingBuilder(object):
             self.version = builder['version']
             self._replica2part2dev = builder['_replica2part2dev']
             self._last_part_moves_epoch = builder['_last_part_moves_epoch']
-            self._last_part_moves = builder['_last_part_moves']
+            if builder['_last_part_moves'] is None:
+                self._last_part_moves = array(
+                    'B', itertools.repeat(0, self.parts))
+            else:
+                self._last_part_moves = builder['_last_part_moves']
             self._last_part_gather_start = builder['_last_part_gather_start']
             self._dispersion_graph = builder.get('_dispersion_graph', {})
             self.dispersion = builder.get('dispersion')
@@ -507,7 +515,7 @@ class RingBuilder(object):
 
         if not self.ever_rebalanced:
             self.logger.debug("New builder; performing initial balance")
-            self._last_part_moves = array('B', itertools.repeat(0, self.parts))
+
         self._update_last_part_moves()
 
         with _set_random_seed(seed):
@@ -525,7 +533,9 @@ class RingBuilder(object):
 
             # we'll gather a few times, or until we archive the plan
             for gather_count in range(MAX_BALANCE_GATHER_COUNT):
-                self._gather_parts_for_balance(assign_parts, replica_plan)
+                self._gather_parts_for_balance(assign_parts, replica_plan,
+                                               # firsrt attempt go for disperse
+                                               gather_count == 0)
                 if not assign_parts:
                     # most likely min part hours
                     finish_status = 'Unable to finish'
@@ -553,7 +563,6 @@ class RingBuilder(object):
                 {'status': finish_status, 'count': gather_count + 1})
 
         self.devs_changed = False
-        self.version += 1
         changed_parts = self._build_dispersion_graph(old_replica2part2dev)
 
         # clean up the cache
@@ -621,22 +630,23 @@ class RingBuilder(object):
 
                 if old_device != dev['id']:
                     changed_parts += 1
-            part_at_risk = False
             # update running totals for each tiers' number of parts with a
             # given replica count
+            part_risk_depth = defaultdict(int)
+            part_risk_depth[0] = 0
             for tier, replicas in replicas_at_tier.items():
                 if tier not in dispersion_graph:
                     dispersion_graph[tier] = [self.parts] + [0] * int_replicas
                 dispersion_graph[tier][0] -= 1
                 dispersion_graph[tier][replicas] += 1
                 if replicas > max_allowed_replicas[tier]:
-                    part_at_risk = True
-            # this part may be at risk in multiple tiers, but we only count it
-            # as at_risk once
-            if part_at_risk:
-                parts_at_risk += 1
+                    part_risk_depth[len(tier)] += (
+                        replicas - max_allowed_replicas[tier])
+            # count each part-replica once at tier where dispersion is worst
+            parts_at_risk += max(part_risk_depth.values())
         self._dispersion_graph = dispersion_graph
-        self.dispersion = 100.0 * parts_at_risk / self.parts
+        self.dispersion = 100.0 * parts_at_risk / (self.parts * self.replicas)
+        self.version += 1
         return changed_parts
 
     def validate(self, stats=False):
@@ -686,7 +696,7 @@ class RingBuilder(object):
                     (dev['id'], dev['port']))
 
         int_replicas = int(math.ceil(self.replicas))
-        rep2part_len = map(len, self._replica2part2dev)
+        rep2part_len = list(map(len, self._replica2part2dev))
         # check the assignments of each part's replicas
         for part in range(self.parts):
             devs_for_part = []
@@ -862,7 +872,7 @@ class RingBuilder(object):
         device is "overweight" and wishes to give partitions away if possible.
 
         :param replica_plan: a dict of dicts, as returned from
-                             _build_replica_plan, that that maps
+                             _build_replica_plan, that maps
                              each tier to it's target replicanths.
         """
         tier2children = self._build_tier2children()
@@ -922,8 +932,8 @@ class RingBuilder(object):
         more recently than min_part_hours.
         """
         self._part_moved_bitmap = bytearray(max(2 ** (self.part_power - 3), 1))
-        elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
-        if elapsed_hours <= 0 or not self._last_part_moves:
+        elapsed_hours = int(time() - self._last_part_moves_epoch) // 3600
+        if elapsed_hours <= 0:
             return
         for part in range(self.parts):
             # The "min(self._last_part_moves[part] + elapsed_hours, 0xff)"
@@ -1097,6 +1107,12 @@ class RingBuilder(object):
         :param start: offset into self.parts to begin search
         :param replica_plan: replicanth targets for tiers
         """
+        tier2children = self._build_tier2children()
+        parts_wanted_in_tier = defaultdict(int)
+        for dev in self._iter_devs():
+            wanted = max(dev['parts_wanted'], 0)
+            for tier in dev['tiers']:
+                parts_wanted_in_tier[tier] += wanted
         # Last, we gather partitions from devices that are "overweight" because
         # they have more partitions than their parts_wanted.
         for offset in range(self.parts):
@@ -1128,8 +1144,17 @@ class RingBuilder(object):
                        replicas_at_tier[tier] <
                        replica_plan[tier]['max']
                        for tier in dev['tiers']):
+                    # we're stuck by replica plan
                     continue
-
+                for t in reversed(dev['tiers']):
+                    if replicas_at_tier[t] - 1 < replica_plan[t]['min']:
+                        # we're stuck at tier t
+                        break
+                if sum(parts_wanted_in_tier[c]
+                       for c in tier2children[t]
+                       if c not in dev['tiers']) <= 0:
+                    # we're stuck by weight
+                    continue
                 # this is the most overweight_device holding a replica
                 # of this part that can shed it according to the plan
                 dev['parts_wanted'] += 1
@@ -1141,19 +1166,23 @@ class RingBuilder(object):
                 self._replica2part2dev[replica][part] = NONE_DEV
                 for tier in dev['tiers']:
                     replicas_at_tier[tier] -= 1
+                    parts_wanted_in_tier[tier] -= 1
                 self._set_part_moved(part)
                 break
 
-    def _gather_parts_for_balance(self, assign_parts, replica_plan):
+    def _gather_parts_for_balance(self, assign_parts, replica_plan,
+                                  disperse_first):
         """
         Gather parts that look like they should move for balance reasons.
 
         A simple gathers of parts that looks dispersible normally works out,
         we'll switch strategies if things don't seem to move.
+        :param disperse_first: boolean, avoid replicas on overweight devices
+                               that need to be there for dispersion
         """
         # pick a random starting point on the other side of the ring
         quarter_turn = (self.parts // 4)
-        random_half = random.randint(0, self.parts / 2)
+        random_half = random.randint(0, self.parts // 2)
         start = (self._last_part_gather_start + quarter_turn +
                  random_half) % self.parts
         self.logger.debug('Gather start is %(start)s '
@@ -1162,10 +1191,10 @@ class RingBuilder(object):
                            'last_start': self._last_part_gather_start})
         self._last_part_gather_start = start
 
-        self._gather_parts_for_balance_can_disperse(
-            assign_parts, start, replica_plan)
-        if not assign_parts:
-            self._gather_parts_for_balance_forced(assign_parts, start)
+        if disperse_first:
+            self._gather_parts_for_balance_can_disperse(
+                assign_parts, start, replica_plan)
+        self._gather_parts_for_balance_forced(assign_parts, start)
 
     def _gather_parts_for_balance_forced(self, assign_parts, start, **kwargs):
         """
@@ -1454,14 +1483,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # weighted_replicas should be very close to the total number of
         # replicas for the ring
-        tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
-        for i, tier_name in enumerate(tiers):
-            replicas_at_tier = sum(weighted_replicas_by_tier[t] for t in
-                                   weighted_replicas_by_tier if len(t) == i)
-            if abs(self.replicas - replicas_at_tier) > 1e-10:
-                raise exceptions.RingValidationError(
-                    '%s != %s at tier %s' % (
-                        replicas_at_tier, self.replicas, tier_name))
+        validate_replicas_by_tier(self.replicas, weighted_replicas_by_tier)
 
         return weighted_replicas_by_tier
 
@@ -1564,14 +1586,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # wanted_replicas should be very close to the total number of
         # replicas for the ring
-        tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
-        for i, tier_name in enumerate(tiers):
-            replicas_at_tier = sum(wanted_replicas[t] for t in
-                                   wanted_replicas if len(t) == i)
-            if abs(self.replicas - replicas_at_tier) > 1e-10:
-                raise exceptions.RingValidationError(
-                    '%s != %s at tier %s' % (
-                        replicas_at_tier, self.replicas, tier_name))
+        validate_replicas_by_tier(self.replicas, wanted_replicas)
 
         return wanted_replicas
 
@@ -1600,14 +1615,7 @@ class RingBuilder(object):
         # belts & suspenders/paranoia -  at every level, the sum of
         # target_replicas should be very close to the total number
         # of replicas for the ring
-        tiers = ['cluster', 'regions', 'zones', 'servers', 'devices']
-        for i, tier_name in enumerate(tiers):
-            replicas_at_tier = sum(target_replicas[t] for t in
-                                   target_replicas if len(t) == i)
-            if abs(self.replicas - replicas_at_tier) > 1e-10:
-                raise exceptions.RingValidationError(
-                    '%s != %s at tier %s' % (
-                        replicas_at_tier, self.replicas, tier_name))
+        validate_replicas_by_tier(self.replicas, target_replicas)
 
         return target_replicas
 

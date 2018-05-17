@@ -27,7 +27,7 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileDeleted, DiskFileNotOpen
 from swift.common.request_helpers import is_sys_meta
 from swift.common.swob import multi_range_iterator
-from swift.obj.diskfile import DATAFILE_SYSTEM_META
+from swift.obj.diskfile import DATAFILE_SYSTEM_META, RESERVED_DATAFILE_META
 
 
 class InMemoryFileSystem(object):
@@ -273,7 +273,7 @@ class DiskFile(object):
         self._filesystem = fs
         self.fragments = None
 
-    def open(self):
+    def open(self, modernize=False):
         """
         Open the file and read the metadata.
 
@@ -433,7 +433,8 @@ class DiskFile(object):
             # with the object data.
             immutable_metadata = dict(
                 [(key, val) for key, val in cur_mdata.items()
-                 if key.lower() in DATAFILE_SYSTEM_META
+                 if key.lower() in (RESERVED_DATAFILE_META |
+                                    DATAFILE_SYSTEM_META)
                  or is_sys_meta('object', key)])
             metadata.update(immutable_metadata)
             metadata['name'] = self._name

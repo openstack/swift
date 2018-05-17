@@ -16,6 +16,7 @@ import sys
 from optparse import OptionParser
 
 from swift.cli.info import print_info, InfoSystemExit
+from swift.common.exceptions import LockTimeout
 
 
 def run_print_info(args, opts):
@@ -23,7 +24,7 @@ def run_print_info(args, opts):
         print_info('container', *args, **opts)
     except InfoSystemExit:
         sys.exit(1)
-    except sqlite3.OperationalError as e:
+    except (sqlite3.OperationalError, LockTimeout) as e:
         if not opts.get('stale_reads_ok'):
             opts['stale_reads_ok'] = True
             print('Warning: Possibly Stale Data')
@@ -38,6 +39,9 @@ if __name__ == '__main__':
     parser.add_option(
         '-d', '--swift-dir', default='/etc/swift',
         help="Pass location of swift directory")
+    parser.add_option(
+        '--drop-prefixes', default=False, action="store_true",
+        help="When outputting metadata, drop the per-section common prefixes")
 
     options, args = parser.parse_args()
 

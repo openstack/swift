@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <include href="common.rng"/>
+  <start>
+    <element name="ListVersionsResult">
+      <element name="Name">
+        <data type="string"/>
+      </element>
+      <element name="Prefix">
+        <data type="string"/>
+      </element>
+      <element name="KeyMarker">
+        <data type="string"/>
+      </element>
+      <element name="VersionIdMarker">
+        <data type="string"/>
+      </element>
+      <optional>
+        <element name="NextKeyMarker">
+          <data type="string"/>
+        </element>
+      </optional>
+      <optional>
+        <element name="NextVersionIdMarker">
+          <data type="string"/>
+        </element>
+      </optional>
+      <element name="MaxKeys">
+        <data type="int"/>
+      </element>
+      <optional>
+        <element name="EncodingType">
+          <data type="string"/>
+        </element>
+      </optional>
+      <optional>
+        <element name="Delimiter">
+          <data type="string"/>
+        </element>
+      </optional>
+      <element name="IsTruncated">
+        <data type="boolean"/>
+      </element>
+      <zeroOrMore>
+        <choice>
+          <element name="Version">
+            <element name="Key">
+              <data type="string"/>
+            </element>
+            <element name="VersionId">
+              <data type="string"/>
+            </element>
+            <element name="IsLatest">
+              <data type="boolean"/>
+            </element>
+            <element name="LastModified">
+              <data type="dateTime"/>
+            </element>
+            <element name="ETag">
+              <data type="string"/>
+            </element>
+            <element name="Size">
+              <data type="long"/>
+            </element>
+            <optional>
+              <element name="Owner">
+                <ref name="CanonicalUser"/>
+              </element>
+            </optional>
+            <element name="StorageClass">
+              <ref name="StorageClass"/>
+            </element>
+          </element>
+          <element name="DeleteMarker">
+            <element name="Key">
+              <data type="string"/>
+            </element>
+            <element name="VersionId">
+              <data type="string"/>
+            </element>
+            <element name="IsLatest">
+              <data type="boolean"/>
+            </element>
+            <element name="LastModified">
+              <data type="dateTime"/>
+            </element>
+            <optional>
+              <element name="Owner">
+                <ref name="CanonicalUser"/>
+              </element>
+            </optional>
+          </element>
+        </choice>
+      </zeroOrMore>
+      <zeroOrMore>
+        <element name="CommonPrefixes">
+          <element name="Prefix">
+            <data type="string"/>
+          </element>
+        </element>
+      </zeroOrMore>
+    </element>
+  </start>
+</grammar>

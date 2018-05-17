@@ -172,9 +172,9 @@ The sequence of events and actions are as follows:
   Service's token. If you use python-swiftclient you can achieve this
   by:
 
-      * Putting the URL in the ``preauthurl`` parameter
-      * Putting the <user-token> in ``preauthtoken`` parameter
-      * Adding the X-Service-Token to the ``headers`` parameter
+  * Putting the URL in the ``preauthurl`` parameter
+  * Putting the <user-token> in ``preauthtoken`` parameter
+  * Adding the X-Service-Token to the ``headers`` parameter
 
 
 Using the HTTP_X_SERVICE_CATALOG to get Swift Account Name

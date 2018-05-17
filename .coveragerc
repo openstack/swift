@@ -3,4 +3,5 @@ branch = True
 omit = /usr*,setup.py,*egg*,.venv/*,.tox/*,test/*
 
 [report]
+show_missing = True
 ignore_errors = True

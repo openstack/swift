@@ -163,6 +163,25 @@ use = egg:swift#recon
 # Work only with ionice_class.
 # ionice_class =
 # ionice_priority =
+#
+# The handoffs_only mode option is for special-case emergency
+# situations such as full disks in the cluster. This option SHOULD NOT
+# BE ENABLED except in emergencies. When handoffs_only mode is enabled
+# the replicator will *only* replicate from handoff nodes to primary
+# nodes and will not sync primary nodes with other primary nodes.
+#
+# This has two main effects: first, the replicator becomes much more
+# effective at removing misplaced databases, thereby freeing up disk
+# space at a much faster pace than normal. Second, the replicator does
+# not sync data between primary nodes, so out-of-sync account and
+# container listings will not resolve while handoffs_only is enabled.
+#
+# This mode is intended to allow operators to temporarily sacrifice
+# consistency in order to gain faster rebalancing, such as during a
+# capacity addition with nearly-full disks. It is not intended for
+# long-term use.
+#
+# handoffs_only = no
 
 [account-auditor]
 # You can override the default log routing for this app here (don't use set!):
@@ -203,7 +222,11 @@ use = egg:swift#recon
 #
 # Normally, the reaper begins deleting account information for deleted accounts
 # immediately; you can set this to delay its work however. The value is in
-# seconds; 2592000 = 30 days for example.
+# seconds; 2592000 = 30 days for example. The sum of this value and the
+# container-updater interval should be less than the account-replicator
+# reclaim_age. This ensures that once the account-reaper has deleted a
+# container there is sufficient time for the container-updater to report to the
+# account before the account DB is removed.
 # delay_reaping = 0
 #
 # If the account fails to be reaped due to a persistent error, the

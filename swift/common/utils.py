@@ -17,7 +17,9 @@
 
 from __future__ import print_function
 
+import base64
 import binascii
+import collections
 import errno
 import fcntl
 import grp
@@ -28,6 +30,7 @@ import operator
 import os
 import pwd
 import re
+import string
 import struct
 import sys
 import time
@@ -43,7 +46,7 @@ import ctypes
 import ctypes.util
 from optparse import OptionParser
 
-from tempfile import mkstemp, NamedTemporaryFile
+from tempfile import gettempdir, mkstemp, NamedTemporaryFile
 import glob
 import itertools
 import stat
@@ -52,6 +55,7 @@ import datetime
 import eventlet
 import eventlet.debug
 import eventlet.greenthread
+import eventlet.patcher
 import eventlet.semaphore
 from eventlet import GreenPool, sleep, Timeout, tpool
 from eventlet.green import socket, threading
@@ -62,26 +66,22 @@ import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
 import six
+if not six.PY2:
+    utf16_decoder = codecs.getdecoder('utf-16')
+    utf16_encoder = codecs.getencoder('utf-16')
 from six.moves import cPickle as pickle
 from six.moves.configparser import (ConfigParser, NoSectionError,
                                     NoOptionError, RawConfigParser)
-from six.moves import range
+from six.moves import range, http_client
 from six.moves.urllib.parse import ParseResult
 from six.moves.urllib.parse import quote as _quote
 from six.moves.urllib.parse import urlparse as stdlib_urlparse
 
 from swift import gettext_ as _
 import swift.common.exceptions
-from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
-    HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+from swift.common.http import is_server_error
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.linkat import linkat
-
-if six.PY3:
-    stdlib_queue = eventlet.patcher.original('queue')
-else:
-    stdlib_queue = eventlet.patcher.original('Queue')
-stdlib_threading = eventlet.patcher.original('threading')
 
 # logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
@@ -164,8 +164,8 @@ def IOPRIO_PRIO_VALUE(class_, data):
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
-HASH_PATH_SUFFIX = ''
-HASH_PATH_PREFIX = ''
+HASH_PATH_SUFFIX = b''
+HASH_PATH_PREFIX = b''
 
 SWIFT_CONF_FILE = '/etc/swift/swift.conf'
 
@@ -206,8 +206,8 @@ def set_swift_dir(swift_dir):
             swift_dir != os.path.dirname(SWIFT_CONF_FILE)):
         SWIFT_CONF_FILE = os.path.join(
             swift_dir, os.path.basename(SWIFT_CONF_FILE))
-        HASH_PATH_PREFIX = ''
-        HASH_PATH_SUFFIX = ''
+        HASH_PATH_PREFIX = b''
+        HASH_PATH_SUFFIX = b''
         validate_configuration()
         return True
     return False
@@ -218,17 +218,29 @@ def validate_hash_conf():
     global HASH_PATH_PREFIX
     if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
         hash_conf = ConfigParser()
-        if hash_conf.read(SWIFT_CONF_FILE):
+
+        if six.PY3:
+            # Use Latin1 to accept arbitrary bytes in the hash prefix/suffix
+            confs_read = hash_conf.read(SWIFT_CONF_FILE, encoding='latin1')
+        else:
+            confs_read = hash_conf.read(SWIFT_CONF_FILE)
+
+        if confs_read:
             try:
                 HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
                                                  'swift_hash_path_suffix')
+                if six.PY3:
+                    HASH_PATH_SUFFIX = HASH_PATH_SUFFIX.encode('latin1')
             except (NoSectionError, NoOptionError):
                 pass
             try:
                 HASH_PATH_PREFIX = hash_conf.get('swift-hash',
                                                  'swift_hash_path_prefix')
+                if six.PY3:
+                    HASH_PATH_PREFIX = HASH_PATH_PREFIX.encode('latin1')
             except (NoSectionError, NoOptionError):
                 pass
+
         if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
             raise InvalidHashPathConfigError()
 
@@ -240,9 +252,9 @@ except InvalidHashPathConfigError:
     pass
 
 
-def get_hmac(request_method, path, expires, key):
+def get_hmac(request_method, path, expires, key, digest=sha1):
     """
-    Returns the hexdigest string of the HMAC-SHA1 (RFC 2104) for
+    Returns the hexdigest string of the HMAC (see RFC 2104) for
     the request.
 
     :param request_method: Request method to allow.
@@ -250,11 +262,20 @@ def get_hmac(request_method, path, expires, key):
     :param expires: Unix timestamp as an int for when the URL
                     expires.
     :param key: HMAC shared secret.
+    :param digest: constructor for the digest to use in calculating the HMAC
+                   Defaults to SHA1
 
-    :returns: hexdigest str of the HMAC-SHA1 for the request.
+    :returns: hexdigest str of the HMAC for the request using the specified
+              digest algorithm.
     """
+    parts = (request_method, str(expires), path)
+    if not isinstance(key, six.binary_type):
+        key = key.encode('utf8')
     return hmac.new(
-        key, '%s\n%s\n%s' % (request_method, expires, path), sha1).hexdigest()
+        key, b'\n'.join(
+            x if isinstance(x, six.binary_type) else x.encode('utf8')
+            for x in parts),
+        digest).hexdigest()
 
 
 # Used by get_swift_info and register_swift_info to store information about
@@ -379,13 +400,13 @@ def config_positive_int_value(value):
     integer > 0. (not including zero) Raises ValueError otherwise.
     """
     try:
-        value = int(value)
-        if value < 1:
+        result = int(value)
+        if result < 1:
             raise ValueError()
     except (TypeError, ValueError):
         raise ValueError(
             'Config option must be an positive int number, not "%s".' % value)
-    return value
+    return result
 
 
 def config_auto_int_value(value, default):
@@ -470,6 +491,18 @@ def config_read_prefixed_options(conf, prefix_name, defaults):
     return params
 
 
+def eventlet_monkey_patch():
+    """
+    Install the appropriate Eventlet monkey patches.
+    """
+    # NOTE(sileht):
+    #     monkey-patching thread is required by python-keystoneclient;
+    #     monkey-patching select is required by oslo.messaging pika driver
+    #         if thread is monkey-patched.
+    eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
+                                  thread=True)
+
+
 def noop_libc_function(*args):
     return 0
 
@@ -516,7 +549,7 @@ def load_libc_function(func_name, log_error=True,
 
 def generate_trans_id(trans_id_suffix):
     return 'tx%s-%010x%s' % (
-        uuid.uuid4().hex[:21], time.time(), quote(trans_id_suffix))
+        uuid.uuid4().hex[:21], int(time.time()), quote(trans_id_suffix))
 
 
 def get_policy_index(req_headers, res_headers):
@@ -531,6 +564,8 @@ def get_policy_index(req_headers, res_headers):
     """
     header = 'X-Backend-Storage-Policy-Index'
     policy_index = res_headers.get(header, req_headers.get(header))
+    if isinstance(policy_index, six.binary_type) and not six.PY2:
+        policy_index = policy_index.decode('ascii')
     return str(policy_index) if policy_index is not None else None
 
 
@@ -738,7 +773,7 @@ class FallocateWrapper(object):
                 if float(free) <= float(FALLOCATE_RESERVE):
                     raise OSError(
                         errno.ENOSPC,
-                        'FALLOCATE_RESERVE fail %s <= %s' %
+                        'FALLOCATE_RESERVE fail %g <= %g' %
                         (free, FALLOCATE_RESERVE))
         args = {
             'fallocate': (fd, mode, offset, length),
@@ -905,11 +940,16 @@ class Timestamp(object):
         :param delta: deca-microsecond difference from the base timestamp
                       param, an int
         """
+        if isinstance(timestamp, bytes):
+            timestamp = timestamp.decode('ascii')
         if isinstance(timestamp, six.string_types):
-            parts = timestamp.split('_', 1)
-            self.timestamp = float(parts.pop(0))
-            if parts:
-                self.offset = int(parts[0], 16)
+            base, base_offset = timestamp.partition('_')[::2]
+            self.timestamp = float(base)
+            if '_' in base_offset:
+                raise ValueError('invalid literal for int() with base 16: '
+                                 '%r' % base_offset)
+            if base_offset:
+                self.offset = int(base_offset, 16)
             else:
                 self.offset = 0
         else:
@@ -1626,24 +1666,6 @@ class StatsdClient(object):
                                sample_rate)
 
 
-def server_handled_successfully(status_int):
-    """
-    True for successful responses *or* error codes that are not Swift's fault,
-    False otherwise. For example, 500 is definitely the server's fault, but
-    412 is an error code (4xx are all errors) that is due to a header the
-    client sent.
-
-    If one is tracking error rates to monitor server health, one would be
-    advised to use a function like this one, lest a client cause a flurry of
-    404s or 416s and make a spurious spike in your errors graph.
-    """
-    return (is_success(status_int) or
-            is_redirection(status_int) or
-            status_int == HTTP_NOT_FOUND or
-            status_int == HTTP_PRECONDITION_FAILED or
-            status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
-
-
 def timing_stats(**dec_kwargs):
     """
     Returns a decorator that logs timing events or errors for public methods in
@@ -1656,7 +1678,15 @@ def timing_stats(**dec_kwargs):
         def _timing_stats(ctrl, *args, **kwargs):
             start_time = time.time()
             resp = func(ctrl, *args, **kwargs)
-            if server_handled_successfully(resp.status_int):
+            # .timing is for successful responses *or* error codes that are
+            # not Swift's fault. For example, 500 is definitely the server's
+            # fault, but 412 is an error code (4xx are all errors) that is
+            # due to a header the client sent.
+            #
+            # .errors.timing is for failures that *are* Swift's fault.
+            # Examples include 507 for an unmounted drive or 500 for an
+            # unhandled exception.
+            if not is_server_error(resp.status_int):
                 ctrl.logger.timing_since(method + '.timing',
                                          start_time, **dec_kwargs)
             else:
@@ -1666,6 +1696,51 @@ def timing_stats(**dec_kwargs):
 
         return _timing_stats
     return decorating_func
+
+
+class SwiftLoggerAdapter(logging.LoggerAdapter):
+    """
+    A logging.LoggerAdapter subclass that also passes through StatsD method
+    calls.
+
+    Like logging.LoggerAdapter, you have to subclass this and override the
+    process() method to accomplish anything useful.
+    """
+    def update_stats(self, *a, **kw):
+        return self.logger.update_stats(*a, **kw)
+
+    def increment(self, *a, **kw):
+        return self.logger.increment(*a, **kw)
+
+    def decrement(self, *a, **kw):
+        return self.logger.decrement(*a, **kw)
+
+    def timing(self, *a, **kw):
+        return self.logger.timing(*a, **kw)
+
+    def timing_since(self, *a, **kw):
+        return self.logger.timing_since(*a, **kw)
+
+    def transfer_rate(self, *a, **kw):
+        return self.logger.transfer_rate(*a, **kw)
+
+
+class PrefixLoggerAdapter(SwiftLoggerAdapter):
+    """
+    Adds an optional prefix to all its log messages. When the prefix has not
+    been set, messages are unchanged.
+    """
+    def set_prefix(self, prefix):
+        self.extra['prefix'] = prefix
+
+    def exception(self, *a, **kw):
+        self.logger.exception(*a, **kw)
+
+    def process(self, msg, kwargs):
+        msg, kwargs = super(PrefixLoggerAdapter, self).process(msg, kwargs)
+        if 'prefix' in self.extra:
+            msg = self.extra['prefix'] + msg
+        return (msg, kwargs)
 
 
 # double inheritance to support property with setter
@@ -1741,12 +1816,19 @@ class LogAdapter(logging.LoggerAdapter, object):
                 emsg = str(exc)
             elif exc.errno == errno.ECONNREFUSED:
                 emsg = _('Connection refused')
+            elif exc.errno == errno.ECONNRESET:
+                emsg = _('Connection reset')
             elif exc.errno == errno.EHOSTUNREACH:
                 emsg = _('Host unreachable')
+            elif exc.errno == errno.ENETUNREACH:
+                emsg = _('Network unreachable')
             elif exc.errno == errno.ETIMEDOUT:
                 emsg = _('Connection timeout')
             else:
                 call = self._exception
+        elif isinstance(exc, http_client.BadStatusLine):
+            # Use error(); not really exceptional
+            emsg = '%s: %s' % (exc.__class__.__name__, exc.line)
         elif isinstance(exc, eventlet.Timeout):
             emsg = exc.__class__.__name__
             if hasattr(exc, 'seconds'):
@@ -1982,6 +2064,25 @@ def get_hub():
     getting swallowed somewhere. Then when that file descriptor
     was re-used, eventlet would freak right out because it still
     thought it was waiting for activity from it in some other coro.
+
+    Another note about epoll: it's hard to use when forking. epoll works
+    like so:
+
+       * create an epoll instance: efd = epoll_create(...)
+
+       * register file descriptors of interest with epoll_ctl(efd,
+             EPOLL_CTL_ADD, fd, ...)
+
+       * wait for events with epoll_wait(efd, ...)
+
+    If you fork, you and all your child processes end up using the same
+    epoll instance, and everyone becomes confused. It is possible to use
+    epoll and fork and still have a correct program as long as you do the
+    right things, but eventlet doesn't do those things. Really, it can't
+    even try to do those things since it doesn't get notified of forks.
+
+    In contrast, both poll() and select() specify the set of interesting
+    file descriptors with each call, so there's no problem with forking.
     """
     try:
         import select
@@ -2241,21 +2342,61 @@ def hash_path(account, container=None, object=None, raw_digest=False):
     """
     if object and not container:
         raise ValueError('container is required if object is provided')
-    paths = [account]
+    paths = [account if isinstance(account, six.binary_type)
+             else account.encode('utf8')]
     if container:
-        paths.append(container)
+        paths.append(container if isinstance(container, six.binary_type)
+                     else container.encode('utf8'))
     if object:
-        paths.append(object)
+        paths.append(object if isinstance(object, six.binary_type)
+                     else object.encode('utf8'))
     if raw_digest:
-        return md5(HASH_PATH_PREFIX + '/' + '/'.join(paths)
+        return md5(HASH_PATH_PREFIX + b'/' + b'/'.join(paths)
                    + HASH_PATH_SUFFIX).digest()
     else:
-        return md5(HASH_PATH_PREFIX + '/' + '/'.join(paths)
+        return md5(HASH_PATH_PREFIX + b'/' + b'/'.join(paths)
                    + HASH_PATH_SUFFIX).hexdigest()
 
 
+def get_zero_indexed_base_string(base, index):
+    """
+    This allows the caller to make a list of things with indexes, where the
+    first item (zero indexed) is just the bare base string, and subsequent
+    indexes are appended '-1', '-2', etc.
+
+    e.g.::
+
+      'lock', None => 'lock'
+      'lock', 0    => 'lock'
+      'lock', 1    => 'lock-1'
+      'object', 2  => 'object-2'
+
+    :param base: a string, the base string; when ``index`` is 0 (or None) this
+                 is the identity function.
+    :param index: a digit, typically an integer (or None); for values other
+                  than 0 or None this digit is appended to the base string
+                  separated by a hyphen.
+    """
+    if index == 0 or index is None:
+        return_string = base
+    else:
+        return_string = base + "-%d" % int(index)
+    return return_string
+
+
+def _get_any_lock(fds):
+    for fd in fds:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except IOError as err:
+            if err.errno != errno.EAGAIN:
+                raise
+    return False
+
+
 @contextmanager
-def lock_path(directory, timeout=10, timeout_class=None):
+def lock_path(directory, timeout=10, timeout_class=None, limit=1):
     """
     Context manager that acquires a lock on a directory.  This will block until
     the lock can be acquired, or the timeout time has expired (whichever occurs
@@ -2271,12 +2412,22 @@ def lock_path(directory, timeout=10, timeout_class=None):
         lock cannot be granted within the timeout. Will be
         constructed as timeout_class(timeout, lockpath). Default:
         LockTimeout
+    :param limit: The maximum number of locks that may be held concurrently on
+        the same directory at the time this method is called. Note that this
+        limit is only applied during the current call to this method and does
+        not prevent subsequent calls giving a larger limit. Defaults to 1.
+    :raises TypeError: if limit is not an int.
+    :raises ValueError: if limit is less than 1.
     """
+    if limit < 1:
+        raise ValueError('limit must be greater than or equal to 1')
     if timeout_class is None:
         timeout_class = swift.common.exceptions.LockTimeout
     mkdirs(directory)
     lockpath = '%s/.lock' % directory
-    fd = os.open(lockpath, os.O_WRONLY | os.O_CREAT)
+    fds = [os.open(get_zero_indexed_base_string(lockpath, i),
+                   os.O_WRONLY | os.O_CREAT)
+           for i in range(limit)]
     sleep_time = 0.01
     slower_sleep_time = max(timeout * 0.01, sleep_time)
     slowdown_at = timeout * 0.01
@@ -2284,19 +2435,16 @@ def lock_path(directory, timeout=10, timeout_class=None):
     try:
         with timeout_class(timeout, lockpath):
             while True:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if _get_any_lock(fds):
                     break
-                except IOError as err:
-                    if err.errno != errno.EAGAIN:
-                        raise
                 if time_slept > slowdown_at:
                     sleep_time = slower_sleep_time
                 sleep(sleep_time)
                 time_slept += sleep_time
         yield True
     finally:
-        os.close(fd)
+        for fd in fds:
+            os.close(fd)
 
 
 @contextmanager
@@ -2314,9 +2462,9 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
     flags = os.O_CREAT | os.O_RDWR
     if append:
         flags |= os.O_APPEND
-        mode = 'a+'
+        mode = 'a+b'
     else:
-        mode = 'r+'
+        mode = 'r+b'
     while True:
         fd = os.open(filename, flags)
         file_obj = os.fdopen(fd, mode)
@@ -2902,7 +3050,7 @@ def validate_sync_to(value, allowed_sync_hosts, realms_conf):
     :param value: The X-Container-Sync-To header value to validate.
     :param allowed_sync_hosts: A list of allowed hosts in endpoints,
         if realms_conf does not apply.
-    :param realms_conf: A instance of
+    :param realms_conf: An instance of
         swift.common.container_sync_realms.ContainerSyncRealms to
         validate against.
     :returns: A tuple of (error_string, validated_endpoint, realm,
@@ -3137,7 +3285,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
             try:
                 existing_entry = cf.readline()
                 if existing_entry:
-                    cache_entry = json.loads(existing_entry)
+                    cache_entry = json.loads(existing_entry.decode('utf8'))
             except ValueError:
                 # file doesn't have a valid entry, we'll recreate it
                 pass
@@ -3147,7 +3295,9 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
             try:
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
-                    tf.write(json.dumps(cache_entry, sort_keys=True) + '\n')
+                    cache_data = json.dumps(cache_entry, ensure_ascii=True,
+                                            sort_keys=True)
+                    tf.write(cache_data.encode('ascii') + b'\n')
                 if set_owner:
                     os.chown(tf.name, pwd.getpwnam(set_owner).pw_uid, -1)
                 renamer(tf.name, cache_file, fsync=False)
@@ -3158,8 +3308,24 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
                     except OSError as err:
                         if err.errno != errno.ENOENT:
                             raise
-    except (Exception, Timeout):
-        logger.exception(_('Exception dumping recon cache'))
+    except (Exception, Timeout) as err:
+        logger.exception('Exception dumping recon cache: %s' % err)
+
+
+def load_recon_cache(cache_file):
+    """
+    Load a recon cache file. Treats missing file as empty.
+    """
+    try:
+        with open(cache_file) as fh:
+            return json.load(fh)
+    except IOError as e:
+        if e.errno == errno.ENOENT:
+            return {}
+        else:
+            raise
+    except ValueError:  # invalid JSON
+        return {}
 
 
 def listdir(path):
@@ -3295,10 +3461,31 @@ def get_valid_utf8_str(str_or_unicode):
 
     :param str_or_unicode: a string or an unicode which can be invalid utf-8
     """
-    if isinstance(str_or_unicode, six.text_type):
-        (str_or_unicode, _len) = utf8_encoder(str_or_unicode, 'replace')
-    (valid_utf8_str, _len) = utf8_decoder(str_or_unicode, 'replace')
-    return valid_utf8_str.encode('utf-8')
+    if six.PY2:
+        if isinstance(str_or_unicode, six.text_type):
+            (str_or_unicode, _len) = utf8_encoder(str_or_unicode, 'replace')
+        (valid_unicode_str, _len) = utf8_decoder(str_or_unicode, 'replace')
+    else:
+        # Apparently under py3 we need to go to utf-16 to collapse surrogates?
+        if isinstance(str_or_unicode, six.binary_type):
+            try:
+                (str_or_unicode, _len) = utf8_decoder(str_or_unicode,
+                                                      'surrogatepass')
+            except UnicodeDecodeError:
+                (str_or_unicode, _len) = utf8_decoder(str_or_unicode,
+                                                      'replace')
+        (str_or_unicode, _len) = utf16_encoder(str_or_unicode, 'surrogatepass')
+        (valid_unicode_str, _len) = utf16_decoder(str_or_unicode, 'replace')
+    return valid_unicode_str.encode('utf-8')
+
+
+class Everything(object):
+    """
+    A container that contains everything. If "e" is an instance of
+    Everything, then "x in e" is true for all x.
+    """
+    def __contains__(self, element):
+        return True
 
 
 def list_from_csv(comma_separated_str):
@@ -3755,7 +3942,10 @@ def quote(value, safe='/'):
     """
     Patched version of urllib.quote that encodes utf-8 strings before quoting
     """
-    return _quote(get_valid_utf8_str(value), safe)
+    quoted = _quote(get_valid_utf8_str(value), safe)
+    if isinstance(value, six.binary_type):
+        quoted = quoted.encode('utf-8')
+    return quoted
 
 
 def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
@@ -3860,11 +4050,11 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     :returns: A generator of file-like objects for each part.
     :raises MimeInvalid: if the document is malformed
     """
-    boundary = '--' + boundary
+    boundary = b'--' + boundary
     blen = len(boundary) + 2  # \r\n
     try:
         got = wsgi_input.readline(blen)
-        while got == '\r\n':
+        while got == b'\r\n':
             got = wsgi_input.readline(blen)
     except (IOError, ValueError) as e:
         raise swift.common.exceptions.ChunkReadError(str(e))
@@ -3872,8 +4062,8 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     if got.strip() != boundary:
         raise swift.common.exceptions.MimeInvalid(
             'invalid starting boundary: wanted %r, got %r', (boundary, got))
-    boundary = '\r\n' + boundary
-    input_buffer = ''
+    boundary = b'\r\n' + boundary
+    input_buffer = b''
     done = False
     while not done:
         it = _MultipartMimeFileLikeObject(wsgi_input, boundary, input_buffer,
@@ -4246,6 +4436,27 @@ def modify_priority(conf, logger):
     _ioprio_set(io_class, io_priority)
 
 
+def o_tmpfile_in_path_supported(dirpath):
+    fd = None
+    try:
+        fd = os.open(dirpath, os.O_WRONLY | O_TMPFILE)
+        return True
+    except OSError as e:
+        if e.errno in (errno.EINVAL, errno.EISDIR, errno.EOPNOTSUPP):
+            return False
+        else:
+            raise Exception("Error on '%(path)s' while checking "
+                            "O_TMPFILE: '%(ex)s'",
+                            {'path': dirpath, 'ex': e})
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def o_tmpfile_in_tmpdir_supported():
+    return o_tmpfile_in_path_supported(gettempdir())
+
+
 def o_tmpfile_supported():
     """
     Returns True if O_TMPFILE flag is supported.
@@ -4271,6 +4482,41 @@ def safe_json_loads(value):
     return None
 
 
+def strict_b64decode(value, allow_line_breaks=False):
+    '''
+    Validate and decode Base64-encoded data.
+
+    The stdlib base64 module silently discards bad characters, but we often
+    want to treat them as an error.
+
+    :param value: some base64-encoded data
+    :param allow_line_breaks: if True, ignore carriage returns and newlines
+    :returns: the decoded data
+    :raises ValueError: if ``value`` is not a string, contains invalid
+                        characters, or has insufficient padding
+    '''
+    if isinstance(value, bytes):
+        try:
+            value = value.decode('ascii')
+        except UnicodeDecodeError:
+            raise ValueError
+    if not isinstance(value, six.text_type):
+        raise ValueError
+    # b64decode will silently discard bad characters, but we want to
+    # treat them as an error
+    valid_chars = string.digits + string.ascii_letters + '/+'
+    strip_chars = '='
+    if allow_line_breaks:
+        valid_chars += '\r\n'
+        strip_chars += '\r\n'
+    if any(c not in valid_chars for c in value.strip(strip_chars)):
+        raise ValueError
+    try:
+        return base64.b64decode(value)
+    except (TypeError, binascii.Error):  # (py2 error, py3 error)
+        raise ValueError
+
+
 MD5_BLOCK_READ_BYTES = 4096
 
 
@@ -4283,7 +4529,7 @@ def md5_hash_for_file(fname):
     """
     with open(fname, 'rb') as f:
         md5sum = md5()
-        for block in iter(lambda: f.read(MD5_BLOCK_READ_BYTES), ''):
+        for block in iter(lambda: f.read(MD5_BLOCK_READ_BYTES), b''):
             md5sum.update(block)
     return md5sum.hexdigest()
 
@@ -4428,3 +4674,79 @@ class PipeMutex(object):
 class ThreadSafeSysLogHandler(SysLogHandler):
     def createLock(self):
         self.lock = PipeMutex()
+
+
+def round_robin_iter(its):
+    """
+    Takes a list of iterators, yield an element from each in a round-robin
+    fashion until all of them are exhausted.
+    :param its: list of iterators
+    """
+    while its:
+        for it in its:
+            try:
+                yield next(it)
+            except StopIteration:
+                its.remove(it)
+
+
+OverrideOptions = collections.namedtuple(
+    'OverrideOptions', ['devices', 'partitions', 'policies'])
+
+
+def parse_override_options(**kwargs):
+    """
+    Figure out which policies, devices, and partitions we should operate on,
+    based on kwargs.
+
+    If 'override_policies' is already present in kwargs, then return that
+    value. This happens when using multiple worker processes; the parent
+    process supplies override_policies=X to each child process.
+
+    Otherwise, in run-once mode, look at the 'policies' keyword argument.
+    This is the value of the "--policies" command-line option. In
+    run-forever mode or if no --policies option was provided, an empty list
+    will be returned.
+
+    The procedures for devices and partitions are similar.
+
+    :returns: a named tuple with fields "devices", "partitions", and
+      "policies".
+    """
+    run_once = kwargs.get('once', False)
+
+    if 'override_policies' in kwargs:
+        policies = kwargs['override_policies']
+    elif run_once:
+        policies = [
+            int(p) for p in list_from_csv(kwargs.get('policies'))]
+    else:
+        policies = []
+
+    if 'override_devices' in kwargs:
+        devices = kwargs['override_devices']
+    elif run_once:
+        devices = list_from_csv(kwargs.get('devices'))
+    else:
+        devices = []
+
+    if 'override_partitions' in kwargs:
+        partitions = kwargs['override_partitions']
+    elif run_once:
+        partitions = [
+            int(p) for p in list_from_csv(kwargs.get('partitions'))]
+    else:
+        partitions = []
+
+    return OverrideOptions(devices=devices, partitions=partitions,
+                           policies=policies)
+
+
+def distribute_evenly(items, num_buckets):
+    """
+    Distribute items as evenly as possible into N buckets.
+    """
+    out = [[] for _ in range(num_buckets)]
+    for index, item in enumerate(items):
+        out[index % num_buckets].append(item)
+    return out

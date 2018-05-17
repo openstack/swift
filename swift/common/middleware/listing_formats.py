@@ -21,7 +21,7 @@ from swift.common.constraints import valid_api_version
 from swift.common.http import HTTP_NO_CONTENT
 from swift.common.request_helpers import get_param
 from swift.common.swob import HTTPException, HTTPNotAcceptable, Request, \
-    RESPONSE_REASONS
+    RESPONSE_REASONS, HTTPBadRequest
 
 
 #: Mapping of query string ``format=`` values to their corresponding
@@ -51,8 +51,11 @@ def get_listing_content_type(req):
     if query_format:
         req.accept = FORMAT2CONTENT_TYPE.get(
             query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
-    out_content_type = req.accept.best_match(
-        ['text/plain', 'application/json', 'application/xml', 'text/xml'])
+    try:
+        out_content_type = req.accept.best_match(
+            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
+    except ValueError:
+        raise HTTPBadRequest(request=req, body='Invalid Accept header')
     if not out_content_type:
         raise HTTPNotAcceptable(request=req)
     return out_content_type
@@ -89,6 +92,7 @@ def container_to_xml(listing, base_name):
                           'last_modified'):
                 SubElement(sub, field).text = six.text_type(
                     record.pop(field))
+
     return tostring(doc, encoding='UTF-8').replace(
         "<?xml version='1.0' encoding='UTF-8'?>",
         '<?xml version="1.0" encoding="UTF-8"?>', 1)

@@ -20,7 +20,7 @@ from hashlib import md5
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import is_user_meta, \
-    is_object_transient_sysmeta
+    is_object_transient_sysmeta, resolve_etag_is_at_header
 from swift.common.swob import HTTPNotImplemented
 from swift.common.utils import split_path
 
@@ -28,9 +28,9 @@ from test.unit import FakeLogger, FakeRing
 
 
 class LeakTrackingIter(object):
-    def __init__(self, inner_iter, fake_swift, path):
+    def __init__(self, inner_iter, mark_closed, path):
         self.inner_iter = inner_iter
-        self.fake_swift = fake_swift
+        self.mark_closed = mark_closed
         self.path = path
 
     def __iter__(self):
@@ -38,7 +38,7 @@ class LeakTrackingIter(object):
             yield x
 
     def close(self):
-        self.fake_swift.mark_closed(self.path)
+        self.mark_closed(self.path)
 
 
 FakeSwiftCall = namedtuple('FakeSwiftCall', ['method', 'path', 'headers'])
@@ -154,11 +154,8 @@ class FakeSwift(object):
         self._calls.append(
             FakeSwiftCall(method, path, HeaderKeyDict(req.headers)))
 
-        backend_etag_header = req.headers.get('X-Backend-Etag-Is-At')
-        conditional_etag = None
-        if backend_etag_header and backend_etag_header in headers:
-            # Apply conditional etag overrides
-            conditional_etag = headers[backend_etag_header]
+        # Apply conditional etag overrides
+        conditional_etag = resolve_etag_is_at_header(req, headers)
 
         # range requests ought to work, hence conditional_response=True
         if isinstance(body, list):
@@ -173,7 +170,7 @@ class FakeSwift(object):
                 conditional_etag=conditional_etag)
         wsgi_iter = resp(env, start_response)
         self.mark_opened(path)
-        return LeakTrackingIter(wsgi_iter, self, path)
+        return LeakTrackingIter(wsgi_iter, self.mark_closed, path)
 
     def mark_opened(self, path):
         self._unclosed_req_paths[path] += 1

@@ -19,7 +19,6 @@ from __future__ import print_function
 import os
 import copy
 import logging
-import errno
 from six.moves import range
 from six import BytesIO
 import sys
@@ -32,11 +31,14 @@ import time
 import eventlet
 from eventlet import greenpool, debug as eventlet_debug
 from eventlet.green import socket
-from tempfile import mkdtemp
+from tempfile import mkdtemp, mkstemp, gettempdir
 from shutil import rmtree
 import signal
 import json
 import random
+import errno
+import xattr
+
 
 from swift.common.utils import Timestamp, NOTICE
 from test import get_config
@@ -57,14 +59,19 @@ import six.moves.cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 import inspect
-from nose import SkipTest
+import unittest
+import unittest2
+
+
+class SkipTest(unittest2.SkipTest, unittest.SkipTest):
+    pass
 
 EMPTY_ETAG = md5().hexdigest()
 
 # try not to import this module from swift
 if not os.path.basename(sys.argv[0]).startswith('swift'):
     # never patch HASH_PATH_SUFFIX AGAIN!
-    utils.HASH_PATH_SUFFIX = 'endcap'
+    utils.HASH_PATH_SUFFIX = b'endcap'
 
 
 EC_TYPE_PREFERENCE = [
@@ -402,36 +409,6 @@ def tmpfile(content):
     finally:
         os.unlink(file_name)
 
-xattr_data = {}
-
-
-def _get_inode(fd):
-    if not isinstance(fd, int):
-        try:
-            fd = fd.fileno()
-        except AttributeError:
-            return os.stat(fd).st_ino
-    return os.fstat(fd).st_ino
-
-
-def _setxattr(fd, k, v):
-    inode = _get_inode(fd)
-    data = xattr_data.get(inode, {})
-    data[k] = v
-    xattr_data[inode] = data
-
-
-def _getxattr(fd, k):
-    inode = _get_inode(fd)
-    data = xattr_data.get(inode, {}).get(k)
-    if not data:
-        raise IOError(errno.ENODATA, "Fake IOError")
-    return data
-
-import xattr
-xattr.setxattr = _setxattr
-xattr.getxattr = _getxattr
-
 
 @contextmanager
 def temptree(files, contents=''):
@@ -713,8 +690,8 @@ def quiet_eventlet_exceptions():
 def mock_check_drive(isdir=False, ismount=False):
     """
     All device/drive/mount checking should be done through the constraints
-    module if we keep the mocking consistly w/i that module we can keep our
-    test robust to further rework on that interface.
+    module. If we keep the mocking consistently within that module, we can
+    keep our tests robust to further rework on that interface.
 
     Replace the constraint modules underlying os calls with mocks.
 
@@ -1103,6 +1080,15 @@ class Timeout(object):
         raise TimeoutException
 
 
+def requires_o_tmpfile_support_in_tmp(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if not utils.o_tmpfile_in_tmpdir_supported():
+            raise SkipTest('Requires O_TMPFILE support in TMPDIR')
+        return func(*args, **kwargs)
+    return wrapper
+
+
 def requires_o_tmpfile_support(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -1289,3 +1275,51 @@ def fake_ec_node_response(node_frags, policy):
         return StubResponse(200, body, headers)
 
     return get_response
+
+
+supports_xattr_cached_val = None
+
+
+def xattr_supported_check():
+    """
+    This check simply sets more than 4k of metadata on a tempfile and
+    returns True if it worked and False if not.
+
+    We want to use *more* than 4k of metadata in this check because
+    some filesystems (eg ext4) only allow one blocksize worth of
+    metadata. The XFS filesystem doesn't have this limit, and so this
+    check returns True when TMPDIR is XFS. This check will return
+    False under ext4 (which supports xattrs <= 4k) and tmpfs (which
+    doesn't support xattrs at all).
+
+    """
+    global supports_xattr_cached_val
+
+    if supports_xattr_cached_val is not None:
+        return supports_xattr_cached_val
+
+    # assume the worst -- xattrs aren't supported
+    supports_xattr_cached_val = False
+
+    big_val = b'x' * (4096 + 1)  # more than 4k of metadata
+    try:
+        fd, tmppath = mkstemp()
+        xattr.setxattr(fd, 'user.swift.testing_key', big_val)
+    except IOError as e:
+        if errno.errorcode.get(e.errno) in ('ENOSPC', 'ENOTSUP', 'EOPNOTSUPP'):
+            # filesystem does not support xattr of this size
+            return False
+        raise
+    else:
+        supports_xattr_cached_val = True
+        return True
+    finally:
+        # clean up the tmpfile
+        os.close(fd)
+        os.unlink(tmppath)
+
+
+def skip_if_no_xattrs():
+    if not xattr_supported_check():
+        raise SkipTest('Large xattrs not supported in `%s`. Skipping test' %
+                       gettempdir())

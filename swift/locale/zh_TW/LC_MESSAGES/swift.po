@@ -6,18 +6,18 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.15.2.dev9\n"
+"Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2017-08-24 21:08+0000\n"
+"POT-Creation-Date: 2018-02-28 19:39+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "PO-Revision-Date: 2016-04-12 06:43+0000\n"
 "Last-Translator: Copied by Zanata <copied-by-zanata@zanata.org>\n"
-"Language: zh-TW\n"
+"Language: zh_TW\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
-"X-Generator: Zanata 3.9.6\n"
+"X-Generator: Zanata 4.3.3\n"
 "Language-Team: Chinese (Taiwan)\n"
 
 msgid ""
@@ -416,9 +416,6 @@ msgstr "遠端伺服器發生錯誤：%(ip)s:%(port)s/%(device)s"
 msgid "ERROR:  Failed to get paths to drive partitions: %s"
 msgstr "錯誤：無法取得磁碟機分割區的路徑：%s"
 
-msgid "ERROR: An error occurred while retrieving segments"
-msgstr "錯誤：擷取區段時發生錯誤"
-
 #, python-format
 msgid "ERROR: Unable to access %(path)s: %(error)s"
 msgstr "錯誤：無法存取 %(path)s：%(error)s"
@@ -667,24 +664,8 @@ msgid "Object servers returned %s mismatched etags"
 msgstr "物件伺服器已傳回 %s 個不符 etag"
 
 #, python-format
-msgid ""
-"Object update single threaded sweep completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures"
-msgstr ""
-"物件更新單一執行緒清理已完成：%(elapsed).02fs，%(success)s 個成功，%(fail)s "
-"個失敗"
-
-#, python-format
 msgid "Object update sweep completed: %.02fs"
 msgstr "物件更新清理已完成：%.02fs"
-
-#, python-format
-msgid ""
-"Object update sweep of %(device)s completed: %(elapsed).02fs, %(success)s "
-"successes, %(fail)s failures"
-msgstr ""
-"%(device)s 的物件更新清理已完成：%(elapsed).02fs，%(success)s個成"
-"功，%(fail)s 個失敗"
 
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr "X-Container-Sync-To 中不容許參數、查詢及片段"
@@ -887,10 +868,6 @@ msgstr "無法從 %s 讀取配置"
 #, python-format
 msgid "Unauth %(sync_from)r => %(sync_to)r"
 msgstr "未鑑別 %(sync_from)r => %(sync_to)r"
-
-#, python-format
-msgid "Unexpected response: %s"
-msgstr "非預期的回應：%s"
 
 msgid "Unhandled exception"
 msgstr "無法處理的異常狀況"

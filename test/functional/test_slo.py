@@ -14,15 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import email.parser
 import hashlib
 import itertools
 import json
 from copy import deepcopy
-from unittest2 import SkipTest
 
 import test.functional as tf
-from test.functional import cluster_info
+from test.functional import cluster_info, SkipTest
 from test.functional.tests import Utils, Base, Base2, BaseEnv
 from test.functional.swift_test_client import Connection, ResponseError
 
@@ -206,6 +206,28 @@ class TestSloEnv(BaseEnv):
                  'size_bytes': None, 'range': '-1048578'},
             ]), parms={'multipart-manifest': 'put'})
 
+        file_item = cls.container.file("mixed-object-data-manifest")
+        file_item.write(
+            json.dumps([
+                {'data': base64.b64encode('APRE' * 8)},
+                {'path': seg_info['seg_a']['path']},
+                {'data': base64.b64encode('APOS' * 16)},
+                {'path': seg_info['seg_b']['path']},
+                {'data': base64.b64encode('BPOS' * 32)},
+                {'data': base64.b64encode('CPRE' * 64)},
+                {'path': seg_info['seg_c']['path']},
+                {'data': base64.b64encode('CPOS' * 8)},
+            ]), parms={'multipart-manifest': 'put'}
+        )
+
+        file_item = cls.container.file("nested-data-manifest")
+        file_item.write(
+            json.dumps([
+                {'path': '%s/%s' % (cls.container.name,
+                                    "mixed-object-data-manifest")}
+            ]), parms={'multipart-manifest': 'put'}
+        )
+
 
 class TestSlo(Base):
     env = TestSloEnv
@@ -220,9 +242,21 @@ class TestSlo(Base):
                 "Expected slo_enabled to be True/False, got %r" %
                 (self.env.slo_enabled,))
 
+        manifest_abcde_hash = hashlib.md5()
+        manifest_abcde_hash.update(hashlib.md5('a' * 1024 * 1024).hexdigest())
+        manifest_abcde_hash.update(hashlib.md5('b' * 1024 * 1024).hexdigest())
+        manifest_abcde_hash.update(hashlib.md5('c' * 1024 * 1024).hexdigest())
+        manifest_abcde_hash.update(hashlib.md5('d' * 1024 * 1024).hexdigest())
+        manifest_abcde_hash.update(hashlib.md5('e').hexdigest())
+        self.manifest_abcde_etag = manifest_abcde_hash.hexdigest()
+
     def test_slo_get_simple_manifest(self):
         file_item = self.env.container.file('manifest-abcde')
         file_contents = file_item.read()
+        self.assertEqual(file_item.conn.response.status, 200)
+        headers = dict(file_item.conn.response.getheaders())
+        self.assertIn('etag', headers)
+        self.assertEqual(headers['etag'], '"%s"' % self.manifest_abcde_etag)
         self.assertEqual(4 * 1024 * 1024 + 1, len(file_contents))
         self.assertEqual('a', file_contents[0])
         self.assertEqual('a', file_contents[1024 * 1024 - 1])
@@ -349,6 +383,10 @@ class TestSlo(Base):
         file_item = self.env.container.file('manifest-abcde')
         file_contents = file_item.read(size=1024 * 1024 + 2,
                                        offset=1024 * 1024 - 1)
+        self.assertEqual(file_item.conn.response.status, 206)
+        headers = dict(file_item.conn.response.getheaders())
+        self.assertIn('etag', headers)
+        self.assertEqual(headers['etag'], '"%s"' % self.manifest_abcde_etag)
         self.assertEqual('a', file_contents[0])
         self.assertEqual('b', file_contents[1])
         self.assertEqual('b', file_contents[-2])
@@ -419,16 +457,10 @@ class TestSlo(Base):
         self.assertEqual('d', file_contents[-1])
 
     def test_slo_etag_is_hash_of_etags(self):
-        expected_hash = hashlib.md5()
-        expected_hash.update(hashlib.md5('a' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('b' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('c' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('d' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('e').hexdigest())
-        expected_etag = expected_hash.hexdigest()
-
+        # we have this check in test_slo_get_simple_manifest, too,
+        # but verify that it holds for HEAD requests
         file_item = self.env.container.file('manifest-abcde')
-        self.assertEqual(expected_etag, file_item.info()['etag'])
+        self.assertEqual(self.manifest_abcde_etag, file_item.info()['etag'])
 
     def test_slo_etag_is_hash_of_etags_submanifests(self):
 
@@ -672,6 +704,25 @@ class TestSlo(Base):
         self.assertEqual('application/octet-stream', actual['content_type'])
         self.assertEqual(copied.etag, actual['hash'])
 
+        # Test copy manifest including data segments
+        source = self.env.container.file("mixed-object-data-manifest")
+        source_contents = source.read(parms={'multipart-manifest': 'get'})
+        source_json = json.loads(source_contents)
+        source.copy(
+            self.env.container.name,
+            "copied-mixed-object-data-manifest",
+            parms={'multipart-manifest': 'get'})
+
+        copied = self.env.container.file("copied-mixed-object-data-manifest")
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        try:
+            copied_json = json.loads(copied_contents)
+        except ValueError:
+            self.fail("COPY didn't copy the manifest (invalid json on GET)")
+        self.assertEqual(source_contents, copied_contents)
+        self.assertEqual(copied_json[0],
+                         {'data': base64.b64encode('APRE' * 8)})
+
     def test_slo_copy_the_manifest_updating_metadata(self):
         source = self.env.container.file("manifest-abcde")
         source.content_type = 'application/octet-stream'
@@ -791,6 +842,101 @@ class TestSlo(Base):
             json.loads(copied_contents)
         except ValueError:
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
+
+    def test_slo_put_heartbeating(self):
+        if 'yield_frequency' not in cluster_info['slo']:
+            # old swift?
+            raise SkipTest('Swift does not seem to support heartbeating')
+
+        def do_put(headers=None, include_error=False):
+            file_item = self.env.container.file("manifest-heartbeat")
+            seg_info = self.env.seg_info
+            manifest_data = [seg_info['seg_a'], seg_info['seg_b'],
+                             seg_info['seg_c'], seg_info['seg_d'],
+                             seg_info['seg_e']]
+            if include_error:
+                manifest_data.append({'path': 'non-existent/segment'})
+            resp = file_item.write(
+                json.dumps(manifest_data),
+                parms={'multipart-manifest': 'put', 'heartbeat': 'on'},
+                hdrs=headers, return_resp=True)
+            self.assertEqual(resp.status, 202)
+            self.assertTrue(resp.chunked)
+            body_lines = resp.body.split('\n', 2)
+            self.assertFalse(body_lines[0].strip())  # all whitespace
+            self.assertEqual('\r', body_lines[1])
+            return body_lines[2]
+
+        body_lines = do_put().split('\n')
+        self.assertIn('Response Status: 201 Created', body_lines)
+        self.assertIn('Etag', [line.split(':', 1)[0] for line in body_lines])
+        self.assertIn('Last Modified', [line.split(':', 1)[0]
+                                        for line in body_lines])
+
+        body_lines = do_put({'Accept': 'text/plain'}).split('\n')
+        self.assertIn('Response Status: 201 Created', body_lines)
+        self.assertIn('Etag', [line.split(':', 1)[0] for line in body_lines])
+        self.assertIn('Last Modified', [line.split(':', 1)[0]
+                                        for line in body_lines])
+
+        body = do_put({'Accept': 'application/json'})
+        try:
+            resp = json.loads(body)
+        except ValueError:
+            self.fail('Expected JSON, got %r' % body)
+        self.assertIn('Etag', resp)
+        del resp['Etag']
+        self.assertIn('Last Modified', resp)
+        del resp['Last Modified']
+        self.assertEqual(resp, {
+            'Response Status': '201 Created',
+            'Response Body': '',
+            'Errors': [],
+        })
+
+        body_lines = do_put(include_error=True).split('\n')
+        self.assertIn('Response Status: 400 Bad Request', body_lines)
+        self.assertIn('Response Body: Bad Request', body_lines)
+        self.assertNotIn('Etag', [line.split(':', 1)[0]
+                                  for line in body_lines])
+        self.assertNotIn('Last Modified', [line.split(':', 1)[0]
+                                           for line in body_lines])
+        self.assertEqual(body_lines[-3:], [
+            'Errors:',
+            'non-existent/segment, 404 Not Found',
+            '',
+        ])
+
+        body = do_put({'Accept': 'application/json'}, include_error=True)
+        try:
+            resp = json.loads(body)
+        except ValueError:
+            self.fail('Expected JSON, got %r' % body)
+        self.assertNotIn('Etag', resp)
+        self.assertNotIn('Last Modified', resp)
+        self.assertEqual(resp, {
+            'Response Status': '400 Bad Request',
+            'Response Body': 'Bad Request\nThe server could not comply with '
+                             'the request since it is either malformed or '
+                             'otherwise incorrect.',
+            'Errors': [
+                ['non-existent/segment', '404 Not Found'],
+            ],
+        })
+
+        body = do_put({'Accept': 'application/json', 'ETag': 'bad etag'})
+        try:
+            resp = json.loads(body)
+        except ValueError:
+            self.fail('Expected JSON, got %r' % body)
+        self.assertNotIn('Etag', resp)
+        self.assertNotIn('Last Modified', resp)
+        self.assertEqual(resp, {
+            'Response Status': '422 Unprocessable Entity',
+            'Response Body': 'Unprocessable Entity\nUnable to process the '
+                             'contained instructions',
+            'Errors': [],
+        })
 
     def _make_manifest(self):
         file_item = self.env.container.file("manifest-post")
@@ -1010,6 +1156,56 @@ class TestSlo(Base):
         self.assertEqual('b', contents[1024 * 1024])
         self.assertEqual('d', contents[-2])
         self.assertEqual('e', contents[-1])
+
+    def test_slo_data_segments(self):
+        # len('APRE' * 8) == 32
+        # len('APOS' * 16) == 64
+        # len('BPOS' * 32) == 128
+        # len('CPRE' * 64) == 256
+        # len(a_pre + seg_a + post_a) == 32 + 1024 ** 2 + 64
+        # len(seg_b + post_b) == 1024 ** 2 + 128
+        # len(c_pre + seg_c) == 256 + 1024 ** 2
+        # len(total) == 3146208
+
+        for file_name in ("mixed-object-data-manifest",
+                          "nested-data-manifest"):
+            file_item = self.env.container.file(file_name)
+            file_contents = file_item.read(size=3 * 1024 ** 2 + 456,
+                                           offset=28)
+            grouped_file_contents = [
+                (char, sum(1 for _char in grp))
+                for char, grp in itertools.groupby(file_contents)]
+            self.assertEqual([
+                ('A', 1),
+                ('P', 1),
+                ('R', 1),
+                ('E', 1),
+                ('a', 1024 * 1024),
+            ] + [
+                ('A', 1),
+                ('P', 1),
+                ('O', 1),
+                ('S', 1),
+            ] * 16 + [
+                ('b', 1024 * 1024),
+            ] + [
+                ('B', 1),
+                ('P', 1),
+                ('O', 1),
+                ('S', 1),
+            ] * 32 + [
+                ('C', 1),
+                ('P', 1),
+                ('R', 1),
+                ('E', 1),
+            ] * 64 + [
+                ('c', 1024 * 1024),
+            ] + [
+                ('C', 1),
+                ('P', 1),
+                ('O', 1),
+                ('S', 1),
+            ], grouped_file_contents)
 
 
 class TestSloUTF8(Base2, TestSlo):

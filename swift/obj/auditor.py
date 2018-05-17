@@ -27,7 +27,7 @@ from eventlet import Timeout
 from swift.obj import diskfile, replicator
 from swift.common.utils import (
     get_logger, ratelimit_sleep, dump_recon_cache, list_from_csv, listdir,
-    unlink_paths_older_than, readconf, config_auto_int_value)
+    unlink_paths_older_than, readconf, config_auto_int_value, round_robin_iter)
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist,\
     DiskFileDeleted, DiskFileExpired
 from swift.common.daemon import Daemon
@@ -120,18 +120,17 @@ class AuditorWorker(object):
         total_quarantines = 0
         total_errors = 0
         time_auditing = 0
-        # TODO: we should move audit-location generation to the storage policy,
-        # as we may (conceivably) have a different filesystem layout for each.
-        # We'd still need to generate the policies to audit from the actual
-        # directories found on-disk, and have appropriate error reporting if we
-        # find a directory that doesn't correspond to any known policy. This
-        # will require a sizable refactor, but currently all diskfile managers
-        # can find all diskfile locations regardless of policy -- so for now
-        # just use Policy-0's manager.
-        all_locs = (self.diskfile_router[POLICIES[0]]
+
+        # get AuditLocations for each policy
+        loc_generators = []
+        for policy in POLICIES:
+            loc_generators.append(
+                self.diskfile_router[policy]
                     .object_audit_location_generator(
-                        device_dirs=device_dirs,
+                        policy, device_dirs=device_dirs,
                         auditor_type=self.auditor_type))
+
+        all_locs = round_robin_iter(loc_generators)
         for location in all_locs:
             loop_time = time.time()
             self.failsafe_object_audit(location)
@@ -192,8 +191,11 @@ class AuditorWorker(object):
             self.logger.info(
                 _('Object audit stats: %s') % json.dumps(self.stats_buckets))
 
-        # Unset remaining partitions to not skip them in the next run
-        diskfile.clear_auditor_status(self.devices, self.auditor_type)
+        for policy in POLICIES:
+            # Unset remaining partitions to not skip them in the next run
+            self.diskfile_router[policy].clear_auditor_status(
+                policy,
+                self.auditor_type)
 
     def record_stats(self, obj_size):
         """
@@ -240,7 +242,7 @@ class AuditorWorker(object):
         df = diskfile_mgr.get_diskfile_from_audit_location(location)
         reader = None
         try:
-            with df.open():
+            with df.open(modernize=True):
                 metadata = df.get_metadata()
                 obj_size = int(metadata['Content-Length'])
                 if self.stats_sizes:
@@ -289,9 +291,9 @@ class AuditorWorker(object):
 class ObjectAuditor(Daemon):
     """Audit objects."""
 
-    def __init__(self, conf, **options):
+    def __init__(self, conf, logger=None, **options):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='object-auditor')
+        self.logger = logger or get_logger(conf, log_route='object-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.concurrency = int(conf.get('concurrency', 1))
         self.conf_zero_byte_fps = int(
@@ -319,7 +321,8 @@ class ObjectAuditor(Daemon):
                                zero_byte_only_at_fps=zero_byte_only_at_fps)
         worker.audit_all_objects(mode=mode, device_dirs=device_dirs)
 
-    def fork_child(self, zero_byte_fps=False, **kwargs):
+    def fork_child(self, zero_byte_fps=False, sleep_between_zbf_scanner=False,
+                   **kwargs):
         """Child execution"""
         pid = os.fork()
         if pid:
@@ -328,6 +331,8 @@ class ObjectAuditor(Daemon):
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             if zero_byte_fps:
                 kwargs['zero_byte_fps'] = self.conf_zero_byte_fps
+                if sleep_between_zbf_scanner:
+                    self._sleep()
             try:
                 self.run_audit(**kwargs)
             except Exception as e:
@@ -391,8 +396,9 @@ class ObjectAuditor(Daemon):
                    len(pids) > 1 and not once:
                     kwargs['device_dirs'] = override_devices
                     # sleep between ZBF scanner forks
-                    self._sleep()
-                    zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
+                    zbf_pid = self.fork_child(zero_byte_fps=True,
+                                              sleep_between_zbf_scanner=True,
+                                              **kwargs)
                     pids.add(zbf_pid)
                 pids.discard(pid)
 
