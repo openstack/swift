@@ -252,8 +252,12 @@ import binascii
 from calendar import timegm
 import functools
 import hashlib
+import hmac
+import six
+from hashlib import sha1
 from os.path import basename
 from time import time, strftime, strptime, gmtime
+from ipaddress import ip_address, ip_network
 
 from six.moves.urllib.parse import parse_qs
 from six.moves.urllib.parse import urlencode
@@ -261,10 +265,10 @@ from six.moves.urllib.parse import urlencode
 from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
-    HTTPBadRequest
+    HTTPBadRequest, Request
 from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote, get_logger, \
-    strict_b64decode
+    strict_b64decode, get_remote_client
 
 
 DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
@@ -298,6 +302,30 @@ CONTAINER_SCOPE = 'container'
 ACCOUNT_SCOPE = 'account'
 
 EXPIRES_ISO8601_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
+
+
+def get_hmac_ip(request_method, path, expires, key, ip_range, digest=sha1):
+    """
+    Returns the hexdigest string of the HMAC (see RFC 2104) for
+    the request.
+    :param request_method: Request method to allow.
+    :param path: The path to the resource to allow access to.
+    :param expires: Unix timestamp as an int for when the URL
+                    expires.
+    :param key: HMAC shared secret.
+    :param digest: constructor for the digest to use in calculating the HMAC
+                   Defaults to SHA1
+    :returns: hexdigest str of the HMAC for the request using the specified
+              digest algorithm.
+    """
+    parts = (request_method, str(expires), path, ip_range)
+    if not isinstance(key, six.binary_type):
+        key = key.encode('utf8')
+    return hmac.new(
+        key, b'\n'.join(
+            x if isinstance(x, six.binary_type) else x.encode('utf8')
+            for x in parts),
+        digest).hexdigest()
 
 
 def get_tempurl_keys_from_metadata(meta):
@@ -446,7 +474,7 @@ class TempURL(object):
             return self.app(env, start_response)
         info = self._get_temp_url_info(env)
         temp_url_sig, temp_url_expires, temp_url_prefix, filename,\
-            inline_disposition = info
+            inline_disposition, temp_url_ip_range = info
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
@@ -474,6 +502,14 @@ class TempURL(object):
         account, container, obj = self._get_path_parts(env)
         if not account:
             return self._invalid(env, start_response)
+
+        if temp_url_ip_range:
+            req = Request(env)
+            client_address = get_remote_client(req)
+            allowed_ip_ranges = ip_network(six.u(temp_url_ip_range))
+            if ip_address(six.u(client_address)) not in allowed_ip_ranges:
+                return self._invalid(env, start_response)
+
         keys = self._get_keys(env)
         if not keys:
             return self._invalid(env, start_response)
@@ -489,10 +525,11 @@ class TempURL(object):
                 hmac for method in ('HEAD', 'GET', 'POST', 'PUT')
                 for hmac in self._get_hmacs(
                     env, temp_url_expires, path, keys, hash_algorithm,
-                    request_method=method)]
+                    request_method=method, ip_range=temp_url_ip_range)]
         else:
             hmac_vals = self._get_hmacs(
-                env, temp_url_expires, path, keys, hash_algorithm)
+                env, temp_url_expires, path, keys, hash_algorithm,
+                ip_range=temp_url_ip_range)
 
         is_valid_hmac = False
         hmac_scope = None
@@ -604,8 +641,10 @@ class TempURL(object):
         :returns: (sig, expires, prefix, filename, inline) as described above.
         """
         temp_url_sig = temp_url_expires = temp_url_prefix = filename =\
-            inline = None
+            inline, temp_url_ip_range = None
         qs = parse_qs(env.get('QUERY_STRING', ''), keep_blank_values=True)
+        if 'temp_url_ip_range' in qs:
+            temp_url_ip_range = qs['temp_url_ip_range'][0]
         if 'temp_url_sig' in qs:
             temp_url_sig = qs['temp_url_sig'][0]
         if 'temp_url_expires' in qs:
@@ -627,7 +666,7 @@ class TempURL(object):
         if 'inline' in qs:
             inline = True
         return (temp_url_sig, temp_url_expires, temp_url_prefix, filename,
-                inline)
+                inline, temp_url_ip_range)
 
     def _get_keys(self, env):
         """
@@ -658,7 +697,7 @@ class TempURL(object):
                 [(ck, CONTAINER_SCOPE) for ck in container_keys])
 
     def _get_hmacs(self, env, expires, path, scoped_keys, hash_algorithm,
-                   request_method=None):
+                   request_method=None, ip_range=None):
         """
         :param env: The WSGI environment for the request.
         :param expires: Unix timestamp as an int for when the URL
@@ -678,9 +717,16 @@ class TempURL(object):
             request_method = env['REQUEST_METHOD']
 
         digest = functools.partial(hashlib.new, hash_algorithm)
-        return [
-            (get_hmac(request_method, path, expires, key, digest), scope)
-            for (key, scope) in scoped_keys]
+        if ip_range:
+            return [
+                (get_hmac_ip(
+                    request_method, path, expires, key, digest, ip_range
+                ), scope)
+                for (key, scope) in scoped_keys]
+        else:
+            return [
+                (get_hmac(request_method, path, expires, key, digest), scope)
+                for (key, scope) in scoped_keys]
 
     def _invalid(self, env, start_response):
         """
