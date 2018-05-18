@@ -1758,7 +1758,8 @@ class TestContainerSharding(BaseTestContainerSharding):
             shard_broker.merge_items(
                 [{'name': name, 'created_at': Timestamp.now().internal,
                   'size': 0, 'content_type': 'text/plain',
-                  'etag': hashlib.md5().hexdigest(), 'deleted': deleted}])
+                  'etag': hashlib.md5().hexdigest(), 'deleted': deleted,
+                  'storage_policy_index': shard_broker.storage_policy_index}])
             return shard_nodes[0]
 
         all_obj_names = self._make_object_names(self.max_shard_size)
