@@ -1225,6 +1225,45 @@ class TestProxyProtocol(unittest.TestCase):
             lines = [l for l in bytes_out.split(b"\r\n") if l]
             self.assertIn(b"200 OK", lines[0])
 
+    def test_address_and_environ(self):
+        # Make an object we can exercise... note the base class's __init__()
+        # does a bunch of work, so we just new up an object like eventlet.wsgi
+        # does.
+        dummy_env = {'OTHER_ENV_KEY': 'OTHER_ENV_VALUE'}
+        mock_protocol = mock.Mock(get_environ=lambda s: dummy_env)
+        patcher = mock.patch(
+            'swift.common.wsgi.SwiftHttpProtocol', mock_protocol
+        )
+        self.mock_super = patcher.start()
+        self.addCleanup(patcher.stop)
+
+        proto_class = wsgi.SwiftHttpProxiedProtocol
+        try:
+            proxy_obj = types.InstanceType(proto_class)
+        except AttributeError:
+            proxy_obj = proto_class.__new__(proto_class)
+
+        # Install some convenience mocks
+        proxy_obj.server = Namespace(app=Namespace(logger=mock.Mock()),
+                                     url_length_limit=777,
+                                     log=mock.Mock())
+        proxy_obj.send_error = mock.Mock()
+
+        proxy_obj.rfile = BytesIO(
+            b'PROXY TCP4 111.111.111.111 222.222.222.222 111 222'
+        )
+
+        assert proxy_obj.handle()
+
+        self.assertEqual(proxy_obj.client_address, ('111.111.111.111', '111'))
+        self.assertEqual(proxy_obj.proxy_address, ('222.222.222.222', '222'))
+        expected_env = {
+            'SERVER_PORT': '222',
+            'SERVER_ADDR': '222.222.222.222',
+            'OTHER_ENV_KEY': 'OTHER_ENV_VALUE'
+        }
+        self.assertEqual(proxy_obj.get_environ(), expected_env)
+
 
 class TestServersPerPortStrategy(unittest.TestCase):
     def setUp(self):

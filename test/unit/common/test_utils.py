@@ -3629,6 +3629,16 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.get_hmac('GET', '/path', 1, 'abc'),
             'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
 
+    def test_get_hmac_ip_range(self):
+        self.assertEqual(
+            utils.get_hmac('GET', '/path', 1, 'abc', ip_range='127.0.0.1'),
+            'b30dde4d2b8562b8496466c3b46b2b9ac5054461')
+
+    def test_get_hmac_ip_range_non_binary_type(self):
+        self.assertEqual(
+            utils.get_hmac(u'GET', u'/path', 1, u'abc', ip_range=u'127.0.0.1'),
+            'b30dde4d2b8562b8496466c3b46b2b9ac5054461')
+
     def test_parse_override_options(self):
         # When override_<thing> is passed in, it takes precedence.
         opts = utils.parse_override_options(

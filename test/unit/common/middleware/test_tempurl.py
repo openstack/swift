@@ -812,6 +812,52 @@ class TestTempURL(unittest.TestCase):
         self.assertIn('Temp URL invalid', resp.body)
         self.assertIn('Www-Authenticate', resp.headers)
 
+    def test_ip_range_value_error(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        ip = '127.0.0.1'
+        not_an_ip = 'abcd'
+        hmac_body = 'ip=%s\n%s\n%s\n%s' % (ip, method, expires, path)
+        sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
+        req = self._make_request(
+            path, keys=[key],
+            environ={
+                'QUERY_STRING':
+                'temp_url_sig=%s&temp_url_expires=%s&temp_url_ip_range=%s'
+                % (sig, expires, not_an_ip),
+                'REMOTE_ADDR': '127.0.0.1'
+            },
+        )
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 401)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
+
+    def test_bad_ip_range_invalid(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        ip = '127.0.0.1'
+        bad_ip = '127.0.0.2'
+        hmac_body = 'ip=%s\n%s\n%s\n%s' % (ip, method, expires, path)
+        sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
+        req = self._make_request(
+            path, keys=[key],
+            environ={
+                'QUERY_STRING':
+                'temp_url_sig=%s&temp_url_expires=%s&temp_url_ip_range=%s'
+                % (sig, expires, ip),
+                'REMOTE_ADDR': bad_ip
+            },
+        )
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 401)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
+
     def test_different_key_invalid(self):
         method = 'GET'
         expires = int(time() + 86400)
@@ -1098,44 +1144,51 @@ class TestTempURL(unittest.TestCase):
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
                         s, e)}),
-                (s, e_ts, None, None, None))
+                (s, e_ts, None, None, None, None))
             self.assertEqual(
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING':
                      'temp_url_sig=%s&temp_url_expires=%s&temp_url_prefix=%s'
                      % (s, e, 'prefix')}),
-                (s, e_ts, 'prefix', None, None))
+                (s, e_ts, 'prefix', None, None, None))
             self.assertEqual(
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
                      'filename=bobisyouruncle' % (s, e)}),
-                (s, e_ts, None, 'bobisyouruncle', None))
+                (s, e_ts, None, 'bobisyouruncle', None, None))
             self.assertEqual(
                 self.tempurl._get_temp_url_info({}),
-                (None, None, None, None, None))
+                (None, None, None, None, None, None))
             self.assertEqual(
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING': 'temp_url_expires=%s' % e}),
-                (None, e_ts, None, None, None))
+                (None, e_ts, None, None, None, None))
             self.assertEqual(
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING': 'temp_url_sig=%s' % s}),
-                (s, None, None, None, None))
+                (s, None, None, None, None, None))
             self.assertEqual(
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=bad' % (
                         s)}),
-                (s, 0, None, None, None))
+                (s, 0, None, None, None, None))
             self.assertEqual(
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
                      'inline=' % (s, e)}),
-                (s, e_ts, None, None, True))
+                (s, e_ts, None, None, True, None))
             self.assertEqual(
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
                      'filename=bobisyouruncle&inline=' % (s, e)}),
-                (s, e_ts, None, 'bobisyouruncle', True))
+                (s, e_ts, None, 'bobisyouruncle', True, None))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+                     'filename=bobisyouruncle&inline='
+                     '&temp_url_ip_range=127.0.0.1' % (s, e)}),
+                (s, e_ts, None, 'bobisyouruncle', True, '127.0.0.1'))
+
         e_ts = int(time() - 1)
         e_8601 = strftime(tempurl.EXPIRES_ISO8601_FORMAT, gmtime(e_ts))
         for e in (e_ts, e_8601):
@@ -1143,14 +1196,14 @@ class TestTempURL(unittest.TestCase):
                 self.tempurl._get_temp_url_info(
                     {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
                         s, e)}),
-                (s, 0, None, None, None))
+                (s, 0, None, None, None, None))
         # Offsets not supported (yet?).
         e_8601 = strftime('%Y-%m-%dT%H:%M:%S+0000', gmtime(e_ts))
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
                     s, e_8601)}),
-            (s, 0, None, None, None))
+            (s, 0, None, None, None, None))
 
     def test_get_hmacs(self):
         self.assertEqual(
@@ -1165,6 +1218,15 @@ class TestTempURL(unittest.TestCase):
             [('240866478d94bbe683ab1d25fba52c7d0df21a60951'
               '4fe6a493dc30f951d2748abc51da0cbc633cd1e0acf'
               '6fadd3af3aedff00ee3d3434dc6a4c423e74adfc4a', 'account')])
+        self.assertEqual(
+            self.tempurl._get_hmacs(
+                {'REQUEST_METHOD': 'HEAD'}, 1, '/v1/a/c/o',
+                [('abc', 'account')], 'sha512', request_method='GET',
+                ip_range='127.0.0.1'
+            ),
+            [('b713f99a66911cdf41dbcdff16db3efbd1ca89340a20'
+              '86cc2ed88f0d3a74c7159e7687a312b12345d3721b7b'
+              '94e36c2753d7cc01e9a91cc318c5081d788f2cfe', 'account')])
 
     def test_invalid(self):
 
@@ -1320,6 +1382,136 @@ class TestTempURL(unittest.TestCase):
         results = tempurl.get_tempurl_keys_from_metadata(meta)
         for str_value in results:
             self.assertIsInstance(str_value, str)
+
+    @mock.patch('swift.common.middleware.tempurl.time', return_value=0)
+    def test_get_valid_with_ip_range(self, mock_time):
+        method = 'GET'
+        expires = (((24 + 1) * 60 + 1) * 60) + 1
+        path = '/v1/a/c/o'
+        key = 'abc'
+        ip_range = '127.0.0.0/29'
+        hmac_body = 'ip=%s\n%s\n%s\n%s' % (ip_range, method, expires, path)
+        sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'temp_url_ip_range=%s' % (sig, expires, ip_range),
+            'REMOTE_ADDR': '127.0.0.1'},
+        )
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('expires', resp.headers)
+        self.assertEqual('Fri, 02 Jan 1970 01:01:01 GMT',
+                         resp.headers['expires'])
+        self.assertEqual(req.environ['swift.authorize_override'], True)
+        self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    @mock.patch('swift.common.middleware.tempurl.time', return_value=0)
+    def test_get_valid_with_ip_from_remote_addr(self, mock_time):
+        method = 'GET'
+        expires = (((24 + 1) * 60 + 1) * 60) + 1
+        path = '/v1/a/c/o'
+        key = 'abc'
+        ip = '127.0.0.1'
+        hmac_body = 'ip=%s\n%s\n%s\n%s' % (ip, method, expires, path)
+        sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'temp_url_ip_range=%s' % (sig, expires, ip),
+            'REMOTE_ADDR': ip},
+        )
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('expires', resp.headers)
+        self.assertEqual('Fri, 02 Jan 1970 01:01:01 GMT',
+                         resp.headers['expires'])
+        self.assertEqual(req.environ['swift.authorize_override'], True)
+        self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    def test_get_valid_with_fake_ip_from_x_forwarded_for(self):
+        method = 'GET'
+        expires = (((24 + 1) * 60 + 1) * 60) + 1
+        path = '/v1/a/c/o'
+        key = 'abc'
+        ip = '127.0.0.1'
+        remote_addr = '127.0.0.2'
+        hmac_body = 'ip=%s\n%s\n%s\n%s' % (ip, method, expires, path)
+        sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'temp_url_ip_range=%s' % (sig, expires, ip),
+            'REMOTE_ADDR': remote_addr},
+            headers={'x-forwarded-for': ip})
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 401)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
+
+    @mock.patch('swift.common.middleware.tempurl.time', return_value=0)
+    def test_get_valid_with_single_ipv6(self, mock_time):
+        method = 'GET'
+        expires = (((24 + 1) * 60 + 1) * 60) + 1
+        path = '/v1/a/c/o'
+        key = 'abc'
+        ip = '2001:db8::'
+        hmac_body = 'ip=%s\n%s\n%s\n%s' % (ip, method, expires, path)
+        sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'temp_url_ip_range=%s' % (sig, expires, ip),
+            'REMOTE_ADDR': '2001:db8::'},
+        )
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('expires', resp.headers)
+        self.assertEqual('Fri, 02 Jan 1970 01:01:01 GMT',
+                         resp.headers['expires'])
+        self.assertEqual(req.environ['swift.authorize_override'], True)
+        self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    @mock.patch('swift.common.middleware.tempurl.time', return_value=0)
+    def test_get_valid_with_ipv6_range(self, mock_time):
+        method = 'GET'
+        expires = (((24 + 1) * 60 + 1) * 60) + 1
+        path = '/v1/a/c/o'
+        key = 'abc'
+        ip_range = '2001:db8::/127'
+        hmac_body = 'ip=%s\n%s\n%s\n%s' % (ip_range, method, expires, path)
+        sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'temp_url_ip_range=%s' % (sig, expires, ip_range),
+            'REMOTE_ADDR': '2001:db8::'},
+        )
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('expires', resp.headers)
+        self.assertEqual('Fri, 02 Jan 1970 01:01:01 GMT',
+                         resp.headers['expires'])
+        self.assertEqual(req.environ['swift.authorize_override'], True)
+        self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    def test_get_valid_with_no_client_address(self):
+        method = 'GET'
+        expires = (((24 + 1) * 60 + 1) * 60) + 1
+        path = '/v1/a/c/o'
+        key = 'abc'
+        ip = '127.0.0.1'
+        hmac_body = '%s\n%s\n%s\n%s' % (ip, method, expires, path)
+        sig = hmac.new(key, hmac_body, hashlib.sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'temp_url_ip_range=%s' % (sig, expires, ip)},
+        )
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 401)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
 
 class TestSwiftInfo(unittest.TestCase):
