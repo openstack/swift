@@ -252,7 +252,8 @@ except InvalidHashPathConfigError:
     pass
 
 
-def get_hmac(request_method, path, expires, key, digest=sha1):
+def get_hmac(request_method, path, expires, key, digest=sha1,
+             ip_range=None):
     """
     Returns the hexdigest string of the HMAC (see RFC 2104) for
     the request.
@@ -264,11 +265,15 @@ def get_hmac(request_method, path, expires, key, digest=sha1):
     :param key: HMAC shared secret.
     :param digest: constructor for the digest to use in calculating the HMAC
                    Defaults to SHA1
-
+    :param ip_range: The ip range from which the resource is allowed
+                     to be accessed
     :returns: hexdigest str of the HMAC for the request using the specified
               digest algorithm.
     """
-    parts = (request_method, str(expires), path)
+    if ip_range:
+        parts = (request_method, str(expires), path, ip_range)
+    else:
+        parts = (request_method, str(expires), path)
     if not isinstance(key, six.binary_type):
         key = key.encode('utf8')
     return hmac.new(

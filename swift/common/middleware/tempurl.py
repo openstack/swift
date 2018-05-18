@@ -49,6 +49,10 @@ contain signatures which are valid for all objects which share a
 common prefix. These prefix-based URLs are useful for sharing a set
 of objects.
 
+Restrictions can also be placed on the ip that the resource is allowed
+to be accessed from. This can be useful for locking down where the urls
+can be used from.
+
 ------------
 Client Usage
 ------------
@@ -147,6 +151,52 @@ Another valid URL::
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
     temp_url_expires=1323479485&
     temp_url_prefix=pre
+
+If you wish to lock down the ip ranges from where the resource can be accessed
+to the ip 1.2.3.4::
+
+    import hmac
+    from hashlib import sha1
+    from time import time
+    method = 'GET'
+    expires = int(time() + 60)
+    path = '/v1/AUTH_account/container/object'
+    ip_range = '1.2.3.4'
+    key = 'mykey'
+    hmac_body = '%s\n%s\n%s\n%s' % (method, expires, path, ip_range)
+    sig = hmac.new(key, hmac_body, sha1).hexdigest()
+
+The generated signature would only be valid from the ip ``1.2.3.4``. The
+middleware detects a ip-based temporary URL by a query parameter called
+``temp_url_ip_range``. So, if ``sig`` and ``expires`` would end up like
+above, following URL would be valid::
+
+    https://swift-cluster.example.com/v1/AUTH_account/container/object?
+    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    temp_url_expires=1323479485&
+    temp_url_ip_range=1.2.3.4
+
+Similarly to lock down the ip to a range of ``1.2.3.X`` so starting
+from the ip ``1.2.3.0`` to ``1.2.3.254``
+
+    import hmac
+    from hashlib import sha1
+    from time import time
+    method = 'GET'
+    expires = int(time() + 60)
+    path = '/v1/AUTH_account/container/object'
+    ip_range = '1.2.3.0/24'
+    key = 'mykey'
+    hmac_body = '%s\n%s\n%s\n%s' % (method, expires, path, ip_range)
+    sig = hmac.new(key, hmac_body, sha1).hexdigest()
+
+Then the following url would be valid
+
+    https://swift-cluster.example.com/v1/AUTH_account/container/object?
+    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    temp_url_expires=1323479485&
+    temp_url_ip_range=1.2.3.0/24
+
 
 Any alteration of the resource path or query arguments of a temporary URL
 would result in ``401 Unauthorized``. Similarly, a ``PUT`` where ``GET`` was
@@ -252,8 +302,10 @@ import binascii
 from calendar import timegm
 import functools
 import hashlib
+import six
 from os.path import basename
 from time import time, strftime, strptime, gmtime
+from ipaddress import ip_address, ip_network
 
 from six.moves.urllib.parse import parse_qs
 from six.moves.urllib.parse import urlencode
@@ -261,10 +313,10 @@ from six.moves.urllib.parse import urlencode
 from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
-    HTTPBadRequest
+    HTTPBadRequest, Request
 from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote, get_logger, \
-    strict_b64decode
+    strict_b64decode, get_remote_client
 
 
 DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
@@ -446,7 +498,7 @@ class TempURL(object):
             return self.app(env, start_response)
         info = self._get_temp_url_info(env)
         temp_url_sig, temp_url_expires, temp_url_prefix, filename,\
-            inline_disposition = info
+            inline_disposition, temp_url_ip_range = info
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
@@ -474,6 +526,16 @@ class TempURL(object):
         account, container, obj = self._get_path_parts(env)
         if not account:
             return self._invalid(env, start_response)
+
+        if temp_url_ip_range:
+            req = Request(env)
+            client_address = get_remote_client(req)
+            if client_address is None:
+                return self._invalid(env, start_response)
+            allowed_ip_ranges = ip_network(six.u(temp_url_ip_range))
+            if ip_address(six.u(client_address)) not in allowed_ip_ranges:
+                return self._invalid(env, start_response)
+
         keys = self._get_keys(env)
         if not keys:
             return self._invalid(env, start_response)
@@ -489,10 +551,11 @@ class TempURL(object):
                 hmac for method in ('HEAD', 'GET', 'POST', 'PUT')
                 for hmac in self._get_hmacs(
                     env, temp_url_expires, path, keys, hash_algorithm,
-                    request_method=method)]
+                    request_method=method, ip_range=temp_url_ip_range)]
         else:
             hmac_vals = self._get_hmacs(
-                env, temp_url_expires, path, keys, hash_algorithm)
+                env, temp_url_expires, path, keys, hash_algorithm,
+                ip_range=temp_url_ip_range)
 
         is_valid_hmac = False
         hmac_scope = None
@@ -605,7 +668,10 @@ class TempURL(object):
         """
         temp_url_sig = temp_url_expires = temp_url_prefix = filename =\
             inline = None
+        temp_url_ip_range = None
         qs = parse_qs(env.get('QUERY_STRING', ''), keep_blank_values=True)
+        if 'temp_url_ip_range' in qs:
+            temp_url_ip_range = qs['temp_url_ip_range'][0]
         if 'temp_url_sig' in qs:
             temp_url_sig = qs['temp_url_sig'][0]
         if 'temp_url_expires' in qs:
@@ -627,7 +693,7 @@ class TempURL(object):
         if 'inline' in qs:
             inline = True
         return (temp_url_sig, temp_url_expires, temp_url_prefix, filename,
-                inline)
+                inline, temp_url_ip_range)
 
     def _get_keys(self, env):
         """
@@ -658,7 +724,7 @@ class TempURL(object):
                 [(ck, CONTAINER_SCOPE) for ck in container_keys])
 
     def _get_hmacs(self, env, expires, path, scoped_keys, hash_algorithm,
-                   request_method=None):
+                   request_method=None, ip_range=None):
         """
         :param env: The WSGI environment for the request.
         :param expires: Unix timestamp as an int for when the URL
@@ -671,15 +737,20 @@ class TempURL(object):
                                does not match, you may wish to
                                override with GET to still allow the
                                HEAD.
-
+        :param ip_range: The ip range from which the resource is allowed
+                         to be accessed
         :returns: a list of (hmac, scope) 2-tuples
         """
         if not request_method:
             request_method = env['REQUEST_METHOD']
 
         digest = functools.partial(hashlib.new, hash_algorithm)
+        hmac_kwargs = dict(digest=digest, ip_range=ip_range)
+
         return [
-            (get_hmac(request_method, path, expires, key, digest), scope)
+            (get_hmac(
+                request_method, path, expires, key, **hmac_kwargs
+            ), scope)
             for (key, scope) in scoped_keys]
 
     def _invalid(self, env, start_response):
