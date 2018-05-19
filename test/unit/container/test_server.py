@@ -22,6 +22,7 @@ import itertools
 from contextlib import contextmanager
 from shutil import rmtree
 from tempfile import mkdtemp
+from test.unit import make_timestamp_iter, mock_timestamp_now
 from time import gmtime
 from xml.dom import minidom
 import time
@@ -40,12 +41,13 @@ import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
-                                storage_directory, lock_parent_directory)
+                                storage_directory, lock_parent_directory,
+                                ShardRange)
 from test.unit import fake_http_connect, debug_logger, mock_check_drive
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
 
-from test import listen_zero
+from test import listen_zero, annotate_failure
 from test.unit import patch_policies
 
 
@@ -86,6 +88,16 @@ class TestContainerController(unittest.TestCase):
         """
         pass
 
+    def _put_shard_range(self, shard_range):
+        put_timestamp = shard_range.timestamp.internal
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Timestamp': put_timestamp}
+        body = json.dumps([dict(shard_range)])
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=body)
+        resp = req.get_response(self.controller)
+        self.assertIn(resp.status_int, (201, 202))
+
     def _check_put_container_storage_policy(self, req, policy_index):
         resp = req.get_response(self.controller)
         self.assertEqual(201, resp.status_int)
@@ -94,6 +106,11 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(204, resp.status_int)
         self.assertEqual(str(policy_index),
                          resp.headers['X-Backend-Storage-Policy-Index'])
+
+    def _assert_shard_ranges_equal(self, x, y):
+        # ShardRange.__eq__ only compares lower and upper; here we generate
+        # dict representations to compare all attributes
+        self.assertEqual([dict(sr) for sr in x], [dict(sr) for sr in y])
 
     def test_creation(self):
         # later config should be extended to assert more config options
@@ -424,7 +441,7 @@ class TestContainerController(unittest.TestCase):
                 elif state[0] == 'race':
                     # Save the original db_file attribute value
                     self._saved_db_file = self.db_file
-                    self.db_file += '.doesnotexist'
+                    self._db_file += '.doesnotexist'
 
             def initialize(self, *args, **kwargs):
                 if state[0] == 'initial':
@@ -433,7 +450,7 @@ class TestContainerController(unittest.TestCase):
                 elif state[0] == 'race':
                     # Restore the original db_file attribute to get the race
                     # behavior
-                    self.db_file = self._saved_db_file
+                    self._db_file = self._saved_db_file
                 return super(InterceptedCoBr, self).initialize(*args, **kwargs)
 
         with mock.patch("swift.container.server.ContainerBroker",
@@ -1372,21 +1389,100 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 500)
 
     def test_DELETE(self):
+        ts_iter = make_timestamp_iter()
         req = Request.blank(
             '/sda1/p/a/c',
-            environ={'REQUEST_METHOD': 'PUT'}, headers={'X-Timestamp': '1'})
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': next(ts_iter).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
+
+        # PUT an *empty* shard range
+        sr = ShardRange('.shards_a/c', next(ts_iter), 'l', 'u', 0, 0,
+                        state=ShardRange.ACTIVE)
         req = Request.blank(
             '/sda1/p/a/c',
-            environ={'REQUEST_METHOD': 'DELETE'}, headers={'X-Timestamp': '2'})
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard'},
+            body=json.dumps([dict(sr)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 202)
+
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': next(ts_iter).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
+
         req = Request.blank(
             '/sda1/p/a/c',
-            environ={'REQUEST_METHOD': 'GET'}, headers={'X-Timestamp': '3'})
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+
+        # the override-deleted header is ignored for object records
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Override-Deleted': 'true'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+
+        # but override-deleted header makes shard ranges available after DELETE
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Override-Deleted': 'true'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual([dict(sr, last_modified=sr.timestamp.isoformat)],
+                         json.loads(resp.body))
+        self.assertIn('X-Backend-Record-Type', resp.headers)
+        self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+
+        # ... unless the override header equates to False
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Override-Deleted': 'no'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertNotIn('X-Backend-Record-Type', resp.headers)
+
+        # ...or the db file is unlinked
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertTrue(os.path.exists(broker.db_file))
+        os.unlink(broker.db_file)
+        self.assertFalse(os.path.exists(broker.db_file))
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': next(ts_iter).internal,
+                     'X-Backend-Record-Type': 'shard',
+                     'X-Backend-Override-Deleted': 'true'},
+            params={'format': 'json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertNotIn('X-Backend-Record-Type', resp.headers)
 
     def test_DELETE_PUT_recreate(self):
         path = '/sda1/p/a/c'
@@ -1460,7 +1556,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(True, db.is_deleted())
         # now save a copy of this db (and remove it from the "current node")
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        db_path = db.db_file
+        db_path = db._db_file
         other_path = os.path.join(self.testdir, 'othernode.db')
         os.rename(db_path, other_path)
         # that should make it missing on this node
@@ -1474,6 +1570,8 @@ class TestContainerController(unittest.TestCase):
 
         def mock_exists(db_path):
             rv = _real_exists(db_path)
+            if db_path != db._db_file:
+                return rv
             if not mock_called:
                 # be as careful as we might hope backend replication can be...
                 with lock_parent_directory(db_path, timeout=1):
@@ -2040,6 +2138,1140 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 412)
 
+    def test_PUT_shard_range_autocreates_shard_container(self):
+        ts_iter = make_timestamp_iter()
+        shard_range = ShardRange('.shards_a/shard_c', next(ts_iter))
+        put_timestamp = next(ts_iter).internal
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Timestamp': put_timestamp,
+                   'X-Container-Sysmeta-Test': 'set',
+                   'X-Container-Meta-Test': 'persisted'}
+
+        # PUT shard range to non-existent container with non-autocreate prefix
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+        # PUT shard range to non-existent container with autocreate prefix,
+        # missing storage policy
+        headers['X-Timestamp'] = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
+            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(400, resp.status_int)
+        self.assertIn('X-Backend-Storage-Policy-Index header is required',
+                      resp.body)
+
+        # PUT shard range to non-existent container with autocreate prefix
+        headers['X-Timestamp'] = next(ts_iter).internal
+        policy_index = random.choice(POLICIES).idx
+        headers['X-Backend-Storage-Policy-Index'] = str(policy_index)
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
+            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+
+        # repeat PUT of shard range to autocreated container - 204 response
+        headers['X-Timestamp'] = next(ts_iter).internal
+        headers.pop('X-Backend-Storage-Policy-Index')  # no longer required
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
+            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+
+        # regular PUT to autocreated container - 204 response
+        headers['X-Timestamp'] = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT',
+            headers={'X-Timestamp': next(ts_iter).internal},
+            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+
+    def test_PUT_shard_range_to_deleted_container(self):
+        ts_iter = make_timestamp_iter()
+        put_time = next(ts_iter).internal
+        # create a container, get it to sharded state and then delete it
+        req = Request.blank('/sda1/p/a/c', method='PUT',
+                            headers={'X-Timestamp': put_time})
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        broker.enable_sharding(next(ts_iter))
+        self.assertTrue(broker.set_sharding_state())
+        self.assertTrue(broker.set_sharded_state())
+
+        delete_time = next(ts_iter).internal
+        req = Request.blank('/sda1/p/a/c', method='DELETE',
+                            headers={'X-Timestamp': delete_time})
+        resp = req.get_response(self.controller)
+        self.assertEqual(204, resp.status_int)
+        self.assertTrue(broker.is_deleted())
+        self.assertEqual(delete_time, broker.get_info()['delete_timestamp'])
+        self.assertEqual(put_time, broker.get_info()['put_timestamp'])
+        req = Request.blank('/sda1/p/a/c', method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+        # shard range PUT is accepted but container remains deleted
+        shard_range = ShardRange('.shards_a/shard_c', next(ts_iter),
+                                 state=ShardRange.ACTIVE)
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Timestamp': next(ts_iter).internal,
+                   'X-Container-Sysmeta-Test': 'set',
+                   'X-Container-Meta-Test': 'persisted'}
+
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertTrue(broker.get_info_is_deleted()[1])
+        self.assertEqual(delete_time, broker.get_info()['delete_timestamp'])
+        self.assertEqual(put_time, broker.get_info()['put_timestamp'])
+        req = Request.blank('/sda1/p/a/c', method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+        # unless shard range has non-zero stats, then container is revived
+        shard_range.update_meta(99, 1234, meta_timestamp=next(ts_iter))
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=json.dumps([dict(shard_range)]))
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertFalse(broker.get_info_is_deleted()[1])
+        self.assertEqual(delete_time, broker.get_info()['delete_timestamp'])
+        self.assertEqual(put_time, broker.get_info()['put_timestamp'])
+        req = Request.blank('/sda1/p/a/c', method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(204, resp.status_int)
+        self.assertEqual('99', resp.headers['X-Container-Object-Count'])
+
+    def test_PUT_shard_range_json_in_body(self):
+        ts_iter = make_timestamp_iter()
+        oldest_ts = next(ts_iter)  # used for stale shard range PUT later
+        shard_bounds = [('', 'ham', ShardRange.ACTIVE),
+                        ('ham', 'salami', ShardRange.ACTIVE),
+                        ('salami', '', ShardRange.CREATED)]
+        shard_ranges = [
+            ShardRange('.shards_a/_%s' % upper, next(ts_iter),
+                       lower, upper,
+                       i * 100, i * 1000, meta_timestamp=next(ts_iter),
+                       state=state, state_timestamp=next(ts_iter))
+            for i, (lower, upper, state) in enumerate(shard_bounds)]
+
+        put_timestamp = next(ts_iter).internal
+        headers = {'X-Backend-Record-Type': 'shard',
+                   'X-Timestamp': put_timestamp,
+                   'X-Container-Sysmeta-Test': 'set',
+                   'X-Container-Meta-Test': 'persisted'}
+        body = json.dumps([dict(sr) for sr in shard_ranges[:2]])
+
+        # PUT some shard ranges to non-existent container
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+        # create the container with a regular PUT
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT',
+            headers={'X-Timestamp': put_timestamp}, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
+
+        # now we can PUT shard ranges
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
+                            body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+
+        # check broker
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        # sysmeta and user meta is updated
+        exp_meta = {'X-Container-Sysmeta-Test': 'set',
+                    'X-Container-Meta-Test': 'persisted'}
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
+        self._assert_shard_ranges_equal(shard_ranges[:2],
+                                        broker.get_shard_ranges())
+
+        # empty json dict
+        body = json.dumps({})
+        headers['X-Timestamp'] = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
+        self._assert_shard_ranges_equal(shard_ranges[:2],
+                                        broker.get_shard_ranges())
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
+
+        older_ts = next(ts_iter)  # used for stale shard range PUT later
+        # updated and new shard ranges
+        shard_ranges[1].bytes_used += 100
+        shard_ranges[1].meta_timestamp = next(ts_iter)
+        body = json.dumps([dict(sr) for sr in shard_ranges[1:]])
+        headers['X-Timestamp'] = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
+
+        # stale shard range
+        stale_shard_range = shard_ranges[1].copy()
+        stale_shard_range.bytes_used = 0
+        stale_shard_range.object_count = 0
+        stale_shard_range.meta_timestamp = older_ts
+        stale_shard_range.state = ShardRange.CREATED
+        stale_shard_range.state_timestamp = oldest_ts
+        body = json.dumps([dict(stale_shard_range)])
+        headers['X-Timestamp'] = next(ts_iter).internal
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
+
+        # deleted shard range
+        shard_ranges[0].deleted = 1
+        shard_ranges[0].timestamp = next(ts_iter)
+        body = json.dumps([dict(shard_ranges[0])])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        resp = req.get_response(self.controller)
+        self.assertEqual(202, resp.status_int)
+        self.assertEqual(
+            exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
+        self._assert_shard_ranges_equal(
+            shard_ranges, broker.get_shard_ranges(include_deleted=True))
+        self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
+
+        def check_bad_body(body):
+            bad_put_timestamp = next(ts_iter).internal
+            headers['X-Timestamp'] = bad_put_timestamp
+            req = Request.blank(
+                '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+            resp = req.get_response(self.controller)
+            self.assertEqual(400, resp.status_int)
+            self.assertIn('Invalid body', resp.body)
+            self.assertEqual(
+                exp_meta, dict((k, v[0]) for k, v in broker.metadata.items()))
+            self._assert_shard_ranges_equal(
+                shard_ranges, broker.get_shard_ranges(include_deleted=True))
+            self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
+
+        check_bad_body('not json')
+        check_bad_body('')
+        check_bad_body('["not a shard range"]')
+        check_bad_body('[[]]')
+        bad_shard_range = dict(ShardRange('a/c', next(ts_iter)))
+        bad_shard_range.pop('timestamp')
+        check_bad_body(json.dumps([bad_shard_range]))
+
+        def check_not_shard_record_type(headers):
+            # body ignored
+            body = json.dumps([dict(sr) for sr in shard_ranges])
+            # note, regular PUT so put timestamp is updated
+            put_timestamp = next(ts_iter).internal
+            headers['X-Timestamp'] = put_timestamp
+            req = Request.blank(
+                '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+            resp = req.get_response(self.controller)
+            self.assertEqual(202, resp.status_int)
+            self._assert_shard_ranges_equal(
+                shard_ranges, broker.get_shard_ranges(include_deleted=True))
+            self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
+
+        check_not_shard_record_type({'X-Backend-Record-Type': 'object',
+                                     'X-Timestamp': next(ts_iter).internal})
+
+        check_not_shard_record_type({'X-Timestamp': next(ts_iter).internal})
+
+    def test_PUT_GET_shard_ranges(self):
+        # make a container
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        # PUT some objects
+        objects = [{'name': 'obj_%d' % i,
+                    'x-timestamp': next(ts_iter).normal,
+                    'x-content-type': 'text/plain',
+                    'x-etag': 'etag_%d' % i,
+                    'x-size': 1024 * i
+                    } for i in range(2)]
+        for obj in objects:
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
+                                headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+        # PUT some shard ranges
+        shard_bounds = [('', 'apple', ShardRange.SHRINKING),
+                        ('apple', 'ham', ShardRange.CLEAVED),
+                        ('ham', 'salami', ShardRange.ACTIVE),
+                        ('salami', 'yoghurt', ShardRange.CREATED),
+                        ('yoghurt', '', ShardRange.FOUND),
+                        ]
+        shard_ranges = [
+            ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
+                       lower, upper,
+                       i * 100, i * 1000, meta_timestamp=next(ts_iter),
+                       state=state, state_timestamp=next(ts_iter))
+            for i, (lower, upper, state) in enumerate(shard_bounds)]
+        for shard_range in shard_ranges:
+            self._put_shard_range(shard_range)
+
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertTrue(broker.is_root_container())  # sanity
+        self._assert_shard_ranges_equal(shard_ranges,
+                                        broker.get_shard_ranges())
+
+        # sanity check - no shard ranges when GET is only for objects
+        def check_object_GET(path):
+            req = Request.blank(path, method='GET')
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [
+                dict(hash=obj['x-etag'], bytes=obj['x-size'],
+                     content_type=obj['x-content-type'],
+                     last_modified=Timestamp(obj['x-timestamp']).isoformat,
+                     name=obj['name']) for obj in objects]
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('object', resp.headers['X-Backend-Record-Type'])
+
+        check_object_GET('/sda1/p/a/c?format=json')
+
+        # GET only shard ranges
+        def check_shard_GET(expected_shard_ranges, path, params=''):
+            req = Request.blank('/sda1/p/%s?format=json%s' %
+                                (path, params), method='GET',
+                                headers={'X-Backend-Record-Type': 'shard'})
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [
+                dict(sr, last_modified=Timestamp(sr.timestamp).isoformat)
+                for sr in expected_shard_ranges]
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+
+        # all shards
+        check_shard_GET(shard_ranges, 'a/c')
+        check_shard_GET(reversed(shard_ranges), 'a/c', params='&reverse=true')
+        # only created shards
+        check_shard_GET(shard_ranges[3:4], 'a/c', params='&states=created')
+        # only found shards
+        check_shard_GET(shard_ranges[4:5], 'a/c', params='&states=found')
+        # only cleaved shards
+        check_shard_GET(shard_ranges[1:2], 'a/c',
+                        params='&states=cleaved')
+        # only active shards
+        check_shard_GET(shard_ranges[2:3], 'a/c',
+                        params='&states=active&end_marker=pickle')
+        # only cleaved or active shards, reversed
+        check_shard_GET(
+            reversed(shard_ranges[1:3]), 'a/c',
+            params='&states=cleaved,active&reverse=true&marker=pickle')
+        # only shrinking shards
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&states=shrinking&end_marker=pickle')
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&states=shrinking&reverse=true&marker=pickle')
+        # only active or shrinking shards
+        check_shard_GET([shard_ranges[0], shard_ranges[2]], 'a/c',
+                        params='&states=shrinking,active&end_marker=pickle')
+        check_shard_GET(
+            [shard_ranges[2], shard_ranges[0]], 'a/c',
+            params='&states=active,shrinking&reverse=true&marker=pickle')
+        # only active or shrinking shards using listing alias
+        check_shard_GET(shard_ranges[:3], 'a/c',
+                        params='&states=listing&end_marker=pickle')
+        check_shard_GET(
+            reversed(shard_ranges[:3]), 'a/c',
+            params='&states=listing&reverse=true&marker=pickle')
+        # only created, cleaved, active, shrinking shards using updating alias
+        check_shard_GET(shard_ranges[1:4], 'a/c',
+                        params='&states=updating&end_marker=treacle')
+        check_shard_GET(
+            reversed(shard_ranges[1:4]), 'a/c',
+            params='&states=updating&reverse=true&marker=treacle')
+
+        # listing shards don't cover entire namespace so expect an extra filler
+        extra_shard_range = ShardRange(
+            'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX, 2, 1024,
+            state=ShardRange.ACTIVE)
+        expected = shard_ranges[:3] + [extra_shard_range]
+        check_shard_GET(expected, 'a/c', params='&states=listing')
+        check_shard_GET(reversed(expected), 'a/c',
+                        params='&states=listing&reverse=true')
+        expected = [shard_ranges[2], extra_shard_range]
+        check_shard_GET(expected, 'a/c',
+                        params='&states=listing&marker=pickle')
+        check_shard_GET(
+            reversed(expected), 'a/c',
+            params='&states=listing&reverse=true&end_marker=pickle')
+        # updating shards don't cover entire namespace so expect a filler
+        extra_shard_range = ShardRange(
+            'a/c', ts_now, shard_ranges[3].upper, ShardRange.MAX, 2, 1024,
+            state=ShardRange.ACTIVE)
+        expected = shard_ranges[1:4] + [extra_shard_range]
+        check_shard_GET(expected, 'a/c', params='&states=updating')
+        check_shard_GET(reversed(expected), 'a/c',
+                        params='&states=updating&reverse=true')
+        # when no listing shard ranges cover the requested namespace range then
+        # filler is for entire requested namespace
+        extra_shard_range = ShardRange(
+            'a/c', ts_now, 'treacle', ShardRange.MAX, 2, 1024,
+            state=ShardRange.ACTIVE)
+        check_shard_GET([extra_shard_range], 'a/c',
+                        params='&states=listing&marker=treacle')
+        check_shard_GET(
+            [extra_shard_range], 'a/c',
+            params='&states=listing&reverse=true&end_marker=treacle')
+        extra_shard_range = ShardRange(
+            'a/c', ts_now, 'treacle', 'walnut', 2, 1024,
+            state=ShardRange.ACTIVE)
+        params = '&states=listing&marker=treacle&end_marker=walnut'
+        check_shard_GET([extra_shard_range], 'a/c', params=params)
+        params = '&states=listing&reverse=true&marker=walnut' + \
+                 '&end_marker=treacle'
+        check_shard_GET([extra_shard_range], 'a/c', params=params)
+        # specific object
+        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=cheese')
+        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=ham')
+        check_shard_GET(shard_ranges[2:3], 'a/c', params='&includes=pickle')
+        check_shard_GET(shard_ranges[2:3], 'a/c', params='&includes=salami')
+        check_shard_GET(shard_ranges[3:4], 'a/c', params='&includes=walnut')
+        check_shard_GET(shard_ranges[3:4], 'a/c',
+                        params='&includes=walnut&reverse=true')
+        # with marker
+        check_shard_GET(shard_ranges[1:], 'a/c', params='&marker=cheese')
+        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+                        params='&marker=cheese&reverse=true')
+        check_shard_GET(shard_ranges[2:], 'a/c', params='&marker=ham')
+        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+                        params='&marker=ham&reverse=true')
+        check_shard_GET(shard_ranges[2:], 'a/c', params='&marker=pickle')
+        check_shard_GET(reversed(shard_ranges[:3]), 'a/c',
+                        params='&marker=pickle&reverse=true')
+        check_shard_GET(shard_ranges[3:], 'a/c', params='&marker=salami')
+        check_shard_GET(reversed(shard_ranges[:3]), 'a/c',
+                        params='&marker=salami&reverse=true')
+        check_shard_GET(shard_ranges[3:], 'a/c', params='&marker=walnut')
+        check_shard_GET(reversed(shard_ranges[:4]), 'a/c',
+                        params='&marker=walnut&reverse=true')
+        # with end marker
+        check_shard_GET(shard_ranges[:2], 'a/c', params='&end_marker=cheese')
+        check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
+                        params='&end_marker=cheese&reverse=true')
+        # everything in range 'apple' - 'ham' is <= end_marker of 'ham' so that
+        # range is not included because end_marker is non-inclusive
+        check_shard_GET(shard_ranges[:2], 'a/c', params='&end_marker=ham')
+        check_shard_GET(reversed(shard_ranges[2:]), 'a/c',
+                        params='&end_marker=ham&reverse=true')
+        check_shard_GET(shard_ranges[:3], 'a/c', params='&end_marker=pickle')
+        check_shard_GET(reversed(shard_ranges[2:]), 'a/c',
+                        params='&end_marker=pickle&reverse=true')
+        check_shard_GET(shard_ranges[:3], 'a/c', params='&end_marker=salami')
+        check_shard_GET(reversed(shard_ranges[3:]), 'a/c',
+                        params='&end_marker=salami&reverse=true')
+        check_shard_GET(shard_ranges[:4], 'a/c', params='&end_marker=walnut')
+        check_shard_GET(reversed(shard_ranges[3:]), 'a/c',
+                        params='&end_marker=walnut&reverse=true')
+        # with marker and end marker
+        check_shard_GET(shard_ranges[1:2], 'a/c',
+                        params='&marker=cheese&end_marker=egg')
+        check_shard_GET(shard_ranges[1:2], 'a/c',
+                        params='&end_marker=cheese&marker=egg&reverse=true')
+        check_shard_GET(shard_ranges[1:3], 'a/c',
+                        params='&marker=egg&end_marker=jam')
+        check_shard_GET(reversed(shard_ranges[1:3]), 'a/c',
+                        params='&end_marker=egg&marker=jam&reverse=true')
+        check_shard_GET(shard_ranges[1:4], 'a/c',
+                        params='&marker=cheese&end_marker=walnut')
+        check_shard_GET(reversed(shard_ranges[1:4]), 'a/c',
+                        params='&end_marker=cheese&marker=walnut&reverse=true')
+        check_shard_GET(shard_ranges[2:4], 'a/c',
+                        params='&marker=jam&end_marker=walnut')
+        check_shard_GET(reversed(shard_ranges[2:4]), 'a/c',
+                        params='&end_marker=jam&marker=walnut&reverse=true')
+        check_shard_GET(shard_ranges[3:4], 'a/c',
+                        params='&marker=toast&end_marker=walnut')
+        check_shard_GET(shard_ranges[3:4], 'a/c',
+                        params='&end_marker=toast&marker=walnut&reverse=true')
+        check_shard_GET([], 'a/c',
+                        params='&marker=egg&end_marker=cheese')
+        check_shard_GET([], 'a/c',
+                        params='&marker=cheese&end_marker=egg&reverse=true')
+
+        # delete a shard range
+        shard_range = shard_ranges[1]
+        shard_range.set_deleted(timestamp=next(ts_iter))
+        self._put_shard_range(shard_range)
+
+        self._assert_shard_ranges_equal(shard_ranges[:1] + shard_ranges[2:],
+                                        broker.get_shard_ranges())
+
+        check_shard_GET(shard_ranges[:1] + shard_ranges[2:], 'a/c')
+        check_shard_GET(shard_ranges[2:3], 'a/c', params='&includes=jam')
+        # specify obj, marker or end_marker not in any shard range
+        check_shard_GET([], 'a/c', params='&includes=cheese')
+        check_shard_GET([], 'a/c', params='&includes=cheese&reverse=true')
+        check_shard_GET([], 'a/c', params='&includes=ham')
+        check_shard_GET(shard_ranges[2:], 'a/c/', params='&marker=cheese')
+        check_shard_GET(shard_ranges[:1], 'a/c/',
+                        params='&marker=cheese&reverse=true')
+        check_shard_GET(shard_ranges[:1], 'a/c/', params='&end_marker=cheese')
+        check_shard_GET(reversed(shard_ranges[2:]), 'a/c/',
+                        params='&end_marker=cheese&reverse=true')
+
+        self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
+        self.assertFalse(self.controller.logger.get_lines_for_level('error'))
+
+    def test_GET_shard_ranges_using_state_aliases(self):
+        # make a shard container
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        shard_ranges = []
+        lower = ''
+        for state in sorted(ShardRange.STATES.keys()):
+            upper = str(state)
+            shard_ranges.append(
+                ShardRange('.shards_a/c_%s' % upper, next(ts_iter),
+                           lower, upper, state * 100, state * 1000,
+                           meta_timestamp=next(ts_iter),
+                           state=state, state_timestamp=next(ts_iter)))
+            lower = upper
+
+        def do_test(root_path, path, params, expected_states):
+            expected = [
+                sr for sr in shard_ranges if sr.state in expected_states]
+            own_shard_range = ShardRange(path, next(ts_iter), '', '',
+                                         state=ShardRange.ACTIVE)
+            expected.append(own_shard_range.copy(
+                lower=expected[-1].upper, meta_timestamp=ts_now))
+            expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                        for sr in expected]
+            headers = {'X-Timestamp': next(ts_iter).normal}
+
+            # create container
+            req = Request.blank(
+                '/sda1/p/%s' % path, method='PUT', headers=headers)
+            self.assertIn(
+                req.get_response(self.controller).status_int, (201, 202))
+            # PUT some shard ranges
+            headers = {'X-Timestamp': next(ts_iter).normal,
+                       'X-Container-Sysmeta-Shard-Root': root_path,
+                       'X-Backend-Record-Type': 'shard'}
+            body = json.dumps(
+                [dict(sr) for sr in shard_ranges + [own_shard_range]])
+            req = Request.blank(
+                '/sda1/p/%s' % path, method='PUT', headers=headers, body=body)
+            self.assertEqual(202, req.get_response(self.controller).status_int)
+
+            req = Request.blank('/sda1/p/%s?format=json%s' %
+                                (path, params), method='GET',
+                                headers={'X-Backend-Record-Type': 'shard'})
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+
+        # root's shard ranges for listing
+        root_path = container_path = 'a/c'
+        params = '&states=listing'
+        expected_states = [
+            ShardRange.CLEAVED, ShardRange.ACTIVE, ShardRange.SHARDING,
+            ShardRange.SHRINKING]
+        do_test(root_path, container_path, params, expected_states)
+
+        # shard's shard ranges for listing
+        container_path = '.shards_a/c'
+        params = '&states=listing'
+        do_test(root_path, container_path, params, expected_states)
+
+        # root's shard ranges for updating
+        params = '&states=updating'
+        expected_states = [
+            ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHARDING]
+        container_path = root_path
+        do_test(root_path, container_path, params, expected_states)
+
+        # shard's shard ranges for updating
+        container_path = '.shards_a/c'
+        do_test(root_path, container_path, params, expected_states)
+
+    def test_GET_shard_ranges_include_deleted(self):
+        # make a shard container
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        shard_ranges = []
+        lower = ''
+        for state in sorted(ShardRange.STATES.keys()):
+            upper = str(state)
+            shard_ranges.append(
+                ShardRange('.shards_a/c_%s' % upper, next(ts_iter),
+                           lower, upper, state * 100, state * 1000,
+                           meta_timestamp=next(ts_iter),
+                           state=state, state_timestamp=next(ts_iter)))
+            lower = upper
+        # create container
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertIn(
+            req.get_response(self.controller).status_int, (201, 202))
+        # PUT some shard ranges
+        headers = {'X-Timestamp': next(ts_iter).normal,
+                   'X-Backend-Record-Type': 'shard'}
+        body = json.dumps([dict(sr) for sr in shard_ranges])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+
+        def do_test(include_deleted, expected):
+            expected = [dict(sr, last_modified=sr.timestamp.isoformat)
+                        for sr in expected]
+            headers = {'X-Backend-Record-Type': 'shard',
+                       'X-Backend-Include-Deleted': str(include_deleted)}
+            req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                                headers=headers)
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+
+        do_test(False, shard_ranges)
+        do_test(True, shard_ranges)
+
+        headers = {'X-Timestamp': next(ts_iter).normal,
+                   'X-Backend-Record-Type': 'shard'}
+        for sr in shard_ranges[::2]:
+            sr.set_deleted(timestamp=next(ts_iter))
+        body = json.dumps([dict(sr) for sr in shard_ranges])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self._assert_shard_ranges_equal(
+            shard_ranges[1::2], broker.get_shard_ranges())
+        do_test(False, shard_ranges[1::2])
+        do_test(True, shard_ranges)
+
+        headers = {'X-Timestamp': next(ts_iter).normal,
+                   'X-Backend-Record-Type': 'shard'}
+        for sr in shard_ranges[1::2]:
+            sr.set_deleted(timestamp=next(ts_iter))
+        body = json.dumps([dict(sr) for sr in shard_ranges])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+        self.assertFalse(broker.get_shard_ranges())
+        do_test(False, [])
+        do_test(True, shard_ranges)
+
+    def test_GET_shard_ranges_errors(self):
+        # verify that x-backend-record-type is not included in error responses
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        shard_ranges = []
+        lower = ''
+        for state in sorted(ShardRange.STATES.keys()):
+            upper = str(state)
+            shard_ranges.append(
+                ShardRange('.shards_a/c_%s' % upper, next(ts_iter),
+                           lower, upper, state * 100, state * 1000,
+                           meta_timestamp=next(ts_iter),
+                           state=state, state_timestamp=next(ts_iter)))
+            lower = upper
+        # create container
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertIn(
+            req.get_response(self.controller).status_int, (201, 202))
+        # PUT some shard ranges
+        headers = {'X-Timestamp': next(ts_iter).normal,
+                   'X-Backend-Record-Type': 'shard'}
+        body = json.dumps([dict(sr) for sr in shard_ranges])
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers=headers, body=body)
+        self.assertEqual(202, req.get_response(self.controller).status_int)
+
+        def do_test(params):
+            params['format'] = 'json'
+            headers = {'X-Backend-Record-Type': 'shard'}
+            req = Request.blank('/sda1/p/a/c', method='GET',
+                                headers=headers, params=params)
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.content_type, 'text/html')
+            self.assertNotIn('X-Backend-Record-Type', resp.headers)
+            self.assertNotIn('X-Backend-Sharding-State', resp.headers)
+            self.assertNotIn('X-Container-Object-Count', resp.headers)
+            self.assertNotIn('X-Container-Bytes-Used', resp.headers)
+            self.assertNotIn('X-Timestamp', resp.headers)
+            self.assertNotIn('X-PUT-Timestamp', resp.headers)
+            return resp
+
+        resp = do_test({'states': 'bad'})
+        self.assertEqual(resp.status_int, 400)
+        resp = do_test({'delimiter': 'bad'})
+        self.assertEqual(resp.status_int, 412)
+        resp = do_test({'limit': str(constraints.CONTAINER_LISTING_LIMIT + 1)})
+        self.assertEqual(resp.status_int, 412)
+        with mock.patch('swift.container.server.check_drive',
+                        lambda *args: False):
+            resp = do_test({})
+        self.assertEqual(resp.status_int, 507)
+
+        # delete the container
+        req = Request.blank('/sda1/p/a/c', method='DELETE',
+                            headers={'X-Timestamp': next(ts_iter).normal})
+        self.assertEqual(204, req.get_response(self.controller).status_int)
+
+        resp = do_test({'states': 'bad'})
+        self.assertEqual(resp.status_int, 404)
+
+    def test_GET_auto_record_type(self):
+        # make a container
+        ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        # PUT some objects
+        objects = [{'name': 'obj_%d' % i,
+                    'x-timestamp': next(ts_iter).normal,
+                    'x-content-type': 'text/plain',
+                    'x-etag': 'etag_%d' % i,
+                    'x-size': 1024 * i
+                    } for i in range(2)]
+        for obj in objects:
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
+                                headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+        # PUT some shard ranges
+        shard_bounds = [('', 'm', ShardRange.CLEAVED),
+                        ('m', '', ShardRange.CREATED)]
+        shard_ranges = [
+            ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
+                       lower, upper,
+                       i * 100, i * 1000, meta_timestamp=next(ts_iter),
+                       state=state, state_timestamp=next(ts_iter))
+            for i, (lower, upper, state) in enumerate(shard_bounds)]
+        for shard_range in shard_ranges:
+            self._put_shard_range(shard_range)
+
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+
+        def assert_GET_objects(req, expected_objects):
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [
+                dict(hash=obj['x-etag'], bytes=obj['x-size'],
+                     content_type=obj['x-content-type'],
+                     last_modified=Timestamp(obj['x-timestamp']).isoformat,
+                     name=obj['name']) for obj in expected_objects]
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual(
+                'object', resp.headers.pop('X-Backend-Record-Type'))
+            resp.headers.pop('Content-Length')
+            return resp
+
+        def assert_GET_shard_ranges(req, expected_shard_ranges):
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [
+                dict(sr, last_modified=Timestamp(sr.timestamp).isoformat)
+                for sr in expected_shard_ranges]
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual(
+                'shard', resp.headers.pop('X-Backend-Record-Type'))
+            resp.headers.pop('Content-Length')
+            return resp
+
+        # unsharded
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'auto'})
+        resp = assert_GET_objects(req, objects)
+        headers = resp.headers
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'object'})
+        resp = assert_GET_objects(req, objects)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET')
+        resp = assert_GET_objects(req, objects)
+        self.assertEqual(headers, resp.headers)
+
+        # move to sharding state
+        broker.enable_sharding(next(ts_iter))
+        self.assertTrue(broker.set_sharding_state())
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'auto'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        headers = resp.headers
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'object'})
+        resp = assert_GET_objects(req, objects)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET')
+        resp = assert_GET_objects(req, objects)
+        self.assertEqual(headers, resp.headers)
+
+        # limit is applied to objects but not shard ranges
+        req = Request.blank('/sda1/p/a/c?format=json&limit=1', method='GET',
+                            headers={'X-Backend-Record-Type': 'auto'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        headers = resp.headers
+        req = Request.blank('/sda1/p/a/c?format=json&limit=1', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json&limit=1', method='GET',
+                            headers={'X-Backend-Record-Type': 'object'})
+        resp = assert_GET_objects(req, objects[:1])
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json&limit=1', method='GET')
+        resp = assert_GET_objects(req, objects[:1])
+        self.assertEqual(headers, resp.headers)
+
+        # move to sharded state
+        self.assertTrue(broker.set_sharded_state())
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'auto'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        headers = resp.headers
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'shard'})
+        resp = assert_GET_shard_ranges(req, shard_ranges)
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET',
+                            headers={'X-Backend-Record-Type': 'object'})
+        resp = assert_GET_objects(req, [])
+        self.assertEqual(headers, resp.headers)
+        req = Request.blank('/sda1/p/a/c?format=json', method='GET')
+        resp = assert_GET_objects(req, [])
+        self.assertEqual(headers, resp.headers)
+
+    def test_PUT_GET_to_sharding_container(self):
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+
+        def do_update(name, timestamp=None, headers=None):
+            # Make a PUT request to container controller to update an object
+            timestamp = timestamp or next(ts_iter)
+            headers = headers or {}
+            headers.update({'X-Timestamp': timestamp.internal,
+                            'X-Size': 17,
+                            'X-Content-Type': 'text/plain',
+                            'X-Etag': 'fake etag'})
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % name, method='PUT', headers=headers)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+
+        def get_api_listing():
+            req = Request.blank(
+                '/sda1/p/a/c', method='GET', params={'format': 'json'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(200, resp.status_int)
+            return [obj['name'] for obj in json.loads(resp.body)]
+
+        def assert_broker_rows(broker, expected_names, expected_max_row):
+            self.assertEqual(expected_max_row, broker.get_max_row())
+            with broker.get() as conn:
+                curs = conn.execute('''
+                    SELECT * FROM object WHERE ROWID > -1 ORDER BY ROWID ASC
+                ''')
+                actual = [r[1] for r in curs]
+
+            self.assertEqual(expected_names, actual)
+
+        do_update('unsharded')
+        self.assertEqual(['unsharded'], get_api_listing())
+        assert_broker_rows(broker, ['unsharded'], 1)
+
+        # move container to sharding state
+        broker.enable_sharding(next(ts_iter))
+        self.assertTrue(broker.set_sharding_state())
+        assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
+        assert_broker_rows(broker.get_brokers()[1], [], 1)
+
+        # add another update - should not merge into the older db and therefore
+        # not appear in api listing
+        do_update('sharding')
+        self.assertEqual(['unsharded'], get_api_listing())
+        assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
+        assert_broker_rows(broker.get_brokers()[1], ['sharding'], 2)
+
+        orig_lister = swift.container.backend.ContainerBroker.list_objects_iter
+
+        def mock_list_objects_iter(*args, **kwargs):
+            # cause an update to land in the pending file after it has been
+            # flushed by get_info() calls in the container PUT method, but
+            # before it is flushed by the call to list_objects_iter
+            do_update('racing_update')
+            return orig_lister(*args, **kwargs)
+
+        with mock.patch(
+                'swift.container.backend.ContainerBroker.list_objects_iter',
+                mock_list_objects_iter):
+            listing = get_api_listing()
+
+        self.assertEqual(['unsharded'], listing)
+        assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
+        assert_broker_rows(broker.get_brokers()[1], ['sharding'], 2)
+
+        # next listing will flush pending file
+        listing = get_api_listing()
+        self.assertEqual(['unsharded'], listing)
+        assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
+        assert_broker_rows(broker.get_brokers()[1],
+                           ['sharding', 'racing_update'], 3)
+
+    def _check_object_update_redirected_to_shard(self, method):
+        expected_status = 204 if method == 'DELETE' else 201
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+
+        def do_update(name, timestamp=None, headers=None):
+            # Make a PUT request to container controller to update an object
+            timestamp = timestamp or next(ts_iter)
+            headers = headers or {}
+            headers.update({'X-Timestamp': timestamp.internal,
+                            'X-Size': 17,
+                            'X-Content-Type': 'text/plain',
+                            'X-Etag': 'fake etag'})
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % name, method=method, headers=headers)
+            self._update_object_put_headers(req)
+            return req.get_response(self.controller)
+
+        def get_listing(broker_index):
+            # index -1 is always the freshest db
+            sub_broker = broker.get_brokers()[broker_index]
+            return sub_broker.get_objects()
+
+        def assert_not_redirected(obj_name, timestamp=None, headers=None):
+            resp = do_update(obj_name, timestamp=timestamp, headers=headers)
+            self.assertEqual(expected_status, resp.status_int)
+            self.assertNotIn('Location', resp.headers)
+            self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
+
+        def assert_redirected(obj_name, shard_range, headers=None):
+            resp = do_update(obj_name, headers=headers)
+            self.assertEqual(301, resp.status_int)
+            self.assertEqual('/%s/%s' % (shard_range.name, obj_name),
+                             resp.headers['Location'])
+            self.assertEqual(shard_range.timestamp.internal,
+                             resp.headers['X-Backend-Redirect-Timestamp'])
+
+        # sanity check
+        ts_bashful_orig = next(ts_iter)
+        mocked_fn = 'swift.container.backend.ContainerBroker.get_shard_ranges'
+        with mock.patch(mocked_fn) as mock_get_shard_ranges:
+            assert_not_redirected('bashful', ts_bashful_orig)
+        mock_get_shard_ranges.assert_not_called()
+
+        shard_ranges = {
+            'dopey': ShardRange(
+                '.sharded_a/sr_dopey', next(ts_iter), '', 'dopey'),
+            'happy': ShardRange(
+                '.sharded_a/sr_happy', next(ts_iter), 'dopey', 'happy'),
+            '': ShardRange('.sharded_a/sr_', next(ts_iter), 'happy', '')
+        }
+        # start with only the middle shard range
+        self._put_shard_range(shard_ranges['happy'])
+
+        # db not yet sharding but shard ranges exist
+        sr_happy = shard_ranges['happy']
+        redirect_states = (
+            ShardRange.CREATED, ShardRange.CLEAVED, ShardRange.ACTIVE,
+            ShardRange.SHARDING)
+        headers = {'X-Backend-Accept-Redirect': 'true'}
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpy%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                obj_name = 'grumpy%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
+
+        # set broker to sharding state
+        broker.enable_sharding(next(ts_iter))
+        self.assertTrue(broker.set_sharding_state())
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpier%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    # update goes to fresh db, misplaced
+                    self.assertIn(
+                        obj_name, [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(
+                        obj_name, [obj['name'] for obj in get_listing(0)])
+                obj_name = 'grumpier%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(
+                    obj_name, [obj['name'] for obj in get_listing(-1)])
+                # update is misplaced, not in retiring db
+                self.assertNotIn(
+                    obj_name, [obj['name'] for obj in get_listing(0)])
+
+        # no shard for this object yet so it is accepted by root container
+        # and stored in misplaced objects...
+        assert_not_redirected('dopey', timestamp=next(ts_iter))
+        self.assertIn('dopey', [obj['name'] for obj in get_listing(-1)])
+        self.assertNotIn('dopey', [obj['name'] for obj in get_listing(0)])
+
+        # now PUT the first shard range
+        sr_dopey = shard_ranges['dopey']
+        sr_dopey.update_state(ShardRange.CLEAVED,
+                              state_timestamp=next(ts_iter))
+        self._put_shard_range(sr_dopey)
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'dopey%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(0)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(0)])
+                obj_name = 'dopey%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
+                self.assertNotIn(obj_name,
+                                 [obj['name'] for obj in get_listing(0)])
+
+        # further updates to bashful and dopey are now redirected...
+        assert_redirected('bashful', sr_dopey, headers=headers)
+        assert_redirected('dopey', sr_dopey, headers=headers)
+        # ...and existing updates in this container are *not* updated
+        self.assertEqual([ts_bashful_orig.internal],
+                         [obj['created_at'] for obj in get_listing(0)
+                          if obj['name'] == 'bashful'])
+
+        # set broker to sharded state
+        self.assertTrue(broker.set_sharded_state())
+        for state in ShardRange.STATES:
+            self.assertTrue(
+                sr_happy.update_state(state,
+                                      state_timestamp=next(ts_iter)))
+            self._put_shard_range(sr_happy)
+            with annotate_failure(state):
+                obj_name = 'grumpiest%s' % state
+                if state in redirect_states:
+                    assert_redirected(obj_name, sr_happy, headers=headers)
+                    self.assertNotIn(obj_name,
+                                     [obj['name'] for obj in get_listing(-1)])
+                else:
+                    assert_not_redirected(obj_name, headers=headers)
+                    self.assertIn(obj_name,
+                                  [obj['name'] for obj in get_listing(-1)])
+                obj_name = 'grumpiest%s_no_header' % state
+                with mock.patch(mocked_fn) as mock_get_shard_ranges:
+                    assert_not_redirected(obj_name)
+                mock_get_shard_ranges.assert_not_called()
+                self.assertIn(obj_name,
+                              [obj['name'] for obj in get_listing(-1)])
+
+    def test_PUT_object_update_redirected_to_shard(self):
+        self._check_object_update_redirected_to_shard('PUT')
+
+    def test_DELETE_object_update_redirected_to_shard(self):
+        self._check_object_update_redirected_to_shard('DELETE')
+
     def test_GET_json(self):
         # make a container
         req = Request.blank(
@@ -2389,7 +3621,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
                                     'HTTP_X_TIMESTAMP': '0'})
-        resp = req.get_response(self.controller)
+        req.get_response(self.controller)
         # fill the container
         for i in range(3):
             req = Request.blank(
@@ -2407,6 +3639,24 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         result = resp.body.split()
         self.assertEqual(result, ['2', ])
+        # test limit with end_marker
+        req = Request.blank('/sda1/p/a/c?limit=2&end_marker=1',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        result = resp.body.split()
+        self.assertEqual(result, ['0', ])
+        # test limit, reverse with end_marker
+        req = Request.blank('/sda1/p/a/c?limit=2&end_marker=1&reverse=True',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        result = resp.body.split()
+        self.assertEqual(result, ['2', ])
+        # test marker > end_marker
+        req = Request.blank('/sda1/p/a/c?marker=2&end_marker=1',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        result = resp.body.split()
+        self.assertEqual(result, [])
 
     def test_weird_content_types(self):
         snowman = u'\u2603'

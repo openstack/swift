@@ -19,10 +19,12 @@ from __future__ import print_function
 
 import base64
 import binascii
+import bisect
 import collections
 import errno
 import fcntl
 import grp
+import hashlib
 import hmac
 import json
 import math
@@ -76,6 +78,7 @@ from six.moves import range, http_client
 from six.moves.urllib.parse import ParseResult
 from six.moves.urllib.parse import quote as _quote
 from six.moves.urllib.parse import urlparse as stdlib_urlparse
+from six import string_types
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -407,6 +410,21 @@ def config_positive_int_value(value):
         raise ValueError(
             'Config option must be an positive int number, not "%s".' % value)
     return result
+
+
+def config_float_value(value, minimum=None, maximum=None):
+    try:
+        val = float(value)
+        if minimum is not None and val < minimum:
+            raise ValueError()
+        if maximum is not None and val > maximum:
+            raise ValueError()
+        return val
+    except (TypeError, ValueError):
+        min_ = ', greater than %s' % minimum if minimum is not None else ''
+        max_ = ', less than %s' % maximum if maximum is not None else ''
+        raise ValueError('Config option must be a number%s%s, not "%s".' %
+                         (min_, max_, value))
 
 
 def config_auto_int_value(value, default):
@@ -4370,6 +4388,553 @@ def get_md5_socket():
     return md5_sockfd
 
 
+class ShardRange(object):
+    """
+    A ShardRange encapsulates sharding state related to a container including
+    lower and upper bounds that define the object namespace for which the
+    container is responsible.
+
+    Shard ranges may be persisted in a container database. Timestamps
+    associated with subsets of the shard range attributes are used to resolve
+    conflicts when a shard range needs to be merged with an existing shard
+    range record and the most recent version of an attribute should be
+    persisted.
+
+    :param name: the name of the shard range; this should take the form of a
+        path to a container i.e. <account_name>/<container_name>.
+    :param timestamp: a timestamp that represents the time at which the
+        shard range's ``lower``, ``upper`` or ``deleted`` attributes were
+        last modified.
+    :param lower: the lower bound of object names contained in the shard range;
+        the lower bound *is not* included in the shard range namespace.
+    :param upper: the upper bound of object names contained in the shard range;
+        the upper bound *is* included in the shard range namespace.
+    :param object_count: the number of objects in the shard range; defaults to
+        zero.
+    :param bytes_used: the number of bytes in the shard range; defaults to
+        zero.
+    :param meta_timestamp: a timestamp that represents the time at which the
+        shard range's ``object_count`` and ``bytes_used`` were last updated;
+        defaults to the value of ``timestamp``.
+    :param deleted: a boolean; if True the shard range is considered to be
+        deleted.
+    :param state: the state; must be one of ShardRange.STATES; defaults to
+        CREATED.
+    :param state_timestamp: a timestamp that represents the time at which
+        ``state`` was forced to its current value; defaults to the value of
+        ``timestamp``. This timestamp is typically not updated with every
+        change of ``state`` because in general conflicts in ``state``
+        attributes are resolved by choosing the larger ``state`` value.
+        However, when this rule does not apply, for example when changing state
+        from ``SHARDED`` to ``ACTIVE``, the ``state_timestamp`` may be advanced
+        so that the new ``state`` value is preferred over any older ``state``
+        value.
+    :param epoch: optional epoch timestamp which represents the time at which
+        sharding was enabled for a container.
+    """
+    FOUND = 10
+    CREATED = 20
+    CLEAVED = 30
+    ACTIVE = 40
+    SHRINKING = 50
+    SHARDING = 60
+    SHARDED = 70
+    STATES = {FOUND: 'found',
+              CREATED: 'created',
+              CLEAVED: 'cleaved',
+              ACTIVE: 'active',
+              SHRINKING: 'shrinking',
+              SHARDING: 'sharding',
+              SHARDED: 'sharded'}
+    STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
+
+    class OuterBound(object):
+        def __eq__(self, other):
+            return isinstance(other, type(self))
+
+        def __ne__(self, other):
+            return not self.__eq__(other)
+
+        def __str__(self):
+            return ''
+
+        def __repr__(self):
+            return type(self).__name__
+
+        def __bool__(self):
+            return False
+
+        __nonzero__ = __bool__
+
+    @functools.total_ordering
+    class MaxBound(OuterBound):
+        def __ge__(self, other):
+            return True
+
+    @functools.total_ordering
+    class MinBound(OuterBound):
+        def __le__(self, other):
+            return True
+
+    MIN = MinBound()
+    MAX = MaxBound()
+
+    def __init__(self, name, timestamp, lower=MIN, upper=MAX,
+                 object_count=0, bytes_used=0, meta_timestamp=None,
+                 deleted=False, state=None, state_timestamp=None, epoch=None):
+        self.account = self.container = self._timestamp = \
+            self._meta_timestamp = self._state_timestamp = self._epoch = None
+        self._lower = ShardRange.MIN
+        self._upper = ShardRange.MAX
+        self._deleted = False
+        self._state = None
+
+        self.name = name
+        self.timestamp = timestamp
+        self.lower = lower
+        self.upper = upper
+        self.deleted = deleted
+        self.object_count = object_count
+        self.bytes_used = bytes_used
+        self.meta_timestamp = meta_timestamp
+        self.state = self.FOUND if state is None else state
+        self.state_timestamp = state_timestamp
+        self.epoch = epoch
+
+    @classmethod
+    def _encode(cls, value):
+        if six.PY2 and isinstance(value, six.text_type):
+            return value.encode('utf-8')
+        return value
+
+    def _encode_bound(self, bound):
+        if isinstance(bound, ShardRange.OuterBound):
+            return bound
+        if not isinstance(bound, string_types):
+            raise TypeError('must be a string type')
+        return self._encode(bound)
+
+    @classmethod
+    def _make_container_name(cls, root_container, parent_container, timestamp,
+                             index):
+        if not isinstance(parent_container, bytes):
+            parent_container = parent_container.encode('utf-8')
+        return "%s-%s-%s-%s" % (root_container,
+                                hashlib.md5(parent_container).hexdigest(),
+                                cls._to_timestamp(timestamp).internal,
+                                index)
+
+    @classmethod
+    def make_path(cls, shards_account, root_container, parent_container,
+                  timestamp, index):
+        """
+        Returns a path for a shard container that is valid to use as a name
+        when constructing a :class:`~swift.common.utils.ShardRange`.
+
+        :param shards_account: the hidden internal account to which the shard
+            container belongs.
+        :param root_container: the name of the root container for the shard.
+        :param parent_container: the name of the parent container for the
+            shard; for initial first generation shards this should be the same
+            as ``root_container``; for shards of shards this should be the name
+            of the sharding shard container.
+        :param timestamp: an instance of :class:`~swift.common.utils.Timestamp`
+        :param index: a unique index that will distinguish the path from any
+            other path generated using the same combination of
+            ``shards_account``, ``root_container``, ``parent_container`` and
+            ``timestamp``.
+        :return: a string of the form <account_name>/<container_name>
+        """
+        shard_container = cls._make_container_name(
+            root_container, parent_container, timestamp, index)
+        return '%s/%s' % (shards_account, shard_container)
+
+    @classmethod
+    def _to_timestamp(cls, timestamp):
+        if timestamp is None or isinstance(timestamp, Timestamp):
+            return timestamp
+        return Timestamp(timestamp)
+
+    @property
+    def name(self):
+        return '%s/%s' % (self.account, self.container)
+
+    @name.setter
+    def name(self, path):
+        path = self._encode(path)
+        if not path or len(path.split('/')) != 2 or not all(path.split('/')):
+            raise ValueError(
+                "Name must be of the form '<account>/<container>', got %r" %
+                path)
+        self.account, self.container = path.split('/')
+
+    @property
+    def timestamp(self):
+        return self._timestamp
+
+    @timestamp.setter
+    def timestamp(self, ts):
+        if ts is None:
+            raise TypeError('timestamp cannot be None')
+        self._timestamp = self._to_timestamp(ts)
+
+    @property
+    def meta_timestamp(self):
+        if self._meta_timestamp is None:
+            return self.timestamp
+        return self._meta_timestamp
+
+    @meta_timestamp.setter
+    def meta_timestamp(self, ts):
+        self._meta_timestamp = self._to_timestamp(ts)
+
+    @property
+    def lower(self):
+        return self._lower
+
+    @property
+    def lower_str(self):
+        return str(self.lower)
+
+    @lower.setter
+    def lower(self, value):
+        if value in (None, ''):
+            value = ShardRange.MIN
+        try:
+            value = self._encode_bound(value)
+        except TypeError as err:
+            raise TypeError('lower %s' % err)
+        if value > self._upper:
+            raise ValueError(
+                'lower (%r) must be less than or equal to upper (%r)' %
+                (value, self.upper))
+        self._lower = value
+
+    @property
+    def end_marker(self):
+        return self.upper_str + '\x00' if self.upper else ''
+
+    @property
+    def upper(self):
+        return self._upper
+
+    @property
+    def upper_str(self):
+        return str(self.upper)
+
+    @upper.setter
+    def upper(self, value):
+        if value in (None, ''):
+            value = ShardRange.MAX
+        try:
+            value = self._encode_bound(value)
+        except TypeError as err:
+            raise TypeError('upper %s' % err)
+        if value < self._lower:
+            raise ValueError(
+                'upper (%r) must be greater than or equal to lower (%r)' %
+                (value, self.lower))
+        self._upper = value
+
+    @property
+    def object_count(self):
+        return self._count
+
+    @object_count.setter
+    def object_count(self, count):
+        count = int(count)
+        if count < 0:
+            raise ValueError('object_count cannot be < 0')
+        self._count = count
+
+    @property
+    def bytes_used(self):
+        return self._bytes
+
+    @bytes_used.setter
+    def bytes_used(self, bytes_used):
+        bytes_used = int(bytes_used)
+        if bytes_used < 0:
+            raise ValueError('bytes_used cannot be < 0')
+        self._bytes = bytes_used
+
+    def update_meta(self, object_count, bytes_used, meta_timestamp=None):
+        """
+        Set the object stats metadata to the given values and update the
+        meta_timestamp to the current time.
+
+        :param object_count: should be an integer
+        :param bytes_used: should be an integer
+        :param meta_timestamp: timestamp for metadata; if not given the
+            current time will be set.
+        :raises ValueError: if ``object_count`` or ``bytes_used`` cannot be
+            cast to an int, or if meta_timestamp is neither None nor can be
+            cast to a :class:`~swift.common.utils.Timestamp`.
+        """
+        self.object_count = int(object_count)
+        self.bytes_used = int(bytes_used)
+        if meta_timestamp is None:
+            self.meta_timestamp = Timestamp.now()
+        else:
+            self.meta_timestamp = meta_timestamp
+
+    def increment_meta(self, object_count, bytes_used):
+        """
+        Increment the object stats metadata by the given values and update the
+        meta_timestamp to the current time.
+
+        :param object_count: should be an integer
+        :param bytes_used: should be an integer
+        :raises ValueError: if ``object_count`` or ``bytes_used`` cannot be
+            cast to an int.
+        """
+        self.update_meta(self.object_count + int(object_count),
+                         self.bytes_used + int(bytes_used))
+
+    @classmethod
+    def resolve_state(cls, state):
+        """
+        Given a value that may be either the name or the number of a state
+        return a tuple of (state number, state name).
+
+        :param state: Either a string state name or an integer state number.
+        :return: A tuple (state number, state name)
+        :raises ValueError: if ``state`` is neither a valid state name nor a
+            valid state number.
+        """
+        try:
+            state = state.lower()
+            state_num = cls.STATES_BY_NAME[state]
+        except (KeyError, AttributeError):
+            try:
+                state_name = cls.STATES[state]
+            except KeyError:
+                raise ValueError('Invalid state %r' % state)
+            else:
+                state_num = state
+        else:
+            state_name = state
+        return state_num, state_name
+
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, state):
+        try:
+            float_state = float(state)
+            int_state = int(float_state)
+        except (ValueError, TypeError):
+            raise ValueError('Invalid state %r' % state)
+        if int_state != float_state or int_state not in self.STATES:
+            raise ValueError('Invalid state %r' % state)
+        self._state = int_state
+
+    @property
+    def state_text(self):
+        return self.STATES[self.state]
+
+    @property
+    def state_timestamp(self):
+        if self._state_timestamp is None:
+            return self.timestamp
+        return self._state_timestamp
+
+    @state_timestamp.setter
+    def state_timestamp(self, ts):
+        self._state_timestamp = self._to_timestamp(ts)
+
+    @property
+    def epoch(self):
+        return self._epoch
+
+    @epoch.setter
+    def epoch(self, epoch):
+        self._epoch = self._to_timestamp(epoch)
+
+    def update_state(self, state, state_timestamp=None):
+        """
+        Set state to the given value and optionally update the state_timestamp
+        to the given time.
+
+        :param state: new state, should be an integer
+        :param state_timestamp: timestamp for state; if not given the
+            state_timestamp will not be changed.
+        :return: True if the state or state_timestamp was changed, False
+            otherwise
+        """
+        if state_timestamp is None and self.state == state:
+            return False
+        self.state = state
+        if state_timestamp is not None:
+            self.state_timestamp = state_timestamp
+        return True
+
+    @property
+    def deleted(self):
+        return self._deleted
+
+    @deleted.setter
+    def deleted(self, value):
+        self._deleted = bool(value)
+
+    def set_deleted(self, timestamp=None):
+        """
+        Mark the shard range deleted and set timestamp to the current time.
+
+        :param timestamp: optional timestamp to set; if not given the
+            current time will be set.
+        :return: True if the deleted attribute or timestamp was changed, False
+            otherwise
+        """
+        if timestamp is None and self.deleted:
+            return False
+        self.deleted = True
+        self.timestamp = timestamp or Timestamp.now()
+        return True
+
+    def __contains__(self, item):
+        # test if the given item is within the namespace
+        if item == '':
+            return False
+        item = self._encode_bound(item)
+        return self.lower < item <= self.upper
+
+    def __lt__(self, other):
+        # a ShardRange is less than other if its entire namespace is less than
+        # other; if other is another ShardRange that implies that this
+        # ShardRange's upper must be less than or equal to the other
+        # ShardRange's lower
+        if self.upper == ShardRange.MAX:
+            return False
+        if isinstance(other, ShardRange):
+            return self.upper <= other.lower
+        elif other is None:
+            return True
+        else:
+            return self.upper < other
+
+    def __gt__(self, other):
+        # a ShardRange is greater than other if its entire namespace is greater
+        # than other; if other is another ShardRange that implies that this
+        # ShardRange's lower must be less greater than or equal to the other
+        # ShardRange's upper
+        if self.lower == ShardRange.MIN:
+            return False
+        if isinstance(other, ShardRange):
+            return self.lower >= other.upper
+        elif other is None:
+            return False
+        else:
+            return self.lower >= other
+
+    def __eq__(self, other):
+        # test for equality of range bounds only
+        if not isinstance(other, ShardRange):
+            return False
+        return self.lower == other.lower and self.upper == other.upper
+
+    def __ne__(self, other):
+        return not (self == other)
+
+    def __repr__(self):
+        return '%s<%r to %r as of %s, (%d, %d) as of %s, %s as of %s>' % (
+            self.__class__.__name__, self.lower, self.upper,
+            self.timestamp.internal, self.object_count, self.bytes_used,
+            self.meta_timestamp.internal, self.state_text,
+            self.state_timestamp.internal)
+
+    def entire_namespace(self):
+        """
+        Returns True if the ShardRange includes the entire namespace, False
+        otherwise.
+        """
+        return (self.lower == ShardRange.MIN and
+                self.upper == ShardRange.MAX)
+
+    def overlaps(self, other):
+        """
+        Returns True if the ShardRange namespace overlaps with the other
+        ShardRange's namespace.
+
+        :param other: an instance of :class:`~swift.common.utils.ShardRange`
+        """
+        if not isinstance(other, ShardRange):
+            return False
+        return max(self.lower, other.lower) < min(self.upper, other.upper)
+
+    def includes(self, other):
+        """
+        Returns True if this namespace includes the whole of the other
+        namespace, False otherwise.
+
+        :param other: an instance of :class:`~swift.common.utils.ShardRange`
+        """
+        return (self.lower <= other.lower) and (other.upper <= self.upper)
+
+    def __iter__(self):
+        yield 'name', self.name
+        yield 'timestamp', self.timestamp.internal
+        yield 'lower', str(self.lower)
+        yield 'upper', str(self.upper)
+        yield 'object_count', self.object_count
+        yield 'bytes_used', self.bytes_used
+        yield 'meta_timestamp', self.meta_timestamp.internal
+        yield 'deleted', 1 if self.deleted else 0
+        yield 'state', self.state
+        yield 'state_timestamp', self.state_timestamp.internal
+        yield 'epoch', self.epoch.internal if self.epoch is not None else None
+
+    def copy(self, timestamp=None, **kwargs):
+        """
+        Creates a copy of the ShardRange.
+
+        :param timestamp: (optional) If given, the returned ShardRange will
+            have all of its timestamps set to this value. Otherwise the
+            returned ShardRange will have the original timestamps.
+        :return: an instance of :class:`~swift.common.utils.ShardRange`
+        """
+        new = ShardRange.from_dict(dict(self, **kwargs))
+        if timestamp:
+            new.timestamp = timestamp
+            new.meta_timestamp = new.state_timestamp = None
+        return new
+
+    @classmethod
+    def from_dict(cls, params):
+        """
+        Return an instance constructed using the given dict of params. This
+        method is deliberately less flexible than the class `__init__()` method
+        and requires all of the `__init__()` args to be given in the dict of
+        params.
+
+        :param params: a dict of parameters
+        :return: an instance of this class
+        """
+        return cls(
+            params['name'], params['timestamp'], params['lower'],
+            params['upper'], params['object_count'], params['bytes_used'],
+            params['meta_timestamp'], params['deleted'], params['state'],
+            params['state_timestamp'], params['epoch'])
+
+
+def find_shard_range(item, ranges):
+    """
+    Find a ShardRange in given list of ``shard_ranges`` whose namespace
+    contains ``item``.
+
+    :param item: The item for a which a ShardRange is to be found.
+    :param ranges: a sorted list of ShardRanges.
+    :return: the ShardRange whose namespace contains ``item``, or None if
+        no suitable range is found.
+    """
+    index = bisect.bisect_left(ranges, item)
+    if index != len(ranges) and item in ranges[index]:
+        return ranges[index]
+    return None
+
+
 def modify_priority(conf, logger):
     """
     Modify priority by nice and ionice.
@@ -4750,3 +5315,110 @@ def distribute_evenly(items, num_buckets):
     for index, item in enumerate(items):
         out[index % num_buckets].append(item)
     return out
+
+
+def get_redirect_data(response):
+    """
+    Extract a redirect location from a response's headers.
+
+    :param response: a response
+    :return: a tuple of (path, Timestamp) if a Location header is found,
+        otherwise None
+    :raises ValueError: if the Location header is found but a
+        X-Backend-Redirect-Timestamp is not found, or if there is a problem
+        with the format of etiher header
+    """
+    headers = HeaderKeyDict(response.getheaders())
+    if 'Location' not in headers:
+        return None
+    location = urlparse(headers['Location']).path
+    account, container, _junk = split_path(location, 2, 3, True)
+    timestamp_val = headers.get('X-Backend-Redirect-Timestamp')
+    try:
+        timestamp = Timestamp(timestamp_val)
+    except (TypeError, ValueError):
+        raise ValueError('Invalid timestamp value: %s' % timestamp_val)
+    return '%s/%s' % (account, container), timestamp
+
+
+def parse_db_filename(filename):
+    """
+    Splits a db filename into three parts: the hash, the epoch, and the
+    extension.
+
+    >>> parse_db_filename("ab2134.db")
+    ('ab2134', None, '.db')
+    >>> parse_db_filename("ab2134_1234567890.12345.db")
+    ('ab2134', '1234567890.12345', '.db')
+
+    :param filename: A db file basename or path to a db file.
+    :return: A tuple of (hash , epoch, extension). ``epoch`` may be None.
+    :raises ValueError: if ``filename`` is not a path to a file.
+    """
+    filename = os.path.basename(filename)
+    if not filename:
+        raise ValueError('Path to a file required.')
+    name, ext = os.path.splitext(filename)
+    parts = name.split('_')
+    hash_ = parts.pop(0)
+    epoch = parts[0] if parts else None
+    return hash_, epoch, ext
+
+
+def make_db_file_path(db_path, epoch):
+    """
+    Given a path to a db file, return a modified path whose filename part has
+    the given epoch.
+
+    A db filename takes the form <hash>[_<epoch>].db; this method replaces the
+    <epoch> part of the given ``db_path`` with the given ``epoch`` value.
+
+    :param db_path: Path to a db file that does not necessarily exist.
+    :param epoch: A string that will be used as the epoch in the new path's
+        filename; the value will be normalized to the normal string
+        representation of a :class:`~swift.common.utils.Timestamp`.
+    :return: A modified path to a db file.
+    :raises ValueError: if the ``epoch`` is not valid for constructing a
+        :class:`~swift.common.utils.Timestamp`.
+    """
+    if epoch is None:
+        raise ValueError('epoch must not be None')
+    epoch = Timestamp(epoch).normal
+    hash_, _, ext = parse_db_filename(db_path)
+    db_dir = os.path.dirname(db_path)
+    return os.path.join(db_dir, '%s_%s%s' % (hash_, epoch, ext))
+
+
+def get_db_files(db_path):
+    """
+    Given the path to a db file, return a sorted list of all valid db files
+    that actually exist in that path's dir. A valid db filename has the form:
+
+        <hash>[_<epoch>].db
+
+    where <hash> matches the <hash> part of the given db_path as would be
+    parsed by :meth:`~swift.utils.common.parse_db_filename`.
+
+    :param db_path: Path to a db file that does not necessarily exist.
+    :return: List of valid db files that do exist in the dir of the
+        ``db_path``. This list may be empty.
+    """
+    db_dir, db_file = os.path.split(db_path)
+    try:
+        files = os.listdir(db_dir)
+    except OSError as err:
+        if err.errno == errno.ENOENT:
+            return []
+        raise
+    if not files:
+        return []
+    match_hash, epoch, ext = parse_db_filename(db_file)
+    results = []
+    for f in files:
+        hash_, epoch, ext = parse_db_filename(f)
+        if ext != '.db':
+            continue
+        if hash_ != match_hash:
+            continue
+        results.append(os.path.join(db_dir, f))
+    return sorted(results)

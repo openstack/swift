@@ -15,7 +15,11 @@
 
 """Tests for swift.common.utils"""
 from __future__ import print_function
-from test.unit import temptree, debug_logger, make_timestamp_iter, with_tempdir
+
+import hashlib
+
+from test.unit import temptree, debug_logger, make_timestamp_iter, \
+    with_tempdir, mock_timestamp_now
 
 import ctypes
 import contextlib
@@ -1454,6 +1458,15 @@ class TestUtils(unittest.TestCase):
             with open(testcache_file) as fd:
                 file_dict = json.loads(fd.readline())
             self.assertEqual(expect_dict, file_dict)
+            # nested dict items are not sticky
+            submit_dict = {'key1': {'key2': {'value3': 3}}}
+            expect_dict = {'key0': 101,
+                           'key1': {'key2': {'value3': 3},
+                                    'value1': 1, 'value2': 2}}
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
+            self.assertEqual(expect_dict, file_dict)
             # cached entries are sticky
             submit_dict = {}
             utils.dump_recon_cache(submit_dict, testcache_file, logger)
@@ -2753,6 +2766,53 @@ cluster_dfw1 = http://dfw1.host/v1/
             else:
                 self.assertEqual(expected, rv)
 
+    def test_config_float_value(self):
+        for args, expected in (
+                ((99, None, None), 99.0),
+                ((99.01, None, None), 99.01),
+                (('99', None, None), 99.0),
+                (('99.01', None, None), 99.01),
+                ((99, 99, None), 99.0),
+                ((99.01, 99.01, None), 99.01),
+                (('99', 99, None), 99.0),
+                (('99.01', 99.01, None), 99.01),
+                ((99, None, 99), 99.0),
+                ((99.01, None, 99.01), 99.01),
+                (('99', None, 99), 99.0),
+                (('99.01', None, 99.01), 99.01),
+                ((-99, -99, -99), -99.0),
+                ((-99.01, -99.01, -99.01), -99.01),
+                (('-99', -99, -99), -99.0),
+                (('-99.01', -99.01, -99.01), -99.01),):
+            actual = utils.config_float_value(*args)
+            self.assertEqual(expected, actual)
+
+        for val, minimum in ((99, 100),
+                             ('99', 100),
+                             (-99, -98),
+                             ('-98.01', -98)):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, minimum=minimum)
+            self.assertIn('greater than %s' % minimum, cm.exception.args[0])
+            self.assertNotIn('less than', cm.exception.args[0])
+
+        for val, maximum in ((99, 98),
+                             ('99', 98),
+                             (-99, -100),
+                             ('-97.9', -98)):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, maximum=maximum)
+            self.assertIn('less than %s' % maximum, cm.exception.args[0])
+            self.assertNotIn('greater than', cm.exception.args[0])
+
+        for val, minimum, maximum in ((99, 99, 98),
+                                      ('99', 100, 100),
+                                      (99, 98, 98),):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, minimum=minimum, maximum=maximum)
+            self.assertIn('greater than %s' % minimum, cm.exception.args[0])
+            self.assertIn('less than %s' % maximum, cm.exception.args[0])
+
     def test_config_auto_int_value(self):
         expectations = {
             # (value, default) : expected,
@@ -3807,6 +3867,105 @@ cluster_dfw1 = http://dfw1.host/v1/
             if tempdir:
                 shutil.rmtree(tempdir)
 
+    def test_find_shard_range(self):
+        ts = utils.Timestamp.now().internal
+        start = utils.ShardRange('a/-a', ts, '', 'a')
+        atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
+        ftol = utils.ShardRange('a/f-l', ts, 'f', 'l')
+        ltor = utils.ShardRange('a/l-r', ts, 'l', 'r')
+        rtoz = utils.ShardRange('a/r-z', ts, 'r', 'z')
+        end = utils.ShardRange('a/z-', ts, 'z', '')
+        ranges = [start, atof, ftol, ltor, rtoz, end]
+
+        found = utils.find_shard_range('', ranges)
+        self.assertEqual(found, None)
+        found = utils.find_shard_range(' ', ranges)
+        self.assertEqual(found, start)
+        found = utils.find_shard_range(' ', ranges[1:])
+        self.assertEqual(found, None)
+        found = utils.find_shard_range('b', ranges)
+        self.assertEqual(found, atof)
+        found = utils.find_shard_range('f', ranges)
+        self.assertEqual(found, atof)
+        found = utils.find_shard_range('f\x00', ranges)
+        self.assertEqual(found, ftol)
+        found = utils.find_shard_range('x', ranges)
+        self.assertEqual(found, rtoz)
+        found = utils.find_shard_range('r', ranges)
+        self.assertEqual(found, ltor)
+        found = utils.find_shard_range('}', ranges)
+        self.assertEqual(found, end)
+        found = utils.find_shard_range('}', ranges[:-1])
+        self.assertEqual(found, None)
+        # remove l-r from list of ranges and try and find a shard range for an
+        # item in that range.
+        found = utils.find_shard_range('p', ranges[:-3] + ranges[-2:])
+        self.assertEqual(found, None)
+
+        # add some sub-shards; a sub-shard's state is less than its parent
+        # while the parent is undeleted, so insert these ahead of the
+        # overlapping parent in the list of ranges
+        ftoh = utils.ShardRange('a/f-h', ts, 'f', 'h')
+        htok = utils.ShardRange('a/h-k', ts, 'h', 'k')
+
+        overlapping_ranges = ranges[:2] + [ftoh, htok] + ranges[2:]
+        found = utils.find_shard_range('g', overlapping_ranges)
+        self.assertEqual(found, ftoh)
+        found = utils.find_shard_range('h', overlapping_ranges)
+        self.assertEqual(found, ftoh)
+        found = utils.find_shard_range('k', overlapping_ranges)
+        self.assertEqual(found, htok)
+        found = utils.find_shard_range('l', overlapping_ranges)
+        self.assertEqual(found, ftol)
+        found = utils.find_shard_range('m', overlapping_ranges)
+        self.assertEqual(found, ltor)
+
+        ktol = utils.ShardRange('a/k-l', ts, 'k', 'l')
+        overlapping_ranges = ranges[:2] + [ftoh, htok, ktol] + ranges[2:]
+        found = utils.find_shard_range('l', overlapping_ranges)
+        self.assertEqual(found, ktol)
+
+    def test_parse_db_filename(self):
+        actual = utils.parse_db_filename('hash.db')
+        self.assertEqual(('hash', None, '.db'), actual)
+        actual = utils.parse_db_filename('hash_1234567890.12345.db')
+        self.assertEqual(('hash', '1234567890.12345', '.db'), actual)
+        actual = utils.parse_db_filename(
+            '/dev/containers/part/ash/hash/hash_1234567890.12345.db')
+        self.assertEqual(('hash', '1234567890.12345', '.db'), actual)
+        self.assertRaises(ValueError, utils.parse_db_filename, '/path/to/dir/')
+        # These shouldn't come up in practice; included for completeness
+        self.assertEqual(utils.parse_db_filename('hashunder_.db'),
+                         ('hashunder', '', '.db'))
+        self.assertEqual(utils.parse_db_filename('lots_of_underscores.db'),
+                         ('lots', 'of', '.db'))
+
+    def test_make_db_file_path(self):
+        epoch = utils.Timestamp.now()
+        actual = utils.make_db_file_path('hash.db', epoch)
+        self.assertEqual('hash_%s.db' % epoch.internal, actual)
+
+        actual = utils.make_db_file_path('hash_oldepoch.db', epoch)
+        self.assertEqual('hash_%s.db' % epoch.internal, actual)
+
+        actual = utils.make_db_file_path('/path/to/hash.db', epoch)
+        self.assertEqual('/path/to/hash_%s.db' % epoch.internal, actual)
+
+        epoch = utils.Timestamp.now()
+        actual = utils.make_db_file_path(actual, epoch)
+        self.assertEqual('/path/to/hash_%s.db' % epoch.internal, actual)
+
+        # epochs shouldn't have offsets
+        epoch = utils.Timestamp.now(offset=10)
+        actual = utils.make_db_file_path(actual, epoch)
+        self.assertEqual('/path/to/hash_%s.db' % epoch.normal, actual)
+
+        self.assertRaises(ValueError, utils.make_db_file_path,
+                          '/path/to/hash.db', 'bad epoch')
+
+        self.assertRaises(ValueError, utils.make_db_file_path,
+                          '/path/to/hash.db', None)
+
     def test_modify_priority(self):
         pid = os.getpid()
         logger = debug_logger()
@@ -4096,6 +4255,115 @@ cluster_dfw1 = http://dfw1.host/v1/
         # Expect that items get fetched in a round-robin fashion from the
         # iterators
         self.assertListEqual([1, 4, 6, 2, 5, 7, 3, 8, 9], got)
+
+    @with_tempdir
+    def test_get_db_files(self, tempdir):
+        dbdir = os.path.join(tempdir, 'dbdir')
+        self.assertEqual([], utils.get_db_files(dbdir))
+        path_1 = os.path.join(dbdir, 'dbfile.db')
+        self.assertEqual([], utils.get_db_files(path_1))
+        os.mkdir(dbdir)
+        self.assertEqual([], utils.get_db_files(path_1))
+        with open(path_1, 'wb'):
+            pass
+        self.assertEqual([path_1], utils.get_db_files(path_1))
+
+        path_2 = os.path.join(dbdir, 'dbfile_2.db')
+        self.assertEqual([path_1], utils.get_db_files(path_2))
+
+        with open(path_2, 'wb'):
+            pass
+
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_2))
+
+        path_3 = os.path.join(dbdir, 'dbfile_3.db')
+        self.assertEqual([path_1, path_2], utils.get_db_files(path_3))
+
+        with open(path_3, 'wb'):
+            pass
+
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_3))
+
+        other_hash = os.path.join(dbdir, 'other.db')
+        self.assertEqual([], utils.get_db_files(other_hash))
+        other_hash = os.path.join(dbdir, 'other_1.db')
+        self.assertEqual([], utils.get_db_files(other_hash))
+
+        pending = os.path.join(dbdir, 'dbfile.pending')
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(pending))
+
+        with open(pending, 'wb'):
+            pass
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(pending))
+
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_1, path_2, path_3], utils.get_db_files(path_3))
+        self.assertEqual([], utils.get_db_files(dbdir))
+
+        os.unlink(path_1)
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_2, path_3], utils.get_db_files(path_3))
+
+        os.unlink(path_2)
+        self.assertEqual([path_3], utils.get_db_files(path_1))
+        self.assertEqual([path_3], utils.get_db_files(path_2))
+        self.assertEqual([path_3], utils.get_db_files(path_3))
+
+        os.unlink(path_3)
+        self.assertEqual([], utils.get_db_files(path_1))
+        self.assertEqual([], utils.get_db_files(path_2))
+        self.assertEqual([], utils.get_db_files(path_3))
+        self.assertEqual([], utils.get_db_files('/path/to/nowhere'))
+
+    def test_get_redirect_data(self):
+        ts_now = utils.Timestamp.now()
+        headers = {'X-Backend-Redirect-Timestamp': ts_now.internal}
+        response = FakeResponse(200, headers, '')
+        self.assertIsNone(utils.get_redirect_data(response))
+
+        headers = {'Location': '/a/c/o',
+                   'X-Backend-Redirect-Timestamp': ts_now.internal}
+        response = FakeResponse(200, headers, '')
+        path, ts = utils.get_redirect_data(response)
+        self.assertEqual('a/c', path)
+        self.assertEqual(ts_now, ts)
+
+        headers = {'Location': '/a/c',
+                   'X-Backend-Redirect-Timestamp': ts_now.internal}
+        response = FakeResponse(200, headers, '')
+        path, ts = utils.get_redirect_data(response)
+        self.assertEqual('a/c', path)
+        self.assertEqual(ts_now, ts)
+
+        def do_test(headers):
+            response = FakeResponse(200, headers, '')
+            with self.assertRaises(ValueError) as cm:
+                utils.get_redirect_data(response)
+            return cm.exception
+
+        exc = do_test({'Location': '/a',
+                       'X-Backend-Redirect-Timestamp': ts_now.internal})
+        self.assertIn('Invalid path', str(exc))
+
+        exc = do_test({'Location': '',
+                       'X-Backend-Redirect-Timestamp': ts_now.internal})
+        self.assertIn('Invalid path', str(exc))
+
+        exc = do_test({'Location': '/a/c',
+                       'X-Backend-Redirect-Timestamp': 'bad'})
+        self.assertIn('Invalid timestamp', str(exc))
+
+        exc = do_test({'Location': '/a/c'})
+        self.assertIn('Invalid timestamp', str(exc))
+
+        exc = do_test({'Location': '/a/c',
+                       'X-Backend-Redirect-Timestamp': '-1'})
+        self.assertIn('Invalid timestamp', str(exc))
 
 
 class ResellerConfReader(unittest.TestCase):
@@ -6654,6 +6922,829 @@ class TestDistributeEvenly(unittest.TestCase):
     def test_more_buckets_than_items(self):
         out = utils.distribute_evenly(range(5), 7)
         self.assertEqual(out, [[0], [1], [2], [3], [4], [], []])
+
+
+class TestShardRange(unittest.TestCase):
+    def setUp(self):
+        self.ts_iter = make_timestamp_iter()
+
+    def test_min_max_bounds(self):
+        # max
+        self.assertEqual(utils.ShardRange.MAX, utils.ShardRange.MAX)
+        self.assertFalse(utils.ShardRange.MAX > utils.ShardRange.MAX)
+        self.assertFalse(utils.ShardRange.MAX < utils.ShardRange.MAX)
+
+        for val in 'z', u'\u00e4':
+            self.assertFalse(utils.ShardRange.MAX == val)
+            self.assertFalse(val > utils.ShardRange.MAX)
+            self.assertTrue(val < utils.ShardRange.MAX)
+            self.assertTrue(utils.ShardRange.MAX > val)
+            self.assertFalse(utils.ShardRange.MAX < val)
+
+        self.assertEqual('', str(utils.ShardRange.MAX))
+        self.assertFalse(utils.ShardRange.MAX)
+        self.assertTrue(utils.ShardRange.MAX == utils.ShardRange.MAX)
+        self.assertFalse(utils.ShardRange.MAX != utils.ShardRange.MAX)
+        self.assertTrue(
+            utils.ShardRange.MaxBound() == utils.ShardRange.MaxBound())
+        self.assertFalse(
+            utils.ShardRange.MaxBound() != utils.ShardRange.MaxBound())
+
+        # min
+        self.assertEqual(utils.ShardRange.MIN, utils.ShardRange.MIN)
+        self.assertFalse(utils.ShardRange.MIN > utils.ShardRange.MIN)
+        self.assertFalse(utils.ShardRange.MIN < utils.ShardRange.MIN)
+
+        for val in 'z', u'\u00e4':
+            self.assertFalse(utils.ShardRange.MIN == val)
+            self.assertFalse(val < utils.ShardRange.MIN)
+            self.assertTrue(val > utils.ShardRange.MIN)
+            self.assertTrue(utils.ShardRange.MIN < val)
+            self.assertFalse(utils.ShardRange.MIN > val)
+            self.assertFalse(utils.ShardRange.MIN)
+
+        self.assertEqual('', str(utils.ShardRange.MIN))
+        self.assertFalse(utils.ShardRange.MIN)
+        self.assertTrue(utils.ShardRange.MIN == utils.ShardRange.MIN)
+        self.assertFalse(utils.ShardRange.MIN != utils.ShardRange.MIN)
+        self.assertTrue(
+            utils.ShardRange.MinBound() == utils.ShardRange.MinBound())
+        self.assertFalse(
+            utils.ShardRange.MinBound() != utils.ShardRange.MinBound())
+
+        self.assertFalse(utils.ShardRange.MAX == utils.ShardRange.MIN)
+        self.assertFalse(utils.ShardRange.MIN == utils.ShardRange.MAX)
+        self.assertTrue(utils.ShardRange.MAX != utils.ShardRange.MIN)
+        self.assertTrue(utils.ShardRange.MIN != utils.ShardRange.MAX)
+
+        self.assertEqual(utils.ShardRange.MAX,
+                         max(utils.ShardRange.MIN, utils.ShardRange.MAX))
+        self.assertEqual(utils.ShardRange.MIN,
+                         min(utils.ShardRange.MIN, utils.ShardRange.MAX))
+
+    def test_shard_range_initialisation(self):
+        def assert_initialisation_ok(params, expected):
+            pr = utils.ShardRange(**params)
+            self.assertDictEqual(dict(pr), expected)
+
+        def assert_initialisation_fails(params, err_type=ValueError):
+            with self.assertRaises(err_type):
+                utils.ShardRange(**params)
+
+        ts_1 = next(self.ts_iter)
+        ts_2 = next(self.ts_iter)
+        ts_3 = next(self.ts_iter)
+        ts_4 = next(self.ts_iter)
+        empty_run = dict(name=None, timestamp=None, lower=None,
+                         upper=None, object_count=0, bytes_used=0,
+                         meta_timestamp=None, deleted=0,
+                         state=utils.ShardRange.FOUND, state_timestamp=None,
+                         epoch=None)
+        # name, timestamp must be given
+        assert_initialisation_fails(empty_run.copy())
+        assert_initialisation_fails(dict(empty_run, name='a/c'), TypeError)
+        assert_initialisation_fails(dict(empty_run, timestamp=ts_1))
+        # name must be form a/c
+        assert_initialisation_fails(dict(empty_run, name='c', timestamp=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='', timestamp=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='/a/c',
+                                         timestamp=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='/c',
+                                         timestamp=ts_1))
+        # lower, upper can be None
+        expect = dict(name='a/c', timestamp=ts_1.internal, lower='',
+                      upper='', object_count=0, bytes_used=0,
+                      meta_timestamp=ts_1.internal, deleted=0,
+                      state=utils.ShardRange.FOUND,
+                      state_timestamp=ts_1.internal, epoch=None)
+        assert_initialisation_ok(dict(empty_run, name='a/c', timestamp=ts_1),
+                                 expect)
+        assert_initialisation_ok(dict(name='a/c', timestamp=ts_1), expect)
+
+        good_run = dict(name='a/c', timestamp=ts_1, lower='l',
+                        upper='u', object_count=2, bytes_used=10,
+                        meta_timestamp=ts_2, deleted=0,
+                        state=utils.ShardRange.CREATED,
+                        state_timestamp=ts_3.internal, epoch=ts_4)
+        expect.update({'lower': 'l', 'upper': 'u', 'object_count': 2,
+                       'bytes_used': 10, 'meta_timestamp': ts_2.internal,
+                       'state': utils.ShardRange.CREATED,
+                       'state_timestamp': ts_3.internal, 'epoch': ts_4})
+        assert_initialisation_ok(good_run.copy(), expect)
+
+        # obj count and bytes used as int strings
+        good_str_run = good_run.copy()
+        good_str_run.update({'object_count': '2', 'bytes_used': '10'})
+        assert_initialisation_ok(good_str_run, expect)
+
+        good_no_meta = good_run.copy()
+        good_no_meta.pop('meta_timestamp')
+        assert_initialisation_ok(good_no_meta,
+                                 dict(expect, meta_timestamp=ts_1.internal))
+
+        good_deleted = good_run.copy()
+        good_deleted['deleted'] = 1
+        assert_initialisation_ok(good_deleted,
+                                 dict(expect, deleted=1))
+
+        assert_initialisation_fails(dict(good_run, timestamp='water balloon'))
+
+        assert_initialisation_fails(
+            dict(good_run, meta_timestamp='water balloon'))
+
+        assert_initialisation_fails(dict(good_run, lower='water balloon'))
+
+        assert_initialisation_fails(dict(good_run, upper='balloon'))
+
+        assert_initialisation_fails(
+            dict(good_run, object_count='water balloon'))
+
+        assert_initialisation_fails(dict(good_run, bytes_used='water ballon'))
+
+        assert_initialisation_fails(dict(good_run, object_count=-1))
+
+        assert_initialisation_fails(dict(good_run, bytes_used=-1))
+        assert_initialisation_fails(dict(good_run, state=-1))
+        assert_initialisation_fails(dict(good_run, state_timestamp='not a ts'))
+        assert_initialisation_fails(dict(good_run, name='/a/c'))
+        assert_initialisation_fails(dict(good_run, name='/a/c/'))
+        assert_initialisation_fails(dict(good_run, name='a/c/'))
+        assert_initialisation_fails(dict(good_run, name='a'))
+        assert_initialisation_fails(dict(good_run, name=''))
+
+    def _check_to_from_dict(self, lower, upper):
+        ts_1 = next(self.ts_iter)
+        ts_2 = next(self.ts_iter)
+        ts_3 = next(self.ts_iter)
+        ts_4 = next(self.ts_iter)
+        sr = utils.ShardRange('a/test', ts_1, lower, upper, 10, 100, ts_2,
+                              state=None, state_timestamp=ts_3, epoch=ts_4)
+        sr_dict = dict(sr)
+        expected = {
+            'name': 'a/test', 'timestamp': ts_1.internal, 'lower': lower,
+            'upper': upper, 'object_count': 10, 'bytes_used': 100,
+            'meta_timestamp': ts_2.internal, 'deleted': 0,
+            'state': utils.ShardRange.FOUND, 'state_timestamp': ts_3.internal,
+            'epoch': ts_4}
+        self.assertEqual(expected, sr_dict)
+        self.assertIsInstance(sr_dict['lower'], six.string_types)
+        self.assertIsInstance(sr_dict['upper'], six.string_types)
+        sr_new = utils.ShardRange.from_dict(sr_dict)
+        self.assertEqual(sr, sr_new)
+        self.assertEqual(sr_dict, dict(sr_new))
+
+        sr_new = utils.ShardRange(**sr_dict)
+        self.assertEqual(sr, sr_new)
+        self.assertEqual(sr_dict, dict(sr_new))
+
+        for key in sr_dict:
+            bad_dict = dict(sr_dict)
+            bad_dict.pop(key)
+            with self.assertRaises(KeyError):
+                utils.ShardRange.from_dict(bad_dict)
+            # But __init__ still (generally) works!
+            if key not in ('name', 'timestamp'):
+                utils.ShardRange(**bad_dict)
+            else:
+                with self.assertRaises(TypeError):
+                    utils.ShardRange(**bad_dict)
+
+    def test_to_from_dict(self):
+        self._check_to_from_dict('l', 'u')
+        self._check_to_from_dict('', '')
+
+    def test_timestamp_setter(self):
+        ts_1 = next(self.ts_iter)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
+        self.assertEqual(ts_1, sr.timestamp)
+
+        ts_2 = next(self.ts_iter)
+        sr.timestamp = ts_2
+        self.assertEqual(ts_2, sr.timestamp)
+
+        sr.timestamp = 0
+        self.assertEqual(utils.Timestamp(0), sr.timestamp)
+
+        with self.assertRaises(TypeError):
+            sr.timestamp = None
+
+    def test_meta_timestamp_setter(self):
+        ts_1 = next(self.ts_iter)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
+        self.assertEqual(ts_1, sr.timestamp)
+        self.assertEqual(ts_1, sr.meta_timestamp)
+
+        ts_2 = next(self.ts_iter)
+        sr.meta_timestamp = ts_2
+        self.assertEqual(ts_1, sr.timestamp)
+        self.assertEqual(ts_2, sr.meta_timestamp)
+
+        ts_3 = next(self.ts_iter)
+        sr.timestamp = ts_3
+        self.assertEqual(ts_3, sr.timestamp)
+        self.assertEqual(ts_2, sr.meta_timestamp)
+
+        # meta_timestamp defaults to tracking timestamp
+        sr.meta_timestamp = None
+        self.assertEqual(ts_3, sr.timestamp)
+        self.assertEqual(ts_3, sr.meta_timestamp)
+        ts_4 = next(self.ts_iter)
+        sr.timestamp = ts_4
+        self.assertEqual(ts_4, sr.timestamp)
+        self.assertEqual(ts_4, sr.meta_timestamp)
+
+        sr.meta_timestamp = 0
+        self.assertEqual(ts_4, sr.timestamp)
+        self.assertEqual(utils.Timestamp(0), sr.meta_timestamp)
+
+    def test_update_meta(self):
+        ts_1 = next(self.ts_iter)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            sr.update_meta(9, 99)
+        self.assertEqual(9, sr.object_count)
+        self.assertEqual(99, sr.bytes_used)
+        self.assertEqual(now, sr.meta_timestamp)
+
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            sr.update_meta(99, 999, None)
+        self.assertEqual(99, sr.object_count)
+        self.assertEqual(999, sr.bytes_used)
+        self.assertEqual(now, sr.meta_timestamp)
+
+        ts_2 = next(self.ts_iter)
+        sr.update_meta(21, 2112, ts_2)
+        self.assertEqual(21, sr.object_count)
+        self.assertEqual(2112, sr.bytes_used)
+        self.assertEqual(ts_2, sr.meta_timestamp)
+
+        sr.update_meta('11', '12')
+        self.assertEqual(11, sr.object_count)
+        self.assertEqual(12, sr.bytes_used)
+
+        def check_bad_args(*args):
+            with self.assertRaises(ValueError):
+                sr.update_meta(*args)
+        check_bad_args('bad', 10)
+        check_bad_args(10, 'bad')
+        check_bad_args(10, 11, 'bad')
+
+    def test_increment_meta(self):
+        ts_1 = next(self.ts_iter)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 1, 2, None)
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            sr.increment_meta(9, 99)
+        self.assertEqual(10, sr.object_count)
+        self.assertEqual(101, sr.bytes_used)
+        self.assertEqual(now, sr.meta_timestamp)
+
+        sr.increment_meta('11', '12')
+        self.assertEqual(21, sr.object_count)
+        self.assertEqual(113, sr.bytes_used)
+
+        def check_bad_args(*args):
+            with self.assertRaises(ValueError):
+                sr.increment_meta(*args)
+        check_bad_args('bad', 10)
+        check_bad_args(10, 'bad')
+
+    def test_state_timestamp_setter(self):
+        ts_1 = next(self.ts_iter)
+        sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
+        self.assertEqual(ts_1, sr.timestamp)
+        self.assertEqual(ts_1, sr.state_timestamp)
+
+        ts_2 = next(self.ts_iter)
+        sr.state_timestamp = ts_2
+        self.assertEqual(ts_1, sr.timestamp)
+        self.assertEqual(ts_2, sr.state_timestamp)
+
+        ts_3 = next(self.ts_iter)
+        sr.timestamp = ts_3
+        self.assertEqual(ts_3, sr.timestamp)
+        self.assertEqual(ts_2, sr.state_timestamp)
+
+        # state_timestamp defaults to tracking timestamp
+        sr.state_timestamp = None
+        self.assertEqual(ts_3, sr.timestamp)
+        self.assertEqual(ts_3, sr.state_timestamp)
+        ts_4 = next(self.ts_iter)
+        sr.timestamp = ts_4
+        self.assertEqual(ts_4, sr.timestamp)
+        self.assertEqual(ts_4, sr.state_timestamp)
+
+        sr.state_timestamp = 0
+        self.assertEqual(ts_4, sr.timestamp)
+        self.assertEqual(utils.Timestamp(0), sr.state_timestamp)
+
+    def test_state_setter(self):
+        for state in utils.ShardRange.STATES:
+            for test_value in (state, str(state)):
+                sr = utils.ShardRange('a/test', next(self.ts_iter), 'l', 'u')
+                sr.state = test_value
+                actual = sr.state
+                self.assertEqual(
+                    state, actual,
+                    'Expected %s but got %s for %s' %
+                    (state, actual, test_value)
+                )
+
+        for bad_state in (max(utils.ShardRange.STATES) + 1,
+                          -1, 99, None, 'stringy', 1.1):
+            sr = utils.ShardRange('a/test', next(self.ts_iter), 'l', 'u')
+            with self.assertRaises(ValueError) as cm:
+                sr.state = bad_state
+            self.assertIn('Invalid state', str(cm.exception))
+
+    def test_update_state(self):
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        old_sr = sr.copy()
+        self.assertEqual(utils.ShardRange.FOUND, sr.state)
+        self.assertEqual(dict(sr), dict(old_sr))  # sanity check
+
+        for state in utils.ShardRange.STATES:
+            if state == utils.ShardRange.FOUND:
+                continue
+            self.assertTrue(sr.update_state(state))
+            self.assertEqual(dict(old_sr, state=state), dict(sr))
+            self.assertFalse(sr.update_state(state))
+            self.assertEqual(dict(old_sr, state=state), dict(sr))
+
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        old_sr = sr.copy()
+        for state in utils.ShardRange.STATES:
+            ts = next(self.ts_iter)
+            self.assertTrue(sr.update_state(state, state_timestamp=ts))
+            self.assertEqual(dict(old_sr, state=state, state_timestamp=ts),
+                             dict(sr))
+
+    def test_resolve_state(self):
+        for name, number in utils.ShardRange.STATES_BY_NAME.items():
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(name))
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(name.upper()))
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(name.title()))
+            self.assertEqual(
+                (number, name), utils.ShardRange.resolve_state(number))
+
+        def check_bad_value(value):
+            with self.assertRaises(ValueError) as cm:
+                utils.ShardRange.resolve_state(value)
+            self.assertIn('Invalid state %r' % value, str(cm.exception))
+
+        check_bad_value(min(utils.ShardRange.STATES) - 1)
+        check_bad_value(max(utils.ShardRange.STATES) + 1)
+        check_bad_value('badstate')
+
+    def test_epoch_setter(self):
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        self.assertIsNone(sr.epoch)
+        ts = next(self.ts_iter)
+        sr.epoch = ts
+        self.assertEqual(ts, sr.epoch)
+        ts = next(self.ts_iter)
+        sr.epoch = ts.internal
+        self.assertEqual(ts, sr.epoch)
+        sr.epoch = None
+        self.assertIsNone(sr.epoch)
+        with self.assertRaises(ValueError):
+            sr.epoch = 'bad'
+
+    def test_deleted_setter(self):
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        for val in (True, 1):
+            sr.deleted = val
+            self.assertIs(True, sr.deleted)
+        for val in (False, 0, None):
+            sr.deleted = val
+            self.assertIs(False, sr.deleted)
+
+    def test_set_deleted(self):
+        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        # initialise other timestamps
+        sr.update_state(utils.ShardRange.ACTIVE,
+                        state_timestamp=utils.Timestamp.now())
+        sr.update_meta(1, 2)
+        old_sr = sr.copy()
+        self.assertIs(False, sr.deleted)  # sanity check
+        self.assertEqual(dict(sr), dict(old_sr))  # sanity check
+
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            self.assertTrue(sr.set_deleted())
+        self.assertEqual(now, sr.timestamp)
+        self.assertIs(True, sr.deleted)
+        old_sr_dict = dict(old_sr)
+        old_sr_dict.pop('deleted')
+        old_sr_dict.pop('timestamp')
+        sr_dict = dict(sr)
+        sr_dict.pop('deleted')
+        sr_dict.pop('timestamp')
+        self.assertEqual(old_sr_dict, sr_dict)
+
+        # no change
+        self.assertFalse(sr.set_deleted())
+        self.assertEqual(now, sr.timestamp)
+        self.assertIs(True, sr.deleted)
+
+        # force timestamp change
+        with mock_timestamp_now(next(self.ts_iter)) as now:
+            self.assertTrue(sr.set_deleted(timestamp=now))
+        self.assertEqual(now, sr.timestamp)
+        self.assertIs(True, sr.deleted)
+
+    def test_lower_setter(self):
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', '')
+        # sanity checks
+        self.assertEqual('b', sr.lower)
+        self.assertEqual(sr.MAX, sr.upper)
+
+        def do_test(good_value, expected):
+            sr.lower = good_value
+            self.assertEqual(expected, sr.lower)
+            self.assertEqual(sr.MAX, sr.upper)
+
+        do_test(utils.ShardRange.MIN, utils.ShardRange.MIN)
+        do_test(utils.ShardRange.MAX, utils.ShardRange.MAX)
+        do_test('', utils.ShardRange.MIN)
+        do_test(u'', utils.ShardRange.MIN)
+        do_test(None, utils.ShardRange.MIN)
+        do_test('a', 'a')
+        do_test('y', 'y')
+
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
+        sr.lower = ''
+        self.assertEqual(sr.MIN, sr.lower)
+
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
+        with self.assertRaises(ValueError) as cm:
+            sr.lower = 'z'
+        self.assertIn("lower ('z') must be less than or equal to upper ('y')",
+                      str(cm.exception))
+        self.assertEqual('b', sr.lower)
+        self.assertEqual('y', sr.upper)
+
+        def do_test(bad_value):
+            with self.assertRaises(TypeError) as cm:
+                sr.lower = bad_value
+            self.assertIn("lower must be a string", str(cm.exception))
+            self.assertEqual('b', sr.lower)
+            self.assertEqual('y', sr.upper)
+
+        do_test(1)
+        do_test(1.234)
+
+    def test_upper_setter(self):
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', 'y')
+        # sanity checks
+        self.assertEqual(sr.MIN, sr.lower)
+        self.assertEqual('y', sr.upper)
+
+        def do_test(good_value, expected):
+            sr.upper = good_value
+            self.assertEqual(expected, sr.upper)
+            self.assertEqual(sr.MIN, sr.lower)
+
+        do_test(utils.ShardRange.MIN, utils.ShardRange.MIN)
+        do_test(utils.ShardRange.MAX, utils.ShardRange.MAX)
+        do_test('', utils.ShardRange.MAX)
+        do_test(u'', utils.ShardRange.MAX)
+        do_test(None, utils.ShardRange.MAX)
+        do_test('z', 'z')
+        do_test('b', 'b')
+
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
+        sr.upper = ''
+        self.assertEqual(sr.MAX, sr.upper)
+
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
+        with self.assertRaises(ValueError) as cm:
+            sr.upper = 'a'
+        self.assertIn(
+            "upper ('a') must be greater than or equal to lower ('b')",
+            str(cm.exception))
+        self.assertEqual('b', sr.lower)
+        self.assertEqual('y', sr.upper)
+
+        def do_test(bad_value):
+            with self.assertRaises(TypeError) as cm:
+                sr.upper = bad_value
+            self.assertIn("upper must be a string", str(cm.exception))
+            self.assertEqual('b', sr.lower)
+            self.assertEqual('y', sr.upper)
+
+        do_test(1)
+        do_test(1.234)
+
+    def test_end_marker(self):
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', 'y')
+        self.assertEqual('y\x00', sr.end_marker)
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', '')
+        self.assertEqual('', sr.end_marker)
+
+    def test_bounds_serialization(self):
+        sr = utils.ShardRange('a/c', utils.Timestamp.now())
+        self.assertEqual('a/c', sr.name)
+        self.assertEqual(utils.ShardRange.MIN, sr.lower)
+        self.assertEqual('', sr.lower_str)
+        self.assertEqual(utils.ShardRange.MAX, sr.upper)
+        self.assertEqual('', sr.upper_str)
+        self.assertEqual('', sr.end_marker)
+
+        lower = u'\u00e4'
+        upper = u'\u00fb'
+        sr = utils.ShardRange('a/%s-%s' % (lower, upper),
+                              utils.Timestamp.now(), lower, upper)
+        if six.PY3:
+            self.assertEqual(u'\u00e4', sr.lower)
+            self.assertEqual(u'\u00e4', sr.lower_str)
+            self.assertEqual(u'\u00fb', sr.upper)
+            self.assertEqual(u'\u00fb', sr.upper_str)
+            self.assertEqual(u'\u00fb\x00', sr.end_marker)
+        else:
+            self.assertEqual(u'\u00e4'.encode('utf8'), sr.lower)
+            self.assertEqual(u'\u00e4'.encode('utf8'), sr.lower_str)
+            self.assertEqual(u'\u00fb'.encode('utf8'), sr.upper)
+            self.assertEqual(u'\u00fb'.encode('utf8'), sr.upper_str)
+            self.assertEqual(u'\u00fb\x00'.encode('utf8'), sr.end_marker)
+
+    def test_entire_namespace(self):
+        # test entire range (no boundaries)
+        entire = utils.ShardRange('a/test', utils.Timestamp.now())
+        self.assertEqual(utils.ShardRange.MAX, entire.upper)
+        self.assertEqual(utils.ShardRange.MIN, entire.lower)
+        self.assertIs(True, entire.entire_namespace())
+
+        for x in range(100):
+            self.assertTrue(str(x) in entire)
+            self.assertTrue(chr(x) in entire)
+
+        for x in ('a', 'z', 'zzzz', '124fsdf', u'\u00e4'):
+            self.assertTrue(x in entire, '%r should be in %r' % (x, entire))
+
+        entire.lower = 'a'
+        self.assertIs(False, entire.entire_namespace())
+
+    def test_comparisons(self):
+        ts = utils.Timestamp.now().internal
+
+        # upper (if provided) *must* be greater than lower
+        with self.assertRaises(ValueError):
+            utils.ShardRange('f-a', ts, 'f', 'a')
+
+        # test basic boundaries
+        btoc = utils.ShardRange('a/b-c', ts, 'b', 'c')
+        atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
+        ftol = utils.ShardRange('a/f-l', ts, 'f', 'l')
+        ltor = utils.ShardRange('a/l-r', ts, 'l', 'r')
+        rtoz = utils.ShardRange('a/r-z', ts, 'r', 'z')
+        lower = utils.ShardRange('a/lower', ts, '', 'mid')
+        upper = utils.ShardRange('a/upper', ts, 'mid', '')
+        entire = utils.ShardRange('a/test', utils.Timestamp.now())
+
+        # overlapping ranges
+        dtof = utils.ShardRange('a/d-f', ts, 'd', 'f')
+        dtom = utils.ShardRange('a/d-m', ts, 'd', 'm')
+
+        # test range > and <
+        # non-adjacent
+        self.assertFalse(rtoz < atof)
+        self.assertTrue(atof < ltor)
+        self.assertTrue(ltor > atof)
+        self.assertFalse(ftol > rtoz)
+
+        # adjacent
+        self.assertFalse(rtoz < ltor)
+        self.assertTrue(ltor < rtoz)
+        self.assertFalse(ltor > rtoz)
+        self.assertTrue(rtoz > ltor)
+
+        # wholly within
+        self.assertFalse(btoc < atof)
+        self.assertFalse(btoc > atof)
+        self.assertFalse(atof < btoc)
+        self.assertFalse(atof > btoc)
+
+        self.assertFalse(atof < dtof)
+        self.assertFalse(dtof > atof)
+        self.assertFalse(atof > dtof)
+        self.assertFalse(dtof < atof)
+
+        self.assertFalse(dtof < dtom)
+        self.assertFalse(dtof > dtom)
+        self.assertFalse(dtom > dtof)
+        self.assertFalse(dtom < dtof)
+
+        # overlaps
+        self.assertFalse(atof < dtom)
+        self.assertFalse(atof > dtom)
+        self.assertFalse(ltor > dtom)
+
+        # ranges including min/max bounds
+        self.assertTrue(upper > lower)
+        self.assertTrue(lower < upper)
+        self.assertFalse(upper < lower)
+        self.assertFalse(lower > upper)
+
+        self.assertFalse(lower < entire)
+        self.assertFalse(entire > lower)
+        self.assertFalse(lower > entire)
+        self.assertFalse(entire < lower)
+
+        self.assertFalse(upper < entire)
+        self.assertFalse(entire > upper)
+        self.assertFalse(upper > entire)
+        self.assertFalse(entire < upper)
+
+        self.assertFalse(entire < entire)
+        self.assertFalse(entire > entire)
+
+        # test range < and > to an item
+        # range is > lower and <= upper to lower boundary isn't
+        # actually included
+        self.assertTrue(ftol > 'f')
+        self.assertFalse(atof < 'f')
+        self.assertTrue(ltor < 'y')
+
+        self.assertFalse(ftol < 'f')
+        self.assertFalse(atof > 'f')
+        self.assertFalse(ltor > 'y')
+
+        self.assertTrue('f' < ftol)
+        self.assertFalse('f' > atof)
+        self.assertTrue('y' > ltor)
+
+        self.assertFalse('f' > ftol)
+        self.assertFalse('f' < atof)
+        self.assertFalse('y' < ltor)
+
+        # Now test ranges with only 1 boundary
+        start_to_l = utils.ShardRange('a/None-l', ts, '', 'l')
+        l_to_end = utils.ShardRange('a/l-None', ts, 'l', '')
+
+        for x in ('l', 'm', 'z', 'zzz1231sd'):
+            if x == 'l':
+                self.assertFalse(x in l_to_end)
+                self.assertFalse(start_to_l < x)
+                self.assertFalse(x > start_to_l)
+            else:
+                self.assertTrue(x in l_to_end)
+                self.assertTrue(start_to_l < x)
+                self.assertTrue(x > start_to_l)
+
+        # Now test some of the range to range checks with missing boundaries
+        self.assertFalse(atof < start_to_l)
+        self.assertFalse(start_to_l < entire)
+
+        # Now test ShardRange.overlaps(other)
+        self.assertTrue(atof.overlaps(atof))
+        self.assertFalse(atof.overlaps(ftol))
+        self.assertFalse(ftol.overlaps(atof))
+        self.assertTrue(atof.overlaps(dtof))
+        self.assertTrue(dtof.overlaps(atof))
+        self.assertFalse(dtof.overlaps(ftol))
+        self.assertTrue(dtom.overlaps(ftol))
+        self.assertTrue(ftol.overlaps(dtom))
+        self.assertFalse(start_to_l.overlaps(l_to_end))
+
+    def test_contains(self):
+        ts = utils.Timestamp.now().internal
+        lower = utils.ShardRange('a/-h', ts, '', 'h')
+        mid = utils.ShardRange('a/h-p', ts, 'h', 'p')
+        upper = utils.ShardRange('a/p-', ts, 'p', '')
+        entire = utils.ShardRange('a/all', ts, '', '')
+
+        self.assertTrue('a' in entire)
+        self.assertTrue('x' in entire)
+
+        # the empty string is not a valid object name, so it cannot be in any
+        # range
+        self.assertFalse('' in lower)
+        self.assertFalse('' in upper)
+        self.assertFalse('' in entire)
+
+        self.assertTrue('a' in lower)
+        self.assertTrue('h' in lower)
+        self.assertFalse('i' in lower)
+
+        self.assertFalse('h' in mid)
+        self.assertTrue('p' in mid)
+
+        self.assertFalse('p' in upper)
+        self.assertTrue('x' in upper)
+
+        self.assertIn(utils.ShardRange.MAX, entire)
+        self.assertNotIn(utils.ShardRange.MAX, lower)
+        self.assertIn(utils.ShardRange.MAX, upper)
+
+        # lower bound is excluded so MIN cannot be in any range.
+        self.assertNotIn(utils.ShardRange.MIN, entire)
+        self.assertNotIn(utils.ShardRange.MIN, upper)
+        self.assertNotIn(utils.ShardRange.MIN, lower)
+
+    def test_includes(self):
+        ts = utils.Timestamp.now().internal
+        _to_h = utils.ShardRange('a/-h', ts, '', 'h')
+        d_to_t = utils.ShardRange('a/d-t', ts, 'd', 't')
+        d_to_k = utils.ShardRange('a/d-k', ts, 'd', 'k')
+        e_to_l = utils.ShardRange('a/e-l', ts, 'e', 'l')
+        k_to_t = utils.ShardRange('a/k-t', ts, 'k', 't')
+        p_to_ = utils.ShardRange('a/p-', ts, 'p', '')
+        t_to_ = utils.ShardRange('a/t-', ts, 't', '')
+        entire = utils.ShardRange('a/all', ts, '', '')
+
+        self.assertTrue(entire.includes(entire))
+        self.assertTrue(d_to_t.includes(d_to_t))
+        self.assertTrue(_to_h.includes(_to_h))
+        self.assertTrue(p_to_.includes(p_to_))
+
+        self.assertTrue(entire.includes(_to_h))
+        self.assertTrue(entire.includes(d_to_t))
+        self.assertTrue(entire.includes(p_to_))
+
+        self.assertTrue(d_to_t.includes(d_to_k))
+        self.assertTrue(d_to_t.includes(e_to_l))
+        self.assertTrue(d_to_t.includes(k_to_t))
+        self.assertTrue(p_to_.includes(t_to_))
+
+        self.assertFalse(_to_h.includes(d_to_t))
+        self.assertFalse(p_to_.includes(d_to_t))
+        self.assertFalse(k_to_t.includes(d_to_k))
+        self.assertFalse(d_to_k.includes(e_to_l))
+        self.assertFalse(k_to_t.includes(e_to_l))
+        self.assertFalse(t_to_.includes(p_to_))
+
+        self.assertFalse(_to_h.includes(entire))
+        self.assertFalse(p_to_.includes(entire))
+        self.assertFalse(d_to_t.includes(entire))
+
+    def test_repr(self):
+        ts = next(self.ts_iter)
+        ts.offset = 1234
+        meta_ts = next(self.ts_iter)
+        state_ts = next(self.ts_iter)
+        sr = utils.ShardRange('a/c', ts, 'l', 'u', 100, 1000,
+                              meta_timestamp=meta_ts,
+                              state=utils.ShardRange.ACTIVE,
+                              state_timestamp=state_ts)
+        self.assertEqual(
+            "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s, "
+            "active as of %s>"
+            % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
+
+        ts.offset = 0
+        meta_ts.offset = 2
+        state_ts.offset = 3
+        sr = utils.ShardRange('a/c', ts, '', '', 100, 1000,
+                              meta_timestamp=meta_ts,
+                              state=utils.ShardRange.FOUND,
+                              state_timestamp=state_ts)
+        self.assertEqual(
+            "ShardRange<MinBound to MaxBound as of %s, (100, 1000) as of %s, "
+            "found as of %s>"
+            % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
+
+    def test_copy(self):
+        sr = utils.ShardRange('a/c', next(self.ts_iter), 'x', 'y', 99, 99000,
+                              meta_timestamp=next(self.ts_iter),
+                              state=utils.ShardRange.CREATED,
+                              state_timestamp=next(self.ts_iter))
+        new = sr.copy()
+        self.assertEqual(dict(sr), dict(new))
+
+        new = sr.copy(deleted=1)
+        self.assertEqual(dict(sr, deleted=1), dict(new))
+
+        new_timestamp = next(self.ts_iter)
+        new = sr.copy(timestamp=new_timestamp)
+        self.assertEqual(dict(sr, timestamp=new_timestamp.internal,
+                              meta_timestamp=new_timestamp.internal,
+                              state_timestamp=new_timestamp.internal),
+                         dict(new))
+
+        new = sr.copy(timestamp=new_timestamp, object_count=99)
+        self.assertEqual(dict(sr, timestamp=new_timestamp.internal,
+                              meta_timestamp=new_timestamp.internal,
+                              state_timestamp=new_timestamp.internal,
+                              object_count=99),
+                         dict(new))
+
+    def test_make_path(self):
+        ts = utils.Timestamp.now()
+        actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, 0)
+        parent_hash = hashlib.md5(b'parent').hexdigest()
+        self.assertEqual('a/root-%s-%s-0' % (parent_hash, ts.internal), actual)
+        actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, 3)
+        self.assertEqual('a/root-%s-%s-3' % (parent_hash, ts.internal), actual)
+        actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, '3')
+        self.assertEqual('a/root-%s-%s-3' % (parent_hash, ts.internal), actual)
+        actual = utils.ShardRange.make_path(
+            'a', 'root', 'parent', ts.internal, '3')
+        self.assertEqual('a/root-%s-%s-3' % (parent_hash, ts.internal), actual)
+        actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, 'foo')
+        self.assertEqual('a/root-%s-%s-foo' % (parent_hash, ts.internal),
+                         actual)
 
 
 if __name__ == '__main__':

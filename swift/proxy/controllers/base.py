@@ -28,6 +28,7 @@ from six.moves.urllib.parse import quote
 
 import os
 import time
+import json
 import functools
 import inspect
 import itertools
@@ -40,11 +41,11 @@ from eventlet import sleep
 from eventlet.timeout import Timeout
 import six
 
-from swift.common.wsgi import make_pre_authed_env
+from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, \
-    document_iters_to_http_response_body
+    document_iters_to_http_response_body, ShardRange
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
@@ -188,6 +189,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         },
         'meta': meta,
         'sysmeta': sysmeta,
+        'sharding_state': headers.get('x-backend-sharding-state', 'unsharded'),
     }
 
 
@@ -374,6 +376,9 @@ def get_container_info(env, app, swift_source=None):
             info[field] = 0
         else:
             info[field] = int(info[field])
+
+    if info.get('sharding_state') is None:
+        info['sharding_state'] = 'unsharded'
 
     return info
 
@@ -1994,3 +1999,91 @@ class Controller(object):
         else:
             raise ValueError(
                 "server_type can only be 'account' or 'container'")
+
+    def _get_container_listing(self, req, account, container, headers=None,
+                               params=None):
+        """
+        Fetch container listing from given `account/container`.
+
+        :param req: original Request instance.
+        :param account: account in which `container` is stored.
+        :param container: container from listing should be fetched.
+        :param headers: headers to be included with the request
+        :param params: query string parameters to be used.
+        :return: a tuple of (deserialized json data structure, swob Response)
+        """
+        params = params or {}
+        version, _a, _c, _other = req.split_path(3, 4, True)
+        path = '/'.join(['', version, account, container])
+
+        subreq = make_pre_authed_request(
+            req.environ, method='GET', path=quote(path), headers=req.headers,
+            swift_source='SH')
+        if headers:
+            subreq.headers.update(headers)
+        subreq.params = params
+        self.app.logger.debug(
+            'Get listing from %s %s' % (subreq.path_qs, headers))
+        response = self.app.handle_request(subreq)
+
+        if not is_success(response.status_int):
+            self.app.logger.warning(
+                'Failed to get container listing from %s: %s',
+                subreq.path_qs, response.status_int)
+            return None, response
+
+        try:
+            data = json.loads(response.body)
+            if not isinstance(data, list):
+                raise ValueError('not a list')
+            return data, response
+        except ValueError as err:
+            self.app.logger.error(
+                'Problem with listing response from %s: %r',
+                subreq.path_qs, err)
+            return None, response
+
+    def _get_shard_ranges(self, req, account, container, includes=None,
+                          states=None):
+        """
+        Fetch shard ranges from given `account/container`. If `includes` is
+        given then the shard range for that object name is requested, otherwise
+        all shard ranges are requested.
+
+        :param req: original Request instance.
+        :param account: account from which shard ranges should be fetched.
+        :param container: container from which shard ranges should be fetched.
+        :param includes: (optional) restricts the list of fetched shard ranges
+            to those which include the given name.
+        :param states: (optional) the states of shard ranges to be fetched.
+        :return: a list of instances of :class:`swift.common.utils.ShardRange`,
+            or None if there was a problem fetching the shard ranges
+        """
+        params = req.params.copy()
+        params.pop('limit', None)
+        params['format'] = 'json'
+        if includes:
+            params['includes'] = includes
+        if states:
+            params['states'] = states
+        headers = {'X-Backend-Record-Type': 'shard'}
+        listing, response = self._get_container_listing(
+            req, account, container, headers=headers, params=params)
+        if listing is None:
+            return None
+
+        record_type = response.headers.get('x-backend-record-type')
+        if record_type != 'shard':
+            err = 'unexpected record type %r' % record_type
+            self.app.logger.error("Failed to get shard ranges from %s: %s",
+                                  req.path_qs, err)
+            return None
+
+        try:
+            return [ShardRange.from_dict(shard_range)
+                    for shard_range in listing]
+        except (ValueError, TypeError, KeyError) as err:
+            self.app.logger.error(
+                "Failed to get shard ranges from %s: invalid data: %r",
+                req.path_qs, err)
+            return None

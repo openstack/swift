@@ -33,10 +33,12 @@ from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, Timestamp, parse_override_options, round_robin_iter, Everything
+    json, parse_override_options, round_robin_iter, Everything, get_db_files, \
+    parse_db_filename
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
-from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
+from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE, \
+    is_success
 from swift.common.bufferedhttp import BufferedHTTPConnection
 from swift.common.exceptions import DriveNotMounted
 from swift.common.daemon import Daemon
@@ -87,11 +89,14 @@ def roundrobin_datadirs(datadirs):
     found (in their proper places). The partitions within each data
     dir are walked randomly, however.
 
-    :param datadirs: a list of (path, node_id, partition_filter) to walk
-    :returns: A generator of (partition, path_to_db_file, node_id)
+    :param datadirs: a list of tuples of (path, context, partition_filter) to
+                     walk. The context may be any object; the context is not
+                     used by this function but is included with each yielded
+                     tuple.
+    :returns: A generator of (partition, path_to_db_file, context)
     """
 
-    def walk_datadir(datadir, node_id, part_filter):
+    def walk_datadir(datadir, context, part_filter):
         partitions = [pd for pd in os.listdir(datadir)
                       if looks_like_partition(pd) and part_filter(pd)]
         random.shuffle(partitions)
@@ -116,17 +121,23 @@ def roundrobin_datadirs(datadirs):
                     if not os.path.isdir(hash_dir):
                         continue
                     object_file = os.path.join(hash_dir, hsh + '.db')
+                    # common case
                     if os.path.exists(object_file):
-                        yield (partition, object_file, node_id)
-                    else:
-                        try:
-                            os.rmdir(hash_dir)
-                        except OSError as e:
-                            if e.errno != errno.ENOTEMPTY:
-                                raise
+                        yield (partition, object_file, context)
+                        continue
+                    # look for any alternate db filenames
+                    db_files = get_db_files(object_file)
+                    if db_files:
+                        yield (partition, db_files[-1], context)
+                        continue
+                    try:
+                        os.rmdir(hash_dir)
+                    except OSError as e:
+                        if e.errno != errno.ENOTEMPTY:
+                            raise
 
-    its = [walk_datadir(datadir, node_id, filt)
-           for datadir, node_id, filt in datadirs]
+    its = [walk_datadir(datadir, context, filt)
+           for datadir, context, filt in datadirs]
 
     rr_its = round_robin_iter(its)
     for datadir in rr_its:
@@ -212,7 +223,7 @@ class Replicator(Daemon):
         self.stats = {'attempted': 0, 'success': 0, 'failure': 0, 'ts_repl': 0,
                       'no_change': 0, 'hashmatch': 0, 'rsync': 0, 'diff': 0,
                       'remove': 0, 'empty': 0, 'remote_merge': 0,
-                      'start': time.time(), 'diff_capped': 0,
+                      'start': time.time(), 'diff_capped': 0, 'deferred': 0,
                       'failure_nodes': {}}
 
     def _report_stats(self):
@@ -309,8 +320,19 @@ class Replicator(Daemon):
                                         different_region=different_region):
                     return False
         with Timeout(replicate_timeout or self.node_timeout):
-            response = http.replicate(replicate_method, local_id)
+            response = http.replicate(replicate_method, local_id,
+                                      os.path.basename(broker.db_file))
         return response and 200 <= response.status < 300
+
+    def _send_replicate_request(self, http, *repl_args):
+        with Timeout(self.node_timeout):
+            response = http.replicate(*repl_args)
+        if not response or not is_success(response.status):
+            if response:
+                self.logger.error('ERROR Bad response %s from %s',
+                                  response.status, http.host)
+            return False
+        return True
 
     def _usync_db(self, point, broker, http, remote_id, local_id):
         """
@@ -326,26 +348,29 @@ class Replicator(Daemon):
         """
         self.stats['diff'] += 1
         self.logger.increment('diffs')
-        self.logger.debug('Syncing chunks with %s, starting at %s',
-                          http.host, point)
+        self.logger.debug('%s usyncing chunks to %s, starting at row %s',
+                          broker.db_file,
+                          '%(ip)s:%(port)s/%(device)s' % http.node,
+                          point)
+        start = time.time()
         sync_table = broker.get_syncs()
         objects = broker.get_items_since(point, self.per_diff)
         diffs = 0
         while len(objects) and diffs < self.max_diffs:
             diffs += 1
-            with Timeout(self.node_timeout):
-                response = http.replicate('merge_items', objects, local_id)
-            if not response or response.status >= 300 or response.status < 200:
-                if response:
-                    self.logger.error(_('ERROR Bad response %(status)s from '
-                                        '%(host)s'),
-                                      {'status': response.status,
-                                       'host': http.host})
+            if not self._send_replicate_request(
+                    http, 'merge_items', objects, local_id):
                 return False
             # replication relies on db order to send the next merge batch in
             # order with no gaps
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
+
+        self.logger.debug('%s usyncing chunks to %s, finished at row %s (%gs)',
+                          broker.db_file,
+                          '%(ip)s:%(port)s/%(device)s' % http.node,
+                          point, time.time() - start)
+
         if objects:
             self.logger.debug(
                 'Synchronization for %s has fallen more than '
@@ -397,9 +422,8 @@ class Replicator(Daemon):
 
         :returns: ReplConnection object
         """
-        return ReplConnection(node, partition,
-                              os.path.basename(db_file).split('.', 1)[0],
-                              self.logger)
+        hsh, other, ext = parse_db_filename(db_file)
+        return ReplConnection(node, partition, hsh, self.logger)
 
     def _gather_sync_args(self, info):
         """
@@ -449,31 +473,78 @@ class Replicator(Daemon):
             if rinfo.get('metadata', ''):
                 broker.update_metadata(json.loads(rinfo['metadata']))
             if self._in_sync(rinfo, info, broker, local_sync):
+                self.logger.debug('%s in sync with %s, nothing to do',
+                                  broker.db_file,
+                                  '%(ip)s:%(port)s/%(device)s' % node)
                 return True
-            # if the difference in rowids between the two differs by
-            # more than 50% and the difference is greater than per_diff,
-            # rsync then do a remote merge.
-            # NOTE: difference > per_diff stops us from dropping to rsync
-            # on smaller containers, who have only a few rows to sync.
-            if rinfo['max_row'] / float(info['max_row']) < 0.5 and \
-                    info['max_row'] - rinfo['max_row'] > self.per_diff:
-                self.stats['remote_merge'] += 1
-                self.logger.increment('remote_merges')
-                return self._rsync_db(broker, node, http, info['id'],
-                                      replicate_method='rsync_then_merge',
-                                      replicate_timeout=(info['count'] / 2000),
-                                      different_region=different_region)
-            # else send diffs over to the remote server
-            return self._usync_db(max(rinfo['point'], local_sync),
-                                  broker, http, rinfo['id'], info['id'])
+            return self._choose_replication_mode(
+                node, rinfo, info, local_sync, broker, http,
+                different_region)
+        return False
+
+    def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
+                                 http, different_region):
+        # if the difference in rowids between the two differs by
+        # more than 50% and the difference is greater than per_diff,
+        # rsync then do a remote merge.
+        # NOTE: difference > per_diff stops us from dropping to rsync
+        # on smaller containers, who have only a few rows to sync.
+        if (rinfo['max_row'] / float(info['max_row']) < 0.5 and
+                info['max_row'] - rinfo['max_row'] > self.per_diff):
+            self.stats['remote_merge'] += 1
+            self.logger.increment('remote_merges')
+            return self._rsync_db(broker, node, http, info['id'],
+                                  replicate_method='rsync_then_merge',
+                                  replicate_timeout=(info['count'] / 2000),
+                                  different_region=different_region)
+        # else send diffs over to the remote server
+        return self._usync_db(max(rinfo['point'], local_sync),
+                              broker, http, rinfo['id'], info['id'])
 
     def _post_replicate_hook(self, broker, info, responses):
         """
-        :param broker: the container that just replicated
+        :param broker: broker instance for the database that just replicated
         :param info: pre-replication full info dict
         :param responses: a list of bools indicating success from nodes
         """
         pass
+
+    def cleanup_post_replicate(self, broker, orig_info, responses):
+        """
+        Cleanup non primary database from disk if needed.
+
+        :param broker: the broker for the database we're replicating
+        :param orig_info: snapshot of the broker replication info dict taken
+            before replication
+        :param responses: a list of boolean success values for each replication
+                          request to other nodes
+
+        :return success: returns False if deletion of the database was
+            attempted but unsuccessful, otherwise returns True.
+        """
+        log_template = 'Not deleting db %s (%%s)' % broker.db_file
+        max_row_delta = broker.get_max_row() - orig_info['max_row']
+        if max_row_delta < 0:
+            reason = 'negative max_row_delta: %s' % max_row_delta
+            self.logger.error(log_template, reason)
+            return True
+        if max_row_delta:
+            reason = '%s new rows' % max_row_delta
+            self.logger.debug(log_template, reason)
+            return True
+        if not (responses and all(responses)):
+            reason = '%s/%s success' % (responses.count(True), len(responses))
+            self.logger.debug(log_template, reason)
+            return True
+        # If the db has been successfully synced to all of its peers, it can be
+        # removed. Callers should have already checked that the db is not on a
+        # primary node.
+        if not self.delete_db(broker):
+            self.logger.debug(
+                'Failed to delete db %s', broker.db_file)
+            return False
+        self.logger.debug('Successfully deleted db %s', broker.db_file)
+        return True
 
     def _replicate_object(self, partition, object_file, node_id):
         """
@@ -483,12 +554,20 @@ class Replicator(Daemon):
         :param partition: partition to be replicated to
         :param object_file: DB file name to be replicated
         :param node_id: node id of the node to be replicated to
+        :returns: a tuple (success, responses). ``success`` is a boolean that
+            is True if the method completed successfully, False otherwise.
+            ``responses`` is a list of booleans each of which indicates the
+            success or not of replicating to a peer node if replication has
+            been attempted. ``success`` is False if any of ``responses`` is
+            False; when ``responses`` is empty, ``success`` may be either True
+            or False.
         """
         start_time = now = time.time()
         self.logger.debug('Replicating db %s', object_file)
         self.stats['attempted'] += 1
         self.logger.increment('attempts')
         shouldbehere = True
+        responses = []
         try:
             broker = self.brokerclass(object_file, pending_timeout=30)
             broker.reclaim(now - self.reclaim_age,
@@ -518,18 +597,12 @@ class Replicator(Daemon):
                                       failure_dev['device'])
                                      for failure_dev in nodes])
             self.logger.increment('failures')
-            return
-        # The db is considered deleted if the delete_timestamp value is greater
-        # than the put_timestamp, and there are no objects.
-        delete_timestamp = Timestamp(info.get('delete_timestamp') or 0)
-        put_timestamp = Timestamp(info.get('put_timestamp') or 0)
-        if (now - self.reclaim_age) > delete_timestamp > put_timestamp and \
-                info['count'] in (None, '', 0, '0'):
+            return False, responses
+        if broker.is_reclaimable(now, self.reclaim_age):
             if self.report_up_to_date(info):
                 self.delete_db(broker)
             self.logger.timing_since('timing', start_time)
-            return
-        responses = []
+            return True, responses
         failure_devs_info = set()
         nodes = self.ring.get_part_nodes(int(partition))
         local_dev = None
@@ -587,14 +660,11 @@ class Replicator(Daemon):
         except (Exception, Timeout):
             self.logger.exception('UNHANDLED EXCEPTION: in post replicate '
                                   'hook for %s', broker.db_file)
-        if not shouldbehere and responses and all(responses):
-            # If the db shouldn't be on this node and has been successfully
-            # synced to all of its peers, it can be removed.
-            if not self.delete_db(broker):
+        if not shouldbehere:
+            if not self.cleanup_post_replicate(broker, info, responses):
                 failure_devs_info.update(
                     [(failure_dev['replication_ip'], failure_dev['device'])
                      for failure_dev in repl_nodes])
-
         target_devs_info = set([(target_dev['replication_ip'],
                                  target_dev['device'])
                                 for target_dev in repl_nodes])
@@ -602,6 +672,9 @@ class Replicator(Daemon):
         self._add_failure_stats(failure_devs_info)
 
         self.logger.timing_since('timing', start_time)
+        if shouldbehere:
+            responses.append(True)
+        return all(responses), responses
 
     def delete_db(self, broker):
         object_file = broker.db_file
@@ -746,6 +819,9 @@ class ReplicatorRpc(object):
         self.mount_check = mount_check
         self.logger = logger or get_logger({}, log_route='replicator-rpc')
 
+    def _db_file_exists(self, db_path):
+        return os.path.exists(db_path)
+
     def dispatch(self, replicate_args, args):
         if not hasattr(args, 'pop'):
             return HTTPBadRequest(body='Invalid object type')
@@ -764,7 +840,7 @@ class ReplicatorRpc(object):
             # someone might be about to rsync a db to us,
             # make sure there's a tmp dir to receive it.
             mkdirs(os.path.join(self.root, drive, 'tmp'))
-            if not os.path.exists(db_file):
+            if not self._db_file_exists(db_file):
                 return HTTPNotFound()
             return getattr(self, op)(self.broker_class(db_file), args)
 
@@ -863,6 +939,8 @@ class ReplicatorRpc(object):
 
     def complete_rsync(self, drive, db_file, args):
         old_filename = os.path.join(self.root, drive, 'tmp', args[0])
+        if args[1:]:
+            db_file = os.path.join(os.path.dirname(db_file), args[1])
         if os.path.exists(db_file):
             return HTTPNotFound()
         if not os.path.exists(old_filename):
@@ -872,12 +950,21 @@ class ReplicatorRpc(object):
         renamer(old_filename, db_file)
         return HTTPNoContent()
 
+    def _abort_rsync_then_merge(self, db_file, tmp_filename):
+        return not (self._db_file_exists(db_file) and
+                    os.path.exists(tmp_filename))
+
+    def _post_rsync_then_merge_hook(self, existing_broker, new_broker):
+        # subclasses may override to make custom changes to the new broker
+        pass
+
     def rsync_then_merge(self, drive, db_file, args):
-        old_filename = os.path.join(self.root, drive, 'tmp', args[0])
-        if not os.path.exists(db_file) or not os.path.exists(old_filename):
+        tmp_filename = os.path.join(self.root, drive, 'tmp', args[0])
+        if self._abort_rsync_then_merge(db_file, tmp_filename):
             return HTTPNotFound()
-        new_broker = self.broker_class(old_filename)
+        new_broker = self.broker_class(tmp_filename)
         existing_broker = self.broker_class(db_file)
+        db_file = existing_broker.db_file
         point = -1
         objects = existing_broker.get_items_since(point, 1000)
         while len(objects):
@@ -885,9 +972,13 @@ class ReplicatorRpc(object):
             point = objects[-1]['ROWID']
             objects = existing_broker.get_items_since(point, 1000)
             sleep()
+        new_broker.merge_syncs(existing_broker.get_syncs())
+        self._post_rsync_then_merge_hook(existing_broker, new_broker)
         new_broker.newid(args[0])
         new_broker.update_metadata(existing_broker.metadata)
-        renamer(old_filename, db_file)
+        if self._abort_rsync_then_merge(db_file, tmp_filename):
+            return HTTPNotFound()
+        renamer(tmp_filename, db_file)
         return HTTPNoContent()
 
 # Footnote [1]:

@@ -298,6 +298,27 @@ def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False):
     else:
         print('No user metadata found in db file')
 
+    if db_type == 'container':
+        print('Sharding Metadata:')
+        shard_type = 'root' if info['is_root'] else 'shard'
+        print('  Type: %s' % shard_type)
+        print('  State: %s' % info['db_state'])
+    if info.get('shard_ranges'):
+        print('Shard Ranges (%d):' % len(info['shard_ranges']))
+        for srange in info['shard_ranges']:
+            srange = dict(srange, state_text=srange.state_text)
+            print('  Name: %(name)s' % srange)
+            print('    lower: %(lower)r, upper: %(upper)r' % srange)
+            print('    Object Count: %(object_count)d, Bytes Used: '
+                  '%(bytes_used)d, State: %(state_text)s (%(state)d)'
+                  % srange)
+            print('    Created at: %s (%s)'
+                  % (Timestamp(srange['timestamp']).isoformat,
+                     srange['timestamp']))
+            print('    Meta Timestamp: %s (%s)'
+                  % (Timestamp(srange['meta_timestamp']).isoformat,
+                     srange['meta_timestamp']))
+
 
 def print_obj_metadata(metadata, drop_prefixes=False):
     """
@@ -406,7 +427,13 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
             raise InfoSystemExit()
         raise
     account = info['account']
-    container = info['container'] if db_type == 'container' else None
+    container = None
+    if db_type == 'container':
+        container = info['container']
+        info['is_root'] = broker.is_root_container()
+        sranges = broker.get_shard_ranges()
+        if sranges:
+            info['shard_ranges'] = sranges
     print_db_info_metadata(db_type, info, broker.metadata, drop_prefixes)
     try:
         ring = Ring(swift_dir, ring_name=db_type)

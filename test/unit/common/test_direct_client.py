@@ -95,6 +95,11 @@ def mocked_http_conn(*args, **kwargs):
         yield fake_conn
 
 
+@contextmanager
+def noop_timeout(duration):
+    yield
+
+
 @patch_policies
 class TestDirectClient(unittest.TestCase):
 
@@ -116,6 +121,10 @@ class TestDirectClient(unittest.TestCase):
             urllib.parse.quote(p.encode('utf-8')) for p in (
                 self.account, self.container, self.obj))
         self.user_agent = 'direct-client %s' % os.getpid()
+
+        patcher = mock.patch.object(direct_client, 'Timeout', noop_timeout)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_gen_headers(self):
         stub_user_agent = 'direct-client %s' % os.getpid()
@@ -449,6 +458,67 @@ class TestDirectClient(unittest.TestCase):
 
         self.assertEqual(err.http_status, 500)
         self.assertTrue('DELETE' in str(err))
+
+    def test_direct_put_container(self):
+        body = 'Let us begin with a quick introduction'
+        headers = {'x-foo': 'bar', 'Content-Length': str(len(body)),
+                   'Content-Type': 'application/json',
+                   'User-Agent': 'my UA'}
+
+        with mocked_http_conn(204) as conn:
+            rv = direct_client.direct_put_container(
+                self.node, self.part, self.account, self.container,
+                contents=body, headers=headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
+            self.assertEqual(conn.method, 'PUT')
+            self.assertEqual(conn.path, self.container_path)
+            self.assertEqual(conn.req_headers['Content-Length'],
+                             str(len(body)))
+            self.assertEqual(conn.req_headers['Content-Type'],
+                             'application/json')
+            self.assertEqual(conn.req_headers['User-Agent'], 'my UA')
+            self.assertTrue('x-timestamp' in conn.req_headers)
+            self.assertEqual('bar', conn.req_headers.get('x-foo'))
+            self.assertEqual(md5(body).hexdigest(), conn.etag.hexdigest())
+        self.assertIsNone(rv)
+
+    def test_direct_put_container_chunked(self):
+        body = 'Let us begin with a quick introduction'
+        headers = {'x-foo': 'bar', 'Content-Type': 'application/json'}
+
+        with mocked_http_conn(204) as conn:
+            rv = direct_client.direct_put_container(
+                self.node, self.part, self.account, self.container,
+                contents=body, headers=headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
+            self.assertEqual(conn.method, 'PUT')
+            self.assertEqual(conn.path, self.container_path)
+            self.assertEqual(conn.req_headers['Transfer-Encoding'], 'chunked')
+            self.assertEqual(conn.req_headers['Content-Type'],
+                             'application/json')
+            self.assertTrue('x-timestamp' in conn.req_headers)
+            self.assertEqual('bar', conn.req_headers.get('x-foo'))
+            self.assertNotIn('Content-Length', conn.req_headers)
+            expected_sent = '%0x\r\n%s\r\n0\r\n\r\n' % (len(body), body)
+            self.assertEqual(md5(expected_sent).hexdigest(),
+                             conn.etag.hexdigest())
+        self.assertIsNone(rv)
+
+    def test_direct_put_container_fail(self):
+        with mock.patch('swift.common.bufferedhttp.http_connect_raw',
+                        side_effect=Exception('conn failed')):
+            with self.assertRaises(Exception) as cm:
+                direct_client.direct_put_container(
+                    self.node, self.part, self.account, self.container)
+        self.assertEqual('conn failed', str(cm.exception))
+
+        with mocked_http_conn(Exception('resp failed')):
+            with self.assertRaises(Exception) as cm:
+                direct_client.direct_put_container(
+                    self.node, self.part, self.account, self.container)
+        self.assertEqual('resp failed', str(cm.exception))
 
     def test_direct_put_container_object(self):
         headers = {'x-foo': 'bar'}

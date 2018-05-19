@@ -14,6 +14,8 @@
 # limitations under the License.
 
 from __future__ import print_function
+
+import errno
 import os
 from subprocess import Popen, PIPE
 import sys
@@ -125,13 +127,17 @@ def kill_server(ipport, ipport2server):
     if err:
         raise Exception('unable to kill %s' % (server if not number else
                                                '%s%s' % (server, number)))
+    return wait_for_server_to_hangup(ipport)
+
+
+def wait_for_server_to_hangup(ipport):
     try_until = time() + 30
     while True:
         try:
             conn = HTTPConnection(*ipport)
             conn.request('GET', '/')
             conn.getresponse()
-        except Exception as err:
+        except Exception:
             break
         if time() > try_until:
             raise Exception(
@@ -334,33 +340,35 @@ class ProbeTest(unittest.TestCase):
     Don't instantiate this directly, use a child class instead.
     """
 
+    def _load_rings_and_configs(self):
+        self.ipport2server = {}
+        self.configs = defaultdict(dict)
+        self.account_ring = get_ring(
+            'account',
+            self.acct_cont_required_replicas,
+            self.acct_cont_required_devices,
+            ipport2server=self.ipport2server,
+            config_paths=self.configs)
+        self.container_ring = get_ring(
+            'container',
+            self.acct_cont_required_replicas,
+            self.acct_cont_required_devices,
+            ipport2server=self.ipport2server,
+            config_paths=self.configs)
+        self.policy = get_policy(**self.policy_requirements)
+        self.object_ring = get_ring(
+            self.policy.ring_name,
+            self.obj_required_replicas,
+            self.obj_required_devices,
+            server='object',
+            ipport2server=self.ipport2server,
+            config_paths=self.configs)
+
     def setUp(self):
         resetswift()
         kill_orphans()
+        self._load_rings_and_configs()
         try:
-            self.ipport2server = {}
-            self.configs = defaultdict(dict)
-            self.account_ring = get_ring(
-                'account',
-                self.acct_cont_required_replicas,
-                self.acct_cont_required_devices,
-                ipport2server=self.ipport2server,
-                config_paths=self.configs)
-            self.container_ring = get_ring(
-                'container',
-                self.acct_cont_required_replicas,
-                self.acct_cont_required_devices,
-                ipport2server=self.ipport2server,
-                config_paths=self.configs)
-            self.policy = get_policy(**self.policy_requirements)
-            self.object_ring = get_ring(
-                self.policy.ring_name,
-                self.obj_required_replicas,
-                self.obj_required_devices,
-                server='object',
-                ipport2server=self.ipport2server,
-                config_paths=self.configs)
-
             self.servers_per_port = any(
                 int(readconf(c, section_name='object-replicator').get(
                     'servers_per_port', '0'))
@@ -488,6 +496,49 @@ class ProbeTest(unittest.TestCase):
             return internal_client.InternalClient(conf_path, 'test', 1)
         finally:
             shutil.rmtree(tempdir)
+
+    def get_all_object_nodes(self):
+        """
+        Returns a list of all nodes in all object storage policies.
+
+        :return: a list of node dicts.
+        """
+        all_obj_nodes = {}
+        for policy in ENABLED_POLICIES:
+            for dev in policy.object_ring.devs:
+                all_obj_nodes[dev['device']] = dev
+        return all_obj_nodes.values()
+
+    def gather_async_pendings(self, onodes):
+        """
+        Returns a list of paths to async pending files found on given nodes.
+
+        :param onodes: a list of nodes.
+        :return: a list of file paths.
+        """
+        async_pendings = []
+        for onode in onodes:
+            device_dir = self.device_dir('', onode)
+            for ap_pol_dir in os.listdir(device_dir):
+                if not ap_pol_dir.startswith('async_pending'):
+                    # skip 'objects', 'containers', etc.
+                    continue
+                async_pending_dir = os.path.join(device_dir, ap_pol_dir)
+                try:
+                    ap_dirs = os.listdir(async_pending_dir)
+                except OSError as err:
+                    if err.errno == errno.ENOENT:
+                        pass
+                    else:
+                        raise
+                else:
+                    for ap_dir in ap_dirs:
+                        ap_dir_fullpath = os.path.join(
+                            async_pending_dir, ap_dir)
+                        async_pendings.extend([
+                            os.path.join(ap_dir_fullpath, ent)
+                            for ent in os.listdir(ap_dir_fullpath)])
+        return async_pendings
 
 
 class ReplProbeTest(ProbeTest):

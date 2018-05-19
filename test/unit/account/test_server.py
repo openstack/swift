@@ -404,7 +404,7 @@ class TestAccountController(unittest.TestCase):
                 elif state[0] == 'race':
                     # Save the original db_file attribute value
                     self._saved_db_file = self.db_file
-                    self.db_file += '.doesnotexist'
+                    self._db_file += '.doesnotexist'
 
             def initialize(self, *args, **kwargs):
                 if state[0] == 'initial':
@@ -413,7 +413,7 @@ class TestAccountController(unittest.TestCase):
                 elif state[0] == 'race':
                     # Restore the original db_file attribute to get the race
                     # behavior
-                    self.db_file = self._saved_db_file
+                    self._db_file = self._saved_db_file
                 return super(InterceptedAcBr, self).initialize(*args, **kwargs)
 
         with mock.patch("swift.account.server.AccountBroker", InterceptedAcBr):

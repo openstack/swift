@@ -22,7 +22,7 @@ import six.moves.cPickle as pickle
 import sqlite3
 
 from swift.common.utils import Timestamp
-from swift.common.db import DatabaseBroker, utf8encode
+from swift.common.db import DatabaseBroker, utf8encode, zero_like
 
 DATADIR = 'accounts'
 
@@ -233,7 +233,7 @@ class AccountBroker(DatabaseBroker):
         with self.get() as conn:
             row = conn.execute(
                 'SELECT container_count from account_stat').fetchone()
-            return (row[0] == 0)
+            return zero_like(row[0])
 
     def make_tuple_for_pickle(self, record):
         return (record['name'], record['put_timestamp'],
@@ -254,7 +254,7 @@ class AccountBroker(DatabaseBroker):
         :param storage_policy_index:  the storage policy for this container
         """
         if Timestamp(delete_timestamp) > Timestamp(put_timestamp) and \
-                object_count in (None, '', 0, '0'):
+                zero_like(object_count):
             deleted = 1
         else:
             deleted = 0
@@ -273,8 +273,7 @@ class AccountBroker(DatabaseBroker):
 
         :returns: True if the DB is considered to be deleted, False otherwise
         """
-        return status == 'DELETED' or (
-            container_count in (None, '', 0, '0') and
+        return status == 'DELETED' or zero_like(container_count) and (
             Timestamp(delete_timestamp) > Timestamp(put_timestamp))
 
     def _is_deleted(self, conn):
@@ -509,7 +508,7 @@ class AccountBroker(DatabaseBroker):
                         record[2] = row[2]
                     # If deleted, mark as such
                     if Timestamp(record[2]) > Timestamp(record[1]) and \
-                            record[3] in (None, '', 0, '0'):
+                            zero_like(record[3]):
                         record[5] = 1
                     else:
                         record[5] = 0

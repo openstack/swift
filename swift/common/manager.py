@@ -34,7 +34,7 @@ PROC_DIR = '/proc'
 
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
                'container-replicator', 'container-reconciler',
-               'container-server', 'container-sync',
+               'container-server', 'container-sharder', 'container-sync',
                'container-updater', 'object-auditor', 'object-server',
                'object-expirer', 'object-replicator',
                'object-reconstructor', 'object-updater',
@@ -637,13 +637,16 @@ class Server(object):
                   {'server': self.server, 'pid': pid, 'conf': conf_file})
         return 0
 
-    def spawn(self, conf_file, once=False, wait=True, daemon=True, **kwargs):
+    def spawn(self, conf_file, once=False, wait=True, daemon=True,
+              additional_args=None, **kwargs):
         """Launch a subprocess for this server.
 
         :param conf_file: path to conf_file to use as first arg
         :param once: boolean, add once argument to command
         :param wait: boolean, if true capture stdout with a pipe
         :param daemon: boolean, if false ask server to log to console
+        :param additional_args: list of additional arguments to pass
+                                on the command line
 
         :returns: the pid of the spawned process
         """
@@ -653,6 +656,10 @@ class Server(object):
         if not daemon:
             # ask the server to log to console
             args.append('verbose')
+        if additional_args:
+            if isinstance(additional_args, str):
+                additional_args = [additional_args]
+            args.extend(additional_args)
 
         # figure out what we're going to do with stdio
         if not daemon:

@@ -62,6 +62,7 @@ Overview and Concepts
     overview_erasure_code
     overview_encryption
     overview_backing_store
+    overview_container_sharding
     ring_background
     ring_partpower
     associated_projects

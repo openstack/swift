@@ -99,9 +99,11 @@ class BrainSplitter(object):
             raise ValueError('Unknown server_type: %r' % server_type)
         self.server_type = server_type
 
-        part, nodes = self.ring.get_nodes(self.account, c, o)
+        self.part, self.nodes = self.ring.get_nodes(self.account, c, o)
 
-        node_ids = [n['id'] for n in nodes]
+        node_ids = [n['id'] for n in self.nodes]
+        self.node_numbers = [n + 1 for n in node_ids]
+
         if all(n_id in node_ids for n_id in (0, 1)):
             self.primary_numbers = (1, 2)
             self.handoff_numbers = (3, 4)
