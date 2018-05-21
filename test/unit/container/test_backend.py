@@ -4472,13 +4472,20 @@ class ContainerBrokerMigrationMixin(object):
     Mixin for running ContainerBroker against databases created with
     older schemas.
     """
+    class OverrideCreateShardRangesTable(object):
+        def __init__(self, func):
+            self.func = func
+
+        def __get__(self, obj, obj_type):
+            if inspect.stack()[1][3] == '_initialize':
+                return lambda *a, **kw: None
+            return self.func.__get__(obj, obj_type)
+
     def setUp(self):
         self._imported_create_object_table = \
             ContainerBroker.create_object_table
         ContainerBroker.create_object_table = \
             prespi_create_object_table
-        self._imported_create_shard_ranges_table = \
-            ContainerBroker.create_shard_range_table
         self._imported_create_container_info_table = \
             ContainerBroker.create_container_info_table
         ContainerBroker.create_container_info_table = \
@@ -4486,6 +4493,13 @@ class ContainerBrokerMigrationMixin(object):
         self._imported_create_policy_stat_table = \
             ContainerBroker.create_policy_stat_table
         ContainerBroker.create_policy_stat_table = lambda *args: None
+
+        self._imported_create_shard_range_table = \
+            ContainerBroker.create_shard_range_table
+        if 'shard_range' not in self.expected_db_tables:
+            ContainerBroker.create_shard_range_table = \
+                self.OverrideCreateShardRangesTable(
+                    ContainerBroker.create_shard_range_table)
 
     @classmethod
     @contextmanager
@@ -4504,7 +4518,7 @@ class ContainerBrokerMigrationMixin(object):
         ContainerBroker.create_object_table = \
             self._imported_create_object_table
         ContainerBroker.create_shard_range_table = \
-            self._imported_create_shard_ranges_table
+            self._imported_create_shard_range_table
         ContainerBroker.create_policy_stat_table = \
             self._imported_create_policy_stat_table
 
@@ -4559,7 +4573,7 @@ class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
     the metadata column was added.
     """
     expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
-                          'sqlite_sequence', 'container_stat', 'shard_range'}
+                          'sqlite_sequence', 'container_stat'}
 
     def setUp(self):
         super(TestContainerBrokerBeforeMetadata, self).setUp()
@@ -4633,7 +4647,7 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
     before the x_container_sync_point[12] columns were added.
     """
     expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
-                          'sqlite_sequence', 'container_stat', 'shard_range'}
+                          'sqlite_sequence', 'container_stat'}
 
     def setUp(self):
         super(TestContainerBrokerBeforeXSync, self).setUp()
@@ -4749,7 +4763,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
     before the storage_policy_index column was added.
     """
     expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
-                          'sqlite_sequence', 'container_stat', 'shard_range'}
+                          'sqlite_sequence', 'container_stat'}
 
     def setUp(self):
         super(TestContainerBrokerBeforeSPI, self).setUp()
@@ -4758,14 +4772,12 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
 
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        exc = None
-        with broker.get() as conn:
-            try:
-                conn.execute('''SELECT storage_policy_index
-                                FROM container_stat''')
-            except BaseException as err:
-                exc = err
-        self.assertTrue('no such column: storage_policy_index' in str(exc))
+        with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                broker.get() as conn:
+            conn.execute('''SELECT storage_policy_index
+                            FROM container_stat''')
+        self.assertIn('no such column: storage_policy_index',
+                      str(raised.exception))
 
     def tearDown(self):
         super(TestContainerBrokerBeforeSPI, self).tearDown()
@@ -4960,32 +4972,19 @@ class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
     Tests for ContainerBroker against databases created
     before the shard_ranges table was added.
     """
+    # *grumble grumble* This should include container_info/policy_stat :-/
     expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
                           'sqlite_sequence', 'container_stat'}
 
-    class Override(object):
-        def __init__(self, func):
-            self.func = func
-
-        def __get__(self, obj, obj_type):
-            if inspect.stack()[1][3] == '_initialize':
-                return lambda *a, **kw: None
-            return self.func.__get__(obj, obj_type)
-
     def setUp(self):
         super(TestContainerBrokerBeforeShardRanges, self).setUp()
-        ContainerBroker.create_shard_range_table = self.Override(
-            ContainerBroker.create_shard_range_table)
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        exc = None
-        with broker.get() as conn:
-            try:
-                conn.execute('''SELECT *
-                                FROM shard_range''')
-            except BaseException as err:
-                exc = err
-        self.assertTrue('no such table: shard_range' in str(exc))
+        with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                broker.get() as conn:
+            conn.execute('''SELECT *
+                            FROM shard_range''')
+        self.assertIn('no such table: shard_range', str(raised.exception))
 
     def tearDown(self):
         super(TestContainerBrokerBeforeShardRanges, self).tearDown()
