@@ -4056,9 +4056,22 @@ class TestContainerBroker(unittest.TestCase):
         actual = broker.get_shard_ranges(marker='e', end_marker='e')
         self.assertFalse([dict(sr) for sr in actual])
 
-        actual = broker.get_shard_ranges(includes='f')
+        orig_execute = GreenDBConnection.execute
+        mock_call_args = []
+
+        def mock_execute(*args, **kwargs):
+            mock_call_args.append(args)
+            return orig_execute(*args, **kwargs)
+
+        with mock.patch('swift.common.db.GreenDBConnection.execute',
+                        mock_execute):
+            actual = broker.get_shard_ranges(includes='f')
         self.assertEqual([dict(sr) for sr in shard_ranges[2:3]],
                          [dict(sr) for sr in actual])
+        self.assertEqual(1, len(mock_call_args))
+        # verify that includes keyword plumbs through to an SQL condition
+        self.assertIn("WHERE deleted=0 AND name != ? AND lower < ? AND "
+                      "(upper = '' OR upper >= ?)", mock_call_args[0][1])
 
         actual = broker.get_shard_ranges(includes='i')
         self.assertFalse(actual)
@@ -4114,6 +4127,61 @@ class TestContainerBroker(unittest.TestCase):
         actual = broker.get_shard_ranges(
             include_own=False, exclude_others=True)
         self.assertFalse(actual)
+
+    @with_tempdir
+    def test_get_shard_ranges_includes(self, tempdir):
+        ts = next(self.ts)
+        start = ShardRange('a/-a', ts, '', 'a')
+        atof = ShardRange('a/a-f', ts, 'a', 'f')
+        ftol = ShardRange('a/f-l', ts, 'f', 'l')
+        ltor = ShardRange('a/l-r', ts, 'l', 'r')
+        rtoz = ShardRange('a/r-z', ts, 'r', 'z')
+        end = ShardRange('a/z-', ts, 'z', '')
+        ranges = [start, atof, ftol, ltor, rtoz, end]
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+        broker.merge_shard_ranges(ranges)
+
+        actual = broker.get_shard_ranges(includes='')
+        self.assertEqual(actual, [])
+        actual = broker.get_shard_ranges(includes=' ')
+        self.assertEqual(actual, [start])
+        actual = broker.get_shard_ranges(includes='b')
+        self.assertEqual(actual, [atof])
+        actual = broker.get_shard_ranges(includes='f')
+        self.assertEqual(actual, [atof])
+        actual = broker.get_shard_ranges(includes='f\x00')
+        self.assertEqual(actual, [ftol])
+        actual = broker.get_shard_ranges(includes='x')
+        self.assertEqual(actual, [rtoz])
+        actual = broker.get_shard_ranges(includes='r')
+        self.assertEqual(actual, [ltor])
+        actual = broker.get_shard_ranges(includes='}')
+        self.assertEqual(actual, [end])
+
+        # add some overlapping sub-shards
+        ftoh = ShardRange('a/f-h', ts, 'f', 'h')
+        htok = ShardRange('a/h-k', ts, 'h', 'k')
+
+        broker.merge_shard_ranges([ftoh, htok])
+        actual = broker.get_shard_ranges(includes='g')
+        self.assertEqual(actual, [ftoh])
+        actual = broker.get_shard_ranges(includes='h')
+        self.assertEqual(actual, [ftoh])
+        actual = broker.get_shard_ranges(includes='k')
+        self.assertEqual(actual, [htok])
+        actual = broker.get_shard_ranges(includes='l')
+        self.assertEqual(actual, [ftol])
+        actual = broker.get_shard_ranges(includes='m')
+        self.assertEqual(actual, [ltor])
+
+        # remove l-r from shard ranges and try and find a shard range for an
+        # item in that range.
+        ltor.set_deleted(next(self.ts))
+        broker.merge_shard_ranges([ltor])
+        actual = broker.get_shard_ranges(includes='p')
+        self.assertEqual(actual, [])
 
     @with_tempdir
     def test_overlap_shard_range_order(self, tempdir):
@@ -4184,9 +4252,25 @@ class TestContainerBroker(unittest.TestCase):
             [dict(sr) for sr in shard_ranges[:3] + shard_ranges[4:]],
             [dict(sr) for sr in actual])
 
-        actual = broker.get_shard_ranges(states=SHARD_UPDATE_STATES,
-                                         includes='e')
-        self.assertEqual([shard_ranges[1]], actual)
+        orig_execute = GreenDBConnection.execute
+        mock_call_args = []
+
+        def mock_execute(*args, **kwargs):
+            mock_call_args.append(args)
+            return orig_execute(*args, **kwargs)
+
+        with mock.patch('swift.common.db.GreenDBConnection.execute',
+                        mock_execute):
+            actual = broker.get_shard_ranges(states=SHARD_UPDATE_STATES,
+                                             includes='e')
+        self.assertEqual([dict(shard_ranges[1])],
+                         [dict(sr) for sr in actual])
+        self.assertEqual(1, len(mock_call_args))
+        # verify that includes keyword plumbs through to an SQL condition
+        self.assertIn("WHERE deleted=0 AND state in (?,?,?,?) AND name != ? "
+                      "AND lower < ? AND (upper = '' OR upper >= ?)",
+                      mock_call_args[0][1])
+
         actual = broker.get_shard_ranges(states=SHARD_UPDATE_STATES,
                                          includes='j')
         self.assertEqual([shard_ranges[2]], actual)
