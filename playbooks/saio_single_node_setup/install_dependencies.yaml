@@ -15,6 +15,32 @@
 - hosts: all
   become: true
   tasks:
+    - name: Check for /etc/yum/vars/contentdir
+      stat:
+        path: /etc/yum/vars/contentdir
+      register: yum_contentdir
+
+    - when: not yum_contentdir.stat.exists
+      block:
+
+      - name: Discover package architecture
+        command: rpm -q --qf "%{arch}" -f /etc/redhat-release
+        register: rpm_arch
+
+      - debug:
+          msg: Package architecture is '{{ rpm_arch.stdout }}'
+
+      - name: Set contentdir to altarch
+        set_fact:
+          yum_contentdir: altarch
+        when: rpm_arch.stdout in ['aarch64', 'ppc64le']
+
+      - name: Populate /etc/yum/vars/contentdir
+        copy:
+          dest: /etc/yum/vars/contentdir
+          content: "{{ yum_contentdir|default('centos') }}"
+        become: true
+
     - name: installing dependencies
       yum: name={{ item }} state=present
       with_items:
