@@ -98,7 +98,7 @@ A container is considered to be a sharding candidate if its object count is
 greater than or equal to the ``shard_container_threshold`` option.
 The number of candidates reported is limited to a number configured by the
 ``recon_candidates_limit`` option such that only the largest candidate
-containers are included in the ``sharding_candidate`` data.
+containers are included in the ``sharding_candidates`` data.
 
 
 .. _swift-manage-shard-ranges:
@@ -213,15 +213,15 @@ be performed in isolation or, as shown below, using a single command.
 
 #. The ``enable`` sub-command enables the container for sharding. The sharder
    daemon and/or container replicator daemon will replicate shard ranges to
-   other replicas of the container db and the sharder daemon will proceed to
+   other replicas of the container DB and the sharder daemon will proceed to
    shard the container. This process may take some time depending on the size
    of the container, the number of shard ranges and the underlying hardware.
 
-.. note::
+   .. note::
 
-    Once the ``enable`` sub-command has been used there is no supported
-    mechanism to revert sharding. Do not use ``swift-manage-shard-ranges`` to
-    make any further changes to the shard ranges in the container db.
+       Once the ``enable`` sub-command has been used there is no supported
+       mechanism to revert sharding. Do not use ``swift-manage-shard-ranges`` to
+       make any further changes to the shard ranges in the container DB.
 
    For example::
 
@@ -347,20 +347,27 @@ Under the hood
 Terminology
 -----------
 
-================== ==================================================
+================== ====================================================
 Name               Description
-================== ==================================================
+================== ====================================================
 Root container     The original container that lives in the
                    user's account. It holds references to its
                    shard containers.
 Retiring DB        The original database file that is to be sharded.
 Fresh DB           A database file that will replace the retiring
                    database.
+Epoch              A timestamp at which the fresh DB is created; the
+                   epoch value is embedded in the fresh DB filename.
 Shard range        A range of the object namespace defined by a lower
                    bound and and upper bound.
 Shard container    A container that holds object records for a shard
-                   range. Shard containers exist a hidden account
+                   range. Shard containers exist in a hidden account
                    mirroring the user's account.
+Parent container   The container from which a shard container has been
+                   cleaved. When first sharding a root container each
+                   shard's parent container will be the root container.
+                   When sharding a shard container each shard's parent
+                   container will be the sharding shard container.
 Misplaced objects  Items that don't belong in a container's shard
                    range. These will be moved to their correct
                    location by the container-sharder.
@@ -371,7 +378,7 @@ Shrinking          The act of merging a small shard container into
                    small shard container.
 Donor              The shard range that is shrinking away.
 Acceptor           The shard range into which a donor is merged.
-================== ==================================================
+================== ====================================================
 
 
 Finding shard ranges
@@ -431,18 +438,15 @@ Enabling sharding
 Once shard ranges have been found the :ref:`swift-manage-shard-ranges`
 ``replace`` sub-command is used to insert them into the `shard_ranges` table
 of the container database. In addition to its lower and upper bounds, each
-shard range is given a name. The name takes the form ``a/c`` where ``a`` is an
-account name formed by prefixing the user account with the string
-``.shards_``, and ``c`` is a container name that is derived from the original
-container and includes the index of the shard range. The final container name
-for the shard range uses the pattern of ``{original contianer name}-{hash of
-parent container}-{timestamp}-{shard index}``.
+shard range is given a unique name.
 
 The ``enable`` sub-command then creates some final state required to initiate
 sharding the container, including a special shard range record referred to as
 the container's `own_shard_range` whose name is equal to the container's path.
 This is used to keep a record of the object namespace that the container
-covers, which for user containers is always the entire namespace.
+covers, which for user containers is always the entire namespace. Sharding of
+the container will only begin when its own shard range's state has been set to
+``SHARDING``.
 
 The :class:`~swift.common.utils.ShardRange` class
 -------------------------------------------------
@@ -466,23 +470,25 @@ A shard range progresses through the following states:
 
 * FOUND: the shard range has been identified in the container that is to be
   sharded but no resources have been created for it.
-* CREATED: A shard container has been created to store the contents of the
+* CREATED: a shard container has been created to store the contents of the
   shard range.
 * CLEAVED: the sharding container's contents for the shard range have been
   copied to the shard container from *at least one replica* of the sharding
   container.
-* ACTIVE: shard ranges move to this state when all shard ranges in a sharding
-  container have been cleaved.
+* ACTIVE: a sharding container's constituent shard ranges are moved to this
+  state when all shard ranges in the sharding container have been cleaved.
 * SHRINKING: the shard range has been enabled for shrinking; or
-* SHARDING: the shard range has been enabled for sharding.
-* SHARDED: the shard range has completed sharding or shrinking.
+* SHARDING: the shard range has been enabled for sharding into further
+  sub-shards.
+* SHARDED: the shard range has completed sharding or shrinking; the container
+  will typically now have a number of constituent ACTIVE shard ranges.
 
-..note::
+.. note::
 
-   Shard range state represents the most advanced state of the shard range on
-   any replica of the container. For example, a shard range in CLEAVED state
-   may not have completed cleaving on all replicas but has cleaved on at least
-   one replica.
+    Shard range state represents the most advanced state of the shard range on
+    any replica of the container. For example, a shard range in CLEAVED state
+    may not have completed cleaving on all replicas but has cleaved on at least
+    one replica.
 
 Fresh and retiring database files
 ---------------------------------
@@ -498,7 +504,7 @@ container metadata must still be modifiable.
 To render the large `retiring` database effectively read-only, when the
 :ref:`sharder_daemon` finds a container with a set of shard range records,
 including an `own_shard_range`, it first creates a fresh database file which
-will ultimately replace the existing `retiring` database. For a retiring db
+will ultimately replace the existing `retiring` database. For a retiring DB
 whose filename is::
 
     <hash>.db
@@ -507,7 +513,7 @@ the fresh database file name is of the form::
 
     <hash>_<epoch>.db
 
-where epoch is a timestamp stored in the container's `own_shard_range`.
+where `epoch` is a timestamp stored in the container's `own_shard_range`.
 
 The fresh DB has a copy of the shard ranges table from the retiring DB and all
 other container metadata apart from the object records. Once a fresh DB file
@@ -540,9 +546,8 @@ In summary, the DB states that any container replica may be in are:
 
 .. note::
 
-   DB state is unique to each replica of a container and is not necessarily
-   synchronised with shard range state.
-
+    DB state is unique to each replica of a container and is not necessarily
+    synchronised with shard range state.
 
 Creating shard containers
 -------------------------
@@ -552,14 +557,51 @@ using the shard range name as the name of the shard container:
 
 .. image:: /images/sharding_cleave_basic.svg
 
-Shard containers now exist with a unique name and placed in a hidden account
-that maps to the user account (`.shards_acct`). This avoids namespace
-collisions and also keeps all the shard containers out of view from users of
-the account. Each shard container has an `own_shard_range` record which has the
+Each shard container has an `own_shard_range` record which has the
 lower and upper bounds of the object namespace for which it is responsible, and
 a reference to the sharding user container, which is referred to as the
 `root_container`. Unlike the `root_container`, the shard container's
 `own_shard_range` does not cover the entire namepsace.
+
+A shard range name takes the form ``<shard_a>/<shard_c>`` where `<shard_a>`
+is a hidden account and `<shard_c>` is a container name that is derived from
+the root container.
+
+The account name `<shard_a>` used for shard containers is formed by prefixing
+the user account with the string ``.shards_``. This avoids namespace collisions
+and also keeps all the shard containers out of view from users of the account.
+
+The container name for each shard container has the form::
+
+  <root container name>-<hash of parent container>-<timestamp>-<shard index>
+
+where `root container name` is the name of the user container to which the
+contents of the shard container belong, `parent container` is the name of the
+container from which the shard is being cleaved, `timestamp` is the time at
+which the shard range was created and `shard index` is the position of the
+shard range in the name-ordered list of shard ranges for the `parent
+container`.
+
+When sharding a user container the parent container name will be the same as
+the root container. However, if a *shard container* grows to a size that it
+requires sharding, then the parent container name for its shards will be the
+name of the sharding shard container.
+
+For example, consider a user container with path ``AUTH_user/c`` which is
+sharded into two shard containers whose name will be::
+
+  .shards_AUTH_user/c-<hash(c)>-1234512345.12345-0
+  .shards_AUTH_user/c-<hash(c)>-1234512345.12345-1
+
+If the first shard container is subsequently sharded into a further two shard
+containers then they will be named::
+
+  .shards_AUTH_user/c-<hash(c-<hash(c)>-1234567890.12345-0)>-1234567890.12345-0
+  .shards_AUTH_user/c-<hash(c-<hash(c)>-1234567890.12345-0)>-1234567890.12345-1
+
+This naming scheme guarantees that shards, and shards of shards, each have a
+unique name of bounded length.
+
 
 Cleaving shard containers
 -------------------------
@@ -600,10 +642,10 @@ be considered successfully replicated by the sharder daemon.
 
 .. note::
 
-   Once cleaved, shard container DBs will continue to be replicated by the
-   normal `container-replicator` daemon so that they will eventually be fully
-   replicated to all primary nodes regardless of any replication quorum options
-   used by the sharder daemon.
+    Once cleaved, shard container DBs will continue to be replicated by the
+    normal `container-replicator` daemon so that they will eventually be fully
+    replicated to all primary nodes regardless of any replication quorum options
+    used by the sharder daemon.
 
 The cleaving progress of each replica of a retiring DB must be
 tracked independently of the shard range state. This is done using a per-DB
@@ -612,8 +654,8 @@ that it is associated with. The cleaving cursor is simply the upper bound of
 the last shard range to have been cleaved *from that particular retiring DB*.
 
 Each CleavingContext is stored in the sharding container's sysmeta under a key
-that is the ``id`` of the retiring DB. Since all container DB files have unique
-``id``s, this guarantees that each retiring DB will have a unique
+that is the ``id`` of the retiring DB. Since all container DB files have a
+unique ``id``, this guarantees that each retiring DB will have a unique
 CleavingContext. Furthermore, if the retiring DB file is changed, for example
 by an rsync_then_merge replication operation which might change the contents of
 the DB's object table, then it will get a new unique CleavingContext.
@@ -675,10 +717,10 @@ yet cleaved will not have any object records from the root container. The root
 container continues to provide listings for the uncleaved part of its
 namespace.
 
-..note::
+.. note::
 
    New object updates are redirected to shard containers that have not yet been
-   cleaved. These updates will not threfore be included in container listings
+   cleaved. These updates will not therefore be included in container listings
    until their shard range has been cleaved.
 
 Example request redirection
@@ -728,10 +770,10 @@ it discovers that it has shard ranges and is able to shard.
 
 .. note::
 
-   When the destination DB for container replication is missing then the
-   'complete_rsync' replication mechanism is still used and in this case only
-   both object records and shard range records are copied to the destination
-   node.
+    When the destination DB for container replication is missing then the
+    'complete_rsync' replication mechanism is still used and in this case only
+    both object records and shard range records are copied to the destination
+    node.
 
 Container deletion
 ------------------
@@ -757,27 +799,29 @@ Sharding a shard container
 A shard container may grow to a size that requires it to be sharded.
 ``swift-manage-shard-ranges`` may be used to identify shard ranges within a
 shard container and enable sharding in the same way as for a root container.
-When a shard is sharding it notifies the root of its shard ranges so that the
-root can start to redirect object updates to the new 'sub-shards'. When the
-shard has completed sharding the root is aware of all the new sub-shards and
-the sharding shard deletes its shard range record in the root container shard
-ranges table. At this point the root is aware of all the new sub-shards which
-collectively cover the namespace of the now-deleted shard.
+When a shard is sharding it notifies the root container of its shard ranges so
+that the root container can start to redirect object updates to the new
+'sub-shards'. When the shard has completed sharding the root is aware of all
+the new sub-shards and the sharding shard deletes its shard range record in the
+root container shard ranges table. At this point the root container is aware of
+all the new sub-shards which collectively cover the namespace of the
+now-deleted shard.
 
-There is no hierarchy of shards beyond the root and its immediate shards. When
-a shard shards, its sub-shards are effectively re-parented with the root
-container.
+There is no hierarchy of shards beyond the root container and its immediate
+shards. When a shard shards, its sub-shards are effectively re-parented with
+the root container.
 
 
 Shrinking a shard container
 ---------------------------
 
-A shard's contents may reduce to a point where the shard is no longer required.
-If this happens then the shard may be shrunk into another shard range.
-Shrinking is achieved in a similar way to sharding: an 'acceptor' shard range
-is written to the shrinking shard container's shard ranges table; unlike
-sharding, where shard ranges each cover a subset of the sharding container's
-namespace, the acceptor shard range is a superset of the shrinking shard range.
+A shard container's contents may reduce to a point where the shard container is
+no longer required. If this happens then the shard container may be shrunk into
+another shard range. Shrinking is achieved in a similar way to sharding: an
+'acceptor' shard range is written to the shrinking shard container's shard
+ranges table; unlike sharding, where shard ranges each cover a subset of the
+sharding container's namespace, the acceptor shard range is a superset of the
+shrinking shard range.
 
 Once given an acceptor shard range the shrinking shard will cleave itself to
 its acceptor, and then delete itself from the root container shard ranges
