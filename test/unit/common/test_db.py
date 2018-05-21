@@ -721,20 +721,20 @@ class TestDatabaseBroker(unittest.TestCase):
 
     def test_get(self):
         broker = DatabaseBroker(':memory:')
-        got_exc = False
-        try:
-            with broker.get() as conn:
-                conn.execute('SELECT 1')
-        except Exception:
-            got_exc = True
+        with self.assertRaises(DatabaseConnectionError) as raised, \
+                broker.get() as conn:
+            conn.execute('SELECT 1')
+        self.assertEqual(
+            str(raised.exception),
+            "DB connection error (:memory:, 0):\nDB doesn't exist")
+
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
-        got_exc = False
-        try:
-            with broker.get() as conn:
-                conn.execute('SELECT 1')
-        except Exception:
-            got_exc = True
-        self.assertTrue(got_exc)
+        with self.assertRaises(DatabaseConnectionError) as raised, \
+                broker.get() as conn:
+            conn.execute('SELECT 1')
+        self.assertEqual(
+            str(raised.exception),
+            "DB connection error (%s, 0):\nDB doesn't exist" % broker.db_file)
 
         def stub(*args, **kwargs):
             pass
@@ -772,14 +772,11 @@ class TestDatabaseBroker(unittest.TestCase):
                  os.path.join(dbpath, '1.db'))
             broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
             broker.db_type = 'test'
-            exc = None
-            try:
-                with broker.get() as conn:
-                    conn.execute('SELECT * FROM test')
-            except Exception as err:
-                exc = err
+            with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                    broker.get() as conn:
+                conn.execute('SELECT * FROM test')
             self.assertEqual(
-                str(exc),
+                str(raised.exception),
                 'Quarantined %s to %s due to malformed database' %
                 (dbpath, qpath))
             # Test malformed schema database
@@ -788,14 +785,11 @@ class TestDatabaseBroker(unittest.TestCase):
                  os.path.join(dbpath, '1.db'))
             broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
             broker.db_type = 'test'
-            exc = None
-            try:
-                with broker.get() as conn:
-                    conn.execute('SELECT * FROM test')
-            except Exception as err:
-                exc = err
+            with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                    broker.get() as conn:
+                conn.execute('SELECT * FROM test')
             self.assertEqual(
-                str(exc),
+                str(raised.exception),
                 'Quarantined %s to %s due to malformed database' %
                 (dbpath, qpath))
             # Test corrupted database
@@ -804,14 +798,11 @@ class TestDatabaseBroker(unittest.TestCase):
                  os.path.join(dbpath, '1.db'))
             broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
             broker.db_type = 'test'
-            exc = None
-            try:
-                with broker.get() as conn:
-                    conn.execute('SELECT * FROM test')
-            except Exception as err:
-                exc = err
+            with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                    broker.get() as conn:
+                conn.execute('SELECT * FROM test')
             self.assertEqual(
-                str(exc),
+                str(raised.exception),
                 'Quarantined %s to %s due to corrupted database' %
                 (dbpath, qpath))
 
@@ -828,25 +819,21 @@ class TestDatabaseBroker(unittest.TestCase):
         broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
         broker.db_type = 'container'
 
-        exc = None
-        try:
+        with self.assertRaises(sqlite3.DatabaseError) as raised:
             broker.get_raw_metadata()
-        except Exception as err:
-            exc = err
         self.assertEqual(
-            str(exc),
+            str(raised.exception),
             'Quarantined %s to %s due to missing row in container_stat table' %
             (dbpath, qpath))
 
     def test_lock(self):
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'), timeout=.1)
-        got_exc = False
-        try:
-            with broker.lock():
-                pass
-        except Exception:
-            got_exc = True
-        self.assertTrue(got_exc)
+        with self.assertRaises(DatabaseConnectionError) as raised, \
+                broker.lock():
+            pass
+        self.assertEqual(
+            str(raised.exception),
+            "DB connection error (%s, 0):\nDB doesn't exist" % broker.db_file)
 
         def stub(*args, **kwargs):
             pass
@@ -860,13 +847,12 @@ class TestDatabaseBroker(unittest.TestCase):
                                  timeout=.1)
         broker2._initialize = stub
         with broker.lock():
-            got_exc = False
-            try:
-                with broker2.lock():
-                    pass
-            except LockTimeout:
-                got_exc = True
-            self.assertTrue(got_exc)
+            with self.assertRaises(LockTimeout) as raised, \
+                    broker2.lock():
+                pass
+        self.assertEqual(str(raised.exception),
+                         '0.1 seconds: %s' % broker.db_file)
+
         try:
             with broker.lock():
                 raise Exception('test')
@@ -1211,15 +1197,10 @@ class TestDatabaseBroker(unittest.TestCase):
         broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
         broker.db_type = 'container'
 
-        exc = None
-        try:
-            first_timestamp = normalize_timestamp(1)
-            first_value = '1'
-            broker.update_metadata({'First': [first_value, first_timestamp]})
-        except Exception as err:
-            exc = err
+        with self.assertRaises(sqlite3.DatabaseError) as raised:
+            broker.update_metadata({'First': ['1', normalize_timestamp(1)]})
         self.assertEqual(
-            str(exc),
+            str(raised.exception),
             'Quarantined %s to %s due to missing row in container_stat table' %
             (dbpath, qpath))
 
@@ -1236,14 +1217,11 @@ class TestDatabaseBroker(unittest.TestCase):
         broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
         broker.db_type = 'container'
 
-        exc = None
-        try:
-            with broker.get() as conn:
-                broker._reclaim_metadata(conn, 0)
-        except Exception as err:
-            exc = err
+        with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                broker.get() as conn:
+            broker._reclaim_metadata(conn, 0)
         self.assertEqual(
-            str(exc),
+            str(raised.exception),
             'Quarantined %s to %s due to missing row in container_stat table' %
             (dbpath, qpath))
 
@@ -1272,19 +1250,13 @@ class TestDatabaseBroker(unittest.TestCase):
             metadata[key] = ('B', normalize_timestamp(1))
         key = 'X-Account-Meta-Foo'.format(c)
         metadata[key] = ('', normalize_timestamp(1))
-        try:
-            DatabaseBroker.validate_metadata(metadata)
-        except HTTPException:
-            self.fail('Unexpected HTTPException')
+        self.assertIsNone(DatabaseBroker.validate_metadata(metadata))
 
     def test_metadata_raises_exception_on_non_utf8(self):
         def try_validate(metadata):
-            try:
+            with self.assertRaises(HTTPException) as raised:
                 DatabaseBroker.validate_metadata(metadata)
-            except HTTPException as e:
-                self.assertEqual(str(e), '400 Bad Request')
-            else:
-                self.fail('HTTPException not raised')
+            self.assertEqual(str(raised.exception), '400 Bad Request')
         ts = normalize_timestamp(1)
         try_validate({'X-Account-Meta-Foo': (b'\xff', ts)})
         try_validate({b'X-Container-Meta-\xff': ('bar', ts)})
@@ -1316,10 +1288,7 @@ class TestDatabaseBroker(unittest.TestCase):
             metadata['X-Account-Meta-k'] = (
                 'v' * (MAX_META_OVERALL_SIZE - size - 1),
                 normalize_timestamp(1))
-        try:
-            DatabaseBroker.validate_metadata(metadata)
-        except HTTPException:
-            self.fail('Unexpected HTTPException')
+        self.assertIsNone(DatabaseBroker.validate_metadata(metadata))
 
     def test_metadata_raises_exception_over_max_overall_size(self):
         metadata = {}
@@ -1364,16 +1333,13 @@ class TestDatabaseBroker(unittest.TestCase):
             broker.db_type = 'test'
             try:
                 raise ex
-            except (sqlite3.DatabaseError, DatabaseConnectionError):
-                try:
+            except sqlite3.DatabaseError:
+                with self.assertRaises(sqlite3.DatabaseError) as raised:
                     broker.possibly_quarantine(*sys.exc_info())
-                except Exception as exc:
-                    self.assertEqual(
-                        str(exc),
-                        'Quarantined %s to %s due to %s database' %
-                        (dbpath, qpath, hint))
-                else:
-                    self.fail('Expected an exception to be raised')
+                self.assertEqual(
+                    str(raised.exception),
+                    'Quarantined %s to %s due to %s database' %
+                    (dbpath, qpath, hint))
 
     def test_skip_commits(self):
         broker = DatabaseBroker(':memory:')
