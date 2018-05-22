@@ -472,11 +472,6 @@ class Replicator(Daemon):
             local_sync = broker.get_sync(rinfo['id'], incoming=False)
             if rinfo.get('metadata', ''):
                 broker.update_metadata(json.loads(rinfo['metadata']))
-            if self._in_sync(rinfo, info, broker, local_sync):
-                self.logger.debug('%s in sync with %s, nothing to do',
-                                  broker.db_file,
-                                  '%(ip)s:%(port)s/%(device)s' % node)
-                return True
             return self._choose_replication_mode(
                 node, rinfo, info, local_sync, broker, http,
                 different_region)
@@ -484,6 +479,12 @@ class Replicator(Daemon):
 
     def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
                                  http, different_region):
+        if self._in_sync(rinfo, info, broker, local_sync):
+            self.logger.debug('%s in sync with %s, nothing to do',
+                              broker.db_file,
+                              '%(ip)s:%(port)s/%(device)s' % node)
+            return True
+
         # if the difference in rowids between the two differs by
         # more than 50% and the difference is greater than per_diff,
         # rsync then do a remote merge.
