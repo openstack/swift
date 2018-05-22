@@ -1627,42 +1627,41 @@ class ContainerBroker(DatabaseBroker):
             included_states.add(states)
 
         def do_query(conn):
-            try:
-                condition = ''
-                conditions = []
-                params = []
-                if not include_deleted:
-                    conditions.append('deleted=0')
-                if included_states:
-                    conditions.append('state in (%s)' % ','.join(
-                        '?' * len(included_states)))
-                    params.extend(included_states)
-                if not include_own:
-                    conditions.append('name != ?')
-                    params.append(self.path)
-                if exclude_others:
-                    conditions.append('name = ?')
-                    params.append(self.path)
-                if conditions:
-                    condition = ' WHERE ' + ' AND '.join(conditions)
-                sql = '''
-                SELECT %s
-                FROM %s%s;
-                ''' % (', '.join(SHARD_RANGE_KEYS), SHARD_RANGE_TABLE,
-                       condition)
-                data = conn.execute(sql, params)
-                data.row_factory = None
-                return [row for row in data]
-            except sqlite3.OperationalError as err:
-                if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
-                    raise
-                return []
+            condition = ''
+            conditions = []
+            params = []
+            if not include_deleted:
+                conditions.append('deleted=0')
+            if included_states:
+                conditions.append('state in (%s)' % ','.join(
+                    '?' * len(included_states)))
+                params.extend(included_states)
+            if not include_own:
+                conditions.append('name != ?')
+                params.append(self.path)
+            if exclude_others:
+                conditions.append('name = ?')
+                params.append(self.path)
+            if conditions:
+                condition = ' WHERE ' + ' AND '.join(conditions)
+            sql = '''
+            SELECT %s
+            FROM %s%s;
+            ''' % (', '.join(SHARD_RANGE_KEYS), SHARD_RANGE_TABLE, condition)
+            data = conn.execute(sql, params)
+            data.row_factory = None
+            return [row for row in data]
 
-        if connection:
-            return do_query(connection)
-        else:
-            with self.get() as conn:
-                return do_query(conn)
+        try:
+            if connection:
+                return do_query(connection)
+            else:
+                with self.get() as conn:
+                    return do_query(conn)
+        except sqlite3.OperationalError as err:
+            if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
+                raise
+            return []
 
     @classmethod
     def resolve_shard_range_states(cls, states):
