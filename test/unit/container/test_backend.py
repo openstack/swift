@@ -3508,26 +3508,6 @@ class TestContainerBroker(unittest.TestCase):
             [dict(sr) for sr in [shard_ranges[2], shard_ranges[4]]],
             [dict(sr) for sr in actual])
 
-        actual = broker.get_shard_ranges(exclude_states=ShardRange.CREATED)
-        self.assertEqual([dict(sr) for sr in shard_ranges[:3]],
-                         [dict(sr) for sr in actual])
-
-        actual = broker.get_shard_ranges(
-            exclude_states=[ShardRange.CREATED, ShardRange.ACTIVE])
-        self.assertEqual([dict(sr) for sr in shard_ranges[:2]],
-                         [dict(sr) for sr in actual])
-
-        # exclude_states takes precedence
-        actual = broker.get_shard_ranges(
-            states=ShardRange.CREATED, exclude_states=ShardRange.CREATED)
-        self.assertEqual([dict(sr) for sr in shard_ranges[:3]],
-                         [dict(sr) for sr in actual])
-
-        actual = broker.get_shard_ranges(states=[ShardRange.CREATED],
-                                         exclude_states=[ShardRange.ACTIVE])
-        self.assertEqual([dict(sr) for sr in shard_ranges[4:5]],
-                         [dict(sr) for sr in actual])
-
         # get everything
         actual = broker.get_shard_ranges(include_own=True)
         self.assertEqual([dict(sr) for sr in undeleted + [own_shard_range]],
@@ -3537,12 +3517,6 @@ class TestContainerBroker(unittest.TestCase):
         actual = broker.get_shard_ranges(include_own=True, exclude_others=True)
         self.assertEqual([dict(sr) for sr in [own_shard_range]],
                          [dict(sr) for sr in actual])
-
-        # exclude_states overrides include_own
-        actual = broker.get_shard_ranges(include_own=True,
-                                         exclude_states=ShardRange.SHARDING,
-                                         exclude_others=True)
-        self.assertFalse(actual)
 
         # if you ask for nothing you'll get nothing
         actual = broker.get_shard_ranges(

@@ -1593,7 +1593,7 @@ class ContainerBroker(DatabaseBroker):
                 raise
 
     def _get_shard_range_rows(self, connection=None, include_deleted=False,
-                              states=None, exclude_states=None,
+                              states=None,
                               include_own=False, exclude_others=False):
         """
         Returns a list of shard range rows.
@@ -1606,8 +1606,6 @@ class ContainerBroker(DatabaseBroker):
         :param include_deleted: include rows marked as deleted
         :param states: include only rows matching the given state(s); can be an
             int or a list of ints.
-        :param exclude_states: exclude rows matching the given state(s); can be
-            an int or a list of ints; takes precedence over ``state``.
         :param include_own: boolean that governs whether the row whose name
             matches the broker's path is included in the returned list. If
             True, that row is included, otherwise it is not included. Default
@@ -1630,9 +1628,7 @@ class ContainerBroker(DatabaseBroker):
                 state_set.add(states)
             return state_set
 
-        excluded_states = prep_states(exclude_states)
         included_states = prep_states(states)
-        included_states -= excluded_states
 
         def do_query(conn):
             try:
@@ -1645,10 +1641,6 @@ class ContainerBroker(DatabaseBroker):
                     conditions.append('state in (%s)' % ','.join(
                         '?' * len(included_states)))
                     params.extend(included_states)
-                if excluded_states:
-                    conditions.append('state not in (%s)' % ','.join(
-                        '?' * len(excluded_states)))
-                    params.extend(excluded_states)
                 if not include_own:
                     conditions.append('name != ?')
                     params.append(self.path)
@@ -1707,7 +1699,7 @@ class ContainerBroker(DatabaseBroker):
 
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
                          reverse=False, include_deleted=False, states=None,
-                         exclude_states=None, include_own=False,
+                         include_own=False,
                          exclude_others=False, fill_gaps=False):
         """
         Returns a list of persisted shard ranges.
@@ -1724,8 +1716,6 @@ class ContainerBroker(DatabaseBroker):
         :param states: if specified, restricts the returned list to shard
             ranges that have the given state(s); can be a list of ints or a
             single int.
-        :param exclude_states: exclude rows matching the given state(s); can be
-            an int or a list of ints; takes precedence over ``state``.
         :param include_own: boolean that governs whether the row whose name
             matches the broker's path is included in the returned list. If
             True, that row is included, otherwise it is not included. Default
@@ -1755,7 +1745,7 @@ class ContainerBroker(DatabaseBroker):
             ShardRange(*row)
             for row in self._get_shard_range_rows(
                 include_deleted=include_deleted, states=states,
-                exclude_states=exclude_states, include_own=include_own,
+                include_own=include_own,
                 exclude_others=exclude_others)]
         # note if this ever changes to *not* sort by upper first then it breaks
         # a key assumption for bisect, which is used by utils.find_shard_ranges
