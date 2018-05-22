@@ -1778,54 +1778,60 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_container_post_ok('sharded')
         self.assert_container_listing(all_obj_names)
 
-        # delete all objects - updates redirected to shards
-        self.delete_objects(all_obj_names)
-        self.assert_container_listing([])
-        self.assert_container_post_ok('has objects')
-
-        # run sharder on shard containers to update root stats
+        # delete all objects in first shard range - updates redirected to shard
         shard_ranges = self.get_container_shard_ranges()
         self.assertLengthEqual(shard_ranges, 2)
-        self.run_sharders(shard_ranges)
-        self.assert_container_object_count(0)
+        shard_0_objects = [name for name in all_obj_names
+                           if name in shard_ranges[0]]
+        shard_1_objects = [name for name in all_obj_names
+                           if name in shard_ranges[1]]
+        self.delete_objects(shard_0_objects)
+        self.assert_container_listing(shard_1_objects)
+        self.assert_container_post_ok('has objects')
+
+        # run sharder on first shard container to update root stats
+        self.run_sharders(shard_ranges[0])
+        self.assert_container_object_count(len(shard_1_objects))
 
         # First, test a misplaced object moving from one shard to another.
         # run sharder on root to discover first shrink candidate
         self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
         # then run sharder on first shard range to shrink it
-        shard_part, shard_nodes_numbers = self.get_part_and_node_numbers(
-            shard_ranges[0])
-        self.sharders.once(additional_args='--partitions=%s' % shard_part)
+        self.run_sharders(shard_ranges[0])
         # force a misplaced object into the shrunken shard range to simulate
         # a client put that was in flight when it started to shrink
         misplaced_node = merge_object(shard_ranges[0], 'alpha', deleted=0)
         # root sees first shard has shrunk, only second shard range used for
         # listing so alpha object not in listing
         self.assertLengthEqual(self.get_container_shard_ranges(), 1)
-        self.assert_container_listing([])
-        self.assert_container_object_count(0)
+        self.assert_container_listing(shard_1_objects)
+        self.assert_container_object_count(len(shard_1_objects))
         # until sharder runs on that node to move the misplaced object to the
         # second shard range
+        shard_part, shard_nodes_numbers = self.get_part_and_node_numbers(
+            shard_ranges[0])
         self.sharders.once(additional_args='--partitions=%s' % shard_part,
                            number=misplaced_node['id'] + 1)
-        self.assert_container_listing(['alpha'])
-        self.assert_container_object_count(0)  # root not yet updated
+        self.assert_container_listing(['alpha'] + shard_1_objects)
+        # root not yet updated
+        self.assert_container_object_count(len(shard_1_objects))
 
         # run sharder to get root updated
         self.run_sharders(shard_ranges[1])
-        self.assert_container_listing(['alpha'])
-        self.assert_container_object_count(1)
+        self.assert_container_listing(['alpha'] + shard_1_objects)
+        self.assert_container_object_count(len(shard_1_objects) + 1)
         self.assertLengthEqual(self.get_container_shard_ranges(), 1)
 
         # Now we have just one active shard, test a misplaced object moving
         # from that shard to the root.
-        # run sharder on root to discover second shrink candidate
+        # delete most objects from second shard range and run sharder on root
+        # to discover second shrink candidate
+        self.delete_objects(shard_1_objects)
+        self.run_sharders(shard_ranges[1])
         self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
         # then run sharder on the shard node to shrink it to root - note this
         # moves alpha to the root db
-        shard_part, shard_nodes_numbers = self.get_part_and_node_numbers(
-            shard_ranges[1])
-        self.sharders.once(additional_args='--partitions=%s' % shard_part)
+        self.run_sharders(shard_ranges[1])
         # now there are no active shards
         self.assertFalse(self.get_container_shard_ranges())
 
@@ -1836,6 +1842,8 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_container_listing(['alpha'])
         self.assert_container_object_count(1)
         # until sharder runs on that node to move the misplaced object
+        shard_part, shard_nodes_numbers = self.get_part_and_node_numbers(
+            shard_ranges[1])
         self.sharders.once(additional_args='--partitions=%s' % shard_part,
                            number=misplaced_node['id'] + 1)
         self.assert_container_listing(['beta'])
