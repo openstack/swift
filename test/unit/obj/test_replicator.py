@@ -2065,6 +2065,7 @@ class TestObjectReplicator(unittest.TestCase):
                         mock_http_connect(200)), \
                 mock.patch.object(self.replicator, 'rsync_timeout', 0.01), \
                 mock.patch('eventlet.green.subprocess.Popen', new_mock):
+            self.replicator.rsync_error_log_line_length = 20
             self.replicator.run_once()
         for proc in mock_procs:
             self.assertEqual(proc._calls, [
@@ -2073,6 +2074,10 @@ class TestObjectReplicator(unittest.TestCase):
                 ('wait', 'killed'),
             ])
         self.assertEqual(len(mock_procs), 2)
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        # verify logs are truncated to rsync_error_log_line_length
+        self.assertEqual('Killing long-running', error_lines[0])
+        self.assertEqual('Killing long-running', error_lines[1])
 
     def test_replicate_rsync_timeout_wedged(self):
         cur_part = '0'
