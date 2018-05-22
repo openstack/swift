@@ -10,8 +10,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from __future__ import unicode_literals
-
 import json
 import os
 import unittest
@@ -184,34 +182,36 @@ class TestManageShardRanges(unittest.TestCase):
                 main([broker.db_file, 'info'])
         expected = ['Sharding enabled = True',
                     'Own shard range: {',
-                    '  "bytes_used": 0, ',
-                    '  "deleted": 0, ',
-                    '  "epoch": "%s", ' % epoch.internal,
-                    '  "lower": "", ',
-                    '  "meta_timestamp": "%s", ' % now.internal,
-                    '  "name": "a/c", ',
-                    '  "object_count": 0, ',
-                    '  "state": "sharding", ',
-                    '  "state_timestamp": "%s", ' % now.internal,
-                    '  "timestamp": "%s", ' % now.internal,
+                    '  "bytes_used": 0,',
+                    '  "deleted": 0,',
+                    '  "epoch": "%s",' % epoch.internal,
+                    '  "lower": "",',
+                    '  "meta_timestamp": "%s",' % now.internal,
+                    '  "name": "a/c",',
+                    '  "object_count": 0,',
+                    '  "state": "sharding",',
+                    '  "state_timestamp": "%s",' % now.internal,
+                    '  "timestamp": "%s",' % now.internal,
                     '  "upper": ""',
                     '}',
                     'db_state = sharding',
                     'Retiring db id: %s' % retiring_db_id,
                     'Cleaving context: {',
-                    '  "cleave_to_row": null, ',
-                    '  "cleaving_done": false, ',
-                    '  "cursor": "", ',
-                    '  "last_cleave_to_row": null, ',
-                    '  "max_row": -1, ',
-                    '  "misplaced_done": false, ',
-                    '  "ranges_done": 0, ',
-                    '  "ranges_todo": 0, ',
+                    '  "cleave_to_row": null,',
+                    '  "cleaving_done": false,',
+                    '  "cursor": "",',
+                    '  "last_cleave_to_row": null,',
+                    '  "max_row": -1,',
+                    '  "misplaced_done": false,',
+                    '  "ranges_done": 0,',
+                    '  "ranges_todo": 0,',
                     '  "ref": "%s"' % retiring_db_id,
                     '}',
                     'Metadata:',
                     '  X-Container-Sysmeta-Sharding = True']
-        self.assertEqual(expected, out.getvalue().splitlines())
+        # The json.dumps() in py2 produces trailing space, not in py3.
+        result = [x.rstrip() for x in out.getvalue().splitlines()]
+        self.assertEqual(expected, result)
         self.assertEqual(['Loaded db broker for a/c.'],
                          err.getvalue().splitlines())
 
@@ -223,22 +223,23 @@ class TestManageShardRanges(unittest.TestCase):
                 main([broker.db_file, 'info'])
         expected = ['Sharding enabled = True',
                     'Own shard range: {',
-                    '  "bytes_used": 0, ',
-                    '  "deleted": 0, ',
-                    '  "epoch": "%s", ' % epoch.internal,
-                    '  "lower": "", ',
-                    '  "meta_timestamp": "%s", ' % now.internal,
-                    '  "name": "a/c", ',
-                    '  "object_count": 0, ',
-                    '  "state": "sharding", ',
-                    '  "state_timestamp": "%s", ' % now.internal,
-                    '  "timestamp": "%s", ' % now.internal,
+                    '  "bytes_used": 0,',
+                    '  "deleted": 0,',
+                    '  "epoch": "%s",' % epoch.internal,
+                    '  "lower": "",',
+                    '  "meta_timestamp": "%s",' % now.internal,
+                    '  "name": "a/c",',
+                    '  "object_count": 0,',
+                    '  "state": "sharding",',
+                    '  "state_timestamp": "%s",' % now.internal,
+                    '  "timestamp": "%s",' % now.internal,
                     '  "upper": ""',
                     '}',
                     'db_state = sharded',
                     'Metadata:',
                     '  X-Container-Sysmeta-Sharding = True']
-        self.assertEqual(expected, out.getvalue().splitlines())
+        self.assertEqual(expected,
+                         [x.rstrip() for x in out.getvalue().splitlines()])
         self.assertEqual(['Loaded db broker for a/c.'],
                          err.getvalue().splitlines())
 
@@ -247,7 +248,7 @@ class TestManageShardRanges(unittest.TestCase):
         broker.update_metadata({'X-Container-Sysmeta-Sharding':
                                 (True, Timestamp.now().internal)})
         input_file = os.path.join(self.testdir, 'shards')
-        with open(input_file, 'wb') as fd:
+        with open(input_file, 'w') as fd:
             json.dump(self.shard_data, fd)
         out = StringIO()
         err = StringIO()

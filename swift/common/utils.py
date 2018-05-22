@@ -78,7 +78,6 @@ from six.moves import range, http_client
 from six.moves.urllib.parse import ParseResult
 from six.moves.urllib.parse import quote as _quote
 from six.moves.urllib.parse import urlparse as stdlib_urlparse
-from six import string_types
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -3974,7 +3973,10 @@ class Spliterator(object):
                     yield to_yield
 
             while n > 0:
-                chunk = next(self.input_iterator)
+                try:
+                    chunk = next(self.input_iterator)
+                except StopIteration:
+                    return
                 cl = len(chunk)
                 if cl <= n:
                     n -= cl
@@ -4719,12 +4721,17 @@ class ShardRange(object):
     def _encode(cls, value):
         if six.PY2 and isinstance(value, six.text_type):
             return value.encode('utf-8')
+        if six.PY3 and isinstance(value, six.binary_type):
+            # This should never fail -- the value should always be coming from
+            # valid swift paths, which means UTF-8
+            return value.decode('utf-8')
         return value
 
     def _encode_bound(self, bound):
         if isinstance(bound, ShardRange.OuterBound):
             return bound
-        if not isinstance(bound, string_types):
+        if not (isinstance(bound, six.text_type) or
+                isinstance(bound, six.binary_type)):
             raise TypeError('must be a string type')
         return self._encode(bound)
 
@@ -4812,7 +4819,7 @@ class ShardRange(object):
 
     @lower.setter
     def lower(self, value):
-        if value in (None, ''):
+        if value in (None, b'', u''):
             value = ShardRange.MIN
         try:
             value = self._encode_bound(value)
@@ -4838,7 +4845,7 @@ class ShardRange(object):
 
     @upper.setter
     def upper(self, value):
-        if value in (None, ''):
+        if value in (None, b'', u''):
             value = ShardRange.MAX
         try:
             value = self._encode_bound(value)
@@ -5027,7 +5034,7 @@ class ShardRange(object):
         elif other is None:
             return True
         else:
-            return self.upper < other
+            return self.upper < self._encode(other)
 
     def __gt__(self, other):
         # a ShardRange is greater than other if its entire namespace is greater
@@ -5041,13 +5048,19 @@ class ShardRange(object):
         elif other is None:
             return False
         else:
-            return self.lower >= other
+            return self.lower >= self._encode(other)
 
     def __eq__(self, other):
         # test for equality of range bounds only
         if not isinstance(other, ShardRange):
             return False
         return self.lower == other.lower and self.upper == other.upper
+
+    # A by-the-book implementation should probably hash the value, which
+    # in our case would be account+container+lower+upper (+timestamp ?).
+    # But we seem to be okay with just the identity.
+    def __hash__(self):
+        return id(self)
 
     def __ne__(self, other):
         return not (self == other)

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import six
 import six.moves.cPickle as pickle
 import mock
 import os
@@ -196,7 +197,8 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertFalse(log_lines[1:])
         self.assertEqual(1, len(mock_dump_recon.mock_calls))
 
-    def test_run_once(self):
+    @mock.patch('swift.container.updater.dump_recon_cache')
+    def test_run_once(self, mock_recon):
         cu = self._get_container_updater()
         cu.run_once()
         containers_dir = os.path.join(self.sda1, DATADIR)
@@ -230,21 +232,21 @@ class TestContainerUpdater(unittest.TestCase):
                 with Timeout(3):
                     inc = sock.makefile('rb')
                     out = sock.makefile('wb')
-                    out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
+                    out.write(b'HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
                     self.assertEqual(inc.readline(),
-                                     'PUT /sda1/0/a/c HTTP/1.1\r\n')
+                                     b'PUT /sda1/0/a/c HTTP/1.1\r\n')
                     headers = {}
                     line = inc.readline()
-                    while line and line != '\r\n':
-                        headers[line.split(':')[0].lower()] = \
-                            line.split(':')[1].strip()
+                    while line and line != b'\r\n':
+                        headers[line.split(b':')[0].lower()] = \
+                            line.split(b':')[1].strip()
                         line = inc.readline()
-                    self.assertTrue('x-put-timestamp' in headers)
-                    self.assertTrue('x-delete-timestamp' in headers)
-                    self.assertTrue('x-object-count' in headers)
-                    self.assertTrue('x-bytes-used' in headers)
+                    self.assertIn(b'x-put-timestamp', headers)
+                    self.assertIn(b'x-delete-timestamp', headers)
+                    self.assertIn(b'x-object-count', headers)
+                    self.assertIn(b'x-bytes-used', headers)
             except BaseException as err:
                 import traceback
                 traceback.print_exc()
@@ -303,7 +305,10 @@ class TestContainerUpdater(unittest.TestCase):
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
                              container='\xce\xa9')
         cb.initialize(normalize_timestamp(1), 0)
-        cb.put_object('\xce\xa9', normalize_timestamp(2), 3, 'text/plain',
+        obj_name = u'\N{GREEK CAPITAL LETTER OMEGA}'
+        if six.PY2:
+            obj_name = obj_name.encode('utf-8')
+        cb.put_object(obj_name, normalize_timestamp(2), 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
 
         def accept(sock, addr):
@@ -311,7 +316,7 @@ class TestContainerUpdater(unittest.TestCase):
                 with Timeout(3):
                     inc = sock.makefile('rb')
                     out = sock.makefile('wb')
-                    out.write('HTTP/1.1 201 OK\r\nContent-Length: 0\r\n\r\n')
+                    out.write(b'HTTP/1.1 201 OK\r\nContent-Length: 0\r\n\r\n')
                     out.flush()
                     inc.read()
             except BaseException as err:
@@ -388,21 +393,21 @@ class TestContainerUpdater(unittest.TestCase):
                 with Timeout(3):
                     inc = sock.makefile('rb')
                     out = sock.makefile('wb')
-                    out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
+                    out.write(b'HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
                     self.assertEqual(inc.readline(),
-                                     'PUT /sda1/2/.shards_a/c HTTP/1.1\r\n')
+                                     b'PUT /sda1/2/.shards_a/c HTTP/1.1\r\n')
                     headers = {}
                     line = inc.readline()
-                    while line and line != '\r\n':
-                        headers[line.split(':')[0].lower()] = \
-                            line.split(':')[1].strip()
+                    while line and line != b'\r\n':
+                        headers[line.split(b':')[0].lower()] = \
+                            line.split(b':')[1].strip()
                         line = inc.readline()
-                    self.assertTrue('x-put-timestamp' in headers)
-                    self.assertTrue('x-delete-timestamp' in headers)
-                    self.assertTrue('x-object-count' in headers)
-                    self.assertTrue('x-bytes-used' in headers)
+                    self.assertIn(b'x-put-timestamp', headers)
+                    self.assertIn(b'x-delete-timestamp', headers)
+                    self.assertIn(b'x-object-count', headers)
+                    self.assertIn(b'x-bytes-used', headers)
             except BaseException as err:
                 import traceback
                 traceback.print_exc()

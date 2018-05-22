@@ -171,7 +171,7 @@ from swift.container.sharder import make_shard_ranges, sharding_enabled, \
 
 def _load_and_validate_shard_data(args):
     try:
-        with open(args.input, 'rb') as fd:
+        with open(args.input, 'r') as fd:
             try:
                 data = json.load(fd)
                 if not isinstance(data, list):
@@ -329,7 +329,7 @@ def delete_shard_ranges(broker, args):
     return 0
 
 
-def _replace_shard_ranges(broker, args, shard_data, timeout=None):
+def _replace_shard_ranges(broker, args, shard_data, timeout=0):
     own_shard_range = _check_own_shard_range(broker, args)
     shard_ranges = make_shard_ranges(
         broker, shard_data, args.shards_account_prefix)
@@ -435,7 +435,7 @@ def _add_enable_args(parser):
 def _make_parser():
     parser = argparse.ArgumentParser(description='Manage shard ranges')
     parser.add_argument('container_db')
-    parser.add_argument('--verbose', '-v', action='count',
+    parser.add_argument('--verbose', '-v', action='count', default=0,
                         help='Increase output verbosity')
     subparsers = parser.add_subparsers(
         help='Sub-command help', title='Sub-commands')

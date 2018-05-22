@@ -51,7 +51,8 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
-    HTTPInsufficientStorage, HTTPException, HTTPMovedPermanently
+    HTTPInsufficientStorage, HTTPException, HTTPMovedPermanently, \
+    wsgi_to_str, str_to_wsgi
 
 
 def gen_resp_headers(info, is_deleted=False):
@@ -418,7 +419,7 @@ class ContainerController(BaseStorageServer):
     def _update_metadata(self, req, broker, req_timestamp, method):
         metadata = {}
         metadata.update(
-            (key, (value, req_timestamp.internal))
+            (wsgi_to_str(key), (wsgi_to_str(value), req_timestamp.internal))
             for key, value in req.headers.items()
             if key.lower() in self.save_headers or
             is_sys_or_user_meta('container', key))
@@ -465,11 +466,12 @@ class ContainerController(BaseStorageServer):
 
             broker.put_object(obj, req_timestamp.internal,
                               int(req.headers['x-size']),
-                              req.headers['x-content-type'],
-                              req.headers['x-etag'], 0,
+                              wsgi_to_str(req.headers['x-content-type']),
+                              wsgi_to_str(req.headers['x-etag']), 0,
                               obj_policy_index,
-                              req.headers.get('x-content-type-timestamp'),
-                              req.headers.get('x-meta-timestamp'))
+                              wsgi_to_str(req.headers.get(
+                                  'x-content-type-timestamp')),
+                              wsgi_to_str(req.headers.get('x-meta-timestamp')))
             return HTTPCreated(request=req)
 
         record_type = req.headers.get('x-backend-record-type', '').lower()
@@ -530,7 +532,7 @@ class ContainerController(BaseStorageServer):
         if is_deleted:
             return HTTPNotFound(request=req, headers=headers)
         headers.update(
-            (key, value)
+            (str_to_wsgi(key), str_to_wsgi(value))
             for key, (value, timestamp) in broker.metadata.items()
             if value != '' and (key.lower() in self.save_headers or
                                 is_sys_or_user_meta('container', key)))
@@ -709,7 +711,7 @@ class ContainerController(BaseStorageServer):
         for key, (value, timestamp) in metadata.items():
             if value and (key.lower() in self.save_headers or
                           is_sys_or_user_meta('container', key)):
-                resp_headers[key] = value
+                resp_headers[str_to_wsgi(key)] = str_to_wsgi(value)
         listing = [self.update_data_record(record)
                    for record in container_list]
         if out_content_type.endswith('/xml'):
