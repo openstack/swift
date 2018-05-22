@@ -992,14 +992,12 @@ class TestContainerController(TestRingBase):
 
     def test_GET_sharded_container_empty_shard(self):
         # verify ordered listing when a shard is empty
-        shard_bounds = (('', 'ham'), ('ham', 'pie'), ('lemon', ''))
+        shard_bounds = (('', 'ham'), ('ham', 'pie'), ('pie', ''))
         shard_ranges = [
             ShardRange('.shards_a/c_%s' % upper, Timestamp.now(), lower, upper)
             for lower, upper in shard_bounds]
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
-        # empty second shard range
-        sr_objs[1] = []
         shard_resp_hdrs = [
             {'X-Backend-Sharding-State': 'unsharded',
              'X-Container-Object-Count': len(sr_objs[i]),
@@ -1008,15 +1006,97 @@ class TestContainerController(TestRingBase):
              'X-Container-Meta-Flavour': 'flavour%d' % i,
              'X-Backend-Storage-Policy-Index': 0}
             for i in range(3)]
+        empty_shard_resp_hdrs = {
+            'X-Backend-Sharding-State': 'unsharded',
+            'X-Container-Object-Count': 0,
+            'X-Container-Bytes-Used': 0,
+            'X-Container-Meta-Flavour': 'flavour%d' % i,
+            'X-Backend-Storage-Policy-Index': 0}
 
-        all_objects = []
-        for objects in sr_objs:
-            all_objects.extend(objects)
+        # empty first shard range
+        all_objects = sr_objs[1] + sr_objs[2]
         size_all_objects = sum([obj['bytes'] for obj in all_objects])
-        num_all_objects = len(all_objects)
-        limit = CONTAINER_LISTING_LIMIT
         root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
-                          'X-Container-Object-Count': num_all_objects,
+                          'X-Container-Object-Count': len(all_objects),
+                          'X-Container-Bytes-Used': size_all_objects,
+                          'X-Container-Meta-Flavour': 'peach',
+                          'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        mock_responses = [
+            # status, body, headers
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, [], empty_shard_resp_hdrs),
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2])
+        ]
+        # NB marker does not advance until an object is in the listing
+        limit = CONTAINER_LISTING_LIMIT
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing')),  # 200
+            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='ham\x00', states='listing',
+                  limit=str(limit))),  # 200
+            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='pie\x00', states='listing',
+                  limit=str(limit))),  # 200
+            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='p', end_marker='', states='listing',
+                  limit=str(limit - len(sr_objs[1]))))  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, sr_objs[1] + sr_objs[2], expected_requests)
+        self.check_response(resp, root_resp_hdrs)
+
+        # empty last shard range, reverse
+        all_objects = sr_objs[0] + sr_objs[1]
+        size_all_objects = sum([obj['bytes'] for obj in all_objects])
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Container-Object-Count': len(all_objects),
+                          'X-Container-Bytes-Used': size_all_objects,
+                          'X-Container-Meta-Flavour': 'peach',
+                          'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        mock_responses = [
+            # status, body, headers
+            (200, list(reversed(sr_dicts)), root_shard_resp_hdrs),
+            (200, [], empty_shard_resp_hdrs),
+            (200, list(reversed(sr_objs[1])), shard_resp_hdrs[1]),
+            (200, list(reversed(sr_objs[0])), shard_resp_hdrs[0]),
+        ]
+        limit = CONTAINER_LISTING_LIMIT
+        expected_requests = [
+            # path, headers, params
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing', reverse='true')),  # 200
+            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='pie', states='listing',
+                  limit=str(limit), reverse='true')),  # 200
+            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='ham', states='listing',
+                  limit=str(limit), reverse='true')),  # 200
+            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+             dict(marker=sr_objs[1][0]['name'], end_marker='',
+                  states='listing', reverse='true',
+                  limit=str(limit - len(sr_objs[1]))))  # 200
+        ]
+
+        resp = self._check_GET_shard_listing(
+            mock_responses, list(reversed(sr_objs[0] + sr_objs[1])),
+            expected_requests, query_string='?reverse=true', reverse=True)
+        self.check_response(resp, root_resp_hdrs)
+
+        # empty second shard range
+        all_objects = sr_objs[0] + sr_objs[2]
+        size_all_objects = sum([obj['bytes'] for obj in all_objects])
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Container-Object-Count': len(all_objects),
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
@@ -1027,10 +1107,11 @@ class TestContainerController(TestRingBase):
             # status, body, headers
             (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
-            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, [], empty_shard_resp_hdrs),
             (200, sr_objs[2], shard_resp_hdrs[2])
         ]
         # NB marker always advances to last object name
+        limit = CONTAINER_LISTING_LIMIT
         expected_requests = [
             # path, headers, params
             ('a/c', {'X-Backend-Record-Type': 'auto'},
@@ -1043,11 +1124,11 @@ class TestContainerController(TestRingBase):
                   limit=str(limit - len(sr_objs[0])))),  # 200
             (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
              dict(marker='h', end_marker='', states='listing',
-                  limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
+                  limit=str(limit - len(sr_objs[0]))))  # 200
         ]
 
         resp = self._check_GET_shard_listing(
-            mock_responses, all_objects, expected_requests)
+            mock_responses, sr_objs[0] + sr_objs[2], expected_requests)
         # root object count will overridden by actual length of listing
         self.check_response(resp, root_resp_hdrs)
 
@@ -1055,7 +1136,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, sr_dicts[1:], root_shard_resp_hdrs),
-            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, [], empty_shard_resp_hdrs),
             (200, sr_objs[2], shard_resp_hdrs[2])
         ]
         # NB marker unchanged when getting from third range
@@ -1081,7 +1162,7 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, list(reversed(sr_dicts[:2])), root_shard_resp_hdrs),
-            (200, list(reversed(sr_objs[1])), shard_resp_hdrs[1]),
+            (200, [], empty_shard_resp_hdrs),
             (200, list(reversed(sr_objs[0])), shard_resp_hdrs[2])
         ]
         # NB marker unchanged when getting from first range

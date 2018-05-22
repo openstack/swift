@@ -168,30 +168,28 @@ class ContainerController(Controller):
         for shard_range in shard_ranges:
             params['limit'] = limit
             # Always set marker to ensure that object names less than or equal
-            # to those already in the listing are not fetched
+            # to those already in the listing are not fetched; if the listing
+            # is empty then the original request marker, if any, is used. This
+            # allows misplaced objects below the expected shard range to be
+            # included in the listing.
             if objects:
                 last_name = objects[-1].get('name',
                                             objects[-1].get('subdir', u''))
                 params['marker'] = last_name.encode('utf-8')
-            elif reverse and marker and marker > shard_range.lower:
-                params['marker'] = marker
-            elif marker and marker <= shard_range.upper:
+            elif marker:
                 params['marker'] = marker
             else:
-                params['marker'] = shard_range.upper_str if reverse \
-                    else shard_range.lower_str
-                if params['marker'] and reverse:
-                    params['marker'] += '\x00'
-
-            # Always set end_marker to ensure that misplaced objects beyond
-            # the expected shard range are not fetched
+                params['marker'] = ''
+            # Always set end_marker to ensure that misplaced objects beyond the
+            # expected shard range are not fetched. This prevents a misplaced
+            # object obscuring correctly placed objects in the next shard
+            # range.
             if end_marker and end_marker in shard_range:
                 params['end_marker'] = end_marker
+            elif reverse:
+                params['end_marker'] = shard_range.lower_str
             else:
-                params['end_marker'] = shard_range.lower_str if reverse \
-                    else shard_range.upper_str
-                if params['end_marker'] and not reverse:
-                    params['end_marker'] += '\x00'
+                params['end_marker'] = shard_range.end_marker
 
             if (shard_range.account == self.account_name and
                     shard_range.container == self.container_name):
