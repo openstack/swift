@@ -32,7 +32,7 @@ from swift import gettext_ as _
 from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
     dump_recon_cache, mkdirs, config_true_value,
-    tpool_reraise, GreenAsyncPile, Timestamp, remove_file,
+    GreenAsyncPile, Timestamp, remove_file,
     load_recon_cache, parse_override_options, distribute_evenly,
     PrefixLoggerAdapter)
 from swift.common.header_key_dict import HeaderKeyDict
@@ -616,7 +616,7 @@ class ObjectReconstructor(Daemon):
     def _get_hashes(self, device, partition, policy, recalculate=None,
                     do_listdir=False):
         df_mgr = self._df_router[policy]
-        hashed, suffix_hashes = tpool_reraise(
+        hashed, suffix_hashes = tpool.execute(
             df_mgr._get_hashes, device, partition, policy,
             recalculate=recalculate, do_listdir=do_listdir)
         self.logger.update_stats('suffix.hashes', hashed)
