@@ -1594,8 +1594,8 @@ class ContainerBroker(DatabaseBroker):
                 raise
 
     def _get_shard_range_rows(self, connection=None, include_deleted=False,
-                              states=None,
-                              include_own=False, exclude_others=False):
+                              states=None, include_own=False,
+                              exclude_others=False):
         """
         Returns a list of shard range rows.
 
@@ -1621,15 +1621,11 @@ class ContainerBroker(DatabaseBroker):
         if exclude_others and not include_own:
             return []
 
-        def prep_states(states):
-            state_set = set()
-            if isinstance(states, (list, tuple, set)):
-                state_set.update(states)
-            elif states is not None:
-                state_set.add(states)
-            return state_set
-
-        included_states = prep_states(states)
+        included_states = set()
+        if isinstance(states, (list, tuple, set)):
+            included_states.update(states)
+        elif states is not None:
+            included_states.add(states)
 
         def do_query(conn):
             try:
