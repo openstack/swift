@@ -1298,7 +1298,7 @@ class ContainerBroker(DatabaseBroker):
                         ','.join('?' * len(chunk)), chunk))
             # Sort item_list into things that need adding and deleting, based
             # on results of created_at query.
-            to_delete = {}
+            to_delete = set()
             to_add = {}
             for item in item_list:
                 item.setdefault('storage_policy_index', 0)  # legacy
@@ -1306,7 +1306,7 @@ class ContainerBroker(DatabaseBroker):
                 existing = self._record_to_dict(records.get(item_ident))
                 if update_new_item_from_existing(item, existing):
                     if item_ident in records:  # exists with older timestamp
-                        to_delete[item_ident] = item
+                        to_delete.add(item_ident)
                     if item_ident in to_add:  # duplicate entries in item_list
                         update_new_item_from_existing(item, to_add[item_ident])
                     to_add[item_ident] = item
@@ -1314,8 +1314,7 @@ class ContainerBroker(DatabaseBroker):
                 curs.executemany(
                     'DELETE FROM object WHERE ' + query_mod +
                     'name=? AND storage_policy_index=?',
-                    ((rec['name'], rec['storage_policy_index'])
-                     for rec in to_delete.values()))
+                    (item_ident for item_ident in to_delete))
             if to_add:
                 curs.executemany(
                     'INSERT INTO object (name, created_at, size, content_type,'
@@ -1393,7 +1392,7 @@ class ContainerBroker(DatabaseBroker):
                          ','.join('?' * len(chunk))), chunk))
 
             # Sort item_list into things that need adding and deleting
-            to_delete = {}
+            to_delete = set()
             to_add = {}
             for item in item_list:
                 item_ident = item['name']
@@ -1403,7 +1402,7 @@ class ContainerBroker(DatabaseBroker):
                 if merge_shards(item, existing):
                     # exists with older timestamp
                     if item_ident in records:
-                        to_delete[item_ident] = item
+                        to_delete.add(item_ident)
                     # duplicate entries in item_list
                     if (item_ident not in to_add or
                             merge_shards(item, to_add[item_ident])):
