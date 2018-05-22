@@ -1653,11 +1653,8 @@ class ContainerBroker(DatabaseBroker):
             return [row for row in data]
 
         try:
-            if connection:
-                return do_query(connection)
-            else:
-                with self.get() as conn:
-                    return do_query(conn)
+            with self.maybe_get(connection) as conn:
+                return do_query(conn)
         except sqlite3.OperationalError as err:
             if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
                 raise

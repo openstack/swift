@@ -604,6 +604,25 @@ class TestExampleBroker(unittest.TestCase):
         broker.get_info()
         self.assertEqual(1, broker.get_info()[count_key])
 
+    @with_tempdir
+    def test_maybe_get(self, tempdir):
+        broker = self.broker_class(os.path.join(tempdir, 'test.db'),
+                                   account='a', container='c')
+        broker.initialize(next(self.ts),
+                          storage_policy_index=int(self.policy))
+        qry = 'select account from %s_stat' % broker.db_type
+        with broker.maybe_get(None) as conn:
+            rows = [dict(x) for x in conn.execute(qry)]
+        self.assertEqual([{'account': 'a'}], rows)
+        self.assertEqual(conn, broker.conn)
+        with broker.get() as other_conn:
+            self.assertEqual(broker.conn, None)
+            with broker.maybe_get(other_conn) as identity_conn:
+                self.assertEqual(other_conn, identity_conn)
+                self.assertEqual(broker.conn, None)
+            self.assertEqual(broker.conn, None)
+        self.assertEqual(broker.conn, conn)
+
 
 class TestDatabaseBroker(unittest.TestCase):
 
