@@ -3955,6 +3955,11 @@ cluster_dfw1 = http://dfw1.host/v1/
         actual = utils.make_db_file_path(actual, epoch)
         self.assertEqual('/path/to/hash_%s.db' % epoch.internal, actual)
 
+        # None strips epoch
+        self.assertEqual('hash.db', utils.make_db_file_path('hash.db', None))
+        self.assertEqual('/path/to/hash.db', utils.make_db_file_path(
+            '/path/to/hash_withepoch.db', None))
+
         # epochs shouldn't have offsets
         epoch = utils.Timestamp.now(offset=10)
         actual = utils.make_db_file_path(actual, epoch)
@@ -3962,9 +3967,6 @@ cluster_dfw1 = http://dfw1.host/v1/
 
         self.assertRaises(ValueError, utils.make_db_file_path,
                           '/path/to/hash.db', 'bad epoch')
-
-        self.assertRaises(ValueError, utils.make_db_file_path,
-                          '/path/to/hash.db', None)
 
     def test_modify_priority(self):
         pid = os.getpid()
