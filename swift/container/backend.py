@@ -888,11 +888,8 @@ class ContainerBroker(DatabaseBroker):
     def _populate_instance_cache(self, conn=None):
         # load cached instance attributes from the database if necessary
         if self.container is None:
-            if conn:
+            with self.maybe_get(conn) as conn:
                 self._do_get_info_query(conn)
-            else:
-                with self.get() as conn:
-                    self._do_get_info_query(conn)
 
     def _get_alternate_object_stats(self):
         state = self.get_db_state()
