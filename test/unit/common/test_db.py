@@ -618,7 +618,7 @@ class TestExampleBroker(unittest.TestCase):
         with broker.get() as other_conn:
             self.assertEqual(broker.conn, None)
             with broker.maybe_get(other_conn) as identity_conn:
-                self.assertEqual(other_conn, identity_conn)
+                self.assertIs(other_conn, identity_conn)
                 self.assertEqual(broker.conn, None)
             self.assertEqual(broker.conn, None)
         self.assertEqual(broker.conn, conn)
