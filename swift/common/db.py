@@ -428,6 +428,14 @@ class DatabaseBroker(object):
                 self.conn.timeout = old_timeout
 
     @contextmanager
+    def maybe_get(self, conn):
+        if conn:
+            yield conn
+        else:
+            with self.get() as conn:
+                yield conn
+
+    @contextmanager
     def get(self):
         """Use with the "with" statement; returns a database connection."""
         if not self.conn:
