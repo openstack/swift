@@ -1359,8 +1359,8 @@ class StaticLargeObject(object):
             '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')
         new_env['swift.source'] = 'SLO'
         new_env['PATH_INFO'] = (
-            '/%s/%s/%s' % (vrs, account, obj_name.lstrip('/'))
-        ).encode('utf-8')
+            '/%s/%s/%s' % (vrs, account, obj_name.lstrip('/').encode('utf-8'))
+        )
         resp = Request.blank('', new_env).get_response(self.app)
 
         if resp.is_success:
