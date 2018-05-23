@@ -329,9 +329,7 @@ class ContainerBroker(DatabaseBroker):
         if db_file == ':memory:':
             base_db_file = db_file
         else:
-            db_dir = os.path.dirname(db_file)
-            hash_, other, ext = parse_db_filename(db_file)
-            base_db_file = os.path.join(db_dir, hash_ + ext)
+            base_db_file = make_db_file_path(db_file, None)
         super(ContainerBroker, self).__init__(
             base_db_file, timeout, logger, account, container, pending_timeout,
             stale_reads_ok, skip_commits=skip_commits)
@@ -361,9 +359,8 @@ class ContainerBroker(DatabaseBroker):
         """
         hsh = hash_path(account, container)
         db_dir = storage_directory(DATADIR, part, hsh)
-        db_path = os.path.join(device_path, db_dir, hsh + '.db')
-        if epoch:
-            db_path = make_db_file_path(db_path, epoch)
+        db_path = make_db_file_path(
+            os.path.join(device_path, db_dir, hsh + '.db'), epoch)
         broker = ContainerBroker(db_path, account=account, container=container,
                                  logger=logger)
         if not os.path.exists(broker.db_file):

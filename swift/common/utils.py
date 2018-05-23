@@ -5370,22 +5370,24 @@ def make_db_file_path(db_path, epoch):
     Given a path to a db file, return a modified path whose filename part has
     the given epoch.
 
-    A db filename takes the form <hash>[_<epoch>].db; this method replaces the
-    <epoch> part of the given ``db_path`` with the given ``epoch`` value.
+    A db filename takes the form ``<hash>[_<epoch>].db``; this method replaces
+    the ``<epoch>`` part of the given ``db_path`` with the given ``epoch``
+    value, or drops the epoch part if the given ``epoch`` is ``None``.
 
     :param db_path: Path to a db file that does not necessarily exist.
-    :param epoch: A string that will be used as the epoch in the new path's
-        filename; the value will be normalized to the normal string
-        representation of a :class:`~swift.common.utils.Timestamp`.
+    :param epoch: A string (or ``None``) that will be used as the epoch
+        in the new path's filename; non-``None`` values will be
+        normalized to the normal string representation of a
+        :class:`~swift.common.utils.Timestamp`.
     :return: A modified path to a db file.
     :raises ValueError: if the ``epoch`` is not valid for constructing a
         :class:`~swift.common.utils.Timestamp`.
     """
-    if epoch is None:
-        raise ValueError('epoch must not be None')
-    epoch = Timestamp(epoch).normal
     hash_, _, ext = parse_db_filename(db_path)
     db_dir = os.path.dirname(db_path)
+    if epoch is None:
+        return os.path.join(db_dir, hash_ + ext)
+    epoch = Timestamp(epoch).normal
     return os.path.join(db_dir, '%s_%s%s' % (hash_, epoch, ext))
 
 
