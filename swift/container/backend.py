@@ -1740,31 +1740,22 @@ class ContainerBroker(DatabaseBroker):
             shard_range = find_shard_range(includes, shard_ranges)
             return [shard_range] if shard_range else []
 
-        if reverse:
-            shard_ranges.reverse()
         if marker or end_marker:
             shard_ranges = list(filter(shard_range_filter, shard_ranges))
-
         if fill_gaps:
-            if reverse:
-                if shard_ranges:
-                    last_upper = shard_ranges[0].upper
-                else:
-                    last_upper = marker or ShardRange.MIN
-                required_upper = end_marker or ShardRange.MAX
-                filler_index = 0
+            if shard_ranges:
+                last_upper = shard_ranges[-1].upper
             else:
-                if shard_ranges:
-                    last_upper = shard_ranges[-1].upper
-                else:
-                    last_upper = marker or ShardRange.MIN
-                required_upper = end_marker or ShardRange.MAX
-                filler_index = len(shard_ranges)
+                last_upper = marker or ShardRange.MIN
+            required_upper = end_marker or ShardRange.MAX
             if required_upper > last_upper:
                 filler_sr = self.get_own_shard_range()
                 filler_sr.lower = last_upper
                 filler_sr.upper = required_upper
-                shard_ranges.insert(filler_index, filler_sr)
+                shard_ranges.append(filler_sr)
+
+        if reverse:
+            shard_ranges.reverse()
 
         return shard_ranges
 
