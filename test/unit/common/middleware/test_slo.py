@@ -1039,6 +1039,12 @@ class TestSloDeleteManifest(SloTestCase):
             json.dumps([{'name': '/deltest/b_2', 'hash': 'a', 'bytes': '1'},
                         {'name': '/deltest/c_3', 'hash': 'b', 'bytes': '2'}]))
         self.app.register(
+            'GET', '/v1/AUTH_test-un\xc3\xafcode/deltest/man-all-there',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true'},
+            json.dumps([{'name': '/deltest/b_2', 'hash': 'a', 'bytes': '1'},
+                        {'name': '/deltest/c_3', 'hash': 'b', 'bytes': '2'}]))
+        self.app.register(
             'DELETE', '/v1/AUTH_test/deltest/man-all-there',
             swob.HTTPNoContent, {}, None)
         self.app.register(
@@ -1058,6 +1064,15 @@ class TestSloDeleteManifest(SloTestCase):
             swob.HTTPNoContent, {}, None)
         self.app.register(
             'DELETE', '/v1/AUTH_test/deltest/d_3',
+            swob.HTTPNoContent, {}, None)
+        self.app.register(
+            'DELETE', '/v1/AUTH_test-un\xc3\xafcode/deltest/man-all-there',
+            swob.HTTPNoContent, {}, None)
+        self.app.register(
+            'DELETE', '/v1/AUTH_test-un\xc3\xafcode/deltest/b_2',
+            swob.HTTPNoContent, {}, None)
+        self.app.register(
+            'DELETE', '/v1/AUTH_test-un\xc3\xafcode/deltest/c_3',
             swob.HTTPNoContent, {}, None)
 
         self.app.register(
@@ -1189,6 +1204,31 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', '/v1/AUTH_test/deltest/c_3?multipart-manifest=delete'),
             ('DELETE', ('/v1/AUTH_test/deltest/' +
                         'man-all-there?multipart-manifest=delete'))]))
+
+    def test_handle_multipart_delete_non_ascii(self):
+        acct = u'AUTH_test-un\u00efcode'.encode('utf-8')
+        req = Request.blank(
+            '/v1/%s/deltest/man-all-there?multipart-manifest=delete' % acct,
+            environ={'REQUEST_METHOD': 'DELETE'})
+        status, _, body = self.call_slo(req)
+        self.assertEqual('200 OK', status)
+        lines = body.split('\n')
+        for l in lines:
+            parts = l.split(':')
+            if len(parts) == 1:
+                continue
+            key, value = parts
+            if key == 'Response Status':
+                delete_status = int(value.split()[0])
+                self.assertEqual(200, delete_status)
+
+        self.assertEqual(set(self.app.calls), set([
+            ('GET',
+             '/v1/%s/deltest/man-all-there?multipart-manifest=get' % acct),
+            ('DELETE', '/v1/%s/deltest/b_2?multipart-manifest=delete' % acct),
+            ('DELETE', '/v1/%s/deltest/c_3?multipart-manifest=delete' % acct),
+            ('DELETE', ('/v1/%s/deltest/'
+                        'man-all-there?multipart-manifest=delete' % acct))]))
 
     def test_handle_multipart_delete_nested(self):
         req = Request.blank(
