@@ -486,7 +486,7 @@ successful replication of a new shard broker to at least a quorum of the
 container rings replica count, but this requirement can be tuned using the
 ``shard_replication_quorum`` option.
 
-Once a shard range has been succesfully cleaved from a retiring database the
+Once a shard range has been successfully cleaved from a retiring database the
 daemon transitions its state to ``CLEAVED``. It should be noted that this state
 transition occurs as soon as any one of the retiring DB replicas has cleaved
 the shard range, and therefore does not imply that all retiring DB replicas
