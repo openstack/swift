@@ -109,9 +109,19 @@ class RateLimitMiddleware(object):
         self.ratelimit_whitelist = \
             [acc.strip() for acc in
                 conf.get('account_whitelist', '').split(',') if acc.strip()]
+        if self.ratelimit_whitelist:
+            self.logger.warning('Option account_whitelist is deprecated. Use '
+                                'an internal client to POST a `X-Account-'
+                                'Sysmeta-Global-Write-Ratelimit: WHITELIST` '
+                                'header to the specific accounts instead.')
         self.ratelimit_blacklist = \
             [acc.strip() for acc in
                 conf.get('account_blacklist', '').split(',') if acc.strip()]
+        if self.ratelimit_blacklist:
+            self.logger.warning('Option account_blacklist is deprecated. Use '
+                                'an internal client to POST a `X-Account-'
+                                'Sysmeta-Global-Write-Ratelimit: BLACKLIST` '
+                                'header to the specific accounts instead.')
         self.container_ratelimits = interpret_conf_limits(
             conf, 'container_ratelimit_')
         self.container_listing_ratelimits = interpret_conf_limits(
