@@ -101,10 +101,8 @@ class BrainSplitter(object):
 
         self.part, self.nodes = self.ring.get_nodes(self.account, c, o)
 
-        node_ids = [n['id'] for n in self.nodes]
-        self.node_numbers = [n + 1 for n in node_ids]
-
-        if all(n_id in node_ids for n_id in (0, 1)):
+        self.node_numbers = [n['id'] + 1 for n in self.nodes]
+        if 1 in self.node_numbers and 2 in self.node_numbers:
             self.primary_numbers = (1, 2)
             self.handoff_numbers = (3, 4)
         else:
