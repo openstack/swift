@@ -78,7 +78,7 @@ class Crypto(object):
             # The CTR mode offset is incremented for every AES block and taken
             # modulo 2^128.
             offset_blocks, offset_in_block = divmod(offset, self.iv_length)
-            ivl = long(binascii.hexlify(iv), 16) + offset_blocks
+            ivl = int(binascii.hexlify(iv), 16) + offset_blocks
             ivl %= 1 << algorithms.AES.block_size
             iv = str(bytearray.fromhex(format(
                 ivl, '0%dx' % (2 * self.iv_length))))

@@ -37,7 +37,7 @@ class ObjectController(Controller):
         conditions which are described in the following document.
         - http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.35
         """
-        length = long(resp.headers.get('Content-Length'))
+        length = int(resp.headers.get('Content-Length'))
 
         try:
             content_range = Range(req_range)

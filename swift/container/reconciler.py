@@ -54,6 +54,14 @@ def cmp_policy_info(info, remote_info):
         return (info['delete_timestamp'] > info['put_timestamp'] and
                 info.get('count', info.get('object_count', 0)) == 0)
 
+    def cmp(a, b):
+        if a < b:
+            return -1
+        elif b < a:
+            return 1
+        else:
+            return 0
+
     deleted = is_deleted(info)
     remote_deleted = is_deleted(remote_info)
     if any([deleted, remote_deleted]):
