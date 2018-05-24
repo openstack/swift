@@ -973,7 +973,7 @@ class ResumingGetter(object):
                     except ChunkReadTimeout:
                         exc_type, exc_value, exc_traceback = exc_info()
                         if self.newest or self.server_type != 'Object':
-                            six.reraise(exc_type, exc_value, exc_traceback)
+                            raise
                         try:
                             self.fast_forward(self.bytes_used_from_backend)
                         except (HTTPException, ValueError):
@@ -1091,20 +1091,18 @@ class ResumingGetter(object):
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
-            exc_type, exc_value, exc_traceback = exc_info()
             warn = True
-            try:
-                req_range = Range(self.backend_headers['Range'])
-            except ValueError:
-                req_range = None
-            if req_range and len(req_range.ranges) == 1:
-                begin, end = req_range.ranges[0]
-                if end is not None and begin is not None:
-                    if end - begin + 1 == self.bytes_used_from_backend:
-                        warn = False
+            req_range = self.backend_headers['Range']
+            if req_range:
+                req_range = Range(req_range)
+                if len(req_range.ranges) == 1:
+                    begin, end = req_range.ranges[0]
+                    if end is not None and begin is not None:
+                        if end - begin + 1 == self.bytes_used_from_backend:
+                            warn = False
             if not req.environ.get('swift.non_client_disconnect') and warn:
                 self.app.logger.warning(_('Client disconnected on read'))
-            six.reraise(exc_type, exc_value, exc_traceback)
+            raise
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
             raise

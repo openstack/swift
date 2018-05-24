@@ -61,7 +61,6 @@ Static Large Object when the multipart upload is completed.
 
 import os
 import re
-import sys
 
 from swift.common.swob import Range
 from swift.common.utils import json, public
@@ -605,9 +604,8 @@ class UploadController(Controller):
         except ErrorResponse:
             raise
         except Exception as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
             self.logger.error(e)
-            raise exc_type, exc_value, exc_traceback
+            raise
 
         # Check the size of each segment except the last and make sure they are
         # all more than the minimum upload chunk size

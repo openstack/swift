@@ -221,7 +221,7 @@ class InternalClient(object):
             raise UnexpectedResponse(msg, resp)
         if exc_type:
             # To make pep8 tool happy, in place of raise t, v, tb:
-            six.reraise(exc_type(*exc_value.args), None, exc_traceback)
+            six.reraise(exc_type, exc_value, exc_traceback)
 
     def _get_metadata(
             self, path, metadata_prefix='', acceptable_statuses=(2,),
