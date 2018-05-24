@@ -18,7 +18,6 @@
 from __future__ import print_function
 
 import errno
-import inspect
 import os
 import signal
 import time
@@ -543,12 +542,11 @@ def run_server(conf, logger, sock, global_conf=None):
     server_kwargs = {
         'custom_pool': pool,
         'protocol': protocol_class,
+        # Disable capitalizing headers in Eventlet. This is necessary for
+        # the AWS SDK to work with s3api middleware (it needs an "ETag"
+        # header; "Etag" just won't do).
+        'capitalize_response_headers': False,
     }
-    # Disable capitalizing headers in Eventlet if possible.  This is
-    # necessary for the AWS SDK to work with swift3 middleware.
-    argspec = inspect.getargspec(wsgi.server)
-    if 'capitalize_response_headers' in argspec.args:
-        server_kwargs['capitalize_response_headers'] = False
     try:
         wsgi.server(sock, app, wsgi_logger, **server_kwargs)
     except socket.error as err:

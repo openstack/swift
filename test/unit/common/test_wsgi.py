@@ -478,8 +478,7 @@ class TestWSGI(unittest.TestCase):
             with mock.patch('swift.proxy.server.Application.'
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
-                    mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt, \
-                    mock.patch('swift.common.wsgi.inspect'):
+                    mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt:
                 conf = wsgi.appconfig(conf_file)
                 logger = logging.getLogger('test')
                 sock = listen_zero()
@@ -528,8 +527,7 @@ class TestWSGI(unittest.TestCase):
             with mock.patch('swift.proxy.server.Application.'
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
-                    mock.patch('swift.common.wsgi.eventlet') as _eventlet, \
-                    mock.patch('swift.common.wsgi.inspect'):
+                    mock.patch('swift.common.wsgi.eventlet') as _eventlet:
                 conf = wsgi.appconfig(conf_file,
                                       name='proxy-server')
                 logger = logging.getLogger('test')
@@ -576,9 +574,7 @@ class TestWSGI(unittest.TestCase):
             with mock.patch('swift.proxy.server.Application.'
                             'modify_wsgi_pipeline'), \
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
-                    mock.patch('swift.common.wsgi.eventlet'), \
-                    mock.patch('swift.common.wsgi.inspect',
-                               getargspec=argspec_stub):
+                    mock.patch('swift.common.wsgi.eventlet'):
                 conf = wsgi.appconfig(conf_file)
                 logger = logging.getLogger('test')
                 sock = listen_zero()
@@ -618,7 +614,6 @@ class TestWSGI(unittest.TestCase):
                     mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
                     mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt, \
                     mock.patch.dict('os.environ', {'TZ': ''}), \
-                    mock.patch('swift.common.wsgi.inspect'), \
                     mock.patch('time.tzset'):
                 conf = wsgi.appconfig(conf_dir)
                 logger = logging.getLogger('test')
