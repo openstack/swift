@@ -562,9 +562,6 @@ class TestWSGI(unittest.TestCase):
         use = egg:swift#proxy
         """
 
-        def argspec_stub(server):
-            return mock.MagicMock(args=['capitalize_response_headers'])
-
         contents = dedent(config)
         with temptree(['proxy-server.conf']) as t:
             conf_file = os.path.join(t, 'proxy-server.conf')
