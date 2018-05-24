@@ -49,16 +49,6 @@ class RingValidationWarning(Warning):
     pass
 
 
-try:
-    # python 2.7+
-    from logging import NullHandler
-except ImportError:
-    # python 2.6
-    class NullHandler(logging.Handler):
-        def emit(self, *a, **kw):
-            pass
-
-
 @contextlib.contextmanager
 def _set_random_seed(seed):
     # If random seed is set when entering this context then reset original
@@ -148,7 +138,7 @@ class RingBuilder(object):
         if not self.logger.handlers:
             self.logger.disabled = True
             # silence "no handler for X" error messages
-            self.logger.addHandler(NullHandler())
+            self.logger.addHandler(logging.NullHandler())
 
     @property
     def id(self):
