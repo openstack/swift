@@ -14,12 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from copy import deepcopy
 import json
 import time
 import unittest2
+from six.moves.urllib.parse import quote
 
 import test.functional as tf
-from copy import deepcopy
 
 from swift.common.utils import MD5_OF_EMPTY_STRING
 from test.functional.tests import Base, Base2, BaseEnv, Utils
@@ -62,7 +63,7 @@ class TestObjectVersioningEnv(BaseEnv):
 
         cls.container = cls.account.container(prefix + "-objs")
         container_headers = {
-            cls.location_header_key: cls.versions_container.name}
+            cls.location_header_key: quote(cls.versions_container.name)}
         if not cls.container.create(hdrs=container_headers):
             if cls.conn.response.status == 412:
                 cls.versioning_enabled = False
@@ -224,24 +225,22 @@ class TestObjectVersioning(Base):
 
     def test_clear_version_option(self):
         # sanity
-        self.assertEqual(self.env.container.info()['versions'],
-                         self.env.versions_container.name)
+        header_val = quote(self.env.versions_container.name)
+        self.assertEqual(self.env.container.info()['versions'], header_val)
         self.env.container.update_metadata(
             hdrs={self.env.location_header_key: ''})
         self.assertIsNone(self.env.container.info().get('versions'))
 
         # set location back to the way it was
         self.env.container.update_metadata(
-            hdrs={self.env.location_header_key:
-                  self.env.versions_container.name})
-        self.assertEqual(self.env.container.info()['versions'],
-                         self.env.versions_container.name)
+            hdrs={self.env.location_header_key: header_val})
+        self.assertEqual(self.env.container.info()['versions'], header_val)
 
     def _test_overwriting_setup(self, obj_name=None):
         container = self.env.container
         versions_container = self.env.versions_container
         cont_info = container.info()
-        self.assertEqual(cont_info['versions'], versions_container.name)
+        self.assertEqual(cont_info['versions'], quote(versions_container.name))
         expected_content_types = []
         obj_name = obj_name or Utils.create_name()
 
@@ -488,6 +487,7 @@ class TestObjectVersioning(Base):
     def test_versioning_container_acl(self):
         # create versions container and DO NOT give write access to account2
         versions_container = self.env.account.container(Utils.create_name())
+        location_header_val = quote(str(versions_container))
         self.assertTrue(versions_container.create(hdrs={
             'X-Container-Write': ''
         }))
@@ -506,7 +506,7 @@ class TestObjectVersioning(Base):
 
         # check account2 cannot set X-Versions-Location on container
         self.assertRaises(ResponseError, container.update_metadata, hdrs={
-            self.env.location_header_key: versions_container},
+            self.env.location_header_key: location_header_val},
             cfg={'use_token': self.env.storage_token2})
 
         # good! now let admin set the X-Versions-Location
@@ -514,8 +514,8 @@ class TestObjectVersioning(Base):
         # of both headers. Setting the location should succeed.
         self.assertTrue(container.update_metadata(hdrs={
             'X-Remove-' + self.env.location_header_key[len('X-'):]:
-            versions_container,
-            self.env.location_header_key: versions_container}))
+            location_header_val,
+            self.env.location_header_key: location_header_val}))
 
         # write object twice to container and check version
         obj_name = Utils.create_name()
