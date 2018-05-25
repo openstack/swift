@@ -448,6 +448,10 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
     See http://www.haproxy.org/download/1.7/doc/proxy-protocol.txt for
     protocol details.
     """
+    def __init__(self, *a, **kw):
+        self.proxy_address = None
+        SwiftHttpProtocol.__init__(self, *a, **kw)
+
     def handle_error(self, connection_line):
         if not six.PY2:
             connection_line = connection_line.decode('latin-1')
@@ -478,16 +482,20 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
         connection_line = self.rfile.readline(self.server.url_length_limit)
 
         if connection_line.startswith(b'PROXY'):
-            proxy_parts = connection_line.split(b' ')
+            proxy_parts = connection_line.strip(b'\r\n').split(b' ')
             if len(proxy_parts) >= 2 and proxy_parts[0] == b'PROXY':
                 if proxy_parts[1] in (b'TCP4', b'TCP6') and \
                         len(proxy_parts) == 6:
                     if six.PY2:
                         self.client_address = (proxy_parts[2], proxy_parts[4])
+                        self.proxy_address = (proxy_parts[3], proxy_parts[5])
                     else:
                         self.client_address = (
                             proxy_parts[2].decode('latin-1'),
                             proxy_parts[4].decode('latin-1'))
+                        self.proxy_address = (
+                            proxy_parts[3].decode('latin-1'),
+                            proxy_parts[5].decode('latin-1'))
                 elif proxy_parts[1].startswith(b'UNKNOWN'):
                     # "UNKNOWN", in PROXY protocol version 1, means "not
                     # TCP4 or TCP6". This includes completely legitimate
@@ -505,6 +513,16 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
             self.handle_error(connection_line)
 
         return SwiftHttpProtocol.handle(self)
+
+    def get_environ(self):
+        environ = SwiftHttpProtocol.get_environ(self)
+        if self.proxy_address:
+            environ['SERVER_ADDR'] = self.proxy_address[0]
+            environ['SERVER_PORT'] = self.proxy_address[1]
+            if self.proxy_address[1] == '443':
+                environ['wsgi.url_scheme'] = 'https'
+                environ['HTTPS'] = 'on'
+        return environ
 
 
 def run_server(conf, logger, sock, global_conf=None):

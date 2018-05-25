@@ -1101,9 +1101,17 @@ class TestProxyProtocol(unittest.TestCase):
 
         def dinky_app(env, start_response):
             start_response("200 OK", [])
-            body = "got addr: %s %s\r\n" % (
-                env.get("REMOTE_ADDR", "<missing>"),
-                env.get("REMOTE_PORT", "<missing>"))
+            body = '\r\n'.join([
+                'got addr: %s %s' % (
+                    env.get("REMOTE_ADDR", "<missing>"),
+                    env.get("REMOTE_PORT", "<missing>")),
+                'on addr: %s %s' % (
+                    env.get("SERVER_ADDR", "<missing>"),
+                    env.get("SERVER_PORT", "<missing>")),
+                'https is %s (scheme %s)' % (
+                    env.get("HTTPS", "<missing>"),
+                    env.get("wsgi.url_scheme", "<missing>")),
+            ]) + '\r\n'
             return [body.encode("utf-8")]
 
         fake_tcp_socket = mock.Mock(
@@ -1115,6 +1123,7 @@ class TestProxyProtocol(unittest.TestCase):
                          # KeyboardInterrupt breaks the WSGI server out of
                          # its infinite accept-process-close loop.
                          KeyboardInterrupt]))
+        del fake_listen_socket.do_handshake
 
         # If we let the WSGI server close rfile/wfile then we can't access
         # their contents any more.
@@ -1130,6 +1139,22 @@ class TestProxyProtocol(unittest.TestCase):
 
     def test_request_with_proxy(self):
         bytes_out = self._run_bytes_through_protocol((
+            b"PROXY TCP4 192.168.0.1 192.168.0.11 56423 4433\r\n"
+            b"GET /someurl HTTP/1.0\r\n"
+            b"User-Agent: something or other\r\n"
+            b"\r\n"
+        ), wsgi.SwiftHttpProxiedProtocol)
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[0], b"HTTP/1.1 200 OK")  # sanity check
+        self.assertEqual(lines[-3:], [
+            b"got addr: 192.168.0.1 56423",
+            b"on addr: 192.168.0.11 4433",
+            b"https is <missing> (scheme http)",
+        ])
+
+    def test_request_with_proxy_https(self):
+        bytes_out = self._run_bytes_through_protocol((
             b"PROXY TCP4 192.168.0.1 192.168.0.11 56423 443\r\n"
             b"GET /someurl HTTP/1.0\r\n"
             b"User-Agent: something or other\r\n"
@@ -1138,7 +1163,11 @@ class TestProxyProtocol(unittest.TestCase):
 
         lines = [l for l in bytes_out.split(b"\r\n") if l]
         self.assertEqual(lines[0], b"HTTP/1.1 200 OK")  # sanity check
-        self.assertEqual(lines[-1], b"got addr: 192.168.0.1 56423")
+        self.assertEqual(lines[-3:], [
+            b"got addr: 192.168.0.1 56423",
+            b"on addr: 192.168.0.11 443",
+            b"https is on (scheme https)",
+        ])
 
     def test_multiple_requests_with_proxy(self):
         bytes_out = self._run_bytes_through_protocol((
@@ -1158,6 +1187,10 @@ class TestProxyProtocol(unittest.TestCase):
         # the address in the PROXY line is applied to every request
         addr_lines = [l for l in lines if l.startswith(b"got addr")]
         self.assertEqual(addr_lines, [b"got addr: 192.168.0.1 56423"] * 2)
+        addr_lines = [l for l in lines if l.startswith(b"on addr")]
+        self.assertEqual(addr_lines, [b"on addr: 192.168.0.11 443"] * 2)
+        addr_lines = [l for l in lines if l.startswith(b"https is")]
+        self.assertEqual(addr_lines, [b"https is on (scheme https)"] * 2)
 
     def test_missing_proxy_line(self):
         bytes_out = self._run_bytes_through_protocol((
