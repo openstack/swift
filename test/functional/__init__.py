@@ -53,7 +53,8 @@ from test.unit import SkipTest
 
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
-from swift.common.wsgi import monkey_patch_mimetools, loadapp
+from swift.common.wsgi import (
+    monkey_patch_mimetools, loadapp, SwiftHttpProtocol)
 from swift.common.utils import config_true_value, split_path
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -626,13 +627,6 @@ def in_process_setup(the_object_server=object_server):
                       'port': con2lis.getsockname()[1]}], 30),
                     f)
 
-    eventlet.wsgi.HttpProtocol.default_request_version = "HTTP/1.0"
-    # Turn off logging requests by the underlying WSGI software.
-    eventlet.wsgi.HttpProtocol.log_request = lambda *a: None
-    logger = utils.get_logger(config, 'wsgi-server', log_route='wsgi')
-    # Redirect logging other messages by the underlying WSGI software.
-    eventlet.wsgi.HttpProtocol.log_message = \
-        lambda s, f, *a: logger.error('ERROR WSGI: ' + f % a)
     # Default to only 4 seconds for in-process functional test runs
     eventlet.wsgi.WRITE_TIMEOUT = 4
 
@@ -659,7 +653,9 @@ def in_process_setup(the_object_server=object_server):
     ]
 
     if show_debug_logs:
-        logger = debug_logger('proxy')
+        logger = get_logger_name('proxy')
+    else:
+        logger = utils.get_logger(config, 'wsgi-server', log_route='wsgi')
 
     def get_logger(name, *args, **kwargs):
         return logger
@@ -675,13 +671,19 @@ def in_process_setup(the_object_server=object_server):
     nl = utils.NullLogger()
     global proxy_srv
     proxy_srv = prolis
-    prospa = eventlet.spawn(eventlet.wsgi.server, prolis, app, nl)
-    acc1spa = eventlet.spawn(eventlet.wsgi.server, acc1lis, acc1srv, nl)
-    acc2spa = eventlet.spawn(eventlet.wsgi.server, acc2lis, acc2srv, nl)
-    con1spa = eventlet.spawn(eventlet.wsgi.server, con1lis, con1srv, nl)
-    con2spa = eventlet.spawn(eventlet.wsgi.server, con2lis, con2srv, nl)
+    prospa = eventlet.spawn(eventlet.wsgi.server, prolis, app, nl,
+                            protocol=SwiftHttpProtocol)
+    acc1spa = eventlet.spawn(eventlet.wsgi.server, acc1lis, acc1srv, nl,
+                             protocol=SwiftHttpProtocol)
+    acc2spa = eventlet.spawn(eventlet.wsgi.server, acc2lis, acc2srv, nl,
+                             protocol=SwiftHttpProtocol)
+    con1spa = eventlet.spawn(eventlet.wsgi.server, con1lis, con1srv, nl,
+                             protocol=SwiftHttpProtocol)
+    con2spa = eventlet.spawn(eventlet.wsgi.server, con2lis, con2srv, nl,
+                             protocol=SwiftHttpProtocol)
 
-    objspa = [eventlet.spawn(eventlet.wsgi.server, objsrv[0], objsrv[1], nl)
+    objspa = [eventlet.spawn(eventlet.wsgi.server, objsrv[0], objsrv[1], nl,
+                             protocol=SwiftHttpProtocol)
               for objsrv in objsrvs]
 
     global _test_coros
