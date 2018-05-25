@@ -218,7 +218,12 @@ class ContainerUpdater(Daemon):
         for root, dirs, files in os.walk(path):
             for file in files:
                 if file.endswith('.db'):
-                    self.process_container(os.path.join(root, file))
+                    dbfile = os.path.join(root, file)
+                    try:
+                        self.process_container(dbfile)
+                    except (Exception, Timeout) as e:
+                        self.logger.exception(
+                            "Error processing container %s: %s", dbfile, e)
 
                     self.containers_running_time = ratelimit_sleep(
                         self.containers_running_time,

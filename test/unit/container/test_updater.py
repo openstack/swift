@@ -177,6 +177,29 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertFalse(log_lines[1:])
         self.assertEqual(1, len(mock_dump_recon.mock_calls))
 
+    @mock.patch('swift.container.updater.dump_recon_cache')
+    @mock.patch('swift.container.updater.ContainerUpdater.process_container',
+                side_effect=Exception('Boom!'))
+    def test_error_in_process(self, mock_process, mock_dump_recon):
+        cu = self._get_container_updater()
+        containers_dir = os.path.join(self.sda1, DATADIR)
+        os.mkdir(containers_dir)
+        subdir = os.path.join(containers_dir, 'subdir')
+        os.mkdir(subdir)
+        cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
+                             container='c', pending_timeout=1)
+        cb.initialize(normalize_timestamp(1), 0)
+
+        cu.run_once()
+
+        log_lines = self.logger.get_lines_for_level('error')
+        self.assertTrue(log_lines)
+        self.assertIn('Error processing container ', log_lines[0])
+        self.assertIn('devices/sda1/containers/subdir/hash.db', log_lines[0])
+        self.assertIn('Boom!', log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertEqual(1, len(mock_dump_recon.mock_calls))
+
     def test_run_once(self):
         cu = self._get_container_updater()
         cu.run_once()
