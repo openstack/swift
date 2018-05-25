@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import random
+import sys
 import socket
 import time
 
@@ -151,6 +152,16 @@ class Connection(object):
         auth_netloc = "%s:%d" % (self.auth_host, self.auth_port)
         auth_url = auth_scheme + auth_netloc + auth_path
 
+        if self.insecure:
+            try:
+                import requests
+                from requests.packages.urllib3.exceptions import \
+                    InsecureRequestWarning
+            except ImportError:
+                pass
+            else:
+                requests.packages.urllib3.disable_warnings(
+                    InsecureRequestWarning)
         authargs = dict(snet=False, tenant_name=self.account,
                         auth_version=self.auth_version, os_options={},
                         insecure=self.insecure)
@@ -201,7 +212,14 @@ class Connection(object):
         return json.loads(self.response.read())
 
     def http_connect(self):
-        self.connection = self.conn_class(self.storage_netloc)
+        if issubclass(self.conn_class, http_client.HTTPSConnection) and \
+                self.insecure and sys.version_info >= (2, 7, 9):
+            import ssl
+            self.connection = self.conn_class(
+                self.storage_netloc,
+                context=ssl._create_unverified_context())
+        else:
+            self.connection = self.conn_class(self.storage_netloc)
 
     def make_path(self, path=None, cfg=None):
         if path is None:
@@ -328,7 +346,6 @@ class Connection(object):
                           for (x, y) in parms.items()]
             path = '%s?%s' % (path, '&'.join(query_args))
 
-        self.connection = self.conn_class(self.storage_netloc)
         self.connection.putrequest('PUT', path)
         for key, value in headers.items():
             self.connection.putheader(key, value)
