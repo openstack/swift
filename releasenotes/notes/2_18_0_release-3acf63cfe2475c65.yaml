@@ -1,0 +1,85 @@
+---
+features:
+  - |
+    Added container sharding, an operator controlled feature that
+    may be used to shard very large container databases into a
+    number of smaller shard containers. This mitigates the issues
+    with one large DB by distributing the data across multiple
+    smaller databases throughout the cluster. Please read the full
+    overview at
+    https://docs.openstack.org/swift/latest/overview_container_sharding.html
+
+  - |
+    Provide an S3 API compatibility layer. The external "swift3"
+    project has been imported into Swift's codebase as the "s3api"
+    middleware.
+
+  - |
+    Added "emergency mode" hooks in the account and container replicators.
+    These options may be used to prioritize moving handoff
+    partitions to primary locations more quickly. This helps when
+    adding capacity to a ring.
+
+    - Added ``-d <devs>`` and ``-p <partitions>`` command line options.
+
+    - Added a handoffs-only mode.
+
+  - |
+    Add a multiprocess mode to the object replicator. Setting the
+    ``replicator_workers`` setting to a positive value N will result
+    in the replicator using up to N worker processes to perform
+    replication tasks. At most one worker per disk will be spawned.
+
+    Worker process logs will have a bit of information prepended so
+    operators can tell which messages came from which worker. The
+    prefix is "[worker M/N pid=P] ", where M is the worker's index,
+    N is the total number of workers, and P is the process ID. Every
+    message from the replicator's logger will have the prefix
+
+  - |
+    The object reconstructor will now fork all available worker
+    processes when operating on a subset of local devices.
+
+  - |
+    Add support for PROXY protocol v1 to the proxy server. This
+    allows the Swift proxy server to log accurate client IP
+    addresses when there is a proxy or SSL-terminator between the
+    client and the Swift proxy server.  Example servers supporting
+    this PROXY protocol include stunnel, haproxy, hitch, and
+    varnish. See the sample proxy server config file for the
+    appropriate config setting to enable or disable this
+    functionality.
+
+  - |
+    In the ratelimit middleware, account whitelist and blacklist
+    settings have been deprecated and may be removed in a future
+    release. When found, a deprecation message will be logged.
+    Instead of these config file values, set X-Account-Sysmeta-
+    Global-Write-Ratelimit:WHITELIST and X-Account-Sysmeta-Global-
+    Write-Ratelimit:BLACKLIST on the particular accounts that need
+    to be whitelisted or blacklisted. System metadata cannot be added
+    or modified by standard clients. Use the internal client to set sysmeta.
+
+  - |
+    Add a ``--drop-prefixes`` flag to swift-account-info,
+    swift-container-info, and swift-object-info. This makes the
+    output between the three more consistent.
+
+  - |
+    statsd error messages correspond to 5xx responses only. This
+    makes monitoring more useful because actual errors (5xx) will
+    not be hidden by common user requests (4xx). Previously, some 4xx
+    responses would be included in timing information in the statsd
+    error messages.
+
+  - |
+    Truncate error logs to prevent log handler from running out of buffer.
+
+  - |
+    Updated requirements.txt to match global exclusions and formatting.
+
+  - |
+    tempauth user names now support unicode characters.
+
+  - |
+    Various other minor bug fixes and improvements.
