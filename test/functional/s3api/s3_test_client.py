@@ -15,6 +15,7 @@
 
 import logging
 import os
+from six.moves.urllib.parse import urlparse
 import test.functional as tf
 import boto3
 from botocore.exceptions import ClientError
@@ -46,9 +47,9 @@ class Connection(object):
     """
     Connection class used for S3 functional testing.
     """
-    def __init__(self, aws_access_key='test:tester',
-                 aws_secret_key='testing',
-                 user_id='test:tester'):
+    def __init__(self, aws_access_key,
+                 aws_secret_key,
+                 user_id=None):
         """
         Initialize method.
 
@@ -64,15 +65,16 @@ class Connection(object):
         """
         self.aws_access_key = aws_access_key
         self.aws_secret_key = aws_secret_key
-        self.user_id = user_id
-        # NOTE: auth_host and auth_port can be different from storage location
-        self.host = tf.config['auth_host']
-        self.port = int(tf.config['auth_port'])
+        self.user_id = user_id or aws_access_key
+        parsed = urlparse(tf.config['s3_storage_url'])
+        self.host = parsed.hostname
+        self.port = parsed.port
         self.conn = \
-            S3Connection(aws_access_key, aws_secret_key, is_secure=False,
+            S3Connection(aws_access_key, aws_secret_key,
+                         is_secure=(parsed.scheme == 'https'),
                          host=self.host, port=self.port,
                          calling_format=OrdinaryCallingFormat())
-        self.conn.auth_region_name = 'us-east-1'
+        self.conn.auth_region_name = tf.config.get('s3_region', 'us-east-1')
 
     def reset(self):
         """
@@ -140,22 +142,26 @@ class Connection(object):
         url = self.conn.generate_url(expires_in, method, bucket, obj)
         if os.environ.get('S3_USE_SIGV4') == "True":
             # V4 signatures are known-broken in boto, but we can work around it
-            if url.startswith('https://'):
+            if url.startswith('https://') and not tf.config[
+                    's3_storage_url'].startswith('https://'):
                 url = 'http://' + url[8:]
-            return url, {'Host': '%(host)s:%(port)d:%(port)d' % {
-                'host': self.host, 'port': self.port}}
+            if self.port is None:
+                return url, {}
+            else:
+                return url, {'Host': '%(host)s:%(port)d:%(port)d' % {
+                    'host': self.host, 'port': self.port}}
         return url, {}
 
 
-def get_boto3_conn(aws_access_key='test:tester', aws_secret_key='testing'):
-    host = tf.config['auth_host']
-    port = int(tf.config['auth_port'])
+def get_boto3_conn(aws_access_key, aws_secret_key):
+    endpoint_url = tf.config['s3_storage_url']
     config = boto3.session.Config(s3={'addressing_style': 'path'})
     return boto3.client(
         's3', aws_access_key_id=aws_access_key,
         aws_secret_access_key=aws_secret_key,
-        config=config, region_name='us-east-1', use_ssl=False,
-        endpoint_url='http://{}:{}'.format(host, port))
+        config=config, region_name=tf.config.get('s3_region', 'us-east-1'),
+        use_ssl=endpoint_url.startswith('https:'),
+        endpoint_url=endpoint_url)
 
 
 def tear_down_s3(conn):

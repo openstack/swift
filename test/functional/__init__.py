@@ -587,6 +587,7 @@ def in_process_setup(the_object_server=object_server):
         # Below are values used by the functional test framework, as well as
         # by the various in-process swift servers
         'auth_uri': 'http://127.0.0.1:%d/auth/v1.0/' % prolis.getsockname()[1],
+        's3_storage_url': 'http://%s:%d/' % prolis.getsockname(),
         # Primary functional test account (needs admin access to the
         # account)
         'account': 'test',
@@ -868,6 +869,8 @@ def setup_package():
                     443 if parsed.scheme == 'https' else 80),
                 'auth_prefix': parsed.path,
             })
+            config.setdefault('s3_storage_url',
+                              urlunsplit(parsed[:2] + ('', None, None)))
         elif 'auth_host' in config:
             scheme = 'http'
             if config_true_value(config.get('auth_ssl', 'no')):
@@ -880,6 +883,8 @@ def setup_package():
                 auth_prefix += 'v1.0'
             config['auth_uri'] = swift_test_auth = urlunsplit(
                 (scheme, netloc, auth_prefix, None, None))
+            config.setdefault('s3_storage_url', urlunsplit(
+                (scheme, netloc, '', None, None)))
         # else, neither auth_uri nor auth_host; swift_test_auth will be unset
         # and we'll skip everything later
 

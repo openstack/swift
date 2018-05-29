@@ -37,7 +37,11 @@ class S3ApiBase(unittest.TestCase):
         if 's3api' not in tf.cluster_info:
             raise tf.SkipTest('s3api middleware is not enabled')
         try:
-            self.conn = Connection()
+            self.conn = Connection(
+                tf.config['s3_access_key'], tf.config['s3_secret_key'],
+                user_id='%s:%s' % (tf.config['account'],
+                                   tf.config['username']))
+
             self.conn.reset()
         except Exception:
             message = '%s got an error during initialize process.\n\n%s' % \
@@ -67,7 +71,8 @@ class S3ApiBaseBoto3(S3ApiBase):
         if 's3api' not in tf.cluster_info:
             raise tf.SkipTest('s3api middleware is not enabled')
         try:
-            self.conn = get_boto3_conn()
+            self.conn = get_boto3_conn(
+                tf.config['s3_access_key'], tf.config['s3_secret_key'])
             self.endpoint_url = self.conn._endpoint.host
             self.access_key = self.conn._request_signer._credentials.access_key
             self.region = self.conn._client_config.region_name
