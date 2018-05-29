@@ -16,9 +16,9 @@
 """
 Object versioning in swift is implemented by setting a flag on the container
 to tell swift to version all objects in the container. The value of the flag is
-the container where the versions are stored (commonly referred to as the
-"archive container"). The flag itself is one of two headers, which determines
-how object ``DELETE`` requests are handled:
+the URL-encoded container name where the versions are stored (commonly referred
+to as the "archive container"). The flag itself is one of two headers, which
+determines how object ``DELETE`` requests are handled:
 
   * ``X-History-Location``
 
@@ -327,7 +327,7 @@ class VersionedWritesContext(WSGIContext):
         while True:
             lreq = make_pre_authed_request(
                 env, method='GET', swift_source='VW',
-                path='/v1/%s/%s' % (account_name, lcontainer))
+                path=quote('/v1/%s/%s' % (account_name, lcontainer)))
             lreq.environ['QUERY_STRING'] = \
                 'prefix=%s&marker=%s' % (quote(lprefix), quote(marker))
             if end_marker:
