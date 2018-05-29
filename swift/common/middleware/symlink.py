@@ -434,12 +434,12 @@ class SymlinkObjectContext(WSGIContext):
         # We have a design decision to use etag space to store symlink info for
         # object listing because it's immutable unless the object is
         # overwritten. This may impact the downgrade scenario that the symlink
-        # info can be appreared as the suffix in the hash value of object
+        # info can appear as the suffix in the hash value of object
         # listing result for clients.
-        # To create override etag easily, we have a contraint that the symlink
+        # To create override etag easily, we have a constraint that the symlink
         # must be 0 byte so we can add etag of the empty string + symlink info
         # here, simply. Note that this override etag may be encrypted in the
-        # container db by encrypion middleware.
+        # container db by encryption middleware.
         etag_override = [
             MD5_OF_EMPTY_STRING,
             'symlink_target=%s' % req.headers[TGT_OBJ_SYSMETA_SYMLINK_HDR]
