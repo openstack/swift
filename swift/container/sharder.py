@@ -287,7 +287,7 @@ class CleavingContext(object):
                     self.max_row == self.cleave_to_row))
 
 
-DEFAULT_SHARD_CONTAINER_THRESHOLD = 10000000
+DEFAULT_SHARD_CONTAINER_THRESHOLD = 1000000
 DEFAULT_SHARD_SHRINK_POINT = 25
 DEFAULT_SHARD_MERGE_POINT = 75
 
