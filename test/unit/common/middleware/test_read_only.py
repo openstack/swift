@@ -32,8 +32,7 @@ def start_response(*args):
 
 read_methods = 'GET HEAD'.split()
 write_methods = 'COPY DELETE POST PUT'.split()
-ro_resp = ['<html><h1>Method Not Allowed</h1><p>The method is not ' +
-           'allowed for this resource.</p></html>']
+ro_resp = ['Writes are disabled for this account.']
 
 
 class TestReadOnly(unittest.TestCase):
@@ -81,11 +80,8 @@ class TestReadOnly(unittest.TestCase):
         ro = read_only.filter_factory(conf)(FakeApp())
         ro.logger = FakeLogger()
 
-        def get_fake_read_only(*args, **kwargs):
-            return {'sysmeta': {'read-only': 'true'}}
-
         with mock.patch('swift.common.middleware.read_only.get_info',
-                        get_fake_read_only):
+                        return_value={'sysmeta': {'read-only': 'true'}}):
             for method in read_methods:
                 req = Request.blank('/v/a')
                 req.method = method
@@ -104,11 +100,8 @@ class TestReadOnly(unittest.TestCase):
         ro = read_only.filter_factory(conf)(FakeApp())
         ro.logger = FakeLogger()
 
-        def get_fake_read_only(*args, **kwargs):
-            return {'sysmeta': {'read-only': 'false'}}
-
         with mock.patch('swift.common.middleware.read_only.get_info',
-                        get_fake_read_only):
+                        return_value={'sysmeta': {'read-only': 'false'}}):
             for method in read_methods + write_methods:
                 req = Request.blank('/v/a')
                 req.method = method
@@ -123,11 +116,8 @@ class TestReadOnly(unittest.TestCase):
         ro = read_only.filter_factory(conf)(FakeApp())
         ro.logger = FakeLogger()
 
-        def get_fake_read_only(*args, **kwargs):
-            return {'sysmeta': {'read-only': 'false'}}
-
         with mock.patch('swift.common.middleware.read_only.get_info',
-                        get_fake_read_only):
+                        return_value={'sysmeta': {'read-only': 'false'}}):
             for method in read_methods + write_methods:
                 req = Request.blank('/v/a')
                 req.method = method
@@ -158,11 +148,8 @@ class TestReadOnly(unittest.TestCase):
         ro = read_only.filter_factory(conf)(FakeApp())
         ro.logger = FakeLogger()
 
-        def get_fake_read_only(*args, **kwargs):
-            return {'sysmeta': {'read-only': 'on'}}
-
         with mock.patch('swift.common.middleware.read_only.get_info',
-                        get_fake_read_only):
+                        return_value={'sysmeta': {'read-only': 'on'}}):
             req = Request.blank('/v/a')
             req.method = "DELETE"
             resp = ro(req.environ, start_response)
@@ -235,13 +222,10 @@ class TestReadOnly(unittest.TestCase):
         ro = read_only.filter_factory(conf)(FakeApp())
         ro.logger = FakeLogger()
 
-        def fake_account_read_only(*args, **kwargs):
-            return 'true'
-
         with mock.patch(
                 'swift.common.middleware.read_only.ReadOnlyMiddleware.' +
                 'account_read_only',
-                fake_account_read_only):
+                return_value='true'):
             headers = {'Destination-Account': 'b'}
             req = Request.blank('/v/a', headers=headers)
             req.method = "COPY"

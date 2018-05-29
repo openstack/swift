@@ -14,7 +14,8 @@
 # limitations under the License.
 from swift.common.constraints import check_account_format
 from swift.common.swob import HTTPMethodNotAllowed, Request
-from swift.common.utils import get_logger, config_true_value
+from swift.common.utils import get_logger, config_true_value, \
+    register_swift_info
 from swift.proxy.controllers.base import get_info
 
 """
@@ -67,9 +68,9 @@ class ReadOnlyMiddleware(object):
         self.app = app
         self.logger = logger or get_logger(conf, log_route='read_only')
         self.read_only = config_true_value(conf.get('read_only'))
-        self.write_methods = ['COPY', 'POST', 'PUT']
+        self.write_methods = {'COPY', 'POST', 'PUT'}
         if not config_true_value(conf.get('allow_deletes')):
-            self.write_methods += ['DELETE']
+            self.write_methods.add('DELETE')
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -86,24 +87,23 @@ class ReadOnlyMiddleware(object):
             dest_account = req.headers.get('Destination-Account')
             account = check_account_format(req, dest_account)
 
-        account_read_only = self.account_read_only(req, account)
-        if account_read_only is False:
-            return self.app(env, start_response)
-
-        if self.read_only or account_read_only:
-            return HTTPMethodNotAllowed()(env, start_response)
+        if self.account_read_only(req, account):
+            msg = 'Writes are disabled for this account.'
+            return HTTPMethodNotAllowed(body=msg)(env, start_response)
 
         return self.app(env, start_response)
 
     def account_read_only(self, req, account):
         """
-        Returns None if X-Account-Sysmeta-Read-Only is not set.
-        Returns True or False otherwise.
+        Check whether an account should be read-only.
+
+        This considers both the cluster-wide config value as well as the
+        per-account override in X-Account-Sysmeta-Read-Only.
         """
         info = get_info(self.app, req.environ, account, swift_source='RO')
         read_only = info.get('sysmeta', {}).get('read-only', '')
-        if read_only == '':
-            return None
+        if not read_only:
+            return self.read_only
         return config_true_value(read_only)
 
 
@@ -113,6 +113,9 @@ def filter_factory(global_conf, **local_conf):
     """
     conf = global_conf.copy()
     conf.update(local_conf)
+
+    if config_true_value(conf.get('read_only')):
+        register_swift_info('read_only')
 
     def read_only_filter(app):
         return ReadOnlyMiddleware(app, conf)
