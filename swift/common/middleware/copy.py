@@ -361,10 +361,6 @@ class ServerSideCopyMiddleware(object):
         source_path = '/%s/%s/%s/%s' % (ver, src_account_name,
                                         src_container_name, src_obj_name)
 
-        if req.environ.get('swift.orig_req_method', req.method) != 'POST':
-            self.logger.info("Copying object from %s to %s" %
-                             (source_path, req.path))
-
         # GET the source object, bail out on error
         ssc_ctx = ServerSideCopyWebContext(self.app, self.logger)
         source_resp = self._get_source_object(ssc_ctx, source_path, req)
