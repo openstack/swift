@@ -25,7 +25,7 @@ from test.unit import debug_logger, mock_check_drive
 
 from eventlet import spawn, Timeout
 
-from swift.common import utils
+from swift.common import exceptions, utils
 from swift.container import updater as container_updater
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.ring import RingData
@@ -152,6 +152,30 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(log_lines[0], msg)
         # Ensure that the container_sweep did not run
         self.assertFalse(mock_sweep.called)
+
+    @mock.patch('swift.container.updater.dump_recon_cache')
+    def test_run_once_with_get_info_timeout(self, mock_dump_recon):
+        cu = self._get_container_updater()
+        containers_dir = os.path.join(self.sda1, DATADIR)
+        os.mkdir(containers_dir)
+        subdir = os.path.join(containers_dir, 'subdir')
+        os.mkdir(subdir)
+        cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
+                             container='c')
+        cb.initialize(normalize_timestamp(1), 0)
+
+        timeout = exceptions.LockTimeout(10)
+        timeout.cancel()
+        with mock.patch('swift.container.updater.ContainerBroker.get_info',
+                        side_effect=timeout):
+            cu.run_once()
+        log_lines = self.logger.get_lines_for_level('error')
+        self.assertTrue(log_lines)
+        self.assertIn('Failed to get container info ', log_lines[0])
+        self.assertIn('devices/sda1/containers/subdir/hash.db', log_lines[0])
+        self.assertIn('LockTimeout (10s)', log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertEqual(1, len(mock_dump_recon.mock_calls))
 
     def test_run_once(self):
         cu = self._get_container_updater()
