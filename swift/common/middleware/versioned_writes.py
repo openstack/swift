@@ -372,7 +372,7 @@ class VersionedWritesContext(WSGIContext):
         # to container, but not READ. This was allowed in previous version
         # (i.e., before middleware) so keeping the same behavior here
         get_req = make_pre_authed_request(
-            req.environ, path=path_info,
+            req.environ, path=quote(path_info),
             headers={'X-Newest': 'True'}, method='GET', swift_source='VW')
         source_resp = get_req.get_response(self.app)
 
@@ -387,7 +387,7 @@ class VersionedWritesContext(WSGIContext):
         # Create a new Request object to PUT to the versions container, copying
         # all headers from the source object apart from x-timestamp.
         put_req = make_pre_authed_request(
-            req.environ, path=put_path_info, method='PUT',
+            req.environ, path=quote(put_path_info), method='PUT',
             swift_source='VW')
         copy_header_subset(source_resp, put_req,
                            lambda k: k.lower() != 'x-timestamp')
@@ -506,7 +506,7 @@ class VersionedWritesContext(WSGIContext):
             'content-length': '0',
             'x-auth-token': req.headers.get('x-auth-token')}
         marker_req = make_pre_authed_request(
-            req.environ, path=marker_path,
+            req.environ, path=quote(marker_path),
             headers=marker_headers, method='PUT', swift_source='VW')
         marker_req.environ['swift.content_type_overridden'] = True
         marker_resp = marker_req.get_response(self.app)
@@ -579,7 +579,7 @@ class VersionedWritesContext(WSGIContext):
                 obj_head_headers = {'X-Newest': 'True'}
                 obj_head_headers.update(auth_token_header)
                 head_req = make_pre_authed_request(
-                    req.environ, path=req.path_info, method='HEAD',
+                    req.environ, path=quote(req.path_info), method='HEAD',
                     headers=obj_head_headers, swift_source='VW')
                 hresp = head_req.get_response(self.app)
                 close_if_possible(hresp.app_iter)
@@ -604,8 +604,9 @@ class VersionedWritesContext(WSGIContext):
                         continue
 
                     old_del_req = make_pre_authed_request(
-                        req.environ, path=restored_path, method='DELETE',
-                        headers=auth_token_header, swift_source='VW')
+                        req.environ, path=quote(restored_path),
+                        method='DELETE', headers=auth_token_header,
+                        swift_source='VW')
                     del_resp = old_del_req.get_response(self.app)
                     close_if_possible(del_resp.app_iter)
                     if del_resp.status_int != HTTP_NOT_FOUND:
@@ -618,7 +619,7 @@ class VersionedWritesContext(WSGIContext):
                     previous_version['name'].encode('utf-8'))
                 # done restoring, redirect the delete to the marker
                 req = make_pre_authed_request(
-                    req.environ, path=marker_path, method='DELETE',
+                    req.environ, path=quote(marker_path), method='DELETE',
                     headers=auth_token_header, swift_source='VW')
             else:
                 # there are older versions so copy the previous version to the
@@ -634,7 +635,7 @@ class VersionedWritesContext(WSGIContext):
                 # version object - we already auth'd original req so make a
                 # pre-authed request
                 req = make_pre_authed_request(
-                    req.environ, path=restored_path, method='DELETE',
+                    req.environ, path=quote(restored_path), method='DELETE',
                     headers=auth_token_header, swift_source='VW')
 
             # remove 'X-If-Delete-At', since it is not for the older copy
@@ -749,9 +750,18 @@ class VersionedWritesMiddleware(object):
 
     def object_request(self, req, api_version, account, container, obj,
                        allow_versioned_writes):
-        account_name = unquote(account)
-        container_name = unquote(container)
-        object_name = unquote(obj)
+        """
+        Handle request for object resource.
+
+        Note that account, container, obj should be unquoted by caller
+        if the url path is under url encoding (e.g. %FF)
+
+        :param req: swift.common.swob.Request instance
+        :param api_version: should be v1 unless swift bumps api version
+        :param account: account name string
+        :param container: container name string
+        :param object: object name string
+        """
         resp = None
         is_enabled = config_true_value(allow_versioned_writes)
         container_info = get_container_info(
@@ -779,17 +789,17 @@ class VersionedWritesMiddleware(object):
             vw_ctx = VersionedWritesContext(self.app, self.logger)
             if req.method == 'PUT':
                 resp = vw_ctx.handle_obj_versions_put(
-                    req, versions_cont, api_version, account_name,
-                    object_name)
+                    req, versions_cont, api_version, account,
+                    obj)
             # handle DELETE
             elif versioning_mode == 'history':
                 resp = vw_ctx.handle_obj_versions_delete_push(
-                    req, versions_cont, api_version, account_name,
-                    container_name, object_name)
+                    req, versions_cont, api_version, account,
+                    container, obj)
             else:
                 resp = vw_ctx.handle_obj_versions_delete_pop(
-                    req, versions_cont, api_version, account_name,
-                    container_name, object_name)
+                    req, versions_cont, api_version, account,
+                    container, obj)
 
         if resp:
             return resp
