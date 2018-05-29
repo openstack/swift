@@ -272,6 +272,7 @@ def filter_factory(global_conf, **local_conf):
         max_multi_delete_objects=conf.get('max_multi_delete_objects', 1000),
         allow_multipart_uploads=conf.get('allow_multipart_uploads', True),
         min_segment_size=conf.get('min_segment_size', 5242880),
+        s3_acl=conf.get('s3_acl', False)
     )
 
     def s3api_filter(app):
