@@ -594,6 +594,10 @@ allowed_headers                    Content-Disposition,   Comma separated list o
                                    X-Delete-At,           This list is in addition to
                                    X-Object-Manifest,     X-Object-Meta-* headers and cannot include
                                    X-Static-Large-Object  Content-Type, etag, Content-Length, or deleted
+                                   Cache-Control,
+                                   Content-Language,
+                                   Expires,
+                                   X-Robots-Tag
 auto_create_account_prefix         .                      Prefix used when automatically
                                                           creating accounts.
 replication_server                                        Configure parameter for creating

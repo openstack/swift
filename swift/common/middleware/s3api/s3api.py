@@ -65,14 +65,6 @@ When using keystone, the config will be::
     both authtoken and s3token will issue the acceptable token to keystone
     (i.e. authenticate twice).
 
-Object-Server Setting
-^^^^^^^^^^^^^^^^^^^^^
-
-To get better compatibility, you may add S3 supported headers (
-Cache-Control, Content-Language, Expires, and X-Robots-Tag), that are
-not supporeted in Swift by default, into allowed_headers option in
-``object-server.conf`` Please see ``object-server.conf`` for more detail.
-
 -----------
 Constraints
 -----------
