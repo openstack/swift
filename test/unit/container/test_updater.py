@@ -160,22 +160,18 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(containers_dir)
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
-        cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
-                             container='c')
+        db_file = os.path.join(subdir, 'hash.db')
+        cb = ContainerBroker(db_file, account='a', container='c')
         cb.initialize(normalize_timestamp(1), 0)
 
-        timeout = exceptions.LockTimeout(10)
+        timeout = exceptions.LockTimeout(10, db_file)
         timeout.cancel()
         with mock.patch('swift.container.updater.ContainerBroker.get_info',
                         side_effect=timeout):
             cu.run_once()
-        log_lines = self.logger.get_lines_for_level('error')
-        self.assertTrue(log_lines)
-        self.assertIn('Failed to get container info ', log_lines[0])
-        self.assertIn('devices/sda1/containers/subdir/hash.db', log_lines[0])
-        self.assertIn('LockTimeout (10s)', log_lines[0])
-        self.assertFalse(log_lines[1:])
-        self.assertEqual(1, len(mock_dump_recon.mock_calls))
+        log_lines = self.logger.get_lines_for_level('info')
+        self.assertIn('Failed to get container info (Lock timeout: '
+                      '10 seconds: %s); skipping.' % db_file, log_lines)
 
     def test_run_once(self):
         cu = self._get_container_updater()
