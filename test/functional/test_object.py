@@ -104,9 +104,9 @@ class TestObject(unittest2.TestCase):
 
         # delete an object
         def delete(url, token, parsed, conn, container, obj):
-            conn.request(
-                'DELETE', '/'.join([parsed.path, container, obj['name']]), '',
-                {'X-Auth-Token': token})
+            path = '/'.join([parsed.path, container,
+                             obj['name'].encode('utf8')])
+            conn.request('DELETE', path, '', {'X-Auth-Token': token})
             return check_response(conn)
 
         for container in self.containers:
