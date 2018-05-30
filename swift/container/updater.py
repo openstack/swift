@@ -239,9 +239,10 @@ class ContainerUpdater(Daemon):
         broker = ContainerBroker(dbfile, logger=self.logger)
         try:
             info = broker.get_info()
-        except LockTimeout:
-            self.logger.exception("Failed to get container info for %s",
-                                  dbfile)
+        except LockTimeout as e:
+            self.logger.info(
+                "Failed to get container info (Lock timeout: %s); skipping.",
+                str(e))
             return
         # Don't send updates if the container was auto-created since it
         # definitely doesn't have up to date statistics.
