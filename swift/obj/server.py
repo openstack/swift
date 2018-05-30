@@ -141,6 +141,10 @@ class ObjectController(BaseStorageServer):
             x-delete-at,
             x-object-manifest,
             x-static-large-object,
+            cache-control,
+            content-language,
+            expires,
+            x-robots-tag
         '''
         extra_allowed_headers = [
             header.strip().lower() for header in conf.get(
