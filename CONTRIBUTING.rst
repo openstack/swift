@@ -162,7 +162,7 @@ tested on the OpenStack CI infrastructure. In addition to many of the
 tests above, it will also be tested by several other OpenStack test
 jobs.
 
-Once your patch has been reviewed and approved by two core reviewers and
+Once your patch has been reviewed and approved by core reviewers and
 has passed all automated tests, it will be merged into the Swift source
 tree.
 
