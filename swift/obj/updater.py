@@ -278,25 +278,25 @@ class ObjectUpdater(Daemon):
                     os.rmdir(prefix_path)
                 except OSError:
                     pass
-            self.logger.timing_since('timing', start_time)
-            sweep_totals = self.stats.since(start_stats)
-            self.logger.info(
-                ('Object update sweep completed on %(device)s '
-                 'in %(elapsed).02fs seconds:, '
-                 '%(successes)d successes, %(failures)d failures, '
-                 '%(quarantines)d quarantines, '
-                 '%(unlinks)d unlinks, %(errors)d errors, '
-                 '%(redirects)d redirects '
-                 '(pid: %(pid)d)'),
-                {'device': device,
-                 'elapsed': time.time() - start_time,
-                 'pid': my_pid,
-                 'successes': sweep_totals.successes,
-                 'failures': sweep_totals.failures,
-                 'quarantines': sweep_totals.quarantines,
-                 'unlinks': sweep_totals.unlinks,
-                 'errors': sweep_totals.errors,
-                 'redirects': sweep_totals.redirects})
+        self.logger.timing_since('timing', start_time)
+        sweep_totals = self.stats.since(start_stats)
+        self.logger.info(
+            ('Object update sweep completed on %(device)s '
+             'in %(elapsed).02fs seconds:, '
+             '%(successes)d successes, %(failures)d failures, '
+             '%(quarantines)d quarantines, '
+             '%(unlinks)d unlinks, %(errors)d errors, '
+             '%(redirects)d redirects '
+             '(pid: %(pid)d)'),
+            {'device': device,
+             'elapsed': time.time() - start_time,
+             'pid': my_pid,
+             'successes': sweep_totals.successes,
+             'failures': sweep_totals.failures,
+             'quarantines': sweep_totals.quarantines,
+             'unlinks': sweep_totals.unlinks,
+             'errors': sweep_totals.errors,
+             'redirects': sweep_totals.redirects})
 
     def process_object_update(self, update_path, device, policy):
         """
