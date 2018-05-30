@@ -38,7 +38,7 @@ from swift.common.swob import HTTPBadRequest, \
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range, csv_append, list_from_csv, Spliterator
+    parse_content_range, csv_append, list_from_csv, Spliterator, quote
 
 from swift.common.wsgi import make_subrequest
 
@@ -389,7 +389,7 @@ class SegmentedIterable(object):
                 # segment is a plain old object, not some flavor of large
                 # object; therefore, its etag is its MD5sum and hence we can
                 # check it.
-                path = seg_path + '?multipart-manifest=get'
+                path = quote(seg_path) + '?multipart-manifest=get'
                 seg_req = make_subrequest(
                     self.req.environ, path=path, method='GET',
                     headers={'x-auth-token': self.req.headers.get(

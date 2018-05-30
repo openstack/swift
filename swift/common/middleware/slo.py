@@ -457,8 +457,8 @@ def parse_and_validate_input(req_body, req_path):
                     continue
 
             obj_path = '/'.join(['', vrs, account,
-                                 seg_dict['path'].lstrip('/')])
-            if req_path == quote(obj_path):
+                                 quote(seg_dict['path'].lstrip('/'))])
+            if req_path == obj_path:
                 errors.append(
                     b"Index %d: manifest must not include itself as a segment"
                     % seg_index)
@@ -526,7 +526,7 @@ class SloGetContext(WSGIContext):
         Raise exception on failures.
         """
         sub_req = make_subrequest(
-            req.environ, path='/'.join(['', version, acc, con, obj]),
+            req.environ, path=quote('/'.join(['', version, acc, con, obj])),
             method='GET',
             headers={'x-auth-token': req.headers.get('x-auth-token')},
             agent='%(orig)s SLO MultipartGET', swift_source='SLO')
@@ -1109,8 +1109,8 @@ class StaticLargeObject(object):
                 path2indices[seg_dict['path']].append(index)
 
         def do_head(obj_name):
-            obj_path = '/'.join(['', vrs, account,
-                                 get_valid_utf8_str(obj_name).lstrip('/')])
+            obj_path = quote('/'.join([
+                '', vrs, account, get_valid_utf8_str(obj_name).lstrip('/')]))
 
             sub_req = make_subrequest(
                 req.environ, path=obj_path + '?',  # kill the query string
