@@ -248,10 +248,6 @@ class ServerSideCopyMiddleware(object):
             # If obj component is not present in req, do not proceed further.
             return self.app(env, start_response)
 
-        self.account_name = account
-        self.container_name = container
-        self.object_name = obj
-
         try:
             # In some cases, save off original request method since it gets
             # mutated into PUT during handling. This way logging can display
@@ -260,7 +256,8 @@ class ServerSideCopyMiddleware(object):
                 return self.handle_PUT(req, start_response)
             elif req.method == 'COPY':
                 req.environ['swift.orig_req_method'] = req.method
-                return self.handle_COPY(req, start_response)
+                return self.handle_COPY(req, start_response,
+                                        account, container, obj)
             elif req.method == 'OPTIONS':
                 # Does not interfere with OPTIONS response from
                 # (account,container) servers and /info response.
@@ -271,22 +268,22 @@ class ServerSideCopyMiddleware(object):
 
         return self.app(env, start_response)
 
-    def handle_COPY(self, req, start_response):
+    def handle_COPY(self, req, start_response, account, container, obj):
         if not req.headers.get('Destination'):
             return HTTPPreconditionFailed(request=req,
                                           body='Destination header required'
                                           )(req.environ, start_response)
-        dest_account = self.account_name
+        dest_account = account
         if 'Destination-Account' in req.headers:
             dest_account = req.headers.get('Destination-Account')
             dest_account = check_account_format(req, dest_account)
-            req.headers['X-Copy-From-Account'] = self.account_name
-            self.account_name = dest_account
+            req.headers['X-Copy-From-Account'] = account
+            account = dest_account
             del req.headers['Destination-Account']
         dest_container, dest_object = _check_destination_header(req)
-        source = '/%s/%s' % (self.container_name, self.object_name)
-        self.container_name = dest_container
-        self.object_name = dest_object
+        source = '/%s/%s' % (container, obj)
+        container = dest_container
+        obj = dest_object
         # re-write the existing request as a PUT instead of creating a new one
         req.method = 'PUT'
         # As this the path info is updated with destination container,
