@@ -98,17 +98,16 @@ class TestSubRequestLogging(unittest.TestCase):
 
         req.get_response(app)
         info_log_lines = app.fake_logger.get_lines_for_level('info')
-        self.assertEqual(len(info_log_lines), 5)
-        self.assertTrue(info_log_lines[0].startswith('Copying object'))
+        self.assertEqual(len(info_log_lines), 4)
         subreq_get = '%s %s' % (subrequest_type, SUB_GET_PATH)
         subreq_put = '%s %s' % (subrequest_type, SUB_PUT_POST_PATH)
         origput = 'PUT %s' % self.path
         copyget = 'GET %s' % '/v1/a/test/obj'
         # expect GET subreq, copy GET, PUT subreq, orig PUT
-        self.assertTrue(subreq_get in info_log_lines[1])
-        self.assertTrue(copyget in info_log_lines[2])
-        self.assertTrue(subreq_put in info_log_lines[3])
-        self.assertTrue(origput in info_log_lines[4])
+        self.assertTrue(subreq_get in info_log_lines[0])
+        self.assertTrue(copyget in info_log_lines[1])
+        self.assertTrue(subreq_put in info_log_lines[2])
+        self.assertTrue(origput in info_log_lines[3])
 
     def test_subrequest_logged_x_copy_from(self):
         self._test_subrequest_logged('HEAD')
