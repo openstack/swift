@@ -43,6 +43,7 @@ David Hadas <davidh@il.ibm.com> <david.hadas@gmail.com>
 Yaguang Wang <yaguang.wang@intel.com> ywang19 <yaguang.wang@intel.com>
 Liu Siqi <meizu647@gmail.com> dk647 <meizu647@gmail.com>
 James E. Blair <jeblair@openstack.org> <james.blair@rackspace.com>
+James E. Blair <jeblair@openstack.org> <jeblair@redhat.com>
 Kun Huang <gareth@unitedstack.com> <academicgareth@gmail.com>
 Michael Shuler <mshuler@gmail.com> <mshuler@rackspace.com>
 Ilya Kharin <ikharin@mirantis.com> <akscram@gmail.com>
@@ -122,3 +123,5 @@ Tin Lam <tinlam@gmail.com> <tl3438@att.com>
 Hisashi Osanai <osanai.hisashi@gmail.com> <osanai.hisashi@jp.fujitsu.com>
 Bryan Keller <kellerbr@us.ibm.com>
 Doug Hellmann <doug@doughellmann.com> <doug.hellmann@dreamhost.com>
+zhangdebo1987 <zhangdebo@inspur.com> zhangdebo
+Thomas Goirand <thomas@goirand.fr> <zigo@debian.org>
