@@ -310,14 +310,6 @@ class ContainerReplicator(db_replicator.Replicator):
             self.replicate_reconcilers()
         return rv
 
-    def _in_sync(self, rinfo, info, broker, local_sync):
-        # TODO: don't always sync shard ranges!
-        if broker.get_shard_ranges(include_own=True, include_deleted=True):
-            return False
-
-        return super(ContainerReplicator, self)._in_sync(
-            rinfo, info, broker, local_sync)
-
 
 class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
 
