@@ -118,6 +118,14 @@ The following provides supporting information for the REST API:
     api/use_content-encoding_metadata.rst
     api/use_the_content-disposition_metadata.rst
 
+S3 Compatibility Info
+=====================
+
+.. toctree::
+    :maxdepth: 1
+
+    s3_compat
+
 OpenStack End User Guide
 ========================
 
