@@ -104,10 +104,7 @@ class RingData(object):
         :param bool metadata_only: If True, only load `devs` and `part_shift`.
         :returns: A RingData instance containing the loaded data.
         """
-        gz_file = GzipFile(filename, 'rb')
-        # Python 2.6 GzipFile doesn't support BufferedIO
-        if hasattr(gz_file, '_checkReadable'):
-            gz_file = BufferedReader(gz_file)
+        gz_file = BufferedReader(GzipFile(filename, 'rb'))
 
         # See if the file is in the new format
         magic = gz_file.read(4)
