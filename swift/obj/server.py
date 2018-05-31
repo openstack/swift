@@ -35,7 +35,7 @@ from swift.common.utils import public, get_logger, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
-    config_auto_int_value, split_path, get_redirect_data
+    config_auto_int_value, split_path, get_redirect_data, normalize_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -595,7 +595,7 @@ class ObjectController(BaseStorageServer):
             get_name_and_placement(request, 5, 5, True)
         req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
-        if new_delete_at and new_delete_at < time.time():
+        if new_delete_at and new_delete_at < req_timestamp:
             return HTTPBadRequest(body='X-Delete-At in past', request=request,
                                   content_type='text/plain')
         next_part_power = request.headers.get('X-Backend-Next-Part-Power')
@@ -608,7 +608,7 @@ class ObjectController(BaseStorageServer):
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
-            orig_metadata = disk_file.read_metadata()
+            orig_metadata = disk_file.read_metadata(current_time=req_timestamp)
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined):
@@ -770,7 +770,7 @@ class ObjectController(BaseStorageServer):
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
-            orig_metadata = disk_file.read_metadata()
+            orig_metadata = disk_file.read_metadata(current_time=req_timestamp)
             orig_timestamp = disk_file.data_timestamp
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
@@ -958,6 +958,9 @@ class ObjectController(BaseStorageServer):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
+        request.headers.setdefault('X-Timestamp',
+                                   normalize_timestamp(time.time()))
+        req_timestamp = valid_timestamp(request)
         frag_prefs = safe_json_loads(
             request.headers.get('X-Backend-Fragment-Preferences'))
         try:
@@ -969,7 +972,7 @@ class ObjectController(BaseStorageServer):
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
-            with disk_file.open():
+            with disk_file.open(current_time=req_timestamp):
                 metadata = disk_file.get_metadata()
                 obj_size = int(metadata['Content-Length'])
                 file_x_ts = Timestamp(metadata['X-Timestamp'])
@@ -1022,6 +1025,9 @@ class ObjectController(BaseStorageServer):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
+        request.headers.setdefault('X-Timestamp',
+                                   normalize_timestamp(time.time()))
+        req_timestamp = valid_timestamp(request)
         frag_prefs = safe_json_loads(
             request.headers.get('X-Backend-Fragment-Preferences'))
         try:
@@ -1033,7 +1039,7 @@ class ObjectController(BaseStorageServer):
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
-            metadata = disk_file.read_metadata()
+            metadata = disk_file.read_metadata(current_time=req_timestamp)
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined) as e:
@@ -1087,7 +1093,7 @@ class ObjectController(BaseStorageServer):
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
-            orig_metadata = disk_file.read_metadata()
+            orig_metadata = disk_file.read_metadata(current_time=req_timestamp)
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
         except DiskFileExpired as e:

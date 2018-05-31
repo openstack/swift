@@ -1338,7 +1338,6 @@ class TestObjectController(unittest.TestCase):
         inital_put = next(self.ts)
         put_before_expire = next(self.ts)
         delete_at_timestamp = int(next(self.ts))
-        time_after_expire = next(self.ts)
         put_after_expire = next(self.ts)
         delete_at_container = str(
             delete_at_timestamp /
@@ -1363,9 +1362,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream',
                      'If-None-Match': '*'})
         req.body = 'TEST'
-        with mock.patch("swift.obj.server.time.time",
-                        lambda: float(put_before_expire.normal)):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
 
         # PUT again after object has expired should succeed
@@ -1376,9 +1373,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream',
                      'If-None-Match': '*'})
         req.body = 'TEST'
-        with mock.patch("swift.obj.server.time.time",
-                        lambda: float(time_after_expire.normal)):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
     def test_PUT_common(self):
@@ -3880,7 +3875,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
         disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
                                              policy=POLICIES.legacy)
-        disk_file.open()
+        disk_file.open(timestamp)
         file_name = os.path.basename(disk_file._data_file)
         with open(disk_file._data_file) as fp:
             metadata = diskfile.read_metadata(fp)
@@ -3909,7 +3904,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
         disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
                                              policy=POLICIES.legacy)
-        disk_file.open()
+        disk_file.open(timestamp)
         file_name = os.path.basename(disk_file._data_file)
         etag = md5()
         etag.update('VERIF')
@@ -4624,8 +4619,10 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', port))
         fd = sock.makefile()
-        fd.write('GET /sda1/p/a/c/o HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\n\r\n')
+        fd.write('GET /sda1/p/a/c/o HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'X-Timestamp: %s\r\n'
+                 'Connection: close\r\n\r\n' % normalize_timestamp(2.0))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
@@ -6090,8 +6087,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'X-Timestamp': normalize_timestamp(now)})
-        with mock.patch('swift.obj.server.time.time', return_value=now):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
 
         # It expires in the past, so it's not accessible via GET...
@@ -6100,29 +6096,25 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'X-Timestamp': normalize_timestamp(
                 delete_at_timestamp + 1)})
-        with mock.patch('swift.obj.server.time.time',
-                        return_value=delete_at_timestamp + 1):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(resp.headers['X-Backend-Timestamp'],
                          utils.Timestamp(now))
 
-        with mock.patch('swift.obj.server.time.time',
-                        return_value=delete_at_timestamp + 1):
-            # ...unless X-Backend-Replication is sent
-            expected = {
-                'GET': 'TEST',
-                'HEAD': '',
-            }
-            for meth, expected_body in expected.items():
-                req = Request.blank(
-                    '/sda1/p/a/c/o', method=meth,
-                    headers={'X-Timestamp':
-                             normalize_timestamp(delete_at_timestamp + 1),
-                             'X-Backend-Replication': 'True'})
-                resp = req.get_response(self.object_controller)
-                self.assertEqual(resp.status_int, 200)
-                self.assertEqual(expected_body, resp.body)
+        # ...unless X-Backend-Replication is sent
+        expected = {
+            'GET': 'TEST',
+            'HEAD': '',
+        }
+        for meth, expected_body in expected.items():
+            req = Request.blank(
+                '/sda1/p/a/c/o', method=meth,
+                headers={'X-Timestamp':
+                         normalize_timestamp(delete_at_timestamp + 1),
+                         'X-Backend-Replication': 'True'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(expected_body, resp.body)
 
     def test_HEAD_but_expired(self):
         # We have an object that expires in the future
@@ -6148,8 +6140,7 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD'},
             headers={'X-Timestamp': normalize_timestamp(now)})
-        with mock.patch('swift.obj.server.time.time', return_value=now):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
 
         # It's not accessible now since it expires in the past
@@ -6158,9 +6149,7 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'HEAD'},
             headers={'X-Timestamp': normalize_timestamp(
                 delete_at_timestamp + 1)})
-        with mock.patch('swift.obj.server.time.time',
-                        return_value=delete_at_timestamp + 1):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(resp.headers['X-Backend-Timestamp'],
                          utils.Timestamp(now))
@@ -6195,8 +6184,7 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(the_time)})
-        with mock.patch('swift.obj.server.time.time', return_value=the_time):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
         # You cannot POST to an expired object
@@ -6207,8 +6195,7 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(the_time)})
-        with mock.patch('swift.obj.server.time.time', return_value=the_time):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_can_skip_updating_expirer_queue(self):
@@ -6331,24 +6318,21 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        orig_time = object_server.time.time
-        try:
-            t = test_time + 100
-            object_server.time.time = lambda: float(t)
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'DELETE'},
-                headers={'X-Timestamp': normalize_timestamp(time())})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 404)
-        finally:
-            object_server.time.time = orig_time
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': normalize_timestamp(
+                delete_at_timestamp + 1)})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_if_delete_at_expired_still_deletes(self):
         test_time = time() + 10
         test_timestamp = normalize_timestamp(test_time)
         delete_at_time = int(test_time + 10)
         delete_at_timestamp = str(delete_at_time)
+        expired_time = delete_at_time + 1
+        expired_timestamp = normalize_timestamp(expired_time)
         delete_at_container = str(
             delete_at_time /
             self.object_controller.expiring_objects_container_divisor *
@@ -6379,73 +6363,71 @@ class TestObjectController(unittest.TestCase):
         self.assertTrue(os.path.isfile(objfile))
 
         # move time past expiry
-        with mock.patch('swift.obj.diskfile.time') as mock_time:
-            mock_time.time.return_value = test_time + 100
-            req = Request.blank(
-                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
-                headers={'X-Timestamp': test_timestamp})
-            resp = req.get_response(self.object_controller)
-            # request will 404
-            self.assertEqual(resp.status_int, 404)
-            # but file still exists
-            self.assertTrue(os.path.isfile(objfile))
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': expired_timestamp})
+        resp = req.get_response(self.object_controller)
+        # request will 404
+        self.assertEqual(resp.status_int, 404)
+        # but file still exists
+        self.assertTrue(os.path.isfile(objfile))
 
-            # make the x-if-delete-at with some wrong bits
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'DELETE'},
-                headers={'X-Timestamp': delete_at_timestamp,
-                         'X-If-Delete-At': int(time() + 1)})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 412)
-            self.assertTrue(os.path.isfile(objfile))
+        # make the x-if-delete-at with some wrong bits
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': delete_at_timestamp,
+                     'X-If-Delete-At': int(delete_at_time + 1)})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 412)
+        self.assertTrue(os.path.isfile(objfile))
 
-            # make the x-if-delete-at with all the right bits
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'DELETE'},
-                headers={'X-Timestamp': delete_at_timestamp,
-                         'X-If-Delete-At': delete_at_timestamp})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 204)
-            self.assertFalse(os.path.isfile(objfile))
+        # make the x-if-delete-at with all the right bits
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': delete_at_timestamp,
+                     'X-If-Delete-At': delete_at_timestamp})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 204)
+        self.assertFalse(os.path.isfile(objfile))
 
-            # make the x-if-delete-at with all the right bits (again)
-            req = Request.blank(
-                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
-                headers={'X-Timestamp': delete_at_timestamp,
-                         'X-If-Delete-At': delete_at_timestamp})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 409)
-            self.assertFalse(os.path.isfile(objfile))
+        # make the x-if-delete-at with all the right bits (again)
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': delete_at_timestamp,
+                     'X-If-Delete-At': delete_at_timestamp})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 409)
+        self.assertFalse(os.path.isfile(objfile))
 
-            # overwrite with new content
-            req = Request.blank(
-                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                headers={
-                    'X-Timestamp': str(test_time + 100),
-                    'Content-Length': '0',
-                    'Content-Type': 'application/octet-stream'})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 201, resp.body)
+        # overwrite with new content
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={
+                'X-Timestamp': str(test_time + 100),
+                'Content-Length': '0',
+                'Content-Type': 'application/octet-stream'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201, resp.body)
 
-            # simulate processing a stale expirer queue entry
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'DELETE'},
-                headers={'X-Timestamp': delete_at_timestamp,
-                         'X-If-Delete-At': delete_at_timestamp})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 409)
+        # simulate processing a stale expirer queue entry
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': delete_at_timestamp,
+                     'X-If-Delete-At': delete_at_timestamp})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 409)
 
-            # make the x-if-delete-at for some not found
-            req = Request.blank(
-                '/sda1/p/a/c/o-not-found',
-                environ={'REQUEST_METHOD': 'DELETE'},
-                headers={'X-Timestamp': delete_at_timestamp,
-                         'X-If-Delete-At': delete_at_timestamp})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 404)
+        # make the x-if-delete-at for some not found
+        req = Request.blank(
+            '/sda1/p/a/c/o-not-found',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': delete_at_timestamp,
+                     'X-If-Delete-At': delete_at_timestamp})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_if_delete_at(self):
         test_time = time() + 10000
@@ -6754,6 +6736,38 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue('X-Delete-At in past' in resp.body)
+
+    def test_POST_delete_at_in_past_with_skewed_clock(self):
+        proxy_server_put_time = 1000
+        proxy_server_post_time = 1001
+        delete_at = 1050
+        obj_server_put_time = 1100
+        obj_server_post_time = 1101
+
+        # test setup: make an object for us to POST to
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(proxy_server_put_time),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        with mock.patch('swift.obj.server.time.time',
+                        return_value=obj_server_put_time):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # then POST to it
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp':
+                     normalize_timestamp(proxy_server_post_time),
+                     'X-Delete-At': str(delete_at)})
+        with mock.patch('swift.obj.server.time.time',
+                        return_value=obj_server_post_time):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
 
     def test_REPLICATE_works(self):
 
@@ -7223,14 +7237,12 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
         self.object_controller.logger = self.logger
-        with mock.patch(
-                'time.gmtime', mock.MagicMock(side_effect=[gmtime(10001.0)])):
-            with mock.patch(
+        with mock.patch('time.gmtime', side_effect=[gmtime(10001.0)]), \
+                mock.patch(
                     'time.time',
-                    mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0])):
-                with mock.patch(
-                        'os.getpid', mock.MagicMock(return_value=1234)):
-                    req.get_response(self.object_controller)
+                    side_effect=[10000.0, 10000.0, 10001.0, 10002.0]), \
+                mock.patch('os.getpid', return_value=1234):
+            req.get_response(self.object_controller)
         self.assertEqual(
             self.logger.get_lines_for_level('info'),
             ['1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
@@ -7319,6 +7331,7 @@ class TestObjectController(unittest.TestCase):
         existing_timestamp = normalize_timestamp(time())
         delete_timestamp = normalize_timestamp(time() + 1)
         put_timestamp = normalize_timestamp(time() + 2)
+        head_timestamp = normalize_timestamp(time() + 3)
 
         # make a .ts
         req = Request.blank(
@@ -7355,7 +7368,8 @@ class TestObjectController(unittest.TestCase):
         self.assertFalse(os.path.exists(qdir))
 
         req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'HEAD'})
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'X-Timestamp': head_timestamp})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['X-Timestamp'], put_timestamp)
