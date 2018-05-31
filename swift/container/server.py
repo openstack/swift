@@ -549,7 +549,71 @@ class ContainerController(BaseStorageServer):
     @public
     @timing_stats()
     def GET(self, req):
-        """Handle HTTP GET request."""
+        """
+        Handle HTTP GET request.
+
+        The body of the response to a successful GET request contains a listing
+        of either objects or shard ranges. The exact content of the listing is
+        determined by a combination of request headers and query string
+        parameters, as follows:
+
+        * The type of the listing is determined by the
+          ``X-Backend-Record-Type`` header. If this header has value ``shard``
+          then the response body will be a list of shard ranges; if this header
+          has value ``auto``, and the container state is ``sharding`` or
+          ``sharded``, then the listing will be a list of shard ranges;
+          otherwise the response body will be a list of objects.
+
+        * Both shard range and object listings may be constrained to a name
+          range by the ``marker`` and ``end_marker`` query string parameters.
+          Object listings will only contain objects whose names are greater
+          than any ``marker`` value and less than any ``end_marker`` value.
+          Shard range listings will only contain shard ranges whose namespace
+          is greater than or includes any ``marker`` value and is less than or
+          includes any ``end_marker`` value.
+
+        * Shard range listings may also be constrained by an ``includes`` query
+          string parameter. If this parameter is present the listing will only
+          contain shard ranges whose namespace includes the value of the
+          parameter; any ``marker`` or ``end_marker`` parameters are ignored
+
+        * The length of an object listing may be constrained by the ``limit``
+          parameter. Object listings may also be constrained by ``prefix``,
+          ``delimiter`` and ``path`` query string parameters.
+
+        * Shard range listings will include deleted shard ranges if and only if
+          the ``X-Backend-Include-Deleted`` header value is one of
+          :attr:`swift.common.utils.TRUE_VALUES`. Object listings never
+          include deleted objects.
+
+        * Shard range listings may be constrained to include only shard ranges
+          whose state is specified by a query string ``states`` parameter. If
+          present, the ``states`` parameter should be a comma separated list of
+          either the string or integer representation of
+          :data:`~swift.common.utils.ShardRange.STATES`.
+
+          Two alias values may be used in a ``states`` parameter value:
+          ``listing`` will cause the listing to include all shard ranges in a
+          state suitable for contributing to an object listing; ``updating``
+          will cause the listing to include all shard ranges in a state
+          suitable to accept an object update.
+
+          If either of these aliases is used then the shard range listing will
+          if necessary be extended with a synthesised 'filler' range in order
+          to satisfy the requested name range when insufficient actual shard
+          ranges are found. Any 'filler' shard range will cover the otherwise
+          uncovered tail of the requested name range and will point back to the
+          same container.
+
+        * Listings are not normally returned from a deleted container. However,
+          the ``X-Backend-Override-Deleted`` header may be used with a value in
+          :attr:`swift.common.utils.TRUE_VALUES` to force a shard range
+          listing to be returned from a deleted container whose DB file still
+          exists.
+
+        :param req: an instance of :class:`swift.common.swob.Request`
+        :returns: an instance of :class:`swift.common.swob.Response`
+        """
         drive, part, account, container, obj = split_and_validate_path(
             req, 4, 5, True)
         path = get_param(req, 'path')
