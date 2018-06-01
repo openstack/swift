@@ -14,7 +14,7 @@ NameVirtualHost *:%PORT%
 Listen %PORT%
 
 <VirtualHost *:%PORT%>
-    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1 user=%USER%
+    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1 user=%USER% display-name=%{GROUP}
     WSGIProcessGroup %SERVICENAME%
     WSGIScriptAlias / /var/www/swift/%SERVICENAME%.wsgi
     WSGIApplicationGroup %{GLOBAL}

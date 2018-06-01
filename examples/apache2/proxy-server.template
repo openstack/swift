@@ -16,7 +16,7 @@ Listen %PORT%
 <VirtualHost *:%PORT%>
     # The limit of an object size
     LimitRequestBody 5368709122
-    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1 user=%USER%
+    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1 user=%USER% display-name=%{GROUP}
     WSGIProcessGroup %SERVICENAME%
     WSGIScriptAlias / /var/www/swift/%SERVICENAME%.wsgi
     WSGIApplicationGroup %{GLOBAL}
