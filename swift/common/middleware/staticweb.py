@@ -376,7 +376,8 @@ class _StaticWebContext(WSGIContext):
             env['wsgi.url_scheme'] = self.url_scheme
         if self.url_host:
             env['HTTP_HOST'] = self.url_host
-        resp = HTTPMovedPermanently(location=(env['PATH_INFO'] + '/'))
+        resp = HTTPMovedPermanently(
+            location=wsgi_quote(env['PATH_INFO'] + '/'))
         return resp(env, start_response)
 
     def handle_container(self, env, start_response):
