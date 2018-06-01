@@ -1122,20 +1122,30 @@ class ECAppIter(object):
         return headers, frag_iters
 
     def _actual_range(self, req_start, req_end, entity_length):
+        # Takes 3 args: (requested-first-byte, requested-last-byte,
+        # actual-length).
+        #
+        # Returns a 3-tuple (first-byte, last-byte, satisfiable).
+        #
+        # It is possible to get (None, None, True). This means that the last
+        # N>0 bytes of a 0-byte object were requested, and we are able to
+        # satisfy that request by returning nothing.
         try:
             rng = Range("bytes=%s-%s" % (
                 req_start if req_start is not None else '',
                 req_end if req_end is not None else ''))
         except ValueError:
-            return (None, None)
+            return (None, None, False)
 
         rfl = rng.ranges_for_length(entity_length)
-        if not rfl:
-            return (None, None)
+        if rfl and entity_length == 0:
+            return (None, None, True)
+        elif not rfl:
+            return (None, None, False)
         else:
             # ranges_for_length() adds 1 to the last byte's position
             # because webob once made a mistake
-            return (rfl[0][0], rfl[0][1] - 1)
+            return (rfl[0][0], rfl[0][1] - 1, True)
 
     def _fill_out_range_specs_from_obj_length(self, range_specs):
         # Add a few fields to each range spec:
@@ -1162,21 +1172,23 @@ class ECAppIter(object):
         # _fill_out_range_specs_from_fa_length() requires the beginnings of
         # the response bodies.
         for spec in range_specs:
-            cstart, cend = self._actual_range(
+            cstart, cend, csat = self._actual_range(
                 spec['req_client_start'],
                 spec['req_client_end'],
                 self.obj_length)
             spec['resp_client_start'] = cstart
             spec['resp_client_end'] = cend
-            spec['satisfiable'] = (cstart is not None and cend is not None)
+            spec['satisfiable'] = csat
 
-            sstart, send = self._actual_range(
+            sstart, send, _junk = self._actual_range(
                 spec['req_segment_start'],
                 spec['req_segment_end'],
                 self.obj_length)
 
             seg_size = self.policy.ec_segment_size
-            if spec['req_segment_start'] is None and sstart % seg_size != 0:
+            if (spec['req_segment_start'] is None and
+                    sstart is not None and
+                    sstart % seg_size != 0):
                 # Segment start may, in the case of a suffix request, need
                 # to be rounded up (not down!) to the nearest segment boundary.
                 # This reflects the trimming of leading garbage (partial
@@ -1198,7 +1210,7 @@ class ECAppIter(object):
         # are omitted from the response entirely and also to put the right
         # Content-Range headers in a multipart/byteranges response.
         for spec in range_specs:
-            fstart, fend = self._actual_range(
+            fstart, fend, _junk = self._actual_range(
                 spec['req_fragment_start'],
                 spec['req_fragment_end'],
                 fa_length)
@@ -1360,16 +1372,21 @@ class ECAppIter(object):
         client_end = (min(client_end, self.obj_length - 1)
                       if client_end is not None
                       else self.obj_length - 1)
-        num_segments = int(
-            math.ceil(float(segment_end + 1 - segment_start)
-                      / self.policy.ec_segment_size))
-        # We get full segments here, but the client may have requested a
-        # byte range that begins or ends in the middle of a segment.
-        # Thus, we have some amount of overrun (extra decoded bytes)
-        # that we trim off so the client gets exactly what they
-        # requested.
-        start_overrun = client_start - segment_start
-        end_overrun = segment_end - client_end
+        if segment_start is None:
+            num_segments = 0
+            start_overrun = 0
+            end_overrun = 0
+        else:
+            num_segments = int(
+                math.ceil(float(segment_end + 1 - segment_start)
+                          / self.policy.ec_segment_size))
+            # We get full segments here, but the client may have requested a
+            # byte range that begins or ends in the middle of a segment.
+            # Thus, we have some amount of overrun (extra decoded bytes)
+            # that we trim off so the client gets exactly what they
+            # requested.
+            start_overrun = client_start - segment_start
+            end_overrun = segment_end - client_end
 
         for i, next_seg in enumerate(segment_iter):
             # We may have a start_overrun of more than one segment in

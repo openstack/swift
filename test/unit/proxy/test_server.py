@@ -7127,6 +7127,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         cls.obj_name = 'range-get-test'
         cls.tiny_obj_name = 'range-get-test-tiny'
         cls.aligned_obj_name = 'range-get-test-aligned'
+        cls.zero_byte_obj_name = 'range-get-test-zero-byte'
 
         # Note: only works if called with unpatched policies
         prolis = _test_sockets[0]
@@ -7162,7 +7163,8 @@ class TestObjectECRangedGET(unittest.TestCase):
 
         for obj_name, obj in ((cls.obj_name, cls.obj),
                               (cls.tiny_obj_name, cls.tiny_obj),
-                              (cls.aligned_obj_name, cls.aligned_obj)):
+                              (cls.aligned_obj_name, cls.aligned_obj),
+                              (cls.zero_byte_obj_name, b"")):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
             fd.write('PUT /v1/a/ec-con/%s HTTP/1.1\r\n'
@@ -7426,6 +7428,13 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(headers['Content-Length'], '100')
         self.assertEqual(headers['Content-Range'], 'bytes 8092-8191/8192')
         self.assertEqual(len(gotten_obj), 100)
+
+    def test_suffix_zero_byte_object(self):
+        status, headers, gotten_obj = self._get_obj("bytes=-100",
+                                                    self.zero_byte_obj_name)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(gotten_obj), 0)
+        self.assertEqual(gotten_obj, b"")
 
     def test_suffix_two_segs(self):
         # Ask for enough data that we need the last two segments. The last
