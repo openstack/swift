@@ -18,7 +18,7 @@ from copy import deepcopy
 import json
 import time
 import unittest2
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, unquote
 
 import test.functional as tf
 
@@ -652,7 +652,7 @@ class TestObjectVersioning(Base):
         tgt_b.write("bbbbb")
 
         symlink_name = Utils.create_name()
-        sym_tgt_header = '%s/%s' % (container.name, tgt_a_name)
+        sym_tgt_header = quote(unquote('%s/%s' % (container.name, tgt_a_name)))
         sym_headers_a = {'X-Symlink-Target': sym_tgt_header}
         symlink = container.file(symlink_name)
         symlink.write("", hdrs=sym_headers_a)
@@ -684,8 +684,9 @@ class TestObjectVersioning(Base):
         sym_info = symlink.info(parms={'symlink': 'get'})
         self.assertEqual("aaaaa", symlink.read())
         self.assertEqual(MD5_OF_EMPTY_STRING, sym_info['etag'])
-        self.assertEqual('%s/%s' % (self.env.container.name, target.name),
-                         sym_info['x_symlink_target'])
+        self.assertEqual(
+            quote(unquote('%s/%s' % (self.env.container.name, target.name))),
+            sym_info['x_symlink_target'])
 
     def _setup_symlink(self):
         target = self.env.container.file('target-object')

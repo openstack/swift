@@ -270,23 +270,45 @@ class TestSymlink(Base):
         target_obj = 'dealde%2Fl04 011e%204c8df/flash.png'
         link_obj = uuid4().hex
 
-        # Now let's write a new target object and symlink will be able to
-        # return object
+        # create target using unnormalized path
         resp = retry(
             self._make_request, method='PUT', container=self.env.tgt_cont,
             obj=target_obj, body=TARGET_BODY)
-
         self.assertEqual(resp.status, 201)
+        # you can get it using either name
+        resp = retry(
+            self._make_request, method='GET', container=self.env.tgt_cont,
+            obj=target_obj)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.content, TARGET_BODY)
+        normalized_quoted_obj = 'dealde/l04%20011e%204c8df/flash.png'
+        self.assertEqual(normalized_quoted_obj, urllib.parse.quote(
+            urllib.parse.unquote(target_obj)))
+        resp = retry(
+            self._make_request, method='GET', container=self.env.tgt_cont,
+            obj=normalized_quoted_obj)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.content, TARGET_BODY)
 
-        # PUT symlink
+        # create a symlink using the un-normalized target path
         self._test_put_symlink(link_cont=self.env.link_cont, link_obj=link_obj,
                                tgt_cont=self.env.tgt_cont,
                                tgt_obj=target_obj)
-
+        # and it's normalized
         self._assertSymlink(
             self.env.link_cont, link_obj,
-            expected_content_location="%s/%s" % (self.env.tgt_cont,
-                                                 target_obj))
+            expected_content_location='%s/%s' % (
+                self.env.tgt_cont, normalized_quoted_obj))
+
+        # create a symlink using the normalized target path
+        self._test_put_symlink(link_cont=self.env.link_cont, link_obj=link_obj,
+                               tgt_cont=self.env.tgt_cont,
+                               tgt_obj=normalized_quoted_obj)
+        # and it's ALSO normalized
+        self._assertSymlink(
+            self.env.link_cont, link_obj,
+            expected_content_location='%s/%s' % (
+                self.env.tgt_cont, normalized_quoted_obj))
 
     def test_symlink_put_head_get(self):
         link_obj = uuid4().hex
