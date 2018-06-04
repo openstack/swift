@@ -321,6 +321,55 @@ class TestObjectUpdater(unittest.TestCase):
             info_lines[3])
         self.assertIn(self.sda1, info_lines[3])
 
+    def test_sweep_logs_multiple_policies(self):
+        for policy in _mocked_policies:
+            asyncdir = os.path.join(self.sda1, get_async_dir(policy.idx))
+            prefix_dir = os.path.join(asyncdir, 'abc')
+            mkpath(prefix_dir)
+
+            for o, t in [('abc', 123), ('def', 234), ('ghi', 345)]:
+                ohash = hash_path('account', 'container%d' % policy.idx, o)
+                o_path = os.path.join(prefix_dir, ohash + '-' +
+                                      normalize_timestamp(t))
+                write_pickle({}, o_path)
+
+        class MockObjectUpdater(object_updater.ObjectUpdater):
+            def process_object_update(self, update_path, device, policy):
+                os.unlink(update_path)
+                self.stats.successes += 1
+                self.stats.unlinks += 1
+
+        logger = FakeLogger()
+        ou = MockObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'report_interval': '10.0',
+            'node_timeout': '5'}, logger=logger)
+
+        now = [time()]
+
+        def mock_time():
+            rv = now[0]
+            now[0] += 0.01
+            return rv
+
+        with mock.patch('swift.obj.updater.time',
+                        mock.MagicMock(time=mock_time)):
+            ou.object_sweep(self.sda1)
+
+        completion_lines = [l for l in logger.get_lines_for_level('info')
+                            if "sweep complete" in l]
+
+        self.assertEqual(len(completion_lines), 1)
+        self.assertIn("sweep complete", completion_lines[0])
+        self.assertIn(
+            "6 successes, 0 failures, 0 quarantines, 6 unlinks, 0 errors, "
+            "0 redirects",
+            completion_lines[0])
+
     @mock.patch.object(object_updater, 'check_drive')
     def test_run_once_with_disk_unmounted(self, mock_check_drive):
         mock_check_drive.return_value = False
