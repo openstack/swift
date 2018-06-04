@@ -43,6 +43,23 @@ from swift.common.utils import (
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
+class MockPool(object):
+    def __init__(self, *a, **kw):
+        pass
+
+    def spawn(self, func, *args, **kwargs):
+        func(*args, **kwargs)
+
+    def waitall(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a, **kw):
+        pass
+
+
 _mocked_policies = [StoragePolicy(0, 'zero', False),
                     StoragePolicy(1, 'one', True)]
 
@@ -104,7 +121,8 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(daemon.mount_check, True)
         self.assertEqual(daemon.swift_dir, '/etc/swift')
         self.assertEqual(daemon.interval, 300)
-        self.assertEqual(daemon.concurrency, 1)
+        self.assertEqual(daemon.concurrency, 8)
+        self.assertEqual(daemon.updater_workers, 1)
         self.assertEqual(daemon.max_objects_per_second, 50.0)
 
         # non-defaults
@@ -114,6 +132,7 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': '/not/here',
             'interval': '600',
             'concurrency': '2',
+            'updater_workers': '3',
             'objects_per_second': '10.5',
         }
         daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
@@ -122,6 +141,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(daemon.swift_dir, '/not/here')
         self.assertEqual(daemon.interval, 600)
         self.assertEqual(daemon.concurrency, 2)
+        self.assertEqual(daemon.updater_workers, 3)
         self.assertEqual(daemon.max_objects_per_second, 10.5)
 
         # check deprecated option
@@ -234,10 +254,8 @@ class TestObjectUpdater(unittest.TestCase):
             if should_skip:
                 # if we were supposed to skip over the dir, we didn't process
                 # anything at all
-                self.assertTrue(os.path.exists(prefix_dir))
                 self.assertEqual(set(), seen)
             else:
-                self.assertTrue(not os.path.exists(prefix_dir))
                 self.assertEqual(expected, seen)
 
             # test cleanup: the tempdir gets cleaned up between runs, but this
@@ -291,7 +309,8 @@ class TestObjectUpdater(unittest.TestCase):
         # and 5 async_pendings on disk, we should get at least two progress
         # lines.
         with mock.patch('swift.obj.updater.time',
-                        mock.MagicMock(time=mock_time_function)):
+                        mock.MagicMock(time=mock_time_function)), \
+                mock.patch.object(object_updater, 'ContextPool', MockPool):
             ou.object_sweep(self.sda1)
 
         info_lines = logger.get_lines_for_level('info')
@@ -444,7 +463,6 @@ class TestObjectUpdater(unittest.TestCase):
         os.mkdir(odd_dir)
         ou.run_once()
         self.assertTrue(os.path.exists(async_dir))
-        self.assertFalse(os.path.exists(odd_dir))
         self.assertEqual([
             mock.call(self.devices_dir, 'sda1', True),
         ], mock_check_drive.mock_calls)
@@ -548,7 +566,13 @@ class TestObjectUpdater(unittest.TestCase):
         err = event.wait()
         if err:
             raise err
-        self.assertTrue(not os.path.exists(op_path))
+
+        # we remove the async_pending and its containing suffix dir, but not
+        # anything above that
+        self.assertFalse(os.path.exists(op_path))
+        self.assertFalse(os.path.exists(os.path.dirname(op_path)))
+        self.assertTrue(os.path.exists(os.path.dirname(os.path.dirname(
+            op_path))))
         self.assertEqual(ou.logger.get_increment_counts(),
                          {'unlinks': 1, 'successes': 1})
 
