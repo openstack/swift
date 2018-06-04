@@ -309,8 +309,8 @@ class TestBaseSsyncEC(TestBaseSsync):
     def setUp(self):
         super(TestBaseSsyncEC, self).setUp()
         self.policy = POLICIES.default
-        self.daemon = ObjectReconstructor(self.daemon_conf,
-                                          debug_logger('test-ssync-sender'))
+        self.logger = debug_logger('test-ssync-sender')
+        self.daemon = ObjectReconstructor(self.daemon_conf, self.logger)
 
     def _get_object_data(self, path, frag_index=None, **kwargs):
         # return a frag archive for given object name and frag index.
@@ -674,7 +674,7 @@ class TestSsyncEC(TestBaseSsyncEC):
             self.daemon, self.rx_node, job, ['abc'])
         success, _ = sender()
         self.assertFalse(success)
-        error_log_lines = self.daemon.logger.get_lines_for_level('error')
+        error_log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_log_lines))
         error_msg = error_log_lines[0]
         self.assertIn("Expected status 200; got 400", error_msg)
@@ -857,7 +857,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                     self.policy.object_ring, 'get_part_nodes',
                     fake_get_part_nodes):
             self.reconstructor = ObjectReconstructor(
-                {}, logger=debug_logger('test_reconstructor'))
+                {}, logger=self.logger)
             job = {
                 'device': self.device,
                 'partition': self.partition,
@@ -892,7 +892,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                 pass  # expected outcome
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
-        log_lines = self.daemon.logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         self.assertIn('Sent data length does not match content-length',
                       log_lines[0])
         self.assertFalse(log_lines[1:])
@@ -926,7 +926,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                 pass  # expected outcome
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
-        log_lines = self.daemon.logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         self.assertIn('Sent data length does not match content-length',
                       log_lines[0])
         self.assertFalse(log_lines[1:])
@@ -969,12 +969,11 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
 
-        log_lines = self.reconstructor.logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         self.assertIn('Error trying to rebuild', log_lines[0])
-        log_lines = self.daemon.logger.get_lines_for_level('error')
         self.assertIn('Sent data length does not match content-length',
-                      log_lines[0])
-        self.assertFalse(log_lines[1:])
+                      log_lines[1])
+        self.assertFalse(log_lines[2:])
         # trampoline for the receiver to write a log
         eventlet.sleep(0)
         log_lines = self.rx_logger.get_lines_for_level('warning')
@@ -1027,8 +1026,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
             pass  # expected outcome
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
-        self.assertFalse(self.daemon.logger.get_lines_for_level('error'))
-        log_lines = self.reconstructor.logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         self.assertIn('Unable to get enough responses', log_lines[0])
         # trampoline for the receiver to write a log
         eventlet.sleep(0)
@@ -1063,9 +1061,9 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                 msgs.append('Missing rx diskfile for %r' % obj_name)
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
-        self.assertFalse(self.daemon.logger.get_lines_for_level('error'))
+        self.assertFalse(self.logger.get_lines_for_level('error'))
         self.assertFalse(
-            self.reconstructor.logger.get_lines_for_level('error'))
+            self.logger.get_lines_for_level('error'))
         # trampoline for the receiver to write a log
         eventlet.sleep(0)
         self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
@@ -1076,8 +1074,8 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
 class TestSsyncReplication(TestBaseSsync):
     def setUp(self):
         super(TestSsyncReplication, self).setUp()
-        self.daemon = ObjectReplicator(self.daemon_conf,
-                                       debug_logger('test-ssync-sender'))
+        self.logger = debug_logger('test-ssync-sender')
+        self.daemon = ObjectReplicator(self.daemon_conf, self.logger)
 
     def test_sync(self):
         policy = POLICIES.default
