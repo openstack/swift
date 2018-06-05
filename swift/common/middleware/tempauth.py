@@ -287,10 +287,8 @@ class TempAuth(object):
                 group_list = groups.split(',', 2)
                 if len(group_list) > 1:
                     user = group_list[1]
-                elif groups:
-                    user = group_list[0]
                 else:
-                    user = ''
+                    user = group_list[0]
                 trans_id = env.get('swift.trans_id')
                 self.logger.debug('User: %s uses token %s (trans_id %s)' %
                                   (user, 's3' if s3 else token, trans_id))
