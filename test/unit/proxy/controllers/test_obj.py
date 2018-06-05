@@ -1083,13 +1083,13 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         for connection_id, info in put_requests.items():
             body = ''.join(info['chunks'])
             headers = info['headers']
-            if chunked:
+            if chunked or not test_body:
                 body = unchunk_body(body)
                 self.assertEqual('100-continue', headers['Expect'])
                 self.assertEqual('chunked', headers['Transfer-Encoding'])
             else:
                 self.assertNotIn('Transfer-Encoding', headers)
-            if body:
+            if body or not test_body:
                 self.assertEqual('100-continue', headers['Expect'])
             else:
                 self.assertNotIn('Expect', headers)
