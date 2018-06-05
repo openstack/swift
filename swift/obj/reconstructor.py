@@ -1225,6 +1225,10 @@ class ObjectReconstructor(Daemon):
             recon_update['object_reconstruction_per_disk'] = {}
         dump_recon_cache(recon_update, self.rcache, self.logger)
 
+    def post_multiprocess_run(self):
+        # This method is called after run_once when using multiple workers.
+        self.aggregate_recon_update()
+
     def run_once(self, multiprocess_worker_index=None, *args, **kwargs):
         if multiprocess_worker_index is not None:
             self._emplace_log_prefix(multiprocess_worker_index)
