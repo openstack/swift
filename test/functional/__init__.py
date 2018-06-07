@@ -381,26 +381,33 @@ def _load_domain_remap_staticweb(proxy_conf_file, swift_conf_file, **kwargs):
     """
     _debug('Setting configuration for domain_remap')
 
+    # add a domain_remap storage_domain to the test configuration
+    storage_domain = 'example.net'
+    global config
+    config['storage_domain'] = storage_domain
+
     # The global conf dict cannot be used to modify the pipeline.
     # The pipeline loader requires the pipeline to be set in the local_conf.
     # If pipeline is set in the global conf dict (which in turn populates the
     # DEFAULTS options) then it prevents pipeline being loaded into the local
     # conf during wsgi load_app.
     # Therefore we must modify the [pipeline:main] section.
-
     conf = ConfigParser()
     conf.read(proxy_conf_file)
     try:
         section = 'pipeline:main'
         old_pipeline = conf.get(section, 'pipeline')
         pipeline = old_pipeline.replace(
-            "tempauth",
-            "domain_remap tempauth staticweb")
+            " tempauth ",
+            " domain_remap tempauth staticweb ")
         if pipeline == old_pipeline:
             raise InProcessException(
                 "Failed to insert domain_remap and staticweb into pipeline: %s"
                 % old_pipeline)
         conf.set(section, 'pipeline', pipeline)
+        # set storage_domain in domain_remap middleware to match test config
+        section = 'filter:domain_remap'
+        conf.set(section, 'storage_domain', storage_domain)
     except NoSectionError as err:
         msg = 'Error problem with proxy conf file %s: %s' % \
               (proxy_conf_file, err)
@@ -531,6 +538,7 @@ def in_process_setup(the_object_server=object_server):
         storage_policy.reload_storage_policies()
 
     global config
+    config['__file__'] = 'in_process_setup()'
     if constraints.SWIFT_CONSTRAINTS_LOADED:
         # Use the swift constraints that are loaded for the test framework
         # configuration

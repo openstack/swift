@@ -36,7 +36,14 @@ def requires_domain_remap(func):
     def wrapper(*args, **kwargs):
         if 'domain_remap' not in cluster_info:
             raise SkipTest('Domain Remap is not enabled')
+        # domain_remap middleware does not advertise its storage_domain values
+        # in swift /info responses so a storage_domain must be configured in
+        # test.conf for these tests to succeed
+        if not tf.config.get('storage_domain'):
+            raise SkipTest('Domain Remap storage_domain not configured in %s' %
+                           tf.config['__file__'])
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -72,7 +79,6 @@ class TestStaticWebEnv(BaseEnv):
 
         cls.objects = {}
         for item in sorted(objects):
-            parent = None
             if '/' in item.rstrip('/'):
                 parent, _ = item.rstrip('/').rsplit('/', 1)
                 path = '%s/%s' % (cls.objects[parent + '/'].name,
@@ -103,12 +109,20 @@ class TestStaticWeb(Base):
                 "Expected static_web_enabled to be True/False, got %r" %
                 (self.env.static_web_enabled,))
 
+    @property
+    def domain_remap_acct(self):
+        # the storage_domain option is test.conf must be set to one of the
+        # domain_remap middleware storage_domain values
         _, _, acct = self.env.account.conn.storage_url.split('/')
+        return '.'.join((acct, tf.config.get('storage_domain')))
 
-        self.domain_remap_acct = '%s.example.com' % acct
-
-        self.domain_remap_cont = '%s.%s.example.com' % (
-            self.env.container.name, acct)
+    @property
+    def domain_remap_cont(self):
+        # the storage_domain option is test.conf must be set to one of the
+        # domain_remap middleware storage_domain values
+        _, _, acct = self.env.account.conn.storage_url.split('/')
+        return '.'.join(
+            (self.env.container.name, acct, tf.config.get('storage_domain')))
 
     def _set_staticweb_headers(self, index=False, listings=False,
                                listings_css=False, error=False):
