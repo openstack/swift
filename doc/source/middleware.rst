@@ -299,10 +299,19 @@ Ratelimit
     :members:
     :show-inheritance:
 
+.. _read_only:
+
+Read Only
+=========
+
+.. automodule:: swift.common.middleware.read_only
+    :members:
+    :show-inheritance:
+
 .. _recon:
 
 Recon
-===========
+=====
 
 .. automodule:: swift.common.middleware.recon
     :members:
