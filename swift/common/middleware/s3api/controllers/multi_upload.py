@@ -30,7 +30,7 @@ where multipart upload is initiated.
 [bucket]+segments/[upload_id]
 -----------------------------
 
-A object of the ongoing upload id. The object is empty and used for
+An object of the ongoing upload id. The object is empty and used for
 checking the target upload status. If the object exists, it means that the
 upload is initiated but not either completed or aborted.
 
