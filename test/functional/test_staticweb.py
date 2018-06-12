@@ -160,8 +160,10 @@ class TestStaticWeb(Base):
                                                 'absolute_path': True})
 
         self.assert_status(301)
-        self.assertRegexpMatches(self.env.conn.response.getheader('location'),
-                                 'http[s]?://%s%s/' % (host, path))
+        expected = '%s://%s%s/' % (
+            self.env.account.conn.storage_scheme, host, path)
+        self.assertEqual(self.env.conn.response.getheader('location'),
+                         expected)
 
     def _test_redirect_slash_direct(self, anonymous):
         host = self.env.account.conn.storage_netloc
