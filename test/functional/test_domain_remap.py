@@ -79,17 +79,22 @@ class TestDomainRemap(Base):
             raise SkipTest('Domain Remap storage_domain not configured in %s' %
                            tf.config['__file__'])
 
-        _, _, acct = self.env.account.conn.storage_url.split('/')
         storage_domain = tf.config.get('storage_domain')
 
-        self.acct_domain_dash = '%s.%s' % (acct, storage_domain)
+        self.acct_domain_dash = '%s.%s' % (self.env.account.conn.account_name,
+                                           storage_domain)
         self.acct_domain_underscore = '%s.%s' % (
-            acct.replace('_', '-'), storage_domain)
+            self.env.account.conn.account_name.replace('_', '-'),
+            storage_domain)
 
         self.cont_domain_dash = '%s.%s.%s' % (
-            self.env.container.name, acct, storage_domain)
+            self.env.container.name,
+            self.env.account.conn.account_name,
+            storage_domain)
         self.cont_domain_underscore = '%s.%s.%s' % (
-            self.env.container.name, acct.replace('_', '-'), storage_domain)
+            self.env.container.name,
+            self.env.account.conn.account_name.replace('_', '-'),
+            storage_domain)
 
     def test_GET_remapped_account(self):
         for domain in (self.acct_domain_dash, self.acct_domain_underscore):
