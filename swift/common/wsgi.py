@@ -480,34 +480,30 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
         # additional wrapping further pollutes the raw socket.
         connection_line = self.rfile.readline(self.server.url_length_limit)
 
-        if connection_line.startswith(b'PROXY'):
-            proxy_parts = connection_line.strip(b'\r\n').split(b' ')
-            if len(proxy_parts) >= 2 and proxy_parts[0] == b'PROXY':
-                if proxy_parts[1] in (b'TCP4', b'TCP6') and \
-                        len(proxy_parts) == 6:
-                    if six.PY2:
-                        self.client_address = (proxy_parts[2], proxy_parts[4])
-                        self.proxy_address = (proxy_parts[3], proxy_parts[5])
-                    else:
-                        self.client_address = (
-                            proxy_parts[2].decode('latin-1'),
-                            proxy_parts[4].decode('latin-1'))
-                        self.proxy_address = (
-                            proxy_parts[3].decode('latin-1'),
-                            proxy_parts[5].decode('latin-1'))
-                elif proxy_parts[1].startswith(b'UNKNOWN'):
-                    # "UNKNOWN", in PROXY protocol version 1, means "not
-                    # TCP4 or TCP6". This includes completely legitimate
-                    # things like QUIC or Unix domain sockets. The PROXY
-                    # protocol (section 2.1) states that the receiver
-                    # (that's us) MUST ignore anything after "UNKNOWN" and
-                    # before the CRLF, essentially discarding the first
-                    # line.
-                    pass
-                else:
-                    self.handle_error(connection_line)
+        if not connection_line.startswith(b'PROXY '):
+            return self.handle_error(connection_line)
+
+        proxy_parts = connection_line.strip(b'\r\n').split(b' ')
+        if proxy_parts[1].startswith(b'UNKNOWN'):
+            # "UNKNOWN", in PROXY protocol version 1, means "not
+            # TCP4 or TCP6". This includes completely legitimate
+            # things like QUIC or Unix domain sockets. The PROXY
+            # protocol (section 2.1) states that the receiver
+            # (that's us) MUST ignore anything after "UNKNOWN" and
+            # before the CRLF, essentially discarding the first
+            # line.
+            pass
+        elif proxy_parts[1] in (b'TCP4', b'TCP6') and len(proxy_parts) == 6:
+            if six.PY2:
+                self.client_address = (proxy_parts[2], proxy_parts[4])
+                self.proxy_address = (proxy_parts[3], proxy_parts[5])
             else:
-                self.handle_error(connection_line)
+                self.client_address = (
+                    proxy_parts[2].decode('latin-1'),
+                    proxy_parts[4].decode('latin-1'))
+                self.proxy_address = (
+                    proxy_parts[3].decode('latin-1'),
+                    proxy_parts[5].decode('latin-1'))
         else:
             self.handle_error(connection_line)
 
