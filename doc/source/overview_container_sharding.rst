@@ -221,7 +221,7 @@ Fresh DB           A database file that will replace the retiring
 Epoch              A timestamp at which the fresh DB is created; the
                    epoch value is embedded in the fresh DB filename.
 Shard range        A range of the object namespace defined by a lower
-                   bound and and upper bound.
+                   bound and upper bound.
 Shard container    A container that holds object records for a shard
                    range. Shard containers exist in a hidden account
                    mirroring the user's account.
