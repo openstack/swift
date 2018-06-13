@@ -50,7 +50,7 @@ from contextlib import contextmanager
 from collections import defaultdict
 from datetime import timedelta
 
-from eventlet import Timeout
+from eventlet import Timeout, tpool
 from eventlet.hubs import trampoline
 import six
 from pyeclib.ec_iface import ECDriverError, ECInvalidFragmentMetadata, \
@@ -64,7 +64,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     fsync_dir, drop_buffer_cache, lock_path, write_pickle, \
     config_true_value, listdir, split_path, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
-    tpool_reraise, MD5_OF_EMPTY_STRING, link_fd_to_path, o_tmpfile_supported, \
+    MD5_OF_EMPTY_STRING, link_fd_to_path, o_tmpfile_supported, \
     O_TMPFILE, makedirs_count, replace_partition_in_path
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
@@ -1419,7 +1419,7 @@ class BaseDiskFileManager(object):
         partition_path = get_part_path(dev_path, policy, partition)
         if not os.path.exists(partition_path):
             mkdirs(partition_path)
-        _junk, hashes = tpool_reraise(
+        _junk, hashes = tpool.execute(
             self._get_hashes, device, partition, policy, recalculate=suffixes)
         return hashes
 
@@ -1598,7 +1598,7 @@ class BaseDiskFileWriter(object):
         # For large files sync every 512MB (by default) written
         diff = self._upload_size - self._last_sync
         if diff >= self._bytes_per_sync:
-            tpool_reraise(fdatasync, self._fd)
+            tpool.execute(fdatasync, self._fd)
             drop_buffer_cache(self._fd, self._last_sync, diff)
             self._last_sync = self._upload_size
 
@@ -1678,7 +1678,7 @@ class BaseDiskFileWriter(object):
         metadata['name'] = self._name
         target_path = join(self._datadir, filename)
 
-        tpool_reraise(self._finalize_put, metadata, target_path, cleanup)
+        tpool.execute(self._finalize_put, metadata, target_path, cleanup)
 
     def put(self, metadata):
         """
@@ -2967,7 +2967,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
         durable_data_file_path = os.path.join(
             self._datadir, self.manager.make_on_disk_filename(
                 timestamp, '.data', self._diskfile._frag_index, durable=True))
-        tpool_reraise(
+        tpool.execute(
             self._finalize_durable, data_file_path, durable_data_file_path)
 
     def put(self, metadata):

@@ -34,7 +34,7 @@ from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, \
     rsync_module_interpolation, mkdirs, config_true_value, \
-    tpool_reraise, config_auto_int_value, storage_directory, \
+    config_auto_int_value, storage_directory, \
     load_recon_cache, PrefixLoggerAdapter, parse_override_options, \
     distribute_evenly
 from swift.common.bufferedhttp import http_connect
@@ -610,7 +610,7 @@ class ObjectReplicator(Daemon):
         begin = time.time()
         df_mgr = self._df_router[job['policy']]
         try:
-            hashed, local_hash = tpool_reraise(
+            hashed, local_hash = tpool.execute(
                 df_mgr._get_hashes, job['device'],
                 job['partition'], job['policy'],
                 do_listdir=_do_listdir(
@@ -664,7 +664,7 @@ class ObjectReplicator(Daemon):
                     if not suffixes:
                         stats.hashmatch += 1
                         continue
-                    hashed, recalc_hash = tpool_reraise(
+                    hashed, recalc_hash = tpool.execute(
                         df_mgr._get_hashes,
                         job['device'], job['partition'], job['policy'],
                         recalculate=suffixes)

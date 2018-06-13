@@ -1798,10 +1798,10 @@ class TestObjectReplicator(unittest.TestCase):
         self.replicator.sync_method.assert_called_once_with(
             'node', 'job', 'suffixes')
 
-    @mock.patch('swift.obj.replicator.tpool_reraise')
+    @mock.patch('swift.obj.replicator.tpool.execute')
     @mock.patch('swift.obj.replicator.http_connect', autospec=True)
     @mock.patch('swift.obj.replicator._do_listdir')
-    def test_update(self, mock_do_listdir, mock_http, mock_tpool_reraise):
+    def test_update(self, mock_do_listdir, mock_http, mock_tpool_execute):
 
         def set_default(self):
             self.replicator.suffix_count = 0
@@ -1813,7 +1813,7 @@ class TestObjectReplicator(unittest.TestCase):
 
         self.headers = {'Content-Length': '0',
                         'user-agent': 'object-replicator %s' % os.getpid()}
-        mock_tpool_reraise.return_value = (0, {})
+        mock_tpool_execute.return_value = (0, {})
 
         all_jobs = self.replicator.collect_jobs()
         jobs = [job for job in all_jobs if not job['delete']]
@@ -1868,7 +1868,7 @@ class TestObjectReplicator(unittest.TestCase):
             mock_http.reset_mock()
             self.logger.clear()
         mock_do_listdir.assert_has_calls(expected_listdir_calls)
-        mock_tpool_reraise.assert_has_calls(expected_tpool_calls)
+        mock_tpool_execute.assert_has_calls(expected_tpool_calls)
         mock_do_listdir.side_effect = None
         mock_do_listdir.return_value = False
         # Check incorrect http_connect with status 400 != HTTP_OK
@@ -1920,7 +1920,7 @@ class TestObjectReplicator(unittest.TestCase):
             self.logger.clear()
 
         # Check successful http_connect and sync for local node
-        mock_tpool_reraise.return_value = (1, {'a83': 'ba47fd314242ec8c'
+        mock_tpool_execute.return_value = (1, {'a83': 'ba47fd314242ec8c'
                                                       '7efb91f5d57336e4'})
         resp.read.return_value = pickle.dumps({'a83': 'c130a2c17ed45102a'
                                                       'ada0f4eee69494ff'})

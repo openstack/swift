@@ -3237,18 +3237,6 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(fallocate_value, 10.000)
         self.assertTrue(is_percent)
 
-    def test_tpool_reraise(self):
-        with patch.object(utils.tpool, 'execute', lambda f: f()):
-            self.assertTrue(
-                utils.tpool_reraise(MagicMock(return_value='test1')), 'test1')
-            self.assertRaises(
-                Exception,
-                utils.tpool_reraise, MagicMock(side_effect=Exception('test2')))
-            self.assertRaises(
-                BaseException,
-                utils.tpool_reraise,
-                MagicMock(side_effect=BaseException('test3')))
-
     def test_lock_file(self):
         flags = os.O_CREAT | os.O_RDWR
         with NamedTemporaryFile(delete=False) as nt:

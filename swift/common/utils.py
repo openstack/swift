@@ -59,7 +59,7 @@ import eventlet.debug
 import eventlet.greenthread
 import eventlet.patcher
 import eventlet.semaphore
-from eventlet import GreenPool, sleep, Timeout, tpool
+from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import socket, threading
 from eventlet.hubs import trampoline
 import eventlet.queue
@@ -3769,21 +3769,6 @@ class Spliterator(object):
                     n = 0
         finally:
             self._iterator_in_progress = False
-
-
-def tpool_reraise(func, *args, **kwargs):
-    """
-    Hack to work around Eventlet's tpool not catching and reraising Timeouts.
-    """
-    def inner():
-        try:
-            return func(*args, **kwargs)
-        except BaseException as err:
-            return err
-    resp = tpool.execute(inner)
-    if isinstance(resp, BaseException):
-        raise resp
-    return resp
 
 
 def ismount(path):
