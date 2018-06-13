@@ -3968,7 +3968,7 @@ def quote(value, safe='/'):
 
 def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
     """
-    Returns a expiring object container name for given X-Delete-At and
+    Returns an expiring object container name for given X-Delete-At and
     a/c/o.
     """
     shard_int = int(hash_path(acc, cont, obj), 16) % 100
