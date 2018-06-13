@@ -131,14 +131,7 @@ class Connection(object):
     def get_account(self):
         return Account(self, self.account)
 
-    def authenticate(self, clone_conn=None):
-        if clone_conn:
-            self.conn_class = clone_conn.conn_class
-            self.storage_netloc = clone_conn.storage_netloc
-            self.storage_url = clone_conn.storage_url
-            self.storage_token = clone_conn.storage_token
-            return
-
+    def authenticate(self):
         if self.auth_version == "1":
             auth_path = '%sv1.0' % (self.auth_prefix)
             if self.account:
