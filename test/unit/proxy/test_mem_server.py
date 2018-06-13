@@ -46,6 +46,12 @@ class TestReplicatedObjectController(
     def test_policy_IO(self):
         pass
 
+    def test_GET_short_read(self):
+        pass
+
+    def test_GET_short_read_resuming(self):
+        pass
+
 
 class TestECObjectController(test_server.TestECObjectController):
     def test_PUT_ec(self):
