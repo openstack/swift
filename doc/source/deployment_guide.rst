@@ -909,7 +909,9 @@ log_facility        LOG_LOCAL0          Syslog log facility
 log_level           INFO                Logging level
 log_address         /dev/log            Logging directory
 interval            300                 Minimum time for a pass to take
-concurrency         1                   Number of updater workers to spawn
+updater_workers     1                   Number of worker processes
+concurrency         8                   Number of updates to run concurrently in
+                                        each worker process
 node_timeout        DEFAULT or 10       Request timeout to external services. This
                                         uses what's set here, or what's set in the
                                         DEFAULT section, or 10 (though other

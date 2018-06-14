@@ -371,8 +371,15 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # interval = 300
-# concurrency = 1
 # node_timeout = <whatever's in the DEFAULT section or 10>
+#
+# updater_workers controls how many processes the object updater will
+# spawn, while concurrency controls how many async_pending records
+# each updater process will operate on at any one time. With
+# concurrency=C and updater_workers=W, there will be up to W*C
+# async_pending records being processed at once.
+# concurrency = 8
+# updater_workers = 1
 #
 # Send at most this many object updates per second
 # objects_per_second = 50
