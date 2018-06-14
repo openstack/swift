@@ -838,7 +838,7 @@ class ContainerBroker(DatabaseBroker):
 
     def get_replication_info(self):
         info = super(ContainerBroker, self).get_replication_info()
-        info['shard_max_row'] = self.get_max_row('shard_ranges')
+        info['shard_max_row'] = self.get_max_row(SHARD_RANGE_TABLE)
         return info
 
     def _do_get_info_query(self, conn):

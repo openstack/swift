@@ -2014,6 +2014,41 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_bytes_used'], 1123)
 
     @with_tempdir
+    def test_get_replication_info(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'part', 'suffix', 'hash', 'hash.db')
+        broker = ContainerBroker(
+            db_path, account='myaccount', container='mycontainer')
+        broker.initialize(next(ts_iter).internal, 0)
+        metadata = {'blah': ['val', next(ts_iter).internal]}
+        broker.update_metadata(metadata)
+        expected = broker.get_info()
+        expected['metadata'] = json.dumps(metadata)
+        expected.pop('object_count')
+        expected['count'] = 0
+        expected['max_row'] = -1
+        expected['shard_max_row'] = -1
+        actual = broker.get_replication_info()
+        self.assertEqual(expected, actual)
+
+        broker.put_object('o1', next(ts_iter).internal, 123, 'text/plain',
+                          'fake etag')
+        expected = broker.get_info()
+        expected['metadata'] = json.dumps(metadata)
+        expected.pop('object_count')
+        expected['count'] = 1
+        expected['max_row'] = 1
+        expected['shard_max_row'] = -1
+        actual = broker.get_replication_info()
+        self.assertEqual(expected, actual)
+
+        sr = ShardRange('.shards_a/c', next(ts_iter))
+        broker.merge_shard_ranges(sr)
+        expected['shard_max_row'] = 1
+        actual = broker.get_replication_info()
+        self.assertEqual(expected, actual)
+
+    @with_tempdir
     def test_remove_objects(self, tempdir):
         objects = (('undeleted', Timestamp.now().internal, 0, 'text/plain',
                     EMPTY_ETAG, 0, 0),
