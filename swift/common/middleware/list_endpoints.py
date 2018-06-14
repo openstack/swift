@@ -163,7 +163,7 @@ class ListEndpointsMiddleware(object):
             version = self._parse_version(raw_version)
         except ValueError:
             if raw_version.startswith('v') and '_' not in raw_version:
-                # looks more like a invalid version than an account
+                # looks more like an invalid version than an account
                 raise
             # probably no version specified, but if the client really
             # said /endpoints/v_3/account they'll probably be sorta
