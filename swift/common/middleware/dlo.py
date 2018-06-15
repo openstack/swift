@@ -154,6 +154,9 @@ class GetContext(WSGIContext):
 
         con_resp = con_req.get_response(self.dlo.app)
         if not is_success(con_resp.status_int):
+            if req.method == 'HEAD':
+                close_if_possible(con_resp.app_iter)
+                con_resp.body = ''
             return con_resp, None
         with closing_if_possible(con_resp.app_iter):
             return None, json.loads(''.join(con_resp.app_iter))
