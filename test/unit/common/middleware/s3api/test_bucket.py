@@ -36,49 +36,52 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.objects = (('rose', '2011-01-05T02:19:14.275290', 0, 303),
                         ('viola', '2011-01-05T02:19:14.275290', '0', 3909),
                         ('lily', '2011-01-05T02:19:14.275290', '0', '3909'),
+                        ('mu', '2011-01-05T02:19:14.275290',
+                         'md5-of-the-manifest; s3_etag=0', '3909'),
                         ('with space', '2011-01-05T02:19:14.275290', 0, 390),
                         ('with%20space', '2011-01-05T02:19:14.275290', 0, 390))
 
-        objects = map(
-            lambda item: {'name': str(item[0]), 'last_modified': str(item[1]),
-                          'hash': str(item[2]), 'bytes': str(item[3])},
-            list(self.objects))
+        objects = [
+            {'name': str(item[0]), 'last_modified': str(item[1]),
+             'hash': str(item[2]), 'bytes': str(item[3])}
+            for item in self.objects]
         object_list = json.dumps(objects)
 
         self.prefixes = ['rose', 'viola', 'lily']
-        object_list_subdir = []
-        for p in self.prefixes:
-            object_list_subdir.append({"subdir": p})
+        object_list_subdir = [{"subdir": p} for p in self.prefixes]
 
         self.swift.register('DELETE', '/v1/AUTH_test/bucket+segments',
                             swob.HTTPNoContent, {}, json.dumps([]))
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket+segments/rose',
-                            swob.HTTPNoContent, {}, json.dumps([]))
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket+segments/viola',
-                            swob.HTTPNoContent, {}, json.dumps([]))
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket+segments/lily',
-                            swob.HTTPNoContent, {}, json.dumps([]))
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket+segments/with'
-                            ' space', swob.HTTPNoContent, {}, json.dumps([]))
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket+segments/with%20'
-                            'space', swob.HTTPNoContent, {}, json.dumps([]))
-        self.swift.register('GET', '/v1/AUTH_test/bucket+segments?format=json'
-                            '&marker=with%2520space', swob.HTTPOk, {},
-                            json.dumps([]))
-        self.swift.register('GET', '/v1/AUTH_test/bucket+segments?format=json'
-                            '&marker=', swob.HTTPOk, {}, object_list)
-        self.swift.register('HEAD', '/v1/AUTH_test/junk', swob.HTTPNoContent,
-                            {}, None)
-        self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
-                            {}, None)
-        self.swift.register('GET', '/v1/AUTH_test/junk', swob.HTTPOk, {},
-                            object_list)
+        for name, _, _, _ in self.objects:
+            self.swift.register(
+                'DELETE', '/v1/AUTH_test/bucket+segments/' + name,
+                swob.HTTPNoContent, {}, json.dumps([]))
+        self.swift.register(
+            'GET',
+            '/v1/AUTH_test/bucket+segments?format=json&marker=with%2520space',
+            swob.HTTPOk,
+            {'Content-Type': 'application/json; charset=utf-8'},
+            json.dumps([]))
+        self.swift.register(
+            'GET', '/v1/AUTH_test/bucket+segments?format=json&marker=',
+            swob.HTTPOk, {'Content-Type': 'application/json'}, object_list)
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/junk', swob.HTTPNoContent, {}, None)
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound, {}, None)
+        self.swift.register(
+            'GET', '/v1/AUTH_test/junk', swob.HTTPOk,
+            {'Content-Type': 'application/json'}, object_list)
         self.swift.register(
             'GET',
             '/v1/AUTH_test/junk?delimiter=a&format=json&limit=3&marker=viola',
-            swob.HTTPOk, {}, json.dumps(objects[2:]))
-        self.swift.register('GET', '/v1/AUTH_test/junk-subdir', swob.HTTPOk,
-                            {}, json.dumps(object_list_subdir))
+            swob.HTTPOk,
+            {'Content-Type': 'application/json; charset=utf-8'},
+            json.dumps(objects[2:]))
+        self.swift.register(
+            'GET', '/v1/AUTH_test/junk-subdir', swob.HTTPOk,
+            {'Content-Type': 'application/json; charset=utf-8'},
+            json.dumps(object_list_subdir))
         self.swift.register(
             'GET',
             '/v1/AUTH_test/subdirs?delimiter=/&format=json&limit=3',
@@ -183,18 +186,20 @@ class TestS3ApiBucket(S3ApiTestCase):
     def test_bucket_GET_is_truncated(self):
         bucket_name = 'junk'
 
-        req = Request.blank('/%s?max-keys=5' % bucket_name,
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
+        req = Request.blank(
+            '/%s?max-keys=%d' % (bucket_name, len(self.objects)),
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'ListBucketResult')
         self.assertEqual(elem.find('./IsTruncated').text, 'false')
 
-        req = Request.blank('/%s?max-keys=4' % bucket_name,
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
+        req = Request.blank(
+            '/%s?max-keys=%d' % (bucket_name, len(self.objects) - 1),
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'ListBucketResult')
         self.assertEqual(elem.find('./IsTruncated').text, 'true')
@@ -211,23 +216,27 @@ class TestS3ApiBucket(S3ApiTestCase):
     def test_bucket_GET_v2_is_truncated(self):
         bucket_name = 'junk'
 
-        req = Request.blank('/%s?list-type=2&max-keys=5' % bucket_name,
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
+        req = Request.blank(
+            '/%s?list-type=2&max-keys=%d' % (bucket_name, len(self.objects)),
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'ListBucketResult')
-        self.assertEqual(elem.find('./KeyCount').text, '5')
+        self.assertEqual(elem.find('./KeyCount').text, str(len(self.objects)))
         self.assertEqual(elem.find('./IsTruncated').text, 'false')
 
-        req = Request.blank('/%s?list-type=2&max-keys=4' % bucket_name,
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
+        req = Request.blank(
+            '/%s?list-type=2&max-keys=%d' % (bucket_name,
+                                             len(self.objects) - 1),
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'ListBucketResult')
         self.assertIsNotNone(elem.find('./NextContinuationToken'))
-        self.assertEqual(elem.find('./KeyCount').text, '4')
+        self.assertEqual(elem.find('./KeyCount').text,
+                         str(len(self.objects) - 1))
         self.assertEqual(elem.find('./IsTruncated').text, 'true')
 
         req = Request.blank('/subdirs?list-type=2&delimiter=/&max-keys=2',

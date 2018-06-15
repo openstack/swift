@@ -59,6 +59,7 @@ Static Large Object when the multipart upload is completed.
 
 """
 
+from hashlib import md5
 import os
 import re
 
@@ -570,6 +571,7 @@ class UploadController(Controller):
                           'etag': o['hash'],
                           'size_bytes': o['bytes']}) for o in objinfo)
 
+        s3_etag_hasher = md5()
         manifest = []
         previous_number = 0
         try:
@@ -597,6 +599,7 @@ class UploadController(Controller):
                     raise InvalidPart(upload_id=upload_id,
                                       part_number=part_number)
 
+                s3_etag_hasher.update(etag.decode('hex'))
                 info['size_bytes'] = int(info['size_bytes'])
                 manifest.append(info)
         except (XMLSyntaxError, DocumentInvalid):
@@ -606,6 +609,12 @@ class UploadController(Controller):
         except Exception as e:
             self.logger.error(e)
             raise
+
+        s3_etag = '%s-%d' % (s3_etag_hasher.hexdigest(), len(manifest))
+        headers[sysmeta_header('object', 'etag')] = s3_etag
+        # Leave base header value blank; SLO will populate
+        c_etag = '; s3_etag=%s' % s3_etag
+        headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = c_etag
 
         # Check the size of each segment except the last and make sure they are
         # all more than the minimum upload chunk size
@@ -660,7 +669,8 @@ class UploadController(Controller):
         SubElement(result_elem, 'Location').text = host_url + req.path
         SubElement(result_elem, 'Bucket').text = req.container_name
         SubElement(result_elem, 'Key').text = req.object_name
-        SubElement(result_elem, 'ETag').text = resp.etag
+        SubElement(result_elem, 'ETag').text = '"%s"' % s3_etag
+        del resp.headers['ETag']
 
         resp.body = tostring(result_elem)
         resp.status = 200

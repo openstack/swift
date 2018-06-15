@@ -185,7 +185,12 @@ class BucketController(Controller):
                 SubElement(contents, 'Key').text = o['name']
                 SubElement(contents, 'LastModified').text = \
                     o['last_modified'][:-3] + 'Z'
-                SubElement(contents, 'ETag').text = '"%s"' % o['hash']
+                if 's3_etag' in o:
+                    # New-enough MUs are already in the right format
+                    etag = o['s3_etag']
+                else:
+                    etag = '"%s"' % o['hash']
+                SubElement(contents, 'ETag').text = etag
                 SubElement(contents, 'Size').text = str(o['bytes'])
                 if fetch_owner or not is_v2:
                     owner = SubElement(contents, 'Owner')

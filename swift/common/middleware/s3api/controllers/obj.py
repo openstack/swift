@@ -14,10 +14,11 @@
 # limitations under the License.
 
 from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_NO_CONTENT
+from swift.common.request_helpers import update_etag_is_at_header
 from swift.common.swob import Range, content_range_header_value
 from swift.common.utils import public
 
-from swift.common.middleware.s3api.utils import S3Timestamp
+from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRange, NoSuchKey, InvalidArgument, HTTPNoContent
@@ -61,6 +62,11 @@ class ObjectController(Controller):
         return resp
 
     def GETorHEAD(self, req):
+        if any(match_header in req.headers
+               for match_header in ('if-match', 'if-none-match')):
+            # Update where to look
+            update_etag_is_at_header(req, sysmeta_header('object', 'etag'))
+
         resp = req.get_response(self.app)
 
         if req.method == 'HEAD':

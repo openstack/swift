@@ -26,9 +26,11 @@ class TestResponse(unittest.TestCase):
         for expected, header_vals in \
                 ((True, ('true', '1')), (False, ('false', 'ugahhh', None))):
             for val in header_vals:
-                resp = Response(headers={'X-Static-Large-Object': val})
+                resp = Response(headers={'X-Static-Large-Object': val,
+                                         'Etag': 'theetag'})
                 s3resp = S3Response.from_swift_resp(resp)
                 self.assertEqual(expected, s3resp.is_slo)
+                self.assertEqual('"theetag"', s3resp.headers['ETag'])
 
     def test_response_s3api_sysmeta_headers(self):
         for _server_type in ('object', 'container'):
