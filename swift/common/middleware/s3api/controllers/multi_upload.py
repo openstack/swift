@@ -74,7 +74,7 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     ErrorResponse, MalformedXML, \
     InvalidPart, BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, \
     InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \
-    NoSuchBucket
+    NoSuchBucket, BucketAlreadyOwnedByYou
 from swift.common.middleware.s3api.exception import BadSwiftRequest
 from swift.common.middleware.s3api.utils import unique_id, \
     MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
@@ -361,7 +361,7 @@ class UploadsController(Controller):
 
         try:
             req.get_response(self.app, 'PUT', container, '')
-        except BucketAlreadyExists:
+        except (BucketAlreadyExists, BucketAlreadyOwnedByYou):
             pass
 
         obj = '%s/%s' % (req.object_name, upload_id)

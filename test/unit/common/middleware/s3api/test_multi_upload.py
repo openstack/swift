@@ -34,8 +34,6 @@ from test.unit.common.middleware.s3api.test_s3_acl import s3acl
 from swift.common.middleware.s3api.utils import sysmeta_header, mktime, \
     S3Timestamp
 from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
-from swift.common.middleware.s3api.controllers.multi_upload import \
-    MULTIUPLOAD_SUFFIX
 
 xml = '<CompleteMultipartUpload>' \
     '<Part>' \
@@ -549,11 +547,14 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(req_headers.get('X-Object-Meta-Foo'), 'bar')
         self.assertNotIn('Etag', req_headers)
         self.assertNotIn('Content-MD5', req_headers)
-        method, path, _ = self.swift.calls_with_headers[-2]
-        self.assertEqual(method, 'PUT')
-        self.assertEqual(
-            path,
-            '/v1/AUTH_test/bucket%s' % MULTIUPLOAD_SUFFIX)
+        self.assertEqual([
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('PUT', '/v1/AUTH_test/bucket+segments'),
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket+segments'),
+            ('PUT', '/v1/AUTH_test/bucket+segments/object/X'),
+        ], self.swift.calls)
+        self.swift.clear_calls()
 
     def test_object_multipart_upload_initiate(self):
         self._test_object_multipart_upload_initiate({})
