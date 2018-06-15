@@ -20,7 +20,7 @@ from swift.common.utils import public
 from swift.common.middleware.s3api.utils import S3Timestamp
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
-    InvalidRange, NoSuchKey, InvalidArgument
+    InvalidRange, NoSuchKey, InvalidArgument, HTTPNoContent
 
 
 class ObjectController(Controller):
@@ -143,5 +143,6 @@ class ObjectController(Controller):
         except NoSuchKey:
             # expect to raise NoSuchBucket when the bucket doesn't exist
             req.get_container_info(self.app)
-            raise
+            # else -- it's gone! Success.
+            return HTTPNoContent()
         return resp
