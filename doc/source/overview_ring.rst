@@ -361,6 +361,11 @@ Composite Rings
 ---------------
 .. automodule:: swift.common.ring.composite_builder
 
+**********************************
+swift-ring-composer (Experimental)
+**********************************
+.. automodule:: swift.cli.ringcomposer
+
 ---------------------
 Ring Builder Analyzer
 ---------------------
