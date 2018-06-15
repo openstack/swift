@@ -35,6 +35,7 @@ class FakeSwift(object):
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
         self.s3_acl = s3_acl
+        self.remote_user = 'authorized'
 
     def _fake_auth_middleware(self, env):
         if 'swift.authorize_override' in env:
@@ -50,7 +51,8 @@ class FakeSwift(object):
         path = env['PATH_INFO']
         env['PATH_INFO'] = path.replace(tenant_user, 'AUTH_' + tenant)
 
-        env['REMOTE_USER'] = 'authorized'
+        if self.remote_user:
+            env['REMOTE_USER'] = self.remote_user
 
         if env['REQUEST_METHOD'] == 'TEST':
 

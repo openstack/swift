@@ -50,7 +50,10 @@ class TestS3ApiService(S3ApiTestCase):
         self.setup_buckets()
 
     def test_service_GET_error(self):
-        code = self._test_method_error('GET', '', swob.HTTPUnauthorized)
+        code = self._test_method_error(
+            'GET', '', swob.HTTPUnauthorized, expected_xml_tags=(
+                'Code', 'Message', 'AWSAccessKeyId', 'StringToSign',
+                'StringToSignBytes', 'SignatureProvided'))
         self.assertEqual(code, 'SignatureDoesNotMatch')
         code = self._test_method_error('GET', '', swob.HTTPForbidden)
         self.assertEqual(code, 'AccessDenied')
