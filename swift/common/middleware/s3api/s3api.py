@@ -165,7 +165,6 @@ class S3ApiMiddleware(object):
 
     def handle_request(self, req):
         self.logger.debug('Calling S3Api Middleware')
-        self.logger.debug(req.__dict__)
         try:
             controller = req.controller(self.app, self.conf, self.logger)
         except S3NotImplemented:
