@@ -128,8 +128,14 @@ class FakeSwift(object):
             method == 'PUT' and
             'X-Copy-From' in req.headers and
             'Range' in req.headers)
-        resp = resp_class(req=req, headers=headers, body=body,
-                          conditional_response=support_range_and_conditional)
+        if isinstance(body, list):
+            app_iter = body
+            body = None
+        else:
+            app_iter = None
+        resp = resp_class(
+            req=req, headers=headers, body=body, app_iter=app_iter,
+            conditional_response=support_range_and_conditional)
         return resp(env, start_response)
 
     @property

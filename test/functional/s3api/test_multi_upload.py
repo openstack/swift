@@ -303,8 +303,14 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertCommonResponseHeaders(headers)
         self.assertTrue('content-type' in headers)
         self.assertEqual(headers['content-type'], 'application/xml')
-        self.assertTrue('content-length' in headers)
-        self.assertEqual(headers['content-length'], str(len(body)))
+        if 'content-length' in headers:
+            self.assertEqual(headers['content-length'], str(len(body)))
+        else:
+            self.assertIn('transfer-encoding', headers)
+            self.assertEqual(headers['transfer-encoding'], 'chunked')
+        lines = body.split('\n')
+        self.assertTrue(lines[0].startswith('<?xml'), body)
+        self.assertTrue(lines[0].endswith('?>'), body)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
         # TODO: use tf.config value
         self.assertEqual(
