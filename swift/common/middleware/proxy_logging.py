@@ -152,9 +152,6 @@ class ProxyLoggingMiddleware(object):
         :param resp_headers: dict of the response headers
         """
         resp_headers = resp_headers or {}
-        the_request = req.path
-        if req.query_string:
-            the_request = the_request + '?' + req.query_string
         logged_headers = None
         if self.log_hdrs:
             if self.log_hdrs_only:
@@ -179,7 +176,7 @@ class ProxyLoggingMiddleware(object):
                 req.remote_addr,
                 end_gmtime_str,
                 method,
-                the_request,
+                req.path_qs,
                 req.environ.get('SERVER_PROTOCOL'),
                 status_int,
                 req.referer,
