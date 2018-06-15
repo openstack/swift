@@ -486,6 +486,35 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('HEAD', dst_bucket, dst_obj)
         self.assertEqual(headers['x-amz-meta-test'], 'dst')
 
+        headers = {'X-Amz-Copy-Source': '/%s/%s' % (self.bucket, obj),
+                   'X-Amz-Metadata-Directive': 'COPY',
+                   'X-Amz-Meta-Test': 'dst'}
+        status, headers, body = \
+            self.conn.make_request('PUT', dst_bucket, dst_obj, headers)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        status, headers, body = \
+            self.conn.make_request('HEAD', dst_bucket, dst_obj)
+        self.assertEqual(headers['x-amz-meta-test'], 'src')
+
+        headers = {'X-Amz-Copy-Source': '/%s/%s' % (self.bucket, obj),
+                   'X-Amz-Meta-Test2': 'dst',
+                   'X-Amz-Metadata-Directive': 'REPLACE'}
+        status, headers, body = \
+            self.conn.make_request('PUT', dst_bucket, dst_obj, headers)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        status, headers, body = \
+            self.conn.make_request('HEAD', dst_bucket, dst_obj)
+        self.assertNotIn('x-amz-meta-test', headers)
+        self.assertEqual(headers['x-amz-meta-test2'], 'dst')
+
+        headers = {'X-Amz-Copy-Source': '/%s/%s' % (self.bucket, obj),
+                   'X-Amz-Metadata-Directive': 'BAD'}
+        status, headers, body = \
+            self.conn.make_request('PUT', dst_bucket, dst_obj, headers)
+        self.assertEqual(status, 400)
+
     def test_put_object_copy_source_if_modified_since(self):
         obj = 'object'
         dst_bucket = 'dst-bucket'
