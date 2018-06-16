@@ -124,9 +124,41 @@ class Connection(object):
         self.password = config['password']
 
         self.storage_netloc = None
-        self.storage_url = None
-
+        self.storage_path = None
         self.conn_class = None
+
+    @property
+    def storage_url(self):
+        return '%s://%s/%s' % (self.storage_scheme, self.storage_netloc,
+                               self.storage_path)
+
+    @storage_url.setter
+    def storage_url(self, value):
+        url = urllib.parse.urlparse(value)
+
+        if url.scheme == 'http':
+            self.conn_class = http_client.HTTPConnection
+        elif url.scheme == 'https':
+            self.conn_class = http_client.HTTPSConnection
+        else:
+            raise ValueError('unexpected protocol %s' % (url.scheme))
+
+        self.storage_netloc = url.netloc
+        # Make sure storage_path is a string and not unicode, since
+        # keystoneclient (called by swiftclient) returns them in
+        # unicode and this would cause troubles when doing
+        # no_safe_quote query.
+        x = url.path.split('/')
+        self.storage_path = str('/%s/%s' % (x[1], x[2]))
+        self.account_name = str(x[2])
+
+    @property
+    def storage_scheme(self):
+        if self.conn_class is None:
+            return None
+        if issubclass(self.conn_class, http_client.HTTPSConnection):
+            return 'https'
+        return 'http'
 
     def get_account(self):
         return Account(self, self.account)
@@ -164,23 +196,7 @@ class Connection(object):
         if not (storage_url and storage_token):
             raise AuthenticationFailed()
 
-        url = urllib.parse.urlparse(storage_url)
-
-        if url.scheme == 'http':
-            self.conn_class = http_client.HTTPConnection
-        elif url.scheme == 'https':
-            self.conn_class = http_client.HTTPSConnection
-        else:
-            raise ValueError('unexpected protocol %s' % (url.scheme))
-
-        self.storage_netloc = url.netloc
-        # Make sure storage_url is a string and not unicode, since
-        # keystoneclient (called by swiftclient) returns them in
-        # unicode and this would cause troubles when doing
-        # no_safe_quote query.
-        x = url.path.split('/')
-        self.storage_url = str('/%s/%s' % (x[1], x[2]))
-        self.account_name = str(x[2])
+        self.storage_url = storage_url
         self.auth_user = auth_user
         # With v2 keystone, storage_token is unicode.
         # We want it to be string otherwise this would cause
@@ -190,7 +206,7 @@ class Connection(object):
         self.user_acl = '%s:%s' % (self.account, self.username)
 
         self.http_connect()
-        return self.storage_url, self.storage_token
+        return self.storage_path, self.storage_token
 
     def cluster_info(self):
         """
@@ -205,7 +221,7 @@ class Connection(object):
         return json.loads(self.response.read())
 
     def http_connect(self):
-        if issubclass(self.conn_class, http_client.HTTPSConnection) and \
+        if self.storage_scheme == 'https' and \
                 self.insecure and sys.version_info >= (2, 7, 9):
             import ssl
             self.connection = self.conn_class(
@@ -221,16 +237,16 @@ class Connection(object):
             cfg = {}
 
         if cfg.get('version_only_path'):
-            return '/' + self.storage_url.split('/')[1]
+            return '/' + self.storage_path.split('/')[1]
 
         if path:
             quote = urllib.parse.quote
             if cfg.get('no_quote') or cfg.get('no_path_quote'):
                 quote = lambda x: x
-            return '%s/%s' % (self.storage_url,
+            return '%s/%s' % (self.storage_path,
                               '/'.join([quote(i) for i in path]))
         else:
-            return self.storage_url
+            return self.storage_path
 
     def make_headers(self, hdrs, cfg=None):
         if cfg is None:
