@@ -1106,15 +1106,19 @@ class TestProxyProtocol(unittest.TestCase):
             ]) + '\r\n'
             return [body.encode("utf-8")]
 
+        addr = ('127.0.0.1', 8359)
         fake_tcp_socket = mock.Mock(
             setsockopt=lambda *a: None,
             makefile=lambda mode, bufsize: rfile if 'r' in mode else wfile,
+            getsockname=lambda *a: addr
         )
-        fake_listen_socket = mock.Mock(accept=mock.MagicMock(
-            side_effect=[[fake_tcp_socket, ('127.0.0.1', 8359)],
-                         # KeyboardInterrupt breaks the WSGI server out of
-                         # its infinite accept-process-close loop.
-                         KeyboardInterrupt]))
+        fake_listen_socket = mock.Mock(
+            accept=mock.MagicMock(
+                side_effect=[[fake_tcp_socket, addr],
+                             # KeyboardInterrupt breaks the WSGI server out of
+                             # its infinite accept-process-close loop.
+                             KeyboardInterrupt]),
+            getsockname=lambda *a: addr)
         del fake_listen_socket.do_handshake
 
         # If we let the WSGI server close rfile/wfile then we can't access
