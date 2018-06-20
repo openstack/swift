@@ -1043,14 +1043,14 @@ class TestSwiftHttpProtocol(unittest.TestCase):
         delattr(proto_obj.server.app, 'logger')
 
         proto_obj.log_message('a%sc', 'b')
-        self.assertEqual([mock.call.error('ERROR WSGI: a%sc', 'b')],
+        self.assertEqual([mock.call.info('ERROR WSGI: a%sc', 'b')],
                          proto_obj.server.log.mock_calls)
 
         proto_obj.server.log.reset_mock()
         proto_obj.server.app.logger = None
 
         proto_obj.log_message('a%sc', 'b')
-        self.assertEqual([mock.call.error('ERROR WSGI: a%sc', 'b')],
+        self.assertEqual([mock.call.info('ERROR WSGI: a%sc', 'b')],
                          proto_obj.server.log.mock_calls)
 
     def test_swift_http_protocol_parse_request_no_proxy(self):

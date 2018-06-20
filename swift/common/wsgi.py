@@ -432,8 +432,13 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
         """
         Redirect logging other messages by the underlying WSGI software.
         """
-        logger = getattr(self.server.app, 'logger', None) or self.server.log
-        logger.error('ERROR WSGI: ' + f, *a)
+        logger = getattr(self.server.app, 'logger', None)
+        if logger:
+            logger.error('ERROR WSGI: ' + f, *a)
+        else:
+            # eventlet<=0.17.4 doesn't have an error method, and in newer
+            # versions the output from error is same as info anyway
+            self.server.log.info('ERROR WSGI: ' + f, *a)
 
 
 class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
