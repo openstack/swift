@@ -1626,13 +1626,10 @@ class TestUtils(unittest.TestCase):
                 'log_facility': 'LOG_LOCAL3',
                 'log_address': '/foo/bar',
             }, 'server', log_route='server')
-            self.assertEqual([
+            self.assertEqual(
                 ((), {'address': '/foo/bar',
                       'facility': orig_sysloghandler.LOG_LOCAL3}),
-                # Second call is because /foo/bar didn't exist (and wasn't a
-                # UNIX domain socket).
-                ((), {'facility': orig_sysloghandler.LOG_LOCAL3})],
-                syslog_handler_args)
+                syslog_handler_args[0])
 
             # Using UDP with default port
             syslog_handler_args = []
