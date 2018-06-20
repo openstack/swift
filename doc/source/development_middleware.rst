@@ -77,9 +77,8 @@ presented below::
     from swift.common.http import is_success
     from swift.common.swob import wsgify
     from swift.common.utils import split_path, get_logger
-    from swift.common.request_helper import get_sys_meta_prefix
+    from swift.common.request_helpers import get_sys_meta_prefix
     from swift.proxy.controllers.base import get_container_info
-
     from eventlet import Timeout
     import six
     if six.PY3:
@@ -92,7 +91,6 @@ presented below::
 
 
     class WebhookMiddleware(object):
-
         def __init__(self, app, conf):
             self.app = app
             self.logger = get_logger(conf, log_route='webhook')
@@ -141,8 +139,9 @@ presented below::
     def webhook_factory(global_conf, **local_conf):
         conf = global_conf.copy()
         conf.update(local_conf)
-        def webhook_filter(app, conf):
-            return WebhookMiddleware(app)
+
+        def webhook_filter(app):
+            return WebhookMiddleware(app, conf)
         return webhook_filter
 
 In practice this middleware will call the URL stored on the container as
