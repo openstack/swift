@@ -187,6 +187,11 @@ class BaseTestContainerSharding(ReplProbeTest):
         return self.direct_container_op(direct_client.direct_head_container,
                                         account, container, expect_failure)
 
+    def direct_get_container(self, account=None, container=None,
+                             expect_failure=False):
+        return self.direct_container_op(direct_client.direct_get_container,
+                                        account, container, expect_failure)
+
     def get_storage_dir(self, part, node, account=None, container=None):
         account = account or self.brain.account
         container = container or self.container_name
@@ -583,8 +588,9 @@ class TestContainerSharding(BaseTestContainerSharding):
         # received the shard ranges that got defined
         found = self.categorize_container_dir_content()
         self.assertLengthEqual(found['shard_dbs'], 1)
-        broker = ContainerBroker(found['shard_dbs'][0])
-        # TODO: assert the shard db is on replica 0
+        broker = self.get_broker(self.brain.part, self.brain.nodes[0])
+        # sanity check - the shard db is on replica 0
+        self.assertEqual(found['shard_dbs'][0], broker.db_file)
         self.assertIs(True, broker.is_root_container())
         self.assertEqual('sharded', broker.get_db_state())
         orig_root_shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
@@ -600,11 +606,14 @@ class TestContainerSharding(BaseTestContainerSharding):
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('unsharded', broker.get_db_state())
+            shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
+            self.assertEqual([ShardRange.CREATED, ShardRange.CREATED],
+                             [sr['state'] for sr in shard_ranges])
             # the sharded db had shard range meta_timestamps and state updated
             # during cleaving, so we do not expect those to be equal on other
             # nodes
             self.assert_shard_range_lists_equal(
-                orig_root_shard_ranges, broker.get_shard_ranges(),
+                orig_root_shard_ranges, shard_ranges,
                 excludes=['meta_timestamp', 'state', 'state_timestamp'])
 
         if run_replicators:
@@ -827,7 +836,12 @@ class TestContainerSharding(BaseTestContainerSharding):
         # add another object that lands in the first of the new sub-shards
         self.put_objects(['alpha'])
 
-        # TODO: assert that alpha is in the first new shard
+        # check that alpha object is in the first new shard
+        shard_listings = self.direct_get_container(shard_shards[0].account,
+                                                   shard_shards[0].container)
+        for node, (hdrs, listing) in shard_listings.items():
+            with annotate_failure(node):
+                self.assertIn('alpha', [o['name'] for o in listing])
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
         # Run sharders again so things settle.
         self.run_sharders(shard_1)
@@ -1029,7 +1043,17 @@ class TestContainerSharding(BaseTestContainerSharding):
             self.assertEqual(len(obj_names) * 3 // 5,
                              broker.get_info()['object_count'])
 
-        # TODO: confirm that the updates got redirected to the shards
+        # confirm that the async pending updates got redirected to the shards
+        for sr in expected_shard_ranges:
+            shard_listings = self.direct_get_container(sr.account,
+                                                       sr.container)
+            for node, (hdrs, listing) in shard_listings.items():
+                shard_listing_names = [o['name'] for o in listing]
+                for obj in obj_names[4::5]:
+                    if obj in sr:
+                        self.assertIn(obj, shard_listing_names)
+                    else:
+                        self.assertNotIn(obj, shard_listing_names)
 
         # The entire listing is not yet available - we have two cleaved shard
         # ranges, complete with async updates, but for the remainder of the
@@ -1045,21 +1069,20 @@ class TestContainerSharding(BaseTestContainerSharding):
         # there should be something
         self.assertTrue(
             [x['name'].encode('utf-8') for x in listing[len(start_listing):]])
-        # Object count is hard to reason about though!
-        # TODO: nail down what this *should* be and make sure all containers
-        # respond with it! Depending on what you're looking at, this
-        # could be 0, 1/2, 7/12 (!?), 3/5, 2/3, or 4/5 or all objects!
-        # Apparently, it may not even be present at all!
-        # self.assertIn('x-container-object-count', headers)
-        # self.assertEqual(headers['x-container-object-count'],
-        #                  str(len(obj_names) - len(obj_names) // 6))
-
-        # TODO: Doesn't work in reverse, yet
-        # headers, listing = client.get_container(self.url, self.token,
-        #                                         self.container_name,
-        #                                         query_string='reverse=on')
-        # self.assertEqual([x['name'].encode('utf-8') for x in listing],
-        #                  obj_names[::-1])
+        self.assertIn('x-container-object-count', headers)
+        self.assertEqual(str(len(listing)),
+                         headers['x-container-object-count'])
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name,
+                                                query_string='reverse=on')
+        self.assertEqual([x['name'].encode('utf-8')
+                          for x in listing[-len(start_listing):]],
+                         list(reversed(start_listing)))
+        self.assertIn('x-container-object-count', headers)
+        self.assertEqual(str(len(listing)),
+                         headers['x-container-object-count'])
+        self.assertTrue(
+            [x['name'].encode('utf-8') for x in listing[:-len(start_listing)]])
 
         # Run the sharders again to get everything to settle
         self.sharders.once()
@@ -1211,14 +1234,10 @@ class TestContainerSharding(BaseTestContainerSharding):
 
             # while container servers are down, but proxy has container info in
             # cache from recent listing, put another object; this update will
-            # lurk in async pending until the updaters run again
-            # TODO: because all the root container servers are down and
-            # therefore cannot respond to a GET for a redirect target, the
-            # object update will default to being targeted at the root
-            # container; can we provoke an object update that does get targeted
-            # to the shard, but fails to update shard, so that the async
-            # pending will first be directed to the shard when the updaters
-            # run?
+            # lurk in async pending until the updaters run again; because all
+            # the root container servers are down and therefore cannot respond
+            # to a GET for a redirect target, the object update will default to
+            # being targeted at the root container
             self.stop_container_servers()
             self.put_objects([beta])
             self.brain.servers.start()
@@ -1282,10 +1301,9 @@ class TestContainerSharding(BaseTestContainerSharding):
             self.assertEqual(exp_obj_count, obj_count)
 
             # the donor shard is also still intact
-            # TODO: once we have figured out when these redundant donors are
-            # deleted, test for deletion/clean up
+            donor = orig_shard_ranges[0]
             shard_nodes_data = self.direct_get_container_shard_ranges(
-                orig_shard_ranges[0].account, orig_shard_ranges[0].container)
+                donor.account, donor.container)
             # the donor's shard range will have the acceptor's projected stats
             obj_count, bytes_used = check_shard_nodes_data(
                 shard_nodes_data, expected_state='sharded', expected_shards=1,
@@ -1293,6 +1311,16 @@ class TestContainerSharding(BaseTestContainerSharding):
             # but the donor is empty and so reports zero stats
             self.assertEqual(0, obj_count)
             self.assertEqual(0, bytes_used)
+            # check the donor own shard range state
+            part, nodes = self.brain.ring.get_nodes(
+                donor.account, donor.container)
+            for node in nodes:
+                with annotate_failure(node):
+                    broker = self.get_broker(
+                        part, node, donor.account, donor.container)
+                    own_sr = broker.get_own_shard_range()
+                    self.assertEqual(ShardRange.SHARDED, own_sr.state)
+                    self.assertTrue(own_sr.deleted)
 
             # delete all the second shard's object apart from 'alpha'
             for obj in second_shard_objects:
