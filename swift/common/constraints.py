@@ -24,7 +24,7 @@ from six.moves import urllib
 from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge, HTTPPreconditionFailed, HTTPNotImplemented, \
-    HTTPException
+    HTTPException, str_from_wsgi
 
 MAX_FILE_SIZE = 5368709122
 MAX_META_NAME_LENGTH = 128
@@ -141,8 +141,8 @@ def check_metadata(req, target_type):
         if not key:
             return HTTPBadRequest(body='Metadata name cannot be empty',
                                   request=req, content_type='text/plain')
-        bad_key = not check_utf8(key)
-        bad_value = value and not check_utf8(value)
+        bad_key = not check_utf8(str_from_wsgi(key))
+        bad_value = value and not check_utf8(str_from_wsgi(value))
         if target_type in ('account', 'container') and (bad_key or bad_value):
             return HTTPBadRequest(body='Metadata must be valid UTF-8',
                                   request=req, content_type='text/plain')
@@ -215,7 +215,7 @@ def check_object_creation(req, object_name):
         return HTTPBadRequest(request=req, body=e.body,
                               content_type='text/plain')
 
-    if not check_utf8(req.headers['Content-Type']):
+    if not check_utf8(str_from_wsgi(req.headers['Content-Type'])):
         return HTTPBadRequest(request=req, body='Invalid Content-Type',
                               content_type='text/plain')
     return check_metadata(req, 'object')
@@ -359,16 +359,18 @@ def check_utf8(string):
         return False
     try:
         if isinstance(string, six.text_type):
-            string.encode('utf-8')
+            encoded = string.encode('utf-8')
+            decoded = string
         else:
+            encoded = string
             decoded = string.decode('UTF-8')
-            if decoded.encode('UTF-8') != string:
+            if decoded.encode('UTF-8') != encoded:
                 return False
-            # A UTF-8 string with surrogates in it is invalid.
-            if any(0xD800 <= ord(codepoint) <= 0xDFFF
-                   for codepoint in decoded):
-                return False
-        return '\x00' not in string
+        # A UTF-8 string with surrogates in it is invalid.
+        if any(0xD800 <= ord(codepoint) <= 0xDFFF
+               for codepoint in decoded):
+            return False
+        return b'\x00' not in encoded
     # If string is unicode, decode() will raise UnicodeEncodeError
     # So, we should catch both UnicodeDecodeError & UnicodeEncodeError
     except UnicodeError:
@@ -392,7 +394,7 @@ def check_name_format(req, name, target_type):
             body='%s name cannot be empty' % target_type)
     if isinstance(name, six.text_type):
         name = name.encode('utf-8')
-    if '/' in name:
+    if b'/' in name:
         raise HTTPPreconditionFailed(
             request=req,
             body='%s name cannot contain slashes' % target_type)

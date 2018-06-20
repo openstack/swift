@@ -219,7 +219,11 @@ def _header_int_property(header):
 
 
 def header_to_environ_key(header_name):
-    header_name = 'HTTP_' + header_name.replace('-', '_').upper()
+    # Why the to/from wsgi dance? Headers that include something like b'\xff'
+    # on the wire get translated to u'\u00ff' on py3, which gets upper()ed to
+    # u'\u0178', which is nonsense in a WSGI string.
+    real_header = str_from_wsgi(header_name)
+    header_name = 'HTTP_' + str_to_wsgi(real_header.upper()).replace('-', '_')
     if header_name == 'HTTP_CONTENT_LENGTH':
         return 'CONTENT_LENGTH'
     if header_name == 'HTTP_CONTENT_TYPE':
@@ -251,8 +255,10 @@ class HeaderEnvironProxy(MutableMapping):
     def __setitem__(self, key, value):
         if value is None:
             self.environ.pop(header_to_environ_key(key), None)
-        elif isinstance(value, six.text_type):
+        elif six.PY2 and isinstance(value, six.text_type):
             self.environ[header_to_environ_key(key)] = value.encode('utf-8')
+        elif not six.PY2 and isinstance(value, six.binary_type):
+            self.environ[header_to_environ_key(key)] = value.decode('latin1')
         else:
             self.environ[header_to_environ_key(key)] = str(value)
 
@@ -263,13 +269,26 @@ class HeaderEnvironProxy(MutableMapping):
         del self.environ[header_to_environ_key(key)]
 
     def keys(self):
-        keys = [key[5:].replace('_', '-').title()
+        # See the to/from WSGI comment in header_to_environ_key
+        keys = [str_to_wsgi(str_from_wsgi(key[5:]).replace('_', '-').title())
                 for key in self.environ if key.startswith('HTTP_')]
         if 'CONTENT_LENGTH' in self.environ:
             keys.append('Content-Length')
         if 'CONTENT_TYPE' in self.environ:
             keys.append('Content-Type')
         return keys
+
+
+def str_from_wsgi(wsgi_str):
+    if six.PY2:
+        return wsgi_str
+    return wsgi_str.encode('latin1').decode('utf8', errors='surrogateescape')
+
+
+def str_to_wsgi(native_str):
+    if six.PY2:
+        return native_str
+    return native_str.encode('utf8', errors='surrogateescape').decode('latin1')
 
 
 def _resp_status_property():

@@ -44,22 +44,23 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Metadata name cannot be empty', resp.body)
+        self.assertIn(b'Metadata name cannot be empty', resp.body)
 
     def test_check_metadata_non_utf8(self):
-        headers = {'X-Account-Meta-Foo': b'\xff'}
+        # Consciously using native "WSGI strings" in headers
+        headers = {'X-Account-Meta-Foo': '\xff'}
         resp = constraints.check_metadata(Request.blank(
             '/', headers=headers), 'account')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Metadata must be valid UTF-8', resp.body)
+        self.assertIn(b'Metadata must be valid UTF-8', resp.body)
 
-        headers = {b'X-Container-Meta-\xff': 'foo'}
+        headers = {'X-Container-Meta-\xff': 'foo'}
         resp = constraints.check_metadata(Request.blank(
             '/', headers=headers), 'container')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Metadata must be valid UTF-8', resp.body)
+        self.assertIn(b'Metadata must be valid UTF-8', resp.body)
         # Object's OK; its metadata isn't serialized as JSON
-        headers = {'X-Object-Meta-Foo': b'\xff'}
+        headers = {'X-Object-Meta-Foo': '\xff'}
         self.assertIsNone(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'))
 
@@ -75,8 +76,8 @@ class TestConstraints(unittest.TestCase):
             '/', headers=headers), 'object')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
         self.assertIn(
-            ('X-Object-Meta-%s' % name).lower(), resp.body.lower())
-        self.assertIn('Metadata name too long', resp.body)
+            b'x-object-meta-%s' % name.encode('ascii'), resp.body.lower())
+        self.assertIn(b'Metadata name too long', resp.body)
 
     def test_check_metadata_value_length(self):
         value = 'a' * constraints.MAX_META_VALUE_LENGTH
@@ -89,10 +90,10 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('x-object-meta-name', resp.body.lower())
+        self.assertIn(b'x-object-meta-name', resp.body.lower())
         self.assertIn(
-            str(constraints.MAX_META_VALUE_LENGTH), resp.body)
-        self.assertIn('Metadata value longer than 256', resp.body)
+            str(constraints.MAX_META_VALUE_LENGTH).encode('ascii'), resp.body)
+        self.assertIn(b'Metadata value longer than 256', resp.body)
 
     def test_check_metadata_count(self):
         headers = {}
@@ -105,7 +106,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Too many metadata items', resp.body)
+        self.assertIn(b'Too many metadata items', resp.body)
 
     def test_check_metadata_size(self):
         headers = {}
@@ -132,7 +133,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Total metadata too large', resp.body)
+        self.assertIn(b'Total metadata too large', resp.body)
 
     def test_check_object_creation_content_length(self):
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE),
@@ -160,7 +161,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Invalid Transfer-Encoding header value', resp.body)
+        self.assertIn(b'Invalid Transfer-Encoding header value', resp.body)
 
         headers = {'Content-Type': 'text/plain',
                    'X-Timestamp': str(time.time())}
@@ -174,7 +175,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Invalid Content-Length header value', resp.body)
+        self.assertIn(b'Invalid Content-Length header value', resp.body)
 
         headers = {'Transfer-Encoding': 'gzip,chunked',
                    'Content-Type': 'text/plain',
@@ -195,7 +196,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), name)
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Object name length of %d longer than %d' %
+        self.assertIn(b'Object name length of %d longer than %d' %
                       (MAX_OBJECT_NAME_LENGTH + 1, MAX_OBJECT_NAME_LENGTH),
                       resp.body)
 
@@ -211,7 +212,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('No content type', resp.body)
+        self.assertIn(b'No content type', resp.body)
 
     def test_check_object_creation_bad_content_type(self):
         headers = {'Transfer-Encoding': 'chunked',
@@ -220,7 +221,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Content-Type', resp.body)
+        self.assertIn(b'Content-Type', resp.body)
 
     def test_check_object_creation_bad_delete_headers(self):
         headers = {'Transfer-Encoding': 'chunked',
@@ -230,7 +231,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Non-integer X-Delete-After', resp.body)
+        self.assertIn(b'Non-integer X-Delete-After', resp.body)
 
         t = str(int(time.time() - 60))
         headers = {'Transfer-Encoding': 'chunked',
@@ -240,7 +241,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('X-Delete-At in past', resp.body)
+        self.assertIn(b'X-Delete-At in past', resp.body)
 
     def test_check_delete_headers(self):
         # x-delete-at value should be relative to the request timestamp rather
@@ -265,7 +266,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Non-integer X-Delete-After', cm.exception.body)
+        self.assertIn(b'Non-integer X-Delete-After', cm.exception.body)
 
         headers = {'X-Delete-After': '60.1',
                    'X-Timestamp': ts.internal}
@@ -273,7 +274,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Non-integer X-Delete-After', cm.exception.body)
+        self.assertIn(b'Non-integer X-Delete-After', cm.exception.body)
 
         headers = {'X-Delete-After': '-1',
                    'X-Timestamp': ts.internal}
@@ -281,7 +282,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('X-Delete-After in past', cm.exception.body)
+        self.assertIn(b'X-Delete-After in past', cm.exception.body)
 
         headers = {'X-Delete-After': '0',
                    'X-Timestamp': ts.internal}
@@ -289,7 +290,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('X-Delete-After in past', cm.exception.body)
+        self.assertIn(b'X-Delete-After in past', cm.exception.body)
 
         # x-delete-after = 0 disallowed when it results in x-delete-at equal to
         # the timestamp
@@ -299,7 +300,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('X-Delete-After in past', cm.exception.body)
+        self.assertIn(b'X-Delete-After in past', cm.exception.body)
 
         # X-Delete-At
         delete_at = str(int(ts) + 100)
@@ -317,7 +318,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Non-integer X-Delete-At', cm.exception.body)
+        self.assertIn(b'Non-integer X-Delete-At', cm.exception.body)
 
         delete_at = str(int(ts) + 100) + '.1'
         headers = {'X-Delete-At': delete_at,
@@ -326,7 +327,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('Non-integer X-Delete-At', cm.exception.body)
+        self.assertIn(b'Non-integer X-Delete-At', cm.exception.body)
 
         delete_at = str(int(ts) - 1)
         headers = {'X-Delete-At': delete_at,
@@ -335,7 +336,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('X-Delete-At in past', cm.exception.body)
+        self.assertIn(b'X-Delete-At in past', cm.exception.body)
 
         # x-delete-at disallowed when exactly equal to timestamp
         delete_at = str(int(ts))
@@ -345,7 +346,7 @@ class TestConstraints(unittest.TestCase):
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
-        self.assertIn('X-Delete-At in past', cm.exception.body)
+        self.assertIn(b'X-Delete-At in past', cm.exception.body)
 
     def test_check_delete_headers_removes_delete_after(self):
         ts = utils.Timestamp.now()
@@ -468,30 +469,45 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_utf8(self):
         unicode_sample = u'\uc77c\uc601'
-        valid_utf8_str = unicode_sample.encode('utf-8')
-        invalid_utf8_str = unicode_sample.encode('utf-8')[::-1]
         unicode_with_null = u'abc\u0000def'
-        utf8_with_null = unicode_with_null.encode('utf-8')
 
-        for false_argument in [None,
-                               '',
-                               invalid_utf8_str,
-                               unicode_with_null,
-                               utf8_with_null]:
-            self.assertFalse(constraints.check_utf8(false_argument))
+        # Some false-y values
+        self.assertFalse(constraints.check_utf8(None))
+        self.assertFalse(constraints.check_utf8(''))
+        self.assertFalse(constraints.check_utf8(b''))
+        self.assertFalse(constraints.check_utf8(u''))
 
-        for true_argument in ['this is ascii and utf-8, too',
-                              unicode_sample,
-                              valid_utf8_str]:
-            self.assertTrue(constraints.check_utf8(true_argument))
+        # invalid utf8 bytes
+        self.assertFalse(constraints.check_utf8(
+            unicode_sample.encode('utf-8')[::-1]))
+        # unicode with null
+        self.assertFalse(constraints.check_utf8(unicode_with_null))
+        # utf8 bytes with null
+        self.assertFalse(constraints.check_utf8(
+            unicode_with_null.encode('utf8')))
+
+        self.assertTrue(constraints.check_utf8('this is ascii and utf-8, too'))
+        self.assertTrue(constraints.check_utf8(unicode_sample))
+        self.assertTrue(constraints.check_utf8(unicode_sample.encode('utf8')))
 
     def test_check_utf8_non_canonical(self):
-        self.assertFalse(constraints.check_utf8('\xed\xa0\xbc\xed\xbc\xb8'))
-        self.assertFalse(constraints.check_utf8('\xed\xa0\xbd\xed\xb9\x88'))
+        self.assertFalse(constraints.check_utf8(b'\xed\xa0\xbc\xed\xbc\xb8'))
+        self.assertTrue(constraints.check_utf8(u'\U0001f338'))
+        self.assertTrue(constraints.check_utf8(b'\xf0\x9f\x8c\xb8'))
+        self.assertTrue(constraints.check_utf8(u'\U0001f338'.encode('utf8')))
+        self.assertFalse(constraints.check_utf8(b'\xed\xa0\xbd\xed\xb9\x88'))
+        self.assertTrue(constraints.check_utf8(u'\U0001f648'))
 
     def test_check_utf8_lone_surrogates(self):
-        self.assertFalse(constraints.check_utf8('\xed\xa0\xbc'))
-        self.assertFalse(constraints.check_utf8('\xed\xb9\x88'))
+        self.assertFalse(constraints.check_utf8(b'\xed\xa0\xbc'))
+        self.assertFalse(constraints.check_utf8(u'\ud83c'))
+        self.assertFalse(constraints.check_utf8(b'\xed\xb9\x88'))
+        self.assertFalse(constraints.check_utf8(u'\ude48'))
+
+        self.assertFalse(constraints.check_utf8(u'\ud800'))
+        self.assertFalse(constraints.check_utf8(u'\udc00'))
+        self.assertFalse(constraints.check_utf8(u'\udcff'))
+        self.assertFalse(constraints.check_utf8(u'\udfff'))
 
     def test_validate_bad_meta(self):
         req = Request.blank(
@@ -500,8 +516,9 @@ class TestConstraints(unittest.TestCase):
                      'ab' * constraints.MAX_HEADER_SIZE})
         self.assertEqual(constraints.check_metadata(req, 'object').status_int,
                          HTTP_BAD_REQUEST)
-        self.assertIn('x-object-meta-hello', constraints.check_metadata(req,
-                      'object').body.lower())
+        resp = constraints.check_metadata(req, 'object')
+        self.assertIsNotNone(resp)
+        self.assertIn(b'x-object-meta-hello', resp.body.lower())
 
     def test_validate_constraints(self):
         c = constraints
@@ -537,7 +554,7 @@ class TestConstraints(unittest.TestCase):
                 constraints.check_container_format(
                     req, req.headers['X-Versions-Location'])
             self.assertTrue(cm.exception.body.startswith(
-                'Container name cannot'))
+                b'Container name cannot'))
 
     def test_valid_api_version(self):
         version = 'v1'
@@ -579,10 +596,10 @@ class TestConstraintsConfig(unittest.TestCase):
     def test_override_constraints(self):
         try:
             with tempfile.NamedTemporaryFile() as f:
-                f.write('[swift-constraints]\n')
+                f.write(b'[swift-constraints]\n')
                 # set everything to 1
                 for key in constraints.DEFAULT_CONSTRAINTS:
-                    f.write('%s = 1\n' % key)
+                    f.write(b'%s = 1\n' % key.encode('ascii'))
                 f.flush()
                 with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                     constraints.reload_constraints()
@@ -603,10 +620,10 @@ class TestConstraintsConfig(unittest.TestCase):
     def test_reload_reset(self):
         try:
             with tempfile.NamedTemporaryFile() as f:
-                f.write('[swift-constraints]\n')
+                f.write(b'[swift-constraints]\n')
                 # set everything to 1
                 for key in constraints.DEFAULT_CONSTRAINTS:
-                    f.write('%s = 1\n' % key)
+                    f.write(b'%s = 1\n' % key.encode('ascii'))
                 f.flush()
                 with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                     constraints.reload_constraints()
@@ -619,7 +636,7 @@ class TestConstraintsConfig(unittest.TestCase):
             # no constraints have been loaded from non-existent swift.conf
             self.assertFalse(constraints.SWIFT_CONSTRAINTS_LOADED)
             # no constraints are in OVERRIDE
-            self.assertEqual([], constraints.OVERRIDE_CONSTRAINTS.keys())
+            self.assertEqual([], list(constraints.OVERRIDE_CONSTRAINTS.keys()))
             # the EFFECTIVE constraints mirror DEFAULT
             self.assertEqual(constraints.EFFECTIVE_CONSTRAINTS,
                              constraints.DEFAULT_CONSTRAINTS)
