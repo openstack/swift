@@ -1541,8 +1541,16 @@ class TestUtils(unittest.TestCase):
         syslog_handler_catcher.LOG_LOCAL0 = orig_sysloghandler.LOG_LOCAL0
         syslog_handler_catcher.LOG_LOCAL3 = orig_sysloghandler.LOG_LOCAL3
 
+        # Some versions of python perform host resolution while initializing
+        # the handler. See https://bugs.python.org/issue30378
+        orig_getaddrinfo = socket.getaddrinfo
+
+        def fake_getaddrinfo(host, *args):
+            return orig_getaddrinfo('localhost', *args)
+
         with mock.patch.object(utils, 'ThreadSafeSysLogHandler',
-                               syslog_handler_catcher):
+                               syslog_handler_catcher), \
+                mock.patch.object(socket, 'getaddrinfo', fake_getaddrinfo):
             utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
