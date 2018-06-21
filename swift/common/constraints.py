@@ -367,6 +367,18 @@ def check_utf8(string):
             if decoded.encode('UTF-8') != encoded:
                 return False
         # A UTF-8 string with surrogates in it is invalid.
+        #
+        # Note: this check is only useful on Python 2. On Python 3, a
+        # bytestring with a UTF-8-encoded surrogate codepoint is (correctly)
+        # treated as invalid, so the decode() call above will fail.
+        #
+        # Note 2: this check requires us to use a wide build of Python 2. On
+        # narrow builds of Python 2, potato = u"\U0001F954" will have length
+        # 2, potato[0] == u"\ud83e" (surrogate), and potato[1] == u"\udda0"
+        # (also a surrogate), so even if it is correctly UTF-8 encoded as
+        # b'\xf0\x9f\xa6\xa0', it will not pass this check. Fortunately,
+        # most Linux distributions build Python 2 wide, and Python 3.3+
+        # removed the wide/narrow distinction entirely.
         if any(0xD800 <= ord(codepoint) <= 0xDFFF
                for codepoint in decoded):
             return False
