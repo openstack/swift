@@ -17,14 +17,14 @@ libxslt1-dev [platform:dpkg]
 memcached
 python-dev [platform:dpkg]
 python-devel [platform:rpm]
-python3-dev [platform:dpkg]
-python3-devel [platform:fedora platform:suse]
+python3-dev [platform:dpkg test]
+python3-devel [platform:fedora platform:suse test]
 # python3-devel does not pull in the python3 package on openSUSE so
 # we need to be explicit. The python3 package contains the XML module
 # which is required by a python3 virtualenv. Similarly, in python2,
 # the XML module is located in python-xml which is not pulled in
 # by python-devel as well. See https://bugzilla.suse.com/show_bug.cgi?id=1046990
-python3 [platform:suse]
+python3 [platform:suse test]
 python-xml [platform:suse]
 rsync
 xfsprogs
