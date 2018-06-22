@@ -23,7 +23,7 @@ from swift.common.middleware import crossdomain
 class FakeApp(object):
 
     def __call__(self, env, start_response):
-        return "FAKE APP"
+        return b"FAKE APP"
 
 
 def start_response(*args):
@@ -37,12 +37,12 @@ class TestCrossDomain(unittest.TestCase):
 
     # GET of /crossdomain.xml (default)
     def test_crossdomain_default(self):
-        expectedResponse = '<?xml version="1.0"?>\n' \
-            '<!DOCTYPE cross-domain-policy SYSTEM ' \
-            '"http://www.adobe.com/xml/dtds/cross-domain-policy.dtd" >\n' \
-            '<cross-domain-policy>\n' \
-            '<allow-access-from domain="*" secure="false" />\n' \
-            '</cross-domain-policy>'
+        expectedResponse = b'<?xml version="1.0"?>\n' \
+            b'<!DOCTYPE cross-domain-policy SYSTEM ' \
+            b'"http://www.adobe.com/xml/dtds/cross-domain-policy.dtd" >\n' \
+            b'<cross-domain-policy>\n' \
+            b'<allow-access-from domain="*" secure="false" />\n' \
+            b'</cross-domain-policy>'
 
         req = Request.blank('/crossdomain.xml',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -53,13 +53,13 @@ class TestCrossDomain(unittest.TestCase):
     def test_crossdomain_custom(self):
         conf = {'cross_domain_policy': '<dummy 1>\n<dummy 2>'}
         self.app = crossdomain.CrossDomainMiddleware(FakeApp(), conf)
-        expectedResponse = '<?xml version="1.0"?>\n' \
-            '<!DOCTYPE cross-domain-policy SYSTEM ' \
-            '"http://www.adobe.com/xml/dtds/cross-domain-policy.dtd" >\n' \
-            '<cross-domain-policy>\n' \
-            '<dummy 1>\n' \
-            '<dummy 2>\n' \
-            '</cross-domain-policy>'
+        expectedResponse = b'<?xml version="1.0"?>\n' \
+            b'<!DOCTYPE cross-domain-policy SYSTEM ' \
+            b'"http://www.adobe.com/xml/dtds/cross-domain-policy.dtd" >\n' \
+            b'<cross-domain-policy>\n' \
+            b'<dummy 1>\n' \
+            b'<dummy 2>\n' \
+            b'</cross-domain-policy>'
 
         req = Request.blank('/crossdomain.xml',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -70,7 +70,7 @@ class TestCrossDomain(unittest.TestCase):
     def test_crossdomain_pass(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, 'FAKE APP')
+        self.assertEqual(resp, b'FAKE APP')
 
     # Only GET is allowed on the /crossdomain.xml resource
     def test_crossdomain_get_only(self):
@@ -78,7 +78,7 @@ class TestCrossDomain(unittest.TestCase):
             req = Request.blank('/crossdomain.xml',
                                 environ={'REQUEST_METHOD': method})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, 'FAKE APP')
+        self.assertEqual(resp, b'FAKE APP')
 
 
 if __name__ == '__main__':
