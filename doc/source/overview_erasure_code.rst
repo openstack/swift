@@ -439,7 +439,7 @@ storage nodes fail, such that sufficient unique fragments are not available in
 the local region, a global EC cluster will proceed to read fragments from the
 other region(s). Random reads from the remote region are not guaranteed to
 return unique fragments; with EC Duplication there is a significantly high
-probability that the proxy sever will encounter a fragment that is a duplicate
+probability that the proxy server will encounter a fragment that is a duplicate
 of one it has already found in the local region. The proxy server will ignore
 these and make additional requests until it accumulates the required set of
 unique fragments, potentially searching all the primary and handoff locations
