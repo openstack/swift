@@ -38,7 +38,7 @@ class FakeApp(object):
                 raise StrangeException('whoa')
             raise Exception('An error occurred')
         if self.body_iter is None:
-            return ["FAKE APP"]
+            return [b"FAKE APP"]
         else:
             return self.body_iter
 
@@ -61,13 +61,13 @@ class TestCatchErrors(unittest.TestCase):
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, self.start_response)
-        self.assertEqual(list(resp), ['FAKE APP'])
+        self.assertEqual(list(resp), [b'FAKE APP'])
 
     def test_catcherrors(self):
         app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, self.start_response)
-        self.assertEqual(list(resp), ['An error occurred'])
+        self.assertEqual(list(resp), [b'An error occurred'])
 
     def test_trans_id_header_pass(self):
         self.assertIsNone(self.logger.txn_id)
@@ -90,7 +90,7 @@ class TestCatchErrors(unittest.TestCase):
             FakeApp(body_iter=(int(x) for x in 'abcd')), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, self.start_response)
-        self.assertEqual(list(resp), ['An error occurred'])
+        self.assertEqual(list(resp), [b'An error occurred'])
 
     def test_trans_id_header_suffix(self):
         self.assertIsNone(self.logger.txn_id)
@@ -135,7 +135,7 @@ class TestCatchErrors(unittest.TestCase):
         app = catch_errors.CatchErrorMiddleware(FakeApp(error='strange'), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, self.start_response)
-        self.assertEqual(list(resp), ['An error occurred'])
+        self.assertEqual(list(resp), [b'An error occurred'])
 
 
 if __name__ == '__main__':
