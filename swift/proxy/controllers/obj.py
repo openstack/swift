@@ -2794,7 +2794,7 @@ class ECObjectController(BaseObjectController):
             # TODO: PyECLib <= 1.2.0 looks to return the segment info
             # different from the input for aligned data efficiency but
             # Swift never does. So calculate the fragment length Swift
-            # will actually send to object sever by making two different
+            # will actually send to object server by making two different
             # get_segment_info calls (until PyECLib fixed).
             # policy.fragment_size makes the call using segment size,
             # and the next call is to get info for the last segment
