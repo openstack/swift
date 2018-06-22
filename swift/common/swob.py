@@ -224,7 +224,7 @@ def header_to_environ_key(header_name):
     # Why the to/from wsgi dance? Headers that include something like b'\xff'
     # on the wire get translated to u'\u00ff' on py3, which gets upper()ed to
     # u'\u0178', which is nonsense in a WSGI string.
-    real_header = str_from_wsgi(header_name)
+    real_header = wsgi_to_str(header_name)
     header_name = 'HTTP_' + str_to_wsgi(real_header.upper()).replace('-', '_')
     if header_name == 'HTTP_CONTENT_LENGTH':
         return 'CONTENT_LENGTH'
@@ -272,7 +272,7 @@ class HeaderEnvironProxy(MutableMapping):
 
     def keys(self):
         # See the to/from WSGI comment in header_to_environ_key
-        keys = [str_to_wsgi(str_from_wsgi(key[5:]).replace('_', '-').title())
+        keys = [str_to_wsgi(wsgi_to_str(key[5:]).replace('_', '-').title())
                 for key in self.environ if key.startswith('HTTP_')]
         if 'CONTENT_LENGTH' in self.environ:
             keys.append('Content-Length')
@@ -281,7 +281,7 @@ class HeaderEnvironProxy(MutableMapping):
         return keys
 
 
-def str_from_wsgi(wsgi_str):
+def wsgi_to_str(wsgi_str):
     if six.PY2:
         return wsgi_str
     return wsgi_str.encode('latin1').decode('utf8', errors='surrogateescape')

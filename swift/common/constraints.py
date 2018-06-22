@@ -24,7 +24,7 @@ from six.moves import urllib
 from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge, HTTPPreconditionFailed, HTTPNotImplemented, \
-    HTTPException, str_from_wsgi
+    HTTPException, wsgi_to_str
 
 MAX_FILE_SIZE = 5368709122
 MAX_META_NAME_LENGTH = 128
@@ -141,8 +141,8 @@ def check_metadata(req, target_type):
         if not key:
             return HTTPBadRequest(body='Metadata name cannot be empty',
                                   request=req, content_type='text/plain')
-        bad_key = not check_utf8(str_from_wsgi(key))
-        bad_value = value and not check_utf8(str_from_wsgi(value))
+        bad_key = not check_utf8(wsgi_to_str(key))
+        bad_value = value and not check_utf8(wsgi_to_str(value))
         if target_type in ('account', 'container') and (bad_key or bad_value):
             return HTTPBadRequest(body='Metadata must be valid UTF-8',
                                   request=req, content_type='text/plain')
@@ -215,7 +215,7 @@ def check_object_creation(req, object_name):
         return HTTPBadRequest(request=req, body=e.body,
                               content_type='text/plain')
 
-    if not check_utf8(str_from_wsgi(req.headers['Content-Type'])):
+    if not check_utf8(wsgi_to_str(req.headers['Content-Type'])):
         return HTTPBadRequest(request=req, body='Invalid Content-Type',
                               content_type='text/plain')
     return check_metadata(req, 'object')
