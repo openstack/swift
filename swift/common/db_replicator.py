@@ -761,14 +761,15 @@ class Replicator(Daemon):
                                         node['replication_ip'],
                                         node['replication_port']):
                 found_local = True
-                if not check_drive(self.root, node['device'],
-                                   self.mount_check):
+                try:
+                    dev_path = check_drive(self.root, node['device'],
+                                           self.mount_check)
+                except ValueError as err:
                     self._add_failure_stats(
                         [(failure_dev['replication_ip'],
                           failure_dev['device'])
                          for failure_dev in self.ring.devs if failure_dev])
-                    self.logger.warning(
-                        _('Skipping %(device)s as it is not mounted') % node)
+                    self.logger.warning('Skipping: %s', err)
                     continue
                 if node['device'] not in devices_to_replicate:
                     self.logger.debug(
@@ -776,7 +777,7 @@ class Replicator(Daemon):
                         node['device'])
                     continue
                 unlink_older_than(
-                    os.path.join(self.root, node['device'], 'tmp'),
+                    os.path.join(dev_path, 'tmp'),
                     time.time() - self.reclaim_age)
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
@@ -835,9 +836,11 @@ class ReplicatorRpc(object):
             return HTTPBadRequest(body='Invalid object type')
         op = args.pop(0)
         drive, partition, hsh = replicate_args
-        if not check_drive(self.root, drive, self.mount_check):
+        try:
+            dev_path = check_drive(self.root, drive, self.mount_check)
+        except ValueError:
             return Response(status='507 %s is not mounted' % drive)
-        db_file = os.path.join(self.root, drive,
+        db_file = os.path.join(dev_path,
                                storage_directory(self.datadir, partition, hsh),
                                hsh + '.db')
         if op == 'rsync_then_merge':

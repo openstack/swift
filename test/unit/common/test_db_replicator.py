@@ -545,11 +545,13 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(replicator.mount_check, True)
         self.assertEqual(replicator.port, 6200)
 
+        err = ValueError('Boom!')
+
         def mock_check_drive(root, device, mount_check):
             self.assertEqual(root, replicator.root)
             self.assertEqual(device, replicator.ring.devs[0]['device'])
             self.assertEqual(mount_check, True)
-            return None
+            raise err
 
         self._patch(patch.object, db_replicator, 'check_drive',
                     mock_check_drive)
@@ -557,8 +559,7 @@ class TestDBReplicator(unittest.TestCase):
 
         self.assertEqual(
             replicator.logger.log_dict['warning'],
-            [(('Skipping %(device)s as it is not mounted' %
-               replicator.ring.devs[0],), {})])
+            [(('Skipping: %s', (err, )), {})])
 
     def test_run_once_node_is_mounted(self):
         db_replicator.ring = FakeRingWithSingleNode()

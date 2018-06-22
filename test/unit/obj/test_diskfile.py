@@ -477,7 +477,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                     logger=logger)]
             debug_lines = logger.get_lines_for_level('debug')
             self.assertEqual([
-                'Skipping sdq as it is not mounted',
+                'Skipping: %s/sdq is not mounted' % tmpdir,
             ], debug_lines)
 
     def test_skipping_files(self):
@@ -509,7 +509,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                     logger=logger)]
             debug_lines = logger.get_lines_for_level('debug')
             self.assertEqual([
-                'Skipping garbage as it is not a dir',
+                'Skipping: %s/garbage is not a directory' % tmpdir,
             ], debug_lines)
             logger.clear()
 
@@ -523,7 +523,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                         logger=logger)]
             debug_lines = logger.get_lines_for_level('debug')
             self.assertEqual([
-                'Skipping garbage as it is not mounted',
+                'Skipping: %s/garbage is not mounted' % tmpdir,
             ], debug_lines)
 
     def test_only_catch_expected_errors(self):

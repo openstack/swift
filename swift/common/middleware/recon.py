@@ -209,12 +209,14 @@ class ReconMiddleware(object):
                 continue
 
             try:
-                mounted = bool(check_mount(self.devices, entry))
+                check_mount(self.devices, entry)
             except OSError as err:
                 mounted = str(err)
-            mpoint = {'device': entry, 'mounted': mounted}
-            if mpoint['mounted'] is not True:
-                mountlist.append(mpoint)
+            except ValueError:
+                mounted = False
+            else:
+                continue
+            mountlist.append({'device': entry, 'mounted': mounted})
         return mountlist
 
     def get_diskusage(self):
@@ -225,13 +227,14 @@ class ReconMiddleware(object):
                 continue
 
             try:
-                mounted = bool(check_mount(self.devices, entry))
+                check_mount(self.devices, entry)
             except OSError as err:
                 devices.append({'device': entry, 'mounted': str(err),
                                 'size': '', 'used': '', 'avail': ''})
-                continue
-
-            if mounted:
+            except ValueError:
+                devices.append({'device': entry, 'mounted': False,
+                                'size': '', 'used': '', 'avail': ''})
+            else:
                 path = os.path.join(self.devices, entry)
                 disk = os.statvfs(path)
                 capacity = disk.f_bsize * disk.f_blocks
@@ -240,9 +243,6 @@ class ReconMiddleware(object):
                 devices.append({'device': entry, 'mounted': True,
                                 'size': capacity, 'used': used,
                                 'avail': available})
-            else:
-                devices.append({'device': entry, 'mounted': False,
-                                'size': '', 'used': '', 'avail': ''})
         return devices
 
     def get_ring_md5(self):

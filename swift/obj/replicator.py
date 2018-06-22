@@ -792,17 +792,17 @@ class ObjectReplicator(Daemon):
                               and (override_devices is None
                                    or dev['device'] in override_devices))]:
             found_local = True
-            dev_path = check_drive(self.devices_dir, local_dev['device'],
-                                   self.mount_check)
             local_dev_stats = self.stats_for_dev[local_dev['device']]
-            if not dev_path:
+            try:
+                dev_path = check_drive(self.devices_dir, local_dev['device'],
+                                       self.mount_check)
+            except ValueError as err:
                 local_dev_stats.add_failure_stats(
                     [(failure_dev['replication_ip'],
                       failure_dev['device'])
                      for failure_dev in policy.object_ring.devs
                      if failure_dev])
-                self.logger.warning(
-                    _('%s is not mounted'), local_dev['device'])
+                self.logger.warning("%s", err)
                 continue
             obj_path = join(dev_path, data_dir)
             tmp_path = join(dev_path, get_tmp_dir(policy))
@@ -933,13 +933,14 @@ class ObjectReplicator(Daemon):
                 dev_stats = self.stats_for_dev[job['device']]
                 num_jobs += 1
                 current_nodes = job['nodes']
-                dev_path = check_drive(self.devices_dir, job['device'],
-                                       self.mount_check)
-                if not dev_path:
+                try:
+                    check_drive(self.devices_dir, job['device'],
+                                self.mount_check)
+                except ValueError as err:
                     dev_stats.add_failure_stats([
                         (failure_dev['replication_ip'], failure_dev['device'])
                         for failure_dev in job['nodes']])
-                    self.logger.warning(_('%s is not mounted'), job['device'])
+                    self.logger.warning("%s", err)
                     continue
                 if self.handoffs_first and not job['delete']:
                     # in handoffs first mode, we won't process primary

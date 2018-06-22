@@ -144,12 +144,14 @@ class ObjectUpdater(Daemon):
             # read from container ring to ensure it's fresh
             self.get_container_ring().get_nodes('')
             for device in self._listdir(self.devices):
-                if not check_drive(self.devices, device, self.mount_check):
+                try:
+                    dev_path = check_drive(self.devices, device,
+                                           self.mount_check)
+                except ValueError as err:
                     # We don't count this as an error. The occasional
                     # unmounted drive is part of normal cluster operations,
                     # so a simple warning is sufficient.
-                    self.logger.warning(
-                        _('Skipping %s as it is not mounted'), device)
+                    self.logger.warning('Skipping: %s', err)
                     continue
                 while len(pids) >= self.updater_workers:
                     pids.remove(os.wait()[0])
@@ -161,7 +163,7 @@ class ObjectUpdater(Daemon):
                     eventlet_monkey_patch()
                     self.stats.reset()
                     forkbegin = time.time()
-                    self.object_sweep(os.path.join(self.devices, device))
+                    self.object_sweep(dev_path)
                     elapsed = time.time() - forkbegin
                     self.logger.info(
                         ('Object update sweep of %(device)s '
@@ -185,14 +187,15 @@ class ObjectUpdater(Daemon):
         begin = time.time()
         self.stats.reset()
         for device in self._listdir(self.devices):
-            if not check_drive(self.devices, device, self.mount_check):
+            try:
+                dev_path = check_drive(self.devices, device, self.mount_check)
+            except ValueError as err:
                 # We don't count this as an error. The occasional unmounted
                 # drive is part of normal cluster operations, so a simple
                 # warning is sufficient.
-                self.logger.warning(
-                    _('Skipping %s as it is not mounted'), device)
+                self.logger.warning('Skipping: %s', err)
                 continue
-            self.object_sweep(os.path.join(self.devices, device))
+            self.object_sweep(dev_path)
         elapsed = time.time() - begin
         self.logger.info(
             ('Object update single-threaded sweep completed: '
@@ -213,10 +216,10 @@ class ObjectUpdater(Daemon):
         for asyncdir in self._listdir(device):
             # we only care about directories
             async_pending = os.path.join(device, asyncdir)
-            if not os.path.isdir(async_pending):
-                continue
             if not asyncdir.startswith(ASYNCDIR_BASE):
                 # skip stuff like "accounts", "containers", etc.
+                continue
+            if not os.path.isdir(async_pending):
                 continue
             try:
                 base, policy = split_policy_string(asyncdir)

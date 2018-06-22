@@ -2851,7 +2851,7 @@ class TestContainerController(unittest.TestCase):
         resp = do_test({'limit': str(constraints.CONTAINER_LISTING_LIMIT + 1)})
         self.assertEqual(resp.status_int, 412)
         with mock.patch('swift.container.server.check_drive',
-                        lambda *args: False):
+                        side_effect=ValueError('sda1 is not mounted')):
             resp = do_test({})
         self.assertEqual(resp.status_int, 507)
 

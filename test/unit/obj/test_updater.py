@@ -391,7 +391,7 @@ class TestObjectUpdater(unittest.TestCase):
 
     @mock.patch.object(object_updater, 'check_drive')
     def test_run_once_with_disk_unmounted(self, mock_check_drive):
-        mock_check_drive.return_value = False
+        mock_check_drive.side_effect = ValueError
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -431,7 +431,7 @@ class TestObjectUpdater(unittest.TestCase):
 
     @mock.patch.object(object_updater, 'check_drive')
     def test_run_once(self, mock_check_drive):
-        mock_check_drive.return_value = True
+        mock_check_drive.side_effect = lambda r, d, mc: os.path.join(r, d)
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',

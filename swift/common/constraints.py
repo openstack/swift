@@ -229,7 +229,8 @@ def check_dir(root, drive):
 
     :param root:  base path where the dir is
     :param drive: drive name to be checked
-    :returns: full path to the device, or None if drive fails to validate
+    :returns: full path to the device
+    :raises ValueError: if drive fails to validate
     """
     return check_drive(root, drive, False)
 
@@ -243,7 +244,8 @@ def check_mount(root, drive):
 
     :param root:  base path where the devices are mounted
     :param drive: drive name to be checked
-    :returns: full path to the device, or None if drive fails to validate
+    :returns: full path to the device
+    :raises ValueError: if drive fails to validate
     """
     return check_drive(root, drive, True)
 
@@ -256,18 +258,19 @@ def check_drive(root, drive, mount_check):
     :param drive: drive name to be checked
     :param mount_check: additionally require path is mounted
 
-    :returns: full path to the device, or None if drive fails to validate
+    :returns: full path to the device
+    :raises ValueError: if drive fails to validate
     """
     if not (urllib.parse.quote_plus(drive) == drive):
-        return None
+        raise ValueError('%s is not a valid drive name' % drive)
     path = os.path.join(root, drive)
     if mount_check:
-        if utils.ismount(path):
-            return path
+        if not utils.ismount(path):
+            raise ValueError('%s is not mounted' % path)
     else:
-        if isdir(path):
-            return path
-    return None
+        if not isdir(path):
+            raise ValueError('%s is not a directory' % path)
+    return path
 
 
 def check_float(string):

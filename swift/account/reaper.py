@@ -134,10 +134,11 @@ class AccountReaper(Daemon):
         begin = time()
         try:
             for device in os.listdir(self.devices):
-                if not check_drive(self.devices, device, self.mount_check):
+                try:
+                    check_drive(self.devices, device, self.mount_check)
+                except ValueError as err:
                     self.logger.increment('errors')
-                    self.logger.debug(
-                        _('Skipping %s as it is not mounted'), device)
+                    self.logger.debug('Skipping: %s', err)
                     continue
                 self.reap_device(device)
         except (Exception, Timeout):
