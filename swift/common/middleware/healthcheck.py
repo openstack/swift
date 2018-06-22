@@ -35,11 +35,11 @@ class HealthCheckMiddleware(object):
 
     def GET(self, req):
         """Returns a 200 response with "OK" in the body."""
-        return Response(request=req, body="OK", content_type="text/plain")
+        return Response(request=req, body=b"OK", content_type="text/plain")
 
     def DISABLED(self, req):
         """Returns a 503 response with "DISABLED BY FILE" in the body."""
-        return Response(request=req, status=503, body="DISABLED BY FILE",
+        return Response(request=req, status=503, body=b"DISABLED BY FILE",
                         content_type="text/plain")
 
     def __call__(self, env, start_response):
