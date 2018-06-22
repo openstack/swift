@@ -128,6 +128,8 @@ class _UTC(tzinfo):
 
     def tzname(self, dt):
         return 'UTC'
+
+
 UTC = _UTC()
 
 
@@ -324,7 +326,7 @@ def _resp_body_property():
     def getter(self):
         if not self._body:
             if not self._app_iter:
-                return ''
+                return b''
             with closing_if_possible(self._app_iter):
                 self._body = b''.join(self._app_iter)
             self._app_iter = None
@@ -333,7 +335,7 @@ def _resp_body_property():
     def setter(self, value):
         if isinstance(value, six.text_type):
             value = value.encode('utf-8')
-        if isinstance(value, str):
+        if isinstance(value, six.binary_type):
             self.content_length = len(value)
             self._app_iter = None
         self._body = value
@@ -739,8 +741,10 @@ def _req_environ_property(environ_field):
         return self.environ.get(environ_field, None)
 
     def setter(self, value):
-        if isinstance(value, six.text_type):
+        if six.PY2 and isinstance(value, six.text_type):
             self.environ[environ_field] = value.encode('utf-8')
+        elif not six.PY2 and isinstance(value, six.binary_type):
+            self.environ[environ_field] = value.decode('latin1')
         else:
             self.environ[environ_field] = value
 
@@ -760,6 +764,8 @@ def _req_body_property():
         return body
 
     def setter(self, value):
+        if not isinstance(value, six.binary_type):
+            value = value.encode('utf8')
         self.environ['wsgi.input'] = WsgiBytesIO(value)
         self.environ['CONTENT_LENGTH'] = str(len(value))
 
@@ -854,8 +860,11 @@ class Request(object):
         """
         headers = headers or {}
         environ = environ or {}
-        if isinstance(path, six.text_type):
+        if six.PY2 and isinstance(path, six.text_type):
             path = path.encode('utf-8')
+        elif not six.PY2 and isinstance(path, six.binary_type):
+            path = path.decode('latin1')
+
         parsed_path = urllib.parse.urlparse(path)
         server_name = 'localhost'
         if parsed_path.netloc:
@@ -867,8 +876,7 @@ class Request(object):
                            'https': 443}.get(parsed_path.scheme, 80)
         if parsed_path.scheme and parsed_path.scheme not in ['http', 'https']:
             raise TypeError('Invalid scheme: %s' % parsed_path.scheme)
-        path_info = urllib.parse.unquote(
-            parsed_path.path.decode('utf8') if six.PY3 else parsed_path.path)
+        path_info = urllib.parse.unquote(parsed_path.path)
         env = {
             'REQUEST_METHOD': 'GET',
             'SCRIPT_NAME': '',
@@ -886,6 +894,8 @@ class Request(object):
         }
         env.update(environ)
         if body is not None:
+            if not isinstance(body, six.binary_type):
+                body = body.encode('utf8')
             env['wsgi.input'] = WsgiBytesIO(body)
             env['CONTENT_LENGTH'] = str(len(body))
         elif 'wsgi.input' not in env:
@@ -1093,19 +1103,20 @@ def content_range_header_value(start, stop, size):
 
 
 def content_range_header(start, stop, size):
-    return "Content-Range: " + content_range_header_value(start, stop, size)
+    value = content_range_header_value(start, stop, size)
+    return b"Content-Range: " + value.encode('ascii')
 
 
 def multi_range_iterator(ranges, content_type, boundary, size, sub_iter_gen):
     for start, stop in ranges:
-        yield ''.join(['--', boundary, '\r\n',
-                       'Content-Type: ', content_type, '\r\n'])
-        yield content_range_header(start, stop, size) + '\r\n\r\n'
+        yield b''.join([b'--', boundary, b'\r\n',
+                       b'Content-Type: ', content_type, b'\r\n'])
+        yield content_range_header(start, stop, size) + b'\r\n\r\n'
         sub_iter = sub_iter_gen(start, stop)
         for chunk in sub_iter:
             yield chunk
-        yield '\r\n'
-    yield '--' + boundary + '--'
+        yield b'\r\n'
+    yield b'--' + boundary + b'--'
 
 
 class Response(object):
@@ -1138,7 +1149,7 @@ class Response(object):
         self.app_iter = app_iter
         self.response_iter = None
         self.status = status
-        self.boundary = "%.32x" % random.randint(0, 256 ** 16)
+        self.boundary = b"%.32x" % random.randint(0, 256 ** 16)
         if request:
             self.environ = request.environ
         else:
@@ -1185,20 +1196,20 @@ class Response(object):
         """
 
         content_size = self.content_length
-        content_type = self.headers.get('content-type')
-        self.content_type = ''.join(['multipart/byteranges;',
-                                     'boundary=', self.boundary])
+        content_type = self.headers['content-type'].encode('utf8')
+        self.content_type = b''.join([b'multipart/byteranges;',
+                                      b'boundary=', self.boundary])
 
         # This section calculates the total size of the response.
-        section_header_fixed_len = (
+        section_header_fixed_len = sum([
             # --boundary\r\n
-            len(self.boundary) + 4
+            2, len(self.boundary), 2,
             # Content-Type: <type>\r\n
-            + len('Content-Type: ') + len(content_type) + 2
+            len('Content-Type: '), len(content_type), 2,
             # Content-Range: <value>\r\n; <value> accounted for later
-            + len('Content-Range: ') + 2
+            len('Content-Range: '), 2,
             # \r\n at end of headers
-            + 2)
+            2])
 
         body_size = 0
         for start, end in ranges:
@@ -1263,11 +1274,11 @@ class Response(object):
                 self.status = empty_resp
                 self.content_length = 0
                 close_if_possible(app_iter)
-                return ['']
+                return [b'']
 
         if self.request and self.request.method == 'HEAD':
             # We explicitly do NOT want to set self.content_length to 0 here
-            return ['']
+            return [b'']
 
         if self.conditional_response and self.request and \
                 self.request.range and self.request.range.ranges and \
@@ -1345,9 +1356,10 @@ class Response(object):
                 body = '<html><h1>%s</h1><p>%s</p></html>' % (
                     title,
                     exp % defaultdict(lambda: 'unknown', self.__dict__))
+                body = body.encode('utf8')
                 self.content_length = len(body)
                 return [body]
-        return ['']
+        return [b'']
 
     def fix_conditional_response(self):
         """
@@ -1460,6 +1472,8 @@ class StatusMap(object):
     """
     def __getitem__(self, key):
         return partial(HTTPException, status=key)
+
+
 status_map = StatusMap()
 
 
