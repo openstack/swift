@@ -251,6 +251,13 @@ class ContainerUpdater(Daemon):
             return
         if self.account_suppressions.get(info['account'], 0) > time.time():
             return
+
+        if not broker.is_root_container():
+            # Don't double-up account stats.
+            # The sharder should get these stats to the root container,
+            # and the root's updater will get them to the right account.
+            info['object_count'] = info['bytes_used'] = 0
+
         if info['put_timestamp'] > info['reported_put_timestamp'] or \
                 info['delete_timestamp'] > info['reported_delete_timestamp'] \
                 or info['object_count'] != info['reported_object_count'] or \

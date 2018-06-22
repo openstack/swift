@@ -132,9 +132,11 @@ class BaseTestContainerSharding(ReplProbeTest):
         for ipport in ipports:
             wait_for_server_to_hangup(ipport)
 
-    def put_objects(self, obj_names):
+    def put_objects(self, obj_names, contents=None):
         for obj in obj_names:
-            client.put_object(self.url, self.token, self.container_name, obj)
+            client.put_object(self.url, token=self.token,
+                              container=self.container_name, name=obj,
+                              contents=contents)
 
     def delete_objects(self, obj_names):
         for obj in obj_names:
@@ -1206,7 +1208,9 @@ class TestContainerSharding(BaseTestContainerSharding):
             shard_cont_count, shard_obj_count = int_client.get_account_info(
                 orig_shard_ranges[0].account, [204])
             self.assertEqual(2 * repeat[0], shard_cont_count)
-            self.assertEqual(len(obj_names), shard_obj_count)
+            # the shards account should always have zero object count to avoid
+            # double accounting
+            self.assertEqual(0, shard_obj_count)
 
             # checking the listing also refreshes proxy container info cache so
             # that the proxy becomes aware that container is sharded and will
@@ -2060,3 +2064,37 @@ class TestContainerSharding(BaseTestContainerSharding):
             self.assert_container_state(node, 'sharded', 3)
 
         self.assert_container_listing(obj_names)
+
+    def test_sharded_account_updates(self):
+        # verify that .shards account updates have zero object count and bytes
+        # to avoid double accounting
+        all_obj_names = self._make_object_names(self.max_shard_size)
+        self.put_objects(all_obj_names, contents='xyz')
+        # Shard the container into 2 shards
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        for n in self.brain.node_numbers:
+            self.sharders.once(
+                number=n, additional_args='--partitions=%s' % self.brain.part)
+        # sanity checks
+        for node in self.brain.nodes:
+            shard_ranges = self.assert_container_state(node, 'sharded', 2)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
+        self.assert_container_listing(all_obj_names)
+        # run the updaters to get account stats updated
+        self.updaters.once()
+        # check user account stats
+        metadata = self.internal_client.get_account_metadata(self.account)
+        self.assertEqual(1, int(metadata.get('x-account-container-count')))
+        self.assertEqual(self.max_shard_size,
+                         int(metadata.get('x-account-object-count')))
+        self.assertEqual(3 * self.max_shard_size,
+                         int(metadata.get('x-account-bytes-used')))
+        # check hidden .shards account stats
+        metadata = self.internal_client.get_account_metadata(
+            shard_ranges[0].account)
+        self.assertEqual(2, int(metadata.get('x-account-container-count')))
+        self.assertEqual(0, int(metadata.get('x-account-object-count')))
+        self.assertEqual(0, int(metadata.get('x-account-bytes-used')))
