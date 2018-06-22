@@ -42,7 +42,7 @@ class CatchErrorsContext(WSGIContext):
         except:  # noqa
             self.logger.exception(_('Error: An error occurred'))
             resp = HTTPServerError(request=Request(env),
-                                   body='An error occurred',
+                                   body=b'An error occurred',
                                    content_type='text/plain')
             resp.headers['X-Trans-Id'] = trans_id
             resp.headers['X-Openstack-Request-Id'] = trans_id
