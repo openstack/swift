@@ -817,11 +817,15 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     # don't reclaim anything
                     mock_time.time.return_value = 0.0
                     class_under_test.cleanup_ondisk_files(hashdir)
-            after_cleanup = set(os.listdir(hashdir))
-            errmsg = "expected %r, got %r for test %r" % (
-                sorted(expected_after_cleanup), sorted(after_cleanup), test
-            )
-            self.assertEqual(expected_after_cleanup, after_cleanup, errmsg)
+
+            if expected_after_cleanup:
+                after_cleanup = set(os.listdir(hashdir))
+                errmsg = "expected %r, got %r for test %r" % (
+                    sorted(expected_after_cleanup), sorted(after_cleanup), test
+                )
+                self.assertEqual(expected_after_cleanup, after_cleanup, errmsg)
+            else:
+                self.assertFalse(os.path.exists(hashdir))
 
     def _test_yield_hashes_cleanup(self, scenarios, policy):
         # opportunistic test to check that yield_hashes cleans up dir using
@@ -849,11 +853,15 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                             'ignored', '0', policy, suffixes=['abc']):
                         # return values are tested in test_yield_hashes_*
                         pass
-            after_cleanup = set(os.listdir(hashdir))
-            errmsg = "expected %r, got %r for test %r" % (
-                sorted(expected_after_cleanup), sorted(after_cleanup), test
-            )
-            self.assertEqual(expected_after_cleanup, after_cleanup, errmsg)
+
+            if expected_after_cleanup:
+                after_cleanup = set(os.listdir(hashdir))
+                errmsg = "expected %r, got %r for test %r" % (
+                    sorted(expected_after_cleanup), sorted(after_cleanup), test
+                )
+                self.assertEqual(expected_after_cleanup, after_cleanup, errmsg)
+            else:
+                self.assertFalse(os.path.exists(hashdir))
 
     def test_get_ondisk_files_with_empty_dir(self):
         files = []
@@ -1316,6 +1324,106 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.assertEqual(list(self.df_mgr.yield_hashes(
                 self.existing_device, '9', POLICIES[0])), [])
 
+    def test_yield_hashes_cleans_up_everything(self):
+        the_time = [1525354555.657585]
+
+        def mock_time():
+            return the_time[0]
+
+        with mock.patch('time.time', mock_time):
+            # Make a couple of (soon-to-be-)expired tombstones
+            df1 = self.df_mgr.get_diskfile(
+                self.existing_device, 0, 'a', 'c', 'o1', POLICIES[0])
+            df1.delete(Timestamp(the_time[0]))
+            df1_hash = utils.hash_path('a', 'c', 'o1')
+            df1_suffix = df1_hash[-3:]
+
+            df2 = self.df_mgr.get_diskfile(
+                self.existing_device, 0, 'a', 'c', 'o2', POLICIES[0])
+            df2.delete(Timestamp(the_time[0] + 1))
+            df2_hash = utils.hash_path('a', 'c', 'o2')
+            df2_suffix = df2_hash[-3:]
+
+            # sanity checks
+            self.assertTrue(os.path.exists(os.path.join(
+                self.testdir, self.existing_device, 'objects', '0',
+                df1_suffix, df1_hash,
+                "1525354555.65758.ts")))
+            self.assertTrue(os.path.exists(os.path.join(
+                self.testdir, self.existing_device, 'objects', '0',
+                df2_suffix, df2_hash,
+                "1525354556.65758.ts")))
+
+            # Expire the tombstones
+            the_time[0] += 2 * self.df_mgr.reclaim_age
+
+            hashes = list(self.df_mgr.yield_hashes(
+                self.existing_device, '0', POLICIES[0]))
+        self.assertEqual(hashes, [])
+
+        # The tombstones are gone
+        self.assertFalse(os.path.exists(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0',
+            df1_suffix, df1_hash,
+            "1525354555.65758.ts")))
+        self.assertFalse(os.path.exists(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0',
+            df2_suffix, df2_hash,
+            "1525354556.65758.ts")))
+
+        # The empty hash dirs are gone
+        self.assertFalse(os.path.exists(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0',
+            df1_suffix, df1_hash)))
+        self.assertFalse(os.path.exists(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0',
+            df2_suffix, df2_hash)))
+
+        # The empty suffix dirs are gone
+        self.assertFalse(os.path.exists(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0',
+            df1_suffix)))
+        self.assertFalse(os.path.exists(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0',
+            df2_suffix)))
+
+        # The empty partition dir is gone
+        self.assertFalse(os.path.exists(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0')))
+
+    def test_focused_yield_hashes_does_not_clean_up(self):
+        the_time = [1525354555.657585]
+
+        def mock_time():
+            return the_time[0]
+
+        with mock.patch('time.time', mock_time):
+            df = self.df_mgr.get_diskfile(
+                self.existing_device, 0, 'a', 'c', 'o', POLICIES[0])
+            df.delete(Timestamp(the_time[0]))
+            df_hash = utils.hash_path('a', 'c', 'o')
+            df_suffix = df_hash[-3:]
+
+            # sanity check
+            self.assertTrue(os.path.exists(os.path.join(
+                self.testdir, self.existing_device, 'objects', '0',
+                df_suffix, df_hash,
+                "1525354555.65758.ts")))
+
+            # Expire the tombstone
+            the_time[0] += 2 * self.df_mgr.reclaim_age
+
+            hashes = list(self.df_mgr.yield_hashes(
+                self.existing_device, '0', POLICIES[0],
+                suffixes=[df_suffix]))
+        self.assertEqual(hashes, [])
+
+        # The partition dir is still there. Since we didn't visit all the
+        # suffix dirs, we didn't learn whether or not the partition dir was
+        # empty.
+        self.assertTrue(os.path.exists(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0')))
+
     def test_yield_hashes_empty_suffixes(self):
         def _listdir(path):
             return []
@@ -1346,7 +1454,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             (hash_, timestamps)
             for hash_, timestamps in expected.items()]
         with mock.patch('os.listdir', _listdir), \
-                mock.patch('os.unlink'):
+                mock.patch('os.unlink'), \
+                mock.patch('os.rmdir'):
             df_mgr = self.df_router[policy]
             hash_items = list(df_mgr.yield_hashes(
                 device, part, policy, **kwargs))
@@ -3819,18 +3928,24 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 self.fail("Expected exception OSError")
 
     def test_create_close_oserror(self):
-        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz', policy=POLICIES.legacy)
-        with mock.patch("swift.obj.diskfile.os.close",
-                        mock.MagicMock(side_effect=OSError(
-                            errno.EACCES, os.strerror(errno.EACCES)))):
-            try:
-                with df.create(size=200):
+        # This is a horrible hack so you can run this test in isolation.
+        # Some of the ctypes machinery calls os.close(), and that runs afoul
+        # of our mock.
+        with mock.patch.object(utils, '_sys_fallocate', None):
+            utils.disable_fallocate()
+
+            df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc',
+                                          '123', 'xyz', policy=POLICIES.legacy)
+            with mock.patch("swift.obj.diskfile.os.close",
+                            mock.MagicMock(side_effect=OSError(
+                                errno.EACCES, os.strerror(errno.EACCES)))):
+                try:
+                    with df.create(size=200):
+                        pass
+                except Exception as err:
+                    self.fail("Unexpected exception raised: %r" % err)
+                else:
                     pass
-            except Exception as err:
-                self.fail("Unexpected exception raised: %r" % err)
-            else:
-                pass
 
     def test_write_metadata(self):
         df, df_data = self._create_test_file('1234567890')
@@ -6000,6 +6115,7 @@ class TestSuffixHashes(unittest.TestCase):
     def check_cleanup_ondisk_files(self, policy, input_files, output_files):
         orig_unlink = os.unlink
         file_list = list(input_files)
+        rmdirs = []
 
         def mock_listdir(path):
             return list(file_list)
@@ -6016,7 +6132,8 @@ class TestSuffixHashes(unittest.TestCase):
             file_list.remove(os.path.basename(path))
 
         df_mgr = self.df_router[policy]
-        with unit_mock({'os.listdir': mock_listdir, 'os.unlink': mock_unlink}):
+        with unit_mock({'os.listdir': mock_listdir, 'os.unlink': mock_unlink,
+                        'os.rmdir': rmdirs.append}):
             if isinstance(output_files, Exception):
                 path = os.path.join(self.testdir, 'does-not-matter')
                 self.assertRaises(output_files.__class__,
@@ -6024,6 +6141,10 @@ class TestSuffixHashes(unittest.TestCase):
                 return
             files = df_mgr.cleanup_ondisk_files('/whatever')['files']
             self.assertEqual(files, output_files)
+            if files:
+                self.assertEqual(rmdirs, [])
+            else:
+                self.assertEqual(rmdirs, ['/whatever'])
 
     # cleanup_ondisk_files tests - behaviors
 

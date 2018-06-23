@@ -1175,21 +1175,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             'sda1', '2', self.policy)
         for path, hash_, ts in hash_gen:
             self.fail('found %s with %s in %s' % (hash_, ts, path))
-        # but the partition directory and hashes pkl still exist
-        self.assertTrue(os.access(part_path, os.F_OK))
-        hashes_path = os.path.join(self.objects_1, '2', diskfile.HASH_FILE)
-        self.assertTrue(os.access(hashes_path, os.F_OK))
-
-        # ... but on next pass
-        ssync_calls = []
-        with mocked_http_conn() as request_log:
-            with mock.patch('swift.obj.reconstructor.ssync_sender',
-                            self._make_fake_ssync(ssync_calls)):
-                self.reconstructor.reconstruct(override_partitions=[2])
-        # reconstruct won't generate any replicate or ssync_calls
-        self.assertFalse(request_log.requests)
-        self.assertFalse(ssync_calls)
-        # and the partition will get removed!
+        # even the partition directory is gone
         self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_process_job_all_success(self):
