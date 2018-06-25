@@ -106,7 +106,8 @@ class S3ApiTestCase(unittest.TestCase):
         elem = fromstring(body, 'Error')
         return elem.find('./Message').text
 
-    def _test_method_error(self, method, path, response_class, headers={}):
+    def _test_method_error(self, method, path, response_class, headers={},
+                           env={}):
         if not path.startswith('/'):
             path = '/' + path  # add a missing slash before the path
 
@@ -117,8 +118,8 @@ class S3ApiTestCase(unittest.TestCase):
         self.swift.register(method, uri, response_class, headers, None)
         headers.update({'Authorization': 'AWS test:tester:hmac',
                         'Date': self.get_date_header()})
-        req = swob.Request.blank(path, environ={'REQUEST_METHOD': method},
-                                 headers=headers)
+        env.update({'REQUEST_METHOD': method})
+        req = swob.Request.blank(path, environ=env, headers=headers)
         status, headers, body = self.call_s3api(req)
         return self._get_error_code(body)
 

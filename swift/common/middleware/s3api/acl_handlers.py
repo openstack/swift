@@ -53,7 +53,7 @@ import sys
 
 from swift.common.middleware.s3api.subresource import ACL, Owner, encode_acl
 from swift.common.middleware.s3api.s3response import MissingSecurityHeader, \
-    MalformedACLError, UnexpectedContent
+    MalformedACLError, UnexpectedContent, AccessDenied
 from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid
 from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
@@ -208,6 +208,9 @@ class BucketAclHandler(BaseAclHandler):
     def PUT(self, app):
         req_acl = ACL.from_headers(self.req.headers,
                                    Owner(self.user_id, self.user_id))
+
+        if not self.req.environ.get('swift_owner'):
+            raise AccessDenied()
 
         # To avoid overwriting the existing bucket's ACL, we send PUT
         # request first before setting the ACL to make sure that the target

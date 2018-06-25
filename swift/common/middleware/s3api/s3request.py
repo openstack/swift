@@ -1341,6 +1341,9 @@ class S3AclRequest(S3Request):
             # tempauth
             self.user_id = self.access_key
 
+        sw_req.environ.get('swift.authorize', lambda req: None)(sw_req)
+        self.environ['swift_owner'] = sw_req.environ.get('swift_owner', False)
+
         # Need to skip S3 authorization on subsequent requests to prevent
         # overwriting the account in PATH_INFO
         del self.headers['Authorization']

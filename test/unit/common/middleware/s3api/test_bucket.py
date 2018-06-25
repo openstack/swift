@@ -498,6 +498,12 @@ class TestS3ApiBucket(S3ApiTestCase):
             swob.HTTPCreated)
         self.assertEqual(code, 'InvalidBucketName')
 
+    @s3acl(s3acl_only=True)
+    def test_bucket_PUT_error_non_owner(self):
+        code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted,
+                                       env={'swift_owner': False})
+        self.assertEqual(code, 'AccessDenied')
+
     @s3acl
     def test_bucket_PUT(self):
         req = Request.blank('/bucket',

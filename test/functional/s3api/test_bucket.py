@@ -151,7 +151,11 @@ class TestS3ApiBucket(S3ApiBase):
 
         self.conn.make_request('PUT', 'bucket')
         status, headers, body = self.conn.make_request('PUT', 'bucket')
-        self.assertEqual(get_error_code(body), 'BucketAlreadyExists')
+        # If the user can't create buckets, they shouldn't even know
+        # whether the bucket exists. For some reason, though, when s3_acl
+        # is disabled, we translate 403 -> BucketAlreadyExists??
+        self.assertIn(get_error_code(body),
+                      ('AccessDenied', 'BucketAlreadyExists'))
 
     def test_put_bucket_with_LocationConstraint(self):
         bucket = 'bucket'
