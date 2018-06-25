@@ -153,20 +153,18 @@ class TestKeymaster(unittest.TestCase):
             for conf_val in (bytes(enc_secret), unicode(enc_secret),
                              enc_secret[:30] + '\n' + enc_secret[30:],
                              enc_secret[:30] + '\r\n' + enc_secret[30:]):
-                for ignored_secret in ('invalid! but ignored!',
-                                       'xValidButIgnored' * 10):
-                    mock_readconf.reset_mock()
-                    mock_readconf.return_value = {
-                        'encryption_root_secret': conf_val}
+                mock_readconf.reset_mock()
+                mock_readconf.return_value = {
+                    'encryption_root_secret': conf_val}
 
-                    app = keymaster.KeyMaster(self.swift, {
-                        'keymaster_config_path': '/some/path'})
-                    try:
-                        self.assertEqual(secret, app.root_secret)
-                        self.assertEqual(mock_readconf.mock_calls, [
-                            mock.call('/some/path', 'keymaster')])
-                    except AssertionError as err:
-                        self.fail(str(err) + ' for secret %r' % secret)
+                app = keymaster.KeyMaster(self.swift, {
+                    'keymaster_config_path': '/some/path'})
+                try:
+                    self.assertEqual(secret, app.root_secret)
+                    self.assertEqual(mock_readconf.mock_calls, [
+                        mock.call('/some/path', 'keymaster')])
+                except AssertionError as err:
+                    self.fail(str(err) + ' for secret %r' % secret)
 
     def test_invalid_root_secret(self):
         for secret in (bytes(base64.b64encode(os.urandom(31))),  # too short
