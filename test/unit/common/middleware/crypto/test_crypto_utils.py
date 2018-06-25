@@ -46,22 +46,40 @@ class TestCryptoWsgiContext(unittest.TestCase):
 
         # only default required keys are checked
         subset_keys = {'object': fetch_crypto_keys()['object']}
-        env = {CRYPTO_KEY_CALLBACK: lambda: subset_keys}
+        env = {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: subset_keys}
         keys = self.crypto_context.get_keys(env)
         self.assertDictEqual(subset_keys, keys)
 
         # only specified required keys are checked
         subset_keys = {'container': fetch_crypto_keys()['container']}
-        env = {CRYPTO_KEY_CALLBACK: lambda: subset_keys}
+        env = {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: subset_keys}
         keys = self.crypto_context.get_keys(env, required=['container'])
         self.assertDictEqual(subset_keys, keys)
 
         subset_keys = {'object': fetch_crypto_keys()['object'],
                        'container': fetch_crypto_keys()['container']}
-        env = {CRYPTO_KEY_CALLBACK: lambda: subset_keys}
+        env = {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: subset_keys}
         keys = self.crypto_context.get_keys(
             env, required=['object', 'container'])
         self.assertDictEqual(subset_keys, keys)
+
+    def test_get_keys_with_crypto_meta(self):
+        # verify that key_id from crypto_meta is passed to fetch_crypto_keys
+        keys = fetch_crypto_keys()
+        mock_fetch_crypto_keys = mock.MagicMock(return_value=keys)
+        env = {CRYPTO_KEY_CALLBACK: mock_fetch_crypto_keys}
+        key_id = {'secret_id': '123'}
+        keys = self.crypto_context.get_keys(env, key_id=key_id)
+        self.assertDictEqual(fetch_crypto_keys(), keys)
+        mock_fetch_crypto_keys.assert_called_with(key_id={'secret_id': '123'})
+
+        # but it's ok for there to be no crypto_meta
+        keys = self.crypto_context.get_keys(env, key_id={})
+        self.assertDictEqual(fetch_crypto_keys(), keys)
+        mock_fetch_crypto_keys.assert_called_with(key_id={})
+        keys = self.crypto_context.get_keys(env)
+        self.assertDictEqual(fetch_crypto_keys(), keys)
+        mock_fetch_crypto_keys.assert_called_with(key_id=None)
 
     def test_get_keys_missing_callback(self):
         with self.assertRaises(HTTPException) as cm:
@@ -72,7 +90,7 @@ class TestCryptoWsgiContext(unittest.TestCase):
         self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
 
     def test_get_keys_callback_exception(self):
-        def callback():
+        def callback(*args, **kwargs):
             raise Exception('boom')
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys({CRYPTO_KEY_CALLBACK: callback})
@@ -86,7 +104,7 @@ class TestCryptoWsgiContext(unittest.TestCase):
         bad_keys.pop('object')
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
-                {CRYPTO_KEY_CALLBACK: lambda: bad_keys})
+                {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys})
         self.assertIn('500 Internal Error', cm.exception.message)
         self.assertIn("Missing key for 'object'",
                       self.fake_logger.get_lines_for_level('error')[0])
@@ -97,7 +115,7 @@ class TestCryptoWsgiContext(unittest.TestCase):
         bad_keys.pop('object')
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
-                {CRYPTO_KEY_CALLBACK: lambda: bad_keys},
+                {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys},
                 required=['object', 'container'])
         self.assertIn('500 Internal Error', cm.exception.message)
         self.assertIn("Missing key for 'object'",
@@ -109,7 +127,7 @@ class TestCryptoWsgiContext(unittest.TestCase):
         bad_keys.pop('container')
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
-                {CRYPTO_KEY_CALLBACK: lambda: bad_keys},
+                {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys},
                 required=['object', 'container'])
         self.assertIn('500 Internal Error', cm.exception.message)
         self.assertIn("Missing key for 'container'",
@@ -121,7 +139,7 @@ class TestCryptoWsgiContext(unittest.TestCase):
         bad_keys['object'] = 'the minor key'
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
-                {CRYPTO_KEY_CALLBACK: lambda: bad_keys})
+                {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys})
         self.assertIn('500 Internal Error', cm.exception.message)
         self.assertIn("Bad key for 'object'",
                       self.fake_logger.get_lines_for_level('error')[0])
@@ -132,7 +150,7 @@ class TestCryptoWsgiContext(unittest.TestCase):
         bad_keys['container'] = 'the major key'
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
-                {CRYPTO_KEY_CALLBACK: lambda: bad_keys},
+                {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys},
                 required=['object', 'container'])
         self.assertIn('500 Internal Error', cm.exception.message)
         self.assertIn("Bad key for 'container'",
@@ -142,11 +160,20 @@ class TestCryptoWsgiContext(unittest.TestCase):
     def test_get_keys_not_a_dict(self):
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
-                {CRYPTO_KEY_CALLBACK: lambda: ['key', 'quay', 'qui']})
+                {CRYPTO_KEY_CALLBACK:
+                    lambda *args, **kwargs: ['key', 'quay', 'qui']})
         self.assertIn('500 Internal Error', cm.exception.message)
         self.assertIn("Did not get a keys dict",
                       self.fake_logger.get_lines_for_level('error')[0])
         self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+
+    def test_get_multiple_keys(self):
+        env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
+        mutliple_keys = self.crypto_context.get_multiple_keys(env)
+        self.assertEqual(
+            [fetch_crypto_keys(),
+             fetch_crypto_keys(key_id={'secret_id': 'myid'})],
+            mutliple_keys)
 
 
 class TestModuleMethods(unittest.TestCase):

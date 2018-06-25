@@ -97,12 +97,6 @@ the `proxy-server.conf` file, for example::
 Root secret values MUST be at least 44 valid base-64 characters and
 should be consistent across all proxy servers. The minimum length of 44 has
 been chosen because it is the length of a base-64 encoded 32 byte value.
-Alternatives to specifying the encryption root secret directly in the
-`proxy-server.conf` file are storing it in a separate file, or storing it in
-an :ref:`external key management system
-<encryption_root_secret_in_external_kms>` such as `Barbican
-<https://docs.openstack.org/barbican>`_ or a
-`KMIP <https://www.oasis-open.org/committees/kmip/>`_ service.
 
 .. note::
 
@@ -168,6 +162,62 @@ metadata when handling GET and HEAD requests. COPY requests are transformed
 into GET and PUT requests by the :ref:`copy` middleware before reaching the
 encryption middleware and as a result object data and metadata is decrypted and
 re-encrypted when copied.
+
+Changing the encryption root secret
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+From time to time it may be desirable to change the root secret that is used to
+derive encryption keys for new data written to the cluster. The `keymaster`
+middleware allows alternative root secrets to be specified in its configuration
+using options of the form::
+
+    encryption_root_secret_<secret_id> = <secret value>
+
+where ``secret_id`` is a unique identifier for the root secret and ``secret
+value`` is a value that meets the requirements for a root secret described
+above.
+
+Only one root secret is used to encrypt new data at any moment in time. This
+root secret is specified using the ``active_root_secret_id`` option. If
+specified, the value of this option should be one of the configured root secret
+``secret_id`` values; otherwise the value of ``encryption_root_secret`` will be
+taken as the default active root secret.
+
+.. note::
+
+    The active root secret is only used to derive keys for new data written to
+    the cluster. Changing the active root secret does not cause any existing
+    data to be re-encrypted.
+
+Existing encrypted data will be decrypted using the root secret that was active
+when that data was written. All previous active root secrets must therefore
+remain in the middleware configuration in order for decryption of existing data
+to succeed.  Existing encrypted data will reference previous root secret by
+the ``secret_id`` so it must be kept consistent in the configuration.
+
+.. note::
+
+    Do not remove or change any previously active ``<secret value>`` or ``<secret_id>``.
+
+For example, the following keymaster configuration file specifies three root
+secrets, with the value of ``encryption_root_secret_2`` being the current
+active root secret::
+
+    [keymaster]
+    active_root_secret_id = 2
+    encryption_root_secret = your_secret
+    encryption_root_secret_1 = your_secret_1
+    encryption_root_secret_2 = your_secret_2
+
+.. note::
+
+    To ensure there is no loss of data availability, deploying a new key to
+    your cluster requires a two-stage config change. First, add the new key
+    to the ``key_id_<secret_id>`` option and restart the proxy-server. Do this
+    for all proxies. Next, set the ``active_root_secret_id`` option to the
+    new secret id and restart the proxy. Again, do this for all proxies. This
+    process ensures that all proxies will have the new key available for
+    *decryption* before any proxy uses it for *encryption*.
 
 Encryption middleware
 ---------------------

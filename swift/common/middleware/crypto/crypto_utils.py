@@ -24,7 +24,7 @@ import six
 from six.moves.urllib import parse as urlparse
 
 from swift import gettext_ as _
-from swift.common.exceptions import EncryptionException
+from swift.common.exceptions import EncryptionException, UnknownSecretIdError
 from swift.common.swob import HTTPInternalServerError
 from swift.common.utils import get_logger
 from swift.common.wsgi import WSGIContext
@@ -155,7 +155,7 @@ class CryptoWSGIContext(WSGIContext):
         self.logger = logger
         self.server_type = server_type
 
-    def get_keys(self, env, required=None):
+    def get_keys(self, env, required=None, key_id=None):
         # Get the key(s) from the keymaster
         required = required if required is not None else [self.server_type]
         try:
@@ -165,11 +165,14 @@ class CryptoWSGIContext(WSGIContext):
             raise HTTPInternalServerError(
                 "Unable to retrieve encryption keys.")
 
+        err = None
         try:
-            keys = fetch_crypto_keys()
+            keys = fetch_crypto_keys(key_id=key_id)
+        except UnknownSecretIdError as err:
+            self.logger.error('get_keys(): unknown key id: %s', err)
+            raise
         except Exception as err:  # noqa
-            self.logger.exception(_(
-                'ERROR get_keys(): from callback: %s') % err)
+            self.logger.exception('get_keys(): from callback: %s', err)
             raise HTTPInternalServerError(
                 "Unable to retrieve encryption keys.")
 
@@ -189,6 +192,17 @@ class CryptoWSGIContext(WSGIContext):
             raise HTTPInternalServerError(
                 "Unable to retrieve encryption keys.")
 
+        return keys
+
+    def get_multiple_keys(self, env):
+        # get a list of keys from the keymaster containing one dict of keys for
+        # each of the keymaster root secret ids
+        keys = [self.get_keys(env)]
+        active_key_id = keys[0]['id']
+        for other_key_id in keys[0].get('all_ids', []):
+            if other_key_id == active_key_id:
+                continue
+            keys.append(self.get_keys(env, key_id=other_key_id))
         return keys
 
 

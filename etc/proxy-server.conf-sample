@@ -1047,6 +1047,19 @@ use = egg:swift#keymaster
 # likely to result in data loss.
 encryption_root_secret = changeme
 
+# Multiple root secrets may be configured using options named
+# 'encryption_root_secret_<secret_id>' where 'secret_id' is a unique
+# identifier. This enables the root secret to be changed from time to time.
+# Only one root secret is used for object PUTs or POSTs at any moment in time.
+# This is specified by the 'active_root_secret_id' option. If
+# 'active_root_secret_id' is not specified then the root secret specified by
+# 'encryption_root_secret' is considered to be the default. Once a root secret
+# has been used as the default root secret it must remain in the config file in
+# order that any objects that were encrypted with it may be subsequently
+# decrypted. The secret_id used to identify the key cannot change.
+# encryption_root_secret_myid = changeme
+# active_root_secret_id = myid
+
 # Sets the path from which the keymaster config options should be read. This
 # allows multiple processes which need to be encryption-aware (for example,
 # proxy-server and container-sync) to share the same config file, ensuring
