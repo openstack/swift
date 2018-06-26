@@ -732,7 +732,7 @@ class Accept(object):
         return self.headerval
 
 
-def _req_environ_property(environ_field):
+def _req_environ_property(environ_field, is_wsgi_string_field=True):
     """
     Set and retrieve value of the environ_field entry in self.environ.
     (Used by both request and response)
@@ -746,6 +746,9 @@ def _req_environ_property(environ_field):
         elif not six.PY2 and isinstance(value, six.binary_type):
             self.environ[environ_field] = value.decode('latin1')
         else:
+            if not six.PY2 and is_wsgi_string_field:
+                # Check that input is valid before setting
+                value.encode('latin1')
             self.environ[environ_field] = value
 
     return property(getter, setter, doc=("Get and set the %s property "
@@ -832,7 +835,8 @@ class Request(object):
     user_agent = _req_environ_property('HTTP_USER_AGENT')
     query_string = _req_environ_property('QUERY_STRING')
     if_match = _req_fancy_property(Match, 'if-match')
-    body_file = _req_environ_property('wsgi.input')
+    body_file = _req_environ_property('wsgi.input',
+                                      is_wsgi_string_field=False)
     content_length = _header_int_property('content-length')
     if_modified_since = _datetime_property('if-modified-since')
     if_unmodified_since = _datetime_property('if-unmodified-since')
@@ -840,7 +844,7 @@ class Request(object):
     charset = None
     _params_cache = None
     _timestamp = None
-    acl = _req_environ_property('swob.ACL')
+    acl = _req_environ_property('swob.ACL', is_wsgi_string_field=False)
 
     def __init__(self, environ):
         self.environ = environ
@@ -862,8 +866,12 @@ class Request(object):
         environ = environ or {}
         if six.PY2 and isinstance(path, six.text_type):
             path = path.encode('utf-8')
-        elif not six.PY2 and isinstance(path, six.binary_type):
-            path = path.decode('latin1')
+        elif not six.PY2:
+            if isinstance(path, six.binary_type):
+                path = path.decode('latin1')
+            else:
+                # Check that the input is valid
+                path.encode('latin1')
 
         parsed_path = urllib.parse.urlparse(path)
         server_name = 'localhost'
@@ -876,7 +884,11 @@ class Request(object):
                            'https': 443}.get(parsed_path.scheme, 80)
         if parsed_path.scheme and parsed_path.scheme not in ['http', 'https']:
             raise TypeError('Invalid scheme: %s' % parsed_path.scheme)
-        path_info = urllib.parse.unquote(parsed_path.path)
+        if six.PY2:
+            path_info = urllib.parse.unquote(parsed_path.path)
+        else:
+            path_info = urllib.parse.unquote(parsed_path.path,
+                                             encoding='latin-1')
         env = {
             'REQUEST_METHOD': 'GET',
             'SCRIPT_NAME': '',
@@ -959,8 +971,13 @@ class Request(object):
     @property
     def path(self):
         "Provides the full path of the request, excluding the QUERY_STRING"
-        return urllib.parse.quote(self.environ.get('SCRIPT_NAME', '') +
-                                  self.environ['PATH_INFO'])
+        if six.PY2:
+            return urllib.parse.quote(self.environ.get('SCRIPT_NAME', '') +
+                                      self.environ['PATH_INFO'])
+        else:
+            return urllib.parse.quote(self.environ.get('SCRIPT_NAME', '') +
+                                      self.environ['PATH_INFO'],
+                                      encoding='latin-1')
 
     @property
     def swift_entity_path(self):
