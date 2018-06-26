@@ -74,3 +74,23 @@
 # reauthenticate = changeme
 # domain_id = changeme
 # domain_name = changeme
+
+[kmip_keymaster]
+# The kmip_keymaster section is used to configure a keymaster that fetches an
+# encryption root secret from a KMIP service.
+
+# The value of the ``key_id`` option should be the unique identifier for a
+# secret that will be retrieved from the KMIP service. The secret should be an
+# AES-256 symmetric key.
+# key_id = <unique id of secret to be fetched from the KMIP service>
+
+# The remaining options are used to configure a PyKMIP client and are shown
+# below for information. The authoritative definition of these options can be
+# found at: https://pykmip.readthedocs.io/en/latest/client.html.
+# host = <KMIP server host>
+# port = <KMIP server port>
+# certfile = /path/to/client/cert.pem
+# keyfile = /path/to/client/key.pem
+# ca_certs = /path/to/server/cert.pem
+# username = <KMIP username>
+# password = <KMIP password>
