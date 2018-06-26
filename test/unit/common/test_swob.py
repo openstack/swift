@@ -832,7 +832,7 @@ class TestRequest(unittest.TestCase):
         @swift.common.swob.wsgify
         def _wsgi_func(req):
             used_req.append(req)
-            return swift.common.swob.Response('200 OK')
+            return swift.common.swob.Response(b'200 OK')
 
         req = swift.common.swob.Request.blank('/hi/there')
         resp = req.get_response(_wsgi_func)
@@ -1117,13 +1117,15 @@ class TestResponse(unittest.TestCase):
 
     def test_empty_body(self):
         resp = self._get_response()
-        resp.body = ''
+        resp.body = b''
         self.assertEqual(resp.body, b'')
 
     def test_unicode_body(self):
         resp = self._get_response()
-        resp.body = u'\N{SNOWMAN}'
-        self.assertEqual(resp.body, u'\N{SNOWMAN}'.encode('utf-8'))
+        with self.assertRaises(TypeError) as catcher:
+            resp.body = u'\N{SNOWMAN}'
+        self.assertEqual(str(catcher.exception),
+                         'WSGI responses must be bytes')
 
     def test_call_reifies_request_if_necessary(self):
         """
@@ -1388,7 +1390,7 @@ class TestResponse(unittest.TestCase):
             '/', headers={'Range': 'bytes=1-3'})
 
         resp = swift.common.swob.Response(
-            body='1234567890', request=req,
+            body=b'1234567890', request=req,
             conditional_response=True)
         body = b''.join(resp({}, start_response))
         self.assertEqual(body, b'234')
@@ -1408,7 +1410,7 @@ class TestResponse(unittest.TestCase):
         self.assertEqual(resp.content_range, 'bytes */10')
 
         resp = swift.common.swob.Response(
-            body='1234567890', request=req,
+            body=b'1234567890', request=req,
             conditional_response=True)
         body = b''.join(resp({}, start_response))
         self.assertIn(b'The Range requested is not available', body)
@@ -1426,7 +1428,7 @@ class TestResponse(unittest.TestCase):
         self.assertNotIn('Content-Range', resp.headers)
 
         resp = swift.common.swob.Response(
-            body='1234567890', request=req,
+            body=b'1234567890', request=req,
             conditional_response=True)
         body = b''.join(resp({}, start_response))
         self.assertEqual(body, b'1234567890')
@@ -1575,7 +1577,7 @@ class TestResponse(unittest.TestCase):
 
         # body, headers with content_length and app_iter exist
         resp = swift.common.swob.Response(
-            body='ok', headers={'Content-Length': '5'}, app_iter=iter([]))
+            body=b'ok', headers={'Content-Length': '5'}, app_iter=iter([]))
         self.assertEqual(resp.content_length, 5)
         self.assertEqual(resp.body, b'')
 

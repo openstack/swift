@@ -174,6 +174,7 @@ To generate a curl command line from the above::
 
 from __future__ import print_function
 
+import json
 from time import time
 from traceback import format_exc
 from uuid import uuid4
@@ -506,16 +507,19 @@ class TempAuth(object):
             # on ACLs, TempAuth is not such an auth system.  At this point,
             # it thinks it is authoritative.
             if key not in tempauth_acl_keys:
-                return "Key '%s' not recognized" % key
+                return "Key %s not recognized" % json.dumps(
+                    key).encode('ascii')
 
         for key in tempauth_acl_keys:
             if key not in result:
                 continue
             if not isinstance(result[key], list):
-                return "Value for key '%s' must be a list" % key
+                return "Value for key %s must be a list" % json.dumps(
+                    key).encode('ascii')
             for grantee in result[key]:
                 if not isinstance(grantee, six.string_types):
-                    return "Elements of '%s' list must be strings" % key
+                    return "Elements of %s list must be strings" % json.dumps(
+                        key).encode('ascii')
 
         # Everything looks fine, no errors found
         internal_hdr = get_sys_meta_prefix('account') + 'core-access-control'

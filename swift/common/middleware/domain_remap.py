@@ -158,7 +158,7 @@ class DomainRemapMiddleware(object):
                 container, account = None, parts_to_parse[0]
             else:
                 resp = HTTPBadRequest(request=Request(env),
-                                      body='Bad domain in host header',
+                                      body=b'Bad domain in host header',
                                       content_type='text/plain')
                 return resp(env, start_response)
             if len(self.reseller_prefixes) > 0:
