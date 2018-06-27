@@ -316,6 +316,7 @@ def _resp_body_property():
             value = value.encode('utf-8')
         if isinstance(value, str):
             self.content_length = len(value)
+            close_if_possible(self._app_iter)
             self._app_iter = None
         self._body = value
 
@@ -400,6 +401,7 @@ def _resp_app_iter_property():
         elif value is not None:
             self.content_length = None
             self._body = None
+        close_if_possible(self._app_iter)
         self._app_iter = value
 
     return property(getter, setter,
@@ -1115,6 +1117,7 @@ class Response(object):
         self.conditional_response = conditional_response
         self._conditional_etag = conditional_etag
         self.request = request
+        self._app_iter = None
         self.body = body
         self.app_iter = app_iter
         self.response_iter = None
