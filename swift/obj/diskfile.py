@@ -1060,8 +1060,12 @@ class BaseDiskFileManager(object):
         if not files:  # everything got unlinked
             try:
                 os.rmdir(hsh_path)
-            except OSError:
-                pass
+            except OSError as err:
+                if err.errno not in (errno.ENOENT, errno.ENOTEMPTY):
+                    self.logger.debug(
+                        'Error cleaning up empty hash directory %s: %s',
+                        hsh_path, err)
+                # else, no real harm; pass
         return results
 
     def _update_suffix_hashes(self, hashes, ondisk_info):
@@ -1560,12 +1564,15 @@ class BaseDiskFileManager(object):
             else:
                 try:
                     os.rmdir(suffix_path)
-                except OSError:
+                except OSError as err:
+                    if err.errno not in (errno.ENOENT, errno.ENOTEMPTY):
+                        self.logger.debug(
+                            'Error cleaning up empty suffix directory %s: %s',
+                            suffix_path, err)
                     # cleanup_ondisk_files tries to remove empty hash dirs,
                     # but if it fails, so will we. An empty directory
                     # structure won't cause errors (just slowdown), so we
                     # ignore the exception.
-                    pass
         if considering_all_suffixes and not have_nonempty_suffix:
             # There's nothing of interest in the partition, so delete it
             try:
