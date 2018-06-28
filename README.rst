@@ -27,10 +27,13 @@ in the AUTHORS file.
 Docs
 ----
 
-To build documentation install sphinx (``pip install sphinx``), run
-``sphinx-build -W -b html doc/source doc/build/html``, and then browse to
-/doc/build/html/index.html. These docs are auto-generated after every
-commit and available online at
+To build documentation run::
+
+    pip install -r requirements.txt -r doc/requirements.txt
+    sphinx-build -W -b html doc/source doc/build/html
+
+and then browse to /doc/build/html/index.html. These docs are auto-generated
+after every commit and available online at
 https://docs.openstack.org/swift/latest/.
 
 For Developers
