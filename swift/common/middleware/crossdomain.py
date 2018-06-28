@@ -71,7 +71,7 @@ class CrossDomainMiddleware(object):
                '<cross-domain-policy>\n' \
                '%s\n' \
                '</cross-domain-policy>' % self.cross_domain_policy
-        return Response(request=req, body=body,
+        return Response(request=req, body=body.encode('utf-8'),
                         content_type="application/xml")
 
     def __call__(self, env, start_response):
