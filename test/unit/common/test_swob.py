@@ -892,18 +892,76 @@ class TestRequest(unittest.TestCase):
             self.assertEqual(str(err), 'Invalid path: o%0An%20e')
 
     def test_unicode_path(self):
-        req = swift.common.swob.Request.blank(u'/\u2661')
+        # Byte sequences always make sense
+        req = swift.common.swob.Request.blank(u'/\u2661'.encode('utf8'))
         self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
+        self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
+
+        req = swift.common.swob.Request.blank('/')
+        req.path_info = u'/\u2661'.encode('utf8')
+        self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
+        self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
+
+        if six.PY2:
+            # Unicode is encoded to UTF-8 on py2, to paper over deserialized
+            # JSON slipping into subrequests
+            req = swift.common.swob.Request.blank(u'/\u2661')
+            self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
+            self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
+
+            req = swift.common.swob.Request.blank('/')
+            req.path_info = u'/\u2661'
+            self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
+            self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
+
+        else:
+            # Arbitrary Unicode *is not* supported on py3 -- only latin-1
+            # encodable is supported, because PEP-3333.
+            with self.assertRaises(UnicodeEncodeError):
+                req = swift.common.swob.Request.blank(u'/\u2661')
+
+            req = swift.common.swob.Request.blank('/')
+            with self.assertRaises(UnicodeEncodeError):
+                req.path_info = u'/\u2661'
+            # Update didn't take
+            self.assertEqual(req.path, '/')
+            self.assertEqual(req.environ['PATH_INFO'], '/')
+
+            # Needs to be a "WSGI string"
+            req = swift.common.swob.Request.blank('/\xe2\x99\xa1')
+            self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
+            self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
+
+            req = swift.common.swob.Request.blank('/')
+            req.path_info = '/\xe2\x99\xa1'
+            self.assertEqual(req.path, quote(u'/\u2661'.encode('utf-8')))
+            self.assertEqual(req.environ['PATH_INFO'], '/\xe2\x99\xa1')
 
     def test_unicode_query(self):
-        req = swift.common.swob.Request.blank(u'/')
-        req.query_string = u'x=\u2661'
+        # Bytes are always OK
+        req = swift.common.swob.Request.blank('/')
         encoded = u'\u2661'.encode('utf-8')
+        req.query_string = b'x=' + encoded
         if six.PY2:
             self.assertEqual(req.params['x'], encoded)
         else:
-            # XXX should this be latin1?
-            self.assertEqual(req.params['x'], encoded.decode('utf8'))
+            self.assertEqual(req.params['x'], encoded.decode('latin1'))
+
+        if six.PY2:
+            # Unicode will be UTF-8-encoded on py2
+            req = swift.common.swob.Request.blank('/')
+            req.query_string = u'x=\u2661'
+            self.assertEqual(req.params['x'], encoded)
+        else:
+            # ...but py3 requires "WSGI strings"
+            req = swift.common.swob.Request.blank('/')
+            with self.assertRaises(UnicodeEncodeError):
+                req.query_string = u'x=\u2661'
+            self.assertEqual(req.params, {})
+
+            req = swift.common.swob.Request.blank('/')
+            req.query_string = 'x=' + encoded.decode('latin-1')
+            self.assertEqual(req.params['x'], encoded.decode('latin-1'))
 
     def test_url2(self):
         pi = '/hi/there'

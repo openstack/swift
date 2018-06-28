@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import six
 import unittest
 
 from swift.common.swob import Request, HTTPMovedPermanently
@@ -24,7 +25,11 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         start_response('200 OK', [])
-        return [env['PATH_INFO'].encode('latin-1')]
+        if six.PY2:
+            return [env['PATH_INFO']]
+        else:
+            print(env)
+            return [env['PATH_INFO'].encode('latin-1')]
 
 
 class RedirectSlashApp(object):
@@ -90,6 +95,13 @@ class TestDomainRemap(unittest.TestCase):
                             headers={'Host': 'AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, [b'/v1/AUTH_a/v1'])
+
+    def test_domain_remap_account_with_path_root_unicode_container(self):
+        req = Request.blank('/%E4%BD%A0%E5%A5%BD',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, [b'/v1/AUTH_a/\xe4\xbd\xa0\xe5\xa5\xbd'])
 
     def test_domain_remap_account_container_with_path_root_obj(self):
         req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
