@@ -82,8 +82,19 @@ and in the order shown in this example::
 See the `proxy-server.conf-sample` file for further details on the middleware
 configuration options.
 
-The keymaster config option ``encryption_root_secret`` MUST be set to a value
-of at least 44 valid base-64 characters before the middleware is used and
+Keymaster middleware
+--------------------
+
+The `keymaster` middleware must be configured with a root secret before it is
+used. By default the `keymaster` middleware will use the root secret configured
+using the ``encryption_root_secret`` option in the middleware filter section of
+the `proxy-server.conf` file, for example::
+
+  [filter:keymaster]
+  use = egg:swift#keymaster
+  encryption_root_secret = your_secret
+
+Root secret values MUST be at least 44 valid base-64 characters and
 should be consistent across all proxy servers. The minimum length of 44 has
 been chosen because it is the length of a base-64 encoded 32 byte value.
 Alternatives to specifying the encryption root secret directly in the
@@ -117,12 +128,56 @@ use the ``openssl`` command line tool::
 
     openssl rand -base64 32
 
+
+Separate keymaster configuration file
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``encryption_root_secret`` option may alternatively be specified in a
+separate config file at a path specified by the ``keymaster_config_path``
+option, for example::
+
+  [filter:keymaster]
+  use = egg:swift#keymaster
+  keymaster_config_path = /etc/swift/keymaster.conf
+
+This has the advantage of allowing multiple processes which need to be
+encryption-aware (for example, proxy-server and container-sync) to share the
+same config file, ensuring that consistent encryption keys are used by those
+processes. It also allows the keymaster configuration file to have different
+permissions than the `proxy-server.conf` file.
+
+A separate keymaster config file should have a ``[keymaster]`` section
+containing the ``encryption_root_secret`` option::
+
+  [keymaster]
+  encryption_root_secret = your_secret
+
+
+.. note::
+
+    Alternative keymaster middleware is available to retrieve encryption root
+    secrets from an :ref:`external key management system
+    <encryption_root_secret_in_external_kms>` such as `Barbican
+    <https://docs.openstack.org/barbican>`_ rather than storing root secrets in
+    configuration files.
+
 Once deployed, the encryption filter will by default encrypt object data and
 metadata when handling PUT and POST requests and decrypt object data and
 metadata when handling GET and HEAD requests. COPY requests are transformed
 into GET and PUT requests by the :ref:`copy` middleware before reaching the
 encryption middleware and as a result object data and metadata is decrypted and
 re-encrypted when copied.
+
+Encryption middleware
+---------------------
+
+Once deployed, the encryption filter will by default encrypt object data and
+metadata when handling PUT and POST requests and decrypt object data and
+metadata when handling GET and HEAD requests. COPY requests are transformed
+into GET and PUT requests by the :ref:`copy` middleware before reaching the
+encryption middleware and as a result object data and metadata is decrypted and
+re-encrypted when copied.
+
 
 .. _encryption_root_secret_in_external_kms:
 
