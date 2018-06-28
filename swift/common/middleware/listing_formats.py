@@ -62,7 +62,9 @@ def get_listing_content_type(req):
 
 
 def account_to_xml(listing, account_name):
-    doc = Element('account', name=account_name.decode('utf-8'))
+    if isinstance(account_name, bytes):
+        account_name = account_name.decode('utf-8')
+    doc = Element('account', name=account_name)
     doc.text = '\n'
     for record in listing:
         if 'subdir' in record:
@@ -75,12 +77,14 @@ def account_to_xml(listing, account_name):
                     record.pop(field))
         sub.tail = '\n'
     return tostring(doc, encoding='UTF-8').replace(
-        "<?xml version='1.0' encoding='UTF-8'?>",
-        '<?xml version="1.0" encoding="UTF-8"?>', 1)
+        b"<?xml version='1.0' encoding='UTF-8'?>",
+        b'<?xml version="1.0" encoding="UTF-8"?>', 1)
 
 
 def container_to_xml(listing, base_name):
-    doc = Element('container', name=base_name.decode('utf-8'))
+    if isinstance(base_name, bytes):
+        base_name = base_name.decode('utf-8')
+    doc = Element('container', name=base_name)
     for record in listing:
         if 'subdir' in record:
             name = record.pop('subdir')
@@ -94,8 +98,8 @@ def container_to_xml(listing, base_name):
                     record.pop(field))
 
     return tostring(doc, encoding='UTF-8').replace(
-        "<?xml version='1.0' encoding='UTF-8'?>",
-        '<?xml version="1.0" encoding="UTF-8"?>', 1)
+        b"<?xml version='1.0' encoding='UTF-8'?>",
+        b'<?xml version="1.0" encoding="UTF-8"?>', 1)
 
 
 def listing_to_text(listing):
@@ -175,7 +179,7 @@ class ListingFilter(object):
 
         body = b''.join(resp_iter)
         try:
-            listing = json.loads(body)
+            listing = json.loads(body.decode('ascii'))
             # Do a couple sanity checks
             if not isinstance(listing, list):
                 raise ValueError

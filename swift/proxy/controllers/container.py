@@ -219,7 +219,7 @@ class ContainerController(Controller):
                   end_marker <= objects[-1]['name'].encode('utf-8')):
                 break
 
-        resp.body = json.dumps(objects)
+        resp.body = json.dumps(objects).encode('ascii')
         constrained = any(req.params.get(constraint) for constraint in (
             'marker', 'end_marker', 'path', 'prefix', 'delimiter'))
         if not constrained and len(objects) < req_limit:
