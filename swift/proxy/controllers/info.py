@@ -103,5 +103,5 @@ class InfoController(Controller):
 
         return HTTPOk(request=req,
                       headers=headers,
-                      body=info,
+                      body=info.encode('ascii'),
                       content_type='application/json; charset=UTF-8')

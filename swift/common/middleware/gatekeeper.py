@@ -109,15 +109,14 @@ class GatekeeperMiddleware(object):
                     ]
 
             response_headers = fixed_response_headers()
-            removed = filter(
-                lambda h: self.outbound_condition(h[0]),
-                response_headers)
+            removed = [(header, value) for header, value in response_headers
+                       if self.outbound_condition(header)]
 
             if removed:
                 self.logger.debug('removed response headers: %s' % removed)
-                new_headers = filter(
-                    lambda h: not self.outbound_condition(h[0]),
-                    response_headers)
+                new_headers = [
+                    (header, value) for header, value in response_headers
+                    if not self.outbound_condition(header)]
                 return start_response(status, new_headers, exc_info)
             return start_response(status, response_headers, exc_info)
         return self.app(env, gatekeeper_response)

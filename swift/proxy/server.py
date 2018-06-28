@@ -649,11 +649,13 @@ class Application(object):
                 kwargs['exc_info'] = sys.exc_info()
         else:
             log = self.logger.exception
+        if isinstance(additional_info, bytes):
+            additional_info = additional_info.decode('utf-8')
         log(_('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s'
               ' re: %(info)s'),
             {'type': typ, 'ip': node['ip'],
              'port': node['port'], 'device': node['device'],
-             'info': additional_info.decode('utf-8')},
+             'info': additional_info},
             **kwargs)
 
     def modify_wsgi_pipeline(self, pipe):
