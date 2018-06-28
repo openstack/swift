@@ -137,6 +137,63 @@ class TestCatchErrors(unittest.TestCase):
         resp = app(req.environ, self.start_response)
         self.assertEqual(list(resp), [b'An error occurred'])
 
+    def test_HEAD_with_content_length(self):
+        def cannot_count_app(env, sr):
+            sr("200 OK", [("Content-Length", "10")])
+            return [b""]
+
+        app = catch_errors.CatchErrorMiddleware(cannot_count_app, {})
+        list(app({'REQUEST_METHOD': 'HEAD'}, self.start_response))
+
+    def test_short_response_body(self):
+
+        def cannot_count_app(env, sr):
+            sr("200 OK", [("Content-Length", "2000")])
+            return [b"our staff tailor is Euripedes Imenedes"]
+
+        app = catch_errors.CatchErrorMiddleware(cannot_count_app, {})
+
+        with self.assertRaises(catch_errors.BadResponseLength):
+            list(app({'REQUEST_METHOD': 'GET'}, self.start_response))
+
+    def test_long_response_body(self):
+        def cannot_count_app(env, sr):
+            sr("200 OK", [("Content-Length", "10")])
+            return [b"our optometric firm is C.F. Eye Care"]
+
+        app = catch_errors.CatchErrorMiddleware(cannot_count_app, {})
+
+        with self.assertRaises(catch_errors.BadResponseLength):
+            list(app({'REQUEST_METHOD': 'GET'}, self.start_response))
+
+    def test_bogus_content_length(self):
+
+        def bogus_cl_app(env, sr):
+            sr("200 OK", [("Content-Length", "25 cm")])
+            return [b"our British cutlery specialist is Sir Irving Spoon"]
+
+        app = catch_errors.CatchErrorMiddleware(bogus_cl_app, {})
+        list(app({'REQUEST_METHOD': 'GET'}, self.start_response))
+
+    def test_no_content_length(self):
+
+        def no_cl_app(env, sr):
+            sr("200 OK", [("Content-Type", "application/names")])
+            return [b"our staff statistician is Marge Inovera"]
+
+        app = catch_errors.CatchErrorMiddleware(no_cl_app, {})
+        list(app({'REQUEST_METHOD': 'GET'}, self.start_response))
+
+    def test_multiple_content_lengths(self):
+
+        def poly_cl_app(env, sr):
+            sr("200 OK", [("Content-Length", "30"),
+                          ("Content-Length", "40")])
+            return [b"The head of our personal trainers is Jim Shortz"]
+
+        app = catch_errors.CatchErrorMiddleware(poly_cl_app, {})
+        list(app({'REQUEST_METHOD': 'GET'}, self.start_response))
+
 
 if __name__ == '__main__':
     unittest.main()

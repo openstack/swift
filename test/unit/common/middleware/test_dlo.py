@@ -612,6 +612,21 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(status, "200 OK")
         self.assertEqual(body, "aaaaabbbbbccccc")
 
+    def test_error_listing_container_HEAD(self):
+        self.app.register(
+            'GET', '/v1/AUTH_test/c?prefix=seg_',
+            # for example, if a manifest refers to segments in another
+            # container, but the user is accessing the manifest via a
+            # container-level tempurl key
+            swob.HTTPUnauthorized, {}, None)
+
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest-many-segments',
+                                 environ={'REQUEST_METHOD': 'HEAD'})
+        with mock.patch(LIMIT, 3):
+            status, headers, body = self.call_dlo(req)
+        self.assertEqual(status, "401 Unauthorized")
+        self.assertEqual(body, b"")
+
     def test_mismatched_etag_fetching_second_segment(self):
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_02',

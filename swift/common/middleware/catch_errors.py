@@ -16,8 +16,42 @@
 from swift import gettext_ as _
 
 from swift.common.swob import Request, HTTPServerError
-from swift.common.utils import get_logger, generate_trans_id
+from swift.common.utils import get_logger, generate_trans_id, close_if_possible
 from swift.common.wsgi import WSGIContext
+
+
+class BadResponseLength(Exception):
+    pass
+
+
+def enforce_byte_count(inner_iter, nbytes):
+    """
+    Enforces that inner_iter yields exactly <nbytes> bytes before
+    exhaustion.
+
+    If inner_iter fails to do so, BadResponseLength is raised.
+
+    :param inner_iter: iterable of bytestrings
+    :param nbytes: number of bytes expected
+    """
+    try:
+        bytes_left = nbytes
+        for chunk in inner_iter:
+            if bytes_left >= len(chunk):
+                yield chunk
+                bytes_left -= len(chunk)
+            else:
+                yield chunk[:bytes_left]
+                raise BadResponseLength(
+                    "Too many bytes; truncating after %d bytes "
+                    "with at least %d surplus bytes remaining" % (
+                        nbytes, len(chunk) - bytes_left))
+
+        if bytes_left:
+            raise BadResponseLength('Expected another %d bytes' % (
+                bytes_left,))
+    finally:
+        close_if_possible(inner_iter)
 
 
 class CatchErrorsContext(WSGIContext):
@@ -35,6 +69,7 @@ class CatchErrorsContext(WSGIContext):
 
         trans_id = generate_trans_id(trans_id_suffix)
         env['swift.trans_id'] = trans_id
+        method = env['REQUEST_METHOD']
         self.logger.txn_id = trans_id
         try:
             # catch any errors in the pipeline
@@ -47,6 +82,37 @@ class CatchErrorsContext(WSGIContext):
             resp.headers['X-Trans-Id'] = trans_id
             resp.headers['X-Openstack-Request-Id'] = trans_id
             return resp(env, start_response)
+
+        # If the app specified a Content-Length, enforce that it sends that
+        # many bytes.
+        #
+        # If an app gives too few bytes, then the client will wait for the
+        # remainder before sending another HTTP request on the same socket;
+        # since no more bytes are coming, this will result in either an
+        # infinite wait or a timeout. In this case, we want to raise an
+        # exception to signal to the WSGI server that it should close the
+        # TCP connection.
+        #
+        # If an app gives too many bytes, then we can deadlock with the
+        # client; if the client reads its N bytes and then sends a large-ish
+        # request (enough to fill TCP buffers), it'll block until we read
+        # some of the request. However, we won't read the request since
+        # we'll be trying to shove the rest of our oversized response out
+        # the socket. In that case, we truncate the response body at N bytes
+        # and raise an exception to stop any more bytes from being
+        # generated and also to kill the TCP connection.
+        if self._response_headers:
+            content_lengths = [val for header, val in self._response_headers
+                               if header.lower() == "content-length"]
+            if len(content_lengths) == 1:
+                try:
+                    content_length = int(content_lengths[0])
+                except ValueError:
+                    pass
+                else:
+                    resp = enforce_byte_count(
+                        resp,
+                        0 if method == 'HEAD' else content_length)
 
         # make sure the response has the trans_id
         if self._response_headers is None:
