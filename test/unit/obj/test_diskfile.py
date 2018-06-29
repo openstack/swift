@@ -57,8 +57,8 @@ from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileError, ReplicationLockTimeout, DiskFileCollision, \
     DiskFileExpired, SwiftException, DiskFileNoSpace, DiskFileXattrNotSupported
 from swift.common.storage_policy import (
-    POLICIES, get_policy_string, StoragePolicy, ECStoragePolicy,
-    BaseStoragePolicy, REPL_POLICY, EC_POLICY)
+    POLICIES, get_policy_string, StoragePolicy, ECStoragePolicy, REPL_POLICY,
+    EC_POLICY, PolicyError)
 from test.unit.obj.common import write_diskfile
 
 
@@ -644,21 +644,55 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
 
 class TestDiskFileRouter(unittest.TestCase):
 
-    def test_register(self):
-        with mock.patch.dict(
-                diskfile.DiskFileRouter.policy_type_to_manager_cls, {}):
-            @diskfile.DiskFileRouter.register('test-policy')
-            class TestDiskFileManager(diskfile.DiskFileManager):
-                pass
+    @patch_policies(test_policies)
+    def test_policy(self):
+        conf = {}
+        logger = debug_logger('test-' + self.__class__.__name__)
+        df_router = diskfile.DiskFileRouter(conf, logger)
+        manager_0 = df_router[POLICIES[0]]
+        self.assertTrue(isinstance(manager_0, diskfile.DiskFileManager))
+        manager_1 = df_router[POLICIES[1]]
+        self.assertTrue(isinstance(manager_1, diskfile.ECDiskFileManager))
 
-            @BaseStoragePolicy.register('test-policy')
-            class TestStoragePolicy(BaseStoragePolicy):
-                pass
+        # The DiskFileRouter should not have to load the policy again
+        with mock.patch('swift.common.storage_policy.BaseStoragePolicy.' +
+                        'get_diskfile_manager') as mock_load:
+            manager_3 = df_router[POLICIES[0]]
+            mock_load.assert_not_called()
+            self.assertIs(manager_3, manager_0)
+            self.assertTrue(isinstance(manager_3, diskfile.DiskFileManager))
 
-            with patch_policies([TestStoragePolicy(0, 'test')]):
-                router = diskfile.DiskFileRouter({}, debug_logger('test'))
-                manager = router[POLICIES.default]
-                self.assertTrue(isinstance(manager, TestDiskFileManager))
+    def test_invalid_policy_config(self):
+        # verify that invalid policy diskfile configs are detected when the
+        # DiskfileRouter is created
+        bad_policy = StoragePolicy(0, name='zero', is_default=True,
+                                   diskfile_module='erasure_coding.fs')
+
+        with patch_policies([bad_policy]):
+            with self.assertRaises(PolicyError) as cm:
+                diskfile.DiskFileRouter({}, debug_logger())
+        self.assertIn('Invalid diskfile_module erasure_coding.fs',
+                      str(cm.exception))
+
+        bad_policy = ECStoragePolicy(0, name='one', is_default=True,
+                                     ec_type=DEFAULT_TEST_EC_TYPE,
+                                     ec_ndata=10, ec_nparity=4,
+                                     diskfile_module='replication.fs')
+
+        with patch_policies([bad_policy]):
+            with self.assertRaises(PolicyError) as cm:
+                diskfile.DiskFileRouter({}, debug_logger())
+        self.assertIn('Invalid diskfile_module replication.fs',
+                      str(cm.exception))
+
+        bad_policy = StoragePolicy(0, name='zero', is_default=True,
+                                   diskfile_module='thin_air.fs')
+
+        with patch_policies([bad_policy]):
+            with self.assertRaises(PolicyError) as cm:
+                diskfile.DiskFileRouter({}, debug_logger())
+        self.assertIn('Unable to load diskfile_module thin_air.fs',
+                      str(cm.exception))
 
 
 class BaseDiskFileTestMixin(object):
@@ -1797,6 +1831,18 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             self.fail('Expected AssertionError')
         except AssertionError:
             pass
+
+    def test_check_policy(self):
+        mock_policy = mock.MagicMock()
+        mock_policy.policy_type = REPL_POLICY
+        # sanity, DiskFileManager is ok with REPL_POLICY
+        diskfile.DiskFileManager.check_policy(mock_policy)
+        # DiskFileManager raises ValueError with EC_POLICY
+        mock_policy.policy_type = EC_POLICY
+        with self.assertRaises(ValueError) as cm:
+            diskfile.DiskFileManager.check_policy(mock_policy)
+        self.assertEqual('Invalid policy_type: %s' % EC_POLICY,
+                         str(cm.exception))
 
 
 @patch_policies(with_ec_default=True)
@@ -3068,6 +3114,18 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
     def test_get_diskfile_from_hash_frag_index_filter_legacy_durable(self):
         self._test_get_diskfile_from_hash_frag_index_filter(True)
+
+    def test_check_policy(self):
+        mock_policy = mock.MagicMock()
+        mock_policy.policy_type = EC_POLICY
+        # sanity, ECDiskFileManager is ok with EC_POLICY
+        diskfile.ECDiskFileManager.check_policy(mock_policy)
+        # ECDiskFileManager raises ValueError with REPL_POLICY
+        mock_policy.policy_type = REPL_POLICY
+        with self.assertRaises(ValueError) as cm:
+            diskfile.ECDiskFileManager.check_policy(mock_policy)
+        self.assertEqual('Invalid policy_type: %s' % REPL_POLICY,
+                         str(cm.exception))
 
 
 class DiskFileMixin(BaseDiskFileTestMixin):

@@ -4371,6 +4371,29 @@ cluster_dfw1 = http://dfw1.host/v1/
                        'X-Backend-Redirect-Timestamp': '-1'})
         self.assertIn('Invalid timestamp', str(exc))
 
+    @mock.patch('pkg_resources.load_entry_point')
+    def test_load_pkg_resource(self, mock_driver):
+        tests = {
+            ('swift.diskfile', 'egg:swift#replication.fs'):
+                ('swift', 'swift.diskfile', 'replication.fs'),
+            ('swift.diskfile', 'egg:swift#erasure_coding.fs'):
+                ('swift', 'swift.diskfile', 'erasure_coding.fs'),
+            ('swift.section', 'egg:swift#thing.other'):
+                ('swift', 'swift.section', 'thing.other'),
+            ('swift.section', 'swift#thing.other'):
+                ('swift', 'swift.section', 'thing.other'),
+            ('swift.section', 'thing.other'):
+                ('swift', 'swift.section', 'thing.other'),
+        }
+        for args, expected in tests.items():
+            utils.load_pkg_resource(*args)
+            mock_driver.assert_called_with(*expected)
+
+        with self.assertRaises(TypeError) as cm:
+            args = ('swift.diskfile', 'nog:swift#replication.fs')
+            utils.load_pkg_resource(*args)
+        self.assertEqual("Unhandled URI scheme: 'nog'", str(cm.exception))
+
 
 class ResellerConfReader(unittest.TestCase):
 

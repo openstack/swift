@@ -22,7 +22,8 @@ from functools import partial
 
 from six.moves.configparser import ConfigParser
 from tempfile import NamedTemporaryFile
-from test.unit import patch_policies, FakeRing, temptree, DEFAULT_TEST_EC_TYPE
+from test.unit import (
+    patch_policies, FakeRing, temptree, DEFAULT_TEST_EC_TYPE, FakeLogger)
 import swift.common.storage_policy
 from swift.common.storage_policy import (
     StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
@@ -1348,6 +1349,7 @@ class TestStoragePolicies(unittest.TestCase):
                 'aliases': 'zero',
                 'default': True,
                 'deprecated': False,
+                'diskfile_module': 'egg:swift#replication.fs',
                 'policy_type': REPL_POLICY
             },
             (0, False): {
@@ -1361,6 +1363,7 @@ class TestStoragePolicies(unittest.TestCase):
                 'aliases': 'one, tahi, uno',
                 'default': False,
                 'deprecated': True,
+                'diskfile_module': 'egg:swift#replication.fs',
                 'policy_type': REPL_POLICY
             },
             (1, False): {
@@ -1374,6 +1377,7 @@ class TestStoragePolicies(unittest.TestCase):
                 'aliases': 'ten',
                 'default': False,
                 'deprecated': False,
+                'diskfile_module': 'egg:swift#erasure_coding.fs',
                 'policy_type': EC_POLICY,
                 'ec_type': DEFAULT_TEST_EC_TYPE,
                 'ec_num_data_fragments': 10,
@@ -1391,6 +1395,7 @@ class TestStoragePolicies(unittest.TestCase):
                 'aliases': 'done',
                 'default': False,
                 'deprecated': True,
+                'diskfile_module': 'egg:swift#erasure_coding.fs',
                 'policy_type': EC_POLICY,
                 'ec_type': DEFAULT_TEST_EC_TYPE,
                 'ec_num_data_fragments': 10,
@@ -1409,6 +1414,7 @@ class TestStoragePolicies(unittest.TestCase):
                 'aliases': 'twelve',
                 'default': False,
                 'deprecated': False,
+                'diskfile_module': 'egg:swift#erasure_coding.fs',
                 'policy_type': EC_POLICY,
                 'ec_type': DEFAULT_TEST_EC_TYPE,
                 'ec_num_data_fragments': 10,
@@ -1450,6 +1456,84 @@ class TestStoragePolicies(unittest.TestCase):
                                  policy.fragment_size)
                 # pyeclib_driver.get_segment_info is called only once
                 self.assertEqual(1, fake.call_count)
+
+    def test_get_diskfile_manager(self):
+        # verify unique diskfile manager instances are returned
+        policy = StoragePolicy(0, name='zero', is_default=True,
+                               diskfile_module='replication.fs')
+
+        dfm = policy.get_diskfile_manager({'devices': 'sdb1'}, FakeLogger())
+        self.assertEqual('sdb1', dfm.devices)
+        dfm = policy.get_diskfile_manager({'devices': 'sdb2'}, FakeLogger())
+        self.assertEqual('sdb2', dfm.devices)
+        dfm2 = policy.get_diskfile_manager({'devices': 'sdb2'}, FakeLogger())
+        self.assertEqual('sdb2', dfm2.devices)
+        self.assertIsNot(dfm, dfm2)
+
+    def test_get_diskfile_manager_custom_diskfile(self):
+        calls = []
+        is_policy_ok = True
+
+        class DFM(object):
+            def __init__(self, *args, **kwargs):
+                calls.append((args, kwargs))
+
+            @classmethod
+            def check_policy(cls, policy):
+                if not is_policy_ok:
+                    raise ValueError("I am not ok")
+
+        policy = StoragePolicy(0, name='zero', is_default=True,
+                               diskfile_module='thin_air.fs')
+        with mock.patch(
+                'swift.common.storage_policy.load_pkg_resource',
+                side_effect=lambda *a, **kw: DFM) as mock_load_pkg_resource:
+            dfm = policy.get_diskfile_manager('arg', kwarg='kwarg')
+        self.assertIsInstance(dfm, DFM)
+        mock_load_pkg_resource.assert_called_with(
+            'swift.diskfile', 'thin_air.fs')
+        self.assertEqual([(('arg',), {'kwarg': 'kwarg'})], calls)
+
+        calls = []
+        is_policy_ok = False
+
+        with mock.patch(
+                'swift.common.storage_policy.load_pkg_resource',
+                side_effect=lambda *a, **kw: DFM) as mock_load_pkg_resource:
+            with self.assertRaises(PolicyError) as cm:
+                policy.get_diskfile_manager('arg', kwarg='kwarg')
+        mock_load_pkg_resource.assert_called_with(
+            'swift.diskfile', 'thin_air.fs')
+        self.assertIn('Invalid diskfile_module thin_air.fs', str(cm.exception))
+
+    def test_get_diskfile_manager_invalid_policy_config(self):
+        bad_policy = StoragePolicy(0, name='zero', is_default=True,
+                                   diskfile_module='erasure_coding.fs')
+
+        with self.assertRaises(PolicyError) as cm:
+            bad_policy.get_diskfile_manager()
+        self.assertIn('Invalid diskfile_module erasure_coding.fs',
+                      str(cm.exception))
+
+        bad_policy = ECStoragePolicy(0, name='one', is_default=True,
+                                     ec_type=DEFAULT_TEST_EC_TYPE,
+                                     ec_ndata=10, ec_nparity=4,
+                                     diskfile_module='replication.fs')
+
+        with self.assertRaises(PolicyError) as cm:
+            bad_policy.get_diskfile_manager()
+
+        self.assertIn('Invalid diskfile_module replication.fs',
+                      str(cm.exception))
+
+        bad_policy = StoragePolicy(0, name='zero', is_default=True,
+                                   diskfile_module='thin_air.fs')
+
+        with self.assertRaises(PolicyError) as cm:
+            bad_policy.get_diskfile_manager()
+
+        self.assertIn('Unable to load diskfile_module thin_air.fs',
+                      str(cm.exception))
 
 
 if __name__ == '__main__':
