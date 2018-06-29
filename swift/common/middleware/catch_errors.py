@@ -69,7 +69,6 @@ class CatchErrorsContext(WSGIContext):
 
         trans_id = generate_trans_id(trans_id_suffix)
         env['swift.trans_id'] = trans_id
-        method = env['REQUEST_METHOD']
         self.logger.txn_id = trans_id
         try:
             # catch any errors in the pipeline
@@ -101,7 +100,10 @@ class CatchErrorsContext(WSGIContext):
         # the socket. In that case, we truncate the response body at N bytes
         # and raise an exception to stop any more bytes from being
         # generated and also to kill the TCP connection.
-        if self._response_headers:
+        if env['REQUEST_METHOD'] == 'HEAD':
+            resp = enforce_byte_count(resp, 0)
+
+        elif self._response_headers:
             content_lengths = [val for header, val in self._response_headers
                                if header.lower() == "content-length"]
             if len(content_lengths) == 1:
@@ -110,9 +112,7 @@ class CatchErrorsContext(WSGIContext):
                 except ValueError:
                     pass
                 else:
-                    resp = enforce_byte_count(
-                        resp,
-                        0 if method == 'HEAD' else content_length)
+                    resp = enforce_byte_count(resp, content_length)
 
         # make sure the response has the trans_id
         if self._response_headers is None:
