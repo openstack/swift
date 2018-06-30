@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from base64 import b64encode
 from time import time
 
+from six.moves.urllib.parse import quote, urlparse
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response
@@ -917,10 +918,11 @@ class TestAuth(unittest.TestCase):
                          'Swift realm="BLAH_account"')
 
     def test_successful_token_unicode_user(self):
-        app = FakeApp(iter(NO_CONTENT_RESP))
+        app = FakeApp(iter(NO_CONTENT_RESP * 2))
         ath = auth.filter_factory(
             {u'user_t\u00e9st_t\u00e9ster'.encode('utf8'):
              u'p\u00e1ss .admin'.encode('utf8')})(app)
+        quoted_acct = quote(u'/v1/AUTH_t\u00e9st'.encode('utf8'))
         memcache = FakeMemcache()
 
         req = self._make_request(
@@ -931,6 +933,8 @@ class TestAuth(unittest.TestCase):
         resp = req.get_response(ath)
         self.assertEqual(resp.status_int, 200)
         auth_token = resp.headers['X-Auth-Token']
+        self.assertEqual(quoted_acct,
+                         urlparse(resp.headers['X-Storage-Url']).path)
 
         req = self._make_request(
             '/auth/v1.0',
@@ -940,7 +944,17 @@ class TestAuth(unittest.TestCase):
         resp = req.get_response(ath)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(auth_token, resp.headers['X-Auth-Token'])
+        self.assertEqual(quoted_acct,
+                         urlparse(resp.headers['X-Storage-Url']).path)
 
+        # storage urls should be url-encoded...
+        req = self._make_request(
+            quoted_acct, headers={'X-Auth-Token': auth_token})
+        req.environ['swift.cache'] = memcache
+        resp = req.get_response(ath)
+        self.assertEqual(204, resp.status_int)
+
+        # ...but it also works if you send the account raw
         req = self._make_request(
             u'/v1/AUTH_t\u00e9st', headers={'X-Auth-Token': auth_token})
         req.environ['swift.cache'] = memcache

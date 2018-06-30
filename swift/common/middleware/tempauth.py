@@ -190,7 +190,7 @@ from swift.common.middleware.acl import (
     clean_acl, parse_acl, referrer_allowed, acls_from_account_info)
 from swift.common.utils import cache_from_env, get_logger, \
     split_path, config_true_value, register_swift_info
-from swift.common.utils import config_read_reseller_options
+from swift.common.utils import config_read_reseller_options, quote
 from swift.proxy.controllers.base import get_account_info
 
 
@@ -229,7 +229,7 @@ class TempAuth(object):
         self.storage_url_scheme = conf.get('storage_url_scheme', 'default')
         self.users = {}
         for conf_key in conf:
-            if conf_key.startswith('user_') or conf_key.startswith('user64_'):
+            if conf_key.startswith(('user_', 'user64_')):
                 account, username = conf_key.split('_', 1)[1].split('_')
                 if conf_key.startswith('user64_'):
                     # Because trailing equal signs would screw up config file
@@ -245,7 +245,8 @@ class TempAuth(object):
                 if values and ('://' in values[-1] or '$HOST' in values[-1]):
                     url = values.pop()
                 else:
-                    url = '$HOST/v1/%s%s' % (self.reseller_prefix, account)
+                    url = '$HOST/v1/%s%s' % (
+                        self.reseller_prefix, quote(account))
                 self.users[account + ':' + username] = {
                     'key': key, 'url': url, 'groups': values}
 
