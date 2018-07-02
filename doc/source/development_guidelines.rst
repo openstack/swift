@@ -221,10 +221,14 @@ More specifically:
     the sphinx specific markup can be found here:
     http://sphinx.pocoo.org/markup/index.html
 
-Installing Sphinx:
+To build documentation run::
 
-#. Install sphinx (On Ubuntu: ``sudo apt-get install python-sphinx``)
-#. ``python setup.py build_sphinx``
+    pip install -r requirements.txt -r doc/requirements.txt
+    sphinx-build -W -b html doc/source doc/build/html
+
+and then browse to doc/build/html/index.html. These docs are auto-generated
+after every commit and available online at
+https://docs.openstack.org/swift/latest/.
 
 --------
 Manpages
