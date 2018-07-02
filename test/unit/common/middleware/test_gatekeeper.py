@@ -29,7 +29,7 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         self.req = Request(env)
-        return Response(request=self.req, body='FAKE APP',
+        return Response(request=self.req, body=b'FAKE APP',
                         headers=self.headers)(env, start_response)
 
 
@@ -224,7 +224,7 @@ class TestGatekeeper(unittest.TestCase):
         class SelfishApp(FakeApp):
             def __call__(self, env, start_response):
                 self.req = Request(env)
-                resp = Response(request=self.req, body='FAKE APP',
+                resp = Response(request=self.req, body=b'FAKE APP',
                                 headers=self.headers)
                 # like webob, middlewares in the pipeline may rewrite
                 # location header from relative to absolute

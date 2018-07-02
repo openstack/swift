@@ -25,7 +25,7 @@ from swift.common.middleware import healthcheck
 class FakeApp(object):
     def __call__(self, env, start_response):
         req = Request(env)
-        return Response(request=req, body='FAKE APP')(
+        return Response(request=req, body=b'FAKE APP')(
             env, start_response)
 
 

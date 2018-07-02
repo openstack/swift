@@ -1356,7 +1356,15 @@ class TestAccountAcls(unittest.TestCase):
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
-            errmsg % "Key 'other-auth-system' not recognized"), resp.body)
+            errmsg % 'Key "other-auth-system" not recognized'), resp.body)
+
+        # and do something sane with crazy data
+        update = {'x-account-access-control': u'{"\u1234": []}'.encode('utf8')}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 400)
+        self.assertTrue(resp.body.startswith(
+            errmsg % 'Key "\\u1234" not recognized'), resp.body)
 
         # acls with good keys but bad values also get a 400
         update = {'x-account-access-control': bad_value_acl}
@@ -1364,7 +1372,7 @@ class TestAccountAcls(unittest.TestCase):
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
-            errmsg % "Value for key 'admin' must be a list"), resp.body)
+            errmsg % 'Value for key "admin" must be a list'), resp.body)
 
         # acls with non-string-types in list also get a 400
         update = {'x-account-access-control': bad_list_types}
@@ -1372,7 +1380,7 @@ class TestAccountAcls(unittest.TestCase):
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
-            errmsg % "Elements of 'read-only' list must be strings"),
+            errmsg % 'Elements of "read-only" list must be strings'),
             resp.body)
 
         # acls with wrong json structure also get a 400

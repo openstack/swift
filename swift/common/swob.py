@@ -281,16 +281,28 @@ class HeaderEnvironProxy(MutableMapping):
         return keys
 
 
+def wsgi_to_bytes(wsgi_str):
+    if six.PY2:
+        return wsgi_str
+    return wsgi_str.encode('latin1')
+
+
 def wsgi_to_str(wsgi_str):
     if six.PY2:
         return wsgi_str
-    return wsgi_str.encode('latin1').decode('utf8', errors='surrogateescape')
+    return wsgi_to_bytes(wsgi_str).decode('utf8', errors='surrogateescape')
+
+
+def bytes_to_wsgi(byte_str):
+    if six.PY2:
+        return byte_str
+    return byte_str.decode('latin1')
 
 
 def str_to_wsgi(native_str):
     if six.PY2:
         return native_str
-    return native_str.encode('utf8', errors='surrogateescape').decode('latin1')
+    return bytes_to_wsgi(native_str.encode('utf8', errors='surrogateescape'))
 
 
 def _resp_status_property():
@@ -334,7 +346,7 @@ def _resp_body_property():
 
     def setter(self, value):
         if isinstance(value, six.text_type):
-            value = value.encode('utf-8')
+            raise TypeError('WSGI responses must be bytes')
         if isinstance(value, six.binary_type):
             self.content_length = len(value)
             close_if_possible(self._app_iter)
