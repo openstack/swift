@@ -114,7 +114,7 @@ greater than 5GB.
 
 """
 
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, unquote
 
 from swift.common.utils import get_logger, config_true_value, FileLikeIter, \
     close_if_possible
@@ -183,7 +183,7 @@ class ServerSideCopyWebContext(WSGIContext):
 
     def get_source_resp(self, req):
         sub_req = make_subrequest(
-            req.environ, path=req.path_info, headers=req.headers,
+            req.environ, path=quote(req.path_info), headers=req.headers,
             swift_source='SSC')
         return sub_req.get_response(self.app)
 
@@ -275,9 +275,9 @@ class ServerSideCopyMiddleware(object):
                                           )(req.environ, start_response)
         dest_account = account
         if 'Destination-Account' in req.headers:
-            dest_account = req.headers.get('Destination-Account')
+            dest_account = unquote(req.headers.get('Destination-Account'))
             dest_account = check_account_format(req, dest_account)
-            req.headers['X-Copy-From-Account'] = account
+            req.headers['X-Copy-From-Account'] = quote(account)
             account = dest_account
             del req.headers['Destination-Account']
         dest_container, dest_object = _check_destination_header(req)
@@ -290,8 +290,8 @@ class ServerSideCopyMiddleware(object):
         # the proxy server app will use the right object controller
         # implementation corresponding to the container's policy type.
         ver, _junk = req.split_path(1, 2, rest_with_last=True)
-        req.path_info = '/%s/%s/%s/%s' % \
-                        (ver, dest_account, dest_container, dest_object)
+        req.path_info = '/%s/%s/%s/%s' % (
+            ver, dest_account, dest_container, dest_object)
         req.headers['Content-Length'] = 0
         req.headers['X-Copy-From'] = quote(source)
         del req.headers['Destination']
@@ -302,7 +302,7 @@ class ServerSideCopyMiddleware(object):
 
         # make sure the source request uses it's container_info
         source_req.headers.pop('X-Backend-Storage-Policy-Index', None)
-        source_req.path_info = quote(source_path)
+        source_req.path_info = source_path
         source_req.headers['X-Newest'] = 'true'
 
         # in case we are copying an SLO manifest, set format=raw parameter
@@ -351,7 +351,8 @@ class ServerSideCopyMiddleware(object):
         ver, acct, _rest = req.split_path(2, 3, True)
         src_account_name = req.headers.get('X-Copy-From-Account')
         if src_account_name:
-            src_account_name = check_account_format(req, src_account_name)
+            src_account_name = check_account_format(
+                req, unquote(src_account_name))
         else:
             src_account_name = acct
         src_container_name, src_obj_name = _check_copy_from_header(req)
