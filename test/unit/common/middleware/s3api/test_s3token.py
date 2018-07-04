@@ -482,6 +482,28 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         req.get_response(self.middleware)
         self._assert_authorized(req)
 
+    def test_authorize_with_access_key(self):
+        req = Request.blank('/v1/accesskey/c/o')
+        req.environ['s3api.auth_details'] = {
+            'access_key': u'access',
+            'signature': u'signature',
+            'string_to_sign': u'token',
+        }
+        req.get_response(self.middleware)
+        self._assert_authorized(req, account_path='/v1/')
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_TENANT_ID/c/o')
+
+    def test_authorize_with_access_key_and_unquote_chars(self):
+        req = Request.blank('/v1/access%key=/c/o')
+        req.environ['s3api.auth_details'] = {
+            'access_key': u'access',
+            'signature': u'signature',
+            'string_to_sign': u'token',
+        }
+        req.get_response(self.middleware)
+        self._assert_authorized(req, account_path='/v1/')
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_TENANT_ID/c/o')
+
 
 class S3TokenMiddlewareTestBad(S3TokenMiddlewareTestBase):
     def test_unauthorized_token(self):
@@ -819,3 +841,25 @@ class S3TokenMiddlewareTestV3(S3TokenMiddlewareTestBase):
         self._test_bad_reply_missing_parts('token', 'project', 'domain')
         self._test_bad_reply_missing_parts('token', 'project')
         self._test_bad_reply_missing_parts('token', 'roles')
+
+    def test_authorize_with_access_key(self):
+        req = Request.blank('/v1/accesskey/c/o')
+        req.environ['s3api.auth_details'] = {
+            'access_key': u'access',
+            'signature': u'signature',
+            'string_to_sign': u'token',
+        }
+        req.get_response(self.middleware)
+        self._assert_authorized(req, account_path='/v1/')
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_PROJECT_ID/c/o')
+
+    def test_authorize_with_access_key_and_unquote_chars(self):
+        req = Request.blank('/v1/ab%c=/c/o')
+        req.environ['s3api.auth_details'] = {
+            'access_key': u'access',
+            'signature': u'signature',
+            'string_to_sign': u'token',
+        }
+        req.get_response(self.middleware)
+        self._assert_authorized(req, account_path='/v1/')
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_PROJECT_ID/c/o')
