@@ -665,6 +665,8 @@ class Match(object):
                 self.tags.add(tag)
 
     def __contains__(self, val):
+        if val and val.startswith('"') and val.endswith('"'):
+            val = val[1:-1]
         return '*' in self.tags or val in self.tags
 
     def __repr__(self):
