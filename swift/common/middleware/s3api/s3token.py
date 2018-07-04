@@ -199,7 +199,7 @@ class S3Token(object):
             req.headers.update({h: None for h in KEYSTONE_AUTH_HEADERS})
 
         try:
-            parts = split_path(req.path, 1, 4, True)
+            parts = split_path(urllib.parse.unquote(req.path), 1, 4, True)
             version, account, container, obj = parts
         except ValueError:
             msg = 'Not a path query: %s, skipping.' % req.path
