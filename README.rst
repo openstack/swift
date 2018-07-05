@@ -16,7 +16,7 @@ and high concurrency. Swift is ideal for backups, web and mobile
 content, and any other unstructured data that can grow without bound.
 
 Swift provides a simple, REST-based API fully documented at
-https://docs.openstack.org/.
+https://docs.openstack.org/swift/latest/.
 
 Swift was originally developed as the basis for Rackspace's Cloud Files
 and was open-sourced in 2010 as part of the OpenStack project. It has
