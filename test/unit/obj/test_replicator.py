@@ -133,15 +133,15 @@ def _mock_process(ret):
 
 
 class MockHungProcess(object):
-    def __init__(self, waits_needed=1, *args, **kwargs):
+    def __init__(self, polls_needed=0, *args, **kwargs):
         class MockStdout(object):
             def read(self):
                 pass
         self.stdout = MockStdout()
         self._state = 'running'
         self._calls = []
-        self._waits = 0
-        self._waits_needed = waits_needed
+        self._polls = 0
+        self._polls_needed = polls_needed
 
     def wait(self, timeout=None):
         self._calls.append(('wait', self._state))
@@ -149,12 +149,22 @@ class MockHungProcess(object):
             # Sleep so we trip the rsync timeout
             sleep(1)
             raise BaseException('You need to mock out some timeouts')
-        elif self._state == 'killed':
-            self._waits += 1
-            if self._waits >= self._waits_needed:
-                return
-            else:
-                raise subprocess.TimeoutExpired('some cmd', timeout)
+        if not self._polls_needed:
+            self._state = 'os-reaped'
+            return 137
+        if timeout is not None:
+            raise subprocess.TimeoutExpired('some cmd', timeout)
+        raise BaseException("You're waiting indefinitely on something "
+                            "we've established is hung")
+
+    def poll(self):
+        self._calls.append(('poll', self._state))
+        self._polls += 1
+        if self._polls >= self._polls_needed:
+            self._state = 'os-reaped'
+            return 137
+        else:
+            return None
 
     def terminate(self):
         self._calls.append(('terminate', self._state))
@@ -2102,7 +2112,7 @@ class TestObjectReplicator(unittest.TestCase):
         mock_procs = []
 
         def new_mock(*a, **kw):
-            proc = MockHungProcess(waits_needed=2)
+            proc = MockHungProcess(polls_needed=2)
             mock_procs.append(proc)
             return proc
 
@@ -2116,7 +2126,8 @@ class TestObjectReplicator(unittest.TestCase):
                 ('wait', 'running'),
                 ('kill', 'running'),
                 ('wait', 'killed'),
-                ('wait', 'killed'),
+                ('poll', 'killed'),
+                ('poll', 'killed'),
             ])
         self.assertEqual(len(mock_procs), 2)
 
