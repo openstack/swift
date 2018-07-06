@@ -2,32 +2,37 @@
 # see http://docs.openstack.org/infra/bindep/ for additional information.
 
 build-essential [platform:dpkg]
-gcc [platform:rpm]
-gettext [!platform:suse]
+linux-headers [platform:apk]
+gcc [platform:rpm platform:apk]
+gettext [!platform:suse platform:apk]
 gettext-runtime [platform:suse]
 liberasurecode-dev [platform:dpkg]
 # There's no library in CentOS 7 but Fedora and openSUSE have it.
 liberasurecode-devel [platform:rpm !platform:centos]
-libffi-dev [platform:dpkg]
+libffi-dev [platform:dpkg platform:apk]
 libffi-devel [platform:rpm]
-libxml2-dev [platform:dpkg]
+libxml2-dev [platform:dpkg platform:apk]
 libxml2-devel [platform:rpm]
 libxslt-devel [platform:rpm]
 libxslt1-dev [platform:dpkg]
+libxslt-dev [platform:apk]
 memcached
-python-dev [platform:dpkg]
+python-dev [platform:dpkg platform:apk]
 python-devel [platform:rpm]
-python3-dev [platform:dpkg test]
+python3-dev [platform:dpkg platform:apk test]
 python3-devel [platform:fedora platform:suse test]
 # python3-devel does not pull in the python3 package on openSUSE so
 # we need to be explicit. The python3 package contains the XML module
 # which is required by a python3 virtualenv. Similarly, in python2,
 # the XML module is located in python-xml which is not pulled in
 # by python-devel as well. See https://bugzilla.suse.com/show_bug.cgi?id=1046990
-python3 [platform:suse test]
+python3 [platform:suse platform:apk test]
 python-xml [platform:suse]
 rsync
 xfsprogs
 libssl-dev [platform:dpkg]
 openssl-devel [platform:redhat]
+openssl-dev [platform:apk]
 libopenssl-devel [platform:suse]
+py-cffi [platform:apk]
+musl-dev [platform:apk]
