@@ -255,7 +255,8 @@ except InvalidHashPathConfigError:
     pass
 
 
-def get_hmac(request_method, path, expires, key, digest=sha1):
+def get_hmac(request_method, path, expires, key, digest=sha1,
+             ip_range=None):
     """
     Returns the hexdigest string of the HMAC (see RFC 2104) for
     the request.
@@ -267,18 +268,31 @@ def get_hmac(request_method, path, expires, key, digest=sha1):
     :param key: HMAC shared secret.
     :param digest: constructor for the digest to use in calculating the HMAC
                    Defaults to SHA1
-
+    :param ip_range: The ip range from which the resource is allowed
+                     to be accessed. We need to put the ip_range as the
+                     first argument to hmac to avoid manipulation of the path
+                     due to newlines being valid in paths
+                     e.g. /v1/a/c/o\\n127.0.0.1
     :returns: hexdigest str of the HMAC for the request using the specified
               digest algorithm.
     """
-    parts = (request_method, str(expires), path)
+    # These are the three mandatory fields.
+    parts = [request_method, str(expires), path]
+    formats = [b"%s", b"%s", b"%s"]
+
+    if ip_range:
+        parts.insert(0, ip_range)
+        formats.insert(0, b"ip=%s")
+
     if not isinstance(key, six.binary_type):
         key = key.encode('utf8')
-    return hmac.new(
-        key, b'\n'.join(
-            x if isinstance(x, six.binary_type) else x.encode('utf8')
-            for x in parts),
-        digest).hexdigest()
+
+    message = b'\n'.join(
+        fmt % (part if isinstance(part, six.binary_type)
+               else part.encode("utf-8"))
+        for fmt, part in zip(formats, parts))
+
+    return hmac.new(key, message, digest).hexdigest()
 
 
 # Used by get_swift_info and register_swift_info to store information about
