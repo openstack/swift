@@ -233,25 +233,26 @@ def validate_hash_conf():
 
         if six.PY3:
             # Use Latin1 to accept arbitrary bytes in the hash prefix/suffix
-            confs_read = hash_conf.read(SWIFT_CONF_FILE, encoding='latin1')
+            with open(SWIFT_CONF_FILE, encoding='latin1') as swift_conf_file:
+                hash_conf.readfp(swift_conf_file)
         else:
-            confs_read = hash_conf.read(SWIFT_CONF_FILE)
+            with open(SWIFT_CONF_FILE) as swift_conf_file:
+                hash_conf.readfp(swift_conf_file)
 
-        if confs_read:
-            try:
-                HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
-                                                 'swift_hash_path_suffix')
-                if six.PY3:
-                    HASH_PATH_SUFFIX = HASH_PATH_SUFFIX.encode('latin1')
-            except (NoSectionError, NoOptionError):
-                pass
-            try:
-                HASH_PATH_PREFIX = hash_conf.get('swift-hash',
-                                                 'swift_hash_path_prefix')
-                if six.PY3:
-                    HASH_PATH_PREFIX = HASH_PATH_PREFIX.encode('latin1')
-            except (NoSectionError, NoOptionError):
-                pass
+        try:
+            HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
+                                             'swift_hash_path_suffix')
+            if six.PY3:
+                HASH_PATH_SUFFIX = HASH_PATH_SUFFIX.encode('latin1')
+        except (NoSectionError, NoOptionError):
+            pass
+        try:
+            HASH_PATH_PREFIX = hash_conf.get('swift-hash',
+                                             'swift_hash_path_prefix')
+            if six.PY3:
+                HASH_PATH_PREFIX = HASH_PATH_PREFIX.encode('latin1')
+        except (NoSectionError, NoOptionError):
+            pass
 
         if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
             raise InvalidHashPathConfigError()
@@ -259,7 +260,7 @@ def validate_hash_conf():
 
 try:
     validate_hash_conf()
-except InvalidHashPathConfigError:
+except (InvalidHashPathConfigError, IOError):
     # could get monkey patched or lazy loaded
     pass
 
