@@ -23,6 +23,7 @@ from shutil import rmtree, copy
 from uuid import uuid4
 import six.moves.cPickle as pickle
 
+import base64
 import json
 import sqlite3
 import itertools
@@ -32,6 +33,8 @@ from mock import patch, MagicMock
 
 from eventlet.timeout import Timeout
 from six.moves import range
+
+import six
 
 import swift.common.db
 from swift.common.constraints import \
@@ -271,7 +274,7 @@ class ExampleBroker(DatabaseBroker):
             conn.commit()
 
     def _commit_puts_load(self, item_list, entry):
-        (name, timestamp, deleted) = pickle.loads(entry.decode('base64'))
+        (name, timestamp, deleted) = pickle.loads(base64.b64decode(entry))
         item_list.append({
             'name': name,
             'created_at': timestamp,
@@ -288,10 +291,10 @@ class ExampleBroker(DatabaseBroker):
             self.merge_items([record])
             return
         with open(self.pending_file, 'a+b') as fp:
-            fp.write(':')
-            fp.write(pickle.dumps(
+            fp.write(b':')
+            fp.write(base64.b64encode(pickle.dumps(
                 (name, timestamp, deleted),
-                protocol=PICKLE_PROTOCOL).encode('base64'))
+                protocol=PICKLE_PROTOCOL)))
             fp.flush()
 
     def put_test(self, name, timestamp):
@@ -517,7 +520,15 @@ class TestExampleBroker(unittest.TestCase):
                           storage_policy_index=int(self.policy))
         self.assertEqual(broker.metadata, {})
         self.assertEqual(broker.get_raw_metadata(), '')
-        key = u'test\u062a'.encode('utf-8')
+        # This is not obvious. The actual JSON in the database is the same:
+        #  '{"test\\u062a": ["value\\u062a", "0000000001.00000"]}'
+        # The only difference is what reading it produces on py2 and py3.
+        # We use native strings for metadata keys (see native_str_keys()),
+        # so keys are different.
+        if six.PY2:
+            key = u'test\u062a'.encode('utf-8')
+        else:
+            key = u'test\u062a'
         value = u'value\u062a'
         metadata = {
             key: [value, Timestamp(1).internal]
@@ -676,7 +687,7 @@ class TestDatabaseBroker(unittest.TestCase):
         stub_dict = {}
 
         def stub(*args, **kwargs):
-            for key in stub_dict.keys():
+            for key in list(stub_dict.keys()):
                 del stub_dict[key]
             stub_dict['args'] = args
             for key, value in kwargs.items():
@@ -1413,20 +1424,20 @@ class TestDatabaseBroker(unittest.TestCase):
 
         # load file and merge
         with open(broker.pending_file, 'wb') as fd:
-            fd.write(':1:2:99')
+            fd.write(b':1:2:99')
         with patch.object(broker, 'merge_items') as mock_merge_items:
             broker._commit_puts_load = lambda l, e: l.append(e)
             broker._commit_puts()
-        mock_merge_items.assert_called_once_with(['1', '2', '99'])
+        mock_merge_items.assert_called_once_with([b'1', b'2', b'99'])
         self.assertEqual(0, os.path.getsize(broker.pending_file))
 
         # load file and merge with given list
         with open(broker.pending_file, 'wb') as fd:
-            fd.write(':bad')
+            fd.write(b':bad')
         with patch.object(broker, 'merge_items') as mock_merge_items:
             broker._commit_puts_load = lambda l, e: l.append(e)
-            broker._commit_puts(['not'])
-        mock_merge_items.assert_called_once_with(['not', 'bad'])
+            broker._commit_puts([b'not'])
+        mock_merge_items.assert_called_once_with([b'not', b'bad'])
         self.assertEqual(0, os.path.getsize(broker.pending_file))
 
         # skip_commits True - no merge
@@ -1435,14 +1446,14 @@ class TestDatabaseBroker(unittest.TestCase):
         broker._initialize = MagicMock()
         broker.initialize(Timestamp.now())
         with open(broker.pending_file, 'wb') as fd:
-            fd.write(':ignored')
+            fd.write(b':ignored')
         with patch.object(broker, 'merge_items') as mock_merge_items:
             with self.assertRaises(DatabaseConnectionError) as cm:
-                broker._commit_puts(['hmmm'])
+                broker._commit_puts([b'hmmm'])
         mock_merge_items.assert_not_called()
         self.assertIn('commits not accepted', str(cm.exception))
         with open(broker.pending_file, 'rb') as fd:
-            self.assertEqual(':ignored', fd.read())
+            self.assertEqual(b':ignored', fd.read())
 
     def test_put_record(self):
         db_file = os.path.join(self.testdir, '1.db')
@@ -1457,9 +1468,10 @@ class TestDatabaseBroker(unittest.TestCase):
         mock_commit_puts.assert_not_called()
         with open(broker.pending_file, 'rb') as fd:
             pending = fd.read()
-        items = pending.split(':')
+        items = pending.split(b':')
         self.assertEqual(['PINKY'],
-                         [pickle.loads(i.decode('base64')) for i in items[1:]])
+                         [pickle.loads(base64.b64decode(i))
+                             for i in items[1:]])
 
         # record appended
         with patch.object(broker, '_commit_puts') as mock_commit_puts:
@@ -1467,15 +1479,16 @@ class TestDatabaseBroker(unittest.TestCase):
         mock_commit_puts.assert_not_called()
         with open(broker.pending_file, 'rb') as fd:
             pending = fd.read()
-        items = pending.split(':')
+        items = pending.split(b':')
         self.assertEqual(['PINKY', 'PERKY'],
-                         [pickle.loads(i.decode('base64')) for i in items[1:]])
+                         [pickle.loads(base64.b64decode(i))
+                             for i in items[1:]])
 
         # pending file above cap
         cap = swift.common.db.PENDING_CAP
         while os.path.getsize(broker.pending_file) < cap:
             with open(broker.pending_file, 'ab') as fd:
-                fd.write('x' * 100000)
+                fd.write(b'x' * 100000)
         with patch.object(broker, '_commit_puts') as mock_commit_puts:
             broker.put_record('direct')
         mock_commit_puts.called_once_with(['direct'])
