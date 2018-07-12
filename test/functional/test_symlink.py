@@ -1094,13 +1094,14 @@ class TestSymlinkToSloSegments(Base):
             parms={'multipart-manifest': 'put'})
 
         # The container listing has the etag of the actual manifest object
-        # contents which we get using multipart-manifest=get. Arguably this
-        # should be the etag that we get when NOT using multipart-manifest=get,
-        # to be consistent with size and content-type. But here we at least
-        # verify that it remains consistent when the object is updated with a
-        # POST.
+        # contents which we get using multipart-manifest=get. New enough swift
+        # also exposes the etag that we get when NOT using
+        # multipart-manifest=get. Verify that both remain consistent when the
+        # object is updated with a POST.
+        file_item.initialize()
+        slo_etag = file_item.etag
         file_item.initialize(parms={'multipart-manifest': 'get'})
-        expected_etag = file_item.etag
+        manifest_etag = file_item.etag
 
         listing = self.env.container.files(parms={'format': 'json'})
         for f_dict in listing:
@@ -1108,7 +1109,8 @@ class TestSymlinkToSloSegments(Base):
                 self.assertEqual(1024 * 1024, f_dict['bytes'])
                 self.assertEqual('application/octet-stream',
                                  f_dict['content_type'])
-                self.assertEqual(expected_etag, f_dict['hash'])
+                self.assertEqual(manifest_etag, f_dict['hash'])
+                self.assertEqual(slo_etag, f_dict['slo_etag'])
                 break
         else:
             self.fail('Failed to find manifest file in container listing')
@@ -1126,7 +1128,8 @@ class TestSymlinkToSloSegments(Base):
                 self.assertEqual(1024 * 1024, f_dict['bytes'])
                 self.assertEqual(file_item.content_type,
                                  f_dict['content_type'])
-                self.assertEqual(expected_etag, f_dict['hash'])
+                self.assertEqual(manifest_etag, f_dict['hash'])
+                self.assertEqual(slo_etag, f_dict['slo_etag'])
                 break
         else:
             self.fail('Failed to find manifest file in container listing')
@@ -1144,7 +1147,8 @@ class TestSymlinkToSloSegments(Base):
                 self.assertEqual(1024 * 1024, f_dict['bytes'])
                 self.assertEqual(file_item.content_type,
                                  f_dict['content_type'])
-                self.assertEqual(expected_etag, f_dict['hash'])
+                self.assertEqual(manifest_etag, f_dict['hash'])
+                self.assertEqual(slo_etag, f_dict['slo_etag'])
                 break
         else:
             self.fail('Failed to find manifest file in container listing')
@@ -1156,7 +1160,7 @@ class TestSymlinkToSloSegments(Base):
         expected_etag = expected_hash.hexdigest()
 
         file_item = self.env.container.file('manifest-linkto-ab')
-        self.assertEqual(expected_etag, file_item.info()['etag'])
+        self.assertEqual('"%s"' % expected_etag, file_item.info()['etag'])
 
     def test_slo_copy(self):
         file_item = self.env.container.file("manifest-linkto-ab")
@@ -1171,12 +1175,16 @@ class TestSymlinkToSloSegments(Base):
         source = self.env.container.file("manifest-linkto-ab")
         source_contents = source.read(parms={'multipart-manifest': 'get'})
         source_json = json.loads(source_contents)
+        manifest_etag = hashlib.md5(source_contents).hexdigest()
+
         source.initialize()
+        slo_etag = source.etag
         self.assertEqual('application/octet-stream', source.content_type)
+
         source.initialize(parms={'multipart-manifest': 'get'})
-        source_hash = hashlib.md5()
-        source_hash.update(source_contents)
-        self.assertEqual(source_hash.hexdigest(), source.etag)
+        self.assertEqual(manifest_etag, source.etag)
+        self.assertEqual('application/json; charset=utf-8',
+                         source.content_type)
 
         # now, copy the manifest
         self.assertTrue(source.copy(self.env.container.name,
@@ -1193,12 +1201,14 @@ class TestSymlinkToSloSegments(Base):
         # make sure content of copied manifest is the same as original man.
         self.assertEqual(source_json, copied_json)
         copied.initialize()
+        self.assertEqual(copied.etag, slo_etag)
         self.assertEqual('application/octet-stream', copied.content_type)
+
         copied.initialize(parms={'multipart-manifest': 'get'})
-        copied_hash = hashlib.md5()
-        copied_hash.update(copied_contents)
-        self.assertEqual(copied_hash.hexdigest(), copied.etag)
-        self.assertEqual(copied_hash.hexdigest(), source.etag)
+        self.assertEqual(source_contents, copied_contents)
+        self.assertEqual(copied.etag, manifest_etag)
+        self.assertEqual('application/json; charset=utf-8',
+                         copied.content_type)
 
         # verify the listing metadata
         listing = self.env.container.files(parms={'format': 'json'})
@@ -1212,13 +1222,15 @@ class TestSymlinkToSloSegments(Base):
         actual = names['manifest-linkto-ab']
         self.assertEqual(2 * 1024 * 1024, actual['bytes'])
         self.assertEqual('application/octet-stream', actual['content_type'])
-        self.assertEqual(source.etag, actual['hash'])
+        self.assertEqual(manifest_etag, actual['hash'])
+        self.assertEqual(slo_etag, actual['slo_etag'])
 
         self.assertIn('copied-ab-manifest-only', names)
         actual = names['copied-ab-manifest-only']
         self.assertEqual(2 * 1024 * 1024, actual['bytes'])
         self.assertEqual('application/octet-stream', actual['content_type'])
-        self.assertEqual(copied.etag, actual['hash'])
+        self.assertEqual(manifest_etag, actual['hash'])
+        self.assertEqual(slo_etag, actual['slo_etag'])
 
 
 class TestSymlinkDlo(Base):
