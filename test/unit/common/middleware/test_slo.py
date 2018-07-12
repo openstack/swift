@@ -311,7 +311,7 @@ class TestSloMiddleware(SloTestCase):
         listing_json = json.dumps([{
             "bytes": 104857600,
             "content_type": "application/x-troff-me",
-            "hash": "8de7b0b1551660da51d8d96a53b85531; "
+            "hash": "8de7b0b1551660da51d8d96a53b85531; this=that;"
             "slo_etag=dc9947c2b53a3f55fe20c1394268e216",
             "last_modified": "2018-07-12T03:14:39.532020",
             "name": "test.me"
@@ -326,7 +326,7 @@ class TestSloMiddleware(SloTestCase):
         status, headers, body = self.call_slo(req)
         self.assertEqual(json.loads(body), [{
             "slo_etag": '"dc9947c2b53a3f55fe20c1394268e216"',
-            "hash": "8de7b0b1551660da51d8d96a53b85531",
+            "hash": "8de7b0b1551660da51d8d96a53b85531; this=that",
             "name": "test.me",
             "bytes": 104857600,
             "last_modified": "2018-07-12T03:14:39.532020",
