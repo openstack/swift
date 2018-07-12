@@ -307,6 +307,32 @@ class TestSloMiddleware(SloTestCase):
         self.assertIsNone(parsed[0]['size_bytes'])
         self.assertEqual([(0, 40)], parsed[0]['range'].ranges)
 
+    def test_container_listing(self):
+        listing_json = json.dumps([{
+            "bytes": 104857600,
+            "content_type": "application/x-troff-me",
+            "hash": "8de7b0b1551660da51d8d96a53b85531; "
+            "slo_etag=dc9947c2b53a3f55fe20c1394268e216",
+            "last_modified": "2018-07-12T03:14:39.532020",
+            "name": "test.me"
+        }])
+        self.app.register(
+            'GET', '/v1/a/c',
+            swob.HTTPOk,
+            {'Content-Type': 'application/json',
+             'Content-Length': len(listing_json)},
+            listing_json)
+        req = Request.blank('/v1/a/c', method='GET')
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(json.loads(body), [{
+            "slo_etag": '"dc9947c2b53a3f55fe20c1394268e216"',
+            "hash": "8de7b0b1551660da51d8d96a53b85531",
+            "name": "test.me",
+            "bytes": 104857600,
+            "last_modified": "2018-07-12T03:14:39.532020",
+            "content_type": "application/x-troff-me",
+        }])
+
 
 class TestSloPutManifest(SloTestCase):
 
