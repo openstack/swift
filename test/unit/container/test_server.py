@@ -16,6 +16,7 @@
 
 import operator
 import os
+import posix
 import mock
 import unittest
 import itertools
@@ -425,6 +426,35 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '2'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 202)
+
+    def test_PUT_insufficient_space(self):
+        conf = {'devices': self.testdir,
+                'mount_check': 'false',
+                'fallocate_reserve': '2%'}
+        container_controller = container_server.ContainerController(conf)
+
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '1517617825.74832'})
+        statvfs_result = posix.statvfs_result([
+            4096,     # f_bsize
+            4096,     # f_frsize
+            2854907,  # f_blocks
+            59000,    # f_bfree
+            57000,    # f_bavail  (just under 2% free)
+            1280000,  # f_files
+            1266040,  # f_ffree,
+            1266040,  # f_favail,
+            4096,     # f_flag
+            255,      # f_namemax
+        ])
+        with mock.patch('os.statvfs',
+                        return_value=statvfs_result) as mock_statvfs:
+            resp = req.get_response(container_controller)
+        self.assertEqual(resp.status_int, 507)
+        self.assertEqual(mock_statvfs.mock_calls,
+                         [mock.call(os.path.join(self.testdir, 'sda1'))])
 
     def test_PUT_simulated_create_race(self):
         state = ['initial']
@@ -1001,6 +1031,35 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
 
+    def test_POST_insufficient_space(self):
+        conf = {'devices': self.testdir,
+                'mount_check': 'false',
+                'fallocate_reserve': '2%'}
+        container_controller = container_server.ContainerController(conf)
+
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': '1517618035.469202'})
+        statvfs_result = posix.statvfs_result([
+            4096,     # f_bsize
+            4096,     # f_frsize
+            2854907,  # f_blocks
+            59000,    # f_bfree
+            57000,    # f_bavail  (just under 2% free)
+            1280000,  # f_files
+            1266040,  # f_ffree,
+            1266040,  # f_favail,
+            4096,     # f_flag
+            255,      # f_namemax
+        ])
+        with mock.patch('os.statvfs',
+                        return_value=statvfs_result) as mock_statvfs:
+            resp = req.get_response(container_controller)
+        self.assertEqual(resp.status_int, 507)
+        self.assertEqual(mock_statvfs.mock_calls,
+                         [mock.call(os.path.join(self.testdir, 'sda1'))])
+
     def test_POST_timestamp_not_float(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
                                                     'HTTP_X_TIMESTAMP': '0'})
@@ -1387,6 +1446,34 @@ class TestContainerController(unittest.TestCase):
         req.environ['wsgi.input'] = inbuf
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 500)
+
+    def test_REPLICATE_insufficient_space(self):
+        conf = {'devices': self.testdir,
+                'mount_check': 'false',
+                'fallocate_reserve': '2%'}
+        container_controller = container_server.ContainerController(conf)
+
+        req = Request.blank(
+            '/sda1/p/a/',
+            environ={'REQUEST_METHOD': 'REPLICATE'})
+        statvfs_result = posix.statvfs_result([
+            4096,     # f_bsize
+            4096,     # f_frsize
+            2854907,  # f_blocks
+            59000,    # f_bfree
+            57000,    # f_bavail  (just under 2% free)
+            1280000,  # f_files
+            1266040,  # f_ffree,
+            1266040,  # f_favail,
+            4096,     # f_flag
+            255,      # f_namemax
+        ])
+        with mock.patch('os.statvfs',
+                        return_value=statvfs_result) as mock_statvfs:
+            resp = req.get_response(container_controller)
+        self.assertEqual(resp.status_int, 507)
+        self.assertEqual(mock_statvfs.mock_calls,
+                         [mock.call(os.path.join(self.testdir, 'sda1'))])
 
     def test_DELETE(self):
         ts_iter = make_timestamp_iter()

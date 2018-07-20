@@ -97,6 +97,13 @@ use = egg:swift#account
 # Work only with ionice_class.
 # ionice_class =
 # ionice_priority =
+#
+# You can set fallocate_reserve to the number of bytes or percentage
+# of disk space you'd like kept free at all times. If the disk's free
+# space falls below this value, then PUT, POST, and REPLICATE requests
+# will be denied until the disk ha s more space available. Percentage
+# will be used if the value ends with a '%'.
+# fallocate_reserve = 1%
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

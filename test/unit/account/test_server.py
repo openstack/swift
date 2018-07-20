@@ -16,6 +16,7 @@
 import errno
 import os
 import mock
+import posix
 import unittest
 from tempfile import mkdtemp
 from shutil import rmtree
@@ -191,6 +192,33 @@ class TestAccountController(unittest.TestCase):
                             headers={'X-Timestamp': 'not-float'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
+
+    def test_REPLICATE_insufficient_space(self):
+        conf = {'devices': self.testdir,
+                'mount_check': 'false',
+                'fallocate_reserve': '2%'}
+        account_controller = AccountController(conf)
+
+        req = Request.blank('/sda1/p/a',
+                            environ={'REQUEST_METHOD': 'REPLICATE'})
+        statvfs_result = posix.statvfs_result([
+            4096,     # f_bsize
+            4096,     # f_frsize
+            2854907,  # f_blocks
+            59000,    # f_bfree
+            57000,    # f_bavail  (just under 2% free)
+            1280000,  # f_files
+            1266040,  # f_ffree,
+            1266040,  # f_favail,
+            4096,     # f_flag
+            255,      # f_namemax
+        ])
+        with mock.patch('os.statvfs',
+                        return_value=statvfs_result) as mock_statvfs:
+            resp = req.get_response(account_controller)
+        self.assertEqual(resp.status_int, 507)
+        self.assertEqual(mock_statvfs.mock_calls,
+                         [mock.call(os.path.join(self.testdir, 'sda1'))])
 
     def test_REPLICATE_rsync_then_merge_works(self):
         def fake_rsync_then_merge(self, drive, db_file, args):
@@ -378,6 +406,35 @@ class TestAccountController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
         self.assertNotIn('X-Account-Status', resp.headers)
+
+    def test_PUT_insufficient_space(self):
+        conf = {'devices': self.testdir,
+                'mount_check': 'false',
+                'fallocate_reserve': '2%'}
+        account_controller = AccountController(conf)
+
+        req = Request.blank(
+            '/sda1/p/a',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '1517612949.541469'})
+        statvfs_result = posix.statvfs_result([
+            4096,     # f_bsize
+            4096,     # f_frsize
+            2854907,  # f_blocks
+            59000,    # f_bfree
+            57000,    # f_bavail  (just under 2% free)
+            1280000,  # f_files
+            1266040,  # f_ffree,
+            1266040,  # f_favail,
+            4096,     # f_flag
+            255,      # f_namemax
+        ])
+        with mock.patch('os.statvfs',
+                        return_value=statvfs_result) as mock_statvfs:
+            resp = req.get_response(account_controller)
+        self.assertEqual(resp.status_int, 507)
+        self.assertEqual(mock_statvfs.mock_calls,
+                         [mock.call(os.path.join(self.testdir, 'sda1'))])
 
     def test_PUT(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -700,6 +757,35 @@ class TestAccountController(unittest.TestCase):
                                                   'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
+
+    def test_POST_insufficient_space(self):
+        conf = {'devices': self.testdir,
+                'mount_check': 'false',
+                'fallocate_reserve': '2%'}
+        account_controller = AccountController(conf)
+
+        req = Request.blank(
+            '/sda1/p/a',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': '1517611584.937603'})
+        statvfs_result = posix.statvfs_result([
+            4096,     # f_bsize
+            4096,     # f_frsize
+            2854907,  # f_blocks
+            59000,    # f_bfree
+            57000,    # f_bavail  (just under 2% free)
+            1280000,  # f_files
+            1266040,  # f_ffree,
+            1266040,  # f_favail,
+            4096,     # f_flag
+            255,      # f_namemax
+        ])
+        with mock.patch('os.statvfs',
+                        return_value=statvfs_result) as mock_statvfs:
+            resp = req.get_response(account_controller)
+        self.assertEqual(resp.status_int, 507)
+        self.assertEqual(mock_statvfs.mock_calls,
+                         [mock.call(os.path.join(self.testdir, 'sda1'))])
 
     def test_POST_timestamp_not_float(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST',
