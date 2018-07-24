@@ -55,13 +55,13 @@ def unique_id():
 
 
 def utf8encode(s):
-    if isinstance(s, unicode):
-        s = s.encode('utf8')
-    return s
+    if s is None or isinstance(s, bytes):
+        return s
+    return s.encode('utf8')
 
 
 def utf8decode(s):
-    if isinstance(s, str):
+    if isinstance(s, bytes):
         s = s.decode('utf8')
     return s
 

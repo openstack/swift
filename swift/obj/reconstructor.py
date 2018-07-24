@@ -1016,9 +1016,10 @@ class ObjectReconstructor(Daemon):
     def get_local_devices(self):
         """Returns a set of all local devices in all EC policies."""
         policy2devices = self.get_policy2devices()
-        return reduce(set.union, (
-            set(d['device'] for d in devices)
-            for devices in policy2devices.values()), set())
+        local_devices = set()
+        for devices in policy2devices.values():
+            local_devices.update(d['device'] for d in devices)
+        return local_devices
 
     def collect_parts(self, override_devices=None, override_partitions=None):
         """

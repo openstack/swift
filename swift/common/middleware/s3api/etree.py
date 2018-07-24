@@ -17,6 +17,7 @@ import lxml.etree
 from urllib import quote
 from copy import deepcopy
 from pkg_resources import resource_stream  # pylint: disable-msg=E0611
+import six
 import sys
 
 from swift.common.utils import get_logger
@@ -42,7 +43,7 @@ def cleanup_namespaces(elem):
             tag = tag[len('{%s}' % ns):]
         return tag
 
-    if not isinstance(elem.tag, basestring):
+    if not isinstance(elem.tag, six.string_types):
         # elem is a comment element.
         return
 
@@ -104,7 +105,7 @@ def tostring(tree, encoding_type=None, use_s3ns=True):
             # encoding_type=url.
             blacklist = ['LastModified', 'ID', 'DisplayName', 'Initiated']
             if e.tag not in blacklist:
-                if isinstance(e.text, basestring):
+                if isinstance(e.text, six.string_types):
                     e.text = quote(e.text)
 
     return lxml.etree.tostring(tree, xml_declaration=True, encoding='UTF-8')
