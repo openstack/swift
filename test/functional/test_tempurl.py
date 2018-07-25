@@ -577,16 +577,12 @@ class TestContainerTempurl(Base):
 
     @requires_acls
     def test_tempurl_keys_visible_to_account_owner(self):
-        if not tf.cluster_info.get('tempauth'):
-            raise SkipTest('TEMP AUTH SPECIFIC TEST')
         metadata = self.env.container.info()
         self.assertEqual(metadata.get('tempurl_key'), self.env.tempurl_key)
         self.assertEqual(metadata.get('tempurl_key2'), self.env.tempurl_key2)
 
     @requires_acls
     def test_tempurl_keys_hidden_from_acl_readonly(self):
-        if not tf.cluster_info.get('tempauth'):
-            raise SkipTest('TEMP AUTH SPECIFIC TEST')
         metadata = self.env.container.info(cfg={
             'use_token': self.env.conn2.storage_token})
 
