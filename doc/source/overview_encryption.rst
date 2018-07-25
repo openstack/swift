@@ -101,7 +101,8 @@ Alternatives to specifying the encryption root secret directly in the
 `proxy-server.conf` file are storing it in a separate file, or storing it in
 an :ref:`external key management system
 <encryption_root_secret_in_external_kms>` such as `Barbican
-<https://docs.openstack.org/barbican>`_.
+<https://docs.openstack.org/barbican>`_ or a
+`KMIP <https://www.oasis-open.org/committees/kmip/>`_ service.
 
 .. note::
 
@@ -184,14 +185,22 @@ re-encrypted when copied.
 Encryption Root Secret in External Key Management System
 --------------------------------------------------------
 
-The benefits of using
-a dedicated system for storing the encryption root secret include the
-auditing and access control infrastructure that are already in place in such a
-system, and the fact that an encryption root secret stored in a key management
-system (KMS) may be backed by a hardware security module (HSM) for additional
-security. Another significant benefit of storing the root encryption secret in
-an external KMS is that it is in this case never stored on a disk in the Swift
-cluster.
+The benefits of using a dedicated system for storing the encryption root secret
+include the auditing and access control infrastructure that are already in
+place in such a system, and the fact that an encryption root secret stored in a
+key management system (KMS) may be backed by a hardware security module (HSM)
+for additional security. Another significant benefit of storing the root
+encryption secret in an external KMS is that it is in this case never stored on
+a disk in the Swift cluster.
+
+Swift supports fetching encryption root secrets from a `Barbican
+<https://docs.openstack.org/barbican>`_ service or a KMIP_ service using the
+``kms_keymaster`` or ``kmip_keymaster`` middleware respectively.
+
+.. _KMIP: https://www.oasis-open.org/committees/kmip/
+
+Encryption Root Secret in a Barbican KMS
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Make sure the required dependencies are installed for retrieving an encryption
 root secret from an external KMS. This can be done when installing Swift (add
@@ -307,6 +316,72 @@ successfully, it is cached in memory in the proxy server.
 For further details on the configuration options, see the
 `[filter:kms_keymaster]` section in the `proxy-server.conf-sample` file, and
 the `keymaster.conf-sample` file.
+
+
+Encryption Root Secret in a KMIP service
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This middleware enables Swift to fetch a root secret from a KMIP_ service. The
+root secret is expected to have been previously created in the KMIP_ service
+and is referenced by its unique identifier. The secret should be an AES-256
+symmetric key.
+
+To use this middleware Swift must be installed with the extra required
+dependencies::
+
+    sudo pip install .[kmip_keymaster]
+
+Add the ``-e`` flag to install as a development version.
+
+Edit the swift `proxy-server.conf` file to insert the middleware in the wsgi
+pipeline, replacing any other keymaster middleware::
+
+    [pipeline:main]
+    pipeline = catch_errors gatekeeper healthcheck proxy-logging \
+        <other middleware> kmip_keymaster encryption proxy-logging proxy-server
+
+and add a new filter section::
+
+    [filter:kmip_keymaster]
+    use = egg:swift#kmip_keymaster
+    key_id = <unique id of secret to be fetched from the KMIP service>
+    host = <KMIP server host>
+    port = <KMIP server port>
+    certfile = /path/to/client/cert.pem
+    keyfile = /path/to/client/key.pem
+    ca_certs = /path/to/server/cert.pem
+    username = <KMIP username>
+    password = <KMIP password>
+
+Apart from ``use`` and ``key_id`` the options are as defined for a PyKMIP
+client. The authoritative definition of these options can be found at
+`<https://pykmip.readthedocs.io/en/latest/client.html>`_.
+
+The value of the ``key_id`` option should be the unique identifier for a secret
+that will be retrieved from the KMIP_ service.
+
+The keymaster configuration can alternatively be defined in a separate config
+file by using the ``keymaster_config_path`` option::
+
+    [filter:kmip_keymaster]
+    use = egg:swift#kmip_keymaster
+    keymaster_config_path = /etc/swift/kmip_keymaster.conf
+
+In this case, the ``filter:kmip_keymaster`` section should contain no other
+options than ``use`` and ``keymaster_config_path``. All other options should be
+defined in the separate config file in a section named ``kmip_keymaster``. For
+example::
+
+    [kmip_keymaster]
+    key_id = 1234567890
+    host = 127.0.0.1
+    port = 5696
+    certfile = /etc/swift/kmip_client.crt
+    keyfile = /etc/swift/kmip_client.key
+    ca_certs = /etc/swift/kmip_server.crt
+    username = swift
+    password = swift_password
+
 
 Upgrade Considerations
 ----------------------

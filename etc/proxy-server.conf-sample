@@ -1074,6 +1074,25 @@ use = egg:swift#kms_keymaster
 # options.
 # keymaster_config_path =
 
+# kmip_keymaster middleware may be used to fetch an encryption root secret from
+# a KMIP service. It should replace, in the same position, any other keymaster
+# middleware in the proxy-server pipeline, so that the middleware order is as
+# shown in this example:
+# <other middleware> kmip_keymaster encryption proxy-logging proxy-server
+[filter:kmip_keymaster]
+use = egg:swift#kmip_keymaster
+
+# Sets the path from which the keymaster config options should be read. This
+# allows multiple processes which need to be encryption-aware (for example,
+# proxy-server and container-sync) to share the same config file, ensuring
+# that the encryption keys used are the same. As an added benefit the
+# keymaster configuration file can have different permissions than the
+# `proxy-server.conf` file. The format expected is similar
+# to other config files, with a single [kmip_keymaster] section. See the
+# keymaster.conf-sample file for details on the kmip_keymaster configuration
+# options.
+# keymaster_config_path =
+
 [filter:encryption]
 use = egg:swift#encryption
 
