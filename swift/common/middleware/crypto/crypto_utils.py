@@ -231,7 +231,7 @@ def dump_crypto_meta(crypto_meta):
         json.dumps(b64_encode_meta(crypto_meta), sort_keys=True))
 
 
-def load_crypto_meta(value):
+def load_crypto_meta(value, b64decode=True):
     """
     Build the crypto_meta from the json object.
 
@@ -243,15 +243,17 @@ def load_crypto_meta(value):
           as native unicode strings on py3).
 
     :param value: a string serialization of a crypto meta dict
+    :param b64decode: decode the 'key' and 'iv' values to bytes, default True
     :returns: a dict containing crypto meta items
     :raises EncryptionException: if an error occurs while parsing the
                                  crypto meta
     """
     def b64_decode_meta(crypto_meta):
         return {
-            str(name): (base64.b64decode(val) if name in ('iv', 'key')
-                        else b64_decode_meta(val) if isinstance(val, dict)
-                        else val.encode('utf8') if six.PY2 else val)
+            str(name): (
+                base64.b64decode(val) if name in ('iv', 'key') and b64decode
+                else b64_decode_meta(val) if isinstance(val, dict)
+                else val.encode('utf8') if six.PY2 else val)
             for name, val in crypto_meta.items()}
 
     try:

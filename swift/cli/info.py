@@ -12,6 +12,7 @@
 
 from __future__ import print_function
 import itertools
+import json
 import os
 import sqlite3
 from hashlib import md5
@@ -29,6 +30,7 @@ from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
 from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
     extract_policy
 from swift.common.storage_policy import POLICIES
+from swift.common.middleware.crypto.crypto_utils import load_crypto_meta
 
 
 class InfoSystemExit(Exception):
@@ -400,6 +402,18 @@ def print_obj_metadata(metadata, drop_prefixes=False):
     print_metadata('Transient System Metadata:', transient_sys_metadata)
     print_metadata('User Metadata:', user_metadata)
     print_metadata('Other Metadata:', other_metadata)
+    for label, meta in [
+        ('Data crypto details',
+         sys_metadata.get('X-Object-Sysmeta-Crypto-Body-Meta')),
+        ('Metadata crypto details',
+         transient_sys_metadata.get('X-Object-Transient-Sysmeta-Crypto-Meta')),
+    ]:
+        if meta is None:
+            continue
+        print('%s: %s' % (
+            label,
+            json.dumps(load_crypto_meta(meta, b64decode=False), indent=2,
+                       sort_keys=True, separators=(',', ': '))))
 
 
 def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
