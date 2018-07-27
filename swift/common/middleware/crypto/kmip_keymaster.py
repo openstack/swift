@@ -17,7 +17,7 @@ import logging
 import os
 
 from swift.common.middleware.crypto import keymaster
-from swift.common.utils import readconf, get_logger
+from swift.common.utils import readconf
 
 from kmip.pie.client import ProxyKmipClient
 
@@ -79,8 +79,9 @@ example::
 
 
 class KmipKeyMaster(keymaster.KeyMaster):
+    log_route = 'kmip_keymaster'
+
     def _get_root_secret(self, conf):
-        self.logger = get_logger(conf, log_route='kmip_keymaster')
         if self.keymaster_config_path:
             keymaster_opts = ['host', 'port', 'certfile', 'keyfile',
                               'ca_certs', 'username', 'password', 'key_id']

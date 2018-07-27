@@ -18,7 +18,7 @@ import os
 
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.swob import Request, HTTPException
-from swift.common.utils import readconf, strict_b64decode
+from swift.common.utils import readconf, strict_b64decode, get_logger
 from swift.common.wsgi import WSGIContext
 
 
@@ -106,9 +106,11 @@ class KeyMaster(object):
     random number generator. Changing the root secret is likely to result in
     data loss.
     """
+    log_route = 'keymaster'
 
     def __init__(self, app, conf):
         self.app = app
+        self.logger = get_logger(conf, log_route=self.log_route)
         self.keymaster_config_path = conf.get('keymaster_config_path')
         # The _get_root_secret() function is overridden by other keymasters
         self.root_secret = self._get_root_secret(conf)
