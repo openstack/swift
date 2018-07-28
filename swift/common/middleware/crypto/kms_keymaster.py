@@ -16,7 +16,6 @@ from castellan import key_manager, options
 from castellan.common.credentials import keystone_password
 from oslo_config import cfg
 from swift.common.middleware.crypto.keymaster import KeyMaster
-from swift.common.utils import readconf
 
 
 class KmsKeyMaster(KeyMaster):
@@ -29,6 +28,13 @@ class KmsKeyMaster(KeyMaster):
     keymaster_config_path configuration value in the proxy-server.conf file.
     """
     log_route = 'kms_keymaster'
+    keymaster_opts = ('username', 'password', 'project_name',
+                      'user_domain_name', 'project_domain_name',
+                      'user_id', 'user_domain_id', 'trust_id',
+                      'domain_id', 'domain_name', 'project_id',
+                      'project_domain_id', 'reauthenticate',
+                      'auth_endpoint', 'api_class', 'key_id')
+    keymmaster_conf_section = 'kms_keymaster'
 
     def _get_root_secret(self, conf):
         """
@@ -41,19 +47,6 @@ class KmsKeyMaster(KeyMaster):
         :return: the encryption root secret binary bytes
         :rtype: bytearray
         """
-        if self.keymaster_config_path is not None:
-            keymaster_opts = ['username', 'password', 'project_name',
-                              'user_domain_name', 'project_domain_name',
-                              'user_id', 'user_domain_id', 'trust_id',
-                              'domain_id', 'domain_name', 'project_id',
-                              'project_domain_id', 'reauthenticate',
-                              'auth_endpoint', 'api_class', 'key_id']
-            if any(opt in conf for opt in keymaster_opts):
-                raise ValueError('keymaster_config_path is set, but there '
-                                 'are other config options specified: %s' %
-                                 ", ".join(list(
-                                     set(keymaster_opts).intersection(conf))))
-            conf = readconf(self.keymaster_config_path, 'kms_keymaster')
         ctxt = keystone_password.KeystonePassword(
             auth_url=conf.get('auth_endpoint'),
             username=conf.get('username'),
