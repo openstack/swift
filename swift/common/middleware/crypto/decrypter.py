@@ -298,12 +298,21 @@ class DecrypterObjContext(BaseDecrypterContext):
     def handle(self, req, start_response):
         app_resp = self._app_call(req.environ)
 
-        put_crypto_meta = self._read_crypto_meta(
-            'X-Object-Sysmeta-Crypto-Body-Meta', True)
-        put_keys = self.get_decryption_keys(req, put_crypto_meta)
-        post_crypto_meta = self._read_crypto_meta(
-            'X-Object-Transient-Sysmeta-Crypto-Meta', False)
-        post_keys = self.get_decryption_keys(req, post_crypto_meta)
+        try:
+            put_crypto_meta = self._read_crypto_meta(
+                'X-Object-Sysmeta-Crypto-Body-Meta', True)
+            put_keys = self.get_decryption_keys(req, put_crypto_meta)
+            post_crypto_meta = self._read_crypto_meta(
+                'X-Object-Transient-Sysmeta-Crypto-Meta', False)
+            post_keys = self.get_decryption_keys(req, post_crypto_meta)
+        except EncryptionException as err:
+            self.logger.error(
+                "Error decrypting object: %s",
+                err)
+            raise HTTPInternalServerError(
+                body='Error decrypting object',
+                content_type='text/plain')
+
         if put_keys is None and post_keys is None:
             # skip decryption
             start_response(self._response_status, self._response_headers,

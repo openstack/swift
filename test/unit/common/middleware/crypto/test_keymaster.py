@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import base64
+import copy
 import hashlib
 import hmac
 
@@ -175,6 +176,99 @@ class TestKeymaster(unittest.TestCase):
         app = keymaster.KeyMaster(self.swift, conf)
         self.assertEqual(secrets, app._root_secrets)
         self.assertEqual([None, '22', 'my_secret_id'], app.root_secret_ids)
+
+    def test_chained_keymasters(self):
+        conf_inner = {'active_root_secret_id': '22'}
+        conf_inner.update(
+            ('encryption_root_secret_%s' % secret_id, base64.b64encode(secret))
+            for secret_id, secret in [('22', os.urandom(33)),
+                                      ('my_secret_id', os.urandom(50))])
+        conf_outer = {'encryption_root_secret': base64.b64encode(
+            os.urandom(32))}
+        app = keymaster.KeyMaster(
+            keymaster.KeyMaster(self.swift, conf_inner),
+            conf_outer)
+
+        self.swift.register('GET', '/v1/a/c', swob.HTTPOk, {}, b'')
+        req = Request.blank('/v1/a/c')
+        start_response, calls = capture_start_response()
+        app(req.environ, start_response)
+        self.assertEqual(1, len(calls))
+        self.assertNotIn('swift.crypto.override', req.environ)
+        self.assertIn(CRYPTO_KEY_CALLBACK, req.environ,
+                      '%s not set in env' % CRYPTO_KEY_CALLBACK)
+        keys = copy.deepcopy(req.environ[CRYPTO_KEY_CALLBACK](key_id=None))
+        self.assertIn('id', keys)
+        self.assertEqual(keys.pop('id'), {
+            'v': '1',
+            'path': '/a/c',
+            'secret_id': '22',
+        })
+        # Inner-most active root secret wins
+        root_key = base64.b64decode(conf_inner['encryption_root_secret_22'])
+        self.assertIn('container', keys)
+        self.assertEqual(keys.pop('container'),
+                         hmac.new(root_key, '/a/c',
+                                  digestmod=hashlib.sha256).digest())
+        self.assertIn('all_ids', keys)
+        all_keys = set()
+        at_least_one_old_style_id = False
+        for key_id in keys.pop('all_ids'):
+            # Can get key material for each key_id
+            all_keys.add(req.environ[CRYPTO_KEY_CALLBACK](
+                key_id=key_id)['container'])
+
+            if 'secret_id' in key_id:
+                self.assertIn(key_id.pop('secret_id'), {'22', 'my_secret_id'})
+            else:
+                at_least_one_old_style_id = True
+            self.assertEqual(key_id, {
+                'path': '/a/c',
+                'v': '1',
+            })
+        self.assertTrue(at_least_one_old_style_id)
+        self.assertEqual(len(all_keys), 3)
+        self.assertFalse(keys)
+
+        # Also all works for objects
+        self.swift.register('GET', '/v1/a/c/o', swob.HTTPOk, {}, b'')
+        req = Request.blank('/v1/a/c/o')
+        start_response, calls = capture_start_response()
+        app(req.environ, start_response)
+        self.assertEqual(1, len(calls))
+        self.assertNotIn('swift.crypto.override', req.environ)
+        self.assertIn(CRYPTO_KEY_CALLBACK, req.environ,
+                      '%s not set in env' % CRYPTO_KEY_CALLBACK)
+        keys = req.environ.get(CRYPTO_KEY_CALLBACK)(key_id=None)
+        self.assertIn('id', keys)
+        self.assertEqual(keys.pop('id'), {
+            'v': '1',
+            'path': '/a/c/o',
+            'secret_id': '22',
+        })
+        root_key = base64.b64decode(conf_inner['encryption_root_secret_22'])
+        self.assertIn('container', keys)
+        self.assertEqual(keys.pop('container'),
+                         hmac.new(root_key, '/a/c',
+                                  digestmod=hashlib.sha256).digest())
+        self.assertIn('object', keys)
+        self.assertEqual(keys.pop('object'),
+                         hmac.new(root_key, '/a/c/o',
+                                  digestmod=hashlib.sha256).digest())
+        self.assertIn('all_ids', keys)
+        at_least_one_old_style_id = False
+        for key_id in keys.pop('all_ids'):
+            if 'secret_id' not in key_id:
+                at_least_one_old_style_id = True
+            else:
+                self.assertIn(key_id.pop('secret_id'), {'22', 'my_secret_id'})
+            self.assertEqual(key_id, {
+                'path': '/a/c/o',
+                'v': '1',
+            })
+        self.assertTrue(at_least_one_old_style_id)
+        self.assertEqual(len(all_keys), 3)
+        self.assertFalse(keys)
 
     def test_multiple_root_secrets_with_invalid_secret(self):
         conf = {'encryption_root_secret': base64.b64encode(os.urandom(32)),

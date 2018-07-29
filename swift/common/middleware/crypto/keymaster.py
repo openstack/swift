@@ -46,6 +46,7 @@ class KeyMasterContext(WSGIContext):
         self.container = container
         self.obj = obj
         self._keys = {}
+        self.alternate_fetch_keys = None
 
     def _make_key_id(self, path, secret_id):
         key_id = {'v': '1', 'path': path}
@@ -82,39 +83,51 @@ class KeyMasterContext(WSGIContext):
         keys = {}
         account_path = os.path.join(os.sep, self.account)
 
-        if self.container:
-            path = os.path.join(account_path, self.container)
-            keys['container'] = self.keymaster.create_key(
-                path, secret_id=secret_id)
-
-            if self.obj:
-                path = os.path.join(path, self.obj)
-                keys['object'] = self.keymaster.create_key(
+        try:
+            if self.container:
+                path = os.path.join(account_path, self.container)
+                keys['container'] = self.keymaster.create_key(
                     path, secret_id=secret_id)
 
-            # For future-proofing include a keymaster version number and the
-            # path used to derive keys in the 'id' entry of the results. The
-            # encrypter will persist this as part of the crypto-meta for
-            # encrypted data and metadata. If we ever change the way keys are
-            # generated then the decrypter could pass the persisted 'id' value
-            # when it calls fetch_crypto_keys to inform the keymaster as to how
-            # that particular data or metadata had its keys generated.
-            # Currently we have no need to do that, so we are simply persisting
-            # this information for future use.
-            keys['id'] = self._make_key_id(path, secret_id)
-            # pass back a list of key id dicts for all other secret ids in case
-            # the caller is interested, in which case the caller can call this
-            # method again for different secret ids; this avoided changing the
-            # return type of the callback or adding another callback. Note that
-            # the caller should assume no knowledge of the content of these key
-            # id dicts.
-            keys['all_ids'] = [self._make_key_id(path, id_)
-                               for id_ in self.keymaster.root_secret_ids]
-            self._keys[secret_id] = keys
+                if self.obj:
+                    path = os.path.join(path, self.obj)
+                    keys['object'] = self.keymaster.create_key(
+                        path, secret_id=secret_id)
 
-        return keys
+                # For future-proofing include a keymaster version number and
+                # the path used to derive keys in the 'id' entry of the
+                # results. The encrypter will persist this as part of the
+                # crypto-meta for encrypted data and metadata. If we ever
+                # change the way keys are generated then the decrypter could
+                # pass the persisted 'id' value when it calls fetch_crypto_keys
+                # to inform the keymaster as to how that particular data or
+                # metadata had its keys generated. Currently we have no need to
+                # do that, so we are simply persisting this information for
+                # future use.
+                keys['id'] = self._make_key_id(path, secret_id)
+                # pass back a list of key id dicts for all other secret ids in
+                # case the caller is interested, in which case the caller can
+                # call this method again for different secret ids; this avoided
+                # changing the return type of the callback or adding another
+                # callback. Note that the caller should assume no knowledge of
+                # the content of these key id dicts.
+                keys['all_ids'] = [self._make_key_id(path, id_)
+                                   for id_ in self.keymaster.root_secret_ids]
+                if self.alternate_fetch_keys:
+                    alternate_keys = self.alternate_fetch_keys(
+                        key_id=None, *args, **kwargs)
+                    keys['all_ids'].extend(alternate_keys.get('all_ids', []))
+
+                self._keys[secret_id] = keys
+
+            return keys
+        except UnknownSecretIdError:
+            if self.alternate_fetch_keys:
+                return self.alternate_fetch_keys(key_id, *args, **kwargs)
+            raise
 
     def handle_request(self, req, start_response):
+        self.alternate_fetch_keys = req.environ.get(CRYPTO_KEY_CALLBACK)
         req.environ[CRYPTO_KEY_CALLBACK] = self.fetch_crypto_keys
         resp = self._app_call(req.environ)
         start_response(self._response_status, self._response_headers,
