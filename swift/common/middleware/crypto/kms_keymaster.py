@@ -28,11 +28,7 @@ class KmsKeyMaster(KeyMaster):
     proxy-server.conf file, or in the configuration pointed to using the
     keymaster_config_path configuration value in the proxy-server.conf file.
     """
-
-    def __init__(self, app, conf):
-        # Call the superclass __init__() method, which calls the overridden
-        # self._get_root_secret() below.
-        super(KmsKeyMaster, self).__init__(app, conf)
+    log_route = 'kms_keymaster'
 
     def _get_root_secret(self, conf):
         """
