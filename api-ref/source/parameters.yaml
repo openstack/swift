@@ -1003,11 +1003,10 @@ bulk-delete:
   type: string
 delimiter:
   description: |
-    Delimiter value, which returns the object names
-    that are nested in the container. If you do not set a prefix and
-    set the delimiter to "/" you may get unexpected results where all
-    the objects are returned instead of only those with the delimiter
-    set.
+    The delimiter is a single character used to split object
+    names to present a pseudo-directory hierarchy of objects. When combined
+    with a ``prefix`` query, this enables API users to simulate and
+    traverse the objects in a container as if they were in a directory tree.
   in: query
   required: false
   type: string
@@ -1116,14 +1115,16 @@ multipart-manifest_put:
 path:
   description: |
     For a string value, returns the object names that
-    are nested in the pseudo path.
+    are nested in the pseudo path. Please use ``prefix``/``delimiter``
+    queries instead of using this ``path`` query.
   in: query
   required: false
   type: string
 prefix:
   description: |
-    Prefix value. Named items in the response begin
-    with this value.
+    Only objects with this prefix will be returned. When combined with a
+    ``delimiter`` query, this enables API users to simulate and
+    traverse the objects in a container as if they were in a directory tree.
   in: query
   required: false
   type: string
