@@ -117,6 +117,12 @@ The following provides supporting information for the REST API:
     api/form_post_middleware.rst
     api/use_content-encoding_metadata.rst
     api/use_the_content-disposition_metadata.rst
+    api/pseudo-hierarchical-folders-directories.rst
+    api/pagination.rst
+    api/serialized-response-formats.rst
+    api/static-website.rst
+    api/object-expiration.rst
+    api/bulk-delete.rst
 
 S3 Compatibility Info
 =====================
