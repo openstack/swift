@@ -98,9 +98,8 @@ class TestBufferedHTTP(unittest.TestCase):
                     raise Exception(err)
 
     def test_nonstr_header_values(self):
-        origHTTPSConnection = bufferedhttp.HTTPSConnection
-        bufferedhttp.HTTPSConnection = MockHTTPSConnection
-        try:
+        with mock.patch('swift.common.bufferedhttp.HTTPSConnection',
+                        MockHTTPSConnection):
             bufferedhttp.http_connect(
                 '127.0.0.1', 8080, 'sda', 1, 'GET', '/',
                 headers={'x-one': '1', 'x-two': 2, 'x-three': 3.0,
@@ -109,8 +108,6 @@ class TestBufferedHTTP(unittest.TestCase):
                 '127.0.0.1', 8080, 'GET', '/',
                 headers={'x-one': '1', 'x-two': 2, 'x-three': 3.0,
                          'x-four': {'crazy': 'value'}}, ssl=True)
-        finally:
-            bufferedhttp.HTTPSConnection = origHTTPSConnection
 
     def test_unicode_values(self):
         with mock.patch('swift.common.bufferedhttp.HTTPSConnection',
