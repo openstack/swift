@@ -455,23 +455,37 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidStorageClass')
 
-    def _test_unsupported_header(self, header):
+    def _test_unsupported_header(self, header, value=None):
+        if value is None:
+            value = 'value'
         req = Request.blank('/error',
                             environ={'REQUEST_METHOD': 'GET',
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
-                            headers={'x-amz-' + header: 'value',
+                            headers={header: value,
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'NotImplemented')
 
     def test_mfa(self):
-        self._test_unsupported_header('mfa')
+        self._test_unsupported_header('x-amz-mfa')
 
     def test_server_side_encryption(self):
-        self._test_unsupported_header('server-side-encryption')
+        self._test_unsupported_header('x-amz-server-side-encryption')
 
     def test_website_redirect_location(self):
-        self._test_unsupported_header('website-redirect-location')
+        self._test_unsupported_header('x-amz-website-redirect-location')
+
+    def test_aws_chunked(self):
+        self._test_unsupported_header('content-encoding', 'aws-chunked')
+        # https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
+        # has a multi-encoding example:
+        #
+        # > Amazon S3 supports multiple content encodings. For example:
+        # >
+        # >     Content-Encoding : aws-chunked,gzip
+        # > That is, you can specify your custom content-encoding when using
+        # > Signature Version 4 streaming API.
+        self._test_unsupported_header('Content-Encoding', 'aws-chunked,gzip')
 
     def _test_unsupported_resource(self, resource):
         req = Request.blank('/error?' + resource,
