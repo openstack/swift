@@ -1,3 +1,23 @@
+- job:
+    name: swift-dsvm-functional
+    parent: legacy-dsvm-base
+    run: tools/playbooks/swift-dsvm-functional/run.yaml
+    post-run: tools/playbooks/swift-dsvm-functional/post.yaml
+    timeout: 6000
+    required-projects:
+      - openstack-infra/devstack-gate
+      - openstack/swift
+
+- job:
+    name: swift-dsvm-functional-identity-v3-only
+    parent: legacy-dsvm-base
+    run: tools/playbooks/swift-dsvm-functional-identity-v3-only/run.yaml
+    post-run: tools/playbooks/swift-dsvm-functional-identity-v3-only/post.yaml
+    timeout: 6000
+    required-projects:
+      - openstack-infra/devstack-gate
+      - openstack/swift
+
 - project:
     templates:
       - publish-openstack-sphinx-docs
@@ -7,14 +27,14 @@
     check:
       jobs:
         - openstack-tox-pep8
-        - legacy-swift-dsvm-functional:
+        - swift-dsvm-functional:
             irrelevant-files:
               - ^api-ref/.*$
               - ^doc/.*$
               - ^install-guide/.*$
               - ^releasenotes/.*$
               - ^test/unit/.*$
-        - legacy-swift-dsvm-functional-identity-v3-only:
+        - swift-dsvm-functional-identity-v3-only:
             voting: false
             irrelevant-files:
               - ^api-ref/.*$
@@ -43,7 +63,7 @@
     gate:
       jobs:
         - openstack-tox-pep8
-        - legacy-swift-dsvm-functional:
+        - swift-dsvm-functional:
             irrelevant-files:
               - ^api-ref/.*$
               - ^doc/.*$
