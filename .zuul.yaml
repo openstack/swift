@@ -118,6 +118,39 @@
       tox_envlist: func-s3api
 
 - job:
+    name: swift-dsvm-functional
+    parent: devstack-minimal
+    description: |
+      Setup a Swift/Keystone environment and run Swift's func tests
+    required-projects:
+      - git.openstack.org/openstack/requirements
+      - git.openstack.org/openstack/swift
+      - git.openstack.org/openstack/keystone
+    timeout: 2700
+    vars:
+      tox_constraints_file: '{{ ansible_user_dir }}/src/git.openstack.org/openstack/requirements/upper-constraints.txt'
+      # This tox env get run twice; once for Keystone and once for tempauth
+      tox_envlist: func
+      devstack_localrc:
+        SWIFT_HASH: changeme
+        # We don't need multiple replicas to run purely functional tests.
+        # In fact, devstack special cases some things when there's only
+        # one replica.
+        SWIFT_REPLICAS: 1
+        # One replica => no need for replicators, etc.
+        SWIFT_START_ALL_SERVICES: False
+        # Keystone v3 is currently the default, but may as well be explicit
+        ENABLE_IDENTITY_V2: False
+        IDENTITY_API_VERSION: 3
+      devstack_services:
+        keystone: true
+        swift: true
+      zuul_work_dir: src/git.openstack.org/openstack/swift
+    pre-run: tools/playbooks/dsvm/pre.yaml
+    run: tools/playbooks/dsvm/run.yaml
+    post-run: tools/playbooks/dsvm/post.yaml
+
+- job:
     name: swift-probetests-centos-7
     parent: unittests
     nodeset: centos-7
@@ -174,6 +207,11 @@
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-dsvm-functional:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - legacy-tempest-dsvm-neutron-full:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -207,6 +245,11 @@
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(unit|functional)/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-dsvm-functional:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - legacy-tempest-dsvm-neutron-full:
             irrelevant-files:
