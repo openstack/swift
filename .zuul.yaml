@@ -121,7 +121,6 @@
     name: swift-probetests-centos-7
     parent: unittests
     nodeset: centos-7
-    voting: true
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
     timeout: 3600
@@ -153,6 +152,7 @@
         - swift-tox-func-domain-remap-staticweb
         - swift-tox-func-ec
         - swift-tox-func-s3api
+        - swift-probetests-centos-7
         - openstack-tox-lower-constraints
     experimental:
       jobs:
