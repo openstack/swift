@@ -1,0 +1,4 @@
+- hosts: all
+  roles:
+    - fetch-tox-output
+    - fetch-subunit-output
