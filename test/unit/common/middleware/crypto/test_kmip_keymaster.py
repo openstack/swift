@@ -29,6 +29,10 @@ sys.modules['kmip.pie.client'] = mock.Mock()
 from swift.common.middleware.crypto.kmip_keymaster import KmipKeyMaster
 
 
+KMIP_CLIENT_CLASS = \
+    'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
+
+
 class MockProxyKmipClient(object):
     def __init__(self, secrets, calls, kwargs):
         calls.append(('__init__', kwargs))
@@ -86,8 +90,7 @@ class TestKmipKeymaster(unittest.TestCase):
                 'key_id': '1234'}
         secrets = {'1234': create_secret('AES', 256, b'x' * 32)}
         calls = []
-        klass = 'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
-        with mock.patch(klass, create_mock_client(secrets, calls)):
+        with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
             km = KmipKeyMaster(None, conf)
 
         self.assertEqual({None: b'x' * 32}, km._root_secrets)
@@ -109,8 +112,7 @@ class TestKmipKeymaster(unittest.TestCase):
         secrets = {'1234': create_secret('AES', 256, b'x' * 32),
                    'foobar': create_secret('AES', 256, b'y' * 32)}
         calls = []
-        klass = 'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
-        with mock.patch(klass, create_mock_client(secrets, calls)):
+        with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
             km = KmipKeyMaster(None, conf)
 
         self.assertEqual({None: b'x' * 32, 'xyzzy': b'y' * 32,
@@ -134,8 +136,8 @@ class TestKmipKeymaster(unittest.TestCase):
         secrets = {'1234': create_secret('AES', 256, b'x' * 32),
                    'foobar': create_secret('AES', 256, b'y' * 32)}
         calls = []
-        klass = 'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
-        with mock.patch(klass, create_mock_client(secrets, calls)), \
+        with mock.patch(KMIP_CLIENT_CLASS,
+                        create_mock_client(secrets, calls)), \
                 self.assertRaises(ValueError) as raised:
             KmipKeyMaster(None, conf)
         self.assertEqual('No secret loaded for active_root_secret_id unknown',
@@ -155,8 +157,7 @@ class TestKmipKeymaster(unittest.TestCase):
                 'keymaster_config_path': km_config_file}
         secrets = {'4321': create_secret('AES', 256, b'x' * 32)}
         calls = []
-        klass = 'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
-        with mock.patch(klass, create_mock_client(secrets, calls)):
+        with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
             km = KmipKeyMaster(None, conf)
         self.assertEqual({None: b'x' * 32}, km._root_secrets)
         self.assertEqual(None, km.active_secret_id)
@@ -183,8 +184,7 @@ class TestKmipKeymaster(unittest.TestCase):
         secrets = {'4321': create_secret('AES', 256, b'x' * 32),
                    'another id': create_secret('AES', 256, b'y' * 32)}
         calls = []
-        klass = 'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
-        with mock.patch(klass, create_mock_client(secrets, calls)):
+        with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
             km = KmipKeyMaster(None, conf)
         self.assertEqual({None: b'x' * 32, 'secret_id': b'y' * 32},
                          km._root_secrets)
@@ -227,8 +227,7 @@ class TestKmipKeymaster(unittest.TestCase):
                 'keymaster_config_path': km_config_file}
         secrets = {'789': create_secret('AES', 256, b'x' * 32)}
         calls = []
-        klass = 'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
-        with mock.patch(klass, create_mock_client(secrets, calls)):
+        with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
             km = KmipKeyMaster(None, conf)
         self.assertEqual({None: b'x' * 32}, km._root_secrets)
         self.assertEqual(None, km.active_secret_id)
@@ -245,10 +244,10 @@ class TestKmipKeymaster(unittest.TestCase):
                 'key_id': '1234'}
         secrets = {'1234': create_secret('AES', 128, b'x' * 16)}
         calls = []
-        klass = 'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
-        with mock.patch(klass, create_mock_client(secrets, calls)):
-            with self.assertRaises(ValueError) as cm:
-                KmipKeyMaster(None, conf)
+        with mock.patch(KMIP_CLIENT_CLASS,
+                        create_mock_client(secrets, calls)), \
+                self.assertRaises(ValueError) as cm:
+            KmipKeyMaster(None, conf)
         self.assertIn('Expected key 1234 to be an AES-256 key',
                       str(cm.exception))
         self.assertEqual(calls, [
@@ -262,10 +261,10 @@ class TestKmipKeymaster(unittest.TestCase):
                 'key_id': '1234'}
         secrets = {'1234': create_secret('notAES', 256, b'x' * 32)}
         calls = []
-        klass = 'swift.common.middleware.crypto.kmip_keymaster.ProxyKmipClient'
-        with mock.patch(klass, create_mock_client(secrets, calls)):
-            with self.assertRaises(ValueError) as cm:
-                KmipKeyMaster(None, conf)
+        with mock.patch(KMIP_CLIENT_CLASS,
+                        create_mock_client(secrets, calls)), \
+                self.assertRaises(ValueError) as cm:
+            KmipKeyMaster(None, conf)
         self.assertIn('Expected key 1234 to be an AES-256 key',
                       str(cm.exception))
         self.assertEqual(calls, [
@@ -276,9 +275,18 @@ class TestKmipKeymaster(unittest.TestCase):
     def test_missing_key_id(self):
         conf = {'__file__': '/etc/swift/proxy-server.conf',
                 '__name__': 'kmip_keymaster'}
-        with self.assertRaises(ValueError) as cm:
+        secrets = {}
+        calls = []
+        with mock.patch(KMIP_CLIENT_CLASS,
+                        create_mock_client(secrets, calls)), \
+                self.assertRaises(ValueError) as cm:
             KmipKeyMaster(None, conf)
-        self.assertIn('key_id option is required', str(cm.exception))
+        self.assertEqual('No secret loaded for active_root_secret_id None',
+                         str(cm.exception))
+        # We make the client, but never use it
+        self.assertEqual(calls, [
+            ('__init__', {'config_file': '/etc/swift/proxy-server.conf',
+                          'config': 'filter:kmip_keymaster'})])
 
     def test_logger_manipulations(self):
         root_logger = logging.getLogger()
@@ -290,7 +298,11 @@ class TestKmipKeymaster(unittest.TestCase):
 
             conf = {'__file__': '/etc/swift/proxy-server.conf',
                     '__name__': 'kmip_keymaster'}
-            with self.assertRaises(ValueError):
+            secrets = {}
+            calls = []
+            with mock.patch(KMIP_CLIENT_CLASS,
+                            create_mock_client(secrets, calls)), \
+                    self.assertRaises(ValueError):
                 # missing key_id, as above, but that's not the interesting bit
                 KmipKeyMaster(None, conf)
 
