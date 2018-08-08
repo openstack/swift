@@ -215,29 +215,41 @@ class TestKmsKeymaster(unittest.TestCase):
         start_response, _ = capture_start_response()
         self.assertRaises(Exception, app, req.environ, start_response)
 
-    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch.object(kms_keymaster.KmsKeyMaster, '_get_root_secret')
     def test_get_root_secret(
-            self, mock_get_root_secret_from_kms, mock_readconf):
+            self, mock_get_root_secret_from_kms):
         # Successful call with coarse _get_root_secret_from_kms() mock.
         mock_get_root_secret_from_kms.return_value = (
             base64.b64encode(b'x' * 32))
-        '''
-        Return valid Barbican configuration parameters.
-        '''
-        mock_readconf.return_value = TEST_KMS_KEYMASTER_CONF
-        '''
-        Verify that keys are derived correctly by the keymaster.
-        '''
+        # Provide valid Barbican configuration parameters in proxy-server
+        # config.
         self.app = kms_keymaster.KmsKeyMaster(self.swift,
                                               TEST_KMS_KEYMASTER_CONF)
-        '''
-        Verify that _get_root_secret_from_kms() was called with the
-        correct parameters.
-        '''
+        # Verify that _get_root_secret_from_kms() was called with the
+        # correct parameters.
         mock_get_root_secret_from_kms.assert_called_with(
             TEST_KMS_KEYMASTER_CONF
         )
+
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
+    @mock.patch.object(kms_keymaster.KmsKeyMaster, '_get_root_secret')
+    def test_get_root_secret_from_external_file(
+            self, mock_get_root_secret_from_kms, mock_readconf):
+        # Return valid Barbican configuration parameters.
+        mock_readconf.return_value = TEST_KMS_KEYMASTER_CONF
+        # Successful call with coarse _get_root_secret_from_kms() mock.
+        mock_get_root_secret_from_kms.return_value = (
+            base64.b64encode(b'x' * 32))
+        # Point to external config in proxy-server config.
+        self.app = kms_keymaster.KmsKeyMaster(
+            self.swift, TEST_PROXYSERVER_CONF_EXTERNAL_KEYMASTER_CONF)
+        # Verify that _get_root_secret_from_kms() was called with the
+        # correct parameters.
+        mock_get_root_secret_from_kms.assert_called_with(
+            TEST_KMS_KEYMASTER_CONF
+        )
+        self.assertEqual(mock_readconf.mock_calls, [
+            mock.call('PATH_TO_KEYMASTER_CONFIG_FILE', 'kms_keymaster')])
 
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.'
                 'keystone_password.KeystonePassword')

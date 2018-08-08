@@ -34,7 +34,7 @@ class KmsKeyMaster(KeyMaster):
                       'domain_id', 'domain_name', 'project_id',
                       'project_domain_id', 'reauthenticate',
                       'auth_endpoint', 'api_class', 'key_id')
-    keymmaster_conf_section = 'kms_keymaster'
+    keymaster_conf_section = 'kms_keymaster'
 
     def _get_root_secret(self, conf):
         """
