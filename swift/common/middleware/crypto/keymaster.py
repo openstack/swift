@@ -107,13 +107,36 @@ class KeyMaster(object):
     data loss.
     """
     log_route = 'keymaster'
+    keymaster_opts = ()
+    keymaster_conf_section = 'keymaster'
 
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route=self.log_route)
         self.keymaster_config_path = conf.get('keymaster_config_path')
+        if type(self) is KeyMaster:
+            self.keymaster_opts = ('encryption_root_secret', )
+        if self.keymaster_config_path:
+            conf = self._load_keymaster_config_file(conf)
+
         # The _get_root_secret() function is overridden by other keymasters
         self.root_secret = self._get_root_secret(conf)
+
+    def _load_keymaster_config_file(self, conf):
+        # Keymaster options specified in the filter section would be ignored if
+        # a separate keymaster config file is specified. To avoid confusion,
+        # prohibit them existing in the filter section.
+        bad_opts = []
+        for opt in conf:
+            for km_opt in self.keymaster_opts:
+                if opt == km_opt:
+                    bad_opts.append(opt)
+        if bad_opts:
+            raise ValueError('keymaster_config_path is set, but there '
+                             'are other config options specified: %s' %
+                             ", ".join(bad_opts))
+        return readconf(self.keymaster_config_path,
+                        self.keymaster_conf_section)
 
     def _get_root_secret(self, conf):
         """
@@ -129,14 +152,6 @@ class KeyMaster(object):
         :return: the encryption root secret binary bytes
         :rtype: bytearray
         """
-        if self.keymaster_config_path:
-            keymaster_opts = ['encryption_root_secret']
-            if any(opt in conf for opt in keymaster_opts):
-                raise ValueError('keymaster_config_path is set, but there '
-                                 'are other config options specified: %s' %
-                                 ", ".join(list(
-                                     set(keymaster_opts).intersection(conf))))
-            conf = readconf(self.keymaster_config_path, 'keymaster')
         b64_root_secret = conf.get('encryption_root_secret')
         try:
             binary_root_secret = strict_b64decode(b64_root_secret,

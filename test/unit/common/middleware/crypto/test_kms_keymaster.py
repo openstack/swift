@@ -189,7 +189,7 @@ class TestKmsKeymaster(unittest.TestCase):
     Tests using the v3 Identity API, where all calls to Barbican are mocked.
     """
 
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch.object(kms_keymaster.KmsKeyMaster,
                        '_get_root_secret')
     def test_filter_v3(self, mock_get_root_secret_from_kms,
@@ -201,7 +201,7 @@ class TestKmsKeymaster(unittest.TestCase):
         self.assertTrue(callable(factory))
         self.assertTrue(callable(factory(self.swift)))
 
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch.object(kms_keymaster.KmsKeyMaster,
                        '_get_root_secret')
     def test_app_exception_v3(self, mock_get_root_secret_from_kms,
@@ -215,7 +215,7 @@ class TestKmsKeymaster(unittest.TestCase):
         start_response, _ = capture_start_response()
         self.assertRaises(Exception, app, req.environ, start_response)
 
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch.object(kms_keymaster.KmsKeyMaster, '_get_root_secret')
     def test_get_root_secret(
             self, mock_get_root_secret_from_kms, mock_readconf):
@@ -243,7 +243,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager(
             self, mock_castellan_key_manager, mock_readconf,
@@ -279,7 +279,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_invalid_key_id(
             self, mock_castellan_key_manager, mock_readconf,
@@ -322,7 +322,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_nonexistent_key_id(
             self, mock_castellan_key_manager, mock_readconf,
@@ -363,7 +363,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_invalid_key_format(
             self, mock_castellan_key_manager, mock_readconf,
@@ -405,7 +405,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_config_file_and_params(
             self, mock_castellan_key_manager, mock_readconf,
@@ -449,7 +449,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_invalid_username(
             self, mock_castellan_key_manager, mock_readconf,
@@ -491,7 +491,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_invalid_password(
             self, mock_castellan_key_manager, mock_readconf,
@@ -533,7 +533,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_connect_failure_auth_url(
             self, mock_castellan_key_manager, mock_readconf,
@@ -574,7 +574,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_bad_auth_url(
             self, mock_castellan_key_manager, mock_readconf,
@@ -616,7 +616,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_bad_user_domain_name(
             self, mock_castellan_key_manager, mock_readconf,
@@ -658,7 +658,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_invalid_key_algorithm(
             self, mock_castellan_key_manager, mock_readconf,
@@ -700,7 +700,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_invalid_key_length(
             self, mock_castellan_key_manager, mock_readconf,
@@ -742,7 +742,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 'keystone_password.KeystonePassword')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
-    @mock.patch('swift.common.middleware.crypto.kms_keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
     def test_mocked_castellan_keymanager_none_key(
             self, mock_castellan_key_manager, mock_readconf,
