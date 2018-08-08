@@ -122,31 +122,40 @@ class KeyMasterContext(WSGIContext):
         return resp
 
 
-class KeyMaster(object):
-    """Middleware for providing encryption keys.
+class BaseKeyMaster(object):
+    """Base middleware for providing encryption keys.
 
-    The middleware requires at least one encryption root secret(s) to be set.
-    This is the root secret from which encryption keys are derived. This must
-    be set before first use to a value that is at least 256 bits. The security
-    of all encrypted data critically depends on this key, therefore it should
-    be set to a high-entropy value. For example, a suitable value may be
-    obtained by generating a 32 byte (or longer) value using a
-    cryptographically secure random number generator. Changing the root secret
-    is likely to result in data loss.
+    This provides some basic helpers for:
+
+        - loading from a separate config path,
+        - deriving keys based on path, and
+        - installing a ``swift.callback.fetch_crypto_keys`` hook
+          in the request environment.
+
+    Subclasses should define ``log_route``, ``keymaster_opts``, and
+    ``keymaster_conf_section`` attributes, and implement the
+    ``_get_root_secret`` function.
     """
-    log_route = 'keymaster'
-    keymaster_opts = ()
-    keymaster_conf_section = 'keymaster'
+    @property
+    def log_route(self):
+        raise NotImplementedError
+
+    @property
+    def keymaster_opts(self):
+        raise NotImplementedError
+
+    @property
+    def keymaster_conf_section(self):
+        raise NotImplementedError
+
+    def _get_root_secret(self, conf):
+        raise NotImplementedError
 
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route=self.log_route)
         self.keymaster_config_path = conf.get('keymaster_config_path')
-        if type(self) is KeyMaster:
-            self.keymaster_opts = ('encryption_root_secret*',
-                                   'active_root_secret_id')
-        if self.keymaster_config_path:
-            conf = self._load_keymaster_config_file(conf)
+        conf = self._load_keymaster_config_file(conf)
 
         # The _get_root_secret() function is overridden by other keymasters
         # which may historically only return a single value
@@ -169,6 +178,9 @@ class KeyMaster(object):
         return sorted(self._root_secrets.keys())
 
     def _load_keymaster_config_file(self, conf):
+        if not self.keymaster_config_path:
+            return conf
+
         # Keymaster options specified in the filter section would be ignored if
         # a separate keymaster config file is specified. To avoid confusion,
         # prohibit them existing in the filter section.
@@ -185,13 +197,6 @@ class KeyMaster(object):
         return readconf(self.keymaster_config_path,
                         self.keymaster_conf_section)
 
-    def _decode_root_secret(self, b64_root_secret):
-        binary_root_secret = strict_b64decode(b64_root_secret,
-                                              allow_line_breaks=True)
-        if len(binary_root_secret) < 32:
-            raise ValueError
-        return binary_root_secret
-
     def _load_multikey_opts(self, conf, prefix):
         result = []
         for k, v in conf.items():
@@ -202,34 +207,6 @@ class KeyMaster(object):
                 raise ValueError('Malformed root secret option name %s' % k)
             result.append((k, suffix[1:] or None, v))
         return sorted(result)
-
-    def _get_root_secret(self, conf):
-        """
-        This keymaster requires ``encryption_root_secret[_id]`` options to be
-        set. At least one must be set before first use to a value that is a
-        base64 encoding of at least 32 bytes. The encryption root secrets are
-        specified in either proxy-server.conf, or in an external file
-        referenced from proxy-server.conf using ``keymaster_config_path``.
-
-        :param conf: the keymaster config section from proxy-server.conf
-        :type conf: dict
-
-        :return: a dict mapping secret ids to encryption root secret binary
-            bytes
-        :rtype: dict
-        """
-        root_secrets = {}
-        for opt, secret_id, value in self._load_multikey_opts(
-                conf, 'encryption_root_secret'):
-            try:
-                secret = self._decode_root_secret(value)
-            except ValueError:
-                raise ValueError(
-                    '%s option in %s must be a base64 encoding of at '
-                    'least 32 raw bytes' %
-                    (opt, self.keymaster_config_path or 'proxy-server.conf'))
-            root_secrets[secret_id] = secret
-        return root_secrets
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -267,6 +244,58 @@ class KeyMaster(object):
             raise UnknownSecretIdError(secret_id)
         else:
             return hmac.new(key, path, digestmod=hashlib.sha256).digest()
+
+
+class KeyMaster(BaseKeyMaster):
+    """Middleware for providing encryption keys.
+
+    The middleware requires its encryption root secret to be set. This is the
+    root secret from which encryption keys are derived. This must be set before
+    first use to a value that is at least 256 bits. The security of all
+    encrypted data critically depends on this key, therefore it should be set
+    to a high-entropy value. For example, a suitable value may be obtained by
+    generating a 32 byte (or longer) value using a cryptographically secure
+    random number generator. Changing the root secret is likely to result in
+    data loss.
+    """
+    log_route = 'keymaster'
+    keymaster_opts = ('encryption_root_secret*', 'active_root_secret_id')
+    keymaster_conf_section = 'keymaster'
+
+    def _get_root_secret(self, conf):
+        """
+        This keymaster requires ``encryption_root_secret[_id]`` options to be
+        set. At least one must be set before first use to a value that is a
+        base64 encoding of at least 32 bytes. The encryption root secrets are
+        specified in either proxy-server.conf, or in an external file
+        referenced from proxy-server.conf using ``keymaster_config_path``.
+
+        :param conf: the keymaster config section from proxy-server.conf
+        :type conf: dict
+
+        :return: a dict mapping secret ids to encryption root secret binary
+            bytes
+        :rtype: dict
+        """
+        root_secrets = {}
+        for opt, secret_id, value in self._load_multikey_opts(
+                conf, 'encryption_root_secret'):
+            try:
+                secret = self._decode_root_secret(value)
+            except ValueError:
+                raise ValueError(
+                    '%s option in %s must be a base64 encoding of at '
+                    'least 32 raw bytes' %
+                    (opt, self.keymaster_config_path or 'proxy-server.conf'))
+            root_secrets[secret_id] = secret
+        return root_secrets
+
+    def _decode_root_secret(self, b64_root_secret):
+        binary_root_secret = strict_b64decode(b64_root_secret,
+                                              allow_line_breaks=True)
+        if len(binary_root_secret) < 32:
+            raise ValueError
+        return binary_root_secret
 
 
 def filter_factory(global_conf, **local_conf):
