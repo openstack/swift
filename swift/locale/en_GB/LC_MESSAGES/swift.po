@@ -10,11 +10,11 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-02-28 19:39+0000\n"
+"POT-Creation-Date: 2018-08-09 00:12+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2018-02-16 07:31+0000\n"
+"PO-Revision-Date: 2018-08-08 09:56+0000\n"
 "Last-Translator: Andi Chandler <andi@gowling.com>\n"
 "Language: en_GB\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -275,6 +275,9 @@ msgstr ""
 msgid "Connection refused"
 msgstr "Connection refused"
 
+msgid "Connection reset"
+msgstr "Connection reset"
+
 msgid "Connection timeout"
 msgstr "Connection timeout"
 
@@ -389,10 +392,6 @@ msgid ""
 msgstr ""
 "ERROR Account update failed: different  numbers of hosts and devices in "
 "request: \"%(hosts)s\" vs \"%(devices)s\""
-
-#, python-format
-msgid "ERROR Bad response %(status)s from %(host)s"
-msgstr "ERROR Bad response %(status)s from %(host)s"
 
 #, python-format
 msgid "ERROR Client read timeout (%ss)"
@@ -656,9 +655,6 @@ msgstr "Error: missing config path argument"
 msgid "Error: unable to locate %s"
 msgstr "Error: unable to locate %s"
 
-msgid "Exception dumping recon cache"
-msgstr "Exception dumping recon cache"
-
 #, python-format
 msgid "Exception fetching fragments for %r"
 msgstr "Exception fetching fragments for %r"
@@ -666,11 +662,16 @@ msgstr "Exception fetching fragments for %r"
 msgid "Exception in top-level account reaper loop"
 msgstr "Exception in top-level account reaper loop"
 
-msgid "Exception in top-level replication loop"
-msgstr "Exception in top-level replication loop"
+#, python-format
+msgid "Exception in top-level replication loop: %s"
+msgstr "Exception in top-level replication loop: %s"
 
 msgid "Exception in top-levelreconstruction loop"
 msgstr "Exception in top-level reconstruction loop"
+
+#, python-format
+msgid "Exception while deleting container %(account)s %(container)s %(err)s"
+msgstr "Exception while deleting container %(account)s %(container)s %(err)s"
 
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
@@ -781,6 +782,9 @@ msgstr "Missing key for %r"
 
 msgid "More than one part in a single-part response?"
 msgstr "More than one part in a single-part response?"
+
+msgid "Network unreachable"
+msgstr "Network unreachable"
 
 #, python-format
 msgid "No %s running"
@@ -920,6 +924,14 @@ msgstr "Params, queries, and fragments not allowed in X-Container-Sync-To"
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
+
+#, python-format
+msgid ""
+"Pass beginning for task account %(account)s; %(container_count)s possible "
+"containers; %(obj_count)s possible objects"
+msgstr ""
+"Pass beginning for task account %(account)s; %(container_count)s possible "
+"containers; %(obj_count)s possible objects"
 
 #, python-format
 msgid "Pass completed in %(time)ds; %(objects)d objects expired"
@@ -1074,14 +1086,6 @@ msgstr ""
 #, python-format
 msgid "Skipping %(datadir)s because %(err)s"
 msgstr "Skipping %(datadir)s because %(err)s"
-
-#, python-format
-msgid "Skipping %(device)s as it is not mounted"
-msgstr "Skipping %(device)s as it is not mounted"
-
-#, python-format
-msgid "Skipping %(dir)s: %(err)s"
-msgstr "Skipping %(dir)s: %(err)s"
 
 #, python-format
 msgid "Skipping %s as it is not mounted"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-02-28 19:39+0000\n"
+"POT-Creation-Date: 2018-08-09 00:12+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -276,10 +276,6 @@ msgstr ""
 "%(status)s %(reason)s"
 
 #, python-format
-msgid "ERROR Bad response %(status)s from %(host)s"
-msgstr "錯誤：來自 %(host)s 的回應 %(status)s 不當"
-
-#, python-format
 msgid "ERROR Client read timeout (%ss)"
 msgstr "錯誤：用戶端讀取逾時 (%ss)"
 
@@ -473,14 +469,8 @@ msgstr "錯誤：遺漏配置路徑引數"
 msgid "Error: unable to locate %s"
 msgstr "錯誤：找不到 %s"
 
-msgid "Exception dumping recon cache"
-msgstr "傾出 recon 快取時發生異常狀況"
-
 msgid "Exception in top-level account reaper loop"
 msgstr "最上層帳戶 Reaper 迴圈發生異常狀況"
-
-msgid "Exception in top-level replication loop"
-msgstr "最上層抄寫迴圈中發生異常狀況"
 
 msgid "Exception in top-levelreconstruction loop"
 msgstr "最上層重新建構迴圈中發生異常狀況"
@@ -778,10 +768,6 @@ msgid ""
 "audit"
 msgstr ""
 "自 %(time)s 以來：儲存器審核：%(pass)s 個已通過審核，%(fail)s 個失敗審核"
-
-#, python-format
-msgid "Skipping %(device)s as it is not mounted"
-msgstr "正在跳過 %(device)s，原因是它未裝載"
 
 #, python-format
 msgid "Skipping %s as it is not mounted"

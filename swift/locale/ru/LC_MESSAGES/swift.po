@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-01-31 06:08+0000\n"
+"POT-Creation-Date: 2018-08-09 00:12+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -19,7 +19,7 @@ msgstr ""
 "%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || (n"
 "%100>=11 && n%100<=14)? 2 : 3);\n"
 "Generated-By: Babel 2.0\n"
-"X-Generator: Zanata 3.9.6\n"
+"X-Generator: Zanata 4.3.3\n"
 "Language-Team: Russian\n"
 
 msgid ""
@@ -284,10 +284,6 @@ msgstr ""
 "%(device)s (операция будет повторена позднее): Ответ: %(status)s %(reason)s"
 
 #, python-format
-msgid "ERROR Bad response %(status)s from %(host)s"
-msgstr "Ошибка: Неправильный запрос %(status)s из %(host)s"
-
-#, python-format
 msgid "ERROR Client read timeout (%ss)"
 msgstr "Ошибка: тайм-аут чтения клиента (%ss)"
 
@@ -495,15 +491,9 @@ msgstr "Ошибка: отсутствует аргумент пути конф�
 msgid "Error: unable to locate %s"
 msgstr "Ошибка: не удалось найти %s"
 
-msgid "Exception dumping recon cache"
-msgstr "Исключительная ситуация при создании кэша recon"
-
 msgid "Exception in top-level account reaper loop"
 msgstr ""
 "Исключительная ситуация в цикле чистильщика учетных записей верхнего уровня"
-
-msgid "Exception in top-level replication loop"
-msgstr "Исключительная ситуация в цикле репликации верхнего уровня"
 
 msgid "Exception in top-levelreconstruction loop"
 msgstr "Исключение в цикле реконструкции верхнего уровня"
@@ -823,10 +813,6 @@ msgid ""
 msgstr ""
 "Выполнено проверок контейнера: %(time)s, из них успешно: %(pass)s, с "
 "ошибками: %(fail)s "
-
-#, python-format
-msgid "Skipping %(device)s as it is not mounted"
-msgstr "%(device)s будет пропущен, так как он не смонтирован"
 
 #, python-format
 msgid "Skipping %s as it is not mounted"

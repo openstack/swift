@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-01-31 06:08+0000\n"
+"POT-Creation-Date: 2018-08-09 00:12+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Language: it\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
-"X-Generator: Zanata 3.9.6\n"
+"X-Generator: Zanata 4.3.3\n"
 "Language-Team: Italian\n"
 
 msgid ""
@@ -292,10 +292,6 @@ msgstr ""
 "%(status)s %(reason)s"
 
 #, python-format
-msgid "ERROR Bad response %(status)s from %(host)s"
-msgstr "ERRORE Risposta errata %(status)s da %(host)s"
-
-#, python-format
 msgid "ERROR Client read timeout (%ss)"
 msgstr "ERRORE Timeout di lettura del client (%ss)"
 
@@ -503,14 +499,8 @@ msgstr "Errore: Argomento path della configurazione mancante"
 msgid "Error: unable to locate %s"
 msgstr "Errore: impossibile individuare %s"
 
-msgid "Exception dumping recon cache"
-msgstr "Eccezione durante il dump della cache di recon"
-
 msgid "Exception in top-level account reaper loop"
 msgstr "Eccezione nel loop reaper dell'account di livello superiore"
-
-msgid "Exception in top-level replication loop"
-msgstr "Eccezione nel loop di replica di livello superiore"
 
 msgid "Exception in top-levelreconstruction loop"
 msgstr "Eccezione nel loop di ricostruzione di livello superiore"
@@ -829,10 +819,6 @@ msgid ""
 msgstr ""
 "A partire da %(time)s: Verifiche contenitore: %(pass)s verifiche superate, "
 "%(fail)s verifiche non superate"
-
-#, python-format
-msgid "Skipping %(device)s as it is not mounted"
-msgstr "%(device)s viene ignorato perché non è montato"
 
 #, python-format
 msgid "Skipping %s as it is not mounted"
