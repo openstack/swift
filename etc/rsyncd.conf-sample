@@ -3,6 +3,19 @@ gid = swift
 log file = /var/log/rsyncd.log
 pid file = /var/run/rsyncd.pid
 
+# Support rsync to work with password. This option must work with the 
+# rsync_password option enabled in account-replicator, container-replicator
+# and object-replicator. You can set the secrets file option to change the
+# default password file, which contains the auth users and it's password,
+# as shown in the rsyncd.passwd-sample.
+#
+# Ensure the owner of the password file and the user who starts the
+# rsync are the same and change this file's permissions by using the chmod 
+# 600 command.
+#
+# auth users = rsync_user
+# secrets file = /etc/swift/rsyncd.passwd
+
 [account]
 max connections = 2
 path = /srv/node
