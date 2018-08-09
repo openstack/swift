@@ -189,6 +189,16 @@ use = egg:swift#recon
 # long-term use.
 #
 # handoffs_only = no
+# 
+# Support rsync to work with password. This option must work with the 
+# auth users and secrets file options opened in rsyncd.conf. Meanwhile,
+# the rsync_password option in container-replicator and object-replicator
+# should be enabled. You can set the rsync_password_file option to change
+# the default path of password file, which only contains the password for
+# the urser of rsync, as shown in the rsyncd-client.passwd-sample.
+# 
+# rsync_password = true
+# rsync_password_file = /etc/swift/rsyncd-client.passwd
 
 [account-auditor]
 # You can override the default log routing for this app here (don't use set!):

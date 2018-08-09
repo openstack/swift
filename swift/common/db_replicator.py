@@ -224,6 +224,9 @@ class Replicator(Daemon):
         self.extract_device_re = re.compile('%s%s([^%s]+)' % (
             self.root, os.path.sep, os.path.sep))
         self.handoffs_only = config_true_value(conf.get('handoffs_only', 'no'))
+        self.rsync_password = \
+            config_true_value(conf.get('rsync_password', 'no'))
+        self.rsync_password_file = conf.get('rsync_password_file', '/etc/swift/rsyncd-client.passwd')
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -279,6 +282,9 @@ class Replicator(Daemon):
         popen_args = ['rsync', '--quiet', '--no-motd',
                       '--timeout=%s' % int(math.ceil(self.node_timeout)),
                       '--contimeout=%s' % int(math.ceil(self.conn_timeout))]
+        if self.rsync_password:
+            passwd_opt = '--password-file=' + self.rsync_password_file
+            popen_args.append(passwd_opt)
         if whole_file:
             popen_args.append('--whole-file')
 

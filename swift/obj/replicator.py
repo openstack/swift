@@ -187,6 +187,9 @@ class ObjectReplicator(Daemon):
         self.is_multiprocess_worker = None
         self._df_router = DiskFileRouter(conf, self.logger)
         self._child_process_reaper_queue = queue.LightQueue()
+        self.rsync_password = \
+            config_true_value(conf.get('rsync_password', 'no'))
+        self.rsync_password_file = conf.get('rsync_password_file', '/etc/swift/rsyncd-client.passwd')
 
     def _zero_stats(self):
         self.stats_for_dev = defaultdict(Stats)
@@ -435,6 +438,9 @@ class ObjectReplicator(Daemon):
             '--bwlimit=%s' % self.rsync_bwlimit,
             '--exclude=.*.%s' % ''.join('[0-9a-zA-Z]' for i in range(6))
         ]
+        if self.rsync_password:
+            passwd_opt = '--password-file=' + self.rsync_password_file
+            popen_args.append(passwd_opt)
         if self.rsync_compress and \
                 job['region'] != node['region']:
             # Allow for compression, but only if the remote node is in
