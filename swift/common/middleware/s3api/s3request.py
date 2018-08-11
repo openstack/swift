@@ -700,6 +700,9 @@ class S3Request(swob.Request):
             raise S3NotImplemented('Transfering payloads in multiple chunks '
                                    'using aws-chunked is not supported.')
 
+        if 'x-amz-tagging' in self.headers:
+            raise S3NotImplemented('Object tagging is not supported.')
+
     @property
     def body(self):
         """

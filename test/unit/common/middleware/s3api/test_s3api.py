@@ -487,6 +487,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # > Signature Version 4 streaming API.
         self._test_unsupported_header('Content-Encoding', 'aws-chunked,gzip')
 
+    def test_object_tagging(self):
+        self._test_unsupported_header('x-amz-tagging')
+
     def _test_unsupported_resource(self, resource):
         req = Request.blank('/error?' + resource,
                             environ={'REQUEST_METHOD': 'GET',
