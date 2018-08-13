@@ -18,7 +18,6 @@ from urllib import quote
 from copy import deepcopy
 from pkg_resources import resource_stream  # pylint: disable-msg=E0611
 import six
-import sys
 
 from swift.common.utils import get_logger
 from swift.common.middleware.s3api.exception import S3Exception
@@ -76,10 +75,9 @@ def fromstring(text, root_tag=None, logger=None):
                 lxml.etree.RelaxNG(file=rng).assertValid(elem)
         except IOError as e:
             # Probably, the schema file doesn't exist.
-            exc_type, exc_value, exc_traceback = sys.exc_info()
             logger = logger or get_logger({}, log_route='s3api')
             logger.error(e)
-            raise exc_type, exc_value, exc_traceback
+            raise
         except lxml.etree.DocumentInvalid as e:
             if logger:
                 logger.debug(e)

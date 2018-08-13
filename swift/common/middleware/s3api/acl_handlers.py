@@ -49,8 +49,6 @@ Example::
   the end of method.
 
 """
-import sys
-
 from swift.common.middleware.s3api.subresource import ACL, Owner, encode_acl
 from swift.common.middleware.s3api.s3response import MissingSecurityHeader, \
     MalformedACLError, UnexpectedContent
@@ -168,9 +166,8 @@ class BaseAclHandler(object):
             except(XMLSyntaxError, DocumentInvalid):
                 raise MalformedACLError()
             except Exception as e:
-                exc_type, exc_value, exc_traceback = sys.exc_info()
                 self.logger.error(e)
-                raise exc_type, exc_value, exc_traceback
+                raise
         else:
             if body:
                 # Specifying grant with both header and xml is not allowed.

@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 from base64 import standard_b64encode as b64encode
 from base64 import standard_b64decode as b64decode
 
@@ -218,9 +217,8 @@ class BucketController(Controller):
             except (XMLSyntaxError, DocumentInvalid):
                 raise MalformedXML()
             except Exception as e:
-                exc_type, exc_value, exc_traceback = sys.exc_info()
                 self.logger.error(e)
-                raise exc_type, exc_value, exc_traceback
+                raise
 
             if location != self.conf.location:
                 # s3api cannot support multiple regions currently.
