@@ -267,20 +267,25 @@ class TestListingFormats(unittest.TestCase):
             'GET', '/v1/staticweb/not-json?format=json'))
 
     def test_static_web_pretend_to_be_giant_json(self):
-        body = json.dumps(self.fake_container_listing * 1000000)
+        body = json.dumps([
+            {'name': 'bar', 'hash': 'etag', 'bytes': 0,
+             'content_type': 'text/plain',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'subdir': 'foo/'},
+        ] * 160000)
         self.assertGreater(  # sanity
             len(body), listing_formats.MAX_CONTAINER_LISTING_CONTENT_LENGTH)
 
         self.fake_swift.register(
-            'GET', '/v1/staticweb/not-json', HTTPOk,
+            'GET', '/v1/staticweb/long-json', HTTPOk,
             {'Content-Type': 'application/json'},
             body)
 
-        resp = Request.blank('/v1/staticweb/not-json').get_response(self.app)
-        self.assertEqual(resp.body, body)
+        resp = Request.blank('/v1/staticweb/long-json').get_response(self.app)
         self.assertEqual(resp.headers['Content-Type'], 'application/json')
+        self.assertEqual(resp.body, body)
         self.assertEqual(self.fake_swift.calls[-1], (
-            'GET', '/v1/staticweb/not-json?format=json'))
+            'GET', '/v1/staticweb/long-json?format=json'))
         # TODO: add a similar test for chunked transfers
         # (staticweb referencing a DLO that doesn't fit in a single listing?)
 
