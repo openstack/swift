@@ -38,15 +38,14 @@ class FakeApp(object):
         E.g. '/v1/test:tester/bucket/object' will become
         '/v1/AUTH_test/bucket/object'. This method emulates the behavior.
         """
-        _, authorization = env['HTTP_AUTHORIZATION'].split(' ')
-        tenant_user, sign = authorization.rsplit(':', 1)
+        tenant_user = env['s3api.auth_details']['access_key']
         tenant, user = tenant_user.rsplit(':', 1)
 
         path = env['PATH_INFO']
         env['PATH_INFO'] = path.replace(tenant_user, 'AUTH_' + tenant)
 
     def __call__(self, env, start_response):
-        if 'HTTP_AUTHORIZATION' in env:
+        if 's3api.auth_details' in env:
             self._update_s3_path_info(env)
 
         return self.swift(env, start_response)

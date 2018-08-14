@@ -267,8 +267,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
-        for _, _, headers in self.swift.calls_with_headers:
-            self.assertEqual(headers['Authorization'], 'AWS test:tester:X')
+        for _, path, headers in self.swift.calls_with_headers:
+            self.assertNotIn('Authorization', headers)
 
     def test_signed_urls_no_timestamp(self):
         expire = '2147483647'  # 19 Jan 2038 03:14:07
@@ -281,7 +281,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # for signed_url access and it also doesn't check timestamp
         self.assertEqual(status.split()[0], '200')
         for _, _, headers in self.swift.calls_with_headers:
-            self.assertEqual(headers['Authorization'], 'AWS test:tester:X')
+            self.assertNotIn('Authorization', headers)
 
     def test_signed_urls_invalid_expire(self):
         expire = 'invalid'
@@ -332,8 +332,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200', body)
         for _, _, headers in self.swift.calls_with_headers:
-            self.assertEqual('AWS test:tester:X', headers['Authorization'])
-            self.assertIn('X-Auth-Token', headers)
+            self.assertNotIn('Authorization', headers)
+            self.assertIsNone(headers['X-Auth-Token'])
 
     def test_signed_urls_v4_bad_credential(self):
         def test(credential, message, extra=''):
@@ -740,12 +740,14 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_signature_v4(self):
         environ = {
             'REQUEST_METHOD': 'GET'}
+        authz_header = 'AWS4-HMAC-SHA256 ' + ', '.join([
+            'Credential=test:tester/%s/us-east-1/s3/aws4_request' %
+            self.get_v4_amz_date_header().split('T', 1)[0],
+            'SignedHeaders=host;x-amz-date',
+            'Signature=X',
+        ])
         headers = {
-            'Authorization':
-                'AWS4-HMAC-SHA256 '
-                'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
-                'SignedHeaders=host;x-amz-date,'
-                'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
+            'Authorization': authz_header,
             'X-Amz-Date': self.get_v4_amz_date_header(),
             'X-Amz-Content-SHA256': '0123456789'}
         req = Request.blank('/bucket/object', environ=environ, headers=headers)
@@ -753,8 +755,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200', body)
         for _, _, headers in self.swift.calls_with_headers:
-            self.assertEqual('AWS test:tester:X', headers['Authorization'])
-            self.assertIn('X-Auth-Token', headers)
+            self.assertEqual(authz_header, headers['Authorization'])
+            self.assertIsNone(headers['X-Auth-Token'])
 
     def test_signature_v4_no_date(self):
         environ = {
