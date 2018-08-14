@@ -33,7 +33,8 @@ class KmsKeyMaster(BaseKeyMaster):
                       'user_id', 'user_domain_id', 'trust_id',
                       'domain_id', 'domain_name', 'project_id',
                       'project_domain_id', 'reauthenticate',
-                      'auth_endpoint', 'api_class', 'key_id')
+                      'auth_endpoint', 'api_class', 'key_id*',
+                      'active_root_secret_id')
     keymaster_conf_section = 'kms_keymaster'
 
     def _get_root_secret(self, conf):
@@ -70,28 +71,33 @@ class KmsKeyMaster(BaseKeyMaster):
         )
         options.enable_logging()
         manager = key_manager.API(oslo_conf)
-        key = manager.get(ctxt, conf.get('key_id'))
-        if key is None:
-            raise ValueError("Retrieval of encryption root secret with key_id "
-                             "'%s' returned None." % conf.get('key_id'))
-        try:
-            if (key.bit_length < 256) or (key.algorithm.lower() != "aes"):
-                raise ValueError('encryption root secret stored in the '
-                                 'external KMS must be an AES key of at least '
-                                 '256 bits (provided key length: %d, provided '
-                                 'key algorithm: %s)'
-                                 % (key.bit_length, key.algorithm))
-            if (key.format != 'RAW'):
-                raise ValueError('encryption root secret stored in the '
-                                 'external KMS must be in RAW format and not '
-                                 'e.g., as a base64 encoded string (format of '
-                                 'key with uuid %s: %s)' %
-                                 (conf.get('key_id'), key.format))
-        except Exception:
-            raise ValueError("Secret with key_id '%s' is not a symmetric key "
-                             "(type: %s)" % (conf.get('key_id'),
-                                             str(type(key))))
-        return key.get_encoded()
+
+        root_secrets = {}
+        for opt, secret_id, key_id in self._load_multikey_opts(
+                conf, 'key_id'):
+            key = manager.get(ctxt, key_id)
+            if key is None:
+                raise ValueError("Retrieval of encryption root secret with "
+                                 "key_id '%s' returned None."
+                                 % (key_id, ))
+            try:
+                if (key.bit_length < 256) or (key.algorithm.lower() != "aes"):
+                    raise ValueError('encryption root secret stored in the '
+                                     'external KMS must be an AES key of at '
+                                     'least 256 bits (provided key '
+                                     'length: %d, provided key algorithm: %s)'
+                                     % (key.bit_length, key.algorithm))
+                if (key.format != 'RAW'):
+                    raise ValueError('encryption root secret stored in the '
+                                     'external KMS must be in RAW format and '
+                                     'not e.g., as a base64 encoded string '
+                                     '(format of key with uuid %s: %s)' %
+                                     (key_id, key.format))
+            except Exception:
+                raise ValueError("Secret with key_id '%s' is not a symmetric "
+                                 "key (type: %s)" % (key_id, str(type(key))))
+            root_secrets[secret_id] = key.get_encoded()
+        return root_secrets
 
 
 def filter_factory(global_conf, **local_conf):

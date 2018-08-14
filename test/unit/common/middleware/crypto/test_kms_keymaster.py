@@ -129,7 +129,8 @@ class MockBarbicanKeyManager(object):
             raise ValueError(ERR_MESSAGE_SECRET_INCORRECTLY_SPECIFIED)
         elif key_id == TEST_KMS_NONE_KEY_ID:
             return None
-        return MockBarbicanKey(b'x' * 32, key_id)
+        key_str = (str(key_id[0]) * 32).encode('utf8')
+        return MockBarbicanKey(key_str, key_id)
 
 
 class MockBarbicanKey(object):
@@ -791,6 +792,70 @@ class TestKmsKeymaster(unittest.TestCase):
         except Exception:
             print("Unexpected error: %s" % sys.exc_info()[0])
             raise
+
+    @mock.patch('swift.common.middleware.crypto.kms_keymaster.'
+                'keystone_password.KeystonePassword', MockPassword)
+    @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
+    @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
+    def test_get_root_secret_multiple_keys(
+            self, mock_castellan_key_manager, mock_readconf,
+            mock_castellan_options, mock_oslo_config,):
+        config = dict(TEST_KMS_KEYMASTER_CONF)
+        config.update({
+            'key_id_foo': 'foo-valid_kms_key_id-123456',
+            'key_id_bar': 'bar-valid_kms_key_id-123456',
+            'active_root_secret_id': 'foo'})
+
+        # Set side_effect functions.
+        mock_castellan_key_manager.API.side_effect = (
+            mock_castellan_api_side_effect)
+        mock_castellan_options.set_defaults.side_effect = (
+            mock_options_set_defaults_side_effect)
+        mock_oslo_config.ConfigOpts.side_effect = (
+            mock_config_opts_side_effect)
+
+        # Return valid Barbican configuration parameters.
+        mock_readconf.return_value = config
+
+        self.app = kms_keymaster.KmsKeyMaster(self.swift,
+                                              config)
+
+        expected_secrets = {
+            None: b'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv',
+            'foo': b'ffffffffffffffffffffffffffffffff',
+            'bar': b'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}
+        self.assertDictEqual(self.app._root_secrets, expected_secrets)
+        self.assertEqual(self.app.active_secret_id, 'foo')
+
+    @mock.patch('swift.common.middleware.crypto.kms_keymaster.'
+                'keystone_password.KeystonePassword', MockPassword)
+    @mock.patch('swift.common.middleware.crypto.kms_keymaster.cfg')
+    @mock.patch('swift.common.middleware.crypto.kms_keymaster.options')
+    @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
+    @mock.patch('swift.common.middleware.crypto.kms_keymaster.key_manager')
+    def test_get_root_secret_legacy_key_id(
+            self, mock_castellan_key_manager, mock_readconf,
+            mock_castellan_options, mock_oslo_config):
+
+        # Set side_effect functions.
+        mock_castellan_key_manager.API.side_effect = (
+            mock_castellan_api_side_effect)
+        mock_castellan_options.set_defaults.side_effect = (
+            mock_options_set_defaults_side_effect)
+        mock_oslo_config.ConfigOpts.side_effect = (
+            mock_config_opts_side_effect)
+
+        # Return valid Barbican configuration parameters.
+        mock_readconf.return_value = TEST_KMS_KEYMASTER_CONF
+
+        self.app = kms_keymaster.KmsKeyMaster(self.swift,
+                                              TEST_KMS_KEYMASTER_CONF)
+
+        expected_secrets = {None: b'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv'}
+        self.assertDictEqual(self.app._root_secrets, expected_secrets)
+        self.assertIsNone(self.app.active_secret_id)
 
 
 if __name__ == '__main__':
