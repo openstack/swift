@@ -17,7 +17,6 @@ import unittest
 from datetime import datetime
 from hashlib import md5
 
-from six.moves import urllib
 from swift.common import swob
 from swift.common.swob import Request
 
@@ -87,11 +86,14 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
 
         elem = fromstring(body)
         self.assertEqual(len(elem.findall('Deleted')), 3)
-        _, path, _ = self.swift.calls_with_headers[-1]
-        path, query_string = path.split('?', 1)
-        self.assertEqual(path, '/v1/AUTH_test/bucket/Key3')
-        query = dict(urllib.parse.parse_qsl(query_string))
-        self.assertEqual(query['multipart-manifest'], 'delete')
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key1'),
+            ('DELETE', '/v1/AUTH_test/bucket/Key1'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key2'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key3'),
+            ('DELETE', '/v1/AUTH_test/bucket/Key3?multipart-manifest=delete'),
+        ])
 
     @s3acl
     def test_object_multi_DELETE_quiet(self):

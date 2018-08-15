@@ -139,6 +139,12 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(status, 204)
         self.assertCommonResponseHeaders(headers)
 
+        # DELETE Non-Existent Object
+        status, headers, body = \
+            self.conn.make_request('DELETE', self.bucket, 'does-not-exist')
+        self.assertEqual(status, 204)
+        self.assertCommonResponseHeaders(headers)
+
     def test_put_object_error(self):
         auth_error_conn = Connection(aws_secret_key='invalid')
         status, headers, body = \
@@ -236,11 +242,6 @@ class TestS3ApiObject(S3ApiBase):
         status, headers, body = \
             auth_error_conn.make_request('DELETE', self.bucket, obj)
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
-        self.assertEqual(headers['content-type'], 'application/xml')
-
-        status, headers, body = \
-            self.conn.make_request('DELETE', self.bucket, 'invalid')
-        self.assertEqual(get_error_code(body), 'NoSuchKey')
         self.assertEqual(headers['content-type'], 'application/xml')
 
         status, headers, body = \
