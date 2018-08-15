@@ -138,6 +138,12 @@ class S3Response(S3ResponseBase, swob.Response):
             # Multipart uploads in AWS have ETags like
             #   <MD5(part_etag1 || ... || part_etagN)>-<number of parts>
             headers['etag'] = override_etag
+        elif self.is_slo and 'etag' in headers:
+            # Many AWS clients use the presence of a '-' to decide whether
+            # to attempt client-side download validation, so even if we
+            # didn't store the AWS-style header, tack on a '-N'. (Use 'N'
+            # because we don't actually know how many parts there are.)
+            headers['etag'] += '-N'
 
         self.headers = headers
 
