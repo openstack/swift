@@ -604,13 +604,20 @@ class TestEncrypter(unittest.TestCase):
             # verify etags have been supplemented with masked values
             self.assertIn(match_header_name, actual_headers)
             actual_etags = set(actual_headers[match_header_name].split(', '))
+            # masked values for secret_id None
             key = fetch_crypto_keys()['object']
             masked_etags = [
                 '"%s"' % base64.b64encode(hmac.new(
                     key, etag.strip('"'), hashlib.sha256).digest())
                 for etag in plain_etags if etag not in ('*', '')]
+            # masked values for secret_id myid
+            key = fetch_crypto_keys(key_id={'secret_id': 'myid'})['object']
+            masked_etags_myid = [
+                '"%s"' % base64.b64encode(hmac.new(
+                    key, etag.strip('"'), hashlib.sha256).digest())
+                for etag in plain_etags if etag not in ('*', '')]
             expected_etags = set((expected_plain_etags or plain_etags) +
-                                 masked_etags)
+                                 masked_etags + masked_etags_myid)
             self.assertEqual(expected_etags, actual_etags)
             # check that the request environ was returned to original state
             self.assertEqual(set(plain_etags),
@@ -798,7 +805,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('Unable to retrieve encryption keys.', resp.body)
 
     def test_PUT_error_in_key_callback(self):
-        def raise_exc():
+        def raise_exc(*args, **kwargs):
             raise Exception('Testing')
 
         body = 'FAKE APP'

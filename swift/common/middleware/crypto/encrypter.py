@@ -287,6 +287,9 @@ class EncrypterObjContext(CryptoWSGIContext):
         plaintext etag to generate the value of
         X-Object-Sysmeta-Crypto-Etag-Mac when the object was PUT. The object
         server can therefore use these HMACs to evaluate conditional requests.
+        HMACs of the etags are appended for the current root secrets and
+        historic root secrets because it is not known which of them may have
+        been used to generate the on-disk etag HMAC.
 
         The existing etag values are left in the list of values to match in
         case the object was not encrypted when it was PUT. It is unlikely that
@@ -299,14 +302,16 @@ class EncrypterObjContext(CryptoWSGIContext):
         masked = False
         old_etags = req.headers.get(header_name)
         if old_etags:
-            keys = self.get_keys(req.environ)
+            all_keys = self.get_multiple_keys(req.environ)
             new_etags = []
             for etag in Match(old_etags).tags:
                 if etag == '*':
                     new_etags.append(etag)
                     continue
-                masked_etag = _hmac_etag(keys['object'], etag)
-                new_etags.extend(('"%s"' % etag, '"%s"' % masked_etag))
+                new_etags.append('"%s"' % etag)
+                for keys in all_keys:
+                    masked_etag = _hmac_etag(keys['object'], etag)
+                    new_etags.append('"%s"' % masked_etag)
                 masked = True
 
             req.headers[header_name] = ', '.join(new_etags)

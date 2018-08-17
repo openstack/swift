@@ -223,6 +223,10 @@ class EncryptionException(SwiftException):
     pass
 
 
+class UnknownSecretIdError(EncryptionException):
+    pass
+
+
 class ClientException(Exception):
 
     def __init__(self, msg, http_scheme='', http_host='', http_port='',
