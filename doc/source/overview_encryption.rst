@@ -163,6 +163,8 @@ into GET and PUT requests by the :ref:`copy` middleware before reaching the
 encryption middleware and as a result object data and metadata is decrypted and
 re-encrypted when copied.
 
+.. _changing_the_root_secret:
+
 Changing the encryption root secret
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -213,11 +215,12 @@ active root secret::
 
     To ensure there is no loss of data availability, deploying a new key to
     your cluster requires a two-stage config change. First, add the new key
-    to the ``key_id_<secret_id>`` option and restart the proxy-server. Do this
-    for all proxies. Next, set the ``active_root_secret_id`` option to the
-    new secret id and restart the proxy. Again, do this for all proxies. This
-    process ensures that all proxies will have the new key available for
-    *decryption* before any proxy uses it for *encryption*.
+    to the ``encryption_root_secret_<secret_id>`` option and restart the
+    proxy-server. Do this for all proxies. Next, set the
+    ``active_root_secret_id`` option to the new secret id and restart the
+    proxy. Again, do this for all proxies. This process ensures that all
+    proxies will have the new key available for *decryption* before any proxy
+    uses it for *encryption*.
 
 Encryption middleware
 ---------------------
@@ -432,6 +435,23 @@ example::
     username = swift
     password = swift_password
 
+Changing the encryption root secret of external KMS's
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Because the KMS and KMIP keymaster's derive from the default KeyMaster they
+also have to ability to define multiple keys. The only difference is the key
+option names. Instead of using the form `encryption_root_secret_<secret_id>`
+both external KMS's use `key_id_<secret_id>`, as it is an extension of their
+existing configuration. For example::
+
+  ...
+  key_id = 1234567890
+  key_id_foo = 0987654321
+  key_id_bar = 5432106789
+  active_root_secret_id = foo
+  ...
+
+Other then that, the process is the same as :ref:`changing_the_root_secret`.
 
 Upgrade Considerations
 ----------------------
