@@ -19,9 +19,10 @@ swift-recon-cron.py
 import os
 import sys
 
-from gettext import gettext as _
+from eventlet import Timeout
 
-from swift.common.utils import get_logger, dump_recon_cache, readconf
+from swift.common.utils import get_logger, dump_recon_cache, readconf, \
+    lock_path
 from swift.obj.diskfile import ASYNCDIR_BASE
 
 
@@ -62,21 +63,14 @@ def main():
     conf['log_name'] = conf.get('log_name', 'recon-cron')
     logger = get_logger(conf, log_route='recon-cron')
     try:
-        os.mkdir(lock_dir)
-    except OSError as e:
-        logger.critical(str(e))
-        print(str(e))
+        with lock_path(lock_dir):
+            asyncs = get_async_count(device_dir, logger)
+            dump_recon_cache({'async_pending': asyncs}, cache_file, logger)
+    except (Exception, Timeout) as err:
+        msg = 'Exception during recon-cron while accessing devices'
+        logger.exception(msg)
+        print('%s: %s' % (msg, err))
         sys.exit(1)
-    try:
-        asyncs = get_async_count(device_dir, logger)
-        dump_recon_cache({'async_pending': asyncs}, cache_file, logger)
-    except Exception:
-        logger.exception(
-            _('Exception during recon-cron while accessing devices'))
-    try:
-        os.rmdir(lock_dir)
-    except Exception:
-        logger.exception(_('Exception remove cronjob lock'))
 
 if __name__ == '__main__':
     main()
