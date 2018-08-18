@@ -307,6 +307,17 @@ class TestS3ApiObj(S3ApiTestCase):
         self._test_object_GETorHEAD('GET')
 
     @s3acl(s3acl_only=True)
+    def test_object_GET_with_s3acl_and_unknown_user(self):
+        self.swift.remote_user = None
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '403 Forbidden')
+        self.assertEqual(self._get_error_code(body), 'SignatureDoesNotMatch')
+
+    @s3acl(s3acl_only=True)
     def test_object_GET_with_s3acl_and_keystone(self):
         # for passing keystone authentication root
         fake_auth = self.swift._fake_auth_middleware

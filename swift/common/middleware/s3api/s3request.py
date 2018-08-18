@@ -375,6 +375,16 @@ class SigV4Mixin(object):
                           '/'.join(self.scope),
                           sha256(self._canonical_request()).hexdigest()])
 
+    def signature_does_not_match_kwargs(self):
+        kwargs = super(SigV4Mixin, self).signature_does_not_match_kwargs()
+        cr = self._canonical_request()
+        kwargs.update({
+            'canonical_request': cr,
+            'canonical_request_bytes': ' '.join(
+                format(ord(c), '02x') for c in cr),
+        })
+        return kwargs
+
 
 def get_request_class(env, s3_acl):
     """
@@ -875,6 +885,15 @@ class S3Request(swob.Request):
             buf.append(path)
         return '\n'.join(buf)
 
+    def signature_does_not_match_kwargs(self):
+        return {
+            'a_w_s_access_key_id': self.access_key,
+            'string_to_sign': self.string_to_sign,
+            'signature_provided': self.signature,
+            'string_to_sign_bytes': ' '.join(
+                format(ord(c), '02x') for c in self.string_to_sign),
+        }
+
     @property
     def controller_name(self):
         return self.controller.__name__[:-len('Controller')]
@@ -1211,7 +1230,8 @@ class S3Request(swob.Request):
         if status == HTTP_BAD_REQUEST:
             raise BadSwiftRequest(err_msg)
         if status == HTTP_UNAUTHORIZED:
-            raise SignatureDoesNotMatch()
+            raise SignatureDoesNotMatch(
+                **self.signature_does_not_match_kwargs())
         if status == HTTP_FORBIDDEN:
             raise AccessDenied()
 
@@ -1334,7 +1354,8 @@ class S3AclRequest(S3Request):
         sw_resp = sw_req.get_response(app)
 
         if not sw_req.remote_user:
-            raise SignatureDoesNotMatch()
+            raise SignatureDoesNotMatch(
+                **self.signature_does_not_match_kwargs())
 
         _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],
                                         2, 3, True)
