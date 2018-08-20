@@ -72,7 +72,12 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Swift'
-copyright = u'%d, OpenStack Foundation' % datetime.datetime.now().year
+if 'SOURCE_DATE_EPOCH' in os.environ:
+    now = float(os.environ.get('SOURCE_DATE_EPOCH'))
+    now = datetime.datetime.utcfromtimestamp(now)
+else:
+    now = datetime.date.today()
+copyright = u'%d, OpenStack Foundation' % now.year
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
