@@ -38,6 +38,8 @@ and add a new filter section::
     [filter:kmip_keymaster]
     use = egg:swift#kmip_keymaster
     key_id = <unique id of secret to be fetched from the KMIP service>
+    key_id_<secret_id> = <unique id of additional secret to be fetched>
+    active_root_secret_id = <secret_id to be used for new encryptions>
     host = <KMIP server host>
     port = <KMIP server port>
     certfile = /path/to/client/cert.pem
@@ -46,12 +48,27 @@ and add a new filter section::
     username = <KMIP username>
     password = <KMIP password>
 
-Apart from ``use`` and ``key_id`` the options are as defined for a PyKMIP
-client. The authoritative definition of these options can be found at
-`https://pykmip.readthedocs.io/en/latest/client.html`_
+Apart from ``use``, ``key_id*``, ``active_root_secret_id`` the options are
+as defined for a PyKMIP client. The authoritative definition of these options
+can be found at `https://pykmip.readthedocs.io/en/latest/client.html`_
 
-The value of the ``key_id`` option should be the unique identifier for a secret
-that will be retrieved from the KMIP service.
+The value of each ``key_id*`` option should be a unique identifier for a secret
+to be retrieved from the KMIP service. Any of these secrets may be used for
+*decryption*.
+
+The value of the ``active_root_secret_id`` option should be the ``secret_id``
+for the secret that should be used for all new *encryption*. If not specified,
+the ``key_id`` secret will be used.
+
+.. note::
+
+    To ensure there is no loss of data availability, deploying a new key to
+    your cluster requires a two-stage config change. First, add the new key
+    to the ``key_id_<secret_id>`` option and restart the proxy-server. Do this
+    for all proxies. Next, set the ``active_root_secret_id`` option to the
+    new secret id and restart the proxy. Again, do this for all proxies. This
+    process ensures that all proxies will have the new key available for
+    *decryption* before any proxy uses it for *encryption*.
 
 The keymaster configuration can alternatively be defined in a separate config
 file by using the ``keymaster_config_path`` option::
@@ -67,6 +84,9 @@ example::
 
     [kmip_keymaster]
     key_id = 1234567890
+    key_id_foo = 2468024680
+    key_id_bar = 1357913579
+    active_root_secret_id = foo
     host = 127.0.0.1
     port = 5696
     certfile = /etc/swift/kmip_client.crt
@@ -81,7 +101,7 @@ class KmipKeyMaster(keymaster.KeyMaster):
     log_route = 'kmip_keymaster'
     keymaster_opts = ('host', 'port', 'certfile', 'keyfile',
                       'ca_certs', 'username', 'password',
-                      'active_root_secret_id', 'key_id')
+                      'active_root_secret_id', 'key_id*')
     keymaster_conf_section = 'kmip_keymaster'
 
     def _get_root_secret(self, conf):
@@ -96,25 +116,36 @@ class KmipKeyMaster(keymaster.KeyMaster):
                 'keymaster_config_path option in the proxy server config to '
                 'specify a config file.')
 
-        key_id = conf.get('key_id')
-        if not key_id:
-            raise ValueError('key_id option is required')
-
         kmip_logger = logging.getLogger('kmip')
         for handler in self.logger.logger.handlers:
             kmip_logger.addHandler(handler)
 
+        multikey_opts = self._load_multikey_opts(conf, 'key_id')
+        if not multikey_opts:
+            raise ValueError('key_id option is required')
+        kmip_to_secret = {}
+        root_secrets = {}
         with ProxyKmipClient(
             config=section,
             config_file=conf['__file__']
         ) as client:
-            secret = client.get(key_id)
-        if (secret.cryptographic_algorithm.name,
-                secret.cryptographic_length) != ('AES', 256):
-            raise ValueError('Expected an AES-256 key, not %s-%d' % (
-                secret.cryptographic_algorithm.name,
-                secret.cryptographic_length))
-        return secret.value
+            for opt, secret_id, kmip_id in multikey_opts:
+                if kmip_id in kmip_to_secret:
+                    # Save some round trips if there are multiple
+                    # secret_ids for a single kmip_id
+                    root_secrets[secret_id] = root_secrets[
+                        kmip_to_secret[kmip_id]]
+                    continue
+                secret = client.get(kmip_id)
+                algo = secret.cryptographic_algorithm.name
+                length = secret.cryptographic_length
+                if (algo, length) != ('AES', 256):
+                    raise ValueError(
+                        'Expected key %s to be an AES-256 key, not %s-%d' % (
+                            kmip_id, algo, length))
+                root_secrets[secret_id] = secret.value
+                kmip_to_secret.setdefault(kmip_id, secret_id)
+        return root_secrets
 
 
 def filter_factory(global_conf, **local_conf):
