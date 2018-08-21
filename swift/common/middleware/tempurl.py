@@ -153,7 +153,7 @@ Another valid URL::
     temp_url_prefix=pre
 
 If you wish to lock down the ip ranges from where the resource can be accessed
-to the ip 1.2.3.4::
+to the ip ``1.2.3.4``::
 
     import hmac
     from hashlib import sha1
@@ -177,7 +177,7 @@ above, following URL would be valid::
     temp_url_ip_range=1.2.3.4
 
 Similarly to lock down the ip to a range of ``1.2.3.X`` so starting
-from the ip ``1.2.3.0`` to ``1.2.3.255``.
+from the ip ``1.2.3.0`` to ``1.2.3.255``::
 
     import hmac
     from hashlib import sha1
@@ -190,7 +190,7 @@ from the ip ``1.2.3.0`` to ``1.2.3.255``.
     hmac_body = 'ip=%s\n%s\n%s\n%s' % (ip_range, method, expires, path)
     sig = hmac.new(key, hmac_body, sha1).hexdigest()
 
-Then the following url would be valid
+Then the following url would be valid::
 
     https://swift-cluster.example.com/v1/AUTH_account/container/object?
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
