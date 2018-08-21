@@ -1,0 +1,103 @@
+---
+features:
+  - |
+    TempURLs now support IP range restrictions. Please see
+    https://docs.openstack.org/swift/latest/middleware.html#client-usage
+    for more information on how to use this additional restriction.
+
+  - |
+    Add support for multiple root encryption secrets for the trivial
+    and KMIP keymasters. This allows operators to rotate encryption
+    keys over time without needing to re-encrypt all existing data
+    in the cluster. Please see the included sample config files for
+    instructions on how to multiple encryption keys.
+
+  - |
+    The object updater now supports two configuration settings:
+    "concurrency" and "updater_workers". The latter controls how many
+    worker processes are spawned, while the former controls how many
+    concurrent container updates are performed by each worker
+    process. This should speed the processing of async_pendings.
+
+    On upgrade, a node configured with concurrency=N will still handle
+    async updates N-at-a-time, but will do so using only one process
+    instead of N.
+
+    If you have a config file like this:
+
+        [object-updater]
+        concurrency = <N>
+
+    and you want to take advantage of faster updates, then do this:
+
+        [object-updater]
+        concurrency = 8  # the default; you can omit this line
+        updater_workers = <N>
+
+    If you want updates to be processed exactly as before, do this:
+
+        [object-updater]
+        concurrency = 1
+        updater_workers = <N>
+
+  - |
+    When listing objects in a container in json format, static large
+    objects (SLOs) will now include an additional new "slo_etag" key
+    that matches the etag returned when requesting the SLO. The
+    existing "hash" key remains unchanged as the MD5 of the SLO
+    manifest. Text and XML listings are unaffected by this change.
+
+  - |
+    Log deprecation warnings for ``run_pause``. This setting was
+    deprecated in Swift 2.4.0 and is replaced by ``interval``.
+    It may be removed in a future release.
+
+  - |
+    Object reconstructor logs are now prefixed with information
+    about the specific worker process logging the message. This
+    makes reading the logs and understanding the messages much simpler.
+
+  - |
+    Lower bounds of dependencies have been updated to reflect what
+    is actually tested.
+
+  - |
+    SSYNC replication mode now removes as much of the directory
+    structure as possible as soon at it observes that the directory
+    is empty. This reduces the work needed for subsequent replication
+    passes.
+
+  - |
+    The container-updater now reports zero objects and bytes used for
+    child DBs in sharded containers. This prevents double-counting in
+    utilization reports.
+
+  - |
+    Add fallocate_reserve to account and container servers. This
+    allows disks shared between account/container and object rings to
+    avoid getting 100% full. The default value of 1% matches the
+    existing default on object servers.
+
+  - |
+    Added an experimental ``swift-ring-composer`` CLI tool to build
+    composite rings.
+
+  - |
+    Added an optional ``read_only`` middleware to make an entire cluster
+    or individual accounts read only.
+
+  - |
+    Fixed a bug where zero-byte PUTs would not work properly
+    with "If-None-Match: \*" conditional requests.
+
+  - ACLs now work with unicode in user/account names.
+
+  - COPY now works with unicode account names.
+
+  - Improved S3 API compatibility.
+
+  - |
+    Lock timeouts in the container updater are now logged at INFO
+    level, not ERROR.
+
+  - Various other minor bug fixes and improvements.
