@@ -23,18 +23,18 @@ features:
     async updates N-at-a-time, but will do so using only one process
     instead of N.
 
-    If you have a config file like this:
+    If you have a config file like this::
 
         [object-updater]
         concurrency = <N>
 
-    and you want to take advantage of faster updates, then do this:
+    and you want to take advantage of faster updates, then do this::
 
         [object-updater]
         concurrency = 8  # the default; you can omit this line
         updater_workers = <N>
 
-    If you want updates to be processed exactly as before, do this:
+    If you want updates to be processed exactly as before, do this::
 
         [object-updater]
         concurrency = 1

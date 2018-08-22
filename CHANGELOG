@@ -1,4 +1,4 @@
-swift (2.19.0)
+swift (2.19.0, OpenStack Rocky)
 
     * TempURLs now support IP range restrictions. Please see
       https://docs.openstack.org/swift/latest/middleware.html#client-usage
