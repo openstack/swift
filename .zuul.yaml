@@ -134,17 +134,56 @@
 - project:
     check:
       jobs:
-        - swift-tox-py27
-        - swift-tox-py35
-        - swift-tox-func
-        - swift-tox-func-encryption
-        - swift-tox-func-domain-remap-staticweb
-        - swift-tox-func-ec
-        - swift-tox-func-s3api
-        - swift-probetests-centos-7
-        - openstack-tox-lower-constraints
+        - swift-tox-py27:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+        - swift-tox-py35:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+        - swift-tox-func:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-encryption:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-domain-remap-staticweb:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-ec:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-s3api:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-probetests-centos-7:
+            irrelevant-files:
+              - ^(api-ref|releasenotes)/.*$
+              # Keep doc/saio -- we use those sample configs in the saio playbooks
+              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
+              - ^test/(unit|functional)/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - openstack-tox-lower-constraints:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
     gate:
       jobs:
+        # For gate jobs, err towards running more jobs (so, generally avoid
+        # using irrelevant-files). Exceptions should mainly be made for
+        # long-running jobs, like probetests or (once they move to
+        # in-tree definitions) dsvm jobs.
         - swift-tox-py27
         - swift-tox-py35
         - swift-tox-func
@@ -152,7 +191,13 @@
         - swift-tox-func-domain-remap-staticweb
         - swift-tox-func-ec
         - swift-tox-func-s3api
-        - swift-probetests-centos-7
+        - swift-probetests-centos-7:
+            irrelevant-files:
+              - ^(api-ref|releasenotes)/.*$
+              # Keep doc/saio -- we use those sample configs in the saio playbooks
+              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
+              - ^test/(unit|functional)/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - openstack-tox-lower-constraints
     experimental:
       jobs:
