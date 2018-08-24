@@ -132,6 +132,12 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - project:
+    templates:
+      - publish-openstack-sphinx-docs
+      - periodic-stable-jobs
+      - check-requirements
+      - install-guide-jobs
+      - release-notes-jobs
     check:
       jobs:
         - swift-tox-py27:
@@ -188,6 +194,43 @@
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
+        - openstack-tox-pep8:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+        - legacy-swift-dsvm-functional:
+            irrelevant-files:
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^test/unit/.*$
+        - legacy-swift-dsvm-functional-identity-v3-only:
+            voting: false
+            irrelevant-files:
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^test/unit/.*$
+        - legacy-tempest-dsvm-neutron-full:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
+        - neutron-grenade:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -219,9 +262,58 @@
               - ^test/(unit|functional|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - openstack-tox-lower-constraints
+        - openstack-tox-pep8
+        - legacy-swift-dsvm-functional:
+            irrelevant-files:
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^test/unit/.*$
+        - legacy-tempest-dsvm-neutron-full:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
+        - neutron-grenade:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
     experimental:
       jobs:
         - swift-tox-py27-centos-7
         - swift-tox-func-centos-7
         - swift-tox-func-encryption-centos-7
         - swift-tox-func-ec-centos-7
+        - legacy-tempest-dsvm-neutron-pg-full:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
+        - legacy-tempest-dsvm-neutron-full-opensuse-423:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
+
+    post:
+      jobs:
+        - openstack-tox-cover
+        - publish-openstack-python-branch-tarball
