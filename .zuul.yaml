@@ -9,7 +9,7 @@
     timeout: 2400
     vars:
       tox_environment:
-        TMPDIR: "{{ ansible_env.HOME }}/xfstmp"
+        TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
 - job:
     name: swift-tox-py27
@@ -94,6 +94,11 @@
     nodeset: centos-7
 
 - project:
+    templates:
+      - publish-openstack-sphinx-docs
+      - periodic-stable-jobs
+      - check-requirements
+      - release-notes-jobs
     name: openstack/swift
     check:
       jobs:
@@ -102,6 +107,40 @@
         - swift-tox-func
         - swift-tox-func-encryption
         - swift-tox-func-ec
+        - openstack-tox-pep8
+        - legacy-swift-dsvm-functional:
+            irrelevant-files:
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^test/unit/.*$
+        - legacy-swift-dsvm-functional-identity-v3-only:
+            voting: false
+            irrelevant-files:
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^test/unit/.*$
+        - legacy-tempest-dsvm-neutron-full:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
+        - neutron-grenade:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
     gate:
       jobs:
         - swift-tox-py27
@@ -109,9 +148,58 @@
         - swift-tox-func
         - swift-tox-func-encryption
         - swift-tox-func-ec
+        - openstack-tox-pep8
+        - legacy-swift-dsvm-functional:
+            irrelevant-files:
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^test/unit/.*$
+        - legacy-tempest-dsvm-neutron-full:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
+        - neutron-grenade:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
     experimental:
       jobs:
         - swift-tox-py27-centos-7
         - swift-tox-func-centos-7
         - swift-tox-func-encryption-centos-7
         - swift-tox-func-ec-centos-7
+        - legacy-tempest-dsvm-neutron-pg-full:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
+        - legacy-tempest-dsvm-neutron-full-opensuse-423:
+            irrelevant-files:
+              - ^(test-|)requirements.txt$
+              - ^api-ref/.*$
+              - ^doc/.*$
+              - ^install-guide/.*$
+              - ^releasenotes/.*$
+              - ^setup.cfg$
+              - ^test/unit/.*$
+
+    post:
+      jobs:
+        - openstack-tox-cover
+        - publish-openstack-python-branch-tarball
