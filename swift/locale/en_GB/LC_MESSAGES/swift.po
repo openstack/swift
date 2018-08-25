@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2018-08-25 00:41+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -516,10 +516,6 @@ msgid "ERROR get_keys() missing callback"
 msgstr "ERROR get_keys() missing callback"
 
 #, python-format
-msgid "ERROR get_keys(): from callback: %s"
-msgstr "ERROR get_keys(): from callback: %s"
-
-#, python-format
 msgid "ERROR reading HTTP response from %s"
 msgstr "ERROR reading HTTP response from %s"
 
@@ -585,10 +581,6 @@ msgstr "Error decrypting %(resp_type)s: %(reason)s"
 #, python-format
 msgid "Error decrypting %(resp_type)s: Missing %(key)s"
 msgstr "Error decrypting %(resp_type)s: Missing %(key)s"
-
-#, python-format
-msgid "Error decrypting container listing: %s"
-msgstr "Error decrypting container listing: %s"
 
 #, python-format
 msgid "Error decrypting header %(header)s: %(error)s"
