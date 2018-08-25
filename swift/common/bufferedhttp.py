@@ -51,15 +51,19 @@ class BufferedHTTPResponse(HTTPResponse):
                  method=None):          # pragma: no cover
         self.sock = sock
         # sock is an eventlet.greenio.GreenSocket
-        # sock.fd is a socket._socketobject
-        # sock.fd._sock is a socket._socket object, which is what we want.
-        self._real_socket = sock.fd._sock
+        if six.PY2:
+            # sock.fd is a socket._socketobject
+            # sock.fd._sock is a _socket.socket object, which is what we want.
+            self._real_socket = sock.fd._sock
+        else:
+            # sock.fd is a socket.socket, which should have a _real_close
+            self._real_socket = sock.fd
         self.fp = sock.makefile('rb')
         self.debuglevel = debuglevel
         self.strict = strict
         self._method = method
 
-        self.msg = None
+        self.headers = self.msg = None
 
         # from the Status-Line of the response
         self.version = _UNKNOWN         # HTTP-Version
@@ -70,7 +74,7 @@ class BufferedHTTPResponse(HTTPResponse):
         self.chunk_left = _UNKNOWN      # bytes left to read in current chunk
         self.length = _UNKNOWN          # number of bytes left in response
         self.will_close = _UNKNOWN      # conn will close at end of response
-        self._readline_buffer = ''
+        self._readline_buffer = b''
 
     def expect_response(self):
         if self.fp:
@@ -85,8 +89,15 @@ class BufferedHTTPResponse(HTTPResponse):
             self.status = status
             self.reason = reason.strip()
             self.version = 11
-            self.msg = HTTPMessage(self.fp, 0)
-            self.msg.fp = None
+            if six.PY2:
+                # Under py2, HTTPMessage.__init__ reads the headers
+                # which advances fp
+                self.msg = HTTPMessage(self.fp, 0)
+                # immediately kill msg.fp to make sure it isn't read again
+                self.msg.fp = None
+            else:
+                # py3 has a separate helper for it
+                self.headers = self.msg = httplib.parse_headers(self.fp)
 
     def read(self, amt=None):
         if not self._readline_buffer:
@@ -96,7 +107,7 @@ class BufferedHTTPResponse(HTTPResponse):
             # Unbounded read: send anything we have buffered plus whatever
             # is left.
             buffered = self._readline_buffer
-            self._readline_buffer = ''
+            self._readline_buffer = b''
             return buffered + HTTPResponse.read(self, amt)
         elif amt <= len(self._readline_buffer):
             # Bounded read that we can satisfy entirely from our buffer
@@ -107,7 +118,7 @@ class BufferedHTTPResponse(HTTPResponse):
             # Bounded read that wants more bytes than we have
             smaller_amt = amt - len(self._readline_buffer)
             buf = self._readline_buffer
-            self._readline_buffer = ''
+            self._readline_buffer = b''
             return buf + HTTPResponse.read(self, smaller_amt)
 
     def readline(self, size=1024):
@@ -118,7 +129,7 @@ class BufferedHTTPResponse(HTTPResponse):
         #  # too.
         #
         # Yes, it certainly would.
-        while ('\n' not in self._readline_buffer
+        while (b'\n' not in self._readline_buffer
                and len(self._readline_buffer) < size):
             read_size = size - len(self._readline_buffer)
             chunk = HTTPResponse.read(self, read_size)
@@ -126,7 +137,7 @@ class BufferedHTTPResponse(HTTPResponse):
                 break
             self._readline_buffer += chunk
 
-        line, newline, rest = self._readline_buffer.partition('\n')
+        line, newline, rest = self._readline_buffer.partition(b'\n')
         self._readline_buffer = rest
         return line + newline
 
@@ -139,9 +150,14 @@ class BufferedHTTPResponse(HTTPResponse):
         you care about has a reference to this socket.
         """
         if self._real_socket:
-            # this is idempotent; see sock_close in Modules/socketmodule.c in
-            # the Python source for details.
-            self._real_socket.close()
+            if six.PY2:
+                # this is idempotent; see sock_close in Modules/socketmodule.c
+                # in the Python source for details.
+                self._real_socket.close()
+            else:
+                # Hopefully this is equivalent?
+                # TODO: verify that this does everything ^^^^ does for py2
+                self._real_socket._real_close()
         self._real_socket = None
         self.close()
 
@@ -168,8 +184,10 @@ class BufferedHTTPConnection(HTTPConnection):
                                          skip_accept_encoding)
 
     def getexpect(self):
-        response = BufferedHTTPResponse(self.sock, strict=self.strict,
-                                        method=self._method)
+        kwargs = {'method': self._method}
+        if hasattr(self, 'strict'):
+            kwargs['strict'] = self.strict
+        response = BufferedHTTPResponse(self.sock, **kwargs)
         response.expect_response()
         return response
 
@@ -205,7 +223,11 @@ def http_connect(ipaddr, port, device, partition, method, path,
         path = path.encode("utf-8")
     if isinstance(device, six.text_type):
         device = device.encode("utf-8")
-    path = quote('/' + device + '/' + str(partition) + path)
+    if isinstance(partition, six.text_type):
+        partition = partition.encode('utf-8')
+    elif isinstance(partition, six.integer_types):
+        partition = str(partition).encode('ascii')
+    path = quote(b'/' + device + b'/' + partition + path)
     return http_connect_raw(
         ipaddr, port, method, path, headers, query_string, ssl)
 
