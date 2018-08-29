@@ -136,7 +136,6 @@
       - publish-openstack-docs-pti
       - periodic-stable-jobs
       - check-requirements
-      - install-guide-jobs
       - release-notes-jobs-python3
     check:
       jobs:
