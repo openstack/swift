@@ -196,8 +196,7 @@
               - ^test/(functional|probe)/.*$
         - openstack-tox-pep8:
             irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
+              - ^(api-ref|doc|etc|examples|releasenotes)/.*$
         - legacy-swift-dsvm-functional:
             irrelevant-files:
               - ^api-ref/.*$
@@ -262,7 +261,9 @@
               - ^test/(unit|functional|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - openstack-tox-lower-constraints
-        - openstack-tox-pep8
+        - openstack-tox-pep8:
+            irrelevant-files:
+              - ^(api-ref|doc|etc|examples|releasenotes)/.*$
         - legacy-swift-dsvm-functional:
             irrelevant-files:
               - ^api-ref/.*$
