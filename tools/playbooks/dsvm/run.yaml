@@ -1,0 +1,11 @@
+- hosts: all
+  tasks:
+    - name: Run func tests with Keystone users
+      include_role:
+        name: tox
+    - name: Run func tests with tempauth users
+      include_role:
+        name: tox
+      vars:
+        tox_environment:
+          SWIFT_TEST_CONFIG_FILE: test/sample.conf
