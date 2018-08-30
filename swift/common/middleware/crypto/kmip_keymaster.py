@@ -97,7 +97,7 @@ example::
 """
 
 
-class KmipKeyMaster(keymaster.KeyMaster):
+class KmipKeyMaster(keymaster.BaseKeyMaster):
     log_route = 'kmip_keymaster'
     keymaster_opts = ('host', 'port', 'certfile', 'keyfile',
                       'ca_certs', 'username', 'password',

@@ -15,10 +15,10 @@
 from castellan import key_manager, options
 from castellan.common.credentials import keystone_password
 from oslo_config import cfg
-from swift.common.middleware.crypto.keymaster import KeyMaster
+from swift.common.middleware.crypto.keymaster import BaseKeyMaster
 
 
-class KmsKeyMaster(KeyMaster):
+class KmsKeyMaster(BaseKeyMaster):
     """Middleware for retrieving a encryption root secret from an external KMS.
 
     The middleware accesses the encryption root secret from an external key
