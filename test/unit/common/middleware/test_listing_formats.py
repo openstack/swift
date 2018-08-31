@@ -29,13 +29,13 @@ class TestListingFormats(unittest.TestCase):
             {'name': 'bar', 'bytes': 0, 'count': 0,
              'last_modified': '1970-01-01T00:00:00.000000'},
             {'subdir': 'foo_'},
-        ])
+        ]).encode('ascii')
         self.fake_container_listing = json.dumps([
             {'name': 'bar', 'hash': 'etag', 'bytes': 0,
              'content_type': 'text/plain',
              'last_modified': '1970-01-01T00:00:00.000000'},
             {'subdir': 'foo/'},
-        ])
+        ]).encode('ascii')
 
     def test_valid_account(self):
         self.fake_swift.register('GET', '/v1/a', HTTPOk, {
@@ -44,7 +44,7 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, 'bar\nfoo_\n')
+        self.assertEqual(resp.body, b'bar\nfoo_\n')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -52,7 +52,7 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a?format=txt')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, 'bar\nfoo_\n')
+        self.assertEqual(resp.body, b'bar\nfoo_\n')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -68,14 +68,14 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a?format=xml')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body.split('\n'), [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<account name="a">',
-            '<container><name>bar</name><count>0</count><bytes>0</bytes>'
-            '<last_modified>1970-01-01T00:00:00.000000</last_modified>'
-            '</container>',
-            '<subdir name="foo_" />',
-            '</account>',
+        self.assertEqual(resp.body.split(b'\n'), [
+            b'<?xml version="1.0" encoding="UTF-8"?>',
+            b'<account name="a">',
+            b'<container><name>bar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
+            b'</container>',
+            b'<subdir name="foo_" />',
+            b'</account>',
         ])
         self.assertEqual(resp.headers['Content-Type'],
                          'application/xml; charset=utf-8')
@@ -89,7 +89,7 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a/c')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, 'bar\nfoo/\n')
+        self.assertEqual(resp.body, b'bar\nfoo/\n')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -97,7 +97,7 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a/c?format=txt')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, 'bar\nfoo/\n')
+        self.assertEqual(resp.body, b'bar\nfoo/\n')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -115,14 +115,14 @@ class TestListingFormats(unittest.TestCase):
         resp = req.get_response(self.app)
         self.assertEqual(
             resp.body,
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<container name="c">'
-            '<object><name>bar</name><hash>etag</hash><bytes>0</bytes>'
-            '<content_type>text/plain</content_type>'
-            '<last_modified>1970-01-01T00:00:00.000000</last_modified>'
-            '</object>'
-            '<subdir name="foo/"><name>foo/</name></subdir>'
-            '</container>'
+            b'<?xml version="1.0" encoding="UTF-8"?>\n'
+            b'<container name="c">'
+            b'<object><name>bar</name><hash>etag</hash><bytes>0</bytes>'
+            b'<content_type>text/plain</content_type>'
+            b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
+            b'</object>'
+            b'<subdir name="foo/"><name>foo/</name></subdir>'
+            b'</container>'
         )
         self.assertEqual(resp.headers['Content-Type'],
                          'application/xml; charset=utf-8')
@@ -131,12 +131,12 @@ class TestListingFormats(unittest.TestCase):
 
     def test_blank_account(self):
         self.fake_swift.register('GET', '/v1/a', HTTPOk, {
-            'Content-Length': '2', 'Content-Type': 'application/json'}, '[]')
+            'Content-Length': '2', 'Content-Type': 'application/json'}, b'[]')
 
         req = Request.blank('/v1/a')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '204 No Content')
-        self.assertEqual(resp.body, '')
+        self.assertEqual(resp.body, b'')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -145,7 +145,7 @@ class TestListingFormats(unittest.TestCase):
         req = Request.blank('/v1/a?format=txt')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '204 No Content')
-        self.assertEqual(resp.body, '')
+        self.assertEqual(resp.body, b'')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -154,7 +154,7 @@ class TestListingFormats(unittest.TestCase):
         req = Request.blank('/v1/a?format=json')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.body, '[]')
+        self.assertEqual(resp.body, b'[]')
         self.assertEqual(resp.headers['Content-Type'],
                          'application/json; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -163,10 +163,10 @@ class TestListingFormats(unittest.TestCase):
         req = Request.blank('/v1/a?format=xml')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.body.split('\n'), [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<account name="a">',
-            '</account>',
+        self.assertEqual(resp.body.split(b'\n'), [
+            b'<?xml version="1.0" encoding="UTF-8"?>',
+            b'<account name="a">',
+            b'</account>',
         ])
         self.assertEqual(resp.headers['Content-Type'],
                          'application/xml; charset=utf-8')
@@ -175,12 +175,12 @@ class TestListingFormats(unittest.TestCase):
 
     def test_blank_container(self):
         self.fake_swift.register('GET', '/v1/a/c', HTTPOk, {
-            'Content-Length': '2', 'Content-Type': 'application/json'}, '[]')
+            'Content-Length': '2', 'Content-Type': 'application/json'}, b'[]')
 
         req = Request.blank('/v1/a/c')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '204 No Content')
-        self.assertEqual(resp.body, '')
+        self.assertEqual(resp.body, b'')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -189,7 +189,7 @@ class TestListingFormats(unittest.TestCase):
         req = Request.blank('/v1/a/c?format=txt')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '204 No Content')
-        self.assertEqual(resp.body, '')
+        self.assertEqual(resp.body, b'')
         self.assertEqual(resp.headers['Content-Type'],
                          'text/plain; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -198,7 +198,7 @@ class TestListingFormats(unittest.TestCase):
         req = Request.blank('/v1/a/c?format=json')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.body, '[]')
+        self.assertEqual(resp.body, b'[]')
         self.assertEqual(resp.headers['Content-Type'],
                          'application/json; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -207,9 +207,9 @@ class TestListingFormats(unittest.TestCase):
         req = Request.blank('/v1/a/c?format=xml')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.body.split('\n'), [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<container name="c" />',
+        self.assertEqual(resp.body.split(b'\n'), [
+            b'<?xml version="1.0" encoding="UTF-8"?>',
+            b'<container name="c" />',
         ])
         self.assertEqual(resp.headers['Content-Type'],
                          'application/xml; charset=utf-8')
@@ -236,7 +236,7 @@ class TestListingFormats(unittest.TestCase):
         do_test('/v1/a/c/o')
 
     def test_static_web_not_json(self):
-        body = 'doesnt matter'
+        body = b'doesnt matter'
         self.fake_swift.register(
             'GET', '/v1/staticweb/not-json', HTTPOk,
             {'Content-Length': str(len(body)),
@@ -253,7 +253,7 @@ class TestListingFormats(unittest.TestCase):
         # FakeSwift seems to make this hard to do
 
     def test_static_web_not_really_json(self):
-        body = 'raises ValueError'
+        body = b'raises ValueError'
         self.fake_swift.register(
             'GET', '/v1/staticweb/not-json', HTTPOk,
             {'Content-Length': str(len(body)),
@@ -272,7 +272,7 @@ class TestListingFormats(unittest.TestCase):
              'content_type': 'text/plain',
              'last_modified': '1970-01-01T00:00:00.000000'},
             {'subdir': 'foo/'},
-        ] * 160000)
+        ] * 160000).encode('ascii')
         self.assertGreater(  # sanity
             len(body), listing_formats.MAX_CONTAINER_LISTING_CONTENT_LENGTH)
 
@@ -291,7 +291,7 @@ class TestListingFormats(unittest.TestCase):
 
     def test_static_web_bad_json(self):
         def do_test(body_obj):
-            body = json.dumps(body_obj)
+            body = json.dumps(body_obj).encode('ascii')
             self.fake_swift.register(
                 'GET', '/v1/staticweb/bad-json', HTTPOk,
                 {'Content-Length': str(len(body)),
@@ -322,7 +322,7 @@ class TestListingFormats(unittest.TestCase):
         do_test(['some string'])
 
     def test_static_web_bad_but_not_terrible_json(self):
-        body = json.dumps([{'no name': 'nor subdir'}])
+        body = json.dumps([{'no name': 'nor subdir'}]).encode('ascii')
         self.fake_swift.register(
             'GET', '/v1/staticweb/bad-json', HTTPOk,
             {'Content-Length': str(len(body)),
