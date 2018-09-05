@@ -121,7 +121,7 @@
     name: swift-dsvm-functional
     parent: devstack-minimal
     description: |
-      Setup a Swift/Keystone environment and run Swift's func tests
+      Setup a Swift/Keystone environment and run Swift's func tests.
     required-projects:
       - git.openstack.org/openstack/requirements
       - git.openstack.org/openstack/swift
@@ -234,21 +234,6 @@
         - openstack-tox-pep8:
             irrelevant-files:
               - ^(api-ref|doc|etc|examples|releasenotes)/.*$
-        - legacy-swift-dsvm-functional:
-            irrelevant-files:
-              - ^api-ref/.*$
-              - ^doc/.*$
-              - ^install-guide/.*$
-              - ^releasenotes/.*$
-              - ^test/unit/.*$
-        - legacy-swift-dsvm-functional-identity-v3-only:
-            voting: false
-            irrelevant-files:
-              - ^api-ref/.*$
-              - ^doc/.*$
-              - ^install-guide/.*$
-              - ^releasenotes/.*$
-              - ^test/unit/.*$
         - legacy-tempest-dsvm-neutron-full:
             irrelevant-files:
               - ^(test-|)requirements.txt$
@@ -306,13 +291,6 @@
         - openstack-tox-pep8:
             irrelevant-files:
               - ^(api-ref|doc|etc|examples|releasenotes)/.*$
-        - legacy-swift-dsvm-functional:
-            irrelevant-files:
-              - ^api-ref/.*$
-              - ^doc/.*$
-              - ^install-guide/.*$
-              - ^releasenotes/.*$
-              - ^test/unit/.*$
         - legacy-tempest-dsvm-neutron-full:
             irrelevant-files:
               - ^(test-|)requirements.txt$
