@@ -273,7 +273,25 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(req.environ['swift.authorize'],
                          local_auth.denied_response)
 
-    def test_auth_with_s3_authorization_good(self):
+    def test_auth_with_swift3_authorization_good(self):
+        local_app = FakeApp()
+        local_auth = auth.filter_factory(
+            {'user_s3_s3': 'secret .admin'})(local_app)
+        req = self._make_request('/v1/s3:s3', environ={
+            'swift3.auth_details': {
+                'access_key': 's3:s3',
+                'signature': b64encode('sig'),
+                'string_to_sign': 't',
+                'check_signature': lambda secret: True}})
+        resp = req.get_response(local_auth)
+
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_s3')
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.authorize)
+
+    def test_auth_with_s3api_authorization_good(self):
         local_app = FakeApp()
         local_auth = auth.filter_factory(
             {'user_s3_s3': 'secret .admin'})(local_app)
@@ -291,7 +309,25 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(req.environ['swift.authorize'],
                          local_auth.authorize)
 
-    def test_auth_with_s3_authorization_invalid(self):
+    def test_auth_with_swift3_authorization_invalid(self):
+        local_app = FakeApp()
+        local_auth = auth.filter_factory(
+            {'user_s3_s3': 'secret .admin'})(local_app)
+        req = self._make_request('/v1/s3:s3', environ={
+            'swift3.auth_details': {
+                'access_key': 's3:s3',
+                'signature': b64encode('sig'),
+                'string_to_sign': 't',
+                'check_signature': lambda secret: False}})
+        resp = req.get_response(local_auth)
+
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/s3:s3')
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.denied_response)
+
+    def test_auth_with_s3api_authorization_invalid(self):
         local_app = FakeApp()
         local_auth = auth.filter_factory(
             {'user_s3_s3': 'secret .admin'})(local_app)
@@ -309,7 +345,24 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(req.environ['swift.authorize'],
                          local_auth.denied_response)
 
-    def test_auth_with_old_s3_details(self):
+    def test_auth_with_old_swift3_details(self):
+        local_app = FakeApp()
+        local_auth = auth.filter_factory(
+            {'user_s3_s3': 'secret .admin'})(local_app)
+        req = self._make_request('/v1/s3:s3', environ={
+            'swift3.auth_details': {
+                'access_key': 's3:s3',
+                'signature': b64encode('sig'),
+                'string_to_sign': 't'}})
+        resp = req.get_response(local_auth)
+
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/s3:s3')
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.denied_response)
+
+    def test_auth_with_old_s3api_details(self):
         local_app = FakeApp()
         local_auth = auth.filter_factory(
             {'user_s3_s3': 'secret .admin'})(local_app)
