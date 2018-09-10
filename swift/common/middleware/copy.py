@@ -125,7 +125,7 @@ from swift.common.constraints import check_account_format, MAX_FILE_SIZE
 from swift.common.request_helpers import copy_header_subset, remove_items, \
     is_sys_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
     check_path_header
-from swift.common.wsgi import WSGIContext, make_subrequest, load_app_config
+from swift.common.wsgi import WSGIContext, make_subrequest
 
 
 def _check_copy_from_header(req):
@@ -221,24 +221,6 @@ class ServerSideCopyMiddleware(object):
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route="copy")
-        self._load_object_post_as_copy_conf(conf)
-        self.object_post_as_copy = \
-            config_true_value(conf.get('object_post_as_copy', 'false'))
-        if self.object_post_as_copy:
-            msg = ('object_post_as_copy=true is deprecated; This '
-                   'option is now ignored')
-            self.logger.warning(msg)
-
-    def _load_object_post_as_copy_conf(self, conf):
-        if ('object_post_as_copy' in conf or '__file__' not in conf):
-            # Option is explicitly set in middleware conf. In that case,
-            # we assume operator knows what he's doing.
-            # This takes preference over the one set in proxy app
-            return
-
-        proxy_conf = load_app_config(conf['__file__'])
-        if 'object_post_as_copy' in proxy_conf:
-            conf['object_post_as_copy'] = proxy_conf['object_post_as_copy']
 
     def __call__(self, env, start_response):
         req = Request(env)
