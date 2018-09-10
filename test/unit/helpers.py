@@ -254,49 +254,49 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
         assert(resp.status == 201)
     # Create containers, 1 per test policy
     sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-    fd = sock.makefile()
-    fd.write('PUT /v1/a/c HTTP/1.1\r\nHost: localhost\r\n'
-             'Connection: close\r\nX-Auth-Token: t\r\n'
-             'Content-Length: 0\r\n\r\n')
+    fd = sock.makefile('rwb')
+    fd.write(b'PUT /v1/a/c HTTP/1.1\r\nHost: localhost\r\n'
+             b'Connection: close\r\nX-Auth-Token: t\r\n'
+             b'Content-Length: 0\r\n\r\n')
     fd.flush()
     headers = readuntil2crlfs(fd)
-    exp = 'HTTP/1.1 201'
+    exp = b'HTTP/1.1 201'
     assert headers[:len(exp)] == exp, "Expected '%s', encountered '%s'" % (
         exp, headers[:len(exp)])
     # Create container in other account
     # used for account-to-account tests
     sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-    fd = sock.makefile()
-    fd.write('PUT /v1/a1/c1 HTTP/1.1\r\nHost: localhost\r\n'
-             'Connection: close\r\nX-Auth-Token: t\r\n'
-             'Content-Length: 0\r\n\r\n')
+    fd = sock.makefile('rwb')
+    fd.write(b'PUT /v1/a1/c1 HTTP/1.1\r\nHost: localhost\r\n'
+             b'Connection: close\r\nX-Auth-Token: t\r\n'
+             b'Content-Length: 0\r\n\r\n')
     fd.flush()
     headers = readuntil2crlfs(fd)
-    exp = 'HTTP/1.1 201'
+    exp = b'HTTP/1.1 201'
     assert headers[:len(exp)] == exp, "Expected '%s', encountered '%s'" % (
         exp, headers[:len(exp)])
 
     sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-    fd = sock.makefile()
+    fd = sock.makefile('rwb')
     fd.write(
-        'PUT /v1/a/c1 HTTP/1.1\r\nHost: localhost\r\n'
-        'Connection: close\r\nX-Auth-Token: t\r\nX-Storage-Policy: one\r\n'
-        'Content-Length: 0\r\n\r\n')
+        b'PUT /v1/a/c1 HTTP/1.1\r\nHost: localhost\r\n'
+        b'Connection: close\r\nX-Auth-Token: t\r\nX-Storage-Policy: one\r\n'
+        b'Content-Length: 0\r\n\r\n')
     fd.flush()
     headers = readuntil2crlfs(fd)
-    exp = 'HTTP/1.1 201'
+    exp = b'HTTP/1.1 201'
     assert headers[:len(exp)] == exp, \
-        "Expected '%s', encountered '%s'" % (exp, headers[:len(exp)])
+        "Expected %r, encountered %r" % (exp, headers[:len(exp)])
 
     sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-    fd = sock.makefile()
+    fd = sock.makefile('rwb')
     fd.write(
-        'PUT /v1/a/c2 HTTP/1.1\r\nHost: localhost\r\n'
-        'Connection: close\r\nX-Auth-Token: t\r\nX-Storage-Policy: two\r\n'
-        'Content-Length: 0\r\n\r\n')
+        b'PUT /v1/a/c2 HTTP/1.1\r\nHost: localhost\r\n'
+        b'Connection: close\r\nX-Auth-Token: t\r\nX-Storage-Policy: two\r\n'
+        b'Content-Length: 0\r\n\r\n')
     fd.flush()
     headers = readuntil2crlfs(fd)
-    exp = 'HTTP/1.1 201'
+    exp = b'HTTP/1.1 201'
     assert headers[:len(exp)] == exp, \
         "Expected '%s', encountered '%s'" % (exp, headers[:len(exp)])
     return context

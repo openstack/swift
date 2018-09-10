@@ -22,6 +22,8 @@ from swift import gettext_ as _
 
 from eventlet import Timeout
 
+import six
+
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
@@ -553,10 +555,11 @@ class ContainerController(BaseStorageServer):
             response = dict(record)
         else:
             (name, created, size, content_type, etag) = record[:5]
+            name_ = name.decode('utf8') if six.PY2 else name
             if content_type is None:
-                return {'subdir': name.decode('utf8')}
+                return {'subdir': name_}
             response = {
-                'bytes': size, 'hash': etag, 'name': name.decode('utf8'),
+                'bytes': size, 'hash': etag, 'name': name_,
                 'content_type': content_type}
             override_bytes_from_content_type(response, logger=self.logger)
         response['last_modified'] = Timestamp(created).isoformat
@@ -712,7 +715,7 @@ class ContainerController(BaseStorageServer):
         if out_content_type.endswith('/xml'):
             body = listing_formats.container_to_xml(listing, container)
         elif out_content_type.endswith('/json'):
-            body = json.dumps(listing)
+            body = json.dumps(listing).encode('ascii')
         else:
             body = listing_formats.listing_to_text(listing)
 

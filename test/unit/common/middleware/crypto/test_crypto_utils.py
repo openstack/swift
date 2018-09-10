@@ -84,20 +84,22 @@ class TestCryptoWsgiContext(unittest.TestCase):
     def test_get_keys_missing_callback(self):
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys({})
-        self.assertIn('500 Internal Error', cm.exception.message)
+        self.assertIn('500 Internal Error', cm.exception.status)
         self.assertIn('missing callback',
                       self.fake_logger.get_lines_for_level('error')[0])
-        self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+        self.assertIn(b'Unable to retrieve encryption keys.',
+                      cm.exception.body)
 
     def test_get_keys_callback_exception(self):
         def callback(*args, **kwargs):
             raise Exception('boom')
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys({CRYPTO_KEY_CALLBACK: callback})
-        self.assertIn('500 Internal Error', cm.exception.message)
+        self.assertIn('500 Internal Error', cm.exception.status)
         self.assertIn('from callback: boom',
                       self.fake_logger.get_lines_for_level('error')[0])
-        self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+        self.assertIn(b'Unable to retrieve encryption keys.',
+                      cm.exception.body)
 
     def test_get_keys_missing_key_for_default_required_list(self):
         bad_keys = dict(fetch_crypto_keys())
@@ -105,10 +107,11 @@ class TestCryptoWsgiContext(unittest.TestCase):
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
                 {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys})
-        self.assertIn('500 Internal Error', cm.exception.message)
+        self.assertIn('500 Internal Error', cm.exception.status)
         self.assertIn("Missing key for 'object'",
                       self.fake_logger.get_lines_for_level('error')[0])
-        self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+        self.assertIn(b'Unable to retrieve encryption keys.',
+                      cm.exception.body)
 
     def test_get_keys_missing_object_key_for_specified_required_list(self):
         bad_keys = dict(fetch_crypto_keys())
@@ -117,10 +120,11 @@ class TestCryptoWsgiContext(unittest.TestCase):
             self.crypto_context.get_keys(
                 {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys},
                 required=['object', 'container'])
-        self.assertIn('500 Internal Error', cm.exception.message)
+        self.assertIn('500 Internal Error', cm.exception.status)
         self.assertIn("Missing key for 'object'",
                       self.fake_logger.get_lines_for_level('error')[0])
-        self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+        self.assertIn(b'Unable to retrieve encryption keys.',
+                      cm.exception.body)
 
     def test_get_keys_missing_container_key_for_specified_required_list(self):
         bad_keys = dict(fetch_crypto_keys())
@@ -129,43 +133,47 @@ class TestCryptoWsgiContext(unittest.TestCase):
             self.crypto_context.get_keys(
                 {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys},
                 required=['object', 'container'])
-        self.assertIn('500 Internal Error', cm.exception.message)
+        self.assertIn('500 Internal Error', cm.exception.status)
         self.assertIn("Missing key for 'container'",
                       self.fake_logger.get_lines_for_level('error')[0])
-        self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+        self.assertIn(b'Unable to retrieve encryption keys.',
+                      cm.exception.body)
 
     def test_bad_object_key_for_default_required_list(self):
         bad_keys = dict(fetch_crypto_keys())
-        bad_keys['object'] = 'the minor key'
+        bad_keys['object'] = b'the minor key'
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
                 {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys})
-        self.assertIn('500 Internal Error', cm.exception.message)
+        self.assertIn('500 Internal Error', cm.exception.status)
         self.assertIn("Bad key for 'object'",
                       self.fake_logger.get_lines_for_level('error')[0])
-        self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+        self.assertIn(b'Unable to retrieve encryption keys.',
+                      cm.exception.body)
 
     def test_bad_container_key_for_default_required_list(self):
         bad_keys = dict(fetch_crypto_keys())
-        bad_keys['container'] = 'the major key'
+        bad_keys['container'] = b'the major key'
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
                 {CRYPTO_KEY_CALLBACK: lambda *args, **kwargs: bad_keys},
                 required=['object', 'container'])
-        self.assertIn('500 Internal Error', cm.exception.message)
+        self.assertIn('500 Internal Error', cm.exception.status)
         self.assertIn("Bad key for 'container'",
                       self.fake_logger.get_lines_for_level('error')[0])
-        self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+        self.assertIn(b'Unable to retrieve encryption keys.',
+                      cm.exception.body)
 
     def test_get_keys_not_a_dict(self):
         with self.assertRaises(HTTPException) as cm:
             self.crypto_context.get_keys(
                 {CRYPTO_KEY_CALLBACK:
                     lambda *args, **kwargs: ['key', 'quay', 'qui']})
-        self.assertIn('500 Internal Error', cm.exception.message)
+        self.assertEqual('500 Internal Error', cm.exception.status)
         self.assertIn("Did not get a keys dict",
                       self.fake_logger.get_lines_for_level('error')[0])
-        self.assertIn('Unable to retrieve encryption keys.', cm.exception.body)
+        self.assertIn(b'Unable to retrieve encryption keys.',
+                      cm.exception.body)
 
     def test_get_multiple_keys(self):
         env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
@@ -177,13 +185,13 @@ class TestCryptoWsgiContext(unittest.TestCase):
 
 
 class TestModuleMethods(unittest.TestCase):
-    meta = {'iv': '0123456789abcdef', 'cipher': 'AES_CTR_256'}
+    meta = {'iv': b'0123456789abcdef', 'cipher': 'AES_CTR_256'}
     serialized_meta = '%7B%22cipher%22%3A+%22AES_CTR_256%22%2C+%22' \
                       'iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg%3D%3D%22%7D'
 
-    meta_with_key = {'iv': '0123456789abcdef', 'cipher': 'AES_CTR_256',
-                     'body_key': {'key': 'fedcba9876543210fedcba9876543210',
-                                  'iv': 'fedcba9876543210'}}
+    meta_with_key = {'iv': b'0123456789abcdef', 'cipher': 'AES_CTR_256',
+                     'body_key': {'key': b'fedcba9876543210fedcba9876543210',
+                                  'iv': b'fedcba9876543210'}}
     serialized_meta_with_key = '%7B%22body_key%22%3A+%7B%22iv%22%3A+%22ZmVkY' \
                                '2JhOTg3NjU0MzIxMA%3D%3D%22%2C+%22key%22%3A+%' \
                                '22ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMT' \
@@ -208,30 +216,44 @@ class TestModuleMethods(unittest.TestCase):
         def assert_raises(value, message):
             with self.assertRaises(EncryptionException) as cm:
                 crypto_utils.load_crypto_meta(value)
-            self.assertIn('Bad crypto meta %r' % value, cm.exception.message)
-            self.assertIn(message, cm.exception.message)
+            self.assertIn('Bad crypto meta %r' % value, cm.exception.args[0])
+            if isinstance(message, (tuple, list)):
+                for opt in message:
+                    if opt in cm.exception.args[0]:
+                        break
+                else:
+                    self.fail('Expected to find one of %r in %r' % (
+                        message, cm.exception.args[0]))
+            else:
+                self.assertIn(message, cm.exception.args[0])
 
         assert_raises(None, 'crypto meta not a string')
         assert_raises(99, 'crypto meta not a string')
-        assert_raises('', 'No JSON object could be decoded')
-        assert_raises('abc', 'No JSON object could be decoded')
+        assert_raises('', ('No JSON object could be decoded',
+                           'Expecting value: line 1 column 1'))
+        assert_raises('abc', ('No JSON object could be decoded',
+                              'Expecting value: line 1 column 1'))
         assert_raises('[]', 'crypto meta not a Mapping')
+        bad_type_messages = [
+            'must be string or buffer',
+            'argument should be a bytes-like object or ASCII string',
+        ]
         assert_raises('{"iv": "abcdef"}', 'Incorrect padding')
-        assert_raises('{"iv": []}', 'must be string or buffer')
-        assert_raises('{"iv": {}}', 'must be string or buffer')
-        assert_raises('{"iv": 99}', 'must be string or buffer')
+        assert_raises('{"iv": []}', bad_type_messages)
+        assert_raises('{"iv": {}}', bad_type_messages)
+        assert_raises('{"iv": 99}', bad_type_messages)
         assert_raises('{"key": "abcdef"}', 'Incorrect padding')
-        assert_raises('{"key": []}', 'must be string or buffer')
-        assert_raises('{"key": {}}', 'must be string or buffer')
-        assert_raises('{"key": 99}', 'must be string or buffer')
+        assert_raises('{"key": []}', bad_type_messages)
+        assert_raises('{"key": {}}', bad_type_messages)
+        assert_raises('{"key": 99}', bad_type_messages)
         assert_raises('{"body_key": {"iv": "abcdef"}}', 'Incorrect padding')
-        assert_raises('{"body_key": {"iv": []}}', 'must be string or buffer')
-        assert_raises('{"body_key": {"iv": {}}}', 'must be string or buffer')
-        assert_raises('{"body_key": {"iv": 99}}', 'must be string or buffer')
+        assert_raises('{"body_key": {"iv": []}}', bad_type_messages)
+        assert_raises('{"body_key": {"iv": {}}}', bad_type_messages)
+        assert_raises('{"body_key": {"iv": 99}}', bad_type_messages)
         assert_raises('{"body_key": {"key": "abcdef"}}', 'Incorrect padding')
-        assert_raises('{"body_key": {"key": []}}', 'must be string or buffer')
-        assert_raises('{"body_key": {"key": {}}}', 'must be string or buffer')
-        assert_raises('{"body_key": {"key": 99}}', 'must be string or buffer')
+        assert_raises('{"body_key": {"key": []}}', bad_type_messages)
+        assert_raises('{"body_key": {"key": {}}}', bad_type_messages)
+        assert_raises('{"body_key": {"key": 99}}', bad_type_messages)
 
     def test_dump_then_load_crypto_meta(self):
         actual = crypto_utils.load_crypto_meta(
@@ -289,7 +311,7 @@ class TestCrypto(unittest.TestCase):
         self.crypto = Crypto({})
 
     def test_create_encryption_context(self):
-        value = 'encrypt me' * 100  # more than one cipher block
+        value = b'encrypt me' * 100  # more than one cipher block
         key = os.urandom(32)
         iv = os.urandom(16)
         ctxt = self.crypto.create_encryption_ctxt(key, iv)
@@ -298,16 +320,16 @@ class TestCrypto(unittest.TestCase):
             backend=default_backend()).encryptor().update(value)
         self.assertEqual(expected, ctxt.update(value))
 
-        for bad_iv in ('a little too long', 'too short'):
+        for bad_iv in (b'a little too long', b'too short'):
             self.assertRaises(
                 ValueError, self.crypto.create_encryption_ctxt, key, bad_iv)
 
-        for bad_key in ('objKey', 'a' * 31, 'a' * 33, 'a' * 16, 'a' * 24):
+        for bad_key in (b'objKey', b'a' * 31, b'a' * 33, b'a' * 16, b'a' * 24):
             self.assertRaises(
                 ValueError, self.crypto.create_encryption_ctxt, bad_key, iv)
 
     def test_create_decryption_context(self):
-        value = 'decrypt me' * 100  # more than one cipher block
+        value = b'decrypt me' * 100  # more than one cipher block
         key = os.urandom(32)
         iv = os.urandom(16)
         ctxt = self.crypto.create_decryption_ctxt(key, iv, 0)
@@ -316,51 +338,50 @@ class TestCrypto(unittest.TestCase):
             backend=default_backend()).decryptor().update(value)
         self.assertEqual(expected, ctxt.update(value))
 
-        for bad_iv in ('a little too long', 'too short'):
+        for bad_iv in (b'a little too long', b'too short'):
             self.assertRaises(
                 ValueError, self.crypto.create_decryption_ctxt, key, bad_iv, 0)
 
-        for bad_key in ('objKey', 'a' * 31, 'a' * 33, 'a' * 16, 'a' * 24):
+        for bad_key in (b'objKey', b'a' * 31, b'a' * 33, b'a' * 16, b'a' * 24):
             self.assertRaises(
                 ValueError, self.crypto.create_decryption_ctxt, bad_key, iv, 0)
 
         with self.assertRaises(ValueError) as cm:
             self.crypto.create_decryption_ctxt(key, iv, -1)
-        self.assertEqual("Offset must not be negative", cm.exception.message)
+        self.assertEqual("Offset must not be negative", cm.exception.args[0])
 
     def test_enc_dec_small_chunks(self):
-        self.enc_dec_chunks(['encrypt me', 'because I', 'am sensitive'])
+        self.enc_dec_chunks([b'encrypt me', b'because I', b'am sensitive'])
 
     def test_enc_dec_large_chunks(self):
         self.enc_dec_chunks([os.urandom(65536), os.urandom(65536)])
 
     def enc_dec_chunks(self, chunks):
-        key = 'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
+        key = b'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
         iv = self.crypto.create_iv()
         enc_ctxt = self.crypto.create_encryption_ctxt(key, iv)
         enc_val = [enc_ctxt.update(chunk) for chunk in chunks]
-        self.assertTrue(''.join(enc_val) != chunks)
+        self.assertTrue(b''.join(enc_val) != chunks)
         dec_ctxt = self.crypto.create_decryption_ctxt(key, iv, 0)
         dec_val = [dec_ctxt.update(chunk) for chunk in enc_val]
-        self.assertEqual(''.join(chunks), ''.join(dec_val),
+        self.assertEqual(b''.join(chunks), b''.join(dec_val),
                          'Expected value {%s} but got {%s}' %
-                         (''.join(chunks), ''.join(dec_val)))
+                         (b''.join(chunks), b''.join(dec_val)))
 
     def test_decrypt_range(self):
-        chunks = ['0123456789abcdef', 'ghijklmnopqrstuv']
-        key = 'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
+        chunks = [b'0123456789abcdef', b'ghijklmnopqrstuv']
+        key = b'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
         iv = self.crypto.create_iv()
         enc_ctxt = self.crypto.create_encryption_ctxt(key, iv)
         enc_val = [enc_ctxt.update(chunk) for chunk in chunks]
-        self.assertTrue(''.join(enc_val) != chunks)
 
         # Simulate a ranged GET from byte 19 to 32 : 'jklmnopqrstuv'
         dec_ctxt = self.crypto.create_decryption_ctxt(key, iv, 19)
         ranged_chunks = [enc_val[1][3:]]
         dec_val = [dec_ctxt.update(chunk) for chunk in ranged_chunks]
-        self.assertEqual('jklmnopqrstuv', ''.join(dec_val),
+        self.assertEqual(b'jklmnopqrstuv', b''.join(dec_val),
                          'Expected value {%s} but got {%s}' %
-                         ('jklmnopqrstuv', ''.join(dec_val)))
+                         (b'jklmnopqrstuv', b''.join(dec_val)))
 
     def test_create_decryption_context_non_zero_offset(self):
         # Verify that iv increments for each 16 bytes of offset.
@@ -371,7 +392,7 @@ class TestCrypto(unittest.TestCase):
         # body, until it reaches 2^128 -1 when it should wrap to zero. We check
         # that is happening by verifying a decrypted value using various
         # offsets.
-        key = 'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
+        key = b'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
 
         def do_test():
             for offset, exp_iv in mappings.items():
@@ -381,55 +402,55 @@ class TestCrypto(unittest.TestCase):
                                 modes.CTR(exp_iv),
                                 backend=default_backend())
                 expected = cipher.decryptor().update(
-                    'p' * offset_in_block + 'ciphertext')
-                actual = dec_ctxt.update('ciphertext')
+                    b'p' * offset_in_block + b'ciphertext')
+                actual = dec_ctxt.update(b'ciphertext')
                 expected = expected[offset % 16:]
                 self.assertEqual(expected, actual,
                                  'Expected %r but got %r, iv=%s and offset=%s'
                                  % (expected, actual, iv, offset))
 
-        iv = '0000000010000000'
+        iv = b'0000000010000000'
         mappings = {
-            2: '0000000010000000',
-            16: '0000000010000001',
-            19: '0000000010000001',
-            48: '0000000010000003',
-            1024: '000000001000000p',
-            5119: '000000001000001o'
+            2: b'0000000010000000',
+            16: b'0000000010000001',
+            19: b'0000000010000001',
+            48: b'0000000010000003',
+            1024: b'000000001000000p',
+            5119: b'000000001000001o'
         }
         do_test()
 
         # choose max iv value and test that it wraps to zero
-        iv = chr(0xff) * 16
+        iv = b'\xff' * 16
         mappings = {
             2: iv,
-            16: str(bytearray.fromhex('00' * 16)),  # iv wraps to 0
-            19: str(bytearray.fromhex('00' * 16)),
-            48: str(bytearray.fromhex('00' * 15 + '02')),
-            1024: str(bytearray.fromhex('00' * 15 + '3f')),
-            5119: str(bytearray.fromhex('00' * 14 + '013E'))
+            16: bytes(bytearray.fromhex('00' * 16)),  # iv wraps to 0
+            19: bytes(bytearray.fromhex('00' * 16)),
+            48: bytes(bytearray.fromhex('00' * 15 + '02')),
+            1024: bytes(bytearray.fromhex('00' * 15 + '3f')),
+            5119: bytes(bytearray.fromhex('00' * 14 + '013E'))
         }
         do_test()
 
-        iv = chr(0x0) * 16
+        iv = b'\x00' * 16
         mappings = {
             2: iv,
-            16: str(bytearray.fromhex('00' * 15 + '01')),
-            19: str(bytearray.fromhex('00' * 15 + '01')),
-            48: str(bytearray.fromhex('00' * 15 + '03')),
-            1024: str(bytearray.fromhex('00' * 15 + '40')),
-            5119: str(bytearray.fromhex('00' * 14 + '013F'))
+            16: bytes(bytearray.fromhex('00' * 15 + '01')),
+            19: bytes(bytearray.fromhex('00' * 15 + '01')),
+            48: bytes(bytearray.fromhex('00' * 15 + '03')),
+            1024: bytes(bytearray.fromhex('00' * 15 + '40')),
+            5119: bytes(bytearray.fromhex('00' * 14 + '013F'))
         }
         do_test()
 
-        iv = chr(0x0) * 8 + chr(0xff) * 8
+        iv = b'\x00' * 8 + b'\xff' * 8
         mappings = {
             2: iv,
-            16: str(bytearray.fromhex('00' * 7 + '01' + '00' * 8)),
-            19: str(bytearray.fromhex('00' * 7 + '01' + '00' * 8)),
-            48: str(bytearray.fromhex('00' * 7 + '01' + '00' * 7 + '02')),
-            1024: str(bytearray.fromhex('00' * 7 + '01' + '00' * 7 + '3F')),
-            5119: str(bytearray.fromhex('00' * 7 + '01' + '00' * 6 + '013E'))
+            16: bytes(bytearray.fromhex('00' * 7 + '01' + '00' * 8)),
+            19: bytes(bytearray.fromhex('00' * 7 + '01' + '00' * 8)),
+            48: bytes(bytearray.fromhex('00' * 7 + '01' + '00' * 7 + '02')),
+            1024: bytes(bytearray.fromhex('00' * 7 + '01' + '00' * 7 + '3F')),
+            5119: bytes(bytearray.fromhex('00' * 7 + '01' + '00' * 6 + '013E'))
         }
         do_test()
 
@@ -438,33 +459,33 @@ class TestCrypto(unittest.TestCase):
             with self.assertRaises(ValueError) as cm:
                 self.crypto.check_key(key)
             self.assertEqual("Key must be length 32 bytes",
-                             cm.exception.message)
+                             cm.exception.args[0])
 
     def test_check_crypto_meta(self):
         meta = {'cipher': 'AES_CTR_256'}
         with self.assertRaises(EncryptionException) as cm:
             self.crypto.check_crypto_meta(meta)
         self.assertEqual("Bad crypto meta: Missing 'iv'",
-                         cm.exception.message)
+                         cm.exception.args[0])
 
         for bad_iv in ('a little too long', 'too short'):
             meta['iv'] = bad_iv
             with self.assertRaises(EncryptionException) as cm:
                 self.crypto.check_crypto_meta(meta)
             self.assertEqual("Bad crypto meta: IV must be length 16 bytes",
-                             cm.exception.message)
+                             cm.exception.args[0])
 
         meta = {'iv': os.urandom(16)}
         with self.assertRaises(EncryptionException) as cm:
             self.crypto.check_crypto_meta(meta)
         self.assertEqual("Bad crypto meta: Missing 'cipher'",
-                         cm.exception.message)
+                         cm.exception.args[0])
 
         meta['cipher'] = 'Mystery cipher'
         with self.assertRaises(EncryptionException) as cm:
             self.crypto.check_crypto_meta(meta)
         self.assertEqual("Bad crypto meta: Cipher must be AES_CTR_256",
-                         cm.exception.message)
+                         cm.exception.args[0])
 
     def test_create_iv(self):
         self.assertEqual(16, len(self.crypto.create_iv()))
@@ -520,7 +541,7 @@ class TestCrypto(unittest.TestCase):
             with self.assertRaises(ValueError) as cm:
                 self.crypto.unwrap_key(wrapping_key, wrapped)
             self.assertEqual(
-                cm.exception.message, 'Key must be length 32 bytes')
+                cm.exception.args[0], 'Key must be length 32 bytes')
 
 
 if __name__ == '__main__':

@@ -26,7 +26,7 @@ from swift.common.middleware.crypto import decrypter
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK, \
     dump_crypto_meta, Crypto, load_crypto_meta
 from swift.common.swob import Request, HTTPException, HTTPOk, \
-    HTTPPreconditionFailed, HTTPNotFound, HTTPPartialContent
+    HTTPPreconditionFailed, HTTPNotFound, HTTPPartialContent, bytes_to_wsgi
 
 from test.unit import FakeLogger
 from test.unit.common.middleware.crypto.crypto_helpers import md5hex, \
@@ -41,8 +41,10 @@ def get_crypto_meta_header(crypto_meta=None):
 
 
 def encrypt_and_append_meta(value, key, crypto_meta=None):
+    if not isinstance(value, bytes):
+        value = value.encode('ascii')
     return '%s; swift_meta=%s' % (
-        base64.b64encode(encrypt(value, key, FAKE_IV)),
+        base64.b64encode(encrypt(value, key, FAKE_IV)).decode('ascii'),
         get_crypto_meta_header(crypto_meta))
 
 
@@ -70,14 +72,16 @@ class TestDecrypterObjectRequests(unittest.TestCase):
             'content-type': 'text/plain',
             'content-length': content_length,
             'X-Object-Sysmeta-Crypto-Etag': '%s; swift_meta=%s' % (
-                base64.b64encode(encrypt(plaintext_etag, object_key, FAKE_IV)),
+                bytes_to_wsgi(base64.b64encode(encrypt(
+                    plaintext_etag.encode('ascii'), object_key, FAKE_IV))),
                 get_crypto_meta_header(other_crypto_meta)),
             'X-Object-Sysmeta-Crypto-Body-Meta':
                 get_crypto_meta_header(body_crypto_meta),
             'X-Object-Transient-Sysmeta-Crypto-Meta':
                 get_crypto_meta_header(other_crypto_meta),
             'x-object-transient-sysmeta-crypto-meta-test':
-                base64.b64encode(encrypt('encrypt me', object_key, FAKE_IV)) +
+                bytes_to_wsgi(base64.b64encode(encrypt(
+                    b'encrypt me', object_key, FAKE_IV))) +
                 ';swift_meta=' + get_crypto_meta_header(other_crypto_meta),
             'x-object-sysmeta-container-update-override-etag':
                 encrypt_and_append_meta('encrypt me, too', cont_key),
@@ -124,7 +128,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         return resp
 
     def test_GET_success(self):
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         resp = self._test_request_success('GET', body)
         self.assertEqual(body, resp.body)
 
@@ -137,17 +141,17 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual(body, resp.body)
 
     def test_HEAD_success(self):
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         resp = self._test_request_success('HEAD', body)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
 
         key_id_val = {'secret_id': 'myid'}
         resp = self._test_request_success('HEAD', body, key_id=key_id_val)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
 
         key_id_val = {'secret_id': ''}
         resp = self._test_request_success('HEAD', body, key_id=key_id_val)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
 
     def _check_different_keys_for_data_and_metadata(self, method):
         env = {'REQUEST_METHOD': method,
@@ -155,7 +159,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ=env)
         data_key_id = {}
         metadata_key_id = {'secret_id': 'myid'}
-        body = 'object data'
+        body = b'object data'
         plaintext_etag = md5hex(body)
         body_key = os.urandom(32)
         enc_body = encrypt(body, body_key, FAKE_IV)
@@ -188,17 +192,17 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_GET_different_keys_for_data_and_metadata(self):
         resp = self._check_different_keys_for_data_and_metadata('GET')
-        self.assertEqual('object data', resp.body)
+        self.assertEqual(b'object data', resp.body)
 
     def test_HEAD_different_keys_for_data_and_metadata(self):
         resp = self._check_different_keys_for_data_and_metadata('HEAD')
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
 
     def _check_unencrypted_data_and_encrypted_metadata(self, method):
         env = {'REQUEST_METHOD': method,
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'object data'
+        body = b'object data'
         plaintext_etag = md5hex(body)
         metadata_key = fetch_crypto_keys()
         # synthesise headers for unencrypted PUT + headers for encrypted POST
@@ -226,26 +230,26 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_GET_unencrypted_data_and_encrypted_metadata(self):
         resp = self._check_unencrypted_data_and_encrypted_metadata('GET')
-        self.assertEqual('object data', resp.body)
+        self.assertEqual(b'object data', resp.body)
 
     def test_HEAD_unencrypted_data_and_encrypted_metadata(self):
         resp = self._check_unencrypted_data_and_encrypted_metadata('HEAD')
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
 
     def _check_encrypted_data_and_unencrypted_metadata(self, method):
         env = {'REQUEST_METHOD': method,
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'object data'
+        body = b'object data'
         plaintext_etag = md5hex(body)
         body_key = os.urandom(32)
         enc_body = encrypt(body, body_key, FAKE_IV)
         data_key = fetch_crypto_keys()
         hdrs = self._make_response_headers(
             len(enc_body), plaintext_etag, data_key, body_key)
-        for k, v in hdrs.items():
-            if is_object_transient_sysmeta(k):
-                hdrs.pop(k)
+        to_remove = [k for k in hdrs if is_object_transient_sysmeta(k)]
+        for k in to_remove:
+            hdrs.pop(k)
         hdrs['x-object-meta-test'] = 'unencrypted'
 
         self.app.register(
@@ -259,14 +263,14 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_GET_encrypted_data_and_unencrypted_metadata(self):
         resp = self._check_encrypted_data_and_unencrypted_metadata('GET')
-        self.assertEqual('object data', resp.body)
+        self.assertEqual(b'object data', resp.body)
 
     def test_HEAD_encrypted_data_and_unencrypted_metadata(self):
         resp = self._check_encrypted_data_and_unencrypted_metadata('HEAD')
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
 
     def test_headers_case(self):
-        body = 'fAkE ApP'
+        body = b'fAkE ApP'
         req = Request.blank('/v1/a/c/o', body='FaKe')
         req.environ[CRYPTO_KEY_CALLBACK] = fetch_crypto_keys
         plaintext_etag = md5hex(body)
@@ -294,23 +298,23 @@ class TestDecrypterObjectRequests(unittest.TestCase):
             'Content-Type': 'text/plain',
         }
         self.assertEqual(dict(headers), expected)
-        self.assertEqual('fAkE ApP', ''.join(app_iter))
+        self.assertEqual(b'fAkE ApP', b''.join(app_iter))
 
     def _test_412_response(self, method):
         # simulate a 412 response to a conditional GET which has an Etag header
-        data = 'the object content'
+        data = b'the object content'
         env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env, method=method)
-        resp_body = 'I am sorry, you have failed to meet a precondition'
+        resp_body = b'I am sorry, you have failed to meet a precondition'
         hdrs = self._make_response_headers(
-            len(resp_body), md5hex(data), fetch_crypto_keys(), 'not used')
+            len(resp_body), md5hex(data), fetch_crypto_keys(), b'not used')
         self.app.register(method, '/v1/a/c/o', HTTPPreconditionFailed,
                           body=resp_body, headers=hdrs)
         resp = req.get_response(self.decrypter)
 
         self.assertEqual('412 Precondition Failed', resp.status)
         # the response body should not be decrypted, it is already plaintext
-        self.assertEqual(resp_body if method == 'GET' else '', resp.body)
+        self.assertEqual(resp_body if method == 'GET' else b'', resp.body)
         # whereas the Etag and other headers should be decrypted
         self.assertEqual(md5hex(data), resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
@@ -328,7 +332,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # simulate a 404 response, sanity check response headers
         env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env, method=method)
-        resp_body = 'You still have not found what you are looking for'
+        resp_body = b'You still have not found what you are looking for'
         hdrs = {'content-type': 'text/plain',
                 'content-length': len(resp_body)}
         self.app.register(method, '/v1/a/c/o', HTTPNotFound,
@@ -337,7 +341,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
         self.assertEqual('404 Not Found', resp.status)
         # the response body should not be decrypted, it is already plaintext
-        self.assertEqual(resp_body if method == 'GET' else '', resp.body)
+        self.assertEqual(resp_body if method == 'GET' else b'', resp.body)
         # there should be no etag header inserted by decrypter
         self.assertNotIn('Etag', resp.headers)
         self.assertEqual('text/plain', resp.headers['Content-Type'])
@@ -352,19 +356,19 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, FAKE_IV)
         hdrs = self._make_response_headers(
-            len(body), md5hex(body), fetch_crypto_keys(), 'not used')
+            len(body), md5hex(body), fetch_crypto_keys(), b'not used')
         # simulate missing crypto meta from encrypted etag
-        hdrs['X-Object-Sysmeta-Crypto-Etag'] = \
-            base64.b64encode(encrypt(md5hex(body), key, FAKE_IV))
+        hdrs['X-Object-Sysmeta-Crypto-Etag'] = bytes_to_wsgi(base64.b64encode(
+            encrypt(md5hex(body).encode('ascii'), key, FAKE_IV)))
         self.app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body,
                           headers=hdrs)
         resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertIn('Error decrypting header', resp.body)
+        self.assertIn(b'Error decrypting header', resp.body)
         self.assertIn('Error decrypting header X-Object-Sysmeta-Crypto-Etag',
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
@@ -372,11 +376,11 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': method,
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, FAKE_IV)
         hdrs = self._make_response_headers(
-            len(body), md5hex(body), fetch_crypto_keys(), 'not used')
+            len(body), md5hex(body), fetch_crypto_keys(), b'not used')
         # simulate missing crypto meta from encrypted override etag
         hdrs['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
             encrypt_and_append_meta(
@@ -392,43 +396,43 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_GET_override_etag_bad_iv(self):
         bad_crypto_meta = fake_get_crypto_meta()
-        bad_crypto_meta['iv'] = 'bad_iv'
+        bad_crypto_meta['iv'] = b'bad_iv'
         resp = self._test_override_etag_bad_meta('GET', bad_crypto_meta)
-        self.assertIn('Error decrypting header', resp.body)
+        self.assertIn(b'Error decrypting header', resp.body)
 
     def test_HEAD_override_etag_bad_iv(self):
         bad_crypto_meta = fake_get_crypto_meta()
-        bad_crypto_meta['iv'] = 'bad_iv'
+        bad_crypto_meta['iv'] = b'bad_iv'
         resp = self._test_override_etag_bad_meta('HEAD', bad_crypto_meta)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
 
     def test_GET_override_etag_bad_cipher(self):
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown cipher'
         resp = self._test_override_etag_bad_meta('GET', bad_crypto_meta)
-        self.assertIn('Error decrypting header', resp.body)
+        self.assertIn(b'Error decrypting header', resp.body)
 
     def test_HEAD_override_etag_bad_cipher(self):
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown cipher'
         resp = self._test_override_etag_bad_meta('HEAD', bad_crypto_meta)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
 
     def _test_bad_key(self, method):
         # use bad key
         def bad_fetch_crypto_keys(**kwargs):
             keys = fetch_crypto_keys()
-            keys['object'] = 'bad key'
+            keys['object'] = b'bad key'
             return keys
 
         env = {'REQUEST_METHOD': method,
                CRYPTO_KEY_CALLBACK: bad_fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, FAKE_IV)
         hdrs = self._make_response_headers(
-            len(body), md5hex(body), fetch_crypto_keys(), 'not used')
+            len(body), md5hex(body), fetch_crypto_keys(), b'not used')
         self.app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
                           headers=hdrs)
         return req.get_response(self.decrypter)
@@ -442,7 +446,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def test_GET_with_bad_key(self):
         resp = self._test_bad_key('GET')
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('Unable to retrieve encryption keys.',
+        self.assertEqual(b'Unable to retrieve encryption keys.',
                          resp.body)
         self.assertIn("Bad key for 'object'",
                       self.decrypter.logger.get_lines_for_level('error')[0])
@@ -452,12 +456,14 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': method,
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, FAKE_IV)
         hdrs = self._make_response_headers(
-            len(body), md5hex(body), fetch_crypto_keys(), 'not used')
-        enc_val = base64.b64encode(encrypt('encrypt me', key, FAKE_IV))
+            len(body), md5hex(body),
+            fetch_crypto_keys(), b'not used')
+        enc_val = base64.b64encode(encrypt(
+            b'encrypt me', key, FAKE_IV)).decode('ascii')
         if bad_crypto_meta:
             enc_val += ';swift_meta=' + get_crypto_meta_header(
                 crypto_meta=bad_crypto_meta)
@@ -483,7 +489,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_HEAD_with_bad_iv_for_user_metadata(self):
         bad_crypto_meta = fake_get_crypto_meta()
-        bad_crypto_meta['iv'] = 'bad_iv'
+        bad_crypto_meta['iv'] = b'bad_iv'
         self._test_bad_crypto_meta_for_user_metadata('HEAD', bad_crypto_meta)
         self.assertIn('IV must be length 16',
                       self.decrypter.logger.get_lines_for_level('error')[0])
@@ -497,10 +503,10 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_GET_with_bad_iv_for_user_metadata(self):
         bad_crypto_meta = fake_get_crypto_meta()
-        bad_crypto_meta['iv'] = 'bad_iv'
+        bad_crypto_meta['iv'] = b'bad_iv'
         resp = self._test_bad_crypto_meta_for_user_metadata(
             'GET', bad_crypto_meta)
-        self.assertEqual('Error decrypting header', resp.body)
+        self.assertEqual(b'Error decrypting header', resp.body)
         self.assertIn('IV must be length 16',
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
@@ -509,7 +515,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         bad_crypto_meta.pop('iv')
         resp = self._test_bad_crypto_meta_for_user_metadata(
             'GET', bad_crypto_meta)
-        self.assertEqual('Error decrypting header', resp.body)
+        self.assertEqual(b'Error decrypting header', resp.body)
         self.assertIn(
             'iv', self.decrypter.logger.get_lines_for_level('error')[0])
 
@@ -518,24 +524,24 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, FAKE_IV)
         hdrs = self._make_response_headers(
-            len(body), md5hex(body), fetch_crypto_keys(), 'not used')
+            len(body), md5hex(body), fetch_crypto_keys(), b'not used')
         hdrs['X-Object-Sysmeta-Crypto-Body-Meta'] = \
             get_crypto_meta_header(crypto_meta=bad_crypto_meta)
         self.app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body,
                           headers=hdrs)
         resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('Error decrypting object', resp.body)
+        self.assertEqual(b'Error decrypting object', resp.body)
         self.assertIn('Error decrypting object',
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
     def test_GET_with_bad_iv_for_object_body(self):
         bad_crypto_meta = fake_get_crypto_meta(key=os.urandom(32))
-        bad_crypto_meta['iv'] = 'bad_iv'
+        bad_crypto_meta['iv'] = b'bad_iv'
         self._test_GET_with_bad_crypto_meta_for_object_body(bad_crypto_meta)
         self.assertIn('IV must be length 16',
                       self.decrypter.logger.get_lines_for_level('error')[0])
@@ -548,7 +554,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
     def test_GET_with_bad_body_key_for_object_body(self):
-        body_key_meta = {'key': 'wrapped too short key', 'iv': FAKE_IV}
+        body_key_meta = {'key': b'wrapped too short key', 'iv': FAKE_IV}
         bad_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         self._test_GET_with_bad_crypto_meta_for_object_body(bad_crypto_meta)
         self.assertIn('Key must be length 32',
@@ -566,7 +572,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': method,
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         plaintext_etag = md5hex(body)
         body_key = os.urandom(32)
         enc_body = encrypt(body, body_key, FAKE_IV)
@@ -595,13 +601,14 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         obj_key = fetch_crypto_keys()['object']
         hdrs = {'Etag': md5hex(body),
                 'content-type': 'text/plain',
                 'content-length': len(body),
                 'x-object-transient-sysmeta-crypto-meta-test':
-                    base64.b64encode(encrypt('encrypt me', obj_key, FAKE_IV)) +
+                    bytes_to_wsgi(base64.b64encode(encrypt(
+                        b'encrypt me', obj_key, FAKE_IV))) +
                     ';swift_meta=' + get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
         self.app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
@@ -620,8 +627,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        chunks = ['some', 'chunks', 'of data']
-        body = ''.join(chunks)
+        chunks = [b'some', b'chunks', b'of data']
+        body = b''.join(chunks)
         plaintext_etag = md5hex(body)
         body_key = os.urandom(32)
         ctxt = Crypto().create_encryption_ctxt(body_key, FAKE_IV)
@@ -642,8 +649,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         req.headers['Content-Range'] = 'bytes 3-10/17'
-        chunks = ['0123', '45678', '9abcdef']
-        body = ''.join(chunks)
+        chunks = [b'0123', b'45678', b'9abcdef']
+        body = b''.join(chunks)
         plaintext_etag = md5hex(body)
         body_key = os.urandom(32)
         ctxt = Crypto().create_encryption_ctxt(body_key, FAKE_IV)
@@ -656,7 +663,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.app.register(
             'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(self.decrypter)
-        self.assertEqual('3456789a', resp.body)
+        self.assertEqual(b'3456789a', resp.body)
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(plaintext_etag, resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
@@ -670,20 +677,20 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def test_GET_multipart_ciphertext(self):
         # build fake multipart response body
         body_key = os.urandom(32)
-        plaintext = 'Cwm fjord veg balks nth pyx quiz'
+        plaintext = b'Cwm fjord veg balks nth pyx quiz'
         plaintext_etag = md5hex(plaintext)
         ciphertext = encrypt(plaintext, body_key, FAKE_IV)
         parts = ((0, 3, 'text/plain'),
                  (4, 9, 'text/plain; charset=us-ascii'),
                  (24, 32, 'text/plain'))
         length = len(ciphertext)
-        body = ''
+        body = b''
         for start, end, ctype in parts:
-            body += '--multipartboundary\r\n'
-            body += 'Content-Type: %s\r\n' % ctype
-            body += 'Content-Range: bytes %s-%s/%s' % (start, end - 1, length)
-            body += '\r\n\r\n' + ciphertext[start:end] + '\r\n'
-        body += '--multipartboundary--'
+            body += b'--multipartboundary\r\n'
+            body += b'Content-Type: %s\r\n' % ctype.encode('utf-8')
+            body += b'Content-Range: bytes %d-%d/%d' % (start, end - 1, length)
+            body += b'\r\n\r\n' + ciphertext[start:end] + b'\r\n'
+        body += b'--multipartboundary--'
 
         # register request with fake swift
         hdrs = self._make_response_headers(
@@ -707,18 +714,18 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
         # the multipart headers could be re-ordered, so parse response body to
         # verify expected content
-        resp_lines = resp.body.split('\r\n')
+        resp_lines = resp.body.split(b'\r\n')
         resp_lines.reverse()
         for start, end, ctype in parts:
-            self.assertEqual('--multipartboundary', resp_lines.pop())
+            self.assertEqual(b'--multipartboundary', resp_lines.pop())
             expected_header_lines = {
-                'Content-Type: %s' % ctype,
-                'Content-Range: bytes %s-%s/%s' % (start, end - 1, length)}
+                b'Content-Type: %s' % ctype.encode('utf8'),
+                b'Content-Range: bytes %d-%d/%d' % (start, end - 1, length)}
             resp_header_lines = {resp_lines.pop(), resp_lines.pop()}
             self.assertEqual(expected_header_lines, resp_header_lines)
-            self.assertEqual('', resp_lines.pop())
+            self.assertEqual(b'', resp_lines.pop())
             self.assertEqual(plaintext[start:end], resp_lines.pop())
-        self.assertEqual('--multipartboundary--', resp_lines.pop())
+        self.assertEqual(b'--multipartboundary--', resp_lines.pop())
 
         # we should have consumed the whole response body
         self.assertFalse(resp_lines)
@@ -727,7 +734,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # *just* having multipart content type shouldn't trigger the mime doc
         # code path
         body_key = os.urandom(32)
-        plaintext = 'Cwm fjord veg balks nth pyx quiz'
+        plaintext = b'Cwm fjord veg balks nth pyx quiz'
         plaintext_etag = md5hex(plaintext)
         ciphertext = encrypt(plaintext, body_key, FAKE_IV)
 
@@ -754,19 +761,19 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_GET_multipart_no_body_crypto_meta(self):
         # build fake multipart response body
-        plaintext = 'Cwm fjord veg balks nth pyx quiz'
+        plaintext = b'Cwm fjord veg balks nth pyx quiz'
         plaintext_etag = md5hex(plaintext)
         parts = ((0, 3, 'text/plain'),
                  (4, 9, 'text/plain; charset=us-ascii'),
                  (24, 32, 'text/plain'))
         length = len(plaintext)
-        body = ''
+        body = b''
         for start, end, ctype in parts:
-            body += '--multipartboundary\r\n'
-            body += 'Content-Type: %s\r\n' % ctype
-            body += 'Content-Range: bytes %s-%s/%s' % (start, end - 1, length)
-            body += '\r\n\r\n' + plaintext[start:end] + '\r\n'
-        body += '--multipartboundary--'
+            body += b'--multipartboundary\r\n'
+            body += b'Content-Type: %s\r\n' % ctype.encode('utf-8')
+            body += b'Content-Range: bytes %d-%d/%d' % (start, end - 1, length)
+            body += b'\r\n\r\n' + plaintext[start:end] + b'\r\n'
+        body += b'--multipartboundary--'
 
         # register request with fake swift
         hdrs = {
@@ -795,24 +802,24 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # build fake multipart response body
         key = fetch_crypto_keys()['object']
         ctxt = Crypto().create_encryption_ctxt(key, FAKE_IV)
-        plaintext = 'Cwm fjord veg balks nth pyx quiz'
+        plaintext = b'Cwm fjord veg balks nth pyx quiz'
         plaintext_etag = md5hex(plaintext)
         ciphertext = encrypt(plaintext, ctxt=ctxt)
         parts = ((0, 3, 'text/plain'),
                  (4, 9, 'text/plain; charset=us-ascii'),
                  (24, 32, 'text/plain'))
         length = len(ciphertext)
-        body = ''
+        body = b''
         for start, end, ctype in parts:
-            body += '--multipartboundary\r\n'
-            body += 'Content-Type: %s\r\n' % ctype
-            body += 'Content-Range: bytes %s-%s/%s' % (start, end - 1, length)
-            body += '\r\n\r\n' + ciphertext[start:end] + '\r\n'
-        body += '--multipartboundary--'
+            body += b'--multipartboundary\r\n'
+            body += b'Content-Type: %s\r\n' % ctype.encode('utf-8')
+            body += b'Content-Range: bytes %d-%d/%d' % (start, end - 1, length)
+            body += b'\r\n\r\n' + ciphertext[start:end] + b'\r\n'
+        body += b'--multipartboundary--'
 
         # register request with fake swift
         hdrs = self._make_response_headers(
-            len(body), plaintext_etag, fetch_crypto_keys(), 'not used')
+            len(body), plaintext_etag, fetch_crypto_keys(), b'not used')
         hdrs['content-type'] = \
             'multipart/byteranges;boundary=multipartboundary'
         hdrs['X-Object-Sysmeta-Crypto-Body-Meta'] = \
@@ -826,31 +833,31 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         resp = req.get_response(self.decrypter)
 
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('Error decrypting object', resp.body)
+        self.assertEqual(b'Error decrypting object', resp.body)
         self.assertIn('Error decrypting object',
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
     def test_GET_multipart_bad_body_cipher(self):
         self._test_GET_multipart_bad_body_crypto_meta(
-            {'cipher': 'Mystery cipher', 'iv': '1234567887654321'})
+            {'cipher': 'Mystery cipher', 'iv': b'1234567887654321'})
         self.assertIn('Cipher must be AES_CTR_256',
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
     def test_GET_multipart_missing_body_cipher(self):
         self._test_GET_multipart_bad_body_crypto_meta(
-            {'iv': '1234567887654321'})
+            {'iv': b'1234567887654321'})
         self.assertIn('cipher',
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
     def test_GET_multipart_too_short_body_iv(self):
         self._test_GET_multipart_bad_body_crypto_meta(
-            {'cipher': 'AES_CTR_256', 'iv': 'too short'})
+            {'cipher': 'AES_CTR_256', 'iv': b'too short'})
         self.assertIn('IV must be length 16',
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
     def test_GET_multipart_too_long_body_iv(self):
         self._test_GET_multipart_bad_body_crypto_meta(
-            {'cipher': 'AES_CTR_256', 'iv': 'a little too long'})
+            {'cipher': 'AES_CTR_256', 'iv': b'a little too long'})
         self.assertIn('IV must be length 16',
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
@@ -864,15 +871,16 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # Do not provide keys, and do not set override flag
         env = {'REQUEST_METHOD': 'GET'}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         enc_body = encrypt(body, fetch_crypto_keys()['object'], FAKE_IV)
         hdrs = self._make_response_headers(
-            len(body), md5hex('not the body'), fetch_crypto_keys(), 'not used')
+            len(body), md5hex(b'not the body'),
+            fetch_crypto_keys(), b'not used')
         self.app.register(
             'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('Unable to retrieve encryption keys.',
+        self.assertEqual(b'Unable to retrieve encryption keys.',
                          resp.body)
         self.assertIn('missing callback',
                       self.decrypter.logger.get_lines_for_level('error')[0])
@@ -884,15 +892,15 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: raise_exc}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         enc_body = encrypt(body, fetch_crypto_keys()['object'], FAKE_IV)
         hdrs = self._make_response_headers(
-            len(body), md5hex(body), fetch_crypto_keys(), 'not used')
+            len(body), md5hex(body), fetch_crypto_keys(), b'not used')
         self.app.register(
             'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('Unable to retrieve encryption keys.',
+        self.assertEqual(b'Unable to retrieve encryption keys.',
                          resp.body)
         self.assertIn('from callback: Testing',
                       self.decrypter.logger.get_lines_for_level('error')[0])
@@ -902,19 +910,19 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         enc_body = encrypt(body, fetch_crypto_keys()['object'], FAKE_IV)
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
         hdrs = self._make_response_headers(
-            len(enc_body), md5hex(body), fetch_crypto_keys(), 'not used')
+            len(enc_body), md5hex(body), fetch_crypto_keys(), b'not used')
         hdrs['X-Object-Sysmeta-Crypto-Body-Meta'] = \
             get_crypto_meta_header(crypto_meta=bad_crypto_meta)
         self.app.register(
             'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('Error decrypting object', resp.body)
+        self.assertEqual(b'Error decrypting object', resp.body)
         self.assertIn('Error decrypting object',
                       self.decrypter.logger.get_lines_for_level('error')[0])
         self.assertIn('Bad crypto meta: Cipher',
@@ -925,22 +933,24 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, FAKE_IV)
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
         hdrs = self._make_response_headers(
-            len(enc_body), md5hex(body), fetch_crypto_keys(), 'not used')
+            len(enc_body), md5hex(body), fetch_crypto_keys(), b'not used')
+        enc_val = bytes_to_wsgi(base64.b64encode(
+            encrypt(b'encrypt me', key, FAKE_IV)))
+
         hdrs.update({'x-object-transient-sysmeta-crypto-meta-test':
-                     base64.b64encode(encrypt('encrypt me', key, FAKE_IV)) +
-                     ';swift_meta=' +
+                     enc_val + ';swift_meta=' +
                      get_crypto_meta_header(crypto_meta=bad_crypto_meta)})
         self.app.register(
             'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('Error decrypting header', resp.body)
+        self.assertEqual(b'Error decrypting header', resp.body)
         self.assertIn(
             'Error decrypting header X-Object-Transient-Sysmeta-Crypto-Meta-'
             'Test', self.decrypter.logger.get_lines_for_level('error')[0])
@@ -951,7 +961,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'swift.crypto.override': True}
         req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         hdrs = {'Etag': md5hex(body),
                 'content-type': 'text/plain',
                 'content-length': len(body),
@@ -993,7 +1003,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
 
     def test_GET_container_success(self):
         # no format requested, listing has names only
-        fake_body = 'testfile1\ntestfile2\n'
+        fake_body = b'testfile1\ntestfile2\n'
         calls = [0]
 
         def wrapped_fetch_crypto_keys():
@@ -1004,11 +1014,11 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                                        callback=wrapped_fetch_crypto_keys)
 
         self.assertEqual('200 OK', resp.status)
-        names = resp.body.split('\n')
-        self.assertEqual(3, len(names))
-        self.assertIn('testfile1', names)
-        self.assertIn('testfile2', names)
-        self.assertIn('', names)
+        self.assertEqual(resp.body.split(b'\n'), [
+            b'testfile1',
+            b'testfile2',
+            b'',
+        ])
         self.assertEqual(0, calls[0])
 
     def test_GET_container_json(self):
@@ -1035,7 +1045,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       "content_type": content_type_2}
 
         listing = [subdir, obj_dict_1, obj_dict_2]
-        fake_body = json.dumps(listing)
+        fake_body = json.dumps(listing).encode('ascii')
 
         resp = self._make_cont_get_req(fake_body, 'json')
 
@@ -1069,7 +1079,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       "content_type": content_type_2}
 
         listing = [obj_dict_1, obj_dict_2]
-        fake_body = json.dumps(listing)
+        fake_body = json.dumps(listing).encode('ascii')
 
         resp = self._make_cont_get_req(fake_body, 'json', override=True)
 
@@ -1096,13 +1106,14 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       "content_type": "image/jpeg"}
 
         listing = [obj_dict_1]
-        fake_body = json.dumps(listing)
+        fake_body = json.dumps(listing).encode('ascii')
 
         resp = self._make_cont_get_req(fake_body, 'json')
 
         self.assertEqual('200 OK', resp.status)
-        self.assertEqual(['<unknown>'],
-                         [x['hash'] for x in json.loads(resp.body)])
+        self.assertEqual(
+            ['<unknown>'],
+            [x['hash'] for x in json.loads(resp.body)])
         self.assertIn("Cipher must be AES_CTR_256",
                       self.decrypter.logger.get_lines_for_level('error')[0])
         self.assertIn('Error decrypting container listing',
@@ -1123,13 +1134,14 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       "content_type": "image/jpeg"}
 
         listing = [obj_dict_1]
-        fake_body = json.dumps(listing)
+        fake_body = json.dumps(listing).encode('ascii')
 
         resp = self._make_cont_get_req(fake_body, 'json')
 
         self.assertEqual('200 OK', resp.status)
-        self.assertEqual(['<unknown>'],
-                         [x['hash'] for x in json.loads(resp.body)])
+        self.assertEqual(
+            ['<unknown>'],
+            [x['hash'] for x in json.loads(resp.body)])
         self.assertEqual(self.decrypter.logger.get_lines_for_level('error'), [
             'get_keys(): unknown key id: unknown_key',
             'Error decrypting container listing: unknown_key',
@@ -1145,7 +1157,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                     "content_type": 'application/symlink'}
 
         listing = [obj_dict]
-        fake_body = json.dumps(listing)
+        fake_body = json.dumps(listing).encode('ascii')
 
         resp = self._make_cont_get_req(fake_body, 'json')
 

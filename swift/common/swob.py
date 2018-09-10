@@ -1005,7 +1005,7 @@ class Request(object):
         """
         _ver, entity_path = self.split_path(1, 2, rest_with_last=True)
         if entity_path is not None:
-            return '/' + entity_path
+            return '/' + wsgi_to_str(entity_path)
 
     @property
     def is_chunked(self):

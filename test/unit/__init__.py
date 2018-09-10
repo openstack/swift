@@ -402,17 +402,17 @@ class FakeMemcache(object):
 
 
 def readuntil2crlfs(fd):
-    rv = ''
-    lc = ''
+    rv = b''
+    lc = b''
     crlfs = 0
     while crlfs < 2:
         c = fd.read(1)
         if not c:
             raise ValueError("didn't get two CRLFs; just got %r" % rv)
         rv = rv + c
-        if c == '\r' and lc != '\n':
+        if c == b'\r' and lc != b'\n':
             crlfs = 0
-        if lc == '\r' and c == '\n':
+        if lc == b'\r' and c == b'\n':
             crlfs += 1
         lc = c
     return rv

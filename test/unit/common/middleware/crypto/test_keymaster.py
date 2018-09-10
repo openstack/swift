@@ -65,7 +65,7 @@ class TestKeymaster(unittest.TestCase):
                 ('HEAD', swob.HTTPNoContent, '204')):
             resp_headers = {}
             self.swift.register(
-                method, '/v1' + path, resp_class, resp_headers, '')
+                method, '/v1' + path, resp_class, resp_headers, b'')
             req = Request.blank(
                 '/v1' + path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
@@ -142,10 +142,11 @@ class TestKeymaster(unittest.TestCase):
         def do_test(dflt_id):
             for secret in (os.urandom(32), os.urandom(33), os.urandom(50)):
                 encoded_secret = base64.b64encode(secret)
+                self.assertIsInstance(encoded_secret, bytes)
                 for conf_val in (
-                        bytes(encoded_secret),
-                        unicode(encoded_secret),
-                        encoded_secret[:30] + '\n' + encoded_secret[30:]):
+                        encoded_secret,
+                        encoded_secret.decode('ascii'),
+                        encoded_secret[:30] + b'\n' + encoded_secret[30:]):
                     try:
                         app = keymaster.KeyMaster(
                             self.swift, {'encryption_root_secret': conf_val,
@@ -208,7 +209,7 @@ class TestKeymaster(unittest.TestCase):
         root_key = base64.b64decode(conf_inner['encryption_root_secret_22'])
         self.assertIn('container', keys)
         self.assertEqual(keys.pop('container'),
-                         hmac.new(root_key, '/a/c',
+                         hmac.new(root_key, b'/a/c',
                                   digestmod=hashlib.sha256).digest())
         self.assertIn('all_ids', keys)
         all_keys = set()
@@ -249,11 +250,11 @@ class TestKeymaster(unittest.TestCase):
         root_key = base64.b64decode(conf_inner['encryption_root_secret_22'])
         self.assertIn('container', keys)
         self.assertEqual(keys.pop('container'),
-                         hmac.new(root_key, '/a/c',
+                         hmac.new(root_key, b'/a/c',
                                   digestmod=hashlib.sha256).digest())
         self.assertIn('object', keys)
         self.assertEqual(keys.pop('object'),
-                         hmac.new(root_key, '/a/c/o',
+                         hmac.new(root_key, b'/a/c/o',
                                   digestmod=hashlib.sha256).digest())
         self.assertIn('all_ids', keys)
         at_least_one_old_style_id = False
@@ -324,9 +325,9 @@ class TestKeymaster(unittest.TestCase):
         self.app = keymaster.KeyMaster(self.swift, conf)
         keys = self.verify_keys_for_path('/a/c/o', ('container', 'object'))
         expected_keys = {
-            'container': hmac.new(secrets[None], '/a/c',
+            'container': hmac.new(secrets[None], b'/a/c',
                                   digestmod=hashlib.sha256).digest(),
-            'object': hmac.new(secrets[None], '/a/c/o',
+            'object': hmac.new(secrets[None], b'/a/c/o',
                                digestmod=hashlib.sha256).digest()}
         self.assertEqual(expected_keys, keys)
 
@@ -335,9 +336,9 @@ class TestKeymaster(unittest.TestCase):
         self.app = keymaster.KeyMaster(self.swift, conf)
         keys = self.verify_keys_for_path('/a/c/o', ('container', 'object'))
         expected_keys = {
-            'container': hmac.new(secrets['22'], '/a/c',
+            'container': hmac.new(secrets['22'], b'/a/c',
                                   digestmod=hashlib.sha256).digest(),
-            'object': hmac.new(secrets['22'], '/a/c/o',
+            'object': hmac.new(secrets['22'], b'/a/c/o',
                                digestmod=hashlib.sha256).digest()}
         self.assertEqual(expected_keys, keys)
 
@@ -346,9 +347,9 @@ class TestKeymaster(unittest.TestCase):
             keys = self.verify_keys_for_path('/a/c/o', ('container', 'object'),
                                              key_id={'secret_id': secret_id})
             expected_keys = {
-                'container': hmac.new(secrets[secret_id], '/a/c',
+                'container': hmac.new(secrets[secret_id], b'/a/c',
                                       digestmod=hashlib.sha256).digest(),
-                'object': hmac.new(secrets[secret_id], '/a/c/o',
+                'object': hmac.new(secrets[secret_id], b'/a/c/o',
                                    digestmod=hashlib.sha256).digest()}
             self.assertEqual(expected_keys, keys)
 
@@ -374,9 +375,9 @@ class TestKeymaster(unittest.TestCase):
         with mock.patch.object(self.app, 'create_key', mock_create_key):
             keys = context.fetch_crypto_keys()
         expected_keys = {
-            'container': hmac.new(secrets['22'], '/a/c',
+            'container': hmac.new(secrets['22'], b'/a/c',
                                   digestmod=hashlib.sha256).digest(),
-            'object': hmac.new(secrets['22'], '/a/c/o',
+            'object': hmac.new(secrets['22'], b'/a/c/o',
                                digestmod=hashlib.sha256).digest(),
             'id': {'path': '/a/c/o', 'secret_id': '22', 'v': '1'},
             'all_ids': [
@@ -393,9 +394,9 @@ class TestKeymaster(unittest.TestCase):
         with mock.patch.object(self.app, 'create_key', mock_create_key):
             keys = context.fetch_crypto_keys(key_id={'secret_id': None})
         expected_keys = {
-            'container': hmac.new(secrets[None], '/a/c',
+            'container': hmac.new(secrets[None], b'/a/c',
                                   digestmod=hashlib.sha256).digest(),
-            'object': hmac.new(secrets[None], '/a/c/o',
+            'object': hmac.new(secrets[None], b'/a/c/o',
                                digestmod=hashlib.sha256).digest(),
             'id': {'path': '/a/c/o', 'v': '1'},
             'all_ids': [
@@ -411,9 +412,10 @@ class TestKeymaster(unittest.TestCase):
     def test_keymaster_config_path(self, mock_readconf):
         for secret in (os.urandom(32), os.urandom(33), os.urandom(50)):
             enc_secret = base64.b64encode(secret)
-            for conf_val in (bytes(enc_secret), unicode(enc_secret),
-                             enc_secret[:30] + '\n' + enc_secret[30:],
-                             enc_secret[:30] + '\r\n' + enc_secret[30:]):
+            self.assertIsInstance(enc_secret, bytes)
+            for conf_val in (enc_secret, enc_secret.decode('ascii'),
+                             enc_secret[:30] + b'\n' + enc_secret[30:],
+                             enc_secret[:30] + b'\r\n' + enc_secret[30:]):
                 mock_readconf.reset_mock()
                 mock_readconf.return_value = {
                     'encryption_root_secret': conf_val}
@@ -428,8 +430,8 @@ class TestKeymaster(unittest.TestCase):
                     self.fail(str(err) + ' for secret %r' % secret)
 
     def test_invalid_root_secret(self):
-        for secret in (bytes(base64.b64encode(os.urandom(31))),  # too short
-                       unicode(base64.b64encode(os.urandom(31))),
+        for secret in (base64.b64encode(os.urandom(31)),  # too short
+                       base64.b64encode(os.urandom(31)).decode('ascii'),
                        u'a' * 44 + u'????', b'a' * 44 + b'????',  # not base64
                        u'a' * 45, b'a' * 45,  # bad padding
                        99, None):
@@ -447,7 +449,7 @@ class TestKeymaster(unittest.TestCase):
     @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     def test_root_secret_path_invalid_secret(self, mock_readconf):
         for secret in (bytes(base64.b64encode(os.urandom(31))),  # too short
-                       unicode(base64.b64encode(os.urandom(31))),
+                       base64.b64encode(os.urandom(31)).decode('ascii'),
                        u'a' * 44 + u'????', b'a' * 44 + b'????',  # not base64
                        u'a' * 45, b'a' * 45,  # bad padding
                        99, None):

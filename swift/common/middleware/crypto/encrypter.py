@@ -24,7 +24,7 @@ from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
 from swift.common.request_helpers import get_object_transient_sysmeta, \
     strip_user_meta_prefix, is_user_meta, update_etag_is_at_header
 from swift.common.swob import Request, Match, HTTPException, \
-    HTTPUnprocessableEntity
+    HTTPUnprocessableEntity, wsgi_to_bytes, bytes_to_wsgi
 from swift.common.utils import get_logger, config_true_value, \
     MD5_OF_EMPTY_STRING
 
@@ -46,7 +46,8 @@ def encrypt_header_val(crypto, value, key):
 
     crypto_meta = crypto.create_crypto_meta()
     crypto_ctxt = crypto.create_encryption_ctxt(key, crypto_meta['iv'])
-    enc_val = base64.b64encode(crypto_ctxt.update(value))
+    enc_val = bytes_to_wsgi(base64.b64encode(
+        crypto_ctxt.update(wsgi_to_bytes(value))))
     return enc_val, crypto_meta
 
 
@@ -58,6 +59,8 @@ def _hmac_etag(key, etag):
     :param etag: The etag to hash.
     :returns: a Base64-encoded representation of the HMAC
     """
+    if not isinstance(etag, bytes):
+        etag = wsgi_to_bytes(etag)
     result = hmac.new(key, etag, digestmod=hashlib.sha256).digest()
     return base64.b64encode(result).decode()
 

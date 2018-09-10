@@ -147,7 +147,7 @@ class TestKmipKeymaster(unittest.TestCase):
         key_id = 4321
         """
         km_config_file = os.path.join(self.tempdir, 'km.conf')
-        with open(km_config_file, 'wb') as fd:
+        with open(km_config_file, 'wt') as fd:
             fd.write(dedent(km_conf))
 
         conf = {'__file__': '/etc/swift/proxy-server.conf',
@@ -174,7 +174,7 @@ class TestKmipKeymaster(unittest.TestCase):
         active_root_secret_id = secret_id
         """
         km_config_file = os.path.join(self.tempdir, 'km.conf')
-        with open(km_config_file, 'wb') as fd:
+        with open(km_config_file, 'wt') as fd:
             fd.write(dedent(km_conf))
 
         conf = {'__file__': '/etc/swift/proxy-server.conf',
@@ -219,7 +219,7 @@ class TestKmipKeymaster(unittest.TestCase):
         key_id = 789
         """ % km_config_file
 
-        with open(km_config_file, 'wb') as fd:
+        with open(km_config_file, 'wt') as fd:
             fd.write(dedent(km_conf))
 
         conf = {'__file__': proxy_server_conf_dir,

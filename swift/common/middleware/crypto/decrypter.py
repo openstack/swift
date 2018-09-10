@@ -24,7 +24,8 @@ from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
 from swift.common.exceptions import EncryptionException, UnknownSecretIdError
 from swift.common.request_helpers import get_object_transient_sysmeta, \
     get_sys_meta_prefix, get_user_meta_prefix
-from swift.common.swob import Request, HTTPException, HTTPInternalServerError
+from swift.common.swob import Request, HTTPException, \
+    HTTPInternalServerError, wsgi_to_bytes, bytes_to_wsgi
 from swift.common.utils import get_logger, config_true_value, \
     parse_content_range, closing_if_possible, parse_content_type, \
     FileLikeIter, multipart_byteranges_to_document_iters
@@ -84,7 +85,7 @@ class BaseDecrypterContext(CryptoWSGIContext):
             body='Error decrypting %s' % self.server_type,
             content_type='text/plain')
 
-    def decrypt_value_with_meta(self, value, key, required=False):
+    def decrypt_value_with_meta(self, value, key, required, encoder):
         """
         Base64-decode and decrypt a value if crypto meta can be extracted from
         the value itself, otherwise return the value unmodified.
@@ -109,14 +110,15 @@ class BaseDecrypterContext(CryptoWSGIContext):
         extracted_value, crypto_meta = extract_crypto_meta(value)
         if crypto_meta:
             self.crypto.check_crypto_meta(crypto_meta)
-            value = self.decrypt_value(extracted_value, key, crypto_meta)
+            value = self.decrypt_value(
+                extracted_value, key, crypto_meta, encoder)
         elif required:
             raise EncryptionException(
                 "Missing crypto meta in value %s" % value)
 
         return value
 
-    def decrypt_value(self, value, key, crypto_meta):
+    def decrypt_value(self, value, key, crypto_meta, encoder):
         """
         Base64-decode and decrypt a value using the crypto_meta provided.
 
@@ -127,10 +129,10 @@ class BaseDecrypterContext(CryptoWSGIContext):
         :returns: decrypted value
         """
         if not value:
-            return ''
+            return encoder(b'')
         crypto_ctxt = self.crypto.create_decryption_ctxt(
             key, crypto_meta['iv'], 0)
-        return crypto_ctxt.update(base64.b64decode(value))
+        return encoder(crypto_ctxt.update(base64.b64decode(value)))
 
     def get_decryption_keys(self, req, crypto_meta=None):
         """
@@ -169,7 +171,8 @@ class DecrypterObjContext(BaseDecrypterContext):
                                          found.
         """
         try:
-            return self.decrypt_value_with_meta(value, key, required)
+            return self.decrypt_value_with_meta(
+                value, key, required, bytes_to_wsgi)
         except EncryptionException as err:
             self.logger.error(
                 _("Error decrypting header %(header)s: %(error)s"),
@@ -251,21 +254,22 @@ class DecrypterObjContext(BaseDecrypterContext):
             parts_iter = multipart_byteranges_to_document_iters(
                 FileLikeIter(resp), boundary)
             for first_byte, last_byte, length, headers, body in parts_iter:
-                yield "--" + boundary + "\r\n"
+                yield b"--" + boundary + b"\r\n"
 
-                for header_pair in headers:
-                    yield "%s: %s\r\n" % header_pair
+                for header, value in headers:
+                    yield b"%s: %s\r\n" % (wsgi_to_bytes(header),
+                                           wsgi_to_bytes(value))
 
-                yield "\r\n"
+                yield b"\r\n"
 
                 decrypt_ctxt = self.crypto.create_decryption_ctxt(
                     body_key, crypto_meta['iv'], first_byte)
-                for chunk in iter(lambda: body.read(DECRYPT_CHUNK_SIZE), ''):
+                for chunk in iter(lambda: body.read(DECRYPT_CHUNK_SIZE), b''):
                     yield decrypt_ctxt.update(chunk)
 
-                yield "\r\n"
+                yield b"\r\n"
 
-            yield "--" + boundary + "--"
+            yield b"--" + boundary + b"--"
 
     def response_iter(self, resp, body_key, crypto_meta, offset):
         """
@@ -331,7 +335,7 @@ class DecrypterObjContext(BaseDecrypterContext):
 
             if (self._get_status_int() == 206 and
                     content_type == 'multipart/byteranges'):
-                boundary = dict(content_type_attrs)["boundary"]
+                boundary = wsgi_to_bytes(dict(content_type_attrs)["boundary"])
                 resp_iter = self.multipart_response_iter(
                     app_resp, boundary, body_key, put_crypto_meta)
             else:
@@ -380,10 +384,10 @@ class DecrypterContContext(BaseDecrypterContext):
         Content-Length header with new body length and return a body iter.
         """
         with closing_if_possible(resp_iter):
-            resp_body = ''.join(resp_iter)
+            resp_body = b''.join(resp_iter)
         body_json = json.loads(resp_body)
         new_body = json.dumps([self.decrypt_obj_dict(req, obj_dict)
-                               for obj_dict in body_json])
+                               for obj_dict in body_json]).encode('ascii')
         self.update_content_length(len(new_body))
         return [new_body]
 
@@ -397,8 +401,11 @@ class DecrypterContContext(BaseDecrypterContext):
                 try:
                     self.crypto.check_crypto_meta(crypto_meta)
                     keys = self.get_decryption_keys(req, crypto_meta)
+                    # Note that symlinks (for example) may put swift paths in
+                    # the listing ETag, so we can't just use ASCII.
                     obj_dict['hash'] = self.decrypt_value(
-                        ciphertext, keys['container'], crypto_meta)
+                        ciphertext, keys['container'], crypto_meta,
+                        encoder=lambda x: x.decode('utf-8'))
                 except EncryptionException as err:
                     if not isinstance(err, UnknownSecretIdError) or \
                             err.args[0] not in bad_keys:

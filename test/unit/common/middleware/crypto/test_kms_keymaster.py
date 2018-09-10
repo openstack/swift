@@ -324,7 +324,7 @@ class TestKmsKeymaster(unittest.TestCase):
                 self.swift, TEST_PROXYSERVER_CONF_EXTERNAL_KEYMASTER_CONF)
             raise Exception('Success even though key id invalid')
         except ValueError as e:
-            self.assertEqual(e.message,
+            self.assertEqual(e.args[0],
                              ERR_MESSAGE_SECRET_INCORRECTLY_SPECIFIED)
         except Exception:
             print("Unexpected error: %s" % sys.exc_info()[0])
@@ -369,7 +369,7 @@ class TestKmsKeymaster(unittest.TestCase):
         except Exception as e:
             expected_message = ('Key not found, uuid: ' +
                                 TEST_KMS_NONEXISTENT_KEY_ID)
-            self.assertEqual(e.message, expected_message)
+            self.assertEqual(e.args[0], expected_message)
 
     @mock.patch('swift.common.middleware.crypto.kms_keymaster.'
                 'keystone_password.KeystonePassword')
@@ -453,7 +453,7 @@ class TestKmsKeymaster(unittest.TestCase):
         except Exception as e:
             expected_message = ('keymaster_config_path is set, but there are '
                                 'other config options specified:')
-            self.assertTrue(e.message.startswith(expected_message),
+            self.assertTrue(e.args[0].startswith(expected_message),
                             "Error message does not start with '%s'" %
                             expected_message)
 

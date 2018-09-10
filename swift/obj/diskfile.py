@@ -2913,7 +2913,7 @@ class ECDiskFileReader(BaseDiskFileReader):
         # TODO: reset frag buf to '' if tell() shows that start is on a frag
         # boundary so that we check frags selected by a range not starting at 0
         if self._started_at_0:
-            self.frag_buf = ''
+            self.frag_buf = b''
         else:
             self.frag_buf = None
 

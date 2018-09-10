@@ -18,7 +18,7 @@ import os
 
 from swift.common.exceptions import UnknownSecretIdError
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
-from swift.common.swob import Request, HTTPException
+from swift.common.swob import Request, HTTPException, wsgi_to_bytes
 from swift.common.utils import readconf, strict_b64decode, get_logger
 from swift.common.wsgi import WSGIContext
 
@@ -188,7 +188,8 @@ class BaseKeyMaster(object):
 
     @property
     def root_secret_ids(self):
-        return sorted(self._root_secrets.keys())
+        # Only sorted to simplify testing
+        return sorted(self._root_secrets.keys(), key=lambda x: x or '')
 
     def _load_keymaster_config_file(self, conf):
         if not self.keymaster_config_path:
@@ -256,7 +257,8 @@ class BaseKeyMaster(object):
             self.logger.warning('Unrecognised secret id: %s' % secret_id)
             raise UnknownSecretIdError(secret_id)
         else:
-            return hmac.new(key, path, digestmod=hashlib.sha256).digest()
+            return hmac.new(key, wsgi_to_bytes(path),
+                            digestmod=hashlib.sha256).digest()
 
 
 class KeyMaster(BaseKeyMaster):

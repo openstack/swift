@@ -26,7 +26,8 @@ from swift.common.middleware.crypto import encrypter
 from swift.common.middleware.crypto.crypto_utils import (
     CRYPTO_KEY_CALLBACK, Crypto)
 from swift.common.swob import (
-    Request, HTTPException, HTTPCreated, HTTPAccepted, HTTPOk, HTTPBadRequest)
+    Request, HTTPException, HTTPCreated, HTTPAccepted, HTTPOk, HTTPBadRequest,
+    wsgi_to_bytes, bytes_to_wsgi)
 from swift.common.utils import FileLikeIter
 
 from test.unit import FakeLogger, EMPTY_ETAG
@@ -57,8 +58,8 @@ class TestEncrypter(unittest.TestCase):
         meta_iv = base64.b64decode(actual_meta['iv'])
         self.assertEqual(FAKE_IV, meta_iv)
         self.assertEqual(
-            base64.b64encode(encrypt(value, key, meta_iv)),
-            enc_val)
+            base64.b64encode(encrypt(wsgi_to_bytes(value), key, meta_iv)),
+            wsgi_to_bytes(enc_val))
         # if there is any encrypted user metadata then this header should exist
         self.assertIn('X-Object-Transient-Sysmeta-Crypto-Meta', req_hdrs)
         common_meta = json.loads(urlparse.unquote_plus(
@@ -70,7 +71,7 @@ class TestEncrypter(unittest.TestCase):
     def test_PUT_req(self):
         body_key = os.urandom(32)
         object_key = fetch_crypto_keys()['object']
-        plaintext = 'FAKE APP'
+        plaintext = b'FAKE APP'
         plaintext_etag = md5hex(plaintext)
         ciphertext = encrypt(plaintext, body_key, FAKE_IV)
         ciphertext_etag = md5hex(ciphertext)
@@ -126,14 +127,17 @@ class TestEncrypter(unittest.TestCase):
         # verify encrypted version of plaintext etag
         actual = base64.b64decode(encrypted_etag)
         etag_iv = base64.b64decode(actual_meta['iv'])
-        enc_etag = encrypt(plaintext_etag, object_key, etag_iv)
+        enc_etag = encrypt(plaintext_etag.encode('ascii'), object_key, etag_iv)
         self.assertEqual(enc_etag, actual)
 
         # verify etag MAC for conditional requests
         actual_hmac = base64.b64decode(
             req_hdrs['X-Object-Sysmeta-Crypto-Etag-Mac'])
-        self.assertEqual(actual_hmac, hmac.new(
-            object_key, plaintext_etag, hashlib.sha256).digest())
+        exp_hmac = hmac.new(
+            object_key,
+            plaintext_etag.encode('ascii'),
+            hashlib.sha256).digest()
+        self.assertEqual(actual_hmac, exp_hmac)
 
         # verify encrypted etag for container update
         self.assertIn(
@@ -154,8 +158,9 @@ class TestEncrypter(unittest.TestCase):
         cont_key = fetch_crypto_keys()['container']
         cont_etag_iv = base64.b64decode(actual_meta['iv'])
         self.assertEqual(FAKE_IV, cont_etag_iv)
-        self.assertEqual(encrypt(plaintext_etag, cont_key, cont_etag_iv),
-                         base64.b64decode(parts[0]))
+        exp_etag = encrypt(plaintext_etag.encode('ascii'),
+                           cont_key, cont_etag_iv)
+        self.assertEqual(exp_etag, base64.b64decode(parts[0]))
 
         # content-type is not encrypted
         self.assertEqual('text/plain', req_hdrs['Content-Type'])
@@ -222,14 +227,14 @@ class TestEncrypter(unittest.TestCase):
         # verify object is empty by getting direct from the app
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = get_req.get_response(self.app)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
         self.assertEqual(EMPTY_ETAG, resp.headers['Etag'])
 
     def _test_PUT_with_other_footers(self, override_etag):
         # verify handling of another middleware's footer callback
         body_key = os.urandom(32)
         object_key = fetch_crypto_keys()['object']
-        plaintext = 'FAKE APP'
+        plaintext = b'FAKE APP'
         plaintext_etag = md5hex(plaintext)
         ciphertext = encrypt(plaintext, body_key, FAKE_IV)
         ciphertext_etag = md5hex(ciphertext)
@@ -283,7 +288,8 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
         actual = base64.b64decode(encrypted_etag)
         etag_iv = base64.b64decode(actual_meta['iv'])
-        self.assertEqual(encrypt(plaintext_etag, object_key, etag_iv), actual)
+        exp_etag = encrypt(plaintext_etag.encode('ascii'), object_key, etag_iv)
+        self.assertEqual(exp_etag, actual)
 
         # verify encrypted etag for container update
         self.assertIn(
@@ -303,8 +309,9 @@ class TestEncrypter(unittest.TestCase):
         cont_key = fetch_crypto_keys()['container']
         cont_etag_iv = base64.b64decode(actual_meta['iv'])
         self.assertEqual(FAKE_IV, cont_etag_iv)
-        self.assertEqual(encrypt(override_etag, cont_key, cont_etag_iv),
-                         base64.b64decode(parts[0]))
+        exp_etag = encrypt(override_etag.encode('ascii'),
+                           cont_key, cont_etag_iv)
+        self.assertEqual(exp_etag, base64.b64decode(parts[0]))
 
         # verify body crypto meta
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Body-Meta']
@@ -331,7 +338,7 @@ class TestEncrypter(unittest.TestCase):
     def _test_PUT_with_etag_override_in_headers(self, override_etag):
         # verify handling of another middleware's
         # container-update-override-etag in headers
-        plaintext = 'FAKE APP'
+        plaintext = b'FAKE APP'
         plaintext_etag = md5hex(plaintext)
 
         env = {'REQUEST_METHOD': 'PUT',
@@ -373,8 +380,9 @@ class TestEncrypter(unittest.TestCase):
 
         cont_etag_iv = base64.b64decode(actual_meta['iv'])
         self.assertEqual(FAKE_IV, cont_etag_iv)
-        self.assertEqual(encrypt(override_etag, cont_key, cont_etag_iv),
-                         base64.b64decode(parts[0]))
+        exp_etag = encrypt(override_etag.encode('ascii'),
+                           cont_key, cont_etag_iv)
+        self.assertEqual(exp_etag, base64.b64decode(parts[0]))
 
     def test_PUT_with_etag_override_in_headers(self):
         self._test_PUT_with_etag_override_in_headers('override_etag')
@@ -413,10 +421,10 @@ class TestEncrypter(unittest.TestCase):
             req_hdrs['X-Object-Sysmeta-Container-Update-Override-Etag'])
 
     def test_PUT_with_empty_etag_override_in_headers(self):
-        self._test_PUT_with_empty_etag_override_in_headers('body')
+        self._test_PUT_with_empty_etag_override_in_headers(b'body')
 
     def test_PUT_with_empty_etag_override_in_headers_no_body(self):
-        self._test_PUT_with_empty_etag_override_in_headers('')
+        self._test_PUT_with_empty_etag_override_in_headers(b'')
 
     def _test_PUT_with_empty_etag_override_in_footers(self, plaintext):
         # verify that an override etag value of '' from other middleware is
@@ -450,15 +458,15 @@ class TestEncrypter(unittest.TestCase):
             req_hdrs['X-Object-Sysmeta-Container-Update-Override-Etag'])
 
     def test_PUT_with_empty_etag_override_in_footers(self):
-        self._test_PUT_with_empty_etag_override_in_footers('body')
+        self._test_PUT_with_empty_etag_override_in_footers(b'body')
 
     def test_PUT_with_empty_etag_override_in_footers_no_body(self):
-        self._test_PUT_with_empty_etag_override_in_footers('')
+        self._test_PUT_with_empty_etag_override_in_footers(b'')
 
     def test_PUT_with_bad_etag_in_other_footers(self):
         # verify that etag supplied in footers from other middleware overrides
         # header etag when validating inbound plaintext etags
-        plaintext = 'FAKE APP'
+        plaintext = b'FAKE APP'
         plaintext_etag = md5hex(plaintext)
         other_footers = {
             'Etag': 'bad etag',
@@ -567,7 +575,7 @@ class TestEncrypter(unittest.TestCase):
 
         cont_etag_iv = base64.b64decode(actual_meta['iv'])
         self.assertEqual(FAKE_IV, cont_etag_iv)
-        self.assertEqual(encrypt('other override', cont_key, cont_etag_iv),
+        self.assertEqual(encrypt(b'other override', cont_key, cont_etag_iv),
                          base64.b64decode(parts[0]))
 
         # verify that other middleware's footers made it to app
@@ -625,7 +633,7 @@ class TestEncrypter(unittest.TestCase):
             self.assertFalse(k.lower().startswith('x-object-sysmeta-crypto-'))
 
     def test_POST_req(self):
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         env = {'REQUEST_METHOD': 'POST',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'x-object-meta-test': 'encrypt me',
@@ -700,14 +708,16 @@ class TestEncrypter(unittest.TestCase):
             # masked values for secret_id None
             key = fetch_crypto_keys()['object']
             masked_etags = [
-                '"%s"' % base64.b64encode(hmac.new(
-                    key, etag.strip('"'), hashlib.sha256).digest())
+                '"%s"' % bytes_to_wsgi(base64.b64encode(hmac.new(
+                    key, wsgi_to_bytes(etag.strip('"')),
+                    hashlib.sha256).digest()))
                 for etag in plain_etags if etag not in ('*', '')]
             # masked values for secret_id myid
             key = fetch_crypto_keys(key_id={'secret_id': 'myid'})['object']
             masked_etags_myid = [
-                '"%s"' % base64.b64encode(hmac.new(
-                    key, etag.strip('"'), hashlib.sha256).digest())
+                '"%s"' % bytes_to_wsgi(base64.b64encode(hmac.new(
+                    key, wsgi_to_bytes(etag.strip('"')),
+                    hashlib.sha256).digest()))
                 for etag in plain_etags if etag not in ('*', '')]
             expected_etags = set((expected_plain_etags or plain_etags) +
                                  masked_etags + masked_etags_myid)
@@ -793,12 +803,12 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('X-Object-Sysmeta-Crypto-Etag-Mac',
                          actual_headers['X-Backend-Etag-Is-At'])
 
-        self.assertIn('"%s"' % base64.b64encode(
-            hmac.new(key, 'an etag', hashlib.sha256).digest()),
+        self.assertIn('"%s"' % bytes_to_wsgi(base64.b64encode(
+            hmac.new(key, b'an etag', hashlib.sha256).digest())),
             actual_headers['If-Match'])
         self.assertIn('"another etag"', actual_headers['If-None-Match'])
-        self.assertIn('"%s"' % base64.b64encode(
-            hmac.new(key, 'another etag', hashlib.sha256).digest()),
+        self.assertIn('"%s"' % bytes_to_wsgi(base64.b64encode(
+            hmac.new(key, b'another etag', hashlib.sha256).digest())),
             actual_headers['If-None-Match'])
 
     def test_GET_etag_is_at_not_duplicated(self):
@@ -824,8 +834,8 @@ class TestEncrypter(unittest.TestCase):
 
     def test_PUT_multiseg_no_client_etag(self):
         body_key = os.urandom(32)
-        chunks = ['some', 'chunks', 'of data']
-        body = ''.join(chunks)
+        chunks = [b'some', b'chunks', b'of data']
+        body = b''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'wsgi.input': FileLikeIter(chunks)}
@@ -848,8 +858,8 @@ class TestEncrypter(unittest.TestCase):
 
     def test_PUT_multiseg_good_client_etag(self):
         body_key = os.urandom(32)
-        chunks = ['some', 'chunks', 'of data']
-        body = ''.join(chunks)
+        chunks = [b'some', b'chunks', b'of data']
+        body = b''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'wsgi.input': FileLikeIter(chunks)}
@@ -872,8 +882,8 @@ class TestEncrypter(unittest.TestCase):
                          get_req.get_response(self.app).body)
 
     def test_PUT_multiseg_bad_client_etag(self):
-        chunks = ['some', 'chunks', 'of data']
-        body = ''.join(chunks)
+        chunks = [b'some', b'chunks', b'of data']
+        body = b''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'wsgi.input': FileLikeIter(chunks)}
@@ -886,7 +896,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('422 Unprocessable Entity', resp.status)
 
     def test_PUT_missing_key_callback(self):
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT'}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
@@ -895,13 +905,13 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('500 Internal Error', resp.status)
         self.assertIn('missing callback',
                       self.encrypter.logger.get_lines_for_level('error')[0])
-        self.assertEqual('Unable to retrieve encryption keys.', resp.body)
+        self.assertEqual(b'Unable to retrieve encryption keys.', resp.body)
 
     def test_PUT_error_in_key_callback(self):
         def raise_exc(*args, **kwargs):
             raise Exception('Testing')
 
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: raise_exc}
         hdrs = {'content-type': 'text/plain',
@@ -911,7 +921,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('500 Internal Error', resp.status)
         self.assertIn('from callback: Testing',
                       self.encrypter.logger.get_lines_for_level('error')[0])
-        self.assertEqual('Unable to retrieve encryption keys.', resp.body)
+        self.assertEqual(b'Unable to retrieve encryption keys.', resp.body)
 
     def test_PUT_encryption_override(self):
         # set crypto override to disable encryption.
@@ -921,7 +931,7 @@ class TestEncrypter(unittest.TestCase):
             'X-Object-Sysmeta-Other': 'other sysmeta',
             'X-Object-Sysmeta-Container-Update-Override-Etag':
                 'other override'}
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT',
                'swift.crypto.override': True,
                'swift.callback.update_footers':
@@ -944,7 +954,7 @@ class TestEncrypter(unittest.TestCase):
 
     def _test_constraints_checking(self, method):
         # verify that the check_metadata function is called on PUT and POST
-        body = 'FAKE APP'
+        body = b'FAKE APP'
         env = {'REQUEST_METHOD': method,
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'content-type': 'text/plain',
@@ -952,7 +962,7 @@ class TestEncrypter(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ=env, body=body, headers=hdrs)
         mocked_func = 'swift.common.middleware.crypto.encrypter.check_metadata'
         with mock.patch(mocked_func) as mocked:
-            mocked.side_effect = [HTTPBadRequest('testing')]
+            mocked.side_effect = [HTTPBadRequest(b'testing')]
             resp = req.get_response(self.encrypter)
         self.assertEqual('400 Bad Request', resp.status)
         self.assertEqual(1, mocked.call_count)
@@ -991,10 +1001,10 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(2, len(encrypted))
         crypted_val, crypt_info = encrypted
         expected_crypt_val = base64.b64encode(
-            encrypt('aaa', object_key, FAKE_IV))
+            encrypt(b'aaa', object_key, FAKE_IV))
         expected_crypt_info = {
-            'cipher': 'AES_CTR_256', 'iv': 'This is an IV123'}
-        self.assertEqual(expected_crypt_val, crypted_val)
+            'cipher': 'AES_CTR_256', 'iv': b'This is an IV123'}
+        self.assertEqual(expected_crypt_val, wsgi_to_bytes(crypted_val))
         self.assertEqual(expected_crypt_info, crypt_info)
 
         # - Empty string raises a ValueError for safety
@@ -1002,14 +1012,14 @@ class TestEncrypter(unittest.TestCase):
             encrypter.encrypt_header_val(Crypto(), '', object_key)
 
         self.assertEqual('empty value is not acceptable',
-                         cm.exception.message)
+                         cm.exception.args[0])
 
         # - None also raises a ValueError for safety
         with self.assertRaises(ValueError) as cm:
             encrypter.encrypt_header_val(Crypto(), None, object_key)
 
         self.assertEqual('empty value is not acceptable',
-                         cm.exception.message)
+                         cm.exception.args[0])
 
 
 if __name__ == '__main__':

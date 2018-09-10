@@ -55,7 +55,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
-        self.plaintext = 'unencrypted body content'
+        self.plaintext = b'unencrypted body content'
         self.plaintext_etag = md5hex(self.plaintext)
         self._setup_crypto_app()
 
@@ -82,6 +82,8 @@ class TestCryptoPipelineChanges(unittest.TestCase):
             self.object_name = 'o'
             self.object_path = self.container_path + '/' + self.object_name
             container_path = self.container_path
+        if not isinstance(container_path, bytes):
+            container_path = container_path.encode('utf8')
         req = Request.blank(
             container_path, method='PUT',
             headers={'X-Storage-Policy': policy_name})
@@ -95,7 +97,10 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self.assertEqual(policy_name, resp.headers['X-Storage-Policy'])
 
     def _put_object(self, app, body):
-        req = Request.blank(self.object_path, method='PUT', body=body,
+        object_path = self.object_path
+        if not isinstance(object_path, bytes):
+            object_path = object_path.encode('utf8')
+        req = Request.blank(object_path, method='PUT', body=body,
                             headers={'Content-Type': 'application/test'})
         resp = req.get_response(app)
         self.assertEqual('201 Created', resp.status)
@@ -103,7 +108,10 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         return resp
 
     def _post_object(self, app):
-        req = Request.blank(self.object_path, method='POST',
+        object_path = self.object_path
+        if not isinstance(object_path, bytes):
+            object_path = object_path.encode('utf8')
+        req = Request.blank(object_path, method='POST',
                             headers={'Content-Type': 'application/test',
                                      'X-Object-Meta-Fruit': 'Kiwi'})
         resp = req.get_response(app)
@@ -111,7 +119,10 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         return resp
 
     def _copy_object(self, app, destination):
-        req = Request.blank(self.object_path, method='COPY',
+        object_path = self.object_path
+        if not isinstance(object_path, bytes):
+            object_path = object_path.encode('utf8')
+        req = Request.blank(object_path, method='COPY',
                             headers={'Destination': destination})
         resp = req.get_response(app)
         self.assertEqual('201 Created', resp.status)
@@ -120,6 +131,8 @@ class TestCryptoPipelineChanges(unittest.TestCase):
 
     def _check_GET_and_HEAD(self, app, object_path=None):
         object_path = object_path or self.object_path
+        if not isinstance(object_path, bytes):
+            object_path = object_path.encode('utf8')
         req = Request.blank(object_path, method='GET')
         resp = req.get_response(app)
         self.assertEqual('200 OK', resp.status)
@@ -129,13 +142,15 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         req = Request.blank(object_path, method='HEAD')
         resp = req.get_response(app)
         self.assertEqual('200 OK', resp.status)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
         self.assertEqual('Kiwi', resp.headers['X-Object-Meta-Fruit'])
 
     def _check_match_requests(self, method, app, object_path=None):
         object_path = object_path or self.object_path
+        if not isinstance(object_path, bytes):
+            object_path = object_path.encode('utf8')
         # verify conditional match requests
-        expected_body = self.plaintext if method == 'GET' else ''
+        expected_body = self.plaintext if method == 'GET' else b''
 
         # If-Match matches
         req = Request.blank(object_path, method=method,
@@ -160,7 +175,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                             headers={'If-Match': '"not the etag"'})
         resp = req.get_response(app)
         self.assertEqual('412 Precondition Failed', resp.status)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
         self.assertEqual(self.plaintext_etag, resp.headers['Etag'])
 
         # If-None-Match matches
@@ -169,7 +184,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
             headers={'If-None-Match': '"%s"' % self.plaintext_etag})
         resp = req.get_response(app)
         self.assertEqual('304 Not Modified', resp.status)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
         self.assertEqual(self.plaintext_etag, resp.headers['Etag'])
 
         # If-None-Match wildcard
@@ -177,7 +192,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                             headers={'If-None-Match': '*'})
         resp = req.get_response(app)
         self.assertEqual('304 Not Modified', resp.status)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
         self.assertEqual(self.plaintext_etag, resp.headers['Etag'])
 
         # If-None-Match does not match
@@ -191,6 +206,8 @@ class TestCryptoPipelineChanges(unittest.TestCase):
 
     def _check_listing(self, app, expect_mismatch=False, container_path=None):
         container_path = container_path or self.container_path
+        if not isinstance(container_path, bytes):
+            container_path = container_path.encode('utf8')
         req = Request.blank(
             container_path, method='GET', query_string='format=json')
         resp = req.get_response(app)
@@ -351,7 +368,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         req = Request.blank(self.object_path, method='HEAD')
         resp = req.get_response(app)
         self.assertEqual('200 OK', resp.status)
-        self.assertEqual('', resp.body)
+        self.assertEqual(b'', resp.body)
         self.assertNotEqual('Kiwi', resp.headers['X-Object-Meta-Fruit'])
 
     def test_write_with_crypto_read_without_crypto(self):
@@ -427,9 +444,9 @@ class TestCryptoPipelineChanges(unittest.TestCase):
             crypto_meta = crypto_meta_param[len('swift_meta='):]
             listing_etag_iv = load_crypto_meta(crypto_meta)['iv']
             exp_enc_listing_etag = base64.b64encode(
-                encrypt(self.plaintext_etag,
+                encrypt(self.plaintext_etag.encode('ascii'),
                         self.km.create_key('/a/%s' % self.container_name),
-                        listing_etag_iv))
+                        listing_etag_iv)).decode('ascii')
             self.assertEqual(exp_enc_listing_etag, parts[0])
 
         # Verify diskfile data and metadata is encrypted
@@ -446,7 +463,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                                      policy=policy)
             with df.open():
                 meta = df.get_metadata()
-                contents = ''.join(df.reader())
+                contents = b''.join(df.reader())
                 metadata = dict((k.lower(), v) for k, v in meta.items())
                 # verify on disk data - body
                 body_iv = load_crypto_meta(
@@ -463,8 +480,8 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                     'x-object-transient-sysmeta-crypto-meta-fruit'].split(';')
                 meta = meta.strip()[len('swift_meta='):]
                 metadata_iv = load_crypto_meta(meta)['iv']
-                exp_enc_meta = base64.b64encode(encrypt('Kiwi', obj_key,
-                                                        metadata_iv))
+                exp_enc_meta = base64.b64encode(encrypt(
+                    b'Kiwi', obj_key, metadata_iv)).decode('ascii')
                 self.assertEqual(exp_enc_meta, enc_val)
                 self.assertNotIn('x-object-meta-fruit', metadata)
 
@@ -486,14 +503,16 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                 actual_enc_etag, _junk, actual_etag_meta = metadata[
                     'x-object-sysmeta-crypto-etag'].partition('; swift_meta=')
                 etag_iv = load_crypto_meta(actual_etag_meta)['iv']
-                exp_enc_etag = base64.b64encode(encrypt(self.plaintext_etag,
-                                                        obj_key, etag_iv))
+                exp_enc_etag = base64.b64encode(encrypt(
+                    self.plaintext_etag.encode('ascii'),
+                    obj_key, etag_iv)).decode('ascii')
                 self.assertEqual(exp_enc_etag, actual_enc_etag)
 
                 # verify etag hmac
                 exp_etag_mac = hmac.new(
-                    obj_key, self.plaintext_etag, digestmod=hashlib.sha256)
-                exp_etag_mac = base64.b64encode(exp_etag_mac.digest())
+                    obj_key, self.plaintext_etag.encode('ascii'),
+                    digestmod=hashlib.sha256).digest()
+                exp_etag_mac = base64.b64encode(exp_etag_mac).decode('ascii')
                 self.assertEqual(exp_etag_mac,
                                  metadata['x-object-sysmeta-crypto-etag-mac'])
 
@@ -505,8 +524,8 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                 listing_etag_iv = load_crypto_meta(crypto_meta)['iv']
                 cont_key = self.km.create_key('/a/%s' % self.container_name)
                 exp_enc_listing_etag = base64.b64encode(
-                    encrypt(self.plaintext_etag, cont_key,
-                            listing_etag_iv))
+                    encrypt(self.plaintext_etag.encode('ascii'), cont_key,
+                            listing_etag_iv)).decode('ascii')
                 self.assertEqual(exp_enc_listing_etag, parts[0])
 
         self._check_GET_and_HEAD(self.crypto_app)

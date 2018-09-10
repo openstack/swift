@@ -79,7 +79,7 @@ def update_headers(response, headers):
     if hasattr(headers, 'items'):
         headers = headers.items()
     for name, value in headers:
-        if name == 'etag':
+        if name.lower() == 'etag':
             response.headers[name] = value.replace('"', '')
         elif name.lower() not in (
                 'date', 'content-length', 'content-type',

@@ -55,7 +55,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
-    HTTPServerError
+    HTTPServerError, wsgi_to_bytes
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 
 
@@ -537,7 +537,7 @@ class ObjectController(BaseStorageServer):
         """
         timeout_reader = self._make_timeout_reader(footer_iter)
         try:
-            footer_body = ''.join(iter(timeout_reader, ''))
+            footer_body = b''.join(iter(timeout_reader, b''))
         except ChunkReadError:
             raise HTTPClientDisconnect()
         except ChunkReadTimeout:
@@ -826,8 +826,8 @@ class ObjectController(BaseStorageServer):
         if have_metadata_footer or use_multiphase_commit:
             obj_input.set_hundred_continue_response_headers(
                 hundred_continue_headers)
-            mime_boundary = request.headers.get(
-                'X-Backend-Obj-Multipart-Mime-Boundary')
+            mime_boundary = wsgi_to_bytes(request.headers.get(
+                'X-Backend-Obj-Multipart-Mime-Boundary'))
             if not mime_boundary:
                 raise HTTPBadRequest("no MIME boundary")
 
@@ -855,7 +855,7 @@ class ObjectController(BaseStorageServer):
         elapsed_time = 0
         upload_expiration = time.time() + self.max_upload_time
         timeout_reader = self._make_timeout_reader(obj_input)
-        for chunk in iter(timeout_reader, ''):
+        for chunk in iter(timeout_reader, b''):
             start_time = time.time()
             if start_time > upload_expiration:
                 self.logger.increment('PUT.timeouts')
@@ -1342,7 +1342,7 @@ class ObjectController(BaseStorageServer):
                     except Exception:
                         self.logger.exception("zero_copy_send() blew up")
                         raise
-                    yield ''
+                    yield b''
 
                 # Get headers ready to go out
                 res(env, start_response)
