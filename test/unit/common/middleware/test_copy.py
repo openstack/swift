@@ -15,12 +15,9 @@
 # limitations under the License.
 
 import mock
-import shutil
-import tempfile
 import unittest
 from hashlib import md5
 from six.moves import urllib
-from textwrap import dedent
 
 from swift.common import swob
 from swift.common.middleware import copy
@@ -1279,52 +1276,6 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         req = swob.Request.blank('/v1/a/c1/o', method='GET')
         status, headers, body = self.call_ssc(req)
         self.assertEqual('fghijk', body)
-
-
-class TestServerSideCopyConfiguration(unittest.TestCase):
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir)
-
-    def _test_post_as_copy_emits_warning(self, conf):
-        with mock.patch('swift.common.middleware.copy.get_logger',
-                        return_value=debug_logger('copy')):
-            ssc = copy.filter_factory(conf)("no app here")
-
-        self.assertEqual(ssc.object_post_as_copy, True)
-        log_lines = ssc.logger.get_lines_for_level('warning')
-        self.assertEqual(1, len(log_lines))
-        self.assertIn('object_post_as_copy=true is deprecated', log_lines[0])
-
-    def test_post_as_copy_emits_warning(self):
-        self._test_post_as_copy_emits_warning({'object_post_as_copy': 'yes'})
-
-        proxy_conf = dedent("""
-        [DEFAULT]
-        bind_ip = 10.4.5.6
-
-        [pipeline:main]
-        pipeline = catch_errors copy ye-olde-proxy-server
-
-        [filter:catch_errors]
-        use = egg:swift#catch_errors
-
-        [filter:copy]
-        use = egg:swift#copy
-
-        [app:ye-olde-proxy-server]
-        use = egg:swift#proxy
-        object_post_as_copy = yes
-        """)
-
-        conffile = tempfile.NamedTemporaryFile()
-        conffile.write(proxy_conf)
-        conffile.flush()
-
-        self._test_post_as_copy_emits_warning({'__file__': conffile.name})
 
 
 @patch_policies(with_ec_default=True)
