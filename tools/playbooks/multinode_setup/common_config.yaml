@@ -1,0 +1,75 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- hosts: swift-cluster
+  become: true
+  tasks:
+
+    - name: create /var/run/swift
+      file:
+        path: '/var/run/swift' 
+        owner: '{{ ansible_user_id }}'
+        group: '{{ ansible_user_gid }}'
+        state: directory
+
+    - name: create /var/cache/swift
+      file:
+        path: '/var/cache/swift'
+        owner: '{{ ansible_user_id }}'
+        group: '{{ ansible_user_gid }}'
+        state: directory
+
+    - name: create rc.local from template
+      template: src=rc.local.j2 dest=/etc/rc.d/rc.local owner=root group=root mode=0755
+
+    - name: set selinux to permissive
+      selinux: policy=targeted state=disabled
+
+    - name: configure rsyslog
+      command: cp {{ zuul.project.src_dir }}/doc/saio/rsyslog.d/10-swift.conf /etc/rsyslog.d/
+
+    - name: modify /etc/rsyslog.conf
+      lineinfile: dest=/etc/rsyslog.conf
+                  line="$PrivDropToGroup adm"
+                  create=yes
+                  insertafter="^#### GLOBAL DIRECTIVES"
+
+    - name: assure /var/log/swift directory exists
+      file:
+         path: '/var/log/swift'
+         state: directory
+         owner: root
+         group: adm
+         mode: 'g+wt'
+
+    - name: restart rsyslog
+      service: name=rsyslog state=restarted enabled=yes
+
+    - name: clean up /etc/swift directory
+      file:
+        path: '/etc/swift'
+        state: absent
+
+    - name: create /etc/swift directory
+      file:
+        path: '/etc/swift'
+        state: directory
+        owner: '{{ ansible_user_id }}'
+        group: '{{ ansible_user_gid }}'
+
+- hosts: test-runner
+  tasks:
+    - name: add new env. variable for running tests
+      lineinfile: dest=/home/{{ ansible_ssh_user }}/.bashrc line="export SWIFT_TEST_CONFIG_FILE=/home/{{ ansible_ssh_user}}/test.conf"
+
+    - name: copy the sample configuration files for running tests
+      template: src=test.conf.j2 dest=/home/{{ ansible_ssh_user }}/test.conf

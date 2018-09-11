@@ -22,4 +22,8 @@
         - python-pyeclib
         - python-nose
         - python-swiftclient
-      become: true
+
+    - name: install python modules with pip
+      pip: name={{ item }} state=present extra_args='--upgrade'
+      with_items:
+        - crudini

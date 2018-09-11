@@ -1,0 +1,120 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- hosts: all
+  tasks:
+    - name: get latest release
+      shell:
+        cmd: git describe --abbrev=0
+        executable: /bin/bash
+        chdir: '{{ zuul.project.src_dir }}'
+      register: latest_swift_release
+
+    - name: "checkout a previous version: {{ previous_swift_version | default(latest_swift_release.stdout) }}"
+      shell:
+        cmd: git checkout {{ previous_swift_verion | default(latest_swift_release.stdout) }} -b previous_swift_version
+        executable: /bin/bash
+        chdir: '{{ zuul.project.src_dir }}'
+
+    - name: install swift
+      become: true
+      shell:
+        cmd: python setup.py develop
+        executable: /bin/bash
+        chdir: '{{ zuul.project.src_dir }}'
+
+
+- hosts: proxy
+  become: true
+  tasks:
+    - name: start memcache
+      service: name=memcached state=started enabled=yes
+
+    - name: copy proxy-server.conf file
+      command: cp -r {{ zuul.project.src_dir }}/doc/saio/swift/proxy-server.conf /etc/swift
+
+    - name: set the options in the proxy config file
+      shell:
+        cmd: |
+          crudini --set /etc/swift/proxy-server.conf DEFAULT bind_ip {{ hostvars['proxy1'].nodepool.public_ipv4 }}
+          crudini --set /etc/swift/proxy-server.conf DEFAULT user {{ ansible_user_id }}
+        executable: /bin/bash
+
+- hosts: account
+  become: true
+  tasks:
+    - name: copy account-server.conf file
+      command: cp -r {{ zuul.project.src_dir }}/doc/saio/swift/account-server/1.conf /etc/swift/account-server.conf
+
+    - name: set the options in the account config file
+      shell:
+        cmd: |
+          crudini --set /etc/swift/account-server.conf DEFAULT bind_ip {{ hostvars['account1'].nodepool.public_ipv4 }}
+          crudini --set /etc/swift/account-server.conf DEFAULT user {{ ansible_user_id }}
+        executable: /bin/bash
+
+- hosts: container
+  become: true
+  tasks:
+    - name: copy container-server.conf file
+      command: cp -r {{ zuul.project.src_dir }}/doc/saio/swift/container-server/1.conf /etc/swift/container-server.conf
+
+    - name: set the options in the container config file
+      shell:
+        cmd: |
+          crudini --set /etc/swift/container-server.conf DEFAULT bind_ip {{ hostvars['container1'].nodepool.public_ipv4 }}
+          crudini --set /etc/swift/container-server.conf DEFAULT user {{ ansible_user_id }}
+        executable: /bin/bash
+
+- hosts: object
+  become: true
+  tasks:
+    - name: copy object-server.conf file
+      command: cp -r {{ zuul.project.src_dir }}/doc/saio/swift/object-server/1.conf /etc/swift/object-server.conf
+
+    - name: set the options in the object config file
+      shell:
+        cmd: |
+          crudini --set /etc/swift/object-server.conf DEFAULT bind_ip {{ hostvars['object1'].nodepool.public_ipv4 }}
+          crudini --set /etc/swift/object-server.conf DEFAULT user {{ ansible_user_id }}
+        executable: /bin/bash
+
+- hosts: swift-cluster
+  become: true
+  tasks:
+    - name: copy swift.conf
+      command: cp -r {{ zuul.project.src_dir }}/doc/saio/swift/swift.conf /etc/swift
+
+    - name: set correct ownership of /etc/swift
+      file: path=/etc/swift owner={{ ansible_user_id }} group={{ ansible_user_gid }} recurse=yes
+
+- hosts: test-runner
+  tasks:
+
+    - name: create remakerings from template
+      template: src=make_multinode_rings.j2 dest=/home/{{ ansible_ssh_user }}/make_multinode_rings mode=0755
+
+    - name: create rings dir
+      file: >
+        path=/home/{{ ansible_ssh_user }}/rings
+        state=directory
+
+    - name: make rings
+      shell:
+        cmd: /home/{{ ansible_ssh_user }}/make_multinode_rings
+        executable: /bin/bash
+
+    - name: scp rings to all swift-cluster nodes
+      command: scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o ConnectionAttempts=360 /home/{{ ansible_ssh_user }}/rings/{{ item[0] }} {{ ansible_ssh_user }}@{{ hostvars[item[1]].nodepool.public_ipv4 }}:/etc/swift
+      with_nested:
+        - ['account.ring.gz', 'container.ring.gz', 'object.ring.gz', 'object-1.ring.gz', 'object-2.ring.gz']
+        - "{{ groups['swift-cluster'] }}"

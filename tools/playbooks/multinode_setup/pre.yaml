@@ -1,0 +1,8 @@
+- hosts: all
+  roles:
+    # Run bindep and test-setup after devstack so that they won't interfere
+    - role: bindep
+      bindep_profile: test
+      bindep_dir: "{{ zuul_work_dir }}"
+    - test-setup
+    - ensure-tox
