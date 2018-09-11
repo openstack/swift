@@ -139,12 +139,12 @@ def check_metadata(req, target_type):
             continue
         key = key[len(prefix):]
         if not key:
-            return HTTPBadRequest(body=b'Metadata name cannot be empty',
+            return HTTPBadRequest(body='Metadata name cannot be empty',
                                   request=req, content_type='text/plain')
         bad_key = not check_utf8(wsgi_to_str(key))
         bad_value = value and not check_utf8(wsgi_to_str(value))
         if target_type in ('account', 'container') and (bad_key or bad_value):
-            return HTTPBadRequest(body=b'Metadata must be valid UTF-8',
+            return HTTPBadRequest(body='Metadata must be valid UTF-8',
                                   request=req, content_type='text/plain')
         meta_count += 1
         meta_size += len(key) + len(value)
@@ -160,11 +160,11 @@ def check_metadata(req, target_type):
                 request=req, content_type='text/plain')
         if meta_count > MAX_META_COUNT:
             return HTTPBadRequest(
-                body=b'Too many metadata items; max %d' % MAX_META_COUNT,
+                body='Too many metadata items; max %d' % MAX_META_COUNT,
                 request=req, content_type='text/plain')
         if meta_size > MAX_META_OVERALL_SIZE:
             return HTTPBadRequest(
-                body=b'Total metadata too large; max %d'
+                body='Total metadata too large; max %d'
                 % MAX_META_OVERALL_SIZE,
                 request=req, content_type='text/plain')
     return None
@@ -187,22 +187,22 @@ def check_object_creation(req, object_name):
         ml = req.message_length()
     except ValueError as e:
         return HTTPBadRequest(request=req, content_type='text/plain',
-                              body=str(e).encode('ascii'))
+                              body=str(e))
     except AttributeError as e:
         return HTTPNotImplemented(request=req, content_type='text/plain',
-                                  body=str(e).encode('ascii'))
+                                  body=str(e))
     if ml is not None and ml > MAX_FILE_SIZE:
-        return HTTPRequestEntityTooLarge(body=b'Your request is too large.',
+        return HTTPRequestEntityTooLarge(body='Your request is too large.',
                                          request=req,
                                          content_type='text/plain')
     if req.content_length is None and \
             req.headers.get('transfer-encoding') != 'chunked':
-        return HTTPLengthRequired(body=b'Missing Content-Length header.',
+        return HTTPLengthRequired(body='Missing Content-Length header.',
                                   request=req,
                                   content_type='text/plain')
 
     if len(object_name) > MAX_OBJECT_NAME_LENGTH:
-        return HTTPBadRequest(body=b'Object name length of %d longer than %d' %
+        return HTTPBadRequest(body='Object name length of %d longer than %d' %
                               (len(object_name), MAX_OBJECT_NAME_LENGTH),
                               request=req, content_type='text/plain')
 
@@ -217,7 +217,7 @@ def check_object_creation(req, object_name):
                               content_type='text/plain')
 
     if not check_utf8(wsgi_to_str(req.headers['Content-Type'])):
-        return HTTPBadRequest(request=req, body=b'Invalid Content-Type',
+        return HTTPBadRequest(request=req, body='Invalid Content-Type',
                               content_type='text/plain')
     return check_metadata(req, 'object')
 
@@ -300,7 +300,7 @@ def valid_timestamp(request):
     try:
         return request.timestamp
     except exceptions.InvalidTimestamp as e:
-        raise HTTPBadRequest(body=str(e).encode('ascii'), request=request,
+        raise HTTPBadRequest(body=str(e), request=request,
                              content_type='text/plain')
 
 
@@ -325,13 +325,13 @@ def check_delete_headers(request):
         except ValueError:
             raise HTTPBadRequest(request=request,
                                  content_type='text/plain',
-                                 body=b'Non-integer X-Delete-After')
+                                 body='Non-integer X-Delete-After')
         actual_del_time = utils.normalize_delete_at_timestamp(
             now + x_delete_after)
         if int(actual_del_time) <= now:
             raise HTTPBadRequest(request=request,
                                  content_type='text/plain',
-                                 body=b'X-Delete-After in past')
+                                 body='X-Delete-After in past')
         request.headers['x-delete-at'] = actual_del_time
         del request.headers['x-delete-after']
 
@@ -341,12 +341,12 @@ def check_delete_headers(request):
                 int(request.headers['x-delete-at'])))
         except ValueError:
             raise HTTPBadRequest(request=request, content_type='text/plain',
-                                 body=b'Non-integer X-Delete-At')
+                                 body='Non-integer X-Delete-At')
 
         if x_delete_at <= now and not utils.config_true_value(
                 request.headers.get('x-backend-replication', 'f')):
             raise HTTPBadRequest(request=request, content_type='text/plain',
-                                 body=b'X-Delete-At in past')
+                                 body='X-Delete-At in past')
     return request
 
 
@@ -407,19 +407,19 @@ def check_name_format(req, name, target_type):
     if not name:
         raise HTTPPreconditionFailed(
             request=req,
-            body=b'%s name cannot be empty' % target_type)
+            body='%s name cannot be empty' % target_type)
     if isinstance(name, six.text_type):
         name = name.encode('utf-8')
     if b'/' in name:
         raise HTTPPreconditionFailed(
             request=req,
-            body=b'%s name cannot contain slashes' % target_type)
+            body='%s name cannot contain slashes' % target_type)
     return name
 
 check_account_format = functools.partial(check_name_format,
-                                         target_type=b'Account')
+                                         target_type='Account')
 check_container_format = functools.partial(check_name_format,
-                                           target_type=b'Container')
+                                           target_type='Container')
 
 
 def valid_api_version(version):
