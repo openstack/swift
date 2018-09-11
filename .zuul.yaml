@@ -151,6 +151,15 @@
     post-run: tools/playbooks/dsvm/post.yaml
 
 - job:
+    name: swift-dsvm-functional-ipv6
+    parent: swift-dsvm-functional
+    vars:
+      devstack_localrc:
+        SERVICE_IP_VERSION: 6
+        HOST_IPV6: '[::1]'
+        SERVICE_HOST: '[::1]'
+
+- job:
     name: swift-probetests-centos-7
     parent: unittests
     nodeset: centos-7
@@ -217,6 +226,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-dsvm-functional-ipv6:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - legacy-tempest-dsvm-neutron-full:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -273,6 +287,11 @@
               - ^test/(unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-dsvm-functional:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-dsvm-functional-ipv6:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
