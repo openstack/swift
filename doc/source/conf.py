@@ -133,7 +133,10 @@ html_theme = 'openstackdocs'
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
-# html_theme_options = {}
+html_theme_options = {
+    # turn off the "these docs aren't current" banner
+    'display_badge': False,
+}
 
 # Add any paths that contain custom themes here, relative to this directory.
 # html_theme_path = []
