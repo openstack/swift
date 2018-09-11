@@ -42,6 +42,20 @@
       bindep_profile: test py35
 
 - job:
+    name: swift-tox-py36
+    parent: swift-tox-base
+    nodeset: ubuntu-bionic
+    description: |
+      Run unit-tests for swift under cPython version 3.6.
+
+      Uses tox with the ``py36`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py36
+      bindep_profile: test py36
+
+- job:
     name: swift-tox-func
     parent: swift-tox-base
     description: |
@@ -189,6 +203,11 @@
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
+        - swift-tox-py36:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+            voting: false
         - swift-tox-func:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
