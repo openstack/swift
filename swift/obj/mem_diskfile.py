@@ -97,7 +97,6 @@ class DiskFileWriter(object):
 
     :param fs: internal file system object to use
     :param name: standard object name
-    :param fp: `StringIO` in-memory representation object
     """
     def __init__(self, fs, name):
         self._filesystem = fs
@@ -106,10 +105,21 @@ class DiskFileWriter(object):
         self._upload_size = 0
 
     def open(self):
+        """
+        Prepare to accept writes.
+
+        Create a new ``StringIO`` object for a started-but-not-yet-finished
+        PUT.
+        """
         self._fp = moves.cStringIO()
         return self
 
     def close(self):
+        """
+        Clean up resources following an ``open()``.
+
+        Note: If ``put()`` has not been called, the data written will be lost.
+        """
         self._fp = None
 
     def write(self, chunk):

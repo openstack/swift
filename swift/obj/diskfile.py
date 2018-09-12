@@ -1643,11 +1643,7 @@ class BaseDiskFileWriter(object):
 
     @property
     def logger(self):
-        try:
-            return self._logger
-        except AttributeError:
-            self._logger = self.manager.logger
-        return self._logger
+        return self.manager.logger
 
     def _get_tempfile(self):
         fallback_to_mkstemp = False
@@ -1674,6 +1670,9 @@ class BaseDiskFileWriter(object):
         return fd, tmppath
 
     def open(self):
+        if self._fd is not None:
+            raise ValueError('DiskFileWriter is already open')
+
         try:
             self._fd, self._tmppath = self._get_tempfile()
         except OSError as err:
@@ -1696,6 +1695,7 @@ class BaseDiskFileWriter(object):
                 os.close(self._fd)
             except OSError:
                 pass
+            self._fd = None
         if self._tmppath and not self._put_succeeded:
             # Try removing the temp file only if put did NOT succeed.
             #
@@ -1707,6 +1707,7 @@ class BaseDiskFileWriter(object):
             except OSError:
                 self.logger.exception('Error removing tempfile: %s' %
                                       self._tmppath)
+            self._tmppath = None
 
     def write(self, chunk):
         """
@@ -1719,6 +1720,9 @@ class BaseDiskFileWriter(object):
 
         :returns: the total number of bytes written to an object
         """
+
+        if not self._fd:
+            raise ValueError('Writer is not open')
 
         while chunk:
             written = os.write(self._fd, chunk)
