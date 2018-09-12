@@ -29,12 +29,11 @@ from eventlet.green import subprocess
 
 import swift.common.db
 from swift.common.constraints import check_drive
-from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
     json, parse_override_options, round_robin_iter, Everything, get_db_files, \
-    parse_db_filename
+    parse_db_filename, quote
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE, \
