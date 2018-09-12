@@ -3537,6 +3537,23 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             with df.create():
                 self.assertTrue(os.path.exists(tmpdir))
 
+    def test_disk_file_writer(self):
+        df = self._simple_get_diskfile()
+        with df.create() as writer:
+            self.assertIsInstance(writer, diskfile.BaseDiskFileWriter)
+            # create automatically opens for us
+            self.assertIsNotNone(writer._fd)
+            # can't re-open since we're already open
+            with self.assertRaises(ValueError):
+                writer.open()
+            writer.write(b'asdf')
+            writer.close()
+            # can't write any more
+            with self.assertRaises(ValueError):
+                writer.write(b'asdf')
+            # can close again
+            writer.close()
+
     def _get_open_disk_file(self, invalid_type=None, obj_name='o', fsize=1024,
                             csize=8, mark_deleted=False, prealloc=False,
                             ts=None, mount_check=False, extra_metadata=None,
