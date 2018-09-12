@@ -2,6 +2,12 @@
 SAIO - Swift All In One
 =======================
 
+.. note::
+    This guide assumes an existing Linux server. A physical machine or VM will
+    work. We recommend configuring it with at least 2GB of memory and 40GB of
+    storage space. We recommend using a VM in order to isolate Swift and its
+    dependencies from other projects you may be working on.
+
 ---------------------------------------------
 Instructions for setting up a development VM
 ---------------------------------------------
