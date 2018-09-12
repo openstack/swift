@@ -99,11 +99,18 @@ class DiskFileWriter(object):
     :param name: standard object name
     :param fp: `StringIO` in-memory representation object
     """
-    def __init__(self, fs, name, fp):
+    def __init__(self, fs, name):
         self._filesystem = fs
         self._name = name
-        self._fp = fp
+        self._fp = None
         self._upload_size = 0
+
+    def open(self):
+        self._fp = moves.cStringIO()
+        return self
+
+    def close(self):
+        self._fp = None
 
     def write(self, chunk):
         """
@@ -413,6 +420,9 @@ class DiskFile(object):
         self._fp = None
         return dr
 
+    def writer(self, size=None):
+        return DiskFileWriter(self._filesystem, self._name)
+
     @contextmanager
     def create(self, size=None):
         """
@@ -423,11 +433,11 @@ class DiskFile(object):
                      disk
         :raises DiskFileNoSpace: if a size is specified and allocation fails
         """
-        fp = moves.cStringIO()
+        writer = self.writer(size)
         try:
-            yield DiskFileWriter(self._filesystem, self._name, fp)
+            yield writer.open()
         finally:
-            del fp
+            writer.close()
 
     def write_metadata(self, metadata):
         """
