@@ -1179,6 +1179,9 @@ class Response(object):
         self._conditional_etag = conditional_etag
         self.request = request
         self._app_iter = None
+        # Allow error messages to come as natural strings on py3.
+        if isinstance(body, six.text_type):
+            body = body.encode('utf8')
         self.body = body
         self.app_iter = app_iter
         self.response_iter = None
