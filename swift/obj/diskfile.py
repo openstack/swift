@@ -1343,8 +1343,7 @@ class BaseDiskFileManager(object):
         return self.diskfile_cls(self, dev_path,
                                  partition, account, container, obj,
                                  policy=policy, use_splice=self.use_splice,
-                                 pipe_size=self.pipe_size,
-                                 use_linkat=self.use_linkat, **kwargs)
+                                 pipe_size=self.pipe_size, **kwargs)
 
     def clear_auditor_status(self, policy, auditor_type="ALL"):
         datadir = get_data_dir(policy)
@@ -2201,7 +2200,6 @@ class BaseDiskFile(object):
     :param policy: the StoragePolicy instance
     :param use_splice: if true, use zero-copy splice() to send data
     :param pipe_size: size of pipe buffer used in zero-copy operations
-    :param use_linkat: if True, use open() with linkat() to create obj file
     :param open_expired: if True, open() will not raise a DiskFileExpired if
                          object is expired
     :param next_part_power: the next partition power to be used
