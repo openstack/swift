@@ -3533,7 +3533,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                   diskfile.get_tmp_dir(policy))
             os.rmdir(tmpdir)
             df = self._simple_get_diskfile(policy=policy)
-            df._use_linkat = False
+            df.manager.use_linkat = False
             with df.create():
                 self.assertTrue(os.path.exists(tmpdir))
 
@@ -3902,7 +3902,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_create_mkstemp_no_space(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
-        df._use_linkat = False
+        df.manager.use_linkat = False
         for e in (errno.ENOSPC, errno.EDQUOT):
             with mock.patch("swift.obj.diskfile.mkstemp",
                             mock.MagicMock(side_effect=OSError(
@@ -4958,7 +4958,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # Test cleanup when DiskFileNoSpace() is raised.
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
-        df._use_linkat = False
+        df.manager.use_linkat = False
         _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
                                       os.strerror(errno.ENOSPC)))
         _m_unlink = mock.Mock()
@@ -4981,7 +4981,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     os.strerror(errno.ENOENT)))
         _m_unlink = mock.Mock()
         df = self._simple_get_diskfile()
-        df._use_linkat = False
+        df.manager.use_linkat = False
         data = '0' * 100
         metadata = {
             'ETag': md5(data).hexdigest(),
@@ -4998,7 +4998,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     pass
                 else:
                     self.fail("Expected OSError exception")
-        self.assertFalse(writer.put_succeeded)
+        self.assertFalse(writer._put_succeeded)
         self.assertTrue(_m_renamer.called)
         self.assertTrue(_m_unlink.called)
         self.assertNotIn('error', self.logger.all_log_lines())
@@ -5007,7 +5007,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # Test logging of os.unlink() failures.
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
-        df._use_linkat = False
+        df.manager.use_linkat = False
         _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
                                       os.strerror(errno.ENOSPC)))
         _m_unlink = mock.MagicMock(side_effect=OSError(errno.ENOENT,
@@ -5030,14 +5030,15 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     @requires_o_tmpfile_support
     def test_get_tempfile_use_linkat_os_open_called(self):
         df = self._simple_get_diskfile()
-        self.assertTrue(df._use_linkat)
+        self.assertTrue(df.manager.use_linkat)
         _m_mkstemp = mock.MagicMock()
         _m_os_open = mock.Mock(return_value=12345)
         _m_mkc = mock.Mock()
         with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
             with mock.patch("swift.obj.diskfile.os.open", _m_os_open):
                 with mock.patch("swift.obj.diskfile.makedirs_count", _m_mkc):
-                    fd, tmppath = df._get_tempfile()
+                    writer = df.writer()
+                    fd, tmppath = writer._get_tempfile()
         self.assertTrue(_m_mkc.called)
         flags = O_TMPFILE | os.O_WRONLY
         _m_os_open.assert_called_once_with(df._datadir, flags)
@@ -5049,7 +5050,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_get_tempfile_fallback_to_mkstemp(self):
         df = self._simple_get_diskfile()
         df._logger = debug_logger()
-        self.assertTrue(df._use_linkat)
+        self.assertTrue(df.manager.use_linkat)
         for err in (errno.EOPNOTSUPP, errno.EISDIR, errno.EINVAL):
             _m_open = mock.Mock(side_effect=OSError(err, os.strerror(err)))
             _m_mkstemp = mock.MagicMock(return_value=(0, "blah"))
@@ -5058,14 +5059,15 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
                     with mock.patch("swift.obj.diskfile.makedirs_count",
                                     _m_mkc):
-                        fd, tmppath = df._get_tempfile()
+                        writer = df.writer()
+                        fd, tmppath = writer._get_tempfile()
             self.assertTrue(_m_mkc.called)
             # Fallback should succeed and mkstemp() should be called.
             self.assertTrue(_m_mkstemp.called)
             self.assertEqual(tmppath, "blah")
             # Despite fs not supporting O_TMPFILE, use_linkat should not change
-            self.assertTrue(df._use_linkat)
-            log = df._logger.get_lines_for_level('warning')
+            self.assertTrue(df.manager.use_linkat)
+            log = df.manager.logger.get_lines_for_level('warning')
             self.assertGreater(len(log), 0)
             self.assertTrue('O_TMPFILE' in log[-1])
 
@@ -5080,7 +5082,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
                 with mock.patch("swift.obj.diskfile.makedirs_count", _m_mkc):
                     try:
-                        fd, tmppath = df._get_tempfile()
+                        writer = df.writer()
+                        fd, tmppath = writer._get_tempfile()
                     except OSError as err:
                         self.assertEqual(err.errno, errno.ENOSPC)
                     else:
@@ -5103,7 +5106,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             with df.create(size=100) as writer:
                 writer.write(data)
                 writer.put(metadata)
-                self.assertTrue(writer.put_succeeded)
+                self.assertTrue(writer._put_succeeded)
 
         self.assertFalse(_m_renamer.called)
 

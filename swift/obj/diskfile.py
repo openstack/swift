@@ -1619,13 +1619,14 @@ class BaseDiskFileWriter(object):
     :param next_part_power: the next partition power to be used
     """
 
-    def __init__(self, name, datadir, fd, tmppath, bytes_per_sync, diskfile,
+    def __init__(self, name, datadir, size, bytes_per_sync, diskfile,
                  next_part_power):
         # Parameter tracking
         self._name = name
         self._datadir = datadir
-        self._fd = fd
-        self._tmppath = tmppath
+        self._fd = None
+        self._tmppath = None
+        self._size = size
         self._bytes_per_sync = bytes_per_sync
         self._diskfile = diskfile
         self.next_part_power = next_part_power
@@ -1641,8 +1642,71 @@ class BaseDiskFileWriter(object):
         return self._diskfile.manager
 
     @property
-    def put_succeeded(self):
-        return self._put_succeeded
+    def logger(self):
+        try:
+            return self._logger
+        except AttributeError:
+            self._logger = self.manager.logger
+        return self._logger
+
+    def _get_tempfile(self):
+        fallback_to_mkstemp = False
+        tmppath = None
+        if self.manager.use_linkat:
+            self._dirs_created = makedirs_count(self._datadir)
+            try:
+                fd = os.open(self._datadir, O_TMPFILE | os.O_WRONLY)
+            except OSError as err:
+                if err.errno in (errno.EOPNOTSUPP, errno.EISDIR, errno.EINVAL):
+                    msg = 'open(%s, O_TMPFILE | O_WRONLY) failed: %s \
+                           Falling back to using mkstemp()' \
+                           % (self._datadir, os.strerror(err.errno))
+                    self.logger.warning(msg)
+                    fallback_to_mkstemp = True
+                else:
+                    raise
+        if not self.manager.use_linkat or fallback_to_mkstemp:
+            tmpdir = join(self._diskfile._device_path,
+                          get_tmp_dir(self._diskfile.policy))
+            if not exists(tmpdir):
+                mkdirs(tmpdir)
+            fd, tmppath = mkstemp(dir=tmpdir)
+        return fd, tmppath
+
+    def open(self):
+        try:
+            self._fd, self._tmppath = self._get_tempfile()
+        except OSError as err:
+            if err.errno in (errno.ENOSPC, errno.EDQUOT):
+                # No more inodes in filesystem
+                raise DiskFileNoSpace()
+            raise
+        if self._size is not None and self._size > 0:
+            try:
+                fallocate(self._fd, self._size)
+            except OSError as err:
+                if err.errno in (errno.ENOSPC, errno.EDQUOT):
+                    raise DiskFileNoSpace()
+                raise
+        return self
+
+    def close(self):
+        if self._fd:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+        if self._tmppath and not self._put_succeeded:
+            # Try removing the temp file only if put did NOT succeed.
+            #
+            # dfw.put_succeeded is set to True after renamer() succeeds in
+            # DiskFileWriter._finalize_put()
+            try:
+                # when mkstemp() was used
+                os.unlink(self._tmppath)
+            except OSError:
+                self.logger.exception('Error removing tempfile: %s' %
+                                      self._tmppath)
 
     def write(self, chunk):
         """
@@ -2148,7 +2212,7 @@ class BaseDiskFile(object):
     def __init__(self, mgr, device_path, partition,
                  account=None, container=None, obj=None, _datadir=None,
                  policy=None, use_splice=False, pipe_size=None,
-                 use_linkat=False, open_expired=False, next_part_power=None,
+                 open_expired=False, next_part_power=None,
                  **kwargs):
         self._manager = mgr
         self._device_path = device_path
@@ -2157,7 +2221,6 @@ class BaseDiskFile(object):
         self._bytes_per_sync = mgr.bytes_per_sync
         self._use_splice = use_splice
         self._pipe_size = pipe_size
-        self._use_linkat = use_linkat
         self._open_expired = open_expired
         # This might look a lttle hacky i.e tracking number of newly created
         # dirs to fsync only those many later. If there is a better way,
@@ -2687,27 +2750,10 @@ class BaseDiskFile(object):
         self._fp = None
         return dr
 
-    def _get_tempfile(self):
-        fallback_to_mkstemp = False
-        tmppath = None
-        if self._use_linkat:
-            self._dirs_created = makedirs_count(self._datadir)
-            try:
-                fd = os.open(self._datadir, O_TMPFILE | os.O_WRONLY)
-            except OSError as err:
-                if err.errno in (errno.EOPNOTSUPP, errno.EISDIR, errno.EINVAL):
-                    msg = 'open(%s, O_TMPFILE | O_WRONLY) failed: %s \
-                           Falling back to using mkstemp()' \
-                           % (self._datadir, os.strerror(err.errno))
-                    self._logger.warning(msg)
-                    fallback_to_mkstemp = True
-                else:
-                    raise
-        if not self._use_linkat or fallback_to_mkstemp:
-            if not exists(self._tmpdir):
-                mkdirs(self._tmpdir)
-            fd, tmppath = mkstemp(dir=self._tmpdir)
-        return fd, tmppath
+    def writer(self, size=None):
+        return self.writer_cls(self._name, self._datadir, size,
+                               self._bytes_per_sync, self,
+                               self.next_part_power)
 
     @contextmanager
     def create(self, size=None):
@@ -2725,44 +2771,11 @@ class BaseDiskFile(object):
                      disk
         :raises DiskFileNoSpace: if a size is specified and allocation fails
         """
+        dfw = self.writer(size)
         try:
-            fd, tmppath = self._get_tempfile()
-        except OSError as err:
-            if err.errno in (errno.ENOSPC, errno.EDQUOT):
-                # No more inodes in filesystem
-                raise DiskFileNoSpace()
-            raise
-        dfw = None
-        try:
-            if size is not None and size > 0:
-                try:
-                    fallocate(fd, size)
-                except OSError as err:
-                    if err.errno in (errno.ENOSPC, errno.EDQUOT):
-                        raise DiskFileNoSpace()
-                    raise
-            dfw = self.writer_cls(self._name, self._datadir, fd, tmppath,
-                                  bytes_per_sync=self._bytes_per_sync,
-                                  diskfile=self,
-                                  next_part_power=self.next_part_power)
-            yield dfw
+            yield dfw.open()
         finally:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-            if (dfw is None) or (not dfw.put_succeeded):
-                # Try removing the temp file only if put did NOT succeed.
-                #
-                # dfw.put_succeeded is set to True after renamer() succeeds in
-                # DiskFileWriter._finalize_put()
-                try:
-                    if tmppath:
-                        # when mkstemp() was used
-                        os.unlink(tmppath)
-                except OSError:
-                    self._logger.exception('Error removing tempfile: %s' %
-                                           tmppath)
+            dfw.close()
 
     def write_metadata(self, metadata):
         """
