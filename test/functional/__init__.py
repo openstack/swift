@@ -589,6 +589,10 @@ def in_process_setup(the_object_server=object_server):
         'password': 'testing',
         's3_access_key': 'test:tester',
         's3_secret_key': 'testing',
+        # Secondary user of the primary test account (needs admin access
+        # to the account) for s3api
+        's3_access_key2': 'test:tester2',
+        's3_secret_key2': 'testing2',
         # User on a second account (needs admin access to the account)
         'account2': 'test2',
         'username2': 'tester2',
@@ -596,8 +600,8 @@ def in_process_setup(the_object_server=object_server):
         # User on same account as first, but without admin access
         'username3': 'tester3',
         'password3': 'testing3',
-        's3_access_key2': 'test:tester3',
-        's3_secret_key2': 'testing3',
+        's3_access_key3': 'test:tester3',
+        's3_secret_key3': 'testing3',
         # Service user and prefix (emulates glance, cinder, etc. user)
         'account5': 'test5',
         'username5': 'tester5',

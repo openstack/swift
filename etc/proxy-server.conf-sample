@@ -351,8 +351,9 @@ use = egg:swift#tempauth
 # Here are example entries, required for running the tests:
 user_admin_admin = admin .admin .reseller_admin
 user_test_tester = testing .admin
-user_test2_tester2 = testing2 .admin
+user_test_tester2 = testing2 .admin
 user_test_tester3 = testing3
+user_test2_tester2 = testing2 .admin
 user_test5_tester5 = testing5 service
 
 # To enable Keystone authentication you need to have the auth token

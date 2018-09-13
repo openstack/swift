@@ -151,11 +151,34 @@ class TestS3ApiBucket(S3ApiBase):
 
         self.conn.make_request('PUT', 'bucket')
         status, headers, body = self.conn.make_request('PUT', 'bucket')
+        self.assertEqual(status, 409)
+        self.assertEqual(get_error_code(body), 'BucketAlreadyExists')
+
+        if 's3_access_key2' not in tf.config or \
+                's3_secret_key2' not in tf.config:
+            raise tf.SkipTest(
+                'Cannot test for BucketAlreadyExists with second user; need '
+                's3_access_key2 and s3_secret_key2 configured')
+        # Other users of the same account get the same error
+        conn2 = Connection(tf.config['s3_access_key2'],
+                           tf.config['s3_secret_key2'],
+                           tf.config['s3_access_key2'])
+        status, headers, body = conn2.make_request('PUT', 'bucket')
+        self.assertEqual(status, 409)
+        self.assertEqual(get_error_code(body), 'BucketAlreadyExists')
+
+        if 's3_access_key3' not in tf.config or \
+                's3_secret_key3' not in tf.config:
+            raise tf.SkipTest('Cannot test for AccessDenied; need '
+                              's3_access_key3 and s3_secret_key3 configured')
         # If the user can't create buckets, they shouldn't even know
-        # whether the bucket exists. For some reason, though, when s3_acl
-        # is disabled, we translate 403 -> BucketAlreadyExists??
-        self.assertIn(get_error_code(body),
-                      ('AccessDenied', 'BucketAlreadyExists'))
+        # whether the bucket exists.
+        conn3 = Connection(tf.config['s3_access_key3'],
+                           tf.config['s3_secret_key3'],
+                           tf.config['s3_access_key3'])
+        status, headers, body = conn3.make_request('PUT', 'bucket')
+        self.assertEqual(status, 403)
+        self.assertEqual(get_error_code(body), 'AccessDenied')
 
     def test_put_bucket_with_LocationConstraint(self):
         bucket = 'bucket'
