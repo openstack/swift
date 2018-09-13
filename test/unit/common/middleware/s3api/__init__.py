@@ -20,7 +20,7 @@ import time
 
 from swift.common import swob
 
-from swift.common.middleware.s3api.s3api import S3ApiMiddleware
+from swift.common.middleware.s3api.s3api import filter_factory
 from helpers import FakeSwift
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import Config
@@ -78,7 +78,7 @@ class S3ApiTestCase(unittest.TestCase):
 
         self.app = FakeApp()
         self.swift = self.app.swift
-        self.s3api = S3ApiMiddleware(self.app, self.conf)
+        self.s3api = filter_factory({}, **self.conf)(self.app)
 
         self.swift.register('HEAD', '/v1/AUTH_test',
                             swob.HTTPOk, {}, None)
@@ -92,9 +92,9 @@ class S3ApiTestCase(unittest.TestCase):
                             swob.HTTPNoContent, {}, None)
 
         self.swift.register('GET', '/v1/AUTH_test/bucket/object',
-                            swob.HTTPOk, {}, "")
+                            swob.HTTPOk, {'etag': 'object etag'}, "")
         self.swift.register('PUT', '/v1/AUTH_test/bucket/object',
-                            swob.HTTPCreated, {}, None)
+                            swob.HTTPCreated, {'etag': 'object etag'}, None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object',
                             swob.HTTPNoContent, {}, None)
 

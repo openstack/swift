@@ -42,6 +42,54 @@ from swift.common.middleware.s3api.s3api import filter_factory, \
 from swift.common.middleware.s3api.s3token import S3Token
 
 
+class TestListingMiddleware(S3ApiTestCase):
+    def test_s3_etag_in_json(self):
+        # This translation happens all the time, even on normal swift requests
+        body_data = json.dumps([
+            {'name': 'obj1', 'hash': '0123456789abcdef0123456789abcdef'},
+            {'name': 'obj2', 'hash': 'swiftetag; s3_etag=mu-etag'},
+            {'name': 'obj2', 'hash': 'swiftetag; something=else'},
+            {'subdir': 'path/'},
+        ]).encode('ascii')
+        self.swift.register(
+            'GET', '/v1/a/c', swob.HTTPOk,
+            {'Content-Type': 'application/json; charset=UTF-8'},
+            body_data)
+
+        req = Request.blank('/v1/a/c')
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(json.loads(body.decode('ascii')), [
+            {'name': 'obj1', 'hash': '0123456789abcdef0123456789abcdef'},
+            {'name': 'obj2', 'hash': 'swiftetag', 's3_etag': '"mu-etag"'},
+            {'name': 'obj2', 'hash': 'swiftetag; something=else'},
+            {'subdir': 'path/'},
+        ])
+
+    def test_s3_etag_non_json(self):
+        self.swift.register(
+            'GET', '/v1/a/c', swob.HTTPOk,
+            {'Content-Type': 'application/json; charset=UTF-8'},
+            b'Not actually JSON')
+        req = Request.blank('/v1/a/c')
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(body, b'Not actually JSON')
+
+        # Yes JSON, but wrong content-type
+        body_data = json.dumps([
+            {'name': 'obj1', 'hash': '0123456789abcdef0123456789abcdef'},
+            {'name': 'obj2', 'hash': 'swiftetag; s3_etag=mu-etag'},
+            {'name': 'obj2', 'hash': 'swiftetag; something=else'},
+            {'subdir': 'path/'},
+        ]).encode('ascii')
+        self.swift.register(
+            'GET', '/v1/a/c', swob.HTTPOk,
+            {'Content-Type': 'text/plain; charset=UTF-8'},
+            body_data)
+        req = Request.blank('/v1/a/c')
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(body, body_data)
+
+
 class TestS3ApiMiddleware(S3ApiTestCase):
     def setUp(self):
         super(TestS3ApiMiddleware, self).setUp()

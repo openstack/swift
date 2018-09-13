@@ -312,8 +312,65 @@ class TestS3ApiMultiUpload(S3ApiBase):
             elem.find('Location').text)
         self.assertEqual(elem.find('Bucket').text, bucket)
         self.assertEqual(elem.find('Key').text, key)
-        # TODO: confirm completed etag value
-        self.assertTrue(elem.find('ETag').text is not None)
+        concatted_etags = ''.join(etag.strip('"') for etag in etags)
+        exp_etag = '"%s-%s"' % (
+            md5(concatted_etags.decode('hex')).hexdigest(), len(etags))
+        etag = elem.find('ETag').text
+        self.assertEqual(etag, exp_etag)
+
+        exp_size = self.min_segment_size * len(etags)
+        swift_etag = '"%s"' % md5(concatted_etags).hexdigest()
+        # TODO: GET via swift api, check against swift_etag
+
+        # Check object
+        def check_obj(req_headers, exp_status):
+            status, headers, body = \
+                self.conn.make_request('HEAD', bucket, key, req_headers)
+            self.assertEqual(status, exp_status)
+            self.assertCommonResponseHeaders(headers)
+            self.assertIn('content-length', headers)
+            if exp_status == 412:
+                self.assertNotIn('etag', headers)
+                self.assertEqual(headers['content-length'], '0')
+            else:
+                self.assertIn('etag', headers)
+                self.assertEqual(headers['etag'], exp_etag)
+                if exp_status == 304:
+                    self.assertEqual(headers['content-length'], '0')
+                else:
+                    self.assertEqual(headers['content-length'], str(exp_size))
+
+        check_obj({}, 200)
+
+        # Sanity check conditionals
+        check_obj({'If-Match': 'some other thing'}, 412)
+        check_obj({'If-None-Match': 'some other thing'}, 200)
+
+        # More interesting conditional cases
+        check_obj({'If-Match': exp_etag}, 200)
+        check_obj({'If-Match': swift_etag}, 412)
+        check_obj({'If-None-Match': swift_etag}, 200)
+        check_obj({'If-None-Match': exp_etag}, 304)
+
+        # Check listings
+        status, headers, body = self.conn.make_request('GET', bucket)
+        self.assertEqual(status, 200)
+
+        elem = fromstring(body, 'ListBucketResult')
+        resp_objects = elem.findall('./Contents')
+        self.assertEqual(len(list(resp_objects)), 1)
+        for o in resp_objects:
+            self.assertEqual(o.find('Key').text, key)
+            self.assertIsNotNone(o.find('LastModified').text)
+            self.assertRegexpMatches(
+                o.find('LastModified').text,
+                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
+            self.assertEqual(o.find('ETag').text, exp_etag)
+            self.assertEqual(o.find('Size').text, str(exp_size))
+            self.assertIsNotNone(o.find('StorageClass').text is not None)
+            self.assertEqual(o.find('Owner/ID').text, self.conn.user_id)
+            self.assertEqual(o.find('Owner/DisplayName').text,
+                             self.conn.user_id)
 
     def test_initiate_multi_upload_error(self):
         bucket = 'bucket'

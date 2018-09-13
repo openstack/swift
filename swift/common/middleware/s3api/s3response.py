@@ -21,7 +21,8 @@ from swift.common import swob
 from swift.common.utils import config_true_value
 from swift.common.request_helpers import is_sys_meta
 
-from swift.common.middleware.s3api.utils import snake_to_camel, sysmeta_prefix
+from swift.common.middleware.s3api.utils import snake_to_camel, \
+    sysmeta_prefix, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
 
 
@@ -79,10 +80,6 @@ class S3Response(S3ResponseBase, swob.Response):
     def __init__(self, *args, **kwargs):
         swob.Response.__init__(self, *args, **kwargs)
 
-        if self.etag:
-            # add double quotes to the etag header
-            self.etag = self.etag
-
         sw_sysmeta_headers = swob.HeaderKeyDict()
         sw_headers = swob.HeaderKeyDict()
         headers = HeaderKeyDict()
@@ -134,7 +131,20 @@ class S3Response(S3ResponseBase, swob.Response):
                 # for delete slo
                 self.is_slo = config_true_value(val)
 
+        # Check whether we stored the AWS-style etag on upload
+        override_etag = sw_sysmeta_headers.get(
+            sysmeta_header('object', 'etag'))
+        if override_etag is not None:
+            # Multipart uploads in AWS have ETags like
+            #   <MD5(part_etag1 || ... || part_etagN)>-<number of parts>
+            headers['etag'] = override_etag
+
         self.headers = headers
+
+        if self.etag:
+            # add double quotes to the etag header
+            self.etag = self.etag
+
         # Used for pure swift header handling at the request layer
         self.sw_headers = sw_headers
         self.sysmeta_headers = sw_sysmeta_headers

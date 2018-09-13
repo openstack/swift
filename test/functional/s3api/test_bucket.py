@@ -78,7 +78,7 @@ class TestS3ApiBucket(S3ApiBase):
         self.assertEqual(status, 200)
 
         self.assertCommonResponseHeaders(headers)
-        self.assertTrue(headers['content-type'] is not None)
+        self.assertIsNotNone(headers['content-type'])
         self.assertEqual(headers['content-length'], str(len(body)))
         # TODO; requires consideration
         # self.assertEqual(headers['transfer-encoding'], 'chunked')
@@ -110,24 +110,24 @@ class TestS3ApiBucket(S3ApiBase):
         resp_objects = elem.findall('./Contents')
         self.assertEqual(len(list(resp_objects)), 2)
         for o in resp_objects:
-            self.assertTrue(o.find('Key').text in req_objects)
-            self.assertTrue(o.find('LastModified').text is not None)
+            self.assertIn(o.find('Key').text, req_objects)
+            self.assertIsNotNone(o.find('LastModified').text)
             self.assertRegexpMatches(
                 o.find('LastModified').text,
                 r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
-            self.assertTrue(o.find('ETag').text is not None)
-            self.assertTrue(o.find('Size').text is not None)
-            self.assertTrue(o.find('StorageClass').text is not None)
-            self.assertTrue(o.find('Owner/ID').text, self.conn.user_id)
-            self.assertTrue(o.find('Owner/DisplayName').text,
-                            self.conn.user_id)
+            self.assertIsNotNone(o.find('ETag').text)
+            self.assertIsNotNone(o.find('Size').text)
+            self.assertIsNotNone(o.find('StorageClass').text)
+            self.assertEqual(o.find('Owner/ID').text, self.conn.user_id)
+            self.assertEqual(o.find('Owner/DisplayName').text,
+                             self.conn.user_id)
 
         # HEAD Bucket
         status, headers, body = self.conn.make_request('HEAD', bucket)
         self.assertEqual(status, 200)
 
         self.assertCommonResponseHeaders(headers)
-        self.assertTrue(headers['content-type'] is not None)
+        self.assertIsNotNone(headers['content-type'])
         self.assertEqual(headers['content-length'], str(len(body)))
         # TODO; requires consideration
         # self.assertEqual(headers['transfer-encoding'], 'chunked')
@@ -202,16 +202,16 @@ class TestS3ApiBucket(S3ApiBase):
         self.assertEqual(len(list(resp_objects)), len(expect_objects))
         for i, o in enumerate(resp_objects):
             self.assertEqual(o.find('Key').text, expect_objects[i])
-            self.assertTrue(o.find('LastModified').text is not None)
+            self.assertIsNotNone(o.find('LastModified').text)
             self.assertRegexpMatches(
                 o.find('LastModified').text,
                 r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
-            self.assertTrue(o.find('ETag').text is not None)
-            self.assertTrue(o.find('Size').text is not None)
+            self.assertIsNotNone(o.find('ETag').text)
+            self.assertIsNotNone(o.find('Size').text)
             self.assertEqual(o.find('StorageClass').text, 'STANDARD')
-            self.assertTrue(o.find('Owner/ID').text, self.conn.user_id)
-            self.assertTrue(o.find('Owner/DisplayName').text,
-                            self.conn.user_id)
+            self.assertEqual(o.find('Owner/ID').text, self.conn.user_id)
+            self.assertEqual(o.find('Owner/DisplayName').text,
+                             self.conn.user_id)
         resp_prefixes = elem.findall('CommonPrefixes')
         self.assertEqual(len(resp_prefixes), len(expect_prefixes))
         for i, p in enumerate(resp_prefixes):
@@ -248,16 +248,16 @@ class TestS3ApiBucket(S3ApiBase):
         self.assertEqual(len(list(resp_objects)), len(expect_objects))
         for i, o in enumerate(resp_objects):
             self.assertEqual(o.find('Key').text, expect_objects[i])
-            self.assertTrue(o.find('LastModified').text is not None)
+            self.assertIsNotNone(o.find('LastModified').text)
             self.assertRegexpMatches(
                 o.find('LastModified').text,
                 r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
-            self.assertTrue(o.find('ETag').text is not None)
-            self.assertTrue(o.find('Size').text is not None)
+            self.assertIsNotNone(o.find('ETag').text)
+            self.assertIsNotNone(o.find('Size').text)
             self.assertEqual(o.find('StorageClass').text, 'STANDARD')
-            self.assertTrue(o.find('Owner/ID').text, self.conn.user_id)
-            self.assertTrue(o.find('Owner/DisplayName').text,
-                            self.conn.user_id)
+            self.assertEqual(o.find('Owner/ID').text, self.conn.user_id)
+            self.assertEqual(o.find('Owner/DisplayName').text,
+                             self.conn.user_id)
 
     def test_get_bucket_with_max_keys(self):
         bucket = 'bucket'
@@ -277,16 +277,16 @@ class TestS3ApiBucket(S3ApiBase):
         self.assertEqual(len(list(resp_objects)), len(expect_objects))
         for i, o in enumerate(resp_objects):
             self.assertEqual(o.find('Key').text, expect_objects[i])
-            self.assertTrue(o.find('LastModified').text is not None)
+            self.assertIsNotNone(o.find('LastModified').text)
             self.assertRegexpMatches(
                 o.find('LastModified').text,
                 r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
-            self.assertTrue(o.find('ETag').text is not None)
-            self.assertTrue(o.find('Size').text is not None)
+            self.assertIsNotNone(o.find('ETag').text)
+            self.assertIsNotNone(o.find('Size').text)
             self.assertEqual(o.find('StorageClass').text, 'STANDARD')
-            self.assertTrue(o.find('Owner/ID').text, self.conn.user_id)
-            self.assertTrue(o.find('Owner/DisplayName').text,
-                            self.conn.user_id)
+            self.assertEqual(o.find('Owner/ID').text, self.conn.user_id)
+            self.assertEqual(o.find('Owner/DisplayName').text,
+                             self.conn.user_id)
 
     def test_get_bucket_with_prefix(self):
         bucket = 'bucket'
@@ -306,16 +306,16 @@ class TestS3ApiBucket(S3ApiBase):
         self.assertEqual(len(list(resp_objects)), len(expect_objects))
         for i, o in enumerate(resp_objects):
             self.assertEqual(o.find('Key').text, expect_objects[i])
-            self.assertTrue(o.find('LastModified').text is not None)
+            self.assertIsNotNone(o.find('LastModified').text)
             self.assertRegexpMatches(
                 o.find('LastModified').text,
                 r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
-            self.assertTrue(o.find('ETag').text is not None)
-            self.assertTrue(o.find('Size').text is not None)
+            self.assertIsNotNone(o.find('ETag').text)
+            self.assertIsNotNone(o.find('Size').text)
             self.assertEqual(o.find('StorageClass').text, 'STANDARD')
-            self.assertTrue(o.find('Owner/ID').text, self.conn.user_id)
-            self.assertTrue(o.find('Owner/DisplayName').text,
-                            self.conn.user_id)
+            self.assertEqual(o.find('Owner/ID').text, self.conn.user_id)
+            self.assertEqual(o.find('Owner/DisplayName').text,
+                             self.conn.user_id)
 
     def test_get_bucket_v2_with_start_after(self):
         bucket = 'bucket'
