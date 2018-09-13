@@ -4349,6 +4349,17 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         for conn in conns:
             self.assertTrue(conn.closed)
 
+        # make the footers callback send the correct etag
+        footers_callback = make_footers_callback(test_body)
+        env = {'swift.callback.update_footers': footers_callback}
+        headers = {'Etag': 'bad etag'}
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='PUT', headers=headers, environ=env,
+            body=test_body)
+        with set_http_connect(*codes, expect_headers=self.expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(201, resp.status_int)
+
         # make the footers callback send a bad Etag footer
         footers_callback = make_footers_callback('not the test body')
         env = {'swift.callback.update_footers': footers_callback}
