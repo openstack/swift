@@ -5863,7 +5863,8 @@ class BaseTestECObjectController(BaseTestObjectController):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        with mock.patch('swift.obj.server.md5', busted_md5_constructor):
+        with mock.patch('swift.obj.diskfile.md5',
+                        busted_md5_constructor):
             fd = sock.makefile()
             fd.write('PUT /v1/a/%s/pimento HTTP/1.1\r\n'
                      'Host: localhost\r\n'

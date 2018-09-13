@@ -3571,7 +3571,6 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             except IndexError:
                 data = archives[0]
 
-        etag = md5()
         if ts:
             timestamp = Timestamp(ts)
         else:
@@ -3582,9 +3581,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             prealloc_size = None
 
         with df.create(size=prealloc_size) as writer:
-            upload_size = writer.write(data)
-            etag.update(data)
-            etag = etag.hexdigest()
+            writer.write(data)
+            upload_size, etag = writer.chunks_finished()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp.internal,

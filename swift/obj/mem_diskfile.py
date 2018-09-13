@@ -103,6 +103,7 @@ class DiskFileWriter(object):
         self._name = name
         self._fp = None
         self._upload_size = 0
+        self._chunks_etag = hashlib.md5()
 
     def open(self):
         """
@@ -130,7 +131,15 @@ class DiskFileWriter(object):
         """
         self._fp.write(chunk)
         self._upload_size += len(chunk)
-        return self._upload_size
+        self._chunks_etag.update(chunk)
+
+    def chunks_finished(self):
+        """
+        Expose internal stats about written chunks.
+
+        :returns: a tuple, (upload_size, etag)
+        """
+        return self._upload_size, self._chunks_etag.hexdigest()
 
     def put(self, metadata):
         """

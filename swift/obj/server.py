@@ -796,12 +796,9 @@ class ObjectController(BaseStorageServer):
                 headers={'X-Backend-Timestamp': orig_timestamp.internal})
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         upload_expiration = time.time() + self.max_upload_time
-        etag = md5()
         elapsed_time = 0
         try:
             with disk_file.create(size=fsize) as writer:
-                upload_size = 0
-
                 # If the proxy wants to send us object metadata after the
                 # object body, it sets some headers. We have to tell the
                 # proxy, in the 100 Continue response, that we're able to
@@ -853,13 +850,13 @@ class ObjectController(BaseStorageServer):
                         if start_time > upload_expiration:
                             self.logger.increment('PUT.timeouts')
                             return HTTPRequestTimeout(request=request)
-                        etag.update(chunk)
-                        upload_size = writer.write(chunk)
+                        writer.write(chunk)
                         elapsed_time += time.time() - start_time
                 except ChunkReadError:
                     return HTTPClientDisconnect(request=request)
                 except ChunkReadTimeout:
                     return HTTPRequestTimeout(request=request)
+                upload_size, etag = writer.chunks_finished()
                 if upload_size:
                     self.logger.transfer_rate(
                         'PUT.' + device + '.timing', elapsed_time,
@@ -874,7 +871,6 @@ class ObjectController(BaseStorageServer):
 
                 request_etag = (footer_meta.get('etag') or
                                 request.headers.get('etag', '')).lower()
-                etag = etag.hexdigest()
                 if request_etag and request_etag != etag:
                     return HTTPUnprocessableEntity(request=request)
                 metadata = {

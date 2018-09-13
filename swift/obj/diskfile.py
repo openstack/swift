@@ -39,7 +39,7 @@ import os
 import re
 import time
 import uuid
-import hashlib
+from hashlib import md5
 import logging
 import traceback
 import xattr
@@ -194,14 +194,14 @@ def read_metadata(fd, add_missing_checksum=False):
         # exist. This is fine; it just means that this object predates the
         # introduction of metadata checksums.
         if add_missing_checksum:
-            new_checksum = hashlib.md5(metadata).hexdigest()
+            new_checksum = md5(metadata).hexdigest()
             try:
                 xattr.setxattr(fd, METADATA_CHECKSUM_KEY, new_checksum)
             except (IOError, OSError) as e:
                 logging.error("Error adding metadata: %s" % e)
 
     if metadata_checksum:
-        computed_checksum = hashlib.md5(metadata).hexdigest().encode('ascii')
+        computed_checksum = md5(metadata).hexdigest().encode('ascii')
         if metadata_checksum != computed_checksum:
             raise DiskFileBadMetadataChecksum(
                 "Metadata checksum mismatch for %s: "
@@ -226,7 +226,7 @@ def write_metadata(fd, metadata, xattr_size=65536):
     :param metadata: metadata to write
     """
     metastr = pickle.dumps(_encode_metadata(metadata), PICKLE_PROTOCOL)
-    metastr_md5 = hashlib.md5(metastr).hexdigest().encode('ascii')
+    metastr_md5 = md5(metastr).hexdigest().encode('ascii')
     key = 0
     try:
         while metastr:
@@ -1084,7 +1084,7 @@ class BaseDiskFileManager(object):
 
         :param path: full path to directory
         """
-        hashes = defaultdict(hashlib.md5)
+        hashes = defaultdict(md5)
         try:
             path_contents = sorted(os.listdir(path))
         except OSError as err:
@@ -1626,6 +1626,7 @@ class BaseDiskFileWriter(object):
         self._fd = None
         self._tmppath = None
         self._size = size
+        self._chunks_etag = md5()
         self._bytes_per_sync = bytes_per_sync
         self._diskfile = diskfile
         self.next_part_power = next_part_power
@@ -1716,13 +1717,10 @@ class BaseDiskFileWriter(object):
         For this implementation, the data is written into a temporary file.
 
         :param chunk: the chunk of data to write as a string object
-
-        :returns: the total number of bytes written to an object
         """
-
         if not self._fd:
             raise ValueError('Writer is not open')
-
+        self._chunks_etag.update(chunk)
         while chunk:
             written = os.write(self._fd, chunk)
             self._upload_size += written
@@ -1735,7 +1733,13 @@ class BaseDiskFileWriter(object):
             drop_buffer_cache(self._fd, self._last_sync, diff)
             self._last_sync = self._upload_size
 
-        return self._upload_size
+    def chunks_finished(self):
+        """
+        Expose internal stats about written chunks.
+
+        :returns: a tuple, (upload_size, etag)
+        """
+        return self._upload_size, self._chunks_etag.hexdigest()
 
     def _finalize_put(self, metadata, target_path, cleanup):
         # Write the metadata before calling fsync() so that both data and
@@ -1940,7 +1944,7 @@ class BaseDiskFileReader(object):
     def _init_checks(self):
         if self._fp.tell() == 0:
             self._started_at_0 = True
-            self._iter_etag = hashlib.md5()
+            self._iter_etag = md5()
 
     def _update_checks(self, chunk):
         if self._iter_etag:
