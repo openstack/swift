@@ -62,6 +62,10 @@ class TestWSGIServerProcessHandling(unittest.TestCase):
         self.assertEqual(resp.status // 100, 4)
         resp.read()
 
+        # Start the request before reloading...
+        putrequest(conn, 'PUT', 'blah',
+                   headers={'Content-Length': len(body)})
+
         manager.reload()
 
         post_reload_pids = set(pid for server in manager.servers
@@ -72,15 +76,19 @@ class TestWSGIServerProcessHandling(unittest.TestCase):
             starting_pids, post_reload_pids)
         self.assertFalse(starting_pids & post_reload_pids, msg)
 
-        # ... and yet we can keep using the same connection!
-        putrequest(conn, 'PUT', 'blah',
-                   headers={'Content-Length': len(body)})
+        # ... and make sure we can finish what we were doing, and even
+        # start part of a new request
         conn.send(body)
         resp = conn.getresponse()
         self.assertEqual(resp.status // 100, 4)
-        resp.read()
+        # We can even read the body
+        self.assertTrue(resp.read())
 
-        # close our connection
+        # After this, we're in a funny spot. With eventlet 0.22.0, the
+        # connection's now closed, but with prior versions we could keep
+        # going indefinitely. See https://bugs.launchpad.net/swift/+bug/1792615
+
+        # Close our connection, to make sure old eventlet shuts down
         conn.close()
 
         # sanity
