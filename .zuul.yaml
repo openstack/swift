@@ -277,7 +277,9 @@
               - ^test/(functional|probe)/.*$
         - openstack-tox-pep8:
             irrelevant-files:
-              - ^(api-ref|doc|etc|examples|releasenotes)/.*$
+              - ^(api-ref|etc|examples|releasenotes)/.*$
+              # Keep doc/manpages -- we want to syntax check them
+              - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -311,7 +313,9 @@
         - openstack-tox-lower-constraints
         - openstack-tox-pep8:
             irrelevant-files:
-              - ^(api-ref|doc|etc|examples|releasenotes)/.*$
+              - ^(api-ref|etc|examples|releasenotes)/.*$
+              # Keep doc/manpages -- we want to syntax check them
+              - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
     experimental:
       jobs:
         - swift-tox-py27-centos-7
