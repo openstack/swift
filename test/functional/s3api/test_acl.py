@@ -35,14 +35,15 @@ class TestS3Acl(S3ApiBase):
         super(TestS3Acl, self).setUp()
         self.bucket = 'bucket'
         self.obj = 'object'
-        if 's3_access_key2' not in tf.config or \
-                's3_secret_key2' not in tf.config:
+        if 's3_access_key3' not in tf.config or \
+                's3_secret_key3' not in tf.config:
             raise tf.SkipTest(
-                'TestS3Acl requires s3_access_key2 and s3_secret_key2 setting')
+                'TestS3Acl requires s3_access_key3 and s3_secret_key3 '
+                'configured for reduced-access user')
         self.conn.make_request('PUT', self.bucket)
-        access_key2 = tf.config['s3_access_key2']
-        secret_key2 = tf.config['s3_secret_key2']
-        self.conn2 = Connection(access_key2, secret_key2, access_key2)
+        access_key3 = tf.config['s3_access_key3']
+        secret_key3 = tf.config['s3_secret_key3']
+        self.conn3 = Connection(access_key3, secret_key3, access_key3)
 
     def test_acl(self):
         self.conn.make_request('PUT', self.bucket, self.obj)
@@ -103,7 +104,7 @@ class TestS3Acl(S3ApiBase):
         self.assertEqual(get_error_code(body), 'NoSuchBucket')
 
         status, headers, body = \
-            self.conn2.make_request('PUT', self.bucket,
+            self.conn3.make_request('PUT', self.bucket,
                                     headers=req_headers, query='acl')
         self.assertEqual(get_error_code(body), 'AccessDenied')
 
@@ -118,7 +119,7 @@ class TestS3Acl(S3ApiBase):
         self.assertEqual(get_error_code(body), 'NoSuchBucket')
 
         status, headers, body = \
-            self.conn2.make_request('GET', self.bucket, query='acl')
+            self.conn3.make_request('GET', self.bucket, query='acl')
         self.assertEqual(get_error_code(body), 'AccessDenied')
 
     def test_get_object_acl_error(self):
@@ -135,7 +136,7 @@ class TestS3Acl(S3ApiBase):
         self.assertEqual(get_error_code(body), 'NoSuchKey')
 
         status, headers, body = \
-            self.conn2.make_request('GET', self.bucket, self.obj, query='acl')
+            self.conn3.make_request('GET', self.bucket, self.obj, query='acl')
         self.assertEqual(get_error_code(body), 'AccessDenied')
 
 
