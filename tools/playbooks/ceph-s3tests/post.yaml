@@ -1,0 +1,10 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Copy s3-tests outputs from worker nodes to executor node
+      synchronize:
+        src: '{{ ansible_env.HOME }}/s3compat/output'
+        dest: '{{ zuul.executor.log_root }}'
+        mode: pull
+        copy_links: true
+        verify_host: true

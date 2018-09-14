@@ -19,7 +19,7 @@
       file: path=/srv state=directory
 
     - name: create loopback device
-      command: truncate -s 1GB /srv/swift-disk creates=/srv/swift-disk
+      command: truncate -s 10GB /srv/swift-disk creates=/srv/swift-disk
 
     - name: create filesystem /srv/swift-disk
       become: true
