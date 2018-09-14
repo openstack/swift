@@ -1,6 +1,7 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
 bind_port = 8080
+# keep_idle = 600
 # bind_timeout = 30
 # backlog = 4096
 # swift_dir = /etc/swift

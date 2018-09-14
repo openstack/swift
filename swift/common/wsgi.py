@@ -193,6 +193,14 @@ def get_socket(conf):
     bind_timeout = int(conf.get('bind_timeout', 30))
     retry_until = time.time() + bind_timeout
     warn_ssl = False
+
+    try:
+        keepidle = int(conf.get('keep_idle', 600))
+        if keepidle <= 0 or keepidle >= 2 ** 15 - 1:
+            raise ValueError()
+    except (ValueError, KeyError, TypeError):
+        raise ConfigFileError()
+
     while not sock and time.time() < retry_until:
         try:
             sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)),
@@ -214,7 +222,7 @@ def get_socket(conf):
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     if hasattr(socket, 'TCP_KEEPIDLE'):
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 600)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, keepidle)
     if warn_ssl:
         ssl_warning_message = _('WARNING: SSL should only be enabled for '
                                 'testing purposes. Use external SSL '

@@ -404,6 +404,39 @@ class TestWSGI(unittest.TestCase):
                 'keyfile': '',
             }
             self.assertEqual(wsgi.ssl.wrap_socket_called, [expected_kwargs])
+
+            # test keep_idle value
+            keepIdle_value = 700
+            conf['keep_idle'] = keepIdle_value
+            sock = wsgi.get_socket(conf)
+            # assert
+            if hasattr(socket, 'TCP_KEEPIDLE'):
+                expected_socket_opts[socket.IPPROTO_TCP][
+                    socket.TCP_KEEPIDLE] = keepIdle_value
+            self.assertEqual(sock.opts, expected_socket_opts)
+
+            # test keep_idle for str -> int conversion
+            keepIdle_value = '800'
+            conf['keep_idle'] = keepIdle_value
+            sock = wsgi.get_socket(conf)
+            # assert
+            if hasattr(socket, 'TCP_KEEPIDLE'):
+                expected_socket_opts[socket.IPPROTO_TCP][
+                    socket.TCP_KEEPIDLE] = int(keepIdle_value)
+            self.assertEqual(sock.opts, expected_socket_opts)
+
+            # test keep_idle for negative value
+            conf['keep_idle'] = -600
+            self.assertRaises(wsgi.ConfigFileError, wsgi.get_socket, conf)
+
+            # test keep_idle for upperbound value
+            conf['keep_idle'] = 2 ** 15
+            self.assertRaises(wsgi.ConfigFileError, wsgi.get_socket, conf)
+
+            # test keep_idle for Type mismatch
+            conf['keep_idle'] = 'foobar'
+            self.assertRaises(wsgi.ConfigFileError, wsgi.get_socket, conf)
+
         finally:
             wsgi.listen = old_listen
             wsgi.ssl = old_ssl

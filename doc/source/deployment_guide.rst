@@ -437,6 +437,7 @@ mount_check                      true        Whether or not check if the devices
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
 bind_port                        6200        Port for server to bind to
+keep_idle                        600         Value to set for socket TCP_KEEPIDLE
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -1032,6 +1033,7 @@ mount_check                      true        Whether or not check if the devices
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
 bind_port                        6201        Port for server to bind to
+keep_idle                        600         Value to set for socket TCP_KEEPIDLE
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -1385,6 +1387,7 @@ mount_check                      true        Whether or not check if the devices
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
 bind_port                        6202        Port for server to bind to
+keep_idle                        600         Value to set for socket TCP_KEEPIDLE
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -1731,6 +1734,7 @@ Option                                Default                   Description
 bind_ip                               0.0.0.0                   IP Address for server to
                                                                 bind to
 bind_port                             80                        Port for server to bind to
+keep_idle                             600                       Value to set for socket TCP_KEEPIDLE
 bind_timeout                          30                        Seconds to attempt bind before
                                                                 giving up
 backlog                               4096                      Maximum number of allowed pending
