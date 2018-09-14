@@ -664,8 +664,10 @@ class FileLikeIter(object):
         """
         Wraps an iterable to behave as a file-like object.
 
-        The iterable must yield bytes strings.
+        The iterable must be a byte string or yield byte strings.
         """
+        if isinstance(iterable, bytes):
+            iterable = (iterable, )
         self.iterator = iter(iterable)
         self.buf = None
         self.closed = False
