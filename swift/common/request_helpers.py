@@ -35,7 +35,7 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import HTTPBadRequest, \
     HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator, \
-    HTTPPreconditionFailed
+    HTTPPreconditionFailed, wsgi_to_bytes
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
@@ -262,7 +262,7 @@ def remove_items(headers, condition):
     :returns: a dict, possibly empty, of headers that have been removed
     """
     removed = {}
-    keys = filter(condition, headers)
+    keys = [key for key in headers if condition(key)]
     removed.update((key, headers.pop(key)) for key in keys)
     return removed
 
@@ -651,7 +651,7 @@ def http_response_to_document_iters(response, read_chunk_size=4096):
         # extracted from the Content-Type header.
         params = dict(params_list)
         return multipart_byteranges_to_document_iters(
-            response, params['boundary'], read_chunk_size)
+            response, wsgi_to_bytes(params['boundary']), read_chunk_size)
 
 
 def update_etag_is_at_header(req, name):
