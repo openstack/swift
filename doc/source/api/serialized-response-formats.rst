@@ -79,7 +79,7 @@ response:
 .. code-block:: console
 
    $ curl -i $publicURL -X GET -H "X-Auth-Token: $token" -H \
-     ”Accept: application/xml; charset=utf-8"
+     "Accept: application/xml; charset=utf-8"
 
 .. code-block:: console
 
