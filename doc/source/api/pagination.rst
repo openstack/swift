@@ -75,7 +75,7 @@ Assume the following list of container names:
 
    .. code-block:: console
 
-      # curl -i $publicURL/?limit=2&amp;marker=oranges -X GET -H \”
+      # curl -i $publicURL/?limit=2&amp;marker=oranges -X GET -H \"
         X-Auth-Token: $token"
 
    .. code-block:: console
@@ -90,7 +90,7 @@ Assume the following list of container names:
 
    .. code-block:: console
 
-      # curl -i $publicURL/?end_marker=oranges -X GET -H \”
+      # curl -i $publicURL/?end_marker=oranges -X GET -H \"
        X-Auth-Token: $token"
 
    .. code-block:: console
