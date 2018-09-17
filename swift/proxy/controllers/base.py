@@ -590,7 +590,8 @@ def _get_info_from_memcache(app, env, account, container=None):
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
     if memcache:
         info = memcache.get(cache_key)
-        if info:
+        if info and six.PY2:
+            # Get back to native strings
             for key in info:
                 if isinstance(info[key], six.text_type):
                     info[key] = info[key].encode("utf-8")
@@ -598,6 +599,7 @@ def _get_info_from_memcache(app, env, account, container=None):
                     for subkey, value in info[key].items():
                         if isinstance(value, six.text_type):
                             info[key][subkey] = value.encode("utf-8")
+        if info:
             env.setdefault('swift.infocache', {})[cache_key] = info
         return info
     return None

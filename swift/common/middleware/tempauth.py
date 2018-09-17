@@ -182,7 +182,7 @@ import base64
 
 from eventlet import Timeout
 import six
-from swift.common.swob import Response, Request
+from swift.common.swob import Response, Request, wsgi_to_str
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
 
@@ -239,6 +239,9 @@ class TempAuth(object):
                     account = base64.b64decode(account)
                     username += '=' * (len(username) % 4)
                     username = base64.b64decode(username)
+                    if not six.PY2:
+                        account = account.decode('utf8')
+                        username = username.decode('utf8')
                 values = conf[conf_key].split()
                 if not values:
                     raise ValueError('%s has no key set' % conf_key)
@@ -438,7 +441,7 @@ class TempAuth(object):
             expires, groups = cached_auth_data
             if expires < time():
                 groups = None
-            else:
+            elif six.PY2:
                 groups = groups.encode('utf8')
 
         s3_auth_details = env.get('s3api.auth_details') or\
@@ -498,7 +501,7 @@ class TempAuth(object):
         or None if there are no errors.
         """
         acl_header = 'x-account-access-control'
-        acl_data = req.headers.get(acl_header)
+        acl_data = wsgi_to_str(req.headers.get(acl_header))
         result = parse_acl(version=2, data=acl_data)
         if result is None:
             return 'Syntax error in input (%r)' % acl_data
@@ -509,19 +512,17 @@ class TempAuth(object):
             # on ACLs, TempAuth is not such an auth system.  At this point,
             # it thinks it is authoritative.
             if key not in tempauth_acl_keys:
-                return "Key %s not recognized" % json.dumps(
-                    key).encode('ascii')
+                return "Key %s not recognized" % json.dumps(key)
 
         for key in tempauth_acl_keys:
             if key not in result:
                 continue
             if not isinstance(result[key], list):
-                return "Value for key %s must be a list" % json.dumps(
-                    key).encode('ascii')
+                return "Value for key %s must be a list" % json.dumps(key)
             for grantee in result[key]:
                 if not isinstance(grantee, six.string_types):
                     return "Elements of %s list must be strings" % json.dumps(
-                        key).encode('ascii')
+                        key)
 
         # Everything looks fine, no errors found
         internal_hdr = get_sys_meta_prefix('account') + 'core-access-control'
@@ -568,7 +569,7 @@ class TempAuth(object):
                               % account_user)
             return None
 
-        if account in user_groups and \
+        if wsgi_to_str(account) in user_groups and \
                 (req.method not in ('DELETE', 'PUT') or container):
             # The user is admin for the account and is not trying to do an
             # account DELETE or PUT
@@ -744,7 +745,7 @@ class TempAuth(object):
                     return HTTPUnauthorized(request=req,
                                             headers={'Www-Authenticate': auth})
                 account2, user = user.split(':', 1)
-                if account != account2:
+                if wsgi_to_str(account) != account2:
                     self.logger.increment('token_denied')
                     auth = 'Swift realm="%s"' % account
                     return HTTPUnauthorized(request=req,
@@ -800,7 +801,7 @@ class TempAuth(object):
             cached_auth_data = memcache_client.get(memcache_token_key)
             if cached_auth_data:
                 expires, old_groups = cached_auth_data
-                old_groups = [group.encode('utf8')
+                old_groups = [group.encode('utf8') if six.PY2 else group
                               for group in old_groups.split(',')]
                 new_groups = self._get_user_groups(account, account_user,
                                                    account_id)
