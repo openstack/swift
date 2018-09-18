@@ -131,25 +131,47 @@ class TestDirectClient(unittest.TestCase):
     def test_gen_headers(self):
         stub_user_agent = 'direct-client %s' % os.getpid()
 
-        headers = direct_client.gen_headers()
+        headers = direct_client.gen_headers(add_ts=False)
         self.assertEqual(headers['user-agent'], stub_user_agent)
         self.assertEqual(1, len(headers))
 
         now = time.time()
-        headers = direct_client.gen_headers(add_ts=True)
+        headers = direct_client.gen_headers()
         self.assertEqual(headers['user-agent'], stub_user_agent)
         self.assertTrue(now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
         self.assertEqual(headers['x-timestamp'],
                          Timestamp(headers['x-timestamp']).internal)
         self.assertEqual(2, len(headers))
 
-        headers = direct_client.gen_headers(hdrs_in={'foo-bar': '47'})
+        headers = direct_client.gen_headers(hdrs_in={'x-timestamp': '15'})
+        self.assertEqual(headers['x-timestamp'], '15')
         self.assertEqual(headers['user-agent'], stub_user_agent)
-        self.assertEqual(headers['foo-bar'], '47')
         self.assertEqual(2, len(headers))
 
-        headers = direct_client.gen_headers(hdrs_in={'user-agent': '47'})
+        headers = direct_client.gen_headers(hdrs_in={'foo-bar': '63'})
         self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assertEqual(headers['foo-bar'], '63')
+        self.assertTrue(now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
+        self.assertEqual(headers['x-timestamp'],
+                         Timestamp(headers['x-timestamp']).internal)
+        self.assertEqual(3, len(headers))
+
+        hdrs_in = {'foo-bar': '55'}
+        headers = direct_client.gen_headers(hdrs_in, add_ts=False)
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assertEqual(headers['foo-bar'], '55')
+        self.assertEqual(2, len(headers))
+
+        headers = direct_client.gen_headers(hdrs_in={'user-agent': '32'})
+        self.assertEqual(headers['user-agent'], '32')
+        self.assertTrue(now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
+        self.assertEqual(headers['x-timestamp'],
+                         Timestamp(headers['x-timestamp']).internal)
+        self.assertEqual(2, len(headers))
+
+        hdrs_in = {'user-agent': '47'}
+        headers = direct_client.gen_headers(hdrs_in, add_ts=False)
+        self.assertEqual(headers['user-agent'], '47')
         self.assertEqual(1, len(headers))
 
         for policy in POLICIES:
@@ -570,7 +592,7 @@ class TestDirectClient(unittest.TestCase):
 
         self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
         self.assertEqual('bar', conn.req_headers.get('x-foo'))
-        self.assertNotIn('x-timestamp', conn.req_headers)
+        self.assertIn('x-timestamp', conn.req_headers)
         self.assertEqual(headers, resp)
 
     def test_direct_head_object_error(self):
