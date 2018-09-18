@@ -1,0 +1,122 @@
+[func_test]
+# Sample config for Swift with tempauth
+auth_host = {{ hostvars['proxy1'].nodepool.public_ipv4 }}
+auth_port = 8080
+auth_ssl = no
+auth_prefix = /auth/
+# Sample config for Swift with Keystone v2 API.
+# For keystone v2 change auth_version to 2 and auth_prefix to /v2.0/.
+# And "allow_account_management" should not be set "true".
+#auth_version = 3
+#auth_host = localhost
+#auth_port = 5000
+#auth_ssl = no
+#auth_prefix = /v3/
+
+# Primary functional test account (needs admin access to the account)
+account = test
+username = tester
+password = testing
+s3_access_key = test:tester
+s3_secret_key = testing
+
+# User on a second account (needs admin access to the account)
+account2 = test2
+username2 = tester2
+password2 = testing2
+
+# User on same account as first, but without admin access
+username3 = tester3
+password3 = testing3
+# s3api requires the same account with the primary one and different users
+s3_access_key2 = test:tester3
+s3_secret_key2 = testing3
+
+# Fourth user is required for keystone v3 specific tests.
+# Account must be in a non-default domain.
+#account4 = test4
+#username4 = tester4
+#password4 = testing4
+#domain4 = test-domain
+
+# Fifth user is required for service token-specific tests.
+# The account must be different from the primary test account.
+# The user must not have a group (tempauth) or role (keystoneauth) on
+# the primary test account. The user must have a group/role that is unique
+# and not given to the primary tester and is specified in the options
+# <prefix>_require_group (tempauth) or <prefix>_service_roles (keystoneauth).
+#account5 = test5
+#username5 = tester5
+#password5 = testing5
+
+# The service_prefix option is used for service token-specific tests.
+# If service_prefix or username5 above is not supplied, the tests are skipped.
+# To set the value and enable the service token tests, look at the
+# reseller_prefix option in /etc/swift/proxy-server.conf. There must be at
+# least two prefixes. If not, add a prefix as follows (where we add SERVICE):
+#     reseller_prefix = AUTH, SERVICE
+# The service_prefix must match the <prefix> used in <prefix>_require_group
+# (tempauth) or <prefix>_service_roles (keystoneauth); for example:
+#    SERVICE_require_group = service
+#    SERVICE_service_roles = service
+# Note: Do not enable service token tests if the first prefix in
+# reseller_prefix is the empty prefix AND the primary functional test
+# account contains an underscore.
+#service_prefix = SERVICE
+
+# Sixth user is required for access control tests.
+# Account must have a role for reseller_admin_role(keystoneauth).
+#account6 = test
+#username6 = tester6
+#password6 = testing6
+
+collate = C
+
+# Only necessary if a pre-existing server uses self-signed certificate
+insecure = no
+
+# Tests that are dependent on domain_remap middleware being installed also
+# require one of the domain_remap storage_domain values to be specified here,
+# otherwise those tests will be skipped.
+storage_domain =
+
+[unit_test]
+fake_syslog = False
+
+[probe_test]
+# check_server_timeout = 30
+# validate_rsync = false
+
+[swift-constraints]
+# The functional test runner will try to use the constraint values provided in
+# the swift-constraints section of test.conf.
+#
+# If a constraint value does not exist in that section, or because the
+# swift-constraints section does not exist, the constraints values found in
+# the /info API call (if successful) will be used.
+#
+# If a constraint value cannot be found in the /info results, either because
+# the /info API call failed, or a value is not present, the constraint value
+# used will fall back to those loaded by the constraints module at time of
+# import (which will attempt to load /etc/swift/swift.conf, see the
+# swift.common.constraints module for more information).
+#
+# Note that the cluster must have "sane" values for the test suite to pass
+# (for some definition of sane).
+#
+#max_file_size = 5368709122
+#max_meta_name_length = 128
+#max_meta_value_length = 256
+#max_meta_count = 90
+#max_meta_overall_size = 4096
+#max_header_size = 8192
+#extra_header_count = 0
+#max_object_name_length = 1024
+#container_listing_limit = 10000
+#account_listing_limit = 10000
+#max_account_name_length = 256
+#max_container_name_length = 256
+
+# Newer swift versions default to strict cors mode, but older ones were the
+# opposite.
+#strict_cors_mode = true

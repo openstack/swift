@@ -181,7 +181,7 @@
     description: |
       Setup a SAIO dev environment and run ceph-s3tests
     pre-run:
-      - tools/playbooks/saio_single_node_setup/install_dependencies.yaml
+      - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
       - tools/playbooks/saio_single_node_setup/make_rings.yaml
     run: tools/playbooks/ceph-s3tests/run.yaml
@@ -197,11 +197,74 @@
       Setup a SAIO dev environment and run Swift's probe tests
     timeout: 3600
     pre-run:
-      - tools/playbooks/saio_single_node_setup/install_dependencies.yaml
+      - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
       - tools/playbooks/saio_single_node_setup/make_rings.yaml
     run: tools/playbooks/probetests/run.yaml
     post-run: tools/playbooks/probetests/post.yaml
+
+- nodeset:
+    name: swift-five-nodes
+    nodes:
+      - name: test-runner1
+        label: centos-7
+      - name: proxy1
+        label: centos-7
+      - name: account1
+        label: centos-7
+      - name: container1
+        label: centos-7
+      - name: object1
+        label: centos-7
+    groups:
+      - name: test-runner
+        nodes:
+          - test-runner1
+      - name: swift-cluster
+        nodes:
+          - proxy1
+          - account1
+          - container1
+          - object1
+      - name: proxy
+        nodes:
+          - proxy1
+      - name: account
+        nodes:
+          - account1
+      - name: container
+        nodes:
+          - container1
+      - name: object
+        nodes:
+          - object1
+      - name: storage
+        nodes:
+          - account1
+          - container1
+          - object1
+
+- job:
+    name: swift-multinode-rolling-upgrade
+    parent: multinode
+    nodeset: swift-five-nodes
+    description: |
+      Build a 4 node swift cluster and run functional tests
+    timeout: 3600
+    pre-run:
+      - tools/playbooks/multinode_setup/pre.yaml
+      - tools/playbooks/common/install_dependencies.yaml
+      - tools/playbooks/multinode_setup/configure_loopback.yaml
+      - tools/playbooks/multinode_setup/common_config.yaml
+      - tools/playbooks/multinode_setup/make_rings.yaml
+    run: tools/playbooks/multinode_setup/run.yaml
+    post-run: tools/playbooks/probetests/post.yaml
+
+- job:
+    name: swift-multinode-rolling-upgrade-queens
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/queens
 
 - project:
     templates:
@@ -280,6 +343,11 @@
               - ^(api-ref|etc|examples|releasenotes)/.*$
               # Keep doc/manpages -- we want to syntax check them
               - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
+        - swift-multinode-rolling-upgrade:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -322,6 +390,7 @@
         - swift-tox-func-centos-7
         - swift-tox-func-encryption-centos-7
         - swift-tox-func-ec-centos-7
+        - swift-multinode-rolling-upgrade-queens
 
     post:
       jobs:
