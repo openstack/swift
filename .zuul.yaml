@@ -266,10 +266,16 @@
     vars:
       previous_swift_version: origin/stable/queens
 
+- job:
+    name: swift-tox-lower-constraints
+    parent: openstack-tox-lower-constraints
+    vars:
+      tox_environment:
+        TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
+
 - project:
     templates:
       - openstack-cover-jobs
-      - openstack-lower-constraints-jobs
       - publish-openstack-docs-pti
       - periodic-stable-jobs
       - check-requirements
@@ -336,7 +342,7 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - openstack-tox-lower-constraints:
+        - swift-tox-lower-constraints:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
@@ -380,6 +386,10 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-lower-constraints:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
         - openstack-tox-pep8:
             irrelevant-files:
               - ^(api-ref|etc|examples|releasenotes)/.*$
