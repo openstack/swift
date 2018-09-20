@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from swift.common.constraints import MAX_OBJECT_NAME_LENGTH
 from swift.common.utils import public
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
@@ -22,8 +23,6 @@ from swift.common.middleware.s3api.etree import Element, SubElement, \
 from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented, \
     NoSuchKey, ErrorResponse, MalformedXML, UserKeyMustBeSpecified, \
     AccessDenied, MissingRequestBodyError
-
-MAX_MULTI_DELETE_BODY_SIZE = 61365
 
 
 class MultiObjectDeleteController(Controller):
@@ -61,8 +60,16 @@ class MultiObjectDeleteController(Controller):
 
                 yield key, version
 
+        max_body_size = min(
+            # FWIW, AWS limits multideletes to 1000 keys, and swift limits
+            # object names to 1024 bytes (by default). Add a factor of two to
+            # allow some slop.
+            2 * self.conf.max_multi_delete_objects * MAX_OBJECT_NAME_LENGTH,
+            # But, don't let operators shoot themselves in the foot
+            10 * 1024 * 1024)
+
         try:
-            xml = req.xml(MAX_MULTI_DELETE_BODY_SIZE)
+            xml = req.xml(max_body_size)
             if not xml:
                 raise MissingRequestBodyError()
 
