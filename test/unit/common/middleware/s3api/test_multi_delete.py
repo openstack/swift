@@ -180,11 +180,36 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'InvalidRequest')
 
     @s3acl
+    def test_object_multi_DELETE_lots_of_keys(self):
+        elem = Element('Delete')
+        for i in range(self.conf.max_multi_delete_objects):
+            name = 'x' * 1000 + str(i)
+            self.swift.register('HEAD', '/v1/AUTH_test/bucket/%s' % name,
+                                swob.HTTPNotFound, {}, None)
+            obj = SubElement(elem, 'Object')
+            SubElement(obj, 'Key').text = name
+        body = tostring(elem, use_s3ns=False)
+        content_md5 = md5(body).digest().encode('base64').strip()
+
+        req = Request.blank('/bucket?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5},
+                            body=body)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual('200 OK', status)
+
+        elem = fromstring(body)
+        self.assertEqual(len(elem.findall('Deleted')),
+                         self.conf.max_multi_delete_objects)
+
+    @s3acl
     def test_object_multi_DELETE_too_many_keys(self):
         elem = Element('Delete')
         for i in range(self.conf.max_multi_delete_objects + 1):
             obj = SubElement(elem, 'Object')
-            SubElement(obj, 'Key').text = str(i)
+            SubElement(obj, 'Key').text = 'x' * 1000 + str(i)
         body = tostring(elem, use_s3ns=False)
         content_md5 = md5(body).digest().encode('base64').strip()
 

@@ -18,8 +18,6 @@ import os
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
     SubElement
-from swift.common.middleware.s3api.controllers.multi_delete import \
-    MAX_MULTI_DELETE_BODY_SIZE
 
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
@@ -172,11 +170,12 @@ class TestS3ApiMultiDelete(S3ApiBase):
                                    query=query)
         self.assertEqual(get_error_code(body), 'UserKeyMustBeSpecified')
 
+        max_deletes = tf.cluster_info.get('s3api', {}).get(
+            'max_multi_delete_objects', 1000)
         # specified number of objects are over max_multi_delete_objects
-        # (Default 1000), but xml size is smaller than 61365 bytes.
-        req_objects = ['obj%s' for var in xrange(1001)]
+        # (Default 1000), but xml size is relatively small
+        req_objects = ['obj%s' for var in xrange(max_deletes + 1)]
         xml = self._gen_multi_delete_xml(req_objects)
-        self.assertTrue(len(xml.encode('utf-8')) <= MAX_MULTI_DELETE_BODY_SIZE)
         content_md5 = calculate_md5(xml)
         status, headers, body = \
             self.conn.make_request('POST', bucket, body=xml,
@@ -184,12 +183,11 @@ class TestS3ApiMultiDelete(S3ApiBase):
                                    query=query)
         self.assertEqual(get_error_code(body), 'MalformedXML')
 
-        # specified xml size is over 61365 bytes, but number of objects are
+        # specified xml size is large, but number of objects are
         # smaller than max_multi_delete_objects.
-        obj = 'a' * 1024
-        req_objects = [obj + str(var) for var in xrange(999)]
+        obj = 'a' * 102400
+        req_objects = [obj + str(var) for var in xrange(max_deletes - 1)]
         xml = self._gen_multi_delete_xml(req_objects)
-        self.assertTrue(len(xml.encode('utf-8')) > MAX_MULTI_DELETE_BODY_SIZE)
         content_md5 = calculate_md5(xml)
         status, headers, body = \
             self.conn.make_request('POST', bucket, body=xml,
