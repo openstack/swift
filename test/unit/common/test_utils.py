@@ -4089,25 +4089,25 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_get_redirect_data(self):
         ts_now = utils.Timestamp.now()
         headers = {'X-Backend-Redirect-Timestamp': ts_now.internal}
-        response = FakeResponse(200, headers, '')
+        response = FakeResponse(200, headers, b'')
         self.assertIsNone(utils.get_redirect_data(response))
 
         headers = {'Location': '/a/c/o',
                    'X-Backend-Redirect-Timestamp': ts_now.internal}
-        response = FakeResponse(200, headers, '')
+        response = FakeResponse(200, headers, b'')
         path, ts = utils.get_redirect_data(response)
         self.assertEqual('a/c', path)
         self.assertEqual(ts_now, ts)
 
         headers = {'Location': '/a/c',
                    'X-Backend-Redirect-Timestamp': ts_now.internal}
-        response = FakeResponse(200, headers, '')
+        response = FakeResponse(200, headers, b'')
         path, ts = utils.get_redirect_data(response)
         self.assertEqual('a/c', path)
         self.assertEqual(ts_now, ts)
 
         def do_test(headers):
-            response = FakeResponse(200, headers, '')
+            response = FakeResponse(200, headers, b'')
             with self.assertRaises(ValueError) as cm:
                 utils.get_redirect_data(response)
             return cm.exception
@@ -6230,7 +6230,7 @@ class FakeResponse(object):
     def __init__(self, status, headers, body):
         self.status = status
         self.headers = HeaderKeyDict(headers)
-        self.body = StringIO(body)
+        self.body = BytesIO(body)
 
     def getheader(self, header_name):
         return str(self.headers.get(header_name, ''))

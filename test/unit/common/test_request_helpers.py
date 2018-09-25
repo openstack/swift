@@ -142,16 +142,13 @@ class TestRequestHelpers(unittest.TestCase):
         self.assertEqual(policy.policy_type, REPL_POLICY)
 
         req.headers['X-Backend-Storage-Policy-Index'] = 'foo'
-        try:
+        with self.assertRaises(HTTPException) as raised:
             device, part, account, container, obj, policy = \
                 get_name_and_placement(req, 5, 5, True)
-        except HTTPException as e:
-            self.assertEqual(e.status_int, 503)
-            self.assertEqual(str(e), '503 Service Unavailable')
-            self.assertEqual(e.body, "No policy with index foo")
-        else:
-            self.fail('get_name_and_placement did not raise error '
-                      'for invalid storage policy index')
+        e = raised.exception
+        self.assertEqual(e.status_int, 503)
+        self.assertEqual(str(e), '503 Service Unavailable')
+        self.assertEqual(e.body, b"No policy with index foo")
 
     @patch_policies(with_ec_default=True)
     def test_get_name_and_placement_object_replication(self):
@@ -195,7 +192,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         fr = FakeResponse(
             200,
             {'Content-Length': '10', 'Content-Type': 'application/lunch'},
-            'sandwiches')
+            b'sandwiches')
 
         doc_iters = http_response_to_document_iters(fr)
         first_byte, last_byte, length, headers, body = next(doc_iters)
@@ -205,7 +202,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         header_dict = HeaderKeyDict(headers)
         self.assertEqual(header_dict.get('Content-Length'), '10')
         self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'sandwiches')
+        self.assertEqual(body.read(), b'sandwiches')
 
         self.assertRaises(StopIteration, next, doc_iters)
 
@@ -213,7 +210,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
             200,
             {'Transfer-Encoding': 'chunked',
              'Content-Type': 'application/lunch'},
-            'sandwiches')
+            b'sandwiches')
 
         doc_iters = http_response_to_document_iters(fr)
         first_byte, last_byte, length, headers, body = next(doc_iters)
@@ -223,7 +220,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         header_dict = HeaderKeyDict(headers)
         self.assertEqual(header_dict.get('Transfer-Encoding'), 'chunked')
         self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'sandwiches')
+        self.assertEqual(body.read(), b'sandwiches')
 
         self.assertRaises(StopIteration, next, doc_iters)
 
@@ -232,7 +229,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
             206,
             {'Content-Length': '8', 'Content-Type': 'application/lunch',
              'Content-Range': 'bytes 1-8/10'},
-            'andwiche')
+            b'andwiche')
 
         doc_iters = http_response_to_document_iters(fr)
         first_byte, last_byte, length, headers, body = next(doc_iters)
@@ -242,7 +239,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         header_dict = HeaderKeyDict(headers)
         self.assertEqual(header_dict.get('Content-Length'), '8')
         self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'andwiche')
+        self.assertEqual(body.read(), b'andwiche')
 
         self.assertRaises(StopIteration, next, doc_iters)
 
@@ -252,7 +249,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
             {'Transfer-Encoding': 'chunked',
              'Content-Type': 'application/lunch',
              'Content-Range': 'bytes 1-8/10'},
-            'andwiche')
+            b'andwiche')
 
         doc_iters = http_response_to_document_iters(fr)
         first_byte, last_byte, length, headers, body = next(doc_iters)
@@ -261,7 +258,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         self.assertEqual(length, 10)
         header_dict = HeaderKeyDict(headers)
         self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'andwiche')
+        self.assertEqual(body.read(), b'andwiche')
 
         self.assertRaises(StopIteration, next, doc_iters)
 
@@ -269,17 +266,17 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         fr = FakeResponse(
             206,
             {'Content-Type': 'multipart/byteranges; boundary=asdfasdfasdf'},
-            ("--asdfasdfasdf\r\n"
-             "Content-Type: application/lunch\r\n"
-             "Content-Range: bytes 0-3/10\r\n"
-             "\r\n"
-             "sand\r\n"
-             "--asdfasdfasdf\r\n"
-             "Content-Type: application/lunch\r\n"
-             "Content-Range: bytes 6-9/10\r\n"
-             "\r\n"
-             "ches\r\n"
-             "--asdfasdfasdf--"))
+            (b"--asdfasdfasdf\r\n"
+             b"Content-Type: application/lunch\r\n"
+             b"Content-Range: bytes 0-3/10\r\n"
+             b"\r\n"
+             b"sand\r\n"
+             b"--asdfasdfasdf\r\n"
+             b"Content-Type: application/lunch\r\n"
+             b"Content-Range: bytes 6-9/10\r\n"
+             b"\r\n"
+             b"ches\r\n"
+             b"--asdfasdfasdf--"))
 
         doc_iters = http_response_to_document_iters(fr)
 
@@ -289,7 +286,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         self.assertEqual(length, 10)
         header_dict = HeaderKeyDict(headers)
         self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'sand')
+        self.assertEqual(body.read(), b'sand')
 
         first_byte, last_byte, length, headers, body = next(doc_iters)
         self.assertEqual(first_byte, 6)
@@ -297,7 +294,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         self.assertEqual(length, 10)
         header_dict = HeaderKeyDict(headers)
         self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'ches')
+        self.assertEqual(body.read(), b'ches')
 
         self.assertRaises(StopIteration, next, doc_iters)
 
@@ -314,7 +311,7 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             update_etag_is_at_header(req, 'X-Object-Sysmeta-,-Bad')
         self.assertEqual('Header name must not contain commas',
-                         cm.exception.message)
+                         cm.exception.args[0])
 
     def test_resolve_etag_is_at_header(self):
         def do_test():
