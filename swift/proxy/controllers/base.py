@@ -963,7 +963,7 @@ class ResumingGetter(object):
 
             def iter_bytes_from_response_part(part_file):
                 nchunks = 0
-                buf = ''
+                buf = b''
                 while True:
                     try:
                         with ChunkReadTimeout(node_timeout):
@@ -980,7 +980,7 @@ class ResumingGetter(object):
                             six.reraise(exc_type, exc_value, exc_traceback)
                         except RangeAlreadyComplete:
                             break
-                        buf = ''
+                        buf = b''
                         new_source, new_node = self._get_source_and_node()
                         if new_source:
                             self.app.exception_occurred(
@@ -1017,7 +1017,7 @@ class ResumingGetter(object):
                             else:
                                 self.skip_bytes -= len(buf)
                                 self.bytes_used_from_backend += len(buf)
-                                buf = ''
+                                buf = b''
 
                         if not chunk:
                             if buf:
@@ -1025,7 +1025,7 @@ class ResumingGetter(object):
                                         self.app.client_timeout):
                                     self.bytes_used_from_backend += len(buf)
                                     yield buf
-                                buf = ''
+                                buf = b''
                             break
 
                         if client_chunk_size is not None:
@@ -1041,7 +1041,7 @@ class ResumingGetter(object):
                             with ChunkWriteTimeout(self.app.client_timeout):
                                 self.bytes_used_from_backend += len(buf)
                                 yield buf
-                            buf = ''
+                            buf = b''
 
                         # This is for fairness; if the network is outpacing
                         # the CPU, we'll always be able to read and write

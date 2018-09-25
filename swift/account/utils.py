@@ -92,7 +92,7 @@ def account_listing_response(account, req, response_content_type, broker=None,
         account_list = listing_formats.account_to_xml(data, account)
         ret = HTTPOk(body=account_list, request=req, headers=resp_headers)
     elif response_content_type.endswith('/json'):
-        account_list = json.dumps(data)
+        account_list = json.dumps(data).encode('ascii')
         ret = HTTPOk(body=account_list, request=req, headers=resp_headers)
     elif data:
         account_list = listing_formats.listing_to_text(data)

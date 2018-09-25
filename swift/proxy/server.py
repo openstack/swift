@@ -333,23 +333,25 @@ class Application(object):
                 raise ValueError(
                     "No policy found for override config, index: %s" % index)
             override = self._make_policy_override(policy, conf, override_conf)
-            overrides[policy] = override
+            overrides[index] = override
         return overrides
 
     def get_policy_options(self, policy):
         """
         Return policy specific options.
 
-        :param policy: an instance of :class:`BaseStoragePolicy`
+        :param policy: an instance of :class:`BaseStoragePolicy` or ``None``
         :return: an instance of :class:`ProxyOverrideOptions`
         """
-        return self._override_options[policy]
+        return self._override_options[policy and policy.idx]
 
     def check_config(self):
         """
         Check the configuration for possible errors
         """
-        for policy, options in self._override_options.items():
+        for policy_idx, options in self._override_options.items():
+            policy = (None if policy_idx is None
+                      else POLICIES.get_by_index(policy_idx))
             if options.read_affinity and options.sorting_method != 'affinity':
                 self.logger.warning(
                     _("sorting_method is set to '%(method)s', not 'affinity'; "
@@ -625,8 +627,10 @@ class Application(object):
         :param msg: error message
         """
         self._incr_node_errors(node)
+        if isinstance(msg, bytes):
+            msg = msg.decode('utf-8')
         self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
-                          {'msg': msg.decode('utf-8'), 'ip': node['ip'],
+                          {'msg': msg, 'ip': node['ip'],
                           'port': node['port'], 'device': node['device']})
 
     def iter_nodes(self, ring, partition, node_iter=None, policy=None):
