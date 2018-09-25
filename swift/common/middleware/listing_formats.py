@@ -55,10 +55,21 @@ def get_listing_content_type(req):
         out_content_type = req.accept.best_match(
             ['text/plain', 'application/json', 'application/xml', 'text/xml'])
     except ValueError:
-        raise HTTPBadRequest(request=req, body='Invalid Accept header')
+        raise HTTPBadRequest(request=req, body=b'Invalid Accept header')
     if not out_content_type:
         raise HTTPNotAcceptable(request=req)
     return out_content_type
+
+
+def to_xml(document_element):
+    result = tostring(document_element, encoding='UTF-8').replace(
+        b"<?xml version='1.0' encoding='UTF-8'?>",
+        b'<?xml version="1.0" encoding="UTF-8"?>', 1)
+    if not result.startswith(b'<?xml '):
+        # py3 tostring doesn't (necessarily?) include the XML declaration;
+        # add it if it's missing.
+        result = b'<?xml version="1.0" encoding="UTF-8"?>\n' + result
+    return result
 
 
 def account_to_xml(listing, account_name):
@@ -76,9 +87,7 @@ def account_to_xml(listing, account_name):
                 SubElement(sub, field).text = six.text_type(
                     record.pop(field))
         sub.tail = '\n'
-    return tostring(doc, encoding='UTF-8').replace(
-        b"<?xml version='1.0' encoding='UTF-8'?>",
-        b'<?xml version="1.0" encoding="UTF-8"?>', 1)
+    return to_xml(doc)
 
 
 def container_to_xml(listing, base_name):
@@ -96,10 +105,7 @@ def container_to_xml(listing, base_name):
                           'last_modified'):
                 SubElement(sub, field).text = six.text_type(
                     record.pop(field))
-
-    return tostring(doc, encoding='UTF-8').replace(
-        b"<?xml version='1.0' encoding='UTF-8'?>",
-        b'<?xml version="1.0" encoding="UTF-8"?>', 1)
+    return to_xml(doc)
 
 
 def listing_to_text(listing):
