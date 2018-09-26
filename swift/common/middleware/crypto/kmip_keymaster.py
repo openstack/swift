@@ -108,7 +108,9 @@ class KmipKeyMaster(keymaster.BaseKeyMaster):
         if self.keymaster_config_path:
             section = self.keymaster_conf_section
         else:
-            section = conf['__name__']
+            # __name__ is just the filter name, not the whole section name.
+            # Luckily, PasteDeploy only uses the one prefix for filters.
+            section = 'filter:' + conf['__name__']
 
         if os.path.isdir(conf['__file__']):
             raise ValueError(

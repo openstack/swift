@@ -72,7 +72,7 @@ class TestKmipKeymaster(unittest.TestCase):
 
     def test_config_in_filter_section(self):
         conf = {'__file__': '/etc/swift/proxy-server.conf',
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'kmip_keymaster',
                 'key_id': '1234'}
         secrets = {'1234': create_secret('AES', 256, b'x' * 32)}
         calls = []
@@ -91,7 +91,7 @@ class TestKmipKeymaster(unittest.TestCase):
 
     def test_multikey_config_in_filter_section(self):
         conf = {'__file__': '/etc/swift/proxy-server.conf',
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'kmip-keymaster',
                 'key_id': '1234',
                 'key_id_xyzzy': 'foobar',
                 'key_id_alt_secret_id': 'foobar',
@@ -110,14 +110,14 @@ class TestKmipKeymaster(unittest.TestCase):
         self.assertIsNone(km.keymaster_config_path)
         self.assertEqual(calls, [
             ('__init__', {'config_file': '/etc/swift/proxy-server.conf',
-                          'config': 'filter:kmip_keymaster'}),
+                          'config': 'filter:kmip-keymaster'}),
             ('get', '1234'),
             ('get', 'foobar'),
         ])
 
     def test_bad_active_key(self):
         conf = {'__file__': '/etc/swift/proxy-server.conf',
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'kmip_keymaster',
                 'key_id': '1234',
                 'key_id_xyzzy': 'foobar',
                 'active_root_secret_id': 'unknown'}
@@ -141,7 +141,7 @@ class TestKmipKeymaster(unittest.TestCase):
             fd.write(dedent(km_conf))
 
         conf = {'__file__': '/etc/swift/proxy-server.conf',
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'keymaster-kmip',
                 'keymaster_config_path': km_config_file}
         secrets = {'4321': create_secret('AES', 256, b'x' * 32)}
         calls = []
@@ -168,7 +168,7 @@ class TestKmipKeymaster(unittest.TestCase):
             fd.write(dedent(km_conf))
 
         conf = {'__file__': '/etc/swift/proxy-server.conf',
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'kmip_keymaster',
                 'keymaster_config_path': km_config_file}
         secrets = {'4321': create_secret('AES', 256, b'x' * 32),
                    'another id': create_secret('AES', 256, b'y' * 32)}
@@ -192,7 +192,7 @@ class TestKmipKeymaster(unittest.TestCase):
 
         # KmipClient can't read conf from a dir, so check that is caught early
         conf = {'__file__': proxy_server_conf_dir,
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'kmip_keymaster',
                 'key_id': '789'}
         with self.assertRaises(ValueError) as cm:
             KmipKeyMaster(None, conf)
@@ -213,7 +213,7 @@ class TestKmipKeymaster(unittest.TestCase):
             fd.write(dedent(km_conf))
 
         conf = {'__file__': proxy_server_conf_dir,
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'kmip_keymaster',
                 'keymaster_config_path': km_config_file}
         secrets = {'789': create_secret('AES', 256, b'x' * 32)}
         calls = []
@@ -225,12 +225,13 @@ class TestKmipKeymaster(unittest.TestCase):
         self.assertEqual(km_config_file, km.keymaster_config_path)
         self.assertEqual(calls, [
             ('__init__', {'config_file': km_config_file,
+                          # NB: no "filter:"
                           'config': 'kmip_keymaster'}),
             ('get', '789')])
 
     def test_bad_key_length(self):
         conf = {'__file__': '/etc/swift/proxy-server.conf',
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'kmip_keymaster',
                 'key_id': '1234'}
         secrets = {'1234': create_secret('AES', 128, b'x' * 16)}
         calls = []
@@ -247,7 +248,7 @@ class TestKmipKeymaster(unittest.TestCase):
 
     def test_bad_key_algorithm(self):
         conf = {'__file__': '/etc/swift/proxy-server.conf',
-                '__name__': 'filter:kmip_keymaster',
+                '__name__': 'kmip_keymaster',
                 'key_id': '1234'}
         secrets = {'1234': create_secret('notAES', 256, b'x' * 32)}
         calls = []
@@ -264,7 +265,7 @@ class TestKmipKeymaster(unittest.TestCase):
 
     def test_missing_key_id(self):
         conf = {'__file__': '/etc/swift/proxy-server.conf',
-                '__name__': 'filter:kmip_keymaster'}
+                '__name__': 'kmip_keymaster'}
         with self.assertRaises(ValueError) as cm:
             KmipKeyMaster(None, conf)
         self.assertIn('key_id option is required', str(cm.exception))
