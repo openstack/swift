@@ -738,27 +738,27 @@ the ring and its testing.
       desired_count = \
           DATA_ID_COUNT / len(ring.nodes) * REPLICAS
       print '%d: Desired data ids per node' % desired_count
-      max_count = max(node_counts.itervalues())
+      max_count = max(node_counts.values())
       over = \
           100.0 * (max_count - desired_count) / desired_count
       print '%d: Most data ids on one node, %.02f%% over' % \
           (max_count, over)
-      min_count = min(node_counts.itervalues())
+      min_count = min(node_counts.values())
       under = \
           100.0 * (desired_count - min_count) / desired_count
       print '%d: Least data ids on one node, %.02f%% under' % \
           (min_count, under)
       zone_count = \
-          len(set(n['zone'] for n in ring.nodes.itervalues()))
+          len(set(n['zone'] for n in ring.nodes.values()))
       desired_count = \
           DATA_ID_COUNT / zone_count * ring.replicas
       print '%d: Desired data ids per zone' % desired_count
-      max_count = max(zone_counts.itervalues())
+      max_count = max(zone_counts.values())
       over = \
           100.0 * (max_count - desired_count) / desired_count
       print '%d: Most data ids in one zone, %.02f%% over' % \
           (max_count, over)
-      min_count = min(zone_counts.itervalues())
+      min_count = min(zone_counts.values())
       under = \
           100.0 * (desired_count - min_count) / desired_count
       print '%d: Least data ids in one zone, %.02f%% under' % \
@@ -846,19 +846,19 @@ we've changed so much I'll just post the entire module again:
       begin = time()
       parts = 2 ** partition_power
       total_weight = \
-          float(sum(n['weight'] for n in nodes.itervalues()))
-      for node in nodes.itervalues():
+          float(sum(n['weight'] for n in nodes.values()))
+      for node in nodes.values():
           node['desired_parts'] = \
               parts / total_weight * node['weight']
       part2node = array('H')
       for part in xrange(2 ** partition_power):
-          for node in nodes.itervalues():
+          for node in nodes.values():
               if node['desired_parts'] >= 1:
                   node['desired_parts'] -= 1
                   part2node.append(node['id'])
                   break
           else:
-              for node in nodes.itervalues():
+              for node in nodes.values():
                   if node['desired_parts'] >= 0:
                       node['desired_parts'] -= 1
                       part2node.append(node['id'])
@@ -881,10 +881,10 @@ we've changed so much I'll just post the entire module again:
                   zone_counts.get(node['zone'], 0) + 1
       print '%ds to test ring' % (time() - begin)
       total_weight = float(sum(n['weight'] for n in
-                               ring.nodes.itervalues()))
+                               ring.nodes.values()))
       max_over = 0
       max_under = 0
-      for node in ring.nodes.itervalues():
+      for node in ring.nodes.values():
           desired = DATA_ID_COUNT * REPLICAS * \
               node['weight'] / total_weight
           diff = node_counts[node['id']] - desired
@@ -901,9 +901,9 @@ we've changed so much I'll just post the entire module again:
       max_over = 0
       max_under = 0
       for zone in set(n['zone'] for n in
-                      ring.nodes.itervalues()):
+                      ring.nodes.values()):
           zone_weight = sum(n['weight'] for n in
-              ring.nodes.itervalues() if n['zone'] == zone)
+              ring.nodes.values() if n['zone'] == zone)
           desired = DATA_ID_COUNT * REPLICAS * \
               zone_weight / total_weight
           diff = zone_counts[zone] - desired

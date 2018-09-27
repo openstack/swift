@@ -3025,7 +3025,7 @@ class BaseClient(object):
 class KeystoneClient(BaseClient):
     def get_id_info(self):
         id_info = {}
-        for user_name, user_info in self.users.iteritems():
+        for user_name, user_info in self.users.items():
             if user_name != '':
                 user_id, project_id = self._get_id(user_name)
                 id_info[user_name + '_id'] = user_id
@@ -3294,7 +3294,7 @@ class TestContainerACL(BaseTestAC):
         test_case = super(TestContainerACL, self)._convert_data(data)
         prep_container_header = test_case['prep_container_header']
         if prep_container_header is not None:
-            for header, header_val in prep_container_header.iteritems():
+            for header, header_val in prep_container_header.items():
                 prep_container_header[header] = header_val % self.id_info
         return test_case
 
