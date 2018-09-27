@@ -21,7 +21,7 @@ import six
 from six.moves.configparser import ConfigParser
 from swift.common.utils import (
     config_true_value, quorum_size, whataremyips, list_from_csv,
-    config_positive_int_value, get_zero_indexed_base_string)
+    config_positive_int_value, get_zero_indexed_base_string, load_pkg_resource)
 from swift.common.ring import Ring, RingData
 from swift.common import utils
 from swift.common.exceptions import RingLoadError
@@ -157,7 +157,8 @@ class BaseStoragePolicy(object):
     policy_type_to_policy_cls = {}
 
     def __init__(self, idx, name='', is_default=False, is_deprecated=False,
-                 object_ring=None, aliases=''):
+                 object_ring=None, aliases='',
+                 diskfile_module='egg:swift#replication.fs'):
         # do not allow BaseStoragePolicy class to be instantiated directly
         if type(self) == BaseStoragePolicy:
             raise TypeError("Can't instantiate BaseStoragePolicy directly")
@@ -186,6 +187,8 @@ class BaseStoragePolicy(object):
 
         self.ring_name = _get_policy_string('object', self.idx)
         self.object_ring = object_ring
+
+        self.diskfile_module = diskfile_module
 
     @property
     def name(self):
@@ -252,6 +255,7 @@ class BaseStoragePolicy(object):
             'policy_type': 'policy_type',
             'default': 'is_default',
             'deprecated': 'is_deprecated',
+            'diskfile_module': 'diskfile_module'
         }
 
     @classmethod
@@ -285,6 +289,7 @@ class BaseStoragePolicy(object):
             if not self.is_deprecated:
                 info.pop('deprecated')
             info.pop('policy_type')
+            info.pop('diskfile_module')
         return info
 
     def _validate_policy_name(self, name):
@@ -376,6 +381,32 @@ class BaseStoragePolicy(object):
         """
         raise NotImplementedError()
 
+    def get_diskfile_manager(self, *args, **kwargs):
+        """
+        Return an instance of the diskfile manager class configured for this
+        storage policy.
+
+        :param args: positional args to pass to the diskfile manager
+            constructor.
+        :param kwargs: keyword args to pass to the diskfile manager
+            constructor.
+        :return: A disk file manager instance.
+        """
+        try:
+            dfm_cls = load_pkg_resource('swift.diskfile', self.diskfile_module)
+        except ImportError as err:
+            raise PolicyError(
+                'Unable to load diskfile_module %s for policy %s: %s' %
+                (self.diskfile_module, self.name, err))
+        try:
+            dfm_cls.check_policy(self)
+        except ValueError as err:
+            raise PolicyError(
+                'Invalid diskfile_module %s for policy %s:%s (%s)' %
+                (self.diskfile_module, int(self), self.name, self.policy_type))
+
+        return dfm_cls(*args, **kwargs)
+
 
 @BaseStoragePolicy.register(REPL_POLICY)
 class StoragePolicy(BaseStoragePolicy):
@@ -411,13 +442,15 @@ class ECStoragePolicy(BaseStoragePolicy):
 
     def __init__(self, idx, name='', aliases='', is_default=False,
                  is_deprecated=False, object_ring=None,
+                 diskfile_module='egg:swift#erasure_coding.fs',
                  ec_segment_size=DEFAULT_EC_OBJECT_SEGMENT_SIZE,
                  ec_type=None, ec_ndata=None, ec_nparity=None,
                  ec_duplication_factor=1):
 
         super(ECStoragePolicy, self).__init__(
             idx=idx, name=name, aliases=aliases, is_default=is_default,
-            is_deprecated=is_deprecated, object_ring=object_ring)
+            is_deprecated=is_deprecated, object_ring=object_ring,
+            diskfile_module=diskfile_module)
 
         # Validate erasure_coding policy specific members
         # ec_type is one of the EC implementations supported by PyEClib
