@@ -576,7 +576,12 @@ class ObjectReplicator(Daemon):
 
     def delete_partition(self, path):
         self.logger.info(_("Removing partition: %s"), path)
-        tpool.execute(shutil.rmtree, path)
+        try:
+            tpool.execute(shutil.rmtree, path)
+        except OSError as e:
+            if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
+                # If there was a race to create or delete, don't worry
+                raise
 
     def delete_handoff_objs(self, job, delete_objs):
         success_paths = []
