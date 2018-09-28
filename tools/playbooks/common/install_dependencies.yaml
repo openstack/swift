@@ -18,8 +18,8 @@
     - name: installing dependencies
       yum: name={{ item }} state=present
       with_items:
-        - python-eventlet
         - python-pyeclib
+        - python-pip
         - python-nose
         - python-swiftclient
 
@@ -27,3 +27,4 @@
       pip: name={{ item }} state=present extra_args='--upgrade'
       with_items:
         - crudini
+        - eventlet
