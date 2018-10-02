@@ -15,6 +15,7 @@
 
 import unittest
 from mock import patch, MagicMock
+import calendar
 from datetime import datetime
 import hashlib
 import mock
@@ -163,7 +164,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                 env[header] = value
 
             with patch('swift.common.middleware.s3api.s3request.'
-                       'S3Request._validate_headers'):
+                       'S3Request._validate_headers'), \
+                    patch('swift.common.middleware.s3api.s3request.'
+                          'S3Request._validate_dates'):
                 req = S3Request(env)
             return req.environ['s3api.auth_details']['string_to_sign']
 
@@ -316,12 +319,13 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         req = Request.blank(
             '/bucket/object'
             '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
-            '&X-Amz-Credential=test:tester/20T20Z/US/s3/aws4_request'
+            '&X-Amz-Credential=test:tester/%s/US/s3/aws4_request'
             '&X-Amz-Date=%s'
             '&X-Amz-Expires=1000'
             '&X-Amz-SignedHeaders=host'
-            '&X-Amz-Signature=X' %
-            self.get_v4_amz_date_header(),
+            '&X-Amz-Signature=X' % (
+                self.get_v4_amz_date_header().split('T', 1)[0],
+                self.get_v4_amz_date_header()),
             headers={'Date': self.get_date_header()},
             environ={'REQUEST_METHOD': 'GET'})
         req.content_type = 'text/plain'
@@ -330,6 +334,42 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         for _, _, headers in self.swift.calls_with_headers:
             self.assertEqual('AWS test:tester:X', headers['Authorization'])
             self.assertIn('X-Auth-Token', headers)
+
+    def test_signed_urls_v4_bad_credential(self):
+        def test(credential, message, extra=''):
+            req = Request.blank(
+                '/bucket/object'
+                '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
+                '&X-Amz-Credential=%s'
+                '&X-Amz-Date=%s'
+                '&X-Amz-Expires=1000'
+                '&X-Amz-SignedHeaders=host'
+                '&X-Amz-Signature=X' % (
+                    credential,
+                    self.get_v4_amz_date_header()),
+                headers={'Date': self.get_date_header()},
+                environ={'REQUEST_METHOD': 'GET'})
+            req.content_type = 'text/plain'
+            status, headers, body = self.call_s3api(req)
+            self.assertEqual(status.split()[0], '400', body)
+            self.assertEqual(self._get_error_code(body),
+                             'AuthorizationQueryParametersError')
+            self.assertEqual(self._get_error_message(body), message)
+            self.assertIn(extra, body)
+
+        dt = self.get_v4_amz_date_header().split('T', 1)[0]
+        test('test:tester/not-a-date/US/s3/aws4_request',
+             'Invalid credential date "not-a-date". This date is not the same '
+             'as X-Amz-Date: "%s".' % dt)
+        test('test:tester/%s/not-US/s3/aws4_request' % dt,
+             "Error parsing the X-Amz-Credential parameter; the region "
+             "'not-US' is wrong; expecting 'US'", '<Region>US</Region>')
+        test('test:tester/%s/US/not-s3/aws4_request' % dt,
+             'Error parsing the X-Amz-Credential parameter; incorrect service '
+             '"not-s3". This endpoint belongs to "s3".')
+        test('test:tester/%s/US/s3/not-aws4_request' % dt,
+             'Error parsing the X-Amz-Credential parameter; incorrect '
+             'terminal "not-aws4_request". This endpoint uses "aws4_request".')
 
     def test_signed_urls_v4_missing_x_amz_date(self):
         req = Request.blank('/bucket/object'
@@ -670,9 +710,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test:tester/20130524/US/s3/aws4_request, '
+                'Credential=test:tester/%s/US/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-date,'
-                'Signature=X',
+                'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
             'X-Amz-Date': self.get_v4_amz_date_header(),
             'X-Amz-Content-SHA256': '0123456789'}
         req = Request.blank('/bucket/object', environ=environ, headers=headers)
@@ -705,9 +745,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test:tester/20130524/US/s3/aws4_request, '
+                'Credential=test:tester/%s/US/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-date,'
-                'Signature=X',
+                'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
             'X-Amz-Date': self.get_v4_amz_date_header()}
         req = Request.blank('/bucket/object', environ=environ, headers=headers)
         req.content_type = 'text/plain'
@@ -719,7 +759,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'Missing required header for this request: x-amz-content-sha256')
 
     def test_signature_v4_bad_authorization_string(self):
-        def test(auth_str, error, msg):
+        def test(auth_str, error, msg, extra=''):
             environ = {
                 'REQUEST_METHOD': 'GET'}
             headers = {
@@ -732,6 +772,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             status, headers, body = self.call_s3api(req)
             self.assertEqual(self._get_error_code(body), error)
             self.assertEqual(self._get_error_message(body), msg)
+            self.assertIn(extra, body)
 
         auth_str = ('AWS4-HMAC-SHA256 '
                     'SignedHeaders=host;x-amz-date,'
@@ -745,6 +786,32 @@ class TestS3ApiMiddleware(S3ApiTestCase):
              'The authorization header is malformed; the authorization '
              'header requires three components: Credential, SignedHeaders, '
              'and Signature.')
+
+        auth_str = ('AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/not-US/s3/aws4_request, '
+                    'Signature=X, SignedHeaders=host;x-amz-date' %
+                    self.get_v4_amz_date_header().split('T', 1)[0])
+        test(auth_str, 'AuthorizationHeaderMalformed',
+             "The authorization header is malformed; "
+             "the region 'not-US' is wrong; expecting 'US'",
+             '<Region>US</Region>')
+
+        auth_str = ('AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/US/not-s3/aws4_request, '
+                    'Signature=X, SignedHeaders=host;x-amz-date' %
+                    self.get_v4_amz_date_header().split('T', 1)[0])
+        test(auth_str, 'AuthorizationHeaderMalformed',
+             'The authorization header is malformed; '
+             'incorrect service "not-s3". This endpoint belongs to "s3".')
+
+        auth_str = ('AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/US/s3/not-aws4_request, '
+                    'Signature=X, SignedHeaders=host;x-amz-date' %
+                    self.get_v4_amz_date_header().split('T', 1)[0])
+        test(auth_str, 'AuthorizationHeaderMalformed',
+             'The authorization header is malformed; '
+             'incorrect terminal "not-aws4_request". '
+             'This endpoint uses "aws4_request".')
 
         auth_str = ('AWS4-HMAC-SHA256 '
                     'Credential=test:tester/20130524/US/s3/aws4_request, '
@@ -768,13 +835,16 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     '27ae41e4649b934ca495991b7852b855',
                 'HTTP_AUTHORIZATION':
                     'AWS4-HMAC-SHA256 '
-                    'Credential=X:Y/dt/reg/host/blah, '
+                    'Credential=X:Y/20110909/US/s3/aws4_request, '
                     'SignedHeaders=content-md5;content-type;date, '
                     'Signature=x',
             }
+            fake_time = calendar.timegm((2011, 9, 9, 23, 36, 0))
             env.update(environ)
             with patch('swift.common.middleware.s3api.s3request.'
-                       'S3Request._validate_headers'):
+                       'S3Request._validate_headers'), \
+                    patch('swift.common.middleware.s3api.utils.time.time',
+                          return_value=fake_time):
                 req = SigV4Request(env, location=self.conf.location)
             return req
 
