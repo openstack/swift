@@ -17,6 +17,7 @@ import logging
 import os
 
 from swift.common.middleware.crypto import keymaster
+from swift.common.utils import LogLevelFilter
 
 from kmip.pie.client import ProxyKmipClient
 
@@ -119,6 +120,18 @@ class KmipKeyMaster(keymaster.KeyMaster):
         kmip_logger = logging.getLogger('kmip')
         for handler in self.logger.logger.handlers:
             kmip_logger.addHandler(handler)
+
+        debug_filter = LogLevelFilter(logging.DEBUG)
+        for name in (
+                # The kmip_protocol logger includes hex-encoded data off the
+                # wire, which may include key material!! We *NEVER* want that
+                # enabled.
+                'kmip.services.server.kmip_protocol',
+                # The config_helper logger includes any password that may be
+                # provided, which doesn't seem great either.
+                'kmip.core.config_helper',
+        ):
+            logging.getLogger(name).addFilter(debug_filter)
 
         multikey_opts = self._load_multikey_opts(conf, 'key_id')
         if not multikey_opts:

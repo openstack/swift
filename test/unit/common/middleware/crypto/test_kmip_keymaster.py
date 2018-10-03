@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import mock
 import os
 import unittest
@@ -60,6 +61,15 @@ def create_mock_client(secrets, calls):
             raise Exception('unexpected args provided: %r' % (args,))
         return MockProxyKmipClient(secrets, calls, kwargs)
     return mock_client
+
+
+class InMemoryHandler(logging.Handler):
+    def __init__(self):
+        self.messages = []
+        super(InMemoryHandler, self).__init__()
+
+    def handle(self, record):
+        self.messages.append(record.msg)
 
 
 class TestKmipKeymaster(unittest.TestCase):
@@ -268,3 +278,38 @@ class TestKmipKeymaster(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             KmipKeyMaster(None, conf)
         self.assertIn('key_id option is required', str(cm.exception))
+
+    def test_logger_manipulations(self):
+        root_logger = logging.getLogger()
+        old_level = root_logger.getEffectiveLevel()
+        handler = InMemoryHandler()
+        try:
+            root_logger.setLevel(logging.DEBUG)
+            root_logger.addHandler(handler)
+
+            conf = {'__file__': '/etc/swift/proxy-server.conf',
+                    '__name__': 'kmip_keymaster'}
+            with self.assertRaises(ValueError):
+                # missing key_id, as above, but that's not the interesting bit
+                KmipKeyMaster(None, conf)
+
+            self.assertEqual(handler.messages, [])
+
+            logger = logging.getLogger('kmip.services.server.kmip_protocol')
+            logger.debug('Something secret!')
+            logger.info('Something useful')
+            self.assertNotIn('Something secret!', handler.messages)
+            self.assertIn('Something useful', handler.messages)
+
+            logger = logging.getLogger('kmip.core.config_helper')
+            logger.debug('Also secret')
+            logger.warning('Also useful')
+            self.assertNotIn('Also secret', handler.messages)
+            self.assertIn('Also useful', handler.messages)
+
+            logger = logging.getLogger('kmip')
+            logger.debug('Boring, but not secret')
+            self.assertIn('Boring, but not secret', handler.messages)
+        finally:
+            root_logger.setLevel(old_level)
+            root_logger.removeHandler(handler)

@@ -1988,6 +1988,25 @@ class SwiftLogFormatter(logging.Formatter):
         return msg
 
 
+class LogLevelFilter(object):
+    """
+    Drop messages for the logger based on level.
+
+    This is useful when dependencies log too much information.
+
+    :param level: All messages at or below this level are dropped
+                  (DEBUG < INFO < WARN < ERROR < CRITICAL|FATAL)
+                  Default: DEBUG
+    """
+    def __init__(self, level=logging.DEBUG):
+        self.level = level
+
+    def filter(self, record):
+        if record.levelno <= self.level:
+            return 0
+        return 1
+
+
 def get_logger(conf, name=None, log_to_console=False, log_route=None,
                fmt="%(server)s: %(message)s"):
     """
