@@ -17,9 +17,10 @@
 import json
 import unittest
 from contextlib import contextmanager
-from base64 import b64encode
+from base64 import b64encode as _b64encode
 from time import time
 
+import six
 from six.moves.urllib.parse import quote, urlparse
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
@@ -27,6 +28,12 @@ from swift.common.swob import Request, Response
 from swift.common.utils import split_path
 
 NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
+
+
+def b64encode(str_or_bytes):
+    if not isinstance(str_or_bytes, bytes):
+        str_or_bytes = str_or_bytes.encode('utf8')
+    return _b64encode(str_or_bytes).decode('ascii')
 
 
 class FakeMemcache(object):
@@ -41,7 +48,7 @@ class FakeMemcache(object):
         if isinstance(value, (tuple, list)):
             decoded = []
             for elem in value:
-                if type(elem) == str:
+                if isinstance(elem, bytes):
                     decoded.append(elem.decode('utf8'))
                 else:
                     decoded.append(elem)
@@ -972,9 +979,11 @@ class TestAuth(unittest.TestCase):
 
     def test_successful_token_unicode_user(self):
         app = FakeApp(iter(NO_CONTENT_RESP * 2))
-        ath = auth.filter_factory(
-            {u'user_t\u00e9st_t\u00e9ster'.encode('utf8'):
-             u'p\u00e1ss .admin'.encode('utf8')})(app)
+        conf = {u'user_t\u00e9st_t\u00e9ster': u'p\u00e1ss .admin'}
+        if six.PY2:
+            conf = {k.encode('utf8'): v.encode('utf8')
+                    for k, v in conf.items()}
+        ath = auth.filter_factory(conf)(app)
         quoted_acct = quote(u'/v1/AUTH_t\u00e9st'.encode('utf8'))
         memcache = FakeMemcache()
 
@@ -1009,7 +1018,8 @@ class TestAuth(unittest.TestCase):
 
         # ...but it also works if you send the account raw
         req = self._make_request(
-            u'/v1/AUTH_t\u00e9st', headers={'X-Auth-Token': auth_token})
+            u'/v1/AUTH_t\u00e9st'.encode('utf8'),
+            headers={'X-Auth-Token': auth_token})
         req.environ['swift.cache'] = memcache
         resp = req.get_response(ath)
         self.assertEqual(204, resp.status_int)
@@ -1395,13 +1405,13 @@ class TestAccountAcls(unittest.TestCase):
             resp = req.get_response(test_auth)
             self.assertEqual(resp.status_int, 204)
 
-        errmsg = 'X-Account-Access-Control invalid: %s'
+        errmsg = b'X-Account-Access-Control invalid: %s'
         # syntactically invalid acls get a 400
         update = {'x-account-access-control': bad_acl}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual(errmsg % "Syntax error", resp.body[:46])
+        self.assertEqual(errmsg % b"Syntax error", resp.body[:46])
 
         # syntactically valid acls with bad keys also get a 400
         update = {'x-account-access-control': wrong_acl}
@@ -1409,7 +1419,7 @@ class TestAccountAcls(unittest.TestCase):
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
-            errmsg % 'Key "other-auth-system" not recognized'), resp.body)
+            errmsg % b'Key "other-auth-system" not recognized'), resp.body)
 
         # and do something sane with crazy data
         update = {'x-account-access-control': u'{"\u1234": []}'.encode('utf8')}
@@ -1417,7 +1427,7 @@ class TestAccountAcls(unittest.TestCase):
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
-            errmsg % 'Key "\\u1234" not recognized'), resp.body)
+            errmsg % b'Key "\\u1234" not recognized'), resp.body)
 
         # acls with good keys but bad values also get a 400
         update = {'x-account-access-control': bad_value_acl}
@@ -1425,7 +1435,7 @@ class TestAccountAcls(unittest.TestCase):
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
-            errmsg % 'Value for key "admin" must be a list'), resp.body)
+            errmsg % b'Value for key "admin" must be a list'), resp.body)
 
         # acls with non-string-types in list also get a 400
         update = {'x-account-access-control': bad_list_types}
@@ -1433,7 +1443,7 @@ class TestAccountAcls(unittest.TestCase):
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
-            errmsg % 'Elements of "read-only" list must be strings'),
+            errmsg % b'Elements of "read-only" list must be strings'),
             resp.body)
 
         # acls with wrong json structure also get a 400
@@ -1441,14 +1451,14 @@ class TestAccountAcls(unittest.TestCase):
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual(errmsg % "Syntax error", resp.body[:46])
+        self.assertEqual(errmsg % b"Syntax error", resp.body[:46])
 
         # acls with wrong json structure also get a 400
         update = {'x-account-access-control': not_dict_acl2}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual(errmsg % "Syntax error", resp.body[:46])
+        self.assertEqual(errmsg % b"Syntax error", resp.body[:46])
 
     def test_acls_propagate_to_sysmeta(self):
         test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
