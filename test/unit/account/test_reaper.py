@@ -841,12 +841,10 @@ class TestReaper(unittest.TestCase):
         r = init_reaper()
         with patch('swift.account.reaper.sleep', fake_sleep):
             with patch('swift.account.reaper.random.random', fake_random):
-                try:
+                with self.assertRaises(Exception) as raised:
                     r.run_forever()
-                except Exception as err:
-                    pass
         self.assertEqual(self.val, 1)
-        self.assertEqual(str(err), 'exit')
+        self.assertEqual(str(raised.exception), 'exit')
 
 
 if __name__ == '__main__':

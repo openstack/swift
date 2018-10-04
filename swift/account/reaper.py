@@ -270,7 +270,11 @@ class AccountReaper(Daemon):
                     break
                 try:
                     for (container, _junk, _junk, _junk, _junk) in containers:
-                        this_shard = int(md5(container).hexdigest(), 16) % \
+                        if six.PY3:
+                            container_ = container.encode('utf-8')
+                        else:
+                            container_ = container
+                        this_shard = int(md5(container_).hexdigest(), 16) % \
                             len(nodes)
                         if container_shard not in (this_shard, None):
                             continue
@@ -393,10 +397,11 @@ class AccountReaper(Daemon):
                     self.logger.error('ERROR: invalid storage policy index: %r'
                                       % policy_index)
                 for obj in objects:
-                    if isinstance(obj['name'], six.text_type):
-                        obj['name'] = obj['name'].encode('utf8')
+                    obj_name = obj['name']
+                    if isinstance(obj_name, six.text_type):
+                        obj_name = obj_name.encode('utf8')
                     pool.spawn(self.reap_object, account, container, part,
-                               nodes, obj['name'], policy_index)
+                               nodes, obj_name, policy_index)
                 pool.waitall()
             except (Exception, Timeout):
                 self.logger.exception(_('Exception with objects for container '
