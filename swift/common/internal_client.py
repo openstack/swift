@@ -145,6 +145,8 @@ class InternalClient(object):
 
     def __init__(self, conf_path, user_agent, request_tries,
                  allow_modify_pipeline=False):
+        if request_tries < 1:
+            raise ValueError('request_tries must be positive')
         self.app = loadapp(conf_path,
                            allow_modify_pipeline=allow_modify_pipeline)
         self.user_agent = user_agent
