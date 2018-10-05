@@ -21,7 +21,6 @@ import os
 from uuid import uuid4
 
 import six
-import six.moves.cPickle as pickle
 from six.moves import range
 import sqlite3
 from eventlet import tpool
@@ -643,17 +642,16 @@ class ContainerBroker(DatabaseBroker):
 
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
-        data = pickle.loads(entry.decode('base64'))
-        (name, timestamp, size, content_type, etag, deleted) = data[:6]
-        if len(data) > 6:
-            storage_policy_index = data[6]
+        (name, timestamp, size, content_type, etag, deleted) = entry[:6]
+        if len(entry) > 6:
+            storage_policy_index = entry[6]
         else:
             storage_policy_index = 0
         content_type_timestamp = meta_timestamp = None
-        if len(data) > 7:
-            content_type_timestamp = data[7]
-        if len(data) > 8:
-            meta_timestamp = data[8]
+        if len(entry) > 7:
+            content_type_timestamp = entry[7]
+        if len(entry) > 8:
+            meta_timestamp = entry[8]
         item_list.append({'name': name,
                           'created_at': timestamp,
                           'size': size,

@@ -17,7 +17,6 @@ Pluggable Back-end for Account Server
 """
 
 from uuid import uuid4
-import six.moves.cPickle as pickle
 
 import sqlite3
 
@@ -204,12 +203,11 @@ class AccountBroker(DatabaseBroker):
 
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
-        loaded = pickle.loads(entry.decode('base64'))
         # check to see if the update includes policy_index or not
         (name, put_timestamp, delete_timestamp, object_count, bytes_used,
-         deleted) = loaded[:6]
-        if len(loaded) > 6:
-            storage_policy_index = loaded[6]
+         deleted) = entry[:6]
+        if len(entry) > 6:
+            storage_policy_index = entry[6]
         else:
             # legacy support during upgrade until first non legacy storage
             # policy is defined

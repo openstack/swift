@@ -274,7 +274,7 @@ class ExampleBroker(DatabaseBroker):
             conn.commit()
 
     def _commit_puts_load(self, item_list, entry):
-        (name, timestamp, deleted) = pickle.loads(base64.b64decode(entry))
+        (name, timestamp, deleted) = entry
         item_list.append({
             'name': name,
             'created_at': timestamp,
@@ -1422,16 +1422,19 @@ class TestDatabaseBroker(unittest.TestCase):
 
         # load file and merge
         with open(broker.pending_file, 'wb') as fd:
-            fd.write(b':1:2:99')
+            for v in (1, 2, 99):
+                fd.write(b':' + base64.b64encode(pickle.dumps(
+                    v, protocol=PICKLE_PROTOCOL)))
         with patch.object(broker, 'merge_items') as mock_merge_items:
             broker._commit_puts_load = lambda l, e: l.append(e)
             broker._commit_puts()
-        mock_merge_items.assert_called_once_with([b'1', b'2', b'99'])
+        mock_merge_items.assert_called_once_with([1, 2, 99])
         self.assertEqual(0, os.path.getsize(broker.pending_file))
 
         # load file and merge with given list
         with open(broker.pending_file, 'wb') as fd:
-            fd.write(b':bad')
+            fd.write(b':' + base64.b64encode(pickle.dumps(
+                b'bad', protocol=PICKLE_PROTOCOL)))
         with patch.object(broker, 'merge_items') as mock_merge_items:
             broker._commit_puts_load = lambda l, e: l.append(e)
             broker._commit_puts([b'not'])

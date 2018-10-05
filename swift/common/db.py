@@ -730,7 +730,8 @@ class DatabaseBroker(object):
             for entry in fp.read().split(b':'):
                 if entry:
                     try:
-                        self._commit_puts_load(item_list, entry)
+                        data = pickle.loads(base64.b64decode(entry))
+                        self._commit_puts_load(item_list, data)
                     except Exception:
                         self.logger.exception(
                             _('Invalid pending entry %(file)s: %(entry)s'),
@@ -760,7 +761,7 @@ class DatabaseBroker(object):
 
     def _commit_puts_load(self, item_list, entry):
         """
-        Unmarshall the :param:entry and append it to :param:item_list.
+        Unmarshall the :param:entry tuple and append it to :param:item_list.
         This is implemented by a particular broker to be compatible
         with its :func:`merge_items`.
         """
