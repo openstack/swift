@@ -687,11 +687,9 @@ class TestDatabaseBroker(unittest.TestCase):
         stub_dict = {}
 
         def stub(*args, **kwargs):
-            for key in list(stub_dict.keys()):
-                del stub_dict[key]
+            stub_dict.clear()
             stub_dict['args'] = args
-            for key, value in kwargs.items():
-                stub_dict[key] = value
+            stub_dict.update(kwargs)
         broker = DatabaseBroker(':memory:')
         broker._initialize = stub
         broker.initialize(normalize_timestamp('1'))

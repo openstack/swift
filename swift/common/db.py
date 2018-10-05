@@ -884,8 +884,8 @@ class DatabaseBroker(object):
                 if not check_utf8(value):
                     raise HTTPBadRequest('Metadata must be valid UTF-8')
             key = key.lower()
-            if len(value) != 0 and (key.startswith('x-account-meta') or
-                                    key.startswith('x-container-meta')):
+            if value and key.startswith(('x-account-meta-',
+                                         'x-container-meta-')):
                 prefix = 'x-account-meta-'
                 if key.startswith('x-container-meta-'):
                     prefix = 'x-container-meta-'
