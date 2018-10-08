@@ -290,17 +290,20 @@ class TestInternalClient(unittest.TestCase):
 
         conf_path = 'some_path'
         app = App(self, conf_path)
-        old_loadapp = internal_client.loadapp
-        internal_client.loadapp = app.load
 
         user_agent = 'some_user_agent'
-        request_tries = 'some_request_tries'
+        request_tries = 123
 
-        try:
+        with mock.patch.object(internal_client, 'loadapp', app.load), \
+                self.assertRaises(ValueError):
+            # First try with a bad arg
+            client = internal_client.InternalClient(
+                conf_path, user_agent, request_tries=0)
+        self.assertEqual(0, app.load_called)
+
+        with mock.patch.object(internal_client, 'loadapp', app.load):
             client = internal_client.InternalClient(
                 conf_path, user_agent, request_tries)
-        finally:
-            internal_client.loadapp = old_loadapp
 
         self.assertEqual(1, app.load_called)
         self.assertEqual(app, client.app)
