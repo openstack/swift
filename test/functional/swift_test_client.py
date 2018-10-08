@@ -492,7 +492,8 @@ class Account(Base):
     def delete_containers(self):
         for c in listing_items(self.containers):
             cont = self.container(c)
-            cont.update_metadata(hdrs={'x-versions-location': ''})
+            cont.update_metadata(hdrs={'x-versions-location': ''},
+                                 tolerate_missing=True)
             if not cont.delete_recursive():
                 return False
 
@@ -546,17 +547,19 @@ class Container(Base):
         return self.conn.make_request('PUT', self.path, hdrs=hdrs,
                                       parms=parms, cfg=cfg) in (201, 202)
 
-    def update_metadata(self, hdrs=None, cfg=None):
+    def update_metadata(self, hdrs=None, cfg=None, tolerate_missing=False):
         if hdrs is None:
             hdrs = {}
         if cfg is None:
             cfg = {}
 
         self.conn.make_request('POST', self.path, hdrs=hdrs, cfg=cfg)
-        if not 200 <= self.conn.response.status <= 299:
-            raise ResponseError(self.conn.response, 'POST',
-                                self.conn.make_path(self.path))
-        return True
+        if 200 <= self.conn.response.status <= 299:
+            return True
+        if tolerate_missing and self.conn.response.status == 404:
+            return True
+        raise ResponseError(self.conn.response, 'POST',
+                            self.conn.make_path(self.path))
 
     def delete(self, hdrs=None, parms=None):
         if hdrs is None:
