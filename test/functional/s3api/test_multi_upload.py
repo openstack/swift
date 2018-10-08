@@ -67,7 +67,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.conn.make_request('PUT', bucket)
         query = 'uploads'
         for key, key_headers in izip_longest(keys, headers):
-            for i in xrange(trials):
+            for i in range(trials):
                 status, resp_headers, body = \
                     self.conn.make_request('POST', bucket, key,
                                            headers=key_headers, query=query)
@@ -547,7 +547,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         upload_id = elem.find('UploadId').text
 
         etags = []
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, keys[0], query=query)
@@ -621,7 +621,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # multi parts with no body
         etags = []
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key, query=query)
@@ -636,7 +636,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # multi parts with all parts less than min segment size
         etags = []
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key, query=query,
@@ -675,7 +675,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         etags = []
         body_size = [self.min_segment_size, self.min_segment_size - 1, 2]
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key, query=query,
@@ -699,7 +699,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         etags = []
         body_size = [self.min_segment_size, self.min_segment_size, 2]
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key, query=query,
@@ -724,7 +724,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         upload_id = elem.find('UploadId').text
 
         etags = []
-        for i in xrange(1, 4):
+        for i in range(1, 4):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key,

@@ -503,7 +503,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         code = self._test_method_error('PUT', '/b', swob.HTTPCreated)
         self.assertEqual(code, 'InvalidBucketName')
         code = self._test_method_error(
-            'PUT', '/%s' % ''.join(['b' for x in xrange(64)]),
+            'PUT', '/%s' % ''.join(['b' for x in range(64)]),
             swob.HTTPCreated)
         self.assertEqual(code, 'InvalidBucketName')
 

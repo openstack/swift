@@ -5042,7 +5042,7 @@ class TestStatsdLogging(unittest.TestCase):
 
 class UnsafeXrange(object):
     """
-    Like xrange(limit), but with extra context switching to screw things up.
+    Like range(limit), but with extra context switching to screw things up.
     """
     def __init__(self, upper_bound):
         self.current = 0

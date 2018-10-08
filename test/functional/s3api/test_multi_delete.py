@@ -61,7 +61,7 @@ class TestS3ApiMultiDelete(S3ApiBase):
 
     def test_delete_multi_objects(self):
         bucket = 'bucket'
-        put_objects = ['obj%s' % var for var in xrange(4)]
+        put_objects = ['obj%s' % var for var in range(4)]
         self._prepare_test_delete_multi_objects(bucket, put_objects)
         query = 'delete'
 
@@ -174,7 +174,7 @@ class TestS3ApiMultiDelete(S3ApiBase):
             'max_multi_delete_objects', 1000)
         # specified number of objects are over max_multi_delete_objects
         # (Default 1000), but xml size is relatively small
-        req_objects = ['obj%s' for var in xrange(max_deletes + 1)]
+        req_objects = ['obj%s' for var in range(max_deletes + 1)]
         xml = self._gen_multi_delete_xml(req_objects)
         content_md5 = calculate_md5(xml)
         status, headers, body = \
@@ -186,7 +186,7 @@ class TestS3ApiMultiDelete(S3ApiBase):
         # specified xml size is large, but number of objects are
         # smaller than max_multi_delete_objects.
         obj = 'a' * 102400
-        req_objects = [obj + str(var) for var in xrange(max_deletes - 1)]
+        req_objects = [obj + str(var) for var in range(max_deletes - 1)]
         xml = self._gen_multi_delete_xml(req_objects)
         content_md5 = calculate_md5(xml)
         status, headers, body = \

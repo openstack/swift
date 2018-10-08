@@ -322,7 +322,7 @@ class TestRequest(S3ApiTestCase):
                 'swift.common.middleware.s3api.s3request.get_container_info',
                 return_value={'status': 204}) as mock_info:
             # Then all calls goes to get_container_info
-            for x in xrange(10):
+            for x in range(10):
                 info = s3_req.get_container_info(self.swift)
                 self.assertTrue('status' in info)  # sanity
                 self.assertEqual(204, info['status'])  # sanity

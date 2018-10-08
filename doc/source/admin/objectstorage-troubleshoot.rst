@@ -164,7 +164,7 @@ you have lost.
       >>> builder._replica2part2dev = ring._replica2part2dev_id
       >>> builder._last_part_moves_epoch = 0
       >>> from array import array
-      >>> builder._last_part_moves = array('B', (0 for _ in xrange(partitions)))
+      >>> builder._last_part_moves = array('B', (0 for _ in range(partitions)))
       >>> builder._set_parts_wanted()
       >>> for d in builder._iter_devs():
                   d['parts'] = 0
