@@ -111,10 +111,7 @@ def parse_v2_response(token):
         'X-Project-Id': access_info['token']['tenant']['id'],
         'X-Project-Name': access_info['token']['tenant']['name'],
     }
-    return (
-        headers,
-        access_info['token'].get('id'),
-        access_info['token']['tenant'])
+    return headers, access_info['token']['tenant']
 
 
 def parse_v3_response(token):
@@ -134,7 +131,7 @@ def parse_v3_response(token):
         'X-Project-Domain-Id': token['project']['domain']['id'],
         'X-Project-Domain-Name': token['project']['domain']['name'],
     }
-    return headers, None, token['project']
+    return headers, token['project']
 
 
 class S3Token(object):
@@ -308,7 +305,13 @@ class S3Token(object):
         if memcache_client:
             cached_auth_data = memcache_client.get(memcache_token_key)
             if cached_auth_data:
-                headers, token_id, tenant, secret = cached_auth_data
+                if len(cached_auth_data) == 4:
+                    # Old versions of swift may have cached token, too,
+                    # but we don't need it
+                    headers, _token, tenant, secret = cached_auth_data
+                else:
+                    headers, tenant, secret = cached_auth_data
+
                 if s3_auth_details['check_signature'](secret):
                     self._logger.debug("Cached creds valid")
                 else:
@@ -348,9 +351,9 @@ class S3Token(object):
             try:
                 token = resp.json()
                 if 'access' in token:
-                    headers, token_id, tenant = parse_v2_response(token)
+                    headers, tenant = parse_v2_response(token)
                 elif 'token' in token:
-                    headers, token_id, tenant = parse_v3_response(token)
+                    headers, tenant = parse_v3_response(token)
                 else:
                     raise ValueError
                 if memcache_client:
@@ -363,7 +366,7 @@ class S3Token(object):
                             access=access)
                         memcache_client.set(
                             memcache_token_key,
-                            (headers, token_id, tenant, cred_ref.secret),
+                            (headers, tenant, cred_ref.secret),
                             time=self._secret_cache_duration)
                         self._logger.debug("Cached keystone credentials")
                     except Exception:
@@ -391,7 +394,6 @@ class S3Token(object):
                         environ, start_response)
 
         req.headers.update(headers)
-        req.headers['X-Auth-Token'] = token_id
         tenant_to_connect = force_tenant or tenant['id']
         if six.PY2 and isinstance(tenant_to_connect, six.text_type):
             tenant_to_connect = tenant_to_connect.encode('utf-8')

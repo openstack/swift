@@ -232,6 +232,8 @@ class Owner(object):
     """
     def __init__(self, id, name):
         self.id = id
+        if not (name is None or isinstance(name, six.string_types)):
+            raise TypeError('name must be a string or None')
         self.name = name
 
 
