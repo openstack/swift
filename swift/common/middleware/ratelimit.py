@@ -19,6 +19,7 @@ import eventlet
 
 from swift.common.utils import cache_from_env, get_logger, register_swift_info
 from swift.proxy.controllers.base import get_account_info, get_container_info
+from swift.common.constraints import valid_api_version
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request, Response
 
@@ -305,6 +306,8 @@ class RateLimitMiddleware(object):
         try:
             version, account, container, obj = req.split_path(1, 4, True)
         except ValueError:
+            return self.app(env, start_response)
+        if not valid_api_version(version):
             return self.app(env, start_response)
         ratelimit_resp = self.handle_ratelimit(req, account, container, obj)
         if ratelimit_resp is None:
