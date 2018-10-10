@@ -1,0 +1,3 @@
+- hosts: all
+  roles:
+    - role: fetch-coverage-output
