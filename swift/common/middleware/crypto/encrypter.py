@@ -146,12 +146,16 @@ class EncInputWrapper(object):
             #   * override in the footer, otherwise
             #   * override in the header, and finally
             #   * MD5 of the plaintext received
-            # This may be None if no override was set and no data was read
+            # This may be None if no override was set and no data was read. An
+            # override value of '' will be passed on.
             container_listing_etag = footers.get(
                 'X-Object-Sysmeta-Container-Update-Override-Etag',
-                container_listing_etag_header) or plaintext_etag
+                container_listing_etag_header)
 
-            if (container_listing_etag is not None and
+            if container_listing_etag is None:
+                container_listing_etag = plaintext_etag
+
+            if (container_listing_etag and
                     (container_listing_etag != MD5_OF_EMPTY_STRING or
                      plaintext_etag)):
                 # Encrypt the container-listing etag using the container key
