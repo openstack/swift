@@ -1922,7 +1922,7 @@ class TestFile(Base):
                 self.assertTrue(file_item.write())
                 self.assert_status(201)
                 self.assertTrue(file_item.sync_metadata())
-                self.assert_status((201, 202))
+                self.assert_status(202)
             else:
                 self.assertRaises(ResponseError, file_item.write)
                 self.assert_status(400)
@@ -2355,7 +2355,7 @@ class TestFile(Base):
 
             file_item.metadata = metadata
             self.assertTrue(file_item.sync_metadata())
-            self.assert_status((201, 202))
+            self.assert_status(202)
 
             file_item = self.env.container.file(file_item.name)
             self.assertTrue(file_item.initialize())
