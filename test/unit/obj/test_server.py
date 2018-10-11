@@ -1705,8 +1705,8 @@ class TestObjectController(unittest.TestCase):
         req.headers.pop("Content-Length", None)
 
         resp = req.get_response(self.object_controller)
-        self.assertEqual(resp.etag, obj_etag)
         self.assertEqual(resp.status_int, 201)
+        self.assertEqual(resp.etag, obj_etag)
 
         objfile = os.path.join(
             self.testdir, 'sda1',
