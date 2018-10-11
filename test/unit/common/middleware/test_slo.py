@@ -964,6 +964,59 @@ class TestSloPutManifest(SloTestCase):
         self.assertEqual('a', manifest_data[0]['hash'])
         self.assertEqual('b', manifest_data[1]['hash'])
 
+    def test_handle_multipart_put_with_manipulator_callback(self):
+        def data_inserter(manifest):
+            for i in range(len(manifest), -1, -1):
+                manifest.insert(i, {'data': 'WA=='})
+
+        good_data = json.dumps([
+            {'path': '/checktest/a_1'},
+            {'path': '/checktest/b_2'}])
+        req = Request.blank(
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'swift.callback.slo_manifest_hook': data_inserter},
+            body=good_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(self.app.call_count, 3)
+
+        # Check that we still populated the manifest properly from our HEADs
+        req = Request.blank(
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_app(req)
+        manifest_data = json.loads(body)
+        self.assertEqual([
+            {k: v for k, v in item.items()
+             if k in ('name', 'bytes', 'hash', 'data')}
+            for item in manifest_data
+        ], [
+            {'data': 'WA=='},
+            {'name': '/checktest/a_1', 'bytes': 1, 'hash': 'a'},
+            {'data': 'WA=='},
+            {'name': '/checktest/b_2', 'bytes': 2, 'hash': 'b'},
+            {'data': 'WA=='},
+        ])
+
+    def test_handle_multipart_put_with_validator_callback(self):
+        def complainer(manifest):
+            return [(item['name'], "Don't wanna") for item in manifest]
+
+        good_data = json.dumps([
+            {'path': '/checktest/a_1'},
+            {'path': '/checktest/b_2'}])
+        req = Request.blank(
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'swift.callback.slo_manifest_hook': complainer},
+            body=good_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(self.app.call_count, 2)
+        self.assertEqual(status, '400 Bad Request')
+        body = body.split('\n')
+        self.assertIn("/checktest/a_1, Don't wanna", body)
+        self.assertIn("/checktest/b_2, Don't wanna", body)
+
     def test_handle_unsatisfiable_ranges(self):
         bad_data = json.dumps(
             [{'path': '/checktest/a_1', 'etag': None,
