@@ -235,6 +235,24 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
             resp_prefixes,
             [{'Prefix': p} for p in expect_prefixes])
 
+    def test_get_bucket_with_multi_char_delimiter(self):
+        bucket = 'bucket'
+        put_objects = ('object', 'object2', 'subdir/object', 'subdir2/object',
+                       'dir/subdir/object')
+        self._prepare_test_get_bucket(bucket, put_objects)
+
+        delimiter = '/obj'
+        expect_objects = ('object', 'object2')
+        expect_prefixes = ('dir/subdir/obj', 'subdir/obj', 'subdir2/obj')
+        resp = self.conn.list_objects(Bucket=bucket, Delimiter=delimiter)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(resp['Delimiter'], delimiter)
+        self._validate_object_listing(resp['Contents'], expect_objects)
+        resp_prefixes = resp['CommonPrefixes']
+        self.assertEqual(
+            resp_prefixes,
+            [{'Prefix': p} for p in expect_prefixes])
+
     def test_get_bucket_with_encoding_type(self):
         bucket = 'bucket'
         put_objects = ('object', 'object2')

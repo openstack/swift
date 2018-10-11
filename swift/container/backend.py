@@ -1186,19 +1186,27 @@ class ContainerBroker(DatabaseBroker):
                             continue
                         if end >= 0 and len(name) > end + len(delimiter):
                             if reverse:
-                                end_marker = name[:end + 1]
+                                end_marker = name[:end + len(delimiter)]
                             else:
-                                marker = name[:end] + chr(ord(delimiter) + 1)
+                                marker = ''.join([
+                                    name[:end],
+                                    delimiter[:-1],
+                                    chr(ord(delimiter[-1:]) + 1),
+                                ])
                             curs.close()
                             break
                     elif end >= 0:
                         if reverse:
-                            end_marker = name[:end + 1]
+                            end_marker = name[:end + len(delimiter)]
                         else:
-                            marker = name[:end] + chr(ord(delimiter) + 1)
+                            marker = ''.join([
+                                name[:end],
+                                delimiter[:-1],
+                                chr(ord(delimiter[-1:]) + 1),
+                            ])
                             # we want result to be inclusive of delim+1
                             delim_force_gte = True
-                        dir_name = name[:end + 1]
+                        dir_name = name[:end + len(delimiter)]
                         if dir_name != orig_marker:
                             results.append([dir_name, '0', 0, None, ''])
                         curs.close()

@@ -207,9 +207,6 @@ class AccountController(BaseStorageServer):
         drive, part, account = split_and_validate_path(req, 3)
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
-        if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
-            # delimiters can be made more flexible later
-            return HTTPPreconditionFailed(body='Bad delimiter')
         limit = constraints.ACCOUNT_LISTING_LIMIT
         given_limit = get_param(req, 'limit')
         reverse = config_true_value(get_param(req, 'reverse'))

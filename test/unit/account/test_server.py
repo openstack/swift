@@ -1485,13 +1485,6 @@ class TestAccountController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 406)
 
-    def test_GET_delimiter_too_long(self):
-        req = Request.blank('/sda1/p/a?delimiter=xx',
-                            environ={'REQUEST_METHOD': 'GET',
-                                     'HTTP_X_TIMESTAMP': '0'})
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 412)
-
     def test_GET_prefix_delimiter_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
@@ -1655,6 +1648,110 @@ class TestAccountController(unittest.TestCase):
                         listing.append(node2.firstChild.nodeValue)
         self.assertEqual(listing, ['sub.1.0', 'sub.1.1', 'sub.1.2'])
 
+    def test_GET_multichar_delimiter(self):
+        self.maxDiff = None
+        req = Request.blank('/sda1/p/a', method='PUT', headers={
+            'x-timestamp': '0'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201, resp.body)
+        for i in ('US~~TX~~A', 'US~~TX~~B', 'US~~OK~~A', 'US~~OK~~B',
+                  'US~~OK~Tulsa~~A', 'US~~OK~Tulsa~~B',
+                  'US~~UT~~A', 'US~~UT~~~B'):
+            req = Request.blank('/sda1/p/a/%s' % i, method='PUT', headers={
+                'X-Put-Timestamp': '1',
+                'X-Delete-Timestamp': '0',
+                'X-Object-Count': '0',
+                'X-Bytes-Used': '0',
+                'X-Timestamp': normalize_timestamp(0)})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~&delimiter=~~&format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            json.loads(resp.body),
+            [{"subdir": "US~~OK~Tulsa~~"},
+             {"subdir": "US~~OK~~"},
+             {"subdir": "US~~TX~~"},
+             {"subdir": "US~~UT~~"}])
+
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~&delimiter=~~&format=json&reverse=on',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            json.loads(resp.body),
+            [{"subdir": "US~~UT~~"},
+             {"subdir": "US~~TX~~"},
+             {"subdir": "US~~OK~~"},
+             {"subdir": "US~~OK~Tulsa~~"}])
+
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~UT&delimiter=~~&format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            json.loads(resp.body),
+            [{"subdir": "US~~UT~~"}])
+
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~UT&delimiter=~~&format=json&reverse=on',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            json.loads(resp.body),
+            [{"subdir": "US~~UT~~"}])
+
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~UT~&delimiter=~~&format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            [{k: v for k, v in item.items() if k in ('subdir', 'name')}
+             for item in json.loads(resp.body)],
+            [{"name": "US~~UT~~A"},
+             {"subdir": "US~~UT~~~"}])
+
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~UT~&delimiter=~~&format=json&reverse=on',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            [{k: v for k, v in item.items() if k in ('subdir', 'name')}
+             for item in json.loads(resp.body)],
+            [{"subdir": "US~~UT~~~"},
+             {"name": "US~~UT~~A"}])
+
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~UT~~&delimiter=~~&format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            [{k: v for k, v in item.items() if k in ('subdir', 'name')}
+             for item in json.loads(resp.body)],
+            [{"name": "US~~UT~~A"},
+             {"name": "US~~UT~~~B"}])
+
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~UT~~&delimiter=~~&format=json&reverse=on',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            [{k: v for k, v in item.items() if k in ('subdir', 'name')}
+             for item in json.loads(resp.body)],
+            [{"name": "US~~UT~~~B"},
+             {"name": "US~~UT~~A"}])
+
+        req = Request.blank(
+            '/sda1/p/a?prefix=US~~UT~~~&delimiter=~~&format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            [{k: v for k, v in item.items() if k in ('subdir', 'name')}
+             for item in json.loads(resp.body)],
+            [{"name": "US~~UT~~~B"}])
+
     def test_through_call(self):
         inbuf = BytesIO()
         errbuf = StringIO()
@@ -1779,18 +1876,13 @@ class TestAccountController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 400,
                              "%d on param %s" % (resp.status_int, param))
-        # Good UTF8 sequence for delimiter, too long (1 byte delimiters only)
-        req = Request.blank('/sda1/p/a?delimiter=\xce\xa9',
-                            environ={'REQUEST_METHOD': 'GET'})
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 412,
-                         "%d on param delimiter" % (resp.status_int))
         Request.blank('/sda1/p/a',
                       headers={'X-Timestamp': normalize_timestamp(1)},
                       environ={'REQUEST_METHOD': 'PUT'}).get_response(
                           self.controller)
         # Good UTF8 sequence, ignored for limit, doesn't affect other queries
-        for param in ('limit', 'marker', 'prefix', 'end_marker', 'format'):
+        for param in ('limit', 'marker', 'prefix', 'end_marker', 'format',
+                      'delimiter'):
             req = Request.blank('/sda1/p/a?%s=\xce\xa9' % param,
                                 environ={'REQUEST_METHOD': 'GET'})
             resp = req.get_response(self.controller)
