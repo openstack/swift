@@ -177,11 +177,21 @@ def _get_direct_account_container(path, stype, node, part,
     return resp_headers, json.loads(resp.read().decode('ascii'))
 
 
-def gen_headers(hdrs_in=None, add_ts=False, add_user_agent=True):
+def gen_headers(hdrs_in=None, add_ts=True):
+    """
+    Get the headers ready for a request. All requests should have a User-Agent
+    string, but if one is passed in don't over-write it. Not all requests will
+    need an X-Timestamp, but if one is passed in do not over-write it.
+
+    :param headers: dict or None, base for HTTP headers
+    :param add_ts: boolean, should be True for any "unsafe" HTTP request
+
+    :returns: HeaderKeyDict based on headers and ready for the request
+    """
     hdrs_out = HeaderKeyDict(hdrs_in) if hdrs_in else HeaderKeyDict()
-    if add_ts:
+    if add_ts and 'X-Timestamp' not in hdrs_out:
         hdrs_out['X-Timestamp'] = Timestamp.now().internal
-    if add_user_agent:
+    if 'user-agent' not in hdrs_out:
         hdrs_out['User-Agent'] = 'direct-client %s' % os.getpid()
     return hdrs_out
 
@@ -332,8 +342,7 @@ def direct_put_container(node, part, account, container, conn_timeout=5,
 
     lower_headers = set(k.lower() for k in headers)
     headers_out = gen_headers(headers,
-                              add_ts='x-timestamp' not in lower_headers,
-                              add_user_agent='user-agent' not in lower_headers)
+                              add_ts='x-timestamp' not in lower_headers)
     path = _make_path(account, container)
     _make_req(node, part, 'PUT', path, headers_out, 'Container', conn_timeout,
               response_timeout, contents=contents,
