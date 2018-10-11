@@ -2643,19 +2643,13 @@ class ECObjectController(BaseObjectController):
                     self.app.logger.increment('client_disconnects')
                     raise HTTPClientDisconnect(request=req)
 
-                computed_etag = (etag_hasher.hexdigest()
-                                 if etag_hasher else None)
-                received_etag = req.headers.get(
-                    'etag', '').strip('"')
-                if (computed_etag and received_etag and
-                   computed_etag != received_etag):
-                    raise HTTPUnprocessableEntity(request=req)
-
                 send_chunk('')  # flush out any buffered data
 
+                computed_etag = (etag_hasher.hexdigest()
+                                 if etag_hasher else None)
                 footers = self._get_footers(req)
-                received_etag = footers.get(
-                    'etag', '').strip('"')
+                received_etag = footers.get('etag', req.headers.get(
+                    'etag', '')).strip('"')
                 if (computed_etag and received_etag and
                    computed_etag != received_etag):
                     raise HTTPUnprocessableEntity(request=req)
