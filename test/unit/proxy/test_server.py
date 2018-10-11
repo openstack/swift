@@ -1739,6 +1739,35 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         app = self._write_conf_and_load_app(conf_sections)
         self._check_policy_options(app, exp_options, {})
 
+    def test_per_policy_conf_invalid_sorting_method_value(self):
+        def do_test(conf_sections, scope):
+            with self.assertRaises(ValueError) as cm:
+                self._write_conf_and_load_app(conf_sections)
+            self.assertEqual(
+                'Invalid sorting_method value; must be one of shuffle, '
+                "timing, affinity, not 'broken' for %s" % scope,
+                cm.exception.message)
+
+        conf_sections = """
+        [app:proxy-server]
+        use = egg:swift#proxy
+        sorting_method = shuffle
+
+        [proxy-server:policy:0]
+        sorting_method = broken
+        """
+        do_test(conf_sections, 'policy 0 (nulo)')
+
+        conf_sections = """
+        [app:proxy-server]
+        use = egg:swift#proxy
+        sorting_method = broken
+
+        [proxy-server:policy:0]
+        sorting_method = shuffle
+        """
+        do_test(conf_sections, '(default)')
+
     def test_per_policy_conf_invalid_read_affinity_value(self):
         def do_test(conf_sections, label):
             with self.assertRaises(ValueError) as cm:
