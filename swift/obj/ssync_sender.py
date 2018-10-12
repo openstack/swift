@@ -387,57 +387,57 @@ class Sender(object):
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % line[:1024])
 
+    def send_subrequest(self, method, url_path, headers, df):
+        msg = ['%s %s' % (method, url_path)]
+        for key, value in sorted(headers.items()):
+            msg.append('%s: %s' % (key, value))
+        msg = '\r\n'.join(msg) + '\r\n\r\n'
+        with exceptions.MessageTimeout(self.daemon.node_timeout,
+                                       'send_%s' % method.lower()):
+            self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+
+        if df:
+            bytes_read = 0
+            for chunk in df.reader():
+                bytes_read += len(chunk)
+                with exceptions.MessageTimeout(self.daemon.node_timeout,
+                                               'send_%s chunk' %
+                                               method.lower()):
+                    self.connection.send('%x\r\n%s\r\n' % (len(chunk), chunk))
+            if bytes_read != df.content_length:
+                # Since we may now have partial state on the receiver we have
+                # to prevent the receiver finalising what may well be a bad or
+                # partially written diskfile. Unfortunately we have no other
+                # option than to pull the plug on this ssync session. If ssync
+                # supported multiphase PUTs like the proxy uses for EC we could
+                # send a bad etag in a footer of this subrequest, but that is
+                # not supported.
+                raise exceptions.ReplicationException(
+                    'Sent data length does not match content-length')
+
     def send_delete(self, url_path, timestamp):
         """
         Sends a DELETE subrequest with the given information.
         """
-        msg = ['DELETE ' + url_path, 'X-Timestamp: ' + timestamp.internal]
-        msg = '\r\n'.join(msg) + '\r\n\r\n'
-        with exceptions.MessageTimeout(
-                self.daemon.node_timeout, 'send_delete'):
-            self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+        headers = {'X-Timestamp': timestamp.internal}
+        self.send_subrequest('DELETE', url_path, headers, None)
 
     def send_put(self, url_path, df):
         """
         Sends a PUT subrequest for the url_path using the source df
         (DiskFile) and content_length.
         """
-        msg = ['PUT ' + url_path, 'Content-Length: ' + str(df.content_length)]
-        # Sorted to make it easier to test.
-        for key, value in sorted(df.get_datafile_metadata().items()):
+        headers = {'Content-Length': str(df.content_length)}
+        for key, value in df.get_datafile_metadata().items():
             if key not in ('name', 'Content-Length'):
-                msg.append('%s: %s' % (key, value))
-        msg = '\r\n'.join(msg) + '\r\n\r\n'
-        with exceptions.MessageTimeout(self.daemon.node_timeout, 'send_put'):
-            self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
-        bytes_read = 0
-        for chunk in df.reader():
-            bytes_read += len(chunk)
-            with exceptions.MessageTimeout(
-                    self.daemon.node_timeout, 'send_put chunk'):
-                self.connection.send('%x\r\n%s\r\n' % (len(chunk), chunk))
-        if bytes_read != df.content_length:
-            # Since we may now have partial state on the receiver we have to
-            # prevent the receiver finalising what may well be a bad or
-            # partially written diskfile. Unfortunately we have no other option
-            # than to pull the plug on this ssync session. If ssync supported
-            # multiphase PUTs like the proxy uses for EC we could send a bad
-            # etag in a footer of this subrequest, but that is not supported.
-            raise exceptions.ReplicationException(
-                'Sent data length does not match content-length')
+                headers[key] = value
+        self.send_subrequest('PUT', url_path, headers, df)
 
     def send_post(self, url_path, df):
         metadata = df.get_metafile_metadata()
         if metadata is None:
             return
-
-        msg = ['POST ' + url_path]
-        # Sorted to make it easier to test.
-        for key, value in sorted(metadata.items()):
-            msg.append('%s: %s' % (key, value))
-        msg = '\r\n'.join(msg) + '\r\n\r\n'
-        with exceptions.MessageTimeout(self.daemon.node_timeout, 'send_post'):
-            self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+        self.send_subrequest('POST', url_path, metadata, None)
 
     def disconnect(self):
         """
