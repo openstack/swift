@@ -294,7 +294,7 @@ class DecrypterObjContext(BaseDecrypterContext):
                     body='Error decrypting object', content_type='text/plain')
         return crypto_meta
 
-    def handle_get(self, req, start_response):
+    def handle(self, req, start_response):
         app_resp = self._app_call(req.environ)
 
         put_crypto_meta = self._read_crypto_meta(
@@ -311,7 +311,8 @@ class DecrypterObjContext(BaseDecrypterContext):
 
         mod_resp_headers = self.decrypt_resp_headers(put_keys, post_keys)
 
-        if put_crypto_meta and is_success(self._get_status_int()):
+        if put_crypto_meta and req.method == 'GET' and \
+                is_success(self._get_status_int()):
             # 2xx response and encrypted body
             body_key = self.get_unwrapped_key(
                 put_crypto_meta, put_keys['object'])
@@ -341,34 +342,13 @@ class DecrypterObjContext(BaseDecrypterContext):
 
         return resp_iter
 
-    def handle_head(self, req, start_response):
-        app_resp = self._app_call(req.environ)
-        put_crypto_meta = self._read_crypto_meta(
-            'X-Object-Sysmeta-Crypto-Body-Meta', True)
-        put_keys = self.get_decryption_keys(req, put_crypto_meta)
-        post_crypto_meta = self._read_crypto_meta(
-            'X-Object-Transient-Sysmeta-Crypto-Meta', False)
-        post_keys = self.get_decryption_keys(req, post_crypto_meta)
-
-        if put_keys is None and post_keys is None:
-            # skip decryption
-            start_response(self._response_status, self._response_headers,
-                           self._response_exc_info)
-        else:
-            mod_resp_headers = self.decrypt_resp_headers(put_keys, post_keys)
-            mod_resp_headers = purge_crypto_sysmeta_headers(mod_resp_headers)
-            start_response(self._response_status, mod_resp_headers,
-                           self._response_exc_info)
-
-        return app_resp
-
 
 class DecrypterContContext(BaseDecrypterContext):
     def __init__(self, decrypter, logger):
         super(DecrypterContContext, self).__init__(
             decrypter, 'container', logger)
 
-    def handle_get(self, req, start_response):
+    def handle(self, req, start_response):
         app_resp = self._app_call(req.environ)
 
         if is_success(self._get_status_int()):
@@ -449,12 +429,10 @@ class Decrypter(object):
         except ValueError:
             return self.app(env, start_response)
 
-        if parts[3] and req.method == 'GET':
-            handler = DecrypterObjContext(self, self.logger).handle_get
-        elif parts[3] and req.method == 'HEAD':
-            handler = DecrypterObjContext(self, self.logger).handle_head
+        if parts[3] and req.method in ('GET', 'HEAD'):
+            handler = DecrypterObjContext(self, self.logger).handle
         elif parts[2] and req.method == 'GET':
-            handler = DecrypterContContext(self, self.logger).handle_get
+            handler = DecrypterContContext(self, self.logger).handle
         else:
             # url and/or request verb is not handled by decrypter
             return self.app(env, start_response)
