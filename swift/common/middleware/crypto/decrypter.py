@@ -17,6 +17,7 @@ import base64
 import json
 
 from swift import gettext_ as _
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
     load_crypto_meta, extract_crypto_meta, Crypto
@@ -353,22 +354,10 @@ class DecrypterContContext(BaseDecrypterContext):
 
         if is_success(self._get_status_int()):
             # only decrypt body of 2xx responses
-            handler = None
-            for header, value in self._response_headers:
-                if header.lower() == 'content-type' and \
-                        value.split(';', 1)[0] == 'application/json':
-                    handler = self.process_json_resp
-
-            if handler:
-                try:
-                    app_resp = handler(req, app_resp)
-                except EncryptionException as err:
-                    self.logger.error(
-                        "Error decrypting container listing: %s",
-                        err)
-                    raise HTTPInternalServerError(
-                        body='Error decrypting container listing',
-                        content_type='text/plain')
+            headers = HeaderKeyDict(self._response_headers)
+            content_type = headers.get('content-type', '').split(';', 1)[0]
+            if content_type == 'application/json':
+                app_resp = self.process_json_resp(req, app_resp)
 
         start_response(self._response_status,
                        self._response_headers,
