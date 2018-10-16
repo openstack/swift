@@ -32,6 +32,8 @@ import random
 import mock
 import base64
 
+import six
+
 from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
 from test.unit import patch_policies, with_tempdir, make_timestamp_iter
@@ -720,26 +722,23 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('b', Timestamp(2).internal,
                              Timestamp(0).internal, 0, 0,
                              POLICIES.default.idx)
-        hasha = hashlib.md5(
-            '%s-%s' % ('a', "%s-%s-%s-%s" % (
-                Timestamp(1).internal, Timestamp(0).internal, 0, 0))
-        ).digest()
-        hashb = hashlib.md5(
-            '%s-%s' % ('b', "%s-%s-%s-%s" % (
-                Timestamp(2).internal, Timestamp(0).internal, 0, 0))
-        ).digest()
-        hashc = \
-            ''.join(('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
+        text = '%s-%s' % ('a', "%s-%s-%s-%s" % (
+               Timestamp(1).internal, Timestamp(0).internal, 0, 0))
+        hasha = hashlib.md5(text.encode('ascii')).digest()
+        text = '%s-%s' % ('b', "%s-%s-%s-%s" % (
+               Timestamp(2).internal, Timestamp(0).internal, 0, 0))
+        hashb = hashlib.md5(text.encode('ascii')).digest()
+        hashc = ''.join(('%02x' % (ord(a) ^ ord(b) if six.PY2 else a ^ b)
+                         for a, b in zip(hasha, hashb)))
         self.assertEqual(broker.get_info()['hash'], hashc)
         broker.put_container('b', Timestamp(3).internal,
                              Timestamp(0).internal, 0, 0,
                              POLICIES.default.idx)
-        hashb = hashlib.md5(
-            '%s-%s' % ('b', "%s-%s-%s-%s" % (
-                Timestamp(3).internal, Timestamp(0).internal, 0, 0))
-        ).digest()
-        hashc = \
-            ''.join(('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
+        text = '%s-%s' % ('b', "%s-%s-%s-%s" % (
+               Timestamp(3).internal, Timestamp(0).internal, 0, 0))
+        hashb = hashlib.md5(text.encode('ascii')).digest()
+        hashc = ''.join(('%02x' % (ord(a) ^ ord(b) if six.PY2 else a ^ b)
+                         for a, b in zip(hasha, hashb)))
         self.assertEqual(broker.get_info()['hash'], hashc)
 
     def test_merge_items(self):
@@ -767,7 +766,9 @@ class TestAccountBroker(unittest.TestCase):
                          sorted([rec['name'] for rec in items]))
 
     def test_merge_items_overwrite_unicode(self):
-        snowman = u'\N{SNOWMAN}'.encode('utf-8')
+        snowman = u'\N{SNOWMAN}'
+        if six.PY2:
+            snowman = snowman.encode('utf-8')
         broker1 = AccountBroker(':memory:', account='a')
         broker1.initialize(Timestamp('1').internal, 0)
         id1 = broker1.get_info()['id']
@@ -1729,7 +1730,7 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
                                       0, 0, int(policy))
 
         total_container_count = self.broker.get_info()['container_count']
-        self.assertEqual(total_container_count, num_containers / 2)
+        self.assertEqual(total_container_count, num_containers // 2)
 
         # trigger migration
         policy_info = self.broker.get_policy_stats(do_migrations=True)
