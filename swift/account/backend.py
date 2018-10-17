@@ -20,6 +20,8 @@ from uuid import uuid4
 
 import sqlite3
 
+import six
+
 from swift.common.utils import Timestamp
 from swift.common.db import DatabaseBroker, utf8encode, zero_like
 
@@ -244,7 +246,7 @@ class AccountBroker(DatabaseBroker):
         """
         Create a container with the given attributes.
 
-        :param name: name of the container to create
+        :param name: name of the container to create (a native string)
         :param put_timestamp: put_timestamp of the container to create
         :param delete_timestamp: delete_timestamp of the container to create
         :param object_count: number of objects in the container
@@ -384,8 +386,9 @@ class AccountBroker(DatabaseBroker):
                   put_timestamp, 0)
         """
         delim_force_gte = False
-        (marker, end_marker, prefix, delimiter) = utf8encode(
-            marker, end_marker, prefix, delimiter)
+        if six.PY2:
+            (marker, end_marker, prefix, delimiter) = utf8encode(
+                marker, end_marker, prefix, delimiter)
         if reverse:
             # Reverse the markers if we are reversing the listing.
             marker, end_marker = end_marker, marker
@@ -415,7 +418,7 @@ class AccountBroker(DatabaseBroker):
                     query_args.append(marker)
                     # Always set back to False
                     delim_force_gte = False
-                elif marker and marker >= prefix:
+                elif marker and (not prefix or marker >= prefix):
                     query += ' name > ? AND'
                     query_args.append(marker)
                 elif prefix:
