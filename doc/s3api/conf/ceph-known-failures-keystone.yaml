@@ -24,7 +24,6 @@ ceph_s3:
   s3tests.functional.test_s3.test_bucket_acl_xml_readacp: {status: KNOWN}
   s3tests.functional.test_s3.test_bucket_acl_xml_write: {status: KNOWN}
   s3tests.functional.test_s3.test_bucket_acl_xml_writeacp: {status: KNOWN}
-  s3tests.functional.test_s3.test_bucket_create_exists: {status: KNOWN}
   s3tests.functional.test_s3.test_bucket_header_acl_grants: {status: KNOWN}
   s3tests.functional.test_s3.test_bucket_list_objects_anonymous: {status: KNOWN}
   s3tests.functional.test_s3.test_bucket_list_objects_anonymous_fail: {status: KNOWN}
@@ -141,7 +140,6 @@ ceph_s3:
   s3tests.functional.test_s3_website.test_website_xredirect_private_relative: {status: KNOWN}
   s3tests.functional.test_s3_website.test_website_xredirect_public_abs: {status: KNOWN}
   s3tests.functional.test_s3_website.test_website_xredirect_public_relative: {status: KNOWN}
-  s3tests.functional.test_s3.test_bucket_configure_recreate: {status: KNOWN}
   s3tests.functional.test_s3.test_bucket_list_return_data_versioning: {status: KNOWN}
   s3tests.functional.test_s3.test_bucket_policy: {status: KNOWN}
   s3tests.functional.test_s3.test_bucket_policy_acl: {status: KNOWN}

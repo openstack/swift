@@ -212,7 +212,7 @@ class BucketAclHandler(BaseAclHandler):
         # To avoid overwriting the existing bucket's ACL, we send PUT
         # request first before setting the ACL to make sure that the target
         # container does not exist.
-        self.req.get_acl_response(app, 'PUT')
+        self.req.get_acl_response(app, 'PUT', self.container)
 
         # update metadata
         self.req.bucket_acl = req_acl

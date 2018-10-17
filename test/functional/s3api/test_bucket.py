@@ -17,6 +17,7 @@ import unittest2
 import os
 
 import test.functional as tf
+from swift.common.utils import config_true_value
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
     SubElement
 from test.functional.s3api import S3ApiBase
@@ -152,25 +153,33 @@ class TestS3ApiBucket(S3ApiBase):
         self.conn.make_request('PUT', 'bucket')
         status, headers, body = self.conn.make_request('PUT', 'bucket')
         self.assertEqual(status, 409)
-        self.assertEqual(get_error_code(body), 'BucketAlreadyExists')
+        self.assertEqual(get_error_code(body), 'BucketAlreadyOwnedByYou')
 
-        if 's3_access_key2' not in tf.config or \
-                's3_secret_key2' not in tf.config:
-            raise tf.SkipTest(
-                'Cannot test for BucketAlreadyExists with second user; need '
-                's3_access_key2 and s3_secret_key2 configured')
-        # Other users of the same account get the same error
-        conn2 = Connection(tf.config['s3_access_key2'],
-                           tf.config['s3_secret_key2'],
-                           tf.config['s3_access_key2'])
-        status, headers, body = conn2.make_request('PUT', 'bucket')
-        self.assertEqual(status, 409)
-        self.assertEqual(get_error_code(body), 'BucketAlreadyExists')
+    def test_put_bucket_error_key2(self):
+        if config_true_value(tf.cluster_info['s3api'].get('s3_acl')):
+            if 's3_access_key2' not in tf.config or \
+                    's3_secret_key2' not in tf.config:
+                raise tf.SkipTest(
+                    'Cannot test for BucketAlreadyExists with second user; '
+                    'need s3_access_key2 and s3_secret_key2 configured')
 
+            self.conn.make_request('PUT', 'bucket')
+
+            # Other users of the same account get the same 409 error
+            conn2 = Connection(tf.config['s3_access_key2'],
+                               tf.config['s3_secret_key2'],
+                               tf.config['s3_access_key2'])
+            status, headers, body = conn2.make_request('PUT', 'bucket')
+            self.assertEqual(status, 409)
+            self.assertEqual(get_error_code(body), 'BucketAlreadyExists')
+
+    def test_put_bucket_error_key3(self):
         if 's3_access_key3' not in tf.config or \
                 's3_secret_key3' not in tf.config:
             raise tf.SkipTest('Cannot test for AccessDenied; need '
                               's3_access_key3 and s3_secret_key3 configured')
+
+        self.conn.make_request('PUT', 'bucket')
         # If the user can't create buckets, they shouldn't even know
         # whether the bucket exists.
         conn3 = Connection(tf.config['s3_access_key3'],

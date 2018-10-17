@@ -24,7 +24,7 @@ import six
 from six.moves.urllib.parse import quote, unquote, parse_qsl
 import string
 
-from swift.common.utils import split_path
+from swift.common.utils import split_path, json
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_NO_CONTENT, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_NOT_FOUND, \
@@ -44,7 +44,7 @@ from swift.common.middleware.s3api.controllers import ServiceController, \
     UploadController, UploadsController, VersioningController, \
     UnsupportedController, S3AclController, BucketController
 from swift.common.middleware.s3api.s3response import AccessDenied, \
-    InvalidArgument, InvalidDigest, \
+    InvalidArgument, InvalidDigest, BucketAlreadyOwnedByYou, \
     RequestTimeTooSkewed, S3Response, SignatureDoesNotMatch, \
     BucketAlreadyExists, BucketNotEmpty, EntityTooLarge, \
     InternalError, NoSuchBucket, NoSuchKey, PreconditionFailed, InvalidRange, \
@@ -1156,6 +1156,20 @@ class S3Request(swob.Request):
 
         return code_map[method]
 
+    def _bucket_put_accepted_error(self, container, app):
+        sw_req = self.to_swift_req('HEAD', container, None)
+        info = get_container_info(sw_req.environ, app)
+        sysmeta = info.get('sysmeta', {})
+        try:
+            acl = json.loads(sysmeta.get('s3api-acl',
+                                         sysmeta.get('swift3-acl', '{}')))
+            owner = acl.get('Owner')
+        except (ValueError, TypeError, KeyError):
+            owner = None
+        if owner is None or owner == self.user_id:
+            raise BucketAlreadyOwnedByYou(container)
+        raise BucketAlreadyExists(container)
+
     def _swift_error_codes(self, method, container, obj, env, app):
         """
         Returns a dict from expected Swift error codes to the corresponding S3
@@ -1177,7 +1191,8 @@ class S3Request(swob.Request):
                     HTTP_NOT_FOUND: (NoSuchBucket, container),
                 },
                 'PUT': {
-                    HTTP_ACCEPTED: (BucketAlreadyExists, container),
+                    HTTP_ACCEPTED: (self._bucket_put_accepted_error, container,
+                                    app),
                 },
                 'POST': {
                     HTTP_NOT_FOUND: (NoSuchBucket, container),

@@ -15,6 +15,7 @@
 
 import unittest
 import cgi
+import mock
 
 from swift.common import swob
 from swift.common.swob import Request
@@ -483,6 +484,12 @@ class TestS3ApiBucket(S3ApiTestCase):
         code = self._test_method_error('PUT', '/bucket', swob.HTTPForbidden)
         self.assertEqual(code, 'AccessDenied')
         code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted)
+        self.assertEqual(code, 'BucketAlreadyOwnedByYou')
+        with mock.patch(
+                'swift.common.middleware.s3api.s3request.get_container_info',
+                return_value={'sysmeta': {'s3api-acl': '{"Owner": "nope"}'}}):
+            code = self._test_method_error(
+                'PUT', '/bucket', swob.HTTPAccepted)
         self.assertEqual(code, 'BucketAlreadyExists')
         code = self._test_method_error('PUT', '/bucket', swob.HTTPServerError)
         self.assertEqual(code, 'InternalError')
@@ -508,7 +515,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(code, 'InvalidBucketName')
 
     @s3acl(s3acl_only=True)
-    def test_bucket_PUT_error_non_owner(self):
+    def test_bucket_PUT_error_non_swift_owner(self):
         code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted,
                                        env={'swift_owner': False})
         self.assertEqual(code, 'AccessDenied')
