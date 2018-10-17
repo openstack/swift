@@ -34,7 +34,7 @@ from swift.common.utils import (
     dump_recon_cache, mkdirs, config_true_value,
     GreenAsyncPile, Timestamp, remove_file,
     load_recon_cache, parse_override_options, distribute_evenly,
-    PrefixLoggerAdapter)
+    PrefixLoggerAdapter, remove_directory)
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
@@ -741,6 +741,7 @@ class ObjectReconstructor(Daemon):
         :param frag_index: (int) the fragment index of data files to be deleted
         """
         df_mgr = self._df_router[job['policy']]
+        suffixes_to_delete = set()
         for object_hash, timestamps in objects.items():
             try:
                 df = df_mgr.get_diskfile_from_hash(
@@ -752,6 +753,10 @@ class ObjectReconstructor(Daemon):
                 self.logger.exception(
                     'Unable to purge DiskFile (%r %r %r)',
                     object_hash, timestamps['ts_data'], frag_index)
+            suffixes_to_delete.add(object_hash[-3:])
+
+        for suffix in suffixes_to_delete:
+            remove_directory(os.path.join(job['path'], suffix))
 
     def process_job(self, job):
         """
