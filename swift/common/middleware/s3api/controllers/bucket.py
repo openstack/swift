@@ -16,6 +16,8 @@
 from base64 import standard_b64encode as b64encode
 from base64 import standard_b64decode as b64decode
 
+from six.moves.urllib.parse import quote
+
 from swift.common.http import HTTP_OK
 from swift.common.utils import json, public, config_true_value
 
@@ -171,11 +173,12 @@ class BucketController(Controller):
                 SubElement(elem, 'Marker').text = req.params.get('marker')
                 if is_truncated and 'delimiter' in req.params:
                     if 'name' in objects[-1]:
-                        SubElement(elem, 'NextMarker').text = \
-                            objects[-1]['name']
-                    if 'subdir' in objects[-1]:
-                        SubElement(elem, 'NextMarker').text = \
-                            objects[-1]['subdir']
+                        name = objects[-1]['name']
+                    else:
+                        name = objects[-1]['subdir']
+                    if encoding_type == 'url':
+                        name = quote(name)
+                    SubElement(elem, 'NextMarker').text = name
             elif listing_type == 'version-2':
                 if is_truncated:
                     if 'name' in objects[-1]:
@@ -197,7 +200,7 @@ class BucketController(Controller):
         if 'delimiter' in req.params:
             SubElement(elem, 'Delimiter').text = req.params['delimiter']
 
-        if encoding_type is not None:
+        if encoding_type == 'url':
             SubElement(elem, 'EncodingType').text = encoding_type
 
         SubElement(elem, 'IsTruncated').text = \
@@ -205,14 +208,18 @@ class BucketController(Controller):
 
         for o in objects:
             if 'subdir' not in o:
+                name = o['name']
+                if encoding_type == 'url':
+                    name = quote(name)
+
                 if listing_type == 'object-versions':
                     contents = SubElement(elem, 'Version')
-                    SubElement(contents, 'Key').text = o['name']
+                    SubElement(contents, 'Key').text = name
                     SubElement(contents, 'VersionId').text = 'null'
                     SubElement(contents, 'IsLatest').text = 'true'
                 else:
                     contents = SubElement(elem, 'Contents')
-                    SubElement(contents, 'Key').text = o['name']
+                    SubElement(contents, 'Key').text = name
                 SubElement(contents, 'LastModified').text = \
                     o['last_modified'][:-3] + 'Z'
                 if 's3_etag' in o:
@@ -231,9 +238,12 @@ class BucketController(Controller):
         for o in objects:
             if 'subdir' in o:
                 common_prefixes = SubElement(elem, 'CommonPrefixes')
-                SubElement(common_prefixes, 'Prefix').text = o['subdir']
+                name = o['subdir']
+                if encoding_type == 'url':
+                    name = quote(name)
+                SubElement(common_prefixes, 'Prefix').text = name
 
-        body = tostring(elem, encoding_type=encoding_type)
+        body = tostring(elem)
 
         return HTTPOk(body=body, content_type='application/xml')
 

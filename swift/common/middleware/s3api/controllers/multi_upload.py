@@ -67,7 +67,7 @@ from swift.common.swob import Range
 from swift.common.utils import json, public
 from swift.common.db import utf8encode
 
-from six.moves.urllib.parse import urlparse  # pylint: disable=F0401
+from six.moves.urllib.parse import quote, urlparse
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
@@ -319,7 +319,10 @@ class UploadsController(Controller):
         # created.
         for u in uploads:
             upload_elem = SubElement(result_elem, 'Upload')
-            SubElement(upload_elem, 'Key').text = u['key']
+            name = u['key']
+            if encoding_type == 'url':
+                name = quote(name)
+            SubElement(upload_elem, 'Key').text = name
             SubElement(upload_elem, 'UploadId').text = u['upload_id']
             initiator_elem = SubElement(upload_elem, 'Initiator')
             SubElement(initiator_elem, 'ID').text = req.user_id
@@ -335,7 +338,7 @@ class UploadsController(Controller):
             elem = SubElement(result_elem, 'CommonPrefixes')
             SubElement(elem, 'Prefix').text = p
 
-        body = tostring(result_elem, encoding_type=encoding_type)
+        body = tostring(result_elem)
 
         return HTTPOk(body=body, content_type='application/xml')
 
@@ -456,7 +459,10 @@ class UploadController(Controller):
 
         result_elem = Element('ListPartsResult')
         SubElement(result_elem, 'Bucket').text = req.container_name
-        SubElement(result_elem, 'Key').text = req.object_name
+        name = req.object_name
+        if encoding_type == 'url':
+            name = quote(name)
+        SubElement(result_elem, 'Key').text = name
         SubElement(result_elem, 'UploadId').text = upload_id
 
         initiator_elem = SubElement(result_elem, 'Initiator')
@@ -484,7 +490,7 @@ class UploadController(Controller):
             SubElement(part_elem, 'ETag').text = '"%s"' % i['hash']
             SubElement(part_elem, 'Size').text = str(i['bytes'])
 
-        body = tostring(result_elem, encoding_type=encoding_type)
+        body = tostring(result_elem)
 
         return HTTPOk(body=body, content_type='application/xml')
 
