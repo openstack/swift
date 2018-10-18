@@ -2038,10 +2038,7 @@ class TestObjectController(unittest.TestCase):
 
             def __exit__(self, typ, value, tb):
                 pass
-        # This is just so the test fails when run on older object server code
-        # instead of exploding.
-        if not hasattr(object_server, 'ChunkReadTimeout'):
-            object_server.ChunkReadTimeout = None
+
         with mock.patch.object(object_server, 'ChunkReadTimeout', FakeTimeout):
             timestamp = normalize_timestamp(time())
             req = Request.blank(
