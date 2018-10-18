@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import os
 import shutil
 import tempfile
@@ -131,7 +132,9 @@ class TestReceiver(unittest.TestCase):
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
                  ':UPDATES: START', ':UPDATES: END'])
             self.assertEqual(resp.status_int, 200)
-            mocked_replication_lock.assert_called_once_with('sda1')
+            mocked_replication_lock.assert_called_once_with('sda1',
+                                                            POLICIES.legacy,
+                                                            '1')
 
     def test_Receiver_with_default_storage_policy(self):
         req = swob.Request.blank(
@@ -290,7 +293,7 @@ class TestReceiver(unittest.TestCase):
                           self.controller, req)
 
     def test_SSYNC_replication_lock_fail(self):
-        def _mock(path):
+        def _mock(path, policy, partition):
             with exceptions.ReplicationLockTimeout(0.01, '/somewhere/' + path):
                 eventlet.sleep(0.05)
         with mock.patch.object(
@@ -310,6 +313,54 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger.debug.assert_called_once_with(
                 'None/sda1/1 SSYNC LOCK TIMEOUT: 0.01 seconds: '
                 '/somewhere/sda1')
+
+    def test_SSYNC_replication_lock_per_partition(self):
+        def _concurrent_ssync(path1, path2):
+            env = {'REQUEST_METHOD': 'SSYNC'}
+            body = ':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n' \
+                   ':UPDATES: START\r\n:UPDATES: END\r\n'
+            req1 = swob.Request.blank(path1, environ=env, body=body)
+            req2 = swob.Request.blank(path2, environ=env, body=body)
+
+            rcvr1 = ssync_receiver.Receiver(self.controller, req1)
+            rcvr2 = ssync_receiver.Receiver(self.controller, req2)
+
+            body_lines1 = []
+            body_lines2 = []
+
+            for chunk1, chunk2 in itertools.izip_longest(rcvr1(), rcvr2()):
+                if chunk1 and chunk1.strip():
+                    body_lines1.append(chunk1.strip())
+                if chunk2 and chunk2.strip():
+                    body_lines2.append(chunk2.strip())
+
+            return body_lines1, body_lines2
+
+        self.controller._diskfile_router[POLICIES[0]]\
+            .replication_lock_timeout = 0.01
+        self.controller._diskfile_router[POLICIES[0]]\
+            .replication_concurrency_per_device = 2
+        # It should be possible to lock two different partitions
+        body_lines1, body_lines2 = _concurrent_ssync('/sda1/1', '/sda1/2')
+        self.assertEqual(
+            body_lines1,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(
+            body_lines2,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+
+        # It should not be possible to lock the same partition twice
+        body_lines1, body_lines2 = _concurrent_ssync('/sda1/1', '/sda1/1')
+        self.assertEqual(
+            body_lines1,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertRegexpMatches(
+            ''.join(body_lines2),
+            "^:ERROR: 0 '0\.0[0-9]+ seconds: "
+            "/.+/sda1/objects/1/.lock-replication'$")
 
     def test_SSYNC_initial_path(self):
         with mock.patch.object(

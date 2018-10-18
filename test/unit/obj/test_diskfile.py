@@ -1080,9 +1080,11 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.replication_concurrency_per_device = 1
         self.df_mgr.replication_lock_timeout = 0.1
         success = False
-        with self.df_mgr.replication_lock(self.existing_device):
+        with self.df_mgr.replication_lock(self.existing_device,
+                                          POLICIES.legacy, '1'):
             with self.assertRaises(ReplicationLockTimeout):
-                with self.df_mgr.replication_lock(self.existing_device):
+                with self.df_mgr.replication_lock(self.existing_device,
+                                                  POLICIES.legacy, '2'):
                     success = True
         self.assertFalse(success)
 
@@ -1093,9 +1095,11 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
         # 2 locks must succeed
         success = False
-        with self.df_mgr.replication_lock(self.existing_device):
+        with self.df_mgr.replication_lock(self.existing_device,
+                                          POLICIES.legacy, '1'):
             try:
-                with self.df_mgr.replication_lock(self.existing_device):
+                with self.df_mgr.replication_lock(self.existing_device,
+                                                  POLICIES.legacy, '2'):
                     success = True
             except ReplicationLockTimeout as err:
                 self.fail('Unexpected exception: %s' % err)
@@ -1103,10 +1107,13 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
         # 3 locks must succeed
         success = False
-        with self.df_mgr.replication_lock(self.existing_device):
-            with self.df_mgr.replication_lock(self.existing_device):
+        with self.df_mgr.replication_lock(self.existing_device,
+                                          POLICIES.legacy, '1'):
+            with self.df_mgr.replication_lock(self.existing_device,
+                                              POLICIES.legacy, '2'):
                 try:
-                    with self.df_mgr.replication_lock(self.existing_device):
+                    with self.df_mgr.replication_lock(self.existing_device,
+                                                      POLICIES.legacy, '3'):
                         success = True
                 except ReplicationLockTimeout as err:
                     self.fail('Unexpected exception: %s' % err)
@@ -1119,9 +1126,11 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
         # 2 locks with replication_concurrency_per_device=2 must succeed
         success = False
-        with self.df_mgr.replication_lock(self.existing_device):
+        with self.df_mgr.replication_lock(self.existing_device,
+                                          POLICIES.legacy, '1'):
             try:
-                with self.df_mgr.replication_lock(self.existing_device):
+                with self.df_mgr.replication_lock(self.existing_device,
+                                                  POLICIES.legacy, '2'):
                     success = True
             except ReplicationLockTimeout as err:
                 self.fail('Unexpected exception: %s' % err)
@@ -1129,10 +1138,13 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
         # 3 locks with replication_concurrency_per_device=2 must fail
         success = False
-        with self.df_mgr.replication_lock(self.existing_device):
-            with self.df_mgr.replication_lock(self.existing_device):
+        with self.df_mgr.replication_lock(self.existing_device,
+                                          POLICIES.legacy, '1'):
+            with self.df_mgr.replication_lock(self.existing_device,
+                                              POLICIES.legacy, '2'):
                 with self.assertRaises(ReplicationLockTimeout):
-                    with self.df_mgr.replication_lock(self.existing_device):
+                    with self.df_mgr.replication_lock(self.existing_device,
+                                                      POLICIES.legacy, '3'):
                         success = True
         self.assertFalse(success)
 
@@ -1141,13 +1153,28 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.replication_concurrency_per_device = 1
         self.df_mgr.replication_lock_timeout = 0.1
         success = False
-        with self.df_mgr.replication_lock(self.existing_device):
+        with self.df_mgr.replication_lock(self.existing_device,
+                                          POLICIES.legacy, '1'):
             try:
-                with self.df_mgr.replication_lock(self.existing_device2):
+                with self.df_mgr.replication_lock(self.existing_device2,
+                                                  POLICIES.legacy, '2'):
                     success = True
             except ReplicationLockTimeout as err:
                 self.fail('Unexpected exception: %s' % err)
         self.assertTrue(success)
+
+    def test_replication_lock_same_partition(self):
+        # Double check settings
+        self.df_mgr.replication_concurrency_per_device = 2
+        self.df_mgr.replication_lock_timeout = 0.1
+        success = False
+        with self.df_mgr.replication_lock(self.existing_device,
+                                          POLICIES.legacy, '1'):
+            with self.assertRaises(ReplicationLockTimeout):
+                with self.df_mgr.replication_lock(self.existing_device,
+                                                  POLICIES.legacy, '1'):
+                    success = True
+        self.assertFalse(success)
 
     def test_missing_splice_warning(self):
         with mock.patch('swift.common.splice.splice._c_splice', None):

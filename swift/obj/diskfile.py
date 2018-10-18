@@ -1267,23 +1267,34 @@ class BaseDiskFileManager(object):
             return None
 
     @contextmanager
-    def replication_lock(self, device):
+    def replication_lock(self, device, policy, partition):
         """
         A context manager that will lock on the device given, if
         configured to do so.
 
         :param device: name of target device
+        :param policy: policy targeted by the replication request
+        :param partition: partition targeted by the replication request
         :raises ReplicationLockTimeout: If the lock on the device
             cannot be granted within the configured timeout.
         """
         if self.replication_concurrency_per_device:
             dev_path = self.get_dev_path(device)
+            part_path = os.path.join(dev_path, get_data_dir(policy),
+                                     str(partition))
+            limit_time = time.time() + self.replication_lock_timeout
             with lock_path(
                     dev_path,
                     timeout=self.replication_lock_timeout,
                     timeout_class=ReplicationLockTimeout,
                     limit=self.replication_concurrency_per_device):
-                yield True
+                with lock_path(
+                        part_path,
+                        timeout=limit_time - time.time(),
+                        timeout_class=ReplicationLockTimeout,
+                        limit=1,
+                        name='replication'):
+                    yield True
         else:
             yield True
 
@@ -1574,6 +1585,8 @@ class BaseDiskFileManager(object):
                 # This lock is only held by people dealing with the hashes
                 # or the hash invalidations, and we've just removed those.
                 _unlink_if_present(os.path.join(partition_path, ".lock"))
+                _unlink_if_present(os.path.join(partition_path,
+                                                ".lock-replication"))
                 os.rmdir(partition_path)
             except OSError as err:
                 self.logger.debug("Error cleaning up empty partition: %s", err)

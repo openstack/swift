@@ -1072,6 +1072,28 @@ class TestUtils(unittest.TestCase):
             self.assertTrue(exc2 is not None)
             self.assertTrue(not success)
 
+    @with_tempdir
+    def test_lock_path_name(self, tmpdir):
+        # With default limit (1), can't take the same named lock twice
+        success = False
+        with utils.lock_path(tmpdir, 0.1, name='foo'):
+            with self.assertRaises(LockTimeout):
+                with utils.lock_path(tmpdir, 0.1, name='foo'):
+                    success = True
+        self.assertFalse(success)
+        # With default limit (1), can take two differently named locks
+        success = False
+        with utils.lock_path(tmpdir, 0.1, name='foo'):
+            with utils.lock_path(tmpdir, 0.1, name='bar'):
+                success = True
+        self.assertTrue(success)
+        # With default limit (1), can take a named lock and the default lock
+        success = False
+        with utils.lock_path(tmpdir, 0.1, name='foo'):
+            with utils.lock_path(tmpdir, 0.1):
+                success = True
+        self.assertTrue(success)
+
     def test_normalize_timestamp(self):
         # Test swift.common.utils.normalize_timestamp
         self.assertEqual(utils.normalize_timestamp('1253327593.48174'),
