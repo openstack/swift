@@ -3963,7 +3963,13 @@ def ismount_raw(path):
         raise
 
     if stat.S_ISLNK(s1.st_mode):
-        # A symlink can never be a mount point
+        # Some environments (like vagrant-swift-all-in-one) use a symlink at
+        # the device level but could still provide a stubfile in the target
+        # to indicate that it should be treated as a mount point for swift's
+        # purposes.
+        if os.path.isfile(os.path.join(path, ".ismount")):
+            return True
+        # Otherwise, a symlink can never be a mount point
         return False
 
     s2 = os.lstat(os.path.join(path, '..'))

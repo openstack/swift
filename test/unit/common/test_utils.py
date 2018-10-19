@@ -3164,6 +3164,11 @@ cluster_dfw1 = http://dfw1.host/v1/
             link = os.path.join(tmpdir, "tmp")
             os.symlink(tempfile.gettempdir(), link)
             self.assertFalse(utils.ismount(link))
+
+            # Can add a stubfile to make it pass
+            with open(os.path.join(link, ".ismount"), "w"):
+                pass
+            self.assertTrue(utils.ismount(link))
         finally:
             shutil.rmtree(tmpdir)
 
