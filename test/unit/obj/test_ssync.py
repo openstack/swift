@@ -108,10 +108,11 @@ class TestBaseSsync(BaseTest):
             return wrapped_readline
 
         def wrapped_connect():
-            orig_connect()
-            sender.connection.send = make_send_wrapper(
-                sender.connection.send)
+            connection = orig_connect()
+            connection.send = make_send_wrapper(
+                connection.send)
             sender.readline = make_readline_wrapper(sender.readline)
+            return connection
         return wrapped_connect, trace
 
     def _get_object_data(self, path, **kwargs):
