@@ -139,16 +139,9 @@ class Sender(object):
         self.node = node
         self.job = job
         self.suffixes = suffixes
-        # available_map has an entry for each object in given suffixes that
-        # is available to be sync'd; each entry is a hash => dict of timestamps
-        # of data file or tombstone file and/or meta file
-        self.available_map = {}
         # When remote_check_objs is given in job, ssync_sender trys only to
         # make sure those objects exist or not in remote.
         self.remote_check_objs = remote_check_objs
-        # send_map has an entry for each object that the receiver wants to
-        # be sync'ed; each entry maps an object hash => dict of wanted parts
-        self.send_map = {}
 
     def __call__(self):
         """
@@ -172,17 +165,25 @@ class Sender(object):
                 # abort the replication attempt and log a simple error. All
                 # other exceptions will be logged with a full stack trace.
                 connection, response = self.connect()
-                self.missing_check(connection, response)
+                # available_map has an entry for each object in given suffixes
+                # that is available to be sync'd;
+                # each entry is a hash => dict of timestamps of data file or
+                # tombstone file and/or meta file
+                # send_map has an entry for each object that the receiver wants
+                # to be sync'ed;
+                # each entry maps an object hash => dict of wanted parts
+                available_map, send_map = self.missing_check(connection,
+                                                             response)
                 if self.remote_check_objs is None:
-                    self.updates(connection, response)
-                    can_delete_obj = self.available_map
+                    self.updates(connection, response, send_map)
+                    can_delete_obj = available_map
                 else:
                     # when we are initialized with remote_check_objs we don't
                     # *send* any requested updates; instead we only collect
                     # what's already in sync and safe for deletion
-                    in_sync_hashes = (set(self.available_map.keys()) -
-                                      set(self.send_map.keys()))
-                    can_delete_obj = dict((hash_, self.available_map[hash_])
+                    in_sync_hashes = (set(available_map.keys()) -
+                                      set(send_map.keys()))
+                    can_delete_obj = dict((hash_, available_map[hash_])
                                           for hash_ in in_sync_hashes)
                 return True, can_delete_obj
             except (exceptions.MessageTimeout,
@@ -264,6 +265,8 @@ class Sender(object):
         Full documentation of this can be found at
         :py:meth:`.Receiver.missing_check`.
         """
+        available_map = {}
+        send_map = {}
         # First, send our list.
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check start'):
@@ -279,7 +282,7 @@ class Sender(object):
                 objhash_timestamps[0] in
                 self.remote_check_objs, hash_gen)
         for object_hash, timestamps in hash_gen:
-            self.available_map[object_hash] = timestamps
+            available_map[object_hash] = timestamps
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
                     'missing_check send line'):
@@ -313,9 +316,10 @@ class Sender(object):
                 break
             parts = line.split()
             if parts:
-                self.send_map[parts[0]] = decode_wanted(parts[1:])
+                send_map[parts[0]] = decode_wanted(parts[1:])
+        return available_map, send_map
 
-    def updates(self, connection, response):
+    def updates(self, connection, response, send_map):
         """
         Handles the sender-side of the UPDATES step of an SSYNC
         request.
@@ -328,7 +332,7 @@ class Sender(object):
                 self.daemon.node_timeout, 'updates start'):
             msg = ':UPDATES: START\r\n'
             connection.send('%x\r\n%s\r\n' % (len(msg), msg))
-        for object_hash, want in self.send_map.items():
+        for object_hash, want in send_map.items():
             object_hash = urllib.parse.unquote(object_hash)
             try:
                 df = self.df_mgr.get_diskfile_from_hash(
