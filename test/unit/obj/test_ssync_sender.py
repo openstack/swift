@@ -175,21 +175,6 @@ class TestSender(BaseTest):
         self.sender.updates.assert_called_once_with()
         self.sender.disconnect.assert_called_once_with()
 
-    def test_call_calls_others_returns_failure(self):
-        self.sender.suffixes = ['abc']
-        self.sender.connect = mock.MagicMock()
-        self.sender.missing_check = mock.MagicMock()
-        self.sender.updates = mock.MagicMock()
-        self.sender.disconnect = mock.MagicMock()
-        self.sender.failures = 1
-        success, candidates = self.sender()
-        self.assertFalse(success)
-        self.assertEqual(candidates, {})
-        self.sender.connect.assert_called_once_with()
-        self.sender.missing_check.assert_called_once_with()
-        self.sender.updates.assert_called_once_with()
-        self.sender.disconnect.assert_called_once_with()
-
     def test_connect(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
                     device='sda1', index=0)
@@ -477,7 +462,6 @@ class TestSender(BaseTest):
                 found_put = True
         self.assertFalse(found_post)
         self.assertTrue(found_put)
-        self.assertEqual(self.sender.failures, 0)
 
     def test_call_and_missing_check(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
@@ -513,7 +497,6 @@ class TestSender(BaseTest):
         self.assertEqual(candidates,
                          dict([('9d41d8cd98f00b204e9800998ecf0abc',
                                 {'ts_data': Timestamp(1380144470.00000)})]))
-        self.assertEqual(self.sender.failures, 0)
 
     def test_call_and_missing_check_with_obj_list(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
@@ -547,7 +530,6 @@ class TestSender(BaseTest):
         self.assertEqual(candidates,
                          dict([('9d41d8cd98f00b204e9800998ecf0abc',
                                 {'ts_data': Timestamp(1380144470.00000)})]))
-        self.assertEqual(self.sender.failures, 0)
 
     def test_call_and_missing_check_with_obj_list_but_required(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):

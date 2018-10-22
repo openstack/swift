@@ -98,7 +98,6 @@ class Sender(object):
         # send_map has an entry for each object that the receiver wants to
         # be sync'ed; each entry maps an object hash => dict of wanted parts
         self.send_map = {}
-        self.failures = 0
 
     def __call__(self):
         """
@@ -133,10 +132,7 @@ class Sender(object):
                                       set(self.send_map.keys()))
                     can_delete_obj = dict((hash_, self.available_map[hash_])
                                           for hash_ in in_sync_hashes)
-                if not self.failures:
-                    return True, can_delete_obj
-                else:
-                    return False, {}
+                return True, can_delete_obj
             except (exceptions.MessageTimeout,
                     exceptions.ReplicationException) as err:
                 self.daemon.logger.error(
