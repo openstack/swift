@@ -4,7 +4,7 @@
 build-essential [platform:dpkg]
 linux-headers [platform:apk]
 gcc [platform:rpm platform:apk]
-gettext [!platform:suse platform:apk]
+gettext [!platform:suse]
 gettext-runtime [platform:suse]
 liberasurecode-dev [platform:dpkg]
 # There's no library in CentOS 7 but Fedora and openSUSE have it.
