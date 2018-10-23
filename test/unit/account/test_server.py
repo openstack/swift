@@ -229,7 +229,7 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
-            json_string = '["rsync_then_merge", "a.db"]'
+            json_string = b'["rsync_then_merge", "a.db"]'
             inbuf = WsgiBytesIO(json_string)
             req.environ['wsgi.input'] = inbuf
             resp = req.get_response(self.controller)
@@ -244,7 +244,7 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
-            json_string = '["complete_rsync", "a.db"]'
+            json_string = b'["complete_rsync", "a.db"]'
             inbuf = WsgiBytesIO(json_string)
             req.environ['wsgi.input'] = inbuf
             resp = req.get_response(self.controller)
@@ -256,7 +256,7 @@ class TestAccountController(unittest.TestCase):
                             headers={})
 
         # check valuerror
-        wsgi_input_valuerror = '["sync" : sync, "-1"]'
+        wsgi_input_valuerror = b'["sync" : sync, "-1"]'
         inbuf1 = WsgiBytesIO(wsgi_input_valuerror)
         req.environ['wsgi.input'] = inbuf1
         resp = req.get_response(self.controller)
@@ -267,7 +267,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/',
                             environ={'REQUEST_METHOD': 'REPLICATE'},
                             headers={})
-        json_string = '["unknown_sync", "a.db"]'
+        json_string = b'["unknown_sync", "a.db"]'
         inbuf = WsgiBytesIO(json_string)
         req.environ['wsgi.input'] = inbuf
         resp = req.get_response(self.controller)
@@ -281,7 +281,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/',
                             environ={'REQUEST_METHOD': 'REPLICATE'},
                             headers={})
-        json_string = '["unknown_sync", "a.db"]'
+        json_string = b'["unknown_sync", "a.db"]'
         inbuf = WsgiBytesIO(json_string)
         req.environ['wsgi.input'] = inbuf
         resp = req.get_response(self.controller)
@@ -386,7 +386,7 @@ class TestAccountController(unittest.TestCase):
                             headers={'Accept': 'application/plain;q=1;q=0.5'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual(resp.body, '')
+        self.assertEqual(resp.body, b'')
 
     def test_HEAD_invalid_format(self):
         format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
@@ -497,7 +497,7 @@ class TestAccountController(unittest.TestCase):
                             headers={'X-Timestamp': normalize_timestamp(2)})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 403)
-        self.assertEqual(resp.body, 'Recently deleted')
+        self.assertEqual(resp.body, b'Recently deleted')
         self.assertEqual(resp.headers['X-Account-Status'], 'Deleted')
 
     def test_PUT_non_utf8_metadata(self):
@@ -885,7 +885,7 @@ class TestAccountController(unittest.TestCase):
                             headers={'Accept': 'application/plain;q=foo'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual(resp.body, 'Invalid Accept header')
+        self.assertEqual(resp.body, b'Invalid Accept header')
 
     def test_GET_over_limit(self):
         req = Request.blank(
@@ -915,7 +915,8 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.strip().split('\n'), ['c1', 'c2'])
+        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
+                         ['c1', 'c2'])
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
                                      'X-Delete-Timestamp': '0',
@@ -933,7 +934,8 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.strip().split('\n'), ['c1', 'c2'])
+        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
+                         ['c1', 'c2'])
         self.assertEqual(resp.content_type, 'text/plain')
         self.assertEqual(resp.charset, 'utf-8')
 
@@ -942,7 +944,8 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.strip().split('\n'), ['c1', 'c2'])
+        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
+                         ['c1', 'c2'])
         self.assertEqual(resp.content_type, 'text/plain')
         self.assertEqual(resp.charset, 'utf-8')
 
@@ -1195,12 +1198,14 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.strip().split('\n'), ['c0', 'c1', 'c2'])
+        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
+                         ['c0', 'c1', 'c2'])
         req = Request.blank('/sda1/p/a?limit=3&marker=c2',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.strip().split('\n'), ['c3', 'c4'])
+        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
+                         ['c3', 'c4'])
 
     def test_GET_limit_marker_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1341,7 +1346,7 @@ class TestAccountController(unittest.TestCase):
         req.accept = '*/*'
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body, 'c1\n')
+        self.assertEqual(resp.body, b'c1\n')
 
     def test_GET_accept_application_wildcard(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1416,7 +1421,7 @@ class TestAccountController(unittest.TestCase):
         req.accept = 'application/json'
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body, 'c1\n')
+        self.assertEqual(resp.body, b'c1\n')
 
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1469,19 +1474,20 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.strip().split('\n'), ['sub.'])
+        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
+                         ['sub.'])
         req = Request.blank('/sda1/p/a?prefix=sub.&delimiter=.',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(
-            resp.body.strip().split('\n'),
+            resp.body.decode('utf-8').strip().split('\n'),
             ['sub.0', 'sub.0.', 'sub.1', 'sub.1.', 'sub.2', 'sub.2.'])
         req = Request.blank('/sda1/p/a?prefix=sub.1.&delimiter=.',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.strip().split('\n'),
+        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
                          ['sub.1.0', 'sub.1.1', 'sub.1.2'])
 
     def test_GET_prefix_delimiter_json(self):
@@ -1609,7 +1615,7 @@ class TestAccountController(unittest.TestCase):
         outbuf = StringIO()
 
         def start_response(*args):
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         self.controller.__call__({'REQUEST_METHOD': 'GET',
                                   'SCRIPT_NAME': '',
@@ -1635,7 +1641,7 @@ class TestAccountController(unittest.TestCase):
         outbuf = StringIO()
 
         def start_response(*args):
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         self.controller.__call__({'REQUEST_METHOD': 'GET',
                                   'SCRIPT_NAME': '',
@@ -1661,7 +1667,7 @@ class TestAccountController(unittest.TestCase):
         outbuf = StringIO()
 
         def start_response(*args):
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         self.controller.__call__({'REQUEST_METHOD': 'GET',
                                   'SCRIPT_NAME': '',
@@ -1686,7 +1692,7 @@ class TestAccountController(unittest.TestCase):
         outbuf = StringIO()
 
         def start_response(*args):
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         self.controller.__call__({'REQUEST_METHOD': 'method_doesnt_exist',
                                   'PATH_INFO': '/sda1/p/a'},
@@ -1699,7 +1705,7 @@ class TestAccountController(unittest.TestCase):
         outbuf = StringIO()
 
         def start_response(*args):
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         self.controller.__call__({'REQUEST_METHOD': '__init__',
                                   'PATH_INFO': '/sda1/p/a'},
@@ -1837,8 +1843,7 @@ class TestAccountController(unittest.TestCase):
              'replication_server': 'false'})
 
         def start_response(*args):
-            """Sends args to outbuf"""
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         method = 'PUT'
         env = {'REQUEST_METHOD': method,
@@ -1875,8 +1880,7 @@ class TestAccountController(unittest.TestCase):
              'replication_server': 'false'})
 
         def start_response(*args):
-            """Sends args to outbuf"""
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         method = 'PUT'
         env = {'REQUEST_METHOD': method,
@@ -1894,8 +1898,8 @@ class TestAccountController(unittest.TestCase):
                'wsgi.multiprocess': False,
                'wsgi.run_once': False}
 
-        answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
-                  'allowed for this resource.</p></html>']
+        answer = [b'<html><h1>Method Not Allowed</h1><p>The method is not '
+                  b'allowed for this resource.</p></html>']
         mock_method = replication(public(lambda x: mock.MagicMock()))
         with mock.patch.object(self.controller, method,
                                new=mock_method):
@@ -1912,8 +1916,7 @@ class TestAccountController(unittest.TestCase):
              'replication_server': 'true'})
 
         def start_response(*args):
-            """Sends args to outbuf"""
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST', 'OPTIONS']
         for method in obj_methods:
@@ -1946,8 +1949,7 @@ class TestAccountController(unittest.TestCase):
             logger=self.logger)
 
         def start_response(*args):
-            # Sends args to outbuf
-            outbuf.writelines(args)
+            outbuf.write(args[0])
 
         method = 'PUT'
 
@@ -1973,7 +1975,7 @@ class TestAccountController(unittest.TestCase):
         with mock.patch.object(self.account_controller, method,
                                new=mock_put_method):
             response = self.account_controller.__call__(env, start_response)
-            self.assertTrue(response[0].startswith(
+            self.assertTrue(response[0].decode('ascii').startswith(
                 'Traceback (most recent call last):'))
             self.assertEqual(self.logger.get_lines_for_level('error'), [
                 'ERROR __call__ error with %(method)s %(path)s : ' % {

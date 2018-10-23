@@ -757,14 +757,18 @@ def _req_environ_property(environ_field, is_wsgi_string_field=True):
         return self.environ.get(environ_field, None)
 
     def setter(self, value):
-        if six.PY2 and isinstance(value, six.text_type):
-            self.environ[environ_field] = value.encode('utf-8')
-        elif not six.PY2 and isinstance(value, six.binary_type):
-            self.environ[environ_field] = value.decode('latin1')
+        if six.PY2:
+            if isinstance(value, six.text_type):
+                self.environ[environ_field] = value.encode('utf-8')
+            else:
+                self.environ[environ_field] = value
         else:
-            if not six.PY2 and is_wsgi_string_field:
+            if is_wsgi_string_field:
                 # Check that input is valid before setting
-                value.encode('latin1')
+                if isinstance(value, str):
+                    value.encode('latin1').decode('utf-8')
+                if isinstance(value, bytes):
+                    value = value.decode('latin1')
             self.environ[environ_field] = value
 
     return property(getter, setter, doc=("Get and set the %s property "
@@ -948,8 +952,13 @@ class Request(object):
         "Provides QUERY_STRING parameters as a dictionary"
         if self._params_cache is None:
             if 'QUERY_STRING' in self.environ:
-                self._params_cache = dict(
-                    urllib.parse.parse_qsl(self.environ['QUERY_STRING'], True))
+                if six.PY2:
+                    self._params_cache = dict(urllib.parse.parse_qsl(
+                        self.environ['QUERY_STRING'], True))
+                else:
+                    self._params_cache = dict(urllib.parse.parse_qsl(
+                        self.environ['QUERY_STRING'],
+                        keep_blank_values=True, encoding='latin-1'))
             else:
                 self._params_cache = {}
         return self._params_cache
