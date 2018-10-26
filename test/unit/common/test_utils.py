@@ -3162,7 +3162,9 @@ cluster_dfw1 = http://dfw1.host/v1/
         tmpdir = mkdtemp()
         try:
             link = os.path.join(tmpdir, "tmp")
-            os.symlink(tempfile.gettempdir(), link)
+            rdir = os.path.join(tmpdir, "realtmp")
+            os.mkdir(rdir)
+            os.symlink(rdir, link)
             self.assertFalse(utils.ismount(link))
 
             # Can add a stubfile to make it pass
