@@ -29,6 +29,8 @@ from test.unit import FakeLogger, FakeRing
 
 class LeakTrackingIter(object):
     def __init__(self, inner_iter, mark_closed, path):
+        if isinstance(inner_iter, bytes):
+            inner_iter = (inner_iter, )
         self.inner_iter = inner_iter
         self.mark_closed = mark_closed
         self.path = path
