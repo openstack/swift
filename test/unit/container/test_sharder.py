@@ -128,6 +128,7 @@ class TestSharder(BaseTestSharder):
         expected = {
             'mount_check': True, 'bind_ip': '0.0.0.0', 'port': 6201,
             'per_diff': 1000, 'max_diffs': 100, 'interval': 30,
+            'databases_per_second': 50,
             'cleave_row_batch_size': 10000,
             'node_timeout': 10, 'conn_timeout': 5,
             'rsync_compress': False,
@@ -154,6 +155,7 @@ class TestSharder(BaseTestSharder):
         conf = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'bind_port': 62010,
             'per_diff': 2000, 'max_diffs': 200, 'interval': 60,
+            'databases_per_second': 5,
             'cleave_row_batch_size': 3000,
             'node_timeout': 20, 'conn_timeout': 1,
             'rsync_compress': True,
@@ -176,6 +178,7 @@ class TestSharder(BaseTestSharder):
         expected = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'port': 62010,
             'per_diff': 2000, 'max_diffs': 200, 'interval': 60,
+            'databases_per_second': 5,
             'cleave_row_batch_size': 3000,
             'node_timeout': 20, 'conn_timeout': 1,
             'rsync_compress': True,
@@ -485,7 +488,7 @@ class TestSharder(BaseTestSharder):
                                       0, 'text/plain', 'etag', 0)
 
             # check only sharding enabled containers are processed
-            with mock.patch.object(
+            with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
                 sharder._local_device_ids = {'stale_node_id'}
@@ -539,7 +542,7 @@ class TestSharder(BaseTestSharder):
                                         "for %s" % broker.path)
 
             # check exceptions are handled
-            with mock.patch.object(
+            with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker', side_effect=mock_processing
             ) as mock_process_broker:
                 sharder._local_device_ids = {'stale_node_id'}
@@ -593,7 +596,7 @@ class TestSharder(BaseTestSharder):
             for i in range(10):
                 brokers[1].delete_object(
                     'o%s' % i, next(self.ts_iter).internal)
-            with mock.patch.object(
+            with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
                 sharder._local_device_ids = {999}
@@ -611,6 +614,53 @@ class TestSharder(BaseTestSharder):
             self._assert_recon_stats(
                 expected_candidate_stats, sharder, 'sharding_candidates')
             self._assert_recon_stats(None, sharder, 'sharding_progress')
+
+    def test_ratelimited_roundrobin(self):
+        n_databases = 100
+
+        def stub_iter(dirs):
+            for i in range(n_databases):
+                yield i, '/srv/node/sda/path/to/container.db', {}
+
+        now = time.time()
+        clock = {
+            'sleeps': [],
+            'now': now,
+        }
+
+        def fake_sleep(t):
+            clock['sleeps'].append(t)
+            clock['now'] += t
+
+        def fake_time():
+            return clock['now']
+
+        with self._mock_sharder({'databases_per_second': 1}) as sharder, \
+                mock.patch('swift.common.db_replicator.roundrobin_datadirs',
+                           stub_iter), \
+                mock.patch('time.time', fake_time), \
+                mock.patch('eventlet.sleep', fake_sleep):
+            list(sharder.roundrobin_datadirs(None))
+        # 100 db at 1/s should take ~100s
+        run_time = sum(clock['sleeps'])
+        self.assertTrue(97 <= run_time < 100, 'took %s' % run_time)
+
+        n_databases = 1000
+        now = time.time()
+        clock = {
+            'sleeps': [],
+            'now': now,
+        }
+
+        with self._mock_sharder({'databases_per_second': 50}) as sharder, \
+                mock.patch('swift.common.db_replicator.roundrobin_datadirs',
+                           stub_iter), \
+                mock.patch('time.time', fake_time), \
+                mock.patch('eventlet.sleep', fake_sleep):
+            list(sharder.roundrobin_datadirs(None))
+        # 1000 db at 50/s
+        run_time = sum(clock['sleeps'])
+        self.assertTrue(18 <= run_time < 20, 'took %s' % run_time)
 
     @contextmanager
     def _mock_sharder(self, conf=None, replicas=3):

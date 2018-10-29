@@ -23,7 +23,7 @@ import os
 import six
 from eventlet import Timeout
 
-from swift.common import internal_client, db_replicator
+from swift.common import internal_client
 from swift.common.constraints import check_drive
 from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
@@ -1500,7 +1500,7 @@ class ContainerSharder(ContainerReplicator):
                 dirs.append((datadir, node, part_filt))
         if not dirs:
             self.logger.warning('Found no data dirs!')
-        for part, path, node in db_replicator.roundrobin_datadirs(dirs):
+        for part, path, node in self.roundrobin_datadirs(dirs):
             # NB: get_part_nodes always provides an 'index' key;
             # this will be used in leader selection
             for primary in self.ring.get_part_nodes(int(part)):
