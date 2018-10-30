@@ -707,7 +707,7 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual(req.environ['PATH_INFO'], '/bucket/obj1')
 
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
-    def test_check_signature_sigv2(self):
+    def _test_check_signature_sigv2(self, secret):
         # See https://web.archive.org/web/20151226025049/http://
         # docs.aws.amazon.com//AmazonS3/latest/dev/RESTAuthentication.html
         req = Request.blank('/photos/puppy.jpg', headers={
@@ -725,8 +725,7 @@ class TestRequest(S3ApiTestCase):
             '/johnsmith/photos/puppy.jpg',
         ])
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
-        self.assertTrue(sigv2_req.check_signature(
-            'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'))
+        self.assertTrue(sigv2_req.check_signature(secret))
 
         req = Request.blank('/photos/puppy.jpg', method='PUT', headers={
             'Content-Type': 'image/jpeg',
@@ -745,8 +744,7 @@ class TestRequest(S3ApiTestCase):
             '/johnsmith/photos/puppy.jpg',
         ])
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
-        self.assertTrue(sigv2_req.check_signature(
-            'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'))
+        self.assertTrue(sigv2_req.check_signature(secret))
 
         req = Request.blank(
             '/?prefix=photos&max-keys=50&marker=puppy',
@@ -766,8 +764,47 @@ class TestRequest(S3ApiTestCase):
             '/johnsmith/',
         ])
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
-        self.assertTrue(sigv2_req.check_signature(
-            'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'))
+        self.assertTrue(sigv2_req.check_signature(secret))
+
+    def test_check_signature_sigv2(self):
+        self._test_check_signature_sigv2(
+            'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
+
+    def test_check_signature_sigv2_unicode_string(self):
+        self._test_check_signature_sigv2(
+            u'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_check_signature_multi_bytes_secret_failure(self):
+        # Test v2 check_signature with multi bytes invalid secret
+        req = Request.blank('/photos/puppy.jpg', headers={
+            'Host': 'johnsmith.s3.amazonaws.com',
+            'Date': 'Tue, 27 Mar 2007 19:36:42 +0000',
+            'Authorization': ('AWS AKIAIOSFODNN7EXAMPLE:'
+                              'bWq2s1WEIj+Ydj0vQ697zp+IXMU='),
+        })
+        sigv2_req = S3Request(req.environ, storage_domain='s3.amazonaws.com')
+        # This is a failure case with utf-8 non-ascii multi-bytes charactor
+        # but we expect to return just False instead of exceptions
+        self.assertFalse(sigv2_req.check_signature(
+            u'\u30c9\u30e9\u30b4\u30f3'))
+
+        # Test v4 check_signature with multi bytes invalid secret
+        amz_date_header = self.get_v4_amz_date_header()
+        req = Request.blank('/photos/puppy.jpg', headers={
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/%s/US/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
+                'Signature=X' % amz_date_header.split('T', 1)[0],
+            'X-Amz-Content-SHA256': '0123456789',
+            'X-Amz-Date': amz_date_header
+        })
+        sigv4_req = SigV4Request(
+            req.environ, storage_domain='s3.amazonaws.com')
+        self.assertFalse(sigv4_req.check_signature(
+            u'\u30c9\u30e9\u30b4\u30f3'))
+
 
 if __name__ == '__main__':
     unittest.main()
