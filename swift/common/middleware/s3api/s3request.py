@@ -116,6 +116,7 @@ class SigV4Mixin(object):
     """
 
     def check_signature(self, secret):
+        secret = utf8encode(secret)
         user_signature = self.signature
         derived_secret = 'AWS4' + secret
         for scope_piece in self.scope.values():
@@ -504,6 +505,7 @@ class S3Request(swob.Request):
         self.environ['swift.leave_relative_location'] = True
 
     def check_signature(self, secret):
+        secret = utf8encode(secret)
         user_signature = self.signature
         valid_signature = base64.b64encode(hmac.new(
             secret, self.string_to_sign, sha1).digest()).strip()
