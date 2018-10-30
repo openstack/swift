@@ -653,13 +653,15 @@ class ObjectReconstructor(Daemon):
         return suffixes
 
     def rehash_remote(self, node, job, suffixes):
+        headers = self.headers.copy()
+        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         try:
             with Timeout(self.http_timeout):
                 conn = http_connect(
                     node['replication_ip'], node['replication_port'],
                     node['device'], job['partition'], 'REPLICATE',
                     '/' + '-'.join(sorted(suffixes)),
-                    headers=self.headers)
+                    headers=headers)
                 conn.getresponse().read()
         except (Exception, Timeout):
             self.logger.exception(
@@ -680,12 +682,14 @@ class ObjectReconstructor(Daemon):
         """
         # get hashes from the remote node
         remote_suffixes = None
+        headers = self.headers.copy()
+        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         try:
             with Timeout(self.http_timeout):
                 resp = http_connect(
                     node['replication_ip'], node['replication_port'],
                     node['device'], job['partition'], 'REPLICATE',
-                    '', headers=self.headers).getresponse()
+                    '', headers=headers).getresponse()
             if resp.status == HTTP_INSUFFICIENT_STORAGE:
                 self.logger.error(
                     _('%s responded as unmounted'),
@@ -774,7 +778,6 @@ class ObjectReconstructor(Daemon):
 
         :param: the job dict, with the keys defined in ``_get_job_info``
         """
-        self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         begin = time.time()
         if job['job_type'] == REVERT:
             self._revert(job, begin)
