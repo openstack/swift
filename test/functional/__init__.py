@@ -930,39 +930,46 @@ def setup_package():
                     + swift_test_user[_]
 
     global skip
-    skip = not all([swift_test_auth, swift_test_user[0], swift_test_key[0]])
-    if skip:
-        print('SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG', file=sys.stderr)
+    if not skip:
+        skip = not all([swift_test_auth, swift_test_user[0],
+                        swift_test_key[0]])
+        if skip:
+            print('SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG',
+                  file=sys.stderr)
 
     global skip2
-    skip2 = not all([not skip, swift_test_user[1], swift_test_key[1]])
-    if not skip and skip2:
-        print('SKIPPING SECOND ACCOUNT FUNCTIONAL TESTS '
-              'DUE TO NO CONFIG FOR THEM', file=sys.stderr)
+    if not skip2:
+        skip2 = not all([not skip, swift_test_user[1], swift_test_key[1]])
+        if not skip and skip2:
+            print('SKIPPING SECOND ACCOUNT FUNCTIONAL TESTS '
+                  'DUE TO NO CONFIG FOR THEM', file=sys.stderr)
 
     global skip3
-    skip3 = not all([not skip, swift_test_user[2], swift_test_key[2]])
-    if not skip and skip3:
-        print('SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS '
-              'DUE TO NO CONFIG FOR THEM', file=sys.stderr)
+    if not skip3:
+        skip3 = not all([not skip, swift_test_user[2], swift_test_key[2]])
+        if not skip and skip3:
+            print('SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS '
+                  'DUE TO NO CONFIG FOR THEM', file=sys.stderr)
 
     global skip_if_not_v3
-    skip_if_not_v3 = (swift_test_auth_version != '3'
-                      or not all([not skip,
-                                  swift_test_user[3],
-                                  swift_test_key[3]]))
-    if not skip and skip_if_not_v3:
-        print('SKIPPING FUNCTIONAL TESTS SPECIFIC TO AUTH VERSION 3',
-              file=sys.stderr)
+    if not skip_if_not_v3:
+        skip_if_not_v3 = (swift_test_auth_version != '3'
+                          or not all([not skip,
+                                      swift_test_user[3],
+                                      swift_test_key[3]]))
+        if not skip and skip_if_not_v3:
+            print('SKIPPING FUNCTIONAL TESTS SPECIFIC TO AUTH VERSION 3',
+                  file=sys.stderr)
 
     global skip_service_tokens
-    skip_service_tokens = not all([not skip, swift_test_user[4],
-                                   swift_test_key[4], swift_test_tenant[4],
-                                   swift_test_service_prefix])
-    if not skip and skip_service_tokens:
-        print(
-            'SKIPPING FUNCTIONAL TESTS SPECIFIC TO SERVICE TOKENS',
-            file=sys.stderr)
+    if not skip_service_tokens:
+        skip_service_tokens = not all([not skip, swift_test_user[4],
+                                       swift_test_key[4], swift_test_tenant[4],
+                                       swift_test_service_prefix])
+        if not skip and skip_service_tokens:
+            print(
+                'SKIPPING FUNCTIONAL TESTS SPECIFIC TO SERVICE TOKENS',
+                file=sys.stderr)
 
     if policy_specified:
         policies = FunctionalStoragePolicyCollection.from_info()
@@ -981,13 +988,13 @@ def setup_package():
                             % policy_specified)
 
     global skip_if_no_reseller_admin
-    skip_if_no_reseller_admin = not all([not skip, swift_test_user[5],
-                                         swift_test_key[5],
-                                         swift_test_tenant[5]])
-    if not skip and skip_if_no_reseller_admin:
-        print(
-            'SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG FOR RESELLER ADMIN',
-            file=sys.stderr)
+    if not skip_if_no_reseller_admin:
+        skip_if_no_reseller_admin = not all([not skip, swift_test_user[5],
+                                             swift_test_key[5],
+                                             swift_test_tenant[5]])
+        if not skip and skip_if_no_reseller_admin:
+            print('SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG FOR '
+                  'RESELLER ADMIN', file=sys.stderr)
 
     get_cluster_info()
 
