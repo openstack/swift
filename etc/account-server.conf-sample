@@ -143,6 +143,9 @@ use = egg:swift#recon
 # run_pause is deprecated, use interval instead
 # run_pause = 30
 #
+# Process at most this many databases per second
+# databases_per_second = 50
+#
 # node_timeout = 10
 # conn_timeout = 0.5
 #

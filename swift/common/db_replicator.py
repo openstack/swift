@@ -33,7 +33,7 @@ from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
     json, parse_override_options, round_robin_iter, Everything, get_db_files, \
-    parse_db_filename, quote
+    parse_db_filename, quote, RateLimitedIterator
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE, \
@@ -204,6 +204,8 @@ class Replicator(Daemon):
                                 ' to use option %(type)s-replicator/'
                                 'interval.'
                                 % {'type': self.server_type})
+        self.databases_per_second = int(
+            conf.get('databases_per_second', 50))
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.rsync_compress = config_true_value(
@@ -733,6 +735,11 @@ class Replicator(Daemon):
     def report_up_to_date(self, full_info):
         return True
 
+    def roundrobin_datadirs(self, dirs):
+        return RateLimitedIterator(
+            roundrobin_datadirs(dirs),
+            elements_per_second=self.databases_per_second)
+
     def run_once(self, *args, **kwargs):
         """Run a replication pass once."""
         override_options = parse_override_options(once=True, **kwargs)
@@ -789,7 +796,7 @@ class Replicator(Daemon):
                               "file, not replicating",
                               ", ".join(ips), self.port)
         self.logger.info(_('Beginning replication run'))
-        for part, object_file, node_id in roundrobin_datadirs(dirs):
+        for part, object_file, node_id in self.roundrobin_datadirs(dirs):
             self.cpool.spawn_n(
                 self._replicate_object, part, object_file, node_id)
         self.cpool.waitall()
