@@ -52,7 +52,7 @@ class NullBufferedHTTPConnection(object):
         pass
 
 
-class FakeResponse(object):
+class FakeResponse(ssync_sender.SsyncBufferedHTTPResponse):
 
     def __init__(self, chunk_body=''):
         self.status = 200
@@ -60,6 +60,8 @@ class FakeResponse(object):
         if chunk_body:
             self.fp = six.StringIO(
                 '%x\r\n%s\r\n0\r\n\r\n' % (len(chunk_body), chunk_body))
+        self.ssync_response_buffer = ''
+        self.ssync_response_chunk_left = 0
 
     def read(self, *args, **kwargs):
         return ''
@@ -163,8 +165,10 @@ class TestSender(BaseTest):
 
     def test_call_calls_others(self):
         connection = FakeConnection()
+        response = FakeResponse()
         self.sender.suffixes = ['abc']
-        self.sender.connect = mock.MagicMock(return_value=connection)
+        self.sender.connect = mock.MagicMock(return_value=(connection,
+                                                           response))
         self.sender.missing_check = mock.MagicMock()
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
@@ -172,8 +176,8 @@ class TestSender(BaseTest):
         self.assertTrue(success)
         self.assertEqual(candidates, {})
         self.sender.connect.assert_called_once_with()
-        self.sender.missing_check.assert_called_once_with(connection)
-        self.sender.updates.assert_called_once_with(connection)
+        self.sender.missing_check.assert_called_once_with(connection, response)
+        self.sender.updates.assert_called_once_with(connection, response)
         self.sender.disconnect.assert_called_once_with(connection)
 
     def test_connect(self):
@@ -183,7 +187,7 @@ class TestSender(BaseTest):
         self.sender = ssync_sender.Sender(self.daemon, node, job, None)
         self.sender.suffixes = ['abc']
         with mock.patch(
-                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+                'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
             mock_resp = mock.MagicMock()
@@ -217,7 +221,7 @@ class TestSender(BaseTest):
         self.sender = ssync_sender.Sender(self.daemon, node, job, None)
         self.sender.suffixes = ['abc']
         with mock.patch(
-                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+                'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
             mock_resp = mock.MagicMock()
@@ -251,7 +255,7 @@ class TestSender(BaseTest):
         self.sender = ssync_sender.Sender(self.daemon, node, job, None)
         self.sender.suffixes = ['abc']
         with mock.patch(
-                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+                'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
             mock_resp = mock.MagicMock()
@@ -285,7 +289,7 @@ class TestSender(BaseTest):
         self.sender = ssync_sender.Sender(self.daemon, node, job, None)
         self.sender.suffixes = ['abc']
         with mock.patch(
-                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+                'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
             mock_resp = mock.MagicMock()
@@ -320,7 +324,7 @@ class TestSender(BaseTest):
         self.sender = ssync_sender.Sender(self.daemon, node, job, None)
         self.sender.suffixes = ['abc']
         with mock.patch(
-                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+                'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
             mock_resp = mock.MagicMock()
@@ -350,7 +354,9 @@ class TestSender(BaseTest):
     def test_call(self):
         def patch_sender(sender):
             connection = FakeConnection()
-            sender.connect = mock.MagicMock(return_value=connection)
+            response = FakeResponse()
+            sender.connect = mock.MagicMock(return_value=(connection,
+                                                          response))
             sender.missing_check = mock.MagicMock()
             sender.updates = mock.MagicMock()
             sender.disconnect = mock.MagicMock()
@@ -439,7 +445,7 @@ class TestSender(BaseTest):
             'frag_index': 0,
         }
         self.sender.suffixes = ['abc']
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 '9d41d8cd98f00b204e9800998ecf0abc\r\n'
@@ -448,7 +454,8 @@ class TestSender(BaseTest):
                 ':UPDATES: END\r\n'
             ))
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.connect = mock.MagicMock(return_value=connection)
+        self.sender.connect = mock.MagicMock(return_value=(connection,
+                                                           response))
         df = mock.MagicMock()
         df.content_length = 0
         self.sender.df_mgr.get_diskfile_from_hash = mock.MagicMock(
@@ -485,13 +492,14 @@ class TestSender(BaseTest):
             'frag_index': 0,
         }
         self.sender.suffixes = ['abc']
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 '9d41d8cd98f00b204e9800998ecf0abc d\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.connect = mock.MagicMock(return_value=connection)
+        self.sender.connect = mock.MagicMock(return_value=(connection,
+                                                           response))
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
         success, candidates = self.sender()
@@ -519,12 +527,13 @@ class TestSender(BaseTest):
         self.sender = ssync_sender.Sender(self.daemon, None, job, ['abc'],
                                           ['9d41d8cd98f00b204e9800998ecf0abc'])
         connection = FakeConnection()
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.connect = mock.MagicMock(return_value=connection)
+        self.sender.connect = mock.MagicMock(return_value=(connection,
+                                                           response))
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
         success, candidates = self.sender()
@@ -552,13 +561,14 @@ class TestSender(BaseTest):
         self.sender = ssync_sender.Sender(self.daemon, {}, job, ['abc'],
                                           ['9d41d8cd98f00b204e9800998ecf0abc'])
         connection = FakeConnection()
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 '9d41d8cd98f00b204e9800998ecf0abc d\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.connect = mock.MagicMock(return_value=connection)
+        self.sender.connect = mock.MagicMock(return_value=(connection,
+                                                           response))
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
         success, candidates = self.sender()
@@ -602,7 +612,7 @@ class TestSender(BaseTest):
                 eventlet.sleep(0.1)
 
         with mock.patch.object(
-                ssync_sender.bufferedhttp, 'BufferedHTTPConnection',
+                ssync_sender, 'SsyncBufferedHTTPConnection',
                 FakeBufferedHTTPConnection):
             success, candidates = self.sender()
             self.assertFalse(success)
@@ -628,7 +638,7 @@ class TestSender(BaseTest):
         missing_check_fn = 'swift.obj.ssync_sender.Sender.missing_check'
         with mock.patch(missing_check_fn) as mock_missing_check:
             with mock.patch.object(
-                ssync_sender.bufferedhttp, 'BufferedHTTPConnection',
+                ssync_sender, 'SsyncBufferedHTTPConnection',
                     FakeBufferedHTTPConnection):
                 self.sender = ssync_sender.Sender(
                     self.daemon, node, job, ['abc'])
@@ -644,63 +654,65 @@ class TestSender(BaseTest):
         self.assertFalse(mock_missing_check.called)
 
     def test_readline_newline_in_buffer(self):
-        self.sender.response_buffer = 'Has a newline already.\r\nOkay.'
-        self.assertEqual(self.sender.readline(), 'Has a newline already.\r\n')
-        self.assertEqual(self.sender.response_buffer, 'Okay.')
+        response = FakeResponse()
+        response.ssync_response_buffer = 'Has a newline already.\r\nOkay.'
+        self.assertEqual(response.readline(), 'Has a newline already.\r\n')
+        self.assertEqual(response.ssync_response_buffer, 'Okay.')
 
     def test_readline_buffer_exceeds_network_chunk_size_somehow(self):
-        self.daemon.network_chunk_size = 2
-        self.sender.response_buffer = '1234567890'
-        self.assertEqual(self.sender.readline(), '1234567890')
-        self.assertEqual(self.sender.response_buffer, '')
+        response = FakeResponse()
+        response.ssync_response_buffer = '1234567890'
+        self.assertEqual(response.readline(size=2), '1234567890')
+        self.assertEqual(response.ssync_response_buffer, '')
 
     def test_readline_at_start_of_chunk(self):
-        self.sender.response = FakeResponse()
-        self.sender.response.fp = six.StringIO('2\r\nx\n\r\n')
-        self.assertEqual(self.sender.readline(), 'x\n')
+        response = FakeResponse()
+        response.fp = six.StringIO('2\r\nx\n\r\n')
+        self.assertEqual(response.readline(), 'x\n')
 
     def test_readline_chunk_with_extension(self):
-        self.sender.response = FakeResponse()
-        self.sender.response.fp = six.StringIO(
+        response = FakeResponse()
+        response.fp = six.StringIO(
             '2 ; chunk=extension\r\nx\n\r\n')
-        self.assertEqual(self.sender.readline(), 'x\n')
+        self.assertEqual(response.readline(), 'x\n')
 
     def test_readline_broken_chunk(self):
-        self.sender.response = FakeResponse()
-        self.sender.response.fp = six.StringIO('q\r\nx\n\r\n')
+        response = FakeResponse()
+        response.fp = six.StringIO('q\r\nx\n\r\n')
         self.assertRaises(
-            exceptions.ReplicationException, self.sender.readline)
-        self.assertTrue(self.sender.response.close_called)
+            exceptions.ReplicationException, response.readline)
+        self.assertTrue(response.close_called)
 
     def test_readline_terminated_chunk(self):
-        self.sender.response = FakeResponse()
-        self.sender.response.fp = six.StringIO('b\r\nnot enough')
+        response = FakeResponse()
+        response.fp = six.StringIO('b\r\nnot enough')
         self.assertRaises(
-            exceptions.ReplicationException, self.sender.readline)
-        self.assertTrue(self.sender.response.close_called)
+            exceptions.ReplicationException, response.readline)
+        self.assertTrue(response.close_called)
 
     def test_readline_all(self):
-        self.sender.response = FakeResponse()
-        self.sender.response.fp = six.StringIO('2\r\nx\n\r\n0\r\n\r\n')
-        self.assertEqual(self.sender.readline(), 'x\n')
-        self.assertEqual(self.sender.readline(), '')
-        self.assertEqual(self.sender.readline(), '')
+        response = FakeResponse()
+        response.fp = six.StringIO('2\r\nx\n\r\n0\r\n\r\n')
+        self.assertEqual(response.readline(), 'x\n')
+        self.assertEqual(response.readline(), '')
+        self.assertEqual(response.readline(), '')
 
     def test_readline_all_trailing_not_newline_termed(self):
-        self.sender.response = FakeResponse()
-        self.sender.response.fp = six.StringIO(
+        response = FakeResponse()
+        response.fp = six.StringIO(
             '2\r\nx\n\r\n3\r\n123\r\n0\r\n\r\n')
-        self.assertEqual(self.sender.readline(), 'x\n')
-        self.assertEqual(self.sender.readline(), '123')
-        self.assertEqual(self.sender.readline(), '')
-        self.assertEqual(self.sender.readline(), '')
+        self.assertEqual(response.readline(), 'x\n')
+        self.assertEqual(response.readline(), '123')
+        self.assertEqual(response.readline(), '')
+        self.assertEqual(response.readline(), '')
 
     def test_missing_check_timeout(self):
         connection = FakeConnection()
         connection.send = lambda d: eventlet.sleep(1)
+        response = FakeResponse()
         self.sender.daemon.node_timeout = 0.01
         self.assertRaises(exceptions.MessageTimeout, self.sender.missing_check,
-                          connection)
+                          connection, response)
 
     def test_missing_check_has_empty_suffixes(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
@@ -719,12 +731,12 @@ class TestSender(BaseTest):
             'policy': POLICIES.legacy,
         }
         self.sender.suffixes = ['abc', 'def']
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.missing_check(connection)
+        self.sender.missing_check(connection, response)
         self.assertEqual(
             ''.join(connection.sent),
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
@@ -761,12 +773,12 @@ class TestSender(BaseTest):
             'policy': POLICIES.legacy,
         }
         self.sender.suffixes = ['abc', 'def']
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.missing_check(connection)
+        self.sender.missing_check(connection, response)
         self.assertEqual(
             ''.join(connection.sent),
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
@@ -809,10 +821,10 @@ class TestSender(BaseTest):
         }
         self.sender.suffixes = ['abc']
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.response = FakeResponse(chunk_body='\r\n')
+        response = FakeResponse(chunk_body='\r\n')
         exc = None
         try:
-            self.sender.missing_check(connection)
+            self.sender.missing_check(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), 'Early disconnect')
@@ -846,11 +858,11 @@ class TestSender(BaseTest):
         }
         self.sender.suffixes = ['abc']
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=':MISSING_CHECK: START\r\n')
         exc = None
         try:
-            self.sender.missing_check(connection)
+            self.sender.missing_check(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), 'Early disconnect')
@@ -884,10 +896,10 @@ class TestSender(BaseTest):
         }
         self.sender.suffixes = ['abc']
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.response = FakeResponse(chunk_body='OH HAI\r\n')
+        response = FakeResponse(chunk_body='OH HAI\r\n')
         exc = None
         try:
-            self.sender.missing_check(connection)
+            self.sender.missing_check(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'OH HAI'")
@@ -920,13 +932,13 @@ class TestSender(BaseTest):
             'policy': POLICIES.legacy,
         }
         self.sender.suffixes = ['abc']
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 '0123abc dm\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.missing_check(connection)
+        self.sender.missing_check(connection, response)
         self.assertEqual(
             ''.join(connection.sent),
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
@@ -960,13 +972,13 @@ class TestSender(BaseTest):
             'policy': POLICIES.legacy,
         }
         self.sender.suffixes = ['abc']
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 '0123abc d extra response parts\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.df_mgr.yield_hashes = yield_hashes
-        self.sender.missing_check(connection)
+        self.sender.missing_check(connection, response)
         self.assertEqual(self.sender.send_map,
                          {'0123abc': {'data': True}})
         self.assertEqual(self.sender.available_map,
@@ -976,18 +988,19 @@ class TestSender(BaseTest):
     def test_updates_timeout(self):
         connection = FakeConnection()
         connection.send = lambda d: eventlet.sleep(1)
+        response = FakeResponse()
         self.sender.daemon.node_timeout = 0.01
         self.assertRaises(exceptions.MessageTimeout, self.sender.updates,
-                          connection)
+                          connection, response)
 
     def test_updates_empty_send_map(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        self.sender.updates(connection)
+        self.sender.updates(connection, response)
         self.assertEqual(
             ''.join(connection.sent),
             '11\r\n:UPDATES: START\r\n\r\n'
@@ -996,14 +1009,14 @@ class TestSender(BaseTest):
     def test_updates_unexpected_response_lines1(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 'abc\r\n'
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
         exc = None
         try:
-            self.sender.updates(connection)
+            self.sender.updates(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'abc'")
@@ -1015,14 +1028,14 @@ class TestSender(BaseTest):
     def test_updates_unexpected_response_lines2(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 'abc\r\n'
                 ':UPDATES: END\r\n'))
         exc = None
         try:
-            self.sender.updates(connection)
+            self.sender.updates(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'abc'")
@@ -1050,11 +1063,11 @@ class TestSender(BaseTest):
         self.sender.send_map = {object_hash: {'data': True}}
         self.sender.send_delete = mock.MagicMock()
         self.sender.send_put = mock.MagicMock()
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        self.sender.updates(connection)
+        self.sender.updates(connection, response)
         self.sender.send_delete.assert_called_once_with(
             connection, '/a/c/o', delete_timestamp)
         self.assertEqual(self.sender.send_put.mock_calls, [])
@@ -1082,11 +1095,11 @@ class TestSender(BaseTest):
         }
         self.sender.node = {}
         self.sender.send_map = {object_hash: {'data': True}}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        self.sender.updates(connection)
+        self.sender.updates(connection, response)
         self.assertEqual(
             ''.join(connection.sent),
             '11\r\n:UPDATES: START\r\n\r\n'
@@ -1125,11 +1138,11 @@ class TestSender(BaseTest):
         self.sender.send_delete = mock.MagicMock()
         self.sender.send_put = mock.MagicMock()
         self.sender.send_post = mock.MagicMock()
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        self.sender.updates(connection)
+        self.sender.updates(connection, response)
         self.assertEqual(self.sender.send_delete.mock_calls, [])
         self.assertEqual(self.sender.send_post.mock_calls, [])
         self.assertEqual(1, len(self.sender.send_put.mock_calls))
@@ -1172,11 +1185,11 @@ class TestSender(BaseTest):
         self.sender.send_delete = mock.MagicMock()
         self.sender.send_put = mock.MagicMock()
         self.sender.send_post = mock.MagicMock()
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        self.sender.updates(connection)
+        self.sender.updates(connection, response)
         self.assertEqual(self.sender.send_delete.mock_calls, [])
         self.assertEqual(self.sender.send_put.mock_calls, [])
         self.assertEqual(1, len(self.sender.send_post.mock_calls))
@@ -1219,11 +1232,11 @@ class TestSender(BaseTest):
         self.sender.send_delete = mock.MagicMock()
         self.sender.send_put = mock.MagicMock()
         self.sender.send_post = mock.MagicMock()
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        self.sender.updates(connection)
+        self.sender.updates(connection, response)
         self.assertEqual(self.sender.send_delete.mock_calls, [])
         self.assertEqual(1, len(self.sender.send_put.mock_calls))
         self.assertEqual(1, len(self.sender.send_post.mock_calls))
@@ -1262,11 +1275,11 @@ class TestSender(BaseTest):
         self.sender.send_map = {object_hash: {'data': True}}
         self.sender.send_delete = mock.MagicMock()
         self.sender.send_put = mock.MagicMock()
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        self.sender.updates(connection)
+        self.sender.updates(connection, response)
         args, _kwargs = self.sender.send_put.call_args
         connection, path, df = args
         self.assertEqual(path, '/a/c/o')
@@ -1279,28 +1292,28 @@ class TestSender(BaseTest):
     def test_updates_read_response_timeout_start(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        orig_readline = self.sender.readline
+        orig_readline = response.readline
 
-        def delayed_readline():
+        def delayed_readline(*args, **kwargs):
             eventlet.sleep(1)
-            return orig_readline()
+            return orig_readline(*args, **kwargs)
 
-        self.sender.readline = delayed_readline
+        response.readline = delayed_readline
         self.sender.daemon.http_timeout = 0.01
         self.assertRaises(exceptions.MessageTimeout, self.sender.updates,
-                          connection)
+                          connection, response)
 
     def test_updates_read_response_disconnect_start(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(chunk_body='\r\n')
+        response = FakeResponse(chunk_body='\r\n')
         exc = None
         try:
-            self.sender.updates(connection)
+            self.sender.updates(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), 'Early disconnect')
@@ -1312,14 +1325,14 @@ class TestSender(BaseTest):
     def test_updates_read_response_unexp_start(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 'anything else\r\n'
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
         exc = None
         try:
-            self.sender.updates(connection)
+            self.sender.updates(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'anything else'")
@@ -1331,33 +1344,33 @@ class TestSender(BaseTest):
     def test_updates_read_response_timeout_end(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
-        orig_readline = self.sender.readline
+        orig_readline = response.readline
 
-        def delayed_readline():
-            rv = orig_readline()
+        def delayed_readline(*args, **kwargs):
+            rv = orig_readline(*args, **kwargs)
             if rv == ':UPDATES: END\r\n':
                 eventlet.sleep(1)
             return rv
 
-        self.sender.readline = delayed_readline
+        response.readline = delayed_readline
         self.sender.daemon.http_timeout = 0.01
         self.assertRaises(exceptions.MessageTimeout, self.sender.updates,
-                          connection)
+                          connection, response)
 
     def test_updates_read_response_disconnect_end(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 '\r\n'))
         exc = None
         try:
-            self.sender.updates(connection)
+            self.sender.updates(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), 'Early disconnect')
@@ -1369,14 +1382,14 @@ class TestSender(BaseTest):
     def test_updates_read_response_unexp_end(self):
         connection = FakeConnection()
         self.sender.send_map = {}
-        self.sender.response = FakeResponse(
+        response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 'anything else\r\n'
                 ':UPDATES: END\r\n'))
         exc = None
         try:
-            self.sender.updates(connection)
+            self.sender.updates(connection, response)
         except exceptions.ReplicationException as err:
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'anything else'")

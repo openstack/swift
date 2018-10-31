@@ -69,6 +69,61 @@ def decode_wanted(parts):
     return wanted
 
 
+class SsyncBufferedHTTPResponse(bufferedhttp.BufferedHTTPResponse, object):
+    def __init__(self, *args, **kwargs):
+        super(SsyncBufferedHTTPResponse, self).__init__(*args, **kwargs)
+        self.ssync_response_buffer = ''
+        self.ssync_response_chunk_left = 0
+
+    def readline(self, size=1024):
+        """
+        Reads a line from the SSYNC response body.
+
+        httplib has no readline and will block on read(x) until x is
+        read, so we have to do the work ourselves. A bit of this is
+        taken from Python's httplib itself.
+        """
+        data = self.ssync_response_buffer
+        self.ssync_response_buffer = ''
+        while '\n' not in data and len(data) < size:
+            if self.ssync_response_chunk_left == -1:  # EOF-already indicator
+                break
+            if self.ssync_response_chunk_left == 0:
+                line = self.fp.readline()
+                i = line.find(';')
+                if i >= 0:
+                    line = line[:i]  # strip chunk-extensions
+                try:
+                    self.ssync_response_chunk_left = int(line.strip(), 16)
+                except ValueError:
+                    # close the connection as protocol synchronisation is
+                    # probably lost
+                    self.close()
+                    raise exceptions.ReplicationException('Early disconnect')
+                if self.ssync_response_chunk_left == 0:
+                    self.ssync_response_chunk_left = -1
+                    break
+            chunk = self.fp.read(min(self.ssync_response_chunk_left,
+                                     size - len(data)))
+            if not chunk:
+                # close the connection as protocol synchronisation is
+                # probably lost
+                self.close()
+                raise exceptions.ReplicationException('Early disconnect')
+            self.ssync_response_chunk_left -= len(chunk)
+            if self.ssync_response_chunk_left == 0:
+                self.fp.read(2)  # discard the trailing \r\n
+            data += chunk
+        if '\n' in data:
+            data, self.ssync_response_buffer = data.split('\n', 1)
+            data += '\n'
+        return data
+
+
+class SsyncBufferedHTTPConnection(bufferedhttp.BufferedHTTPConnection):
+    response_class = SsyncBufferedHTTPResponse
+
+
 class Sender(object):
     """
     Sends SSYNC requests to the object server.
@@ -84,9 +139,6 @@ class Sender(object):
         self.node = node
         self.job = job
         self.suffixes = suffixes
-        self.response = None
-        self.response_buffer = ''
-        self.response_chunk_left = 0
         # available_map has an entry for each object in given suffixes that
         # is available to be sync'd; each entry is a hash => dict of timestamps
         # of data file or tombstone file and/or meta file
@@ -110,7 +162,7 @@ class Sender(object):
         """
         if not self.suffixes:
             return True, {}
-        connection = None
+        connection = response = None
         try:
             # Double try blocks in case our main error handler fails.
             try:
@@ -119,10 +171,10 @@ class Sender(object):
                 # exceptions.ReplicationException for common issues that will
                 # abort the replication attempt and log a simple error. All
                 # other exceptions will be logged with a full stack trace.
-                connection = self.connect()
-                self.missing_check(connection)
+                connection, response = self.connect()
+                self.missing_check(connection, response)
                 if self.remote_check_objs is None:
-                    self.updates(connection)
+                    self.updates(connection, response)
                     can_delete_obj = self.available_map
                 else:
                     # when we are initialized with remote_check_objs we don't
@@ -167,10 +219,10 @@ class Sender(object):
         Establishes a connection and starts an SSYNC request
         with the object server.
         """
-        connection = None
+        connection = response = None
         with exceptions.MessageTimeout(
                 self.daemon.conn_timeout, 'connect send'):
-            connection = bufferedhttp.BufferedHTTPConnection(
+            connection = SsyncBufferedHTTPConnection(
                 '%s:%s' % (self.node['replication_ip'],
                            self.node['replication_port']))
             connection.putrequest('SSYNC', '/%s/%s' % (
@@ -196,60 +248,15 @@ class Sender(object):
             connection.endheaders()
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'connect receive'):
-            self.response = connection.getresponse()
-            if self.response.status != http.HTTP_OK:
-                err_msg = self.response.read()[:1024]
+            response = connection.getresponse()
+            if response.status != http.HTTP_OK:
+                err_msg = response.read()[:1024]
                 raise exceptions.ReplicationException(
                     'Expected status %s; got %s (%s)' %
-                    (http.HTTP_OK, self.response.status, err_msg))
-        return connection
+                    (http.HTTP_OK, response.status, err_msg))
+        return connection, response
 
-    def readline(self):
-        """
-        Reads a line from the SSYNC response body.
-
-        httplib has no readline and will block on read(x) until x is
-        read, so we have to do the work ourselves. A bit of this is
-        taken from Python's httplib itself.
-        """
-        data = self.response_buffer
-        self.response_buffer = ''
-        while '\n' not in data and len(data) < self.daemon.network_chunk_size:
-            if self.response_chunk_left == -1:  # EOF-already indicator
-                break
-            if self.response_chunk_left == 0:
-                line = self.response.fp.readline()
-                i = line.find(';')
-                if i >= 0:
-                    line = line[:i]  # strip chunk-extensions
-                try:
-                    self.response_chunk_left = int(line.strip(), 16)
-                except ValueError:
-                    # close the connection as protocol synchronisation is
-                    # probably lost
-                    self.response.close()
-                    raise exceptions.ReplicationException('Early disconnect')
-                if self.response_chunk_left == 0:
-                    self.response_chunk_left = -1
-                    break
-            chunk = self.response.fp.read(min(
-                self.response_chunk_left,
-                self.daemon.network_chunk_size - len(data)))
-            if not chunk:
-                # close the connection as protocol synchronisation is
-                # probably lost
-                self.response.close()
-                raise exceptions.ReplicationException('Early disconnect')
-            self.response_chunk_left -= len(chunk)
-            if self.response_chunk_left == 0:
-                self.response.fp.read(2)  # discard the trailing \r\n
-            data += chunk
-        if '\n' in data:
-            data, self.response_buffer = data.split('\n', 1)
-            data += '\n'
-        return data
-
-    def missing_check(self, connection):
+    def missing_check(self, connection, response):
         """
         Handles the sender-side of the MISSING_CHECK step of a
         SSYNC request.
@@ -286,7 +293,7 @@ class Sender(object):
         while True:
             with exceptions.MessageTimeout(
                     self.daemon.http_timeout, 'missing_check start wait'):
-                line = self.readline()
+                line = response.readline(size=self.daemon.network_chunk_size)
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
             line = line.strip()
@@ -298,7 +305,7 @@ class Sender(object):
         while True:
             with exceptions.MessageTimeout(
                     self.daemon.http_timeout, 'missing_check line wait'):
-                line = self.readline()
+                line = response.readline(size=self.daemon.network_chunk_size)
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
             line = line.strip()
@@ -308,7 +315,7 @@ class Sender(object):
             if parts:
                 self.send_map[parts[0]] = decode_wanted(parts[1:])
 
-    def updates(self, connection):
+    def updates(self, connection, response):
         """
         Handles the sender-side of the UPDATES step of an SSYNC
         request.
@@ -362,7 +369,7 @@ class Sender(object):
         while True:
             with exceptions.MessageTimeout(
                     self.daemon.http_timeout, 'updates start wait'):
-                line = self.readline()
+                line = response.readline(size=self.daemon.network_chunk_size)
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
             line = line.strip()
@@ -374,7 +381,7 @@ class Sender(object):
         while True:
             with exceptions.MessageTimeout(
                     self.daemon.http_timeout, 'updates line wait'):
-                line = self.readline()
+                line = response.readline(size=self.daemon.network_chunk_size)
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
             line = line.strip()

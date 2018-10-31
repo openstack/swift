@@ -99,8 +99,8 @@ class TestBaseSsync(BaseTest):
             return wrapped_send
 
         def make_readline_wrapper(readline):
-            def wrapped_readline():
-                data = readline()
+            def wrapped_readline(size=1024):
+                data = readline(size=size)
                 add_trace('rx', data)
                 bytes_read = trace.setdefault('readline_bytes', 0)
                 trace['readline_bytes'] = bytes_read + len(data)
@@ -108,11 +108,11 @@ class TestBaseSsync(BaseTest):
             return wrapped_readline
 
         def wrapped_connect():
-            connection = orig_connect()
+            connection, response = orig_connect()
             connection.send = make_send_wrapper(
                 connection.send)
-            sender.readline = make_readline_wrapper(sender.readline)
-            return connection
+            response.readline = make_readline_wrapper(response.readline)
+            return connection, response
         return wrapped_connect, trace
 
     def _get_object_data(self, path, **kwargs):
