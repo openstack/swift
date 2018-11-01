@@ -1121,7 +1121,7 @@ class TestDBReplicator(unittest.TestCase):
                                           mount_check=False)
         with unit.mock_check_drive(isdir=True):
             response = rpc.dispatch(('a',), 'arg')
-        self.assertEqual('Invalid object type', response.body)
+        self.assertEqual(b'Invalid object type', response.body)
         self.assertEqual(400, response.status_int)
 
     def test_dispatch_drive_not_mounted(self):
