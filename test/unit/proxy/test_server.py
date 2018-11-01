@@ -1223,7 +1223,7 @@ class TestProxyServerLoading(unittest.TestCase):
 
     def setUp(self):
         self._orig_hash_suffix = utils.HASH_PATH_SUFFIX
-        utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_SUFFIX = b'endcap'
         self.tempdir = mkdtemp()
 
     def tearDown(self):

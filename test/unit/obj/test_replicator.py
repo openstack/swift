@@ -224,8 +224,8 @@ class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b''
         # recon cache path
         self.recon_cache = tempfile.mkdtemp()
         rmtree(self.recon_cache, ignore_errors=1)

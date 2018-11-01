@@ -147,8 +147,8 @@ class TestDiskFileModuleMethods(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b''
         # Setup a test ring per policy (stolen from common/test_ring.py)
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')

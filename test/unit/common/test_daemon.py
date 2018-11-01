@@ -109,8 +109,8 @@ class TestRunDaemon(unittest.TestCase):
 
     def setUp(self):
         for patcher in [
-            mock.patch.object(utils, 'HASH_PATH_PREFIX', 'startcap'),
-            mock.patch.object(utils, 'HASH_PATH_SUFFIX', 'endcap'),
+            mock.patch.object(utils, 'HASH_PATH_PREFIX', b'startcap'),
+            mock.patch.object(utils, 'HASH_PATH_SUFFIX', b'endcap'),
             mock.patch.object(utils, 'drop_privileges', lambda *args: None),
             mock.patch.object(utils, 'capture_stdio', lambda *args: None),
         ]:

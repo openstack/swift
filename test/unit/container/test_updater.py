@@ -37,8 +37,8 @@ from test import listen_zero
 class TestContainerUpdater(unittest.TestCase):
 
     def setUp(self):
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b'startcap'
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_container_updater')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)

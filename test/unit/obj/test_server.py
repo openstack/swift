@@ -139,8 +139,8 @@ class TestObjectController(unittest.TestCase):
     def setUp(self):
         """Set up for testing swift.object.server.ObjectController"""
         skip_if_no_xattrs()
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b'startcap'
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(self.tmpdir,
                                     'tmp_test_object_server_ObjectController')
@@ -958,7 +958,7 @@ class TestObjectController(unittest.TestCase):
                             headers=put_headers, body='test')
 
         with mock.patch('swift.obj.server.http_connect', fake_http_connect), \
-                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''), \
                 fake_spawn():
             resp = req.get_response(self.object_controller)
 
@@ -1002,7 +1002,7 @@ class TestObjectController(unittest.TestCase):
                             headers=post_headers)
 
         with mock.patch('swift.obj.server.http_connect', fake_http_connect), \
-                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''), \
                 fake_spawn():
             resp = req.get_response(self.object_controller)
 
@@ -1112,7 +1112,7 @@ class TestObjectController(unittest.TestCase):
                         'X-Backend-Redirect-Timestamp': next(self.ts).internal}
 
         with mocked_http_conn(301, headers=[resp_headers]) as conn, \
-                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''),\
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''),\
                 fake_spawn():
             resp = req.get_response(self.object_controller)
 
@@ -5088,7 +5088,7 @@ class TestObjectController(unittest.TestCase):
         policy = random.choice(list(POLICIES))
         self._stage_tmp_dir(policy)
         _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_PREFIX = b''
 
         def fake_http_connect(*args):
             raise Exception('test')
@@ -5119,7 +5119,7 @@ class TestObjectController(unittest.TestCase):
         policy = random.choice(list(POLICIES))
         self._stage_tmp_dir(policy)
         _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_PREFIX = b''
 
         def fake_http_connect(status):
 
@@ -5164,7 +5164,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_async_update_does_not_save_on_2xx(self):
         _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_PREFIX = b''
 
         def fake_http_connect(status):
 
@@ -5200,7 +5200,7 @@ class TestObjectController(unittest.TestCase):
         policy = random.choice(list(POLICIES))
         self._stage_tmp_dir(policy)
         _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_PREFIX = b''
 
         def fake_http_connect():
 

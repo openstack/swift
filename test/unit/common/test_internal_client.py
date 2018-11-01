@@ -226,7 +226,7 @@ class TestCompressingfileReader(unittest.TestCase):
 
 class TestInternalClient(unittest.TestCase):
 
-    @mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
+    @mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new=b'endcap')
     @with_tempdir
     def test_load_from_config(self, tempdir):
         conf_path = os.path.join(tempdir, 'interal_client.conf')
