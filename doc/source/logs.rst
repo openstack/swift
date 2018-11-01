@@ -77,6 +77,13 @@ will not change. Swift log processing utilities should look for the first N
 fields they require (e.g. in Python using something like
 ``log_line.split()[:14]`` to get up through the transaction id).
 
+.. note::
+
+    Some log fields (like the request path) are already url quoted, so the
+    logged value will be double-quoted. For example, if a client uploads an
+    object name with a ``:`` in it, it will be url-quoted as ``%3A``. The log
+    module will then quote this value as ``%253A``.
+
 Swift Source
 ============
 
