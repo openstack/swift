@@ -1266,7 +1266,7 @@ class ContainerBroker(DatabaseBroker):
         :param source: if defined, update incoming_sync with the source
         """
         for item in item_list:
-            if isinstance(item['name'], six.text_type):
+            if six.PY2 and isinstance(item['name'], six.text_type):
                 item['name'] = item['name'].encode('utf-8')
 
         def _really_really_merge_items(conn):
@@ -1362,7 +1362,7 @@ class ContainerBroker(DatabaseBroker):
             if isinstance(item, ShardRange):
                 item = dict(item)
             for col in ('name', 'lower', 'upper'):
-                if isinstance(item[col], six.text_type):
+                if six.PY2 and isinstance(item[col], six.text_type):
                     item[col] = item[col].encode('utf-8')
             item_list.append(item)
 

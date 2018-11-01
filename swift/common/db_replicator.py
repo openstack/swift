@@ -476,7 +476,7 @@ class Replicator(Daemon):
         elif response.status == HTTP_INSUFFICIENT_STORAGE:
             raise DriveNotMounted()
         elif 200 <= response.status < 300:
-            rinfo = json.loads(response.data)
+            rinfo = json.loads(response.data.decode('ascii'))
             local_sync = broker.get_sync(rinfo['id'], incoming=False)
             if rinfo.get('metadata', ''):
                 broker.update_metadata(json.loads(rinfo['metadata']))
