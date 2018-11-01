@@ -3382,6 +3382,60 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                 v, job[k], k)
             self.assertEqual(v, job[k], msg)
 
+    def test_rehash_remote(self):
+        part_path = os.path.join(self.devices, self.local_dev['device'],
+                                 diskfile.get_data_dir(self.policy), '1')
+        utils.mkdirs(part_path)
+        part_info = {
+            'local_dev': self.local_dev,
+            'policy': self.policy,
+            'partition': 1,
+            'part_path': part_path,
+        }
+        jobs = self.reconstructor.build_reconstruction_jobs(part_info)
+        self.assertEqual(1, len(jobs))
+        job = jobs[0]
+        node = job['sync_to'][0]
+        # process_job used to try and modify the instance base headers
+        self.reconstructor.headers['X-Backend-Storage-Policy-Index'] = \
+            int(POLICIES[1])
+        # ... which doesn't work out under concurrency with multiple policies
+        self.assertNotEqual(
+            self.reconstructor.headers['X-Backend-Storage-Policy-Index'],
+            int(job['policy']))
+        with mocked_http_conn(200, body=pickle.dumps({})) as request_log:
+            self.reconstructor.rehash_remote(node, job, [])
+        self.assertEqual([int(job['policy'])], [
+            r['headers']['X-Backend-Storage-Policy-Index']
+            for r in request_log.requests])
+
+    def test_get_suffixes_to_sync(self):
+        part_path = os.path.join(self.devices, self.local_dev['device'],
+                                 diskfile.get_data_dir(self.policy), '1')
+        utils.mkdirs(part_path)
+        part_info = {
+            'local_dev': self.local_dev,
+            'policy': self.policy,
+            'partition': 1,
+            'part_path': part_path,
+        }
+        jobs = self.reconstructor.build_reconstruction_jobs(part_info)
+        self.assertEqual(1, len(jobs))
+        job = jobs[0]
+        node = job['sync_to'][0]
+        # process_job used to try and modify the instance base headers
+        self.reconstructor.headers['X-Backend-Storage-Policy-Index'] = \
+            int(POLICIES[1])
+        # ... which doesn't work out under concurrency with multiple policies
+        self.assertNotEqual(
+            self.reconstructor.headers['X-Backend-Storage-Policy-Index'],
+            int(job['policy']))
+        with mocked_http_conn(200, body=pickle.dumps({})) as request_log:
+            self.reconstructor._get_suffixes_to_sync(job, node)
+        self.assertEqual([int(job['policy'])], [
+            r['headers']['X-Backend-Storage-Policy-Index']
+            for r in request_log.requests])
+
     def test_get_suffix_delta(self):
         # different
         local_suff = {'123': {None: 'abc', 0: 'def'}}
@@ -4831,8 +4885,9 @@ class TestReconstructFragmentArchiveUTF8(TestReconstructFragmentArchive):
                                  ec_type=DEFAULT_TEST_EC_TYPE,
                                  ec_ndata=10, ec_nparity=4,
                                  ec_segment_size=4096,
-                                 ec_duplication_factor=2)],
-                fake_ring_args=[{'replicas': 28}])
+                                 ec_duplication_factor=2),
+                 StoragePolicy(1, name='other')],
+                fake_ring_args=[{'replicas': 28}, {'replicas': 3}])
 class TestObjectReconstructorECDuplicationFactor(TestObjectReconstructor):
     def setUp(self):
         super(TestObjectReconstructorECDuplicationFactor, self).setUp()
