@@ -5456,7 +5456,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             ts.internal + '#0#d.data',
         ])
         df.purge(ts, frag_index)
-        self.assertFalse(os.listdir(df._datadir))
+        self.assertFalse(os.path.exists(df._datadir))
 
     def test_purge_last_fragment_index_legacy_durable(self):
         # a legacy durable file doesn't get purged in case another fragment is
@@ -5518,7 +5518,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             ts.internal + '.ts',
         ])
         df.purge(ts, 3)
-        self.assertEqual(sorted(os.listdir(df._datadir)), [])
+        self.assertFalse(os.path.exists(df._datadir))
 
     def test_purge_without_frag(self):
         ts = self.ts()
@@ -5557,8 +5557,8 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         os.makedirs(df._datadir)
         self.assertEqual(sorted(os.listdir(df._datadir)), [])
         df.purge(self.ts(), 6)
-        # no effect
-        self.assertEqual(sorted(os.listdir(df._datadir)), [])
+        # the directory was empty and has been removed
+        self.assertFalse(os.path.exists(df._datadir))
 
     def _do_test_open_most_recent_durable(self, legacy_durable):
         policy = POLICIES.default

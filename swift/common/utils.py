@@ -2935,6 +2935,18 @@ def remove_file(path):
         pass
 
 
+def remove_directory(path):
+    """Wrapper for os.rmdir, ENOENT and ENOTEMPTY are ignored
+
+    :param path: first and only argument passed to os.rmdir
+    """
+    try:
+        os.rmdir(path)
+    except OSError as e:
+        if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
+            raise
+
+
 def audit_location_generator(devices, datadir, suffix='',
                              mount_check=True, logger=None):
     """

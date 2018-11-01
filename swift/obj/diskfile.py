@@ -65,7 +65,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     config_true_value, listdir, split_path, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, o_tmpfile_supported, \
-    O_TMPFILE, makedirs_count, replace_partition_in_path
+    O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -3169,8 +3169,8 @@ class ECDiskFile(BaseDiskFile):
         remove a tombstone or fragment from a handoff node after
         reverting it to its primary node.
 
-        The hash will be invalidated, and if empty or invalid the
-        hsh_path will be removed on next cleanup_ondisk_files.
+        The hash will be invalidated, and if empty the hsh_path will
+        be removed immediately.
 
         :param timestamp: the object timestamp, an instance of
                           :class:`~swift.common.utils.Timestamp`
@@ -3189,6 +3189,7 @@ class ECDiskFile(BaseDiskFile):
             purge_file = self.manager.make_on_disk_filename(
                 timestamp, ext='.data', frag_index=frag_index, durable=True)
             remove_file(os.path.join(self._datadir, purge_file))
+            remove_directory(self._datadir)
         self.manager.invalidate_hash(dirname(self._datadir))
 
 

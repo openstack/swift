@@ -2592,6 +2592,30 @@ log_name = %(yarr)s'''
             self.assertIsNone(utils.remove_file(file_name))
             self.assertFalse(os.path.exists(file_name))
 
+    def test_remove_directory(self):
+        with temptree([]) as t:
+            dir_name = os.path.join(t, 'subdir')
+
+            os.mkdir(dir_name)
+            self.assertTrue(os.path.isdir(dir_name))
+            self.assertIsNone(utils.remove_directory(dir_name))
+            self.assertFalse(os.path.exists(dir_name))
+
+            # assert no raise only if it does not exist, or is not empty
+            self.assertEqual(os.path.exists(dir_name), False)
+            self.assertIsNone(utils.remove_directory(dir_name))
+
+            _m_rmdir = mock.Mock(
+                side_effect=OSError(errno.ENOTEMPTY,
+                                    os.strerror(errno.ENOTEMPTY)))
+            with mock.patch('swift.common.utils.os.rmdir', _m_rmdir):
+                self.assertIsNone(utils.remove_directory(dir_name))
+
+            _m_rmdir = mock.Mock(
+                side_effect=OSError(errno.EPERM, os.strerror(errno.EPERM)))
+            with mock.patch('swift.common.utils.os.rmdir', _m_rmdir):
+                self.assertRaises(OSError, utils.remove_directory, dir_name)
+
     def test_human_readable(self):
         self.assertEqual(utils.human_readable(0), '0')
         self.assertEqual(utils.human_readable(1), '1')

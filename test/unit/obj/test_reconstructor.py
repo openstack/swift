@@ -4061,15 +4061,9 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         ], [
             (r['ip'], r['path']) for r in request_log.requests
         ])
-        # hashpath is still there, but all files have been purged
-        files = os.listdir(df._datadir)
-        self.assertFalse(files)
+        # hashpath has been removed
+        self.assertFalse(os.path.exists(df._datadir))
 
-        # and more to the point, the next suffix recalc will clean it up
-        df_mgr = self.reconstructor._df_router[self.policy]
-        df_mgr.get_hashes(self.local_dev['device'], str(partition), [],
-                          self.policy)
-        self.assertFalse(os.access(df._datadir, os.F_OK))
         self.assertEqual(self.reconstructor.handoffs_remaining, 0)
 
     def test_process_job_revert_cleanup_tombstone(self):
