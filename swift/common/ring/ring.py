@@ -78,7 +78,7 @@ class RingData(object):
         """
 
         json_len, = struct.unpack('!I', gz_file.read(4))
-        ring_dict = json.loads(gz_file.read(json_len).decode('ascii'))
+        ring_dict = json.loads(gz_file.read(json_len))
         ring_dict['replica2part2dev_id'] = []
 
         if metadata_only:

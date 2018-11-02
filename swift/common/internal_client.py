@@ -298,7 +298,7 @@ class InternalClient(object):
                 if resp.status_int >= HTTP_MULTIPLE_CHOICES:
                     b''.join(resp.app_iter)
                 break
-            data = json.loads(resp.body.decode('ascii'))
+            data = json.loads(resp.body)
             if not data:
                 break
             for item in data:
@@ -844,7 +844,7 @@ class SimpleClient(object):
         body = conn.read()
         info = conn.info()
         try:
-            body_data = json.loads(body.decode('ascii'))
+            body_data = json.loads(body)
         except ValueError:
             body_data = None
         trans_stop = time()

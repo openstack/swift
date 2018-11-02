@@ -315,7 +315,7 @@ class MemcacheRing(object):
                                 else:
                                     value = None
                             elif int(line[2]) & JSON_FLAG:
-                                value = json.loads(value.decode('ascii'))
+                                value = json.loads(value)
                             fp.readline()
                         line = fp.readline().strip().split()
                     self._return_conn(server, fp, sock)
@@ -484,7 +484,7 @@ class MemcacheRing(object):
                                 else:
                                     value = None
                             elif int(line[2]) & JSON_FLAG:
-                                value = json.loads(value.decode('ascii'))
+                                value = json.loads(value)
                             responses[line[1]] = value
                             fp.readline()
                         line = fp.readline().strip().split()

@@ -185,7 +185,7 @@ class ListingFilter(object):
 
         body = b''.join(resp_iter)
         try:
-            listing = json.loads(body.decode('ascii'))
+            listing = json.loads(body)
             # Do a couple sanity checks
             if not isinstance(listing, list):
                 raise ValueError
