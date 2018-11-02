@@ -2,13 +2,22 @@
 Building a Consistent Hashing Ring
 ==================================
 
----------------------
-Authored by Greg Holt
----------------------
+------------------------------------
+Authored by Greg Holt, February 2011
+------------------------------------
 
 This is a compilation of five posts I made earlier discussing how to build
 a consistent hashing ring. The posts seemed to be accessed quite frequently,
 so I've gathered them all here on one page for easier reading.
+
+.. note::
+    This is an historical document; as such, all code examples are Python 2.
+    If this makes you squirm, think of it as pseudo-code. Regardless of
+    implementation language, the state of the art in consistent-hashing and
+    distributed systems more generally has advanced. We hope that this
+    introduction from first principles will still prove informative,
+    particularly with regard to how data is distributed within a Swift
+    cluster.
 
 Part 1
 ======
