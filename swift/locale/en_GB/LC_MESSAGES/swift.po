@@ -10,11 +10,11 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2018-09-12 14:48+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2018-08-08 09:56+0000\n"
+"PO-Revision-Date: 2018-02-16 07:31+0000\n"
 "Last-Translator: Andi Chandler <andi@gowling.com>\n"
 "Language: en_GB\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -275,9 +275,6 @@ msgstr ""
 msgid "Connection refused"
 msgstr "Connection refused"
 
-msgid "Connection reset"
-msgstr "Connection reset"
-
 msgid "Connection timeout"
 msgstr "Connection timeout"
 
@@ -516,10 +513,6 @@ msgid "ERROR get_keys() missing callback"
 msgstr "ERROR get_keys() missing callback"
 
 #, python-format
-msgid "ERROR get_keys(): from callback: %s"
-msgstr "ERROR get_keys(): from callback: %s"
-
-#, python-format
 msgid "ERROR reading HTTP response from %s"
 msgstr "ERROR reading HTTP response from %s"
 
@@ -585,10 +578,6 @@ msgstr "Error decrypting %(resp_type)s: %(reason)s"
 #, python-format
 msgid "Error decrypting %(resp_type)s: Missing %(key)s"
 msgstr "Error decrypting %(resp_type)s: Missing %(key)s"
-
-#, python-format
-msgid "Error decrypting container listing: %s"
-msgstr "Error decrypting container listing: %s"
 
 #, python-format
 msgid "Error decrypting header %(header)s: %(error)s"
@@ -662,16 +651,8 @@ msgstr "Exception fetching fragments for %r"
 msgid "Exception in top-level account reaper loop"
 msgstr "Exception in top-level account reaper loop"
 
-#, python-format
-msgid "Exception in top-level replication loop: %s"
-msgstr "Exception in top-level replication loop: %s"
-
 msgid "Exception in top-levelreconstruction loop"
 msgstr "Exception in top-level reconstruction loop"
-
-#, python-format
-msgid "Exception while deleting container %(account)s %(container)s %(err)s"
-msgstr "Exception while deleting container %(account)s %(container)s %(err)s"
 
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
@@ -782,9 +763,6 @@ msgstr "Missing key for %r"
 
 msgid "More than one part in a single-part response?"
 msgstr "More than one part in a single-part response?"
-
-msgid "Network unreachable"
-msgstr "Network unreachable"
 
 #, python-format
 msgid "No %s running"
@@ -924,14 +902,6 @@ msgstr "Params, queries, and fragments not allowed in X-Container-Sync-To"
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
-
-#, python-format
-msgid ""
-"Pass beginning for task account %(account)s; %(container_count)s possible "
-"containers; %(obj_count)s possible objects"
-msgstr ""
-"Pass beginning for task account %(account)s; %(container_count)s possible "
-"containers; %(obj_count)s possible objects"
 
 #, python-format
 msgid "Pass completed in %(time)ds; %(objects)d objects expired"

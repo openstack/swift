@@ -6,16 +6,17 @@
 # Mario Cho <hephaex@gmail.com>, 2014
 # Ying Chun Guo <daisy.ycguo@gmail.com>, 2015
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
+# SeongSoo Cho <nexusz99@gmail.com>, 2018. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2018-09-12 14:48+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-04-12 06:43+0000\n"
-"Last-Translator: Copied by Zanata <copied-by-zanata@zanata.org>\n"
+"PO-Revision-Date: 2018-11-02 02:53+0000\n"
+"Last-Translator: SeongSoo Cho <nexusz99@gmail.com>\n"
 "Language: ko_KR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -119,6 +120,10 @@ msgid "Account"
 msgstr "계정"
 
 #, python-format
+msgid "Account %(account)s has not been reaped since %(time)s"
+msgstr "계정 %(account)s을(를) %(time)s 이후에 얻지 못함"
+
+#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "계정 감사 \"한 번\"모드가 완료: %.02fs"
 
@@ -131,6 +136,14 @@ msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 "%(time).5f초(%(rate).5f/s)에 %(count)d개의 데이터베이스를 복제하려고 함"
+
+#, python-format
+msgid "Audit Failed for %(path)s: %(err)s"
+msgstr "%(path)s 검사 실패 : %(err)s"
+
+#, python-format
+msgid "Audit passed for %s"
+msgstr "%s 검사 완료"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -250,6 +263,15 @@ msgstr ""
 "%(fail)s개 실패, %(no_change)s개 변경 없음"
 
 #, python-format
+msgid ""
+"Could not bind to %(addr)s:%(port)s after trying for %(timeout)s seconds"
+msgstr "%(addr)s:%(port)s 를 바인드 할 수 없음: %(timeout)s 초 이후 다시 시도"
+
+#, python-format
+msgid "Could not load %(conf)r: %(error)s"
+msgstr "%(conf)r 를 로드할 수 없음: %(error)s"
+
+#, python-format
 msgid "Data download error: %s"
 msgstr "데이터 다운로드 오류: %s"
 
@@ -295,7 +317,7 @@ msgstr ""
 
 #, python-format
 msgid "ERROR Could not get account info %s"
-msgstr "오류는 %s의 계정 정보를 얻을 수 없습니다"
+msgstr "오류 %s의 계정 정보를 얻을 수 없습니다"
 
 #, python-format
 msgid "ERROR Could not get container info %s"
@@ -382,6 +404,9 @@ msgstr ""
 "오류. %(ip)s:%(port)s/%(dev)s(으)로 컨테이너 업데이트 실패(이후 비동기 업데이"
 "트용으로 저장)"
 
+msgid "ERROR get_keys() missing callback"
+msgstr "에러 get_keys()의 callback 을 찾을 수 없음"
+
 #, python-format
 msgid "ERROR reading HTTP response from %s"
 msgstr "%s에서 HTTP 응답을 읽는 중 오류 발생"
@@ -431,6 +456,10 @@ msgstr "오류: 감사를 실행할 수 없음: %s"
 
 msgid "Error hashing suffix"
 msgstr "접미부를 해싱하는 중 오류 발생"
+
+#, python-format
+msgid "Error in %(conf)r with mtime_check_interval: %(error)s"
+msgstr "%(conf)r에서 mtime_check_interval 오류 발생: %(error)s"
 
 msgid "Error listing devices"
 msgstr "디바이스 나열 중 오류 발생"
@@ -556,6 +585,9 @@ msgstr ""
 "X-Container-Sync-To 올바르지 않은 스키마 %r이(가) 있습니다. \"//\", \"http\" "
 "또는 \"https\"여야 합니다."
 
+msgid "Invalid swift_bytes"
+msgstr "swift_bytes 가 유효하지 않습니다."
+
 #, python-format
 msgid "Killing long-running rsync: %s"
 msgstr "장기 실행 중인 rsync 강제 종료: %s"
@@ -568,8 +600,19 @@ msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr "%(given_domain)s을(를) %(found_domain)s(으)로 맵핑함"
 
 #, python-format
+msgid "Missing key for %r"
+msgstr "%r 키를 찾을 수 없음"
+
+msgid "More than one part in a single-part response?"
+msgstr "단일 파트에서 하나 이상의 응답이 존재 합니까?"
+
+#, python-format
 msgid "No %s running"
 msgstr "%s이(가) 실행되지 않음"
+
+#, python-format
+msgid "No cluster endpoint for %(realm)r %(cluster)r"
+msgstr "%(realm)r %(cluster)r 에 대한 클러스터 엔드포인트가 없음"
 
 #, python-format
 msgid "No permission to signal PID %d"
@@ -895,6 +938,13 @@ msgstr ""
 "경고: SSL은 테스트용으로만 사용해야 합니다. 프로덕션 배치에는 외부 SSL 종료"
 "를 사용하십시오."
 
+msgid ""
+"WARNING: Unable to modify I/O scheduling class and priority of process. "
+"Keeping unchanged! Check logs for more info."
+msgstr ""
+"경고: 프로세스의 I/O 스케쥴링 클래스와 우선순위를 수정할 수 없습니다. 변경을 "
+"하지 마십시요. 더 자세한 내용은 로그를 확인하십시오."
+
 msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
 msgstr ""
 "경고: 파일 디스크립터 한계를 수정할 수 없습니다. 비루트로 실행 중인지 확인하"
@@ -908,6 +958,13 @@ msgstr ""
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "경고: 메모리 한계를 수정할 수 없습니다. 비루트로 실행 중인지 확인하십시오."
+
+msgid ""
+"WARNING: Unable to modify scheduling priority of process. Keeping unchanged! "
+"Check logs for more info. "
+msgstr ""
+"경고: 프로세스의 우선순위를 수정할 수 없습니다. 변경을 하지 마십시요. 더 자세"
+"한 내용은 로그를 확인하십시오."
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "경고: memcached 클라이언트 없이 전송률을 제한할 수 없음"
