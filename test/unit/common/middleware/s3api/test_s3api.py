@@ -59,7 +59,7 @@ class TestListingMiddleware(S3ApiTestCase):
 
         req = Request.blank('/v1/a/c')
         status, headers, body = self.call_s3api(req)
-        self.assertEqual(json.loads(body.decode('ascii')), [
+        self.assertEqual(json.loads(body), [
             {'name': 'obj1', 'hash': '0123456789abcdef0123456789abcdef'},
             {'name': 'obj2', 'hash': 'swiftetag', 's3_etag': '"mu-etag"'},
             {'name': 'obj2', 'hash': 'swiftetag; something=else'},

@@ -174,7 +174,7 @@ def _get_direct_account_container(path, stype, node, part,
     if resp.status == HTTP_NO_CONTENT:
         resp.read()
         return resp_headers, []
-    return resp_headers, json.loads(resp.read().decode('ascii'))
+    return resp_headers, json.loads(resp.read())
 
 
 def gen_headers(hdrs_in=None, add_ts=True):

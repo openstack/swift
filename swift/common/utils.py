@@ -3477,7 +3477,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
             try:
                 existing_entry = cf.readline()
                 if existing_entry:
-                    cache_entry = json.loads(existing_entry.decode('utf8'))
+                    cache_entry = json.loads(existing_entry)
             except ValueError:
                 # file doesn't have a valid entry, we'll recreate it
                 pass

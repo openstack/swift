@@ -213,7 +213,7 @@ class TestDirectClient(unittest.TestCase):
                 self.assertEqual(conn.req_headers['user-agent'],
                                  self.user_agent)
                 self.assertEqual(resp_headers, stub_headers)
-                self.assertEqual(json.loads(body.decode('ascii')), resp)
+                self.assertEqual(json.loads(body), resp)
                 self.assertIn('format=json', conn.query_string)
                 for k, v in req_params.items():
                     if v is None:
@@ -389,7 +389,7 @@ class TestDirectClient(unittest.TestCase):
                 self.assertEqual(conn.req_headers['user-agent'],
                                  self.user_agent)
                 self.assertEqual(headers, resp_headers)
-                self.assertEqual(json.loads(body.decode('ascii')), resp)
+                self.assertEqual(json.loads(body), resp)
                 self.assertIn('format=json', conn.query_string)
                 for k, v in req_params.items():
                     if v is None:

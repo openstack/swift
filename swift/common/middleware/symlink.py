@@ -295,7 +295,7 @@ class SymlinkContainerContext(WSGIContext):
         """
         with closing_if_possible(resp_iter):
             resp_body = b''.join(resp_iter)
-        body_json = json.loads(resp_body.decode('ascii'))
+        body_json = json.loads(resp_body)
         swift_version, account, _junk = split_path(req.path, 2, 3, True)
         new_body = json.dumps(
             [self._extract_symlink_path_json(obj_dict, swift_version, account)
