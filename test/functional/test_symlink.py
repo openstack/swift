@@ -122,6 +122,8 @@ class TestSymlinkEnv(BaseEnv):
             enumerate([cls.containers(), [cls.link_cont]], 1)]
         # delete objects inside container
         for use_account, containers in delete_containers:
+            if use_account == 2 and tf.skip2:
+                continue
             for container in containers:
                 while True:
                     cont = container
@@ -144,6 +146,8 @@ class TestSymlinkEnv(BaseEnv):
 
         # delete the containers
         for use_account, containers in delete_containers:
+            if use_account == 2 and tf.skip2:
+                continue
             for container in containers:
                 resp = retry(cls._make_request, method='DELETE',
                              container=container,
