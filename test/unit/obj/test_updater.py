@@ -68,8 +68,8 @@ _mocked_policies = [StoragePolicy(0, 'zero', False),
 class TestObjectUpdater(unittest.TestCase):
 
     def setUp(self):
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b''
         self.testdir = mkdtemp()
         ring_file = os.path.join(self.testdir, 'container.ring.gz')
         with closing(GzipFile(ring_file, 'wb')) as f:

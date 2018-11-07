@@ -154,8 +154,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         _create_test_rings(self.testdir)
         POLICIES[0].object_ring = ring.Ring(self.testdir, ring_name='object')
         POLICIES[1].object_ring = ring.Ring(self.testdir, ring_name='object-1')
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b''
         self.devices = os.path.join(self.testdir, 'node')
         os.makedirs(self.devices)
         os.mkdir(os.path.join(self.devices, 'sda1'))

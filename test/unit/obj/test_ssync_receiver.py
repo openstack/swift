@@ -44,8 +44,8 @@ class TestReceiver(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b'startcap'
         # Not sure why the test.unit stuff isn't taking effect here; so I'm
         # reinforcing it.
         self.testdir = os.path.join(

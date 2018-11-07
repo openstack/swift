@@ -70,7 +70,6 @@ class TestWSGI(unittest.TestCase):
     """Tests for swift.common.wsgi"""
 
     def setUp(self):
-        utils.HASH_PATH_PREFIX = 'startcap'
         if six.PY2:
             self._orig_parsetype = mimetools.Message.parsetype
 
@@ -1818,7 +1817,6 @@ class TestPipelineWrapper(unittest.TestCase):
 
 
 @patch_policies
-@mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
 class TestPipelineModification(unittest.TestCase):
     def pipeline_modules(self, app):
         # This is rather brittle; it'll break if a middleware stores its app

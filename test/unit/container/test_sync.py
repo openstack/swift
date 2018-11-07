@@ -31,8 +31,8 @@ from swift.common.storage_policy import StoragePolicy
 import test
 from test.unit import patch_policies, with_tempdir
 
-utils.HASH_PATH_SUFFIX = 'endcap'
-utils.HASH_PATH_PREFIX = 'endcap'
+utils.HASH_PATH_SUFFIX = b'endcap'
+utils.HASH_PATH_PREFIX = b'endcap'
 
 
 class FakeRing(object):
