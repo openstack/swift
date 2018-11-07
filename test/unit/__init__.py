@@ -637,6 +637,9 @@ class FakeLogger(logging.Logger, object):
     def handleError(self, record):
         pass
 
+    def isEnabledFor(self, level):
+        return True
+
 
 class DebugSwiftLogFormatter(utils.SwiftLogFormatter):
 

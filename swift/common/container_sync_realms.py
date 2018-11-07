@@ -19,6 +19,7 @@ import hmac
 import os
 import time
 
+import six
 from six.moves import configparser
 
 from swift import gettext_ as _
@@ -146,7 +147,7 @@ class ContainerSyncRealms(object):
         the information given.
 
         :param request_method: HTTP method of the request.
-        :param path: The path to the resource.
+        :param path: The path to the resource (url-encoded).
         :param x_timestamp: The X-Timestamp header value for the request.
         :param nonce: A unique value for the request.
         :param realm_key: Shared secret at the cluster operator level.
@@ -156,8 +157,13 @@ class ContainerSyncRealms(object):
         nonce = get_valid_utf8_str(nonce)
         realm_key = get_valid_utf8_str(realm_key)
         user_key = get_valid_utf8_str(user_key)
+        # XXX We don't know what is the best here yet; wait for container
+        # sync to be tested.
+        if isinstance(path, six.text_type):
+            path = path.encode('utf-8')
         return hmac.new(
             realm_key,
-            '%s\n%s\n%s\n%s\n%s' % (
-                request_method, path, x_timestamp, nonce, user_key),
+            b'%s\n%s\n%s\n%s\n%s' % (
+                request_method.encode('ascii'), path,
+                x_timestamp.encode('ascii'), nonce, user_key),
             hashlib.sha1).hexdigest()
