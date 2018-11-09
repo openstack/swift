@@ -59,7 +59,7 @@ class S3ApiTestCase(unittest.TestCase):
         # setup default config
         self.conf = Config({
             'allow_no_owner': False,
-            'location': 'US',
+            'location': 'us-east-1',
             'dns_compliant_bucket_names': True,
             'max_bucket_listing': 1000,
             'max_parts_listing': 1000,

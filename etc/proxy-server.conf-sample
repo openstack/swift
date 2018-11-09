@@ -484,7 +484,7 @@ use = egg:swift#s3api
 # Set a region name of your Swift cluster.  Note that the s3api doesn't choose
 # a region of the newly created bucket.  This value is used for the
 # GET Bucket location API and v4 signatures calculation.
-# location = US
+# location = us-east-1
 #
 # Set whether to enforce DNS-compliant bucket names. Note that S3 enforces
 # these conventions in all regions except the US Standard region.

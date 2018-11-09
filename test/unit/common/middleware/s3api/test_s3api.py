@@ -319,7 +319,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         req = Request.blank(
             '/bucket/object'
             '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
-            '&X-Amz-Credential=test:tester/%s/US/s3/aws4_request'
+            '&X-Amz-Credential=test:tester/%s/us-east-1/s3/aws4_request'
             '&X-Amz-Date=%s'
             '&X-Amz-Expires=1000'
             '&X-Amz-SignedHeaders=host'
@@ -358,54 +358,58 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.assertIn(extra, body)
 
         dt = self.get_v4_amz_date_header().split('T', 1)[0]
-        test('test:tester/not-a-date/US/s3/aws4_request',
+        test('test:tester/not-a-date/us-east-1/s3/aws4_request',
              'Invalid credential date "not-a-date". This date is not the same '
              'as X-Amz-Date: "%s".' % dt)
-        test('test:tester/%s/not-US/s3/aws4_request' % dt,
+        test('test:tester/%s/us-west-1/s3/aws4_request' % dt,
              "Error parsing the X-Amz-Credential parameter; the region "
-             "'not-US' is wrong; expecting 'US'", '<Region>US</Region>')
-        test('test:tester/%s/US/not-s3/aws4_request' % dt,
+             "'us-west-1' is wrong; expecting 'us-east-1'",
+             '<Region>us-east-1</Region>')
+        test('test:tester/%s/us-east-1/not-s3/aws4_request' % dt,
              'Error parsing the X-Amz-Credential parameter; incorrect service '
              '"not-s3". This endpoint belongs to "s3".')
-        test('test:tester/%s/US/s3/not-aws4_request' % dt,
+        test('test:tester/%s/us-east-1/s3/not-aws4_request' % dt,
              'Error parsing the X-Amz-Credential parameter; incorrect '
              'terminal "not-aws4_request". This endpoint uses "aws4_request".')
 
     def test_signed_urls_v4_missing_x_amz_date(self):
-        req = Request.blank('/bucket/object'
-                            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
-                            '&X-Amz-Credential=test/20T20Z/US/s3/aws4_request'
-                            '&X-Amz-Expires=1000'
-                            '&X-Amz-SignedHeaders=host'
-                            '&X-Amz-Signature=X',
-                            environ={'REQUEST_METHOD': 'GET'})
+        req = Request.blank(
+            '/bucket/object'
+            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
+            '&X-Amz-Credential=test/20T20Z/us-east-1/s3/aws4_request'
+            '&X-Amz-Expires=1000'
+            '&X-Amz-SignedHeaders=host'
+            '&X-Amz-Signature=X',
+            environ={'REQUEST_METHOD': 'GET'})
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'AccessDenied')
 
     def test_signed_urls_v4_invalid_algorithm(self):
-        req = Request.blank('/bucket/object'
-                            '?X-Amz-Algorithm=FAKE'
-                            '&X-Amz-Credential=test/20T20Z/US/s3/aws4_request'
-                            '&X-Amz-Date=%s'
-                            '&X-Amz-Expires=1000'
-                            '&X-Amz-SignedHeaders=host'
-                            '&X-Amz-Signature=X' %
-                            self.get_v4_amz_date_header(),
-                            environ={'REQUEST_METHOD': 'GET'})
+        req = Request.blank(
+            '/bucket/object'
+            '?X-Amz-Algorithm=FAKE'
+            '&X-Amz-Credential=test/20T20Z/us-east-1/s3/aws4_request'
+            '&X-Amz-Date=%s'
+            '&X-Amz-Expires=1000'
+            '&X-Amz-SignedHeaders=host'
+            '&X-Amz-Signature=X' %
+            self.get_v4_amz_date_header(),
+            environ={'REQUEST_METHOD': 'GET'})
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidArgument')
 
     def test_signed_urls_v4_missing_signed_headers(self):
-        req = Request.blank('/bucket/object'
-                            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
-                            '&X-Amz-Credential=test/20T20Z/US/s3/aws4_request'
-                            '&X-Amz-Date=%s'
-                            '&X-Amz-Expires=1000'
-                            '&X-Amz-Signature=X' %
-                            self.get_v4_amz_date_header(),
-                            environ={'REQUEST_METHOD': 'GET'})
+        req = Request.blank(
+            '/bucket/object'
+            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
+            '&X-Amz-Credential=test/20T20Z/us-east-1/s3/aws4_request'
+            '&X-Amz-Date=%s'
+            '&X-Amz-Expires=1000'
+            '&X-Amz-Signature=X' %
+            self.get_v4_amz_date_header(),
+            environ={'REQUEST_METHOD': 'GET'})
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body),
@@ -426,14 +430,15 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'AccessDenied')
 
     def test_signed_urls_v4_missing_signature(self):
-        req = Request.blank('/bucket/object'
-                            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
-                            '&X-Amz-Credential=test/20T20Z/US/s3/aws4_request'
-                            '&X-Amz-Date=%s'
-                            '&X-Amz-Expires=1000'
-                            '&X-Amz-SignedHeaders=host' %
-                            self.get_v4_amz_date_header(),
-                            environ={'REQUEST_METHOD': 'GET'})
+        req = Request.blank(
+            '/bucket/object'
+            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
+            '&X-Amz-Credential=test/20T20Z/us-east-1/s3/aws4_request'
+            '&X-Amz-Date=%s'
+            '&X-Amz-Expires=1000'
+            '&X-Amz-SignedHeaders=host' %
+            self.get_v4_amz_date_header(),
+            environ={'REQUEST_METHOD': 'GET'})
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'AccessDenied')
@@ -710,7 +715,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test:tester/%s/US/s3/aws4_request, '
+                'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-date,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
             'X-Amz-Date': self.get_v4_amz_date_header(),
@@ -729,7 +734,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test:tester/20130524/US/s3/aws4_request, '
+                'Credential=test:tester/20130524/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;range;x-amz-date,'
                 'Signature=X',
             'X-Amz-Content-SHA256': '0123456789'}
@@ -745,7 +750,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test:tester/%s/US/s3/aws4_request, '
+                'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-date,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
             'X-Amz-Date': self.get_v4_amz_date_header()}
@@ -779,25 +784,26 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     'Signature=X')
         test(auth_str, 'AccessDenied', 'Access Denied.')
 
-        auth_str = ('AWS4-HMAC-SHA256 '
-                    'Credential=test:tester/20130524/US/s3/aws4_request, '
-                    'Signature=X')
+        auth_str = (
+            'AWS4-HMAC-SHA256 '
+            'Credential=test:tester/20130524/us-east-1/s3/aws4_request, '
+            'Signature=X')
         test(auth_str, 'AuthorizationHeaderMalformed',
              'The authorization header is malformed; the authorization '
              'header requires three components: Credential, SignedHeaders, '
              'and Signature.')
 
         auth_str = ('AWS4-HMAC-SHA256 '
-                    'Credential=test:tester/%s/not-US/s3/aws4_request, '
+                    'Credential=test:tester/%s/us-west-2/s3/aws4_request, '
                     'Signature=X, SignedHeaders=host;x-amz-date' %
                     self.get_v4_amz_date_header().split('T', 1)[0])
         test(auth_str, 'AuthorizationHeaderMalformed',
              "The authorization header is malformed; "
-             "the region 'not-US' is wrong; expecting 'US'",
-             '<Region>US</Region>')
+             "the region 'us-west-2' is wrong; expecting 'us-east-1'",
+             '<Region>us-east-1</Region>')
 
         auth_str = ('AWS4-HMAC-SHA256 '
-                    'Credential=test:tester/%s/US/not-s3/aws4_request, '
+                    'Credential=test:tester/%s/us-east-1/not-s3/aws4_request, '
                     'Signature=X, SignedHeaders=host;x-amz-date' %
                     self.get_v4_amz_date_header().split('T', 1)[0])
         test(auth_str, 'AuthorizationHeaderMalformed',
@@ -805,7 +811,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
              'incorrect service "not-s3". This endpoint belongs to "s3".')
 
         auth_str = ('AWS4-HMAC-SHA256 '
-                    'Credential=test:tester/%s/US/s3/not-aws4_request, '
+                    'Credential=test:tester/%s/us-east-1/s3/not-aws4_request, '
                     'Signature=X, SignedHeaders=host;x-amz-date' %
                     self.get_v4_amz_date_header().split('T', 1)[0])
         test(auth_str, 'AuthorizationHeaderMalformed',
@@ -813,9 +819,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
              'incorrect terminal "not-aws4_request". '
              'This endpoint uses "aws4_request".')
 
-        auth_str = ('AWS4-HMAC-SHA256 '
-                    'Credential=test:tester/20130524/US/s3/aws4_request, '
-                    'SignedHeaders=host;x-amz-date')
+        auth_str = (
+            'AWS4-HMAC-SHA256 '
+            'Credential=test:tester/20130524/us-east-1/s3/aws4_request, '
+            'SignedHeaders=host;x-amz-date')
         test(auth_str, 'AccessDenied', 'Access Denied.')
 
     def test_canonical_string_v4(self):
@@ -835,7 +842,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     '27ae41e4649b934ca495991b7852b855',
                 'HTTP_AUTHORIZATION':
                     'AWS4-HMAC-SHA256 '
-                    'Credential=X:Y/20110909/US/s3/aws4_request, '
+                    'Credential=X:Y/20110909/us-east-1/s3/aws4_request, '
                     'SignedHeaders=content-md5;content-type;date, '
                     'Signature=x',
             }
@@ -1007,7 +1014,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test/20130524/US/s3/aws4_request_A, '
+                'Credential=test/20130524/us-east-1/s3/aws4_request_A, '
                 'SignedHeaders=hostA;rangeA;x-amz-dateA,'
                 'Signature=X',
             'X-Amz-Date': self.get_v4_amz_date_header(),
@@ -1015,13 +1022,14 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
         # and then, different auth info (Credential, SignedHeaders, Signature)
         # in query
-        req = Request.blank('/bucket/object'
-                            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
-                            '&X-Amz-Credential=test/20T20Z/US/s3/aws4_requestB'
-                            '&X-Amz-SignedHeaders=hostB'
-                            '&X-Amz-Signature=Y',
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers=headers)
+        req = Request.blank(
+            '/bucket/object'
+            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
+            '&X-Amz-Credential=test/20T20Z/us-east-1/s3/aws4_requestB'
+            '&X-Amz-SignedHeaders=hostB'
+            '&X-Amz-Signature=Y',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers=headers)
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         # FIXME: should this failed as 400 or pass via query auth?
@@ -1029,12 +1037,13 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(status.split()[0], '403', body)
 
         # But if we are missing Signature in query param
-        req = Request.blank('/bucket/object'
-                            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
-                            '&X-Amz-Credential=test/20T20Z/US/s3/aws4_requestB'
-                            '&X-Amz-SignedHeaders=hostB',
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers=headers)
+        req = Request.blank(
+            '/bucket/object'
+            '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
+            '&X-Amz-Credential=test/20T20Z/us-east-1/s3/aws4_requestB'
+            '&X-Amz-SignedHeaders=hostB',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers=headers)
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '403', body)

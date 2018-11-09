@@ -59,7 +59,7 @@ class Connection(object):
             S3Connection(aws_access_key, aws_secret_key, is_secure=False,
                          host=self.host, port=self.port,
                          calling_format=OrdinaryCallingFormat())
-        self.conn.auth_region_name = 'US'
+        self.conn.auth_region_name = 'us-east-1'
 
     def reset(self):
         """

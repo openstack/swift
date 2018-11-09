@@ -191,7 +191,7 @@ class TestS3ApiBucket(S3ApiBase):
 
     def test_put_bucket_with_LocationConstraint(self):
         bucket = 'bucket'
-        xml = self._gen_location_xml('US')
+        xml = self._gen_location_xml(self.conn.conn.auth_region_name)
         status, headers, body = \
             self.conn.make_request('PUT', bucket, body=xml)
         self.assertEqual(status, 200)

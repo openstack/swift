@@ -35,7 +35,7 @@ class LocationController(Controller):
         req.get_response(self.app, method='HEAD')
 
         elem = Element('LocationConstraint')
-        if self.conf.location != 'US':
+        if self.conf.location != 'us-east-1':
             elem.text = self.conf.location
         body = tostring(elem)
 
