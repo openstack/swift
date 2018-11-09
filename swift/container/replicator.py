@@ -66,7 +66,7 @@ class ContainerReplicator(db_replicator.Replicator):
     def _handle_sync_response(self, node, response, info, broker, http,
                               different_region=False):
         if is_success(response.status):
-            remote_info = json.loads(response.data)
+            remote_info = json.loads(response.data.decode('ascii'))
             if incorrect_policy_index(info, remote_info):
                 status_changed_at = Timestamp.now()
                 broker.set_storage_policy_index(
@@ -129,7 +129,8 @@ class ContainerReplicator(db_replicator.Replicator):
     def _fetch_and_merge_shard_ranges(self, http, broker):
         response = http.replicate('get_shard_ranges')
         if is_success(response.status):
-            broker.merge_shard_ranges(json.loads(response.data))
+            broker.merge_shard_ranges(json.loads(
+                response.data.decode('ascii')))
 
     def find_local_handoff_for_part(self, part):
         """

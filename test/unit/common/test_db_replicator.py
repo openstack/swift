@@ -29,6 +29,7 @@ import json
 
 import mock
 from mock import patch, call
+import six
 from six.moves import reload_module
 
 from swift.container.backend import DATADIR
@@ -159,6 +160,8 @@ def _mock_process(*args):
 
 class ReplHttp(object):
     def __init__(self, response=None, set_status=200):
+        if isinstance(response, six.text_type):
+            response = response.encode('ascii')
         self.response = response
         self.set_status = set_status
     replicated = False
@@ -689,7 +692,7 @@ class TestDBReplicator(unittest.TestCase):
         class FakeResponse(object):
             def __init__(self, status, rinfo):
                 self._status = status
-                self.data = json.dumps(rinfo)
+                self.data = json.dumps(rinfo).encode('ascii')
 
             @property
             def status(self):

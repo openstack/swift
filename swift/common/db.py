@@ -997,6 +997,7 @@ class DatabaseBroker(object):
                           timestamp will be removed.
         :returns: True if conn.commit() should be called
         """
+        timestamp = Timestamp(timestamp)
         try:
             row = conn.execute('SELECT metadata FROM %s_stat' %
                                self.db_type).fetchone()
@@ -1008,7 +1009,7 @@ class DatabaseBroker(object):
                 md = json.loads(md)
                 keys_to_delete = []
                 for key, (value, value_timestamp) in md.items():
-                    if value == '' and value_timestamp < timestamp:
+                    if value == '' and Timestamp(value_timestamp) < timestamp:
                         keys_to_delete.append(key)
                 if keys_to_delete:
                     for key in keys_to_delete:

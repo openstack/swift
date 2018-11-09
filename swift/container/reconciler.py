@@ -95,12 +95,12 @@ def incorrect_policy_index(info, remote_info):
     """
     if 'storage_policy_index' not in remote_info:
         return False
-    if remote_info['storage_policy_index'] == \
-            info['storage_policy_index']:
+    if remote_info['storage_policy_index'] == info['storage_policy_index']:
         return False
 
-    return info['storage_policy_index'] != sorted(
-        [info, remote_info], cmp=cmp_policy_info)[0]['storage_policy_index']
+    # Only return True if remote_info has the better data;
+    # see the docstring for cmp_policy_info
+    return cmp_policy_info(info, remote_info) > 0
 
 
 def translate_container_headers_to_info(headers):

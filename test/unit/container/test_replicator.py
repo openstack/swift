@@ -33,10 +33,9 @@ from swift.common.storage_policy import POLICIES
 
 from test.unit.common import test_db_replicator
 from test.unit import patch_policies, make_timestamp_iter, mock_check_drive, \
-    debug_logger, EMPTY_ETAG, FakeLogger
+    debug_logger, EMPTY_ETAG, FakeLogger, attach_fake_replication_rpc, \
+    FakeHTTPResponse
 from contextlib import contextmanager
-
-from test.unit.common.test_db_replicator import attach_fake_replication_rpc
 
 
 @patch_policies
@@ -967,7 +966,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         most_recent_items = {}
         for name, timestamp in all_items:
             most_recent_items[name] = max(
-                timestamp, most_recent_items.get(name, -1))
+                timestamp, most_recent_items.get(name, ''))
         self.assertEqual(2, len(most_recent_items))
 
         for db in (broker, remote_broker):
@@ -1415,7 +1414,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         replicate_hook = mock.MagicMock()
         fake_repl_connection = attach_fake_replication_rpc(
-            self.rpc, errors={'merge_shard_ranges': [HTTPServerError()]},
+            self.rpc, errors={'merge_shard_ranges': [
+                FakeHTTPResponse(HTTPServerError())]},
             replicate_hook=replicate_hook)
         db_replicator.ReplConnection = fake_repl_connection
         part, node = self._get_broker_part_node(remote_broker)
@@ -1518,7 +1518,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         check_replicate(shard_ranges + [own_sr])
 
     def check_replicate(self, from_broker, remote_node_index, repl_conf=None,
-                        expect_success=True, errors=None):
+                        expect_success=True):
         repl_conf = repl_conf or {}
         repl_calls = []
         rsync_calls = []
@@ -1527,7 +1527,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             repl_calls.append((op, sync_args))
 
         fake_repl_connection = attach_fake_replication_rpc(
-            self.rpc, replicate_hook=repl_hook, errors=errors)
+            self.rpc, replicate_hook=repl_hook, errors=None)
         db_replicator.ReplConnection = fake_repl_connection
         daemon = replicator.ContainerReplicator(
             repl_conf, logger=debug_logger())
@@ -2316,9 +2316,13 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             calls.append(args)
             return orig_get_items_since(broker, *args)
 
-        with mock.patch(
-                'swift.container.backend.ContainerBroker.get_items_since',
-                fake_get_items_since):
+        to_patch = 'swift.container.backend.ContainerBroker.get_items_since'
+        with mock.patch(to_patch, fake_get_items_since), \
+                mock.patch('swift.common.db_replicator.sleep'), \
+                mock.patch('swift.container.backend.tpool.execute',
+                           lambda func, *args: func(*args)):
+            # For some reason, on py3 we start popping Timeouts
+            # if we let eventlet trampoline...
             daemon, repl_calls, rsync_calls = self.check_replicate(
                 local_broker, 1, expect_success=False,
                 repl_conf={'per_diff': 1})
@@ -2355,9 +2359,13 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             calls.append(args)
             return result
 
-        with mock.patch(
-                'swift.container.backend.ContainerBroker.get_items_since',
-                fake_get_items_since):
+        to_patch = 'swift.container.backend.ContainerBroker.get_items_since'
+        with mock.patch(to_patch, fake_get_items_since), \
+                mock.patch('swift.common.db_replicator.sleep'), \
+                mock.patch('swift.container.backend.tpool.execute',
+                           lambda func, *args: func(*args)):
+            # For some reason, on py3 we start popping Timeouts
+            # if we let eventlet trampoline...
             daemon, repl_calls, rsync_calls = self.check_replicate(
                 local_broker, 1, expect_success=False,
                 repl_conf={'per_diff': 1})
