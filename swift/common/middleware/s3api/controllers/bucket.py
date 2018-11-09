@@ -110,17 +110,22 @@ class BucketController(Controller):
             'format': 'json',
             'limit': max_keys + 1,
         }
-        if 'marker' in req.params:
-            query.update({'marker': req.params['marker']})
         if 'prefix' in req.params:
             query.update({'prefix': req.params['prefix']})
         if 'delimiter' in req.params:
             query.update({'delimiter': req.params['delimiter']})
-
-        # GET Bucket (List Objects) Version 2 parameters
-        is_v2 = int(req.params.get('list-type', '1')) == 2
         fetch_owner = False
-        if is_v2:
+        if 'versions' in req.params:
+            listing_type = 'object-versions'
+            if 'key-marker' in req.params:
+                query.update({'marker': req.params['key-marker']})
+            elif 'version-id-marker' in req.params:
+                err_msg = ('A version-id marker cannot be specified without '
+                           'a key marker.')
+                raise InvalidArgument('version-id-marker',
+                                      req.params['version-id-marker'], err_msg)
+        elif int(req.params.get('list-type', '1')) == 2:
+            listing_type = 'version-2'
             if 'start-after' in req.params:
                 query.update({'marker': req.params['start-after']})
             # continuation-token overrides start-after
@@ -129,44 +134,63 @@ class BucketController(Controller):
                 query.update({'marker': decoded})
             if 'fetch-owner' in req.params:
                 fetch_owner = config_true_value(req.params['fetch-owner'])
+        else:
+            listing_type = 'version-1'
+            if 'marker' in req.params:
+                query.update({'marker': req.params['marker']})
 
         resp = req.get_response(self.app, query=query)
 
         objects = json.loads(resp.body)
-
-        elem = Element('ListBucketResult')
-        SubElement(elem, 'Name').text = req.container_name
-        SubElement(elem, 'Prefix').text = req.params.get('prefix')
 
         # in order to judge that truncated is valid, check whether
         # max_keys + 1 th element exists in swift.
         is_truncated = max_keys > 0 and len(objects) > max_keys
         objects = objects[:max_keys]
 
-        if not is_v2:
-            SubElement(elem, 'Marker').text = req.params.get('marker')
-            if is_truncated and 'delimiter' in req.params:
-                if 'name' in objects[-1]:
-                    SubElement(elem, 'NextMarker').text = \
-                        objects[-1]['name']
-                if 'subdir' in objects[-1]:
-                    SubElement(elem, 'NextMarker').text = \
-                        objects[-1]['subdir']
-        else:
+        if listing_type == 'object-versions':
+            elem = Element('ListVersionsResult')
+            SubElement(elem, 'Name').text = req.container_name
+            SubElement(elem, 'Prefix').text = req.params.get('prefix')
+            SubElement(elem, 'KeyMarker').text = req.params.get('key-marker')
+            SubElement(elem, 'VersionIdMarker').text = req.params.get(
+                'version-id-marker')
             if is_truncated:
                 if 'name' in objects[-1]:
-                    SubElement(elem, 'NextContinuationToken').text = \
-                        b64encode(objects[-1]['name'])
+                    SubElement(elem, 'NextKeyMarker').text = \
+                        objects[-1]['name']
                 if 'subdir' in objects[-1]:
-                    SubElement(elem, 'NextContinuationToken').text = \
-                        b64encode(objects[-1]['subdir'])
-            if 'continuation-token' in req.params:
-                SubElement(elem, 'ContinuationToken').text = \
-                    req.params['continuation-token']
-            if 'start-after' in req.params:
-                SubElement(elem, 'StartAfter').text = \
-                    req.params['start-after']
-            SubElement(elem, 'KeyCount').text = str(len(objects))
+                    SubElement(elem, 'NextKeyMarker').text = \
+                        objects[-1]['subdir']
+                SubElement(elem, 'NextVersionIdMarker').text = 'null'
+        else:
+            elem = Element('ListBucketResult')
+            SubElement(elem, 'Name').text = req.container_name
+            SubElement(elem, 'Prefix').text = req.params.get('prefix')
+            if listing_type == 'version-1':
+                SubElement(elem, 'Marker').text = req.params.get('marker')
+                if is_truncated and 'delimiter' in req.params:
+                    if 'name' in objects[-1]:
+                        SubElement(elem, 'NextMarker').text = \
+                            objects[-1]['name']
+                    if 'subdir' in objects[-1]:
+                        SubElement(elem, 'NextMarker').text = \
+                            objects[-1]['subdir']
+            elif listing_type == 'version-2':
+                if is_truncated:
+                    if 'name' in objects[-1]:
+                        SubElement(elem, 'NextContinuationToken').text = \
+                            b64encode(objects[-1]['name'])
+                    if 'subdir' in objects[-1]:
+                        SubElement(elem, 'NextContinuationToken').text = \
+                            b64encode(objects[-1]['subdir'])
+                if 'continuation-token' in req.params:
+                    SubElement(elem, 'ContinuationToken').text = \
+                        req.params['continuation-token']
+                if 'start-after' in req.params:
+                    SubElement(elem, 'StartAfter').text = \
+                        req.params['start-after']
+                SubElement(elem, 'KeyCount').text = str(len(objects))
 
         SubElement(elem, 'MaxKeys').text = str(tag_max_keys)
 
@@ -181,8 +205,14 @@ class BucketController(Controller):
 
         for o in objects:
             if 'subdir' not in o:
-                contents = SubElement(elem, 'Contents')
-                SubElement(contents, 'Key').text = o['name']
+                if listing_type == 'object-versions':
+                    contents = SubElement(elem, 'Version')
+                    SubElement(contents, 'Key').text = o['name']
+                    SubElement(contents, 'VersionId').text = 'null'
+                    SubElement(contents, 'IsLatest').text = 'true'
+                else:
+                    contents = SubElement(elem, 'Contents')
+                    SubElement(contents, 'Key').text = o['name']
                 SubElement(contents, 'LastModified').text = \
                     o['last_modified'][:-3] + 'Z'
                 if 's3_etag' in o:
@@ -192,7 +222,7 @@ class BucketController(Controller):
                     etag = '"%s"' % o['hash']
                 SubElement(contents, 'ETag').text = etag
                 SubElement(contents, 'Size').text = str(o['bytes'])
-                if fetch_owner or not is_v2:
+                if fetch_owner or listing_type != 'version-2':
                     owner = SubElement(contents, 'Owner')
                     SubElement(owner, 'ID').text = req.user_id
                     SubElement(owner, 'DisplayName').text = req.user_id
