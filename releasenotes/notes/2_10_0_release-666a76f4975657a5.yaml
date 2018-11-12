@@ -4,13 +4,13 @@ features:
    Object versioning now supports a "history" mode in addition to
    the older "stack" mode. The difference is in how DELETE requests
    are handled. For full details, please read
-   http://docs.openstack.org/developer/swift/overview_object_versioning.html.
+   https://docs.openstack.org/swift/latest/overview_object_versioning.html.
  - >
    New config variables to change the schedule priority and I/O
    scheduling class. Servers and daemons now understand
    `nice_priority`, `ionice_class`, and `ionice_priority` to
    schedule their relative importance. Please read
-   http://docs.openstack.org/developer/swift/deployment_guide.html
+   https://docs.openstack.org/swift/latest/deployment_guide.html
    for full config details.
  - >
    On newer kernels (3.15+ when using xfs), Swift will use the O_TMPFILE
@@ -23,7 +23,7 @@ features:
    improved in clusters that are not completely healthy.
  - >
    Significant improvements to the api-ref doc available at
-   http://developer.openstack.org/api-ref/object-storage/.
+   https://developer.openstack.org/api-ref/object-storage/.
  - >
    A PUT or POST to a container will now update the container's
    Last-Modified time, and that value will be included in a
