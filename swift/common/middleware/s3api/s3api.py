@@ -195,6 +195,8 @@ class S3ApiMiddleware(object):
             conf.get('max_parts_listing', 1000))
         self.conf.max_multi_delete_objects = config_positive_int_value(
             conf.get('max_multi_delete_objects', 1000))
+        self.conf.multi_delete_concurrency = config_positive_int_value(
+            conf.get('multi_delete_concurrency', 2))
         self.conf.s3_acl = config_true_value(
             conf.get('s3_acl', False))
         self.conf.storage_domain = conf.get('storage_domain', '')

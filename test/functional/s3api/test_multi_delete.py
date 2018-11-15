@@ -33,9 +33,6 @@ def tearDownModule():
 
 
 class TestS3ApiMultiDelete(S3ApiBase):
-    def setUp(self):
-        super(TestS3ApiMultiDelete, self).setUp()
-
     def _prepare_test_delete_multi_objects(self, bucket, objects):
         self.conn.make_request('PUT', bucket)
         for obj in objects:

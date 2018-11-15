@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
+
 from swift.common.constraints import MAX_OBJECT_NAME_LENGTH
-from swift.common.utils import public
+from swift.common.utils import public, StreamingPile
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
@@ -102,11 +104,13 @@ class MultiObjectDeleteController(Controller):
             body = self._gen_error_body(error, elem, delete_list)
             return HTTPOk(body=body)
 
-        for key, version in delete_list:
-            if version is not None:
-                # TODO: delete the specific version of the object
-                raise S3NotImplemented()
+        if any(version is not None for _key, version in delete_list):
+            # TODO: support deleting specific versions of objects
+            raise S3NotImplemented()
 
+        def do_delete(base_req, key, version):
+            req = copy.copy(base_req)
+            req.environ = copy.copy(base_req.environ)
             req.object_name = key
 
             try:
@@ -115,15 +119,20 @@ class MultiObjectDeleteController(Controller):
             except NoSuchKey:
                 pass
             except ErrorResponse as e:
-                error = SubElement(elem, 'Error')
-                SubElement(error, 'Key').text = key
-                SubElement(error, 'Code').text = e.__class__.__name__
-                SubElement(error, 'Message').text = e._msg
-                continue
+                return key, {'code': e.__class__.__name__, 'message': e._msg}
+            return key, None
 
-            if not self.quiet:
-                deleted = SubElement(elem, 'Deleted')
-                SubElement(deleted, 'Key').text = key
+        with StreamingPile(self.conf.multi_delete_concurrency) as pile:
+            for key, err in pile.asyncstarmap(do_delete, (
+                    (req, key, version) for key, version in delete_list)):
+                if err:
+                    error = SubElement(elem, 'Error')
+                    SubElement(error, 'Key').text = key
+                    SubElement(error, 'Code').text = err['code']
+                    SubElement(error, 'Message').text = err['message']
+                elif not self.quiet:
+                    deleted = SubElement(elem, 'Deleted')
+                    SubElement(deleted, 'Key').text = key
 
         body = tostring(elem)
 
