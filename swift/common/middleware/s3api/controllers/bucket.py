@@ -67,7 +67,7 @@ class BucketController(Controller):
                 for seg in segments:
                     try:
                         req.get_response(self.app, 'DELETE', container,
-                                         seg['name'])
+                                         seg['name'].encode('utf8'))
                     except NoSuchKey:
                         pass
                     except InternalError:
@@ -183,10 +183,10 @@ class BucketController(Controller):
                 if is_truncated:
                     if 'name' in objects[-1]:
                         SubElement(elem, 'NextContinuationToken').text = \
-                            b64encode(objects[-1]['name'])
+                            b64encode(objects[-1]['name'].encode('utf8'))
                     if 'subdir' in objects[-1]:
                         SubElement(elem, 'NextContinuationToken').text = \
-                            b64encode(objects[-1]['subdir'])
+                            b64encode(objects[-1]['subdir'].encode('utf8'))
                 if 'continuation-token' in req.params:
                     SubElement(elem, 'ContinuationToken').text = \
                         req.params['continuation-token']
@@ -210,7 +210,7 @@ class BucketController(Controller):
             if 'subdir' not in o:
                 name = o['name']
                 if encoding_type == 'url':
-                    name = quote(name)
+                    name = quote(name.encode('utf-8'))
 
                 if listing_type == 'object-versions':
                     contents = SubElement(elem, 'Version')
@@ -240,7 +240,7 @@ class BucketController(Controller):
                 common_prefixes = SubElement(elem, 'CommonPrefixes')
                 name = o['subdir']
                 if encoding_type == 'url':
-                    name = quote(name)
+                    name = quote(name.encode('utf-8'))
                 SubElement(common_prefixes, 'Prefix').text = name
 
         body = tostring(elem)

@@ -406,63 +406,60 @@ class TestS3ApiBucket(S3ApiBase):
             self.assertTrue(o.find('Owner/DisplayName').text,
                             self.conn.user_id)
 
-    def test_get_bucket_v2_with_continuation_token(self):
+    def test_get_bucket_v2_with_continuation_token_and_delimiter(self):
         bucket = 'bucket'
-        put_objects = ('object', 'object2', 'subdir/object', 'subdir2/object',
-                       'dir/subdir/object')
+        put_objects = ('object', u'object2-\u062a', 'subdir/object',
+                       u'subdir2-\u062a/object', 'dir/subdir/object',
+                       'x', 'y', 'z')
         self._prepare_test_get_bucket(bucket, put_objects)
 
-        query = 'list-type=2&max-keys=3'
-        expect_objects = ('dir/subdir/object', 'object', 'object2')
-        status, headers, body = \
-            self.conn.make_request('GET', bucket, query=query)
-        self.assertEqual(status, 200)
-        elem = fromstring(body, 'ListBucketResult')
-        self.assertEqual(elem.find('MaxKeys').text, '3')
-        self.assertEqual(elem.find('KeyCount').text, '3')
-        self.assertEqual(elem.find('IsTruncated').text, 'true')
-        next_cont_token_elem = elem.find('NextContinuationToken')
-        self.assertIsNotNone(next_cont_token_elem)
-        resp_objects = elem.findall('./Contents')
-        self.assertEqual(len(list(resp_objects)), len(expect_objects))
-        for i, o in enumerate(resp_objects):
-            self.assertEqual(o.find('Key').text, expect_objects[i])
-            self.assertTrue(o.find('LastModified').text is not None)
-            self.assertRegexpMatches(
-                o.find('LastModified').text,
-                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
-            self.assertTrue(o.find('ETag').text is not None)
-            self.assertTrue(o.find('Size').text is not None)
-            self.assertEqual(o.find('StorageClass').text, 'STANDARD')
-            self.assertIsNone(o.find('Owner/ID'))
-            self.assertIsNone(o.find('Owner/DisplayName'))
+        expected = [{'objects': ['object', u'object2-\u062a'],
+                     'subdirs': ['dir/']},
+                    {'objects': ['x'],
+                     'subdirs': ['subdir/', u'subdir2-\u062a/']},
+                    {'objects': ['y', 'z'],
+                     'subdirs': []}]
 
-        query = 'list-type=2&max-keys=3&continuation-token=%s' % \
-            next_cont_token_elem.text
-        expect_objects = ('subdir/object', 'subdir2/object')
-        status, headers, body = \
-            self.conn.make_request('GET', bucket, query=query)
-        self.assertEqual(status, 200)
-        elem = fromstring(body, 'ListBucketResult')
-        self.assertEqual(elem.find('MaxKeys').text, '3')
-        self.assertEqual(elem.find('KeyCount').text, '2')
-        self.assertEqual(elem.find('IsTruncated').text, 'false')
-        self.assertIsNone(elem.find('NextContinuationToken'))
-        cont_token_elem = elem.find('ContinuationToken')
-        self.assertEqual(cont_token_elem.text, next_cont_token_elem.text)
-        resp_objects = elem.findall('./Contents')
-        self.assertEqual(len(list(resp_objects)), len(expect_objects))
-        for i, o in enumerate(resp_objects):
-            self.assertEqual(o.find('Key').text, expect_objects[i])
-            self.assertTrue(o.find('LastModified').text is not None)
-            self.assertRegexpMatches(
-                o.find('LastModified').text,
-                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
-            self.assertTrue(o.find('ETag').text is not None)
-            self.assertTrue(o.find('Size').text is not None)
-            self.assertEqual(o.find('StorageClass').text, 'STANDARD')
-            self.assertIsNone(o.find('Owner/ID'))
-            self.assertIsNone(o.find('Owner/DisplayName'))
+        continuation_token = ''
+        query = 'list-type=2&max-keys=3&delimiter=/&continuation-token=%s'
+
+        for i in range(len(expected)):
+            status, headers, body = self.conn.make_request(
+                'GET', bucket, query=query % continuation_token)
+            self.assertEqual(status, 200)
+            elem = fromstring(body, 'ListBucketResult')
+            self.assertEqual(elem.find('MaxKeys').text, '3')
+            self.assertEqual(
+                elem.find('KeyCount').text,
+                str(len(expected[i]['objects']) + len(expected[i]['subdirs'])))
+            expect_truncated = 'true' if i < len(expected) - 1 else 'false'
+            self.assertEqual(elem.find('IsTruncated').text, expect_truncated)
+            next_cont_token_elem = elem.find('NextContinuationToken')
+            if expect_truncated == 'true':
+                self.assertIsNotNone(next_cont_token_elem)
+                continuation_token = next_cont_token_elem.text
+            resp_objects = elem.findall('./Contents')
+            self.assertEqual(
+                len(list(resp_objects)), len(expected[i]['objects']))
+            for j, o in enumerate(resp_objects):
+                self.assertEqual(o.find('Key').text,
+                                 expected[i]['objects'][j].encode('utf-8'))
+                self.assertTrue(o.find('LastModified').text is not None)
+                self.assertRegexpMatches(
+                    o.find('LastModified').text,
+                    r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
+                self.assertTrue(o.find('ETag').text is not None)
+                self.assertTrue(o.find('Size').text is not None)
+                self.assertEqual(o.find('StorageClass').text, 'STANDARD')
+                self.assertIsNone(o.find('Owner/ID'))
+                self.assertIsNone(o.find('Owner/DisplayName'))
+            resp_subdirs = elem.findall('./CommonPrefixes')
+            self.assertEqual(
+                len(list(resp_subdirs)), len(expected[i]['subdirs']))
+            for j, o in enumerate(resp_subdirs):
+                self.assertEqual(
+                    o.find('Prefix').text,
+                    expected[i]['subdirs'][j].encode('utf-8'))
 
     def test_head_bucket_error(self):
         self.conn.make_request('PUT', 'bucket')

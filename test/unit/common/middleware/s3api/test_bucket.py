@@ -39,13 +39,14 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.objects = (('lily', '2011-01-05T02:19:14.275290', '0', '3909'),
                         ('rose', '2011-01-05T02:19:14.275290', 0, 303),
                         ('viola', '2011-01-05T02:19:14.275290', '0', 3909),
+                        (u'lily-\u062a', '2011-01-05T02:19:14.275290', 0, 390),
                         ('mu', '2011-01-05T02:19:14.275290',
                          'md5-of-the-manifest; s3_etag=0', '3909'),
                         ('with space', '2011-01-05T02:19:14.275290', 0, 390),
                         ('with%20space', '2011-01-05T02:19:14.275290', 0, 390))
 
         objects = [
-            {'name': str(item[0]), 'last_modified': str(item[1]),
+            {'name': item[0], 'last_modified': str(item[1]),
              'hash': str(item[2]), 'bytes': str(item[3])}
             for item in self.objects]
         object_list = json.dumps(objects)
@@ -57,7 +58,8 @@ class TestS3ApiBucket(S3ApiTestCase):
                             swob.HTTPNoContent, {}, json.dumps([]))
         for name, _, _, _ in self.objects:
             self.swift.register(
-                'DELETE', '/v1/AUTH_test/bucket+segments/' + name,
+                'DELETE',
+                '/v1/AUTH_test/bucket+segments/' + name.encode('utf-8'),
                 swob.HTTPNoContent, {}, json.dumps([]))
         self.swift.register(
             'GET',
@@ -164,9 +166,8 @@ class TestS3ApiBucket(S3ApiTestCase):
                              o.find('./LastModified').text)
             self.assertEqual('"0"', o.find('./ETag').text)
 
-        self.assertEqual(len(names), len(self.objects))
-        for i in self.objects:
-            self.assertIn(i[0], names)
+        self.assertEqual(
+            names, [obj[0].encode('utf-8') for obj in self.objects])
 
     def test_bucket_GET_url_encoded(self):
         bucket_name = 'junk'
@@ -192,7 +193,7 @@ class TestS3ApiBucket(S3ApiTestCase):
 
         self.assertEqual(len(names), len(self.objects))
         for i in self.objects:
-            self.assertIn(quote(i[0]), names)
+            self.assertIn(quote(i[0].encode('utf-8')), names)
 
     def test_bucket_GET_subdir(self):
         bucket_name = 'junk-subdir'
@@ -518,7 +519,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         versions = elem.findall('./Version')
         objects = list(self.objects)
         self.assertEqual([v.find('./Key').text for v in versions],
-                         [v[0] for v in objects])
+                         [v[0].encode('utf-8') for v in objects])
         self.assertEqual([v.find('./IsLatest').text for v in versions],
                          ['true' for v in objects])
         self.assertEqual([v.find('./VersionId').text for v in versions],
