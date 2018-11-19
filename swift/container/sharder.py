@@ -603,7 +603,7 @@ class ContainerSharder(ContainerReplicator):
         node = self.find_local_handoff_for_part(part)
         if not node:
             raise DeviceUnavailable(
-                'No mounted devices found suitable for creating shard broker'
+                'No mounted devices found suitable for creating shard broker '
                 'for %s in partition %s' % (shard_range.name, part))
 
         shard_broker = ContainerBroker.create_broker(

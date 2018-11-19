@@ -943,7 +943,7 @@ def setup_package():
     global skip3
     skip3 = not all([not skip, swift_test_user[2], swift_test_key[2]])
     if not skip and skip3:
-        print('SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS'
+        print('SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS '
               'DUE TO NO CONFIG FOR THEM', file=sys.stderr)
 
     global skip_if_not_v3

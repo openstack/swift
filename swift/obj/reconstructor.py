@@ -1195,7 +1195,7 @@ class ObjectReconstructor(Daemon):
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
         except (Exception, Timeout):
-            self.logger.exception(_("Exception in top-level"
+            self.logger.exception(_("Exception in top-level "
                                     "reconstruction loop"))
             self.kill_coros()
         finally:

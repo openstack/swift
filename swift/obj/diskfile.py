@@ -2925,7 +2925,7 @@ class ECDiskFileReader(BaseDiskFileReader):
             # format so for safety, check the input chunk if it's binary to
             # avoid quarantining a valid fragment archive.
             self._diskfile._logger.warn(
-                _('Unexpected fragment data type (not quarantined)'
+                _('Unexpected fragment data type (not quarantined) '
                   '%(datadir)s: %(type)s at offset 0x%(offset)x'),
                 {'datadir': self._diskfile._datadir,
                  'type': type(frag),

@@ -1310,7 +1310,7 @@ class ContainerBroker(DatabaseBroker):
             if to_add:
                 curs.executemany(
                     'INSERT INTO object (name, created_at, size, content_type,'
-                    'etag, deleted, storage_policy_index)'
+                    'etag, deleted, storage_policy_index) '
                     'VALUES (?, ?, ?, ?, ?, ?, ?)',
                     ((rec['name'], rec['created_at'], rec['size'],
                       rec['content_type'], rec['etag'], rec['deleted'],
