@@ -998,7 +998,8 @@ class Request(object):
     @property
     def swift_entity_path(self):
         """
-        Provides the account/container/object path, sans API version.
+        Provides the (native string) account/container/object path,
+        sans API version.
 
         This can be useful when constructing a path to send to a backend
         server, as that path will need everything after the "/v1".

@@ -4324,7 +4324,7 @@ def maybe_multipart_byteranges_to_document_iters(app_iter, content_type):
     body_file = FileLikeIter(app_iter)
     boundary = dict(params_list)['boundary']
     for _headers, body in mime_to_document_iters(body_file, boundary):
-        yield (chunk for chunk in iter(lambda: body.read(65536), ''))
+        yield (chunk for chunk in iter(lambda: body.read(65536), b''))
 
 
 def document_iters_to_multipart_byteranges(ranges_iter, boundary):
@@ -4334,9 +4334,11 @@ def document_iters_to_multipart_byteranges(ranges_iter, boundary):
 
     See document_iters_to_http_response_body for parameter descriptions.
     """
+    if not isinstance(boundary, bytes):
+        boundary = boundary.encode('ascii')
 
-    divider = "--" + boundary + "\r\n"
-    terminator = "--" + boundary + "--"
+    divider = b"--" + boundary + b"\r\n"
+    terminator = b"--" + boundary + b"--"
 
     for range_spec in ranges_iter:
         start_byte = range_spec["start_byte"]
@@ -4344,19 +4346,23 @@ def document_iters_to_multipart_byteranges(ranges_iter, boundary):
         entity_length = range_spec.get("entity_length", "*")
         content_type = range_spec["content_type"]
         part_iter = range_spec["part_iter"]
+        if not isinstance(content_type, bytes):
+            content_type = str(content_type).encode('utf-8')
+        if not isinstance(entity_length, bytes):
+            entity_length = str(entity_length).encode('utf-8')
 
-        part_header = ''.join((
+        part_header = b''.join((
             divider,
-            "Content-Type: ", str(content_type), "\r\n",
-            "Content-Range: ", "bytes %d-%d/%s\r\n" % (
+            b"Content-Type: ", content_type, b"\r\n",
+            b"Content-Range: ", b"bytes %d-%d/%s\r\n" % (
                 start_byte, end_byte, entity_length),
-            "\r\n"
+            b"\r\n"
         ))
         yield part_header
 
         for chunk in part_iter:
             yield chunk
-        yield "\r\n"
+        yield b"\r\n"
     yield terminator
 
 

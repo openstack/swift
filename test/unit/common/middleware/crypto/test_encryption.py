@@ -26,7 +26,7 @@ from swift.common.middleware.crypto import keymaster
 from swift.common.middleware.crypto.crypto_utils import (
     load_crypto_meta, Crypto)
 from swift.common.ring import Ring
-from swift.common.swob import Request
+from swift.common.swob import Request, str_to_wsgi
 from swift.obj import diskfile
 
 from test.unit import FakeLogger, skip_if_no_xattrs
@@ -82,36 +82,29 @@ class TestCryptoPipelineChanges(unittest.TestCase):
             self.object_name = 'o'
             self.object_path = self.container_path + '/' + self.object_name
             container_path = self.container_path
-        if not isinstance(container_path, bytes):
-            container_path = container_path.encode('utf8')
         req = Request.blank(
-            container_path, method='PUT',
+            str_to_wsgi(container_path), method='PUT',
             headers={'X-Storage-Policy': policy_name})
         resp = req.get_response(app)
         self.assertEqual('201 Created', resp.status)
         # sanity check
         req = Request.blank(
-            container_path, method='HEAD',
+            str_to_wsgi(container_path), method='HEAD',
             headers={'X-Storage-Policy': policy_name})
         resp = req.get_response(app)
         self.assertEqual(policy_name, resp.headers['X-Storage-Policy'])
 
     def _put_object(self, app, body):
-        object_path = self.object_path
-        if not isinstance(object_path, bytes):
-            object_path = object_path.encode('utf8')
-        req = Request.blank(object_path, method='PUT', body=body,
-                            headers={'Content-Type': 'application/test'})
+        req = Request.blank(
+            str_to_wsgi(self.object_path), method='PUT', body=body,
+            headers={'Content-Type': 'application/test'})
         resp = req.get_response(app)
         self.assertEqual('201 Created', resp.status)
         self.assertEqual(self.plaintext_etag, resp.headers['Etag'])
         return resp
 
     def _post_object(self, app):
-        object_path = self.object_path
-        if not isinstance(object_path, bytes):
-            object_path = object_path.encode('utf8')
-        req = Request.blank(object_path, method='POST',
+        req = Request.blank(str_to_wsgi(self.object_path), method='POST',
                             headers={'Content-Type': 'application/test',
                                      'X-Object-Meta-Fruit': 'Kiwi'})
         resp = req.get_response(app)
@@ -119,10 +112,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         return resp
 
     def _copy_object(self, app, destination):
-        object_path = self.object_path
-        if not isinstance(object_path, bytes):
-            object_path = object_path.encode('utf8')
-        req = Request.blank(object_path, method='COPY',
+        req = Request.blank(str_to_wsgi(self.object_path), method='COPY',
                             headers={'Destination': destination})
         resp = req.get_response(app)
         self.assertEqual('201 Created', resp.status)
@@ -130,9 +120,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         return resp
 
     def _check_GET_and_HEAD(self, app, object_path=None):
-        object_path = object_path or self.object_path
-        if not isinstance(object_path, bytes):
-            object_path = object_path.encode('utf8')
+        object_path = str_to_wsgi(object_path or self.object_path)
         req = Request.blank(object_path, method='GET')
         resp = req.get_response(app)
         self.assertEqual('200 OK', resp.status)
@@ -146,9 +134,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self.assertEqual('Kiwi', resp.headers['X-Object-Meta-Fruit'])
 
     def _check_match_requests(self, method, app, object_path=None):
-        object_path = object_path or self.object_path
-        if not isinstance(object_path, bytes):
-            object_path = object_path.encode('utf8')
+        object_path = str_to_wsgi(object_path or self.object_path)
         # verify conditional match requests
         expected_body = self.plaintext if method == 'GET' else b''
 
@@ -205,9 +191,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self.assertEqual('Kiwi', resp.headers['X-Object-Meta-Fruit'])
 
     def _check_listing(self, app, expect_mismatch=False, container_path=None):
-        container_path = container_path or self.container_path
-        if not isinstance(container_path, bytes):
-            container_path = container_path.encode('utf8')
+        container_path = str_to_wsgi(container_path or self.container_path)
         req = Request.blank(
             container_path, method='GET', query_string='format=json')
         resp = req.get_response(app)

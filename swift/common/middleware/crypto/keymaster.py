@@ -245,7 +245,7 @@ class BaseKeyMaster(object):
         """
         Creates an encryption key that is unique for the given path.
 
-        :param path: the path of the resource being encrypted.
+        :param path: the (WSGI string) path of the resource being encrypted.
         :param secret_id: the id of the root secret from which the key should
             be derived.
         :return: an encryption key.

@@ -6307,52 +6307,52 @@ class TestDocumentItersToHTTPResponseBody(unittest.TestCase):
         self.assertEqual(body, '')
 
     def test_single_part(self):
-        body = "time flies like an arrow; fruit flies like a banana"
-        doc_iters = [{'part_iter': iter(StringIO(body).read, '')}]
+        body = b"time flies like an arrow; fruit flies like a banana"
+        doc_iters = [{'part_iter': iter(BytesIO(body).read, b'')}]
 
-        resp_body = ''.join(
+        resp_body = b''.join(
             utils.document_iters_to_http_response_body(
-                iter(doc_iters), 'dontcare',
+                iter(doc_iters), b'dontcare',
                 multipart=False, logger=FakeLogger()))
         self.assertEqual(resp_body, body)
 
     def test_multiple_parts(self):
-        part1 = "two peanuts were walking down a railroad track"
-        part2 = "and one was a salted. ... peanut."
+        part1 = b"two peanuts were walking down a railroad track"
+        part2 = b"and one was a salted. ... peanut."
 
         doc_iters = [{
             'start_byte': 88,
             'end_byte': 133,
             'content_type': 'application/peanut',
             'entity_length': 1024,
-            'part_iter': iter(StringIO(part1).read, ''),
+            'part_iter': iter(BytesIO(part1).read, b''),
         }, {
             'start_byte': 500,
             'end_byte': 532,
             'content_type': 'application/salted',
             'entity_length': 1024,
-            'part_iter': iter(StringIO(part2).read, ''),
+            'part_iter': iter(BytesIO(part2).read, b''),
         }]
 
-        resp_body = ''.join(
+        resp_body = b''.join(
             utils.document_iters_to_http_response_body(
-                iter(doc_iters), 'boundaryboundary',
+                iter(doc_iters), b'boundaryboundary',
                 multipart=True, logger=FakeLogger()))
         self.assertEqual(resp_body, (
-            "--boundaryboundary\r\n" +
+            b"--boundaryboundary\r\n" +
             # This is a little too strict; we don't actually care that the
             # headers are in this order, but the test is much more legible
             # this way.
-            "Content-Type: application/peanut\r\n" +
-            "Content-Range: bytes 88-133/1024\r\n" +
-            "\r\n" +
-            part1 + "\r\n" +
-            "--boundaryboundary\r\n"
-            "Content-Type: application/salted\r\n" +
-            "Content-Range: bytes 500-532/1024\r\n" +
-            "\r\n" +
-            part2 + "\r\n" +
-            "--boundaryboundary--"))
+            b"Content-Type: application/peanut\r\n" +
+            b"Content-Range: bytes 88-133/1024\r\n" +
+            b"\r\n" +
+            part1 + b"\r\n" +
+            b"--boundaryboundary\r\n"
+            b"Content-Type: application/salted\r\n" +
+            b"Content-Range: bytes 500-532/1024\r\n" +
+            b"\r\n" +
+            part2 + b"\r\n" +
+            b"--boundaryboundary--"))
 
     def test_closed_part_iterator(self):
         print('test')

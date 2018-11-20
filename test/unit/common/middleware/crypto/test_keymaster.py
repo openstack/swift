@@ -146,7 +146,9 @@ class TestKeymaster(unittest.TestCase):
                 for conf_val in (
                         encoded_secret,
                         encoded_secret.decode('ascii'),
-                        encoded_secret[:30] + b'\n' + encoded_secret[30:]):
+                        encoded_secret[:30] + b'\n' + encoded_secret[30:],
+                        (encoded_secret[:30] + b'\n' +
+                         encoded_secret[30:]).decode('ascii')):
                     try:
                         app = keymaster.KeyMaster(
                             self.swift, {'encryption_root_secret': conf_val,
@@ -415,7 +417,11 @@ class TestKeymaster(unittest.TestCase):
             self.assertIsInstance(enc_secret, bytes)
             for conf_val in (enc_secret, enc_secret.decode('ascii'),
                              enc_secret[:30] + b'\n' + enc_secret[30:],
-                             enc_secret[:30] + b'\r\n' + enc_secret[30:]):
+                             enc_secret[:30] + b'\r\n' + enc_secret[30:],
+                             (enc_secret[:30] + b'\n' +
+                              enc_secret[30:]).decode('ascii'),
+                             (enc_secret[:30] + b'\r\n' +
+                              enc_secret[30:]).decode('ascii')):
                 mock_readconf.reset_mock()
                 mock_readconf.return_value = {
                     'encryption_root_secret': conf_val}
@@ -448,7 +454,7 @@ class TestKeymaster(unittest.TestCase):
 
     @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     def test_root_secret_path_invalid_secret(self, mock_readconf):
-        for secret in (bytes(base64.b64encode(os.urandom(31))),  # too short
+        for secret in (base64.b64encode(os.urandom(31)),  # too short
                        base64.b64encode(os.urandom(31)).decode('ascii'),
                        u'a' * 44 + u'????', b'a' * 44 + b'????',  # not base64
                        u'a' * 45, b'a' * 45,  # bad padding

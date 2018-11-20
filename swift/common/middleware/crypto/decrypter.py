@@ -85,7 +85,7 @@ class BaseDecrypterContext(CryptoWSGIContext):
             body='Error decrypting %s' % self.server_type,
             content_type='text/plain')
 
-    def decrypt_value_with_meta(self, value, key, required, encoder):
+    def decrypt_value_with_meta(self, value, key, required, decoder):
         """
         Base64-decode and decrypt a value if crypto meta can be extracted from
         the value itself, otherwise return the value unmodified.
@@ -100,6 +100,7 @@ class BaseDecrypterContext(CryptoWSGIContext):
         :param required: if True then the value is required to be decrypted
                          and an EncryptionException will be raised if the
                          header cannot be decrypted due to missing crypto meta.
+        :param decoder: function to turn the decrypted bytes into useful data
         :returns: decrypted value if crypto meta is found, otherwise the
                   unmodified value
         :raises EncryptionException: if an error occurs while parsing crypto
@@ -111,14 +112,14 @@ class BaseDecrypterContext(CryptoWSGIContext):
         if crypto_meta:
             self.crypto.check_crypto_meta(crypto_meta)
             value = self.decrypt_value(
-                extracted_value, key, crypto_meta, encoder)
+                extracted_value, key, crypto_meta, decoder)
         elif required:
             raise EncryptionException(
                 "Missing crypto meta in value %s" % value)
 
         return value
 
-    def decrypt_value(self, value, key, crypto_meta, encoder):
+    def decrypt_value(self, value, key, crypto_meta, decoder):
         """
         Base64-decode and decrypt a value using the crypto_meta provided.
 
@@ -126,13 +127,14 @@ class BaseDecrypterContext(CryptoWSGIContext):
         :param key: crypto key to use
         :param crypto_meta: a crypto-meta dict of form returned by
             :py:func:`~swift.common.middleware.crypto.Crypto.get_crypto_meta`
+        :param decoder: function to turn the decrypted bytes into useful data
         :returns: decrypted value
         """
         if not value:
-            return encoder(b'')
+            return decoder(b'')
         crypto_ctxt = self.crypto.create_decryption_ctxt(
             key, crypto_meta['iv'], 0)
-        return encoder(crypto_ctxt.update(base64.b64decode(value)))
+        return decoder(crypto_ctxt.update(base64.b64decode(value)))
 
     def get_decryption_keys(self, req, crypto_meta=None):
         """
@@ -405,7 +407,7 @@ class DecrypterContContext(BaseDecrypterContext):
                     # the listing ETag, so we can't just use ASCII.
                     obj_dict['hash'] = self.decrypt_value(
                         ciphertext, keys['container'], crypto_meta,
-                        encoder=lambda x: x.decode('utf-8'))
+                        decoder=lambda x: x.decode('utf-8'))
                 except EncryptionException as err:
                     if not isinstance(err, UnknownSecretIdError) or \
                             err.args[0] not in bad_keys:
