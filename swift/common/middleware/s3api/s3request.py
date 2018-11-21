@@ -24,7 +24,7 @@ import six
 from six.moves.urllib.parse import quote, unquote, parse_qsl
 import string
 
-from swift.common.utils import split_path, json
+from swift.common.utils import split_path, json, get_swift_info
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_NO_CONTENT, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_NOT_FOUND, \
@@ -741,8 +741,17 @@ class S3Request(swob.Request):
         if 'x-amz-mfa' in self.headers:
             raise S3NotImplemented('MFA Delete is not supported.')
 
-        if 'x-amz-server-side-encryption' in self.headers:
-            raise S3NotImplemented('Server-side encryption is not supported.')
+        sse_value = self.headers.get('x-amz-server-side-encryption')
+        if sse_value is not None:
+            if sse_value not in ('aws:kms', 'AES256'):
+                raise InvalidArgument(
+                    'x-amz-server-side-encryption', sse_value,
+                    'The encryption method specified is not supported')
+            encryption_enabled = get_swift_info(admin=True)['admin'].get(
+                'encryption', {}).get('enabled')
+            if not encryption_enabled or sse_value != 'AES256':
+                raise S3NotImplemented(
+                    'Server-side encryption is not supported.')
 
         if 'x-amz-website-redirect-location' in self.headers:
             raise S3NotImplemented('Website redirection is not supported.')
