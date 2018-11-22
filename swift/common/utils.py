@@ -2263,9 +2263,18 @@ def get_hub():
 
     In contrast, both poll() and select() specify the set of interesting
     file descriptors with each call, so there's no problem with forking.
+
+    As eventlet monkey patching is now done before call get_hub() in wsgi.py
+    if we use 'import select' we get the eventlet version, but since version
+    0.20.0 eventlet removed select.poll() function in patched select (see:
+    http://eventlet.net/doc/changelog.html and
+    https://github.com/eventlet/eventlet/commit/614a20462).
+
+    We use eventlet.patcher.original function to get python select module
+    to test if poll() is available on platform.
     """
     try:
-        import select
+        select = eventlet.patcher.original('select')
         if hasattr(select, "poll"):
             return "poll"
         return "selects"
