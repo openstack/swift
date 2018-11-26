@@ -7863,7 +7863,7 @@ class TestSuffixHashes(unittest.TestCase):
     def test_get_hashes_old_pickle_does_not_find_new_suffix_dirs(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
-            # create a empty stale pickle
+            # create an empty stale pickle
             part_path = os.path.join(
                 self.devices, 'sda1', diskfile.get_data_dir(policy), '0')
             hashes_file = os.path.join(part_path,
