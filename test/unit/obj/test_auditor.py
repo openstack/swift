@@ -972,7 +972,7 @@ class TestAuditor(unittest.TestCase):
         # create tombstone and hashes.pkl file, ensuring the tombstone is not
         # reclaimed by mocking time to be the tombstone time
         with mock.patch('time.time', return_value=float(ts_tomb)):
-            # this delete will create a invalid hashes entry
+            # this delete will create an invalid hashes entry
             self.disk_file.delete(ts_tomb)
             # this get_hashes call will truncate the invalid hashes entry
             self.disk_file.manager.get_hashes(
