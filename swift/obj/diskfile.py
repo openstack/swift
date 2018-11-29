@@ -31,6 +31,7 @@ are also not considered part of the backend API.
 """
 
 import six.moves.cPickle as pickle
+import binascii
 import copy
 import errno
 import fcntl
@@ -1073,7 +1074,22 @@ class BaseDiskFileManager(object):
 
         :param path: full path to directory
         """
-        hashes = defaultdict(md5)
+        if six.PY2:
+            hashes = defaultdict(md5)
+        else:
+            class shim(object):
+                def __init__(self):
+                    self.md5 = md5()
+
+                def update(self, s):
+                    if isinstance(s, str):
+                        self.md5.update(s.encode('utf-8'))
+                    else:
+                        self.md5.update(s)
+
+                def hexdigest(self):
+                    return self.md5.hexdigest()
+            hashes = defaultdict(shim)
         try:
             path_contents = sorted(os.listdir(path))
         except OSError as err:
@@ -1213,7 +1229,7 @@ class BaseDiskFileManager(object):
             modified = True
             self.logger.debug('Run listdir on %s', partition_path)
         hashes.update((suffix, None) for suffix in recalculate)
-        for suffix, hash_ in hashes.items():
+        for suffix, hash_ in list(hashes.items()):
             if not hash_:
                 suffix_dir = join(partition_path, suffix)
                 try:
@@ -2073,7 +2089,7 @@ class BaseDiskFileReader(object):
             # returning the correct value.
             if self._bytes_read > 0:
                 bin_checksum = os.read(md5_sockfd, 16)
-                hex_checksum = ''.join("%02x" % ord(c) for c in bin_checksum)
+                hex_checksum = binascii.hexlify(bin_checksum).decode('ascii')
             else:
                 hex_checksum = MD5_OF_EMPTY_STRING
             self._md5_of_sent_bytes = hex_checksum
