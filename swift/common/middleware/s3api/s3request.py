@@ -749,7 +749,10 @@ class S3Request(swob.Request):
 
         # https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
         # describes some of what would be required to support this
-        if 'aws-chunked' in self.headers.get('content-encoding', ''):
+        if any(['aws-chunked' in self.headers.get('content-encoding', ''),
+                'STREAMING-AWS4-HMAC-SHA256-PAYLOAD' == self.headers.get(
+                    'x-amz-content-sha256', ''),
+                'x-amz-decoded-content-length' in self.headers]):
             raise S3NotImplemented('Transfering payloads in multiple chunks '
                                    'using aws-chunked is not supported.')
 

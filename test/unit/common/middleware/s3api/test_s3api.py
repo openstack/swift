@@ -574,6 +574,11 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # > That is, you can specify your custom content-encoding when using
         # > Signature Version 4 streaming API.
         self._test_unsupported_header('Content-Encoding', 'aws-chunked,gzip')
+        # Some clients skip the content-encoding,
+        # such as minio-go and aws-sdk-java
+        self._test_unsupported_header('x-amz-content-sha256',
+                                      'STREAMING-AWS4-HMAC-SHA256-PAYLOAD')
+        self._test_unsupported_header('x-amz-decoded-content-length')
 
     def test_object_tagging(self):
         self._test_unsupported_header('x-amz-tagging')
