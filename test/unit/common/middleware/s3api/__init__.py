@@ -21,9 +21,10 @@ import time
 from swift.common import swob
 
 from swift.common.middleware.s3api.s3api import filter_factory
-from helpers import FakeSwift
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import Config
+
+from test.unit.common.middleware.s3api.helpers import FakeSwift
 
 
 class FakeApp(object):
