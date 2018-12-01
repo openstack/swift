@@ -31,9 +31,8 @@ def create_bucket_list_json(buckets):
     :param buckets: a list of tuples (or lists) consist of elements orderd as
                     name, count, bytes
     """
-    bucket_list = map(
-        lambda item: {'name': item[0], 'count': item[1], 'bytes': item[2]},
-        list(buckets))
+    bucket_list = [{'name': item[0], 'count': item[1], 'bytes': item[2]}
+                   for item in buckets]
     return json.dumps(bucket_list)
 
 
