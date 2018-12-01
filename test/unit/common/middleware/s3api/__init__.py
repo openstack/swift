@@ -148,7 +148,7 @@ class S3ApiTestCase(unittest.TestCase):
             headers[0] = swob.HeaderKeyDict(h)
 
         body_iter = app(req.environ, start_response)
-        body = ''
+        body = b''
         caught_exc = None
         try:
             for chunk in body_iter:
