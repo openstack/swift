@@ -541,7 +541,7 @@ class UploadController(Controller):
         upload_id = req.params['uploadId']
         resp = _get_upload_info(req, self.app, upload_id)
         headers = {}
-        for key, val in resp.headers.iteritems():
+        for key, val in resp.headers.items():
             _key = key.lower()
             if _key.startswith('x-amz-meta-'):
                 headers['x-object-meta-' + _key[11:]] = val
