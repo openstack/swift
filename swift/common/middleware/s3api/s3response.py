@@ -94,7 +94,7 @@ class S3Response(S3ResponseBase, swob.Response):
             s3api_sysmeta_prefix = sysmeta_prefix(_server_type).lower()
             return sysmeta_key.lower().startswith(s3api_sysmeta_prefix)
 
-        for key, val in self.headers.iteritems():
+        for key, val in self.headers.items():
             if is_sys_meta('object', key) or is_sys_meta('container', key):
                 _server_type = key.split('-')[1]
                 if is_swift3_sysmeta(key, _server_type):
@@ -113,7 +113,7 @@ class S3Response(S3ResponseBase, swob.Response):
                 sw_headers[key] = val
 
         # Handle swift headers
-        for key, val in sw_headers.iteritems():
+        for key, val in sw_headers.items():
             _key = key.lower()
 
             if _key.startswith('x-object-meta-'):

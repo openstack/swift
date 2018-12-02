@@ -153,7 +153,7 @@ class FakeSwift(object):
         if (method, path) in self._responses:
             old_headers = self._responses[(method, path)][1]
             headers = headers.copy()
-            for key, value in old_headers.iteritems():
+            for key, value in old_headers.items():
                 if is_sys_meta(resource, key) and key not in headers:
                     # keep old sysmeta for s3acl
                     headers.update({key: value})

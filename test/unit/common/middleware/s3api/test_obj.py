@@ -92,7 +92,7 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
 
         unexpected_headers = []
-        for key, val in self.response_headers.iteritems():
+        for key, val in self.response_headers.items():
             if key in ('Content-Length', 'Content-Type', 'content-encoding',
                        'last-modified', 'cache-control', 'Content-Disposition',
                        'Content-Language', 'expires', 'x-robots-tag'):
