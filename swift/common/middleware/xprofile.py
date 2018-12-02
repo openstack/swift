@@ -86,10 +86,11 @@ from six.moves import urllib
 from swift import gettext_ as _
 from swift.common.utils import get_logger, config_true_value
 from swift.common.swob import Request
-from x_profile.exceptions import NotFoundException, MethodNotAllowed,\
-    ProfileException
-from x_profile.html_viewer import HTMLViewer
-from x_profile.profile_model import ProfileLog
+from swift.common.middleware.x_profile.exceptions import MethodNotAllowed
+from swift.common.middleware.x_profile.exceptions import NotFoundException
+from swift.common.middleware.x_profile.exceptions import ProfileException
+from swift.common.middleware.x_profile.html_viewer import HTMLViewer
+from swift.common.middleware.x_profile.profile_model import ProfileLog
 
 
 DEFAULT_PROFILE_PREFIX = '/tmp/log/swift/profile/default.profile'
@@ -107,7 +108,10 @@ PROFILE_EXEC_LAZY = """
 app_iter_ = self.app(environ, start_response)
 """
 
-thread = patcher.original('thread')  # non-monkeypatched module needed
+if six.PY3:
+    thread = patcher.original('_thread')  # non-monkeypatched module needed
+else:
+    thread = patcher.original('thread')  # non-monkeypatched module needed
 
 
 # This monkey patch code fix the problem of eventlet profile tool
@@ -177,7 +181,7 @@ class ProfileMiddleware(object):
     def _combine_body_qs(self, request):
         wsgi_input = request.environ['wsgi.input']
         query_dict = request.params
-        qs_in_body = wsgi_input.read()
+        qs_in_body = wsgi_input.read().decode('utf-8')
         query_dict.update(urllib.parse.parse_qs(qs_in_body,
                                                 keep_blank_values=True,
                                                 strict_parsing=False))
