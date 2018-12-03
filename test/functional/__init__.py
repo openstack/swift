@@ -538,7 +538,6 @@ def in_process_setup(the_object_server=object_server):
         storage_policy.reload_storage_policies()
 
     global config
-    config['__file__'] = 'in_process_setup()'
     if constraints.SWIFT_CONSTRAINTS_LOADED:
         # Use the swift constraints that are loaded for the test framework
         # configuration
