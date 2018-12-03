@@ -744,10 +744,9 @@ class TestObjectExpirer(TestCase):
             x.run_once = raise_exceptions
             x.run_forever()
         except SystemExit as err:
-            pass
+            self.assertEqual(str(err), 'exiting exception 2')
         finally:
             expirer.sleep = orig_sleep
-        self.assertEqual(str(err), 'exiting exception 2')
         self.assertEqual(x.logger.get_lines_for_level('error'),
                          ['Unhandled exception: '])
         log_args, log_kwargs = x.logger.log_dict['error'][0]
