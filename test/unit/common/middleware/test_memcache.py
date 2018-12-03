@@ -297,7 +297,7 @@ class TestCacheMiddleware(unittest.TestCase):
             f.write(dedent(config))
         memcache_ring = self._loadapp(config_path)
         # only one server by default
-        self.assertEqual(memcache_ring._client_cache.keys(),
+        self.assertEqual(list(memcache_ring._client_cache.keys()),
                          ['127.0.0.1:11211'])
         # extra options
         self.assertEqual(memcache_ring._connect_timeout, 0.3)
