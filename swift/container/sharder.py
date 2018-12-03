@@ -493,18 +493,22 @@ class ContainerSharder(ContainerReplicator):
             self._report_stats()
 
     def _check_node(self, node):
+        """
+        :return: The path to the device, if the node is mounted.
+            Returns False if the node is unmounted.
+        """
         if not node:
             return False
         if not is_local_device(self.ips, self.port,
                                node['replication_ip'],
                                node['replication_port']):
             return False
-        if not check_drive(self.root, node['device'],
-                           self.mount_check):
+        try:
+            return check_drive(self.root, node['device'], self.mount_check)
+        except ValueError:
             self.logger.warning(
                 'Skipping %(device)s as it is not mounted' % node)
             return False
-        return True
 
     def _fetch_shard_ranges(self, broker, newest=False, params=None,
                             include_deleted=False):
@@ -1485,9 +1489,10 @@ class ContainerSharder(ContainerReplicator):
         dirs = []
         self.ips = whataremyips(bind_ip=self.bind_ip)
         for node in self.ring.devs:
-            if not self._check_node(node):
+            device_path = self._check_node(node)
+            if not device_path:
                 continue
-            datadir = os.path.join(self.root, node['device'], self.datadir)
+            datadir = os.path.join(device_path, self.datadir)
             if os.path.isdir(datadir):
                 # Populate self._local_device_ids so we can find devices for
                 # shard containers later

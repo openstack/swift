@@ -293,7 +293,8 @@ class TestSharder(BaseTestSharder):
         conf = {'recon_cache_path': self.tempdir,
                 'devices': self.tempdir}
         with self._mock_sharder(conf) as sharder:
-            sharder._check_node = lambda *args: True
+            sharder._check_node = lambda node: os.path.join(
+                sharder.conf['devices'], node['device'])
             sharder.logger.clear()
             brokers = []
             for container in ('c1', 'c2'):
@@ -468,12 +469,29 @@ class TestSharder(BaseTestSharder):
         conf = {'recon_cache_path': self.tempdir,
                 'devices': self.tempdir,
                 'shard_container_threshold': 9}
-        with self._mock_sharder(conf) as sharder:
-            sharder._check_node = lambda *args: True
+
+        def fake_ismount(path):
+            # unmounted_dev is defined from .get_more_nodes() below
+            unmounted_path = os.path.join(conf['devices'],
+                                          unmounted_dev['device'])
+            if path == unmounted_path:
+                return False
+            else:
+                return True
+
+        with self._mock_sharder(conf) as sharder, \
+                mock.patch('swift.common.utils.ismount', fake_ismount), \
+                mock.patch('swift.container.sharder.is_local_device',
+                           return_value=True):
             sharder.reported = time.time()
             sharder.logger = debug_logger()
             brokers = []
-            device_ids = set(range(3))
+            device_ids = set(d['id'] for d in sharder.ring.devs)
+
+            sharder.ring.max_more_nodes = 1
+            unmounted_dev = next(sharder.ring.get_more_nodes(1))
+            unmounted_dev['device'] = 'xxxx'
+            sharder.ring.add_node(unmounted_dev)
             for device_id in device_ids:
                 brokers.append(self._make_broker(
                     container='c%s' % device_id, hash_='c%shash' % device_id,
@@ -494,6 +512,10 @@ class TestSharder(BaseTestSharder):
                 sharder._local_device_ids = {'stale_node_id'}
                 sharder._one_shard_cycle(Everything(), Everything())
 
+            lines = sharder.logger.get_lines_for_level('warning')
+            expected = 'Skipping %s as it is not mounted' % \
+                unmounted_dev['device']
+            self.assertIn(expected, lines[0])
             self.assertEqual(device_ids, sharder._local_device_ids)
             self.assertEqual(2, mock_process_broker.call_count)
             processed_paths = [call[0][0].path
@@ -542,12 +564,17 @@ class TestSharder(BaseTestSharder):
                                         "for %s" % broker.path)
 
             # check exceptions are handled
+            sharder.logger.clear()
             with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker', side_effect=mock_processing
             ) as mock_process_broker:
                 sharder._local_device_ids = {'stale_node_id'}
                 sharder._one_shard_cycle(Everything(), Everything())
 
+            lines = sharder.logger.get_lines_for_level('warning')
+            expected = 'Skipping %s as it is not mounted' % \
+                unmounted_dev['device']
+            self.assertIn(expected, lines[0])
             self.assertEqual(device_ids, sharder._local_device_ids)
             self.assertEqual(3, mock_process_broker.call_count)
             processed_paths = [call[0][0].path
@@ -696,6 +723,35 @@ class TestSharder(BaseTestSharder):
         self.assertGreater(actual_dict.pop('meta_timestamp'),
                            expected_dict.pop('meta_timestamp'))
         self.assertEqual(expected_dict, actual_dict)
+
+    def test_check_node(self):
+        node = {
+            'replication_ip': '127.0.0.1',
+            'replication_port': 5000,
+            'device': 'd100',
+        }
+        with self._mock_sharder() as sharder:
+            sharder.mount_check = True
+            sharder.ips = ['127.0.0.1']
+            sharder.port = 5000
+
+            # normal behavior
+            with mock.patch(
+                    'swift.common.utils.ismount',
+                    lambda *args: True):
+                r = sharder._check_node(node)
+            expected = os.path.join(sharder.conf['devices'], node['device'])
+            self.assertEqual(r, expected)
+
+            # test with an unmounted drive
+            with mock.patch(
+                    'swift.common.utils.ismount',
+                    lambda *args: False):
+                r = sharder._check_node(node)
+            self.assertEqual(r, False)
+            lines = sharder.logger.get_lines_for_level('warning')
+            expected = 'Skipping %s as it is not mounted' % node['device']
+            self.assertIn(expected, lines[0])
 
     def test_fetch_shard_ranges_unexpected_response(self):
         broker = self._make_broker()
@@ -4368,7 +4424,8 @@ class TestSharder(BaseTestSharder):
 
         with self._mock_sharder() as sharder:
             sharder.ring = ring
-            sharder._check_node = lambda *args: True
+            sharder._check_node = lambda node: os.path.join(
+                sharder.conf['devices'], node['device'])
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once()
@@ -4379,7 +4436,8 @@ class TestSharder(BaseTestSharder):
 
         with self._mock_sharder() as sharder:
             sharder.ring = ring
-            sharder._check_node = lambda *args: True
+            sharder._check_node = lambda node: os.path.join(
+                sharder.conf['devices'], node['device'])
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once(partitions='0')
@@ -4390,7 +4448,8 @@ class TestSharder(BaseTestSharder):
 
         with self._mock_sharder() as sharder:
             sharder.ring = ring
-            sharder._check_node = lambda *args: True
+            sharder._check_node = lambda node: os.path.join(
+                sharder.conf['devices'], node['device'])
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once(partitions='2,0')
@@ -4401,7 +4460,8 @@ class TestSharder(BaseTestSharder):
 
         with self._mock_sharder() as sharder:
             sharder.ring = ring
-            sharder._check_node = lambda *args: True
+            sharder._check_node = lambda node: os.path.join(
+                sharder.conf['devices'], node['device'])
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once(partitions='2,0', devices='sdc')
@@ -4412,7 +4472,8 @@ class TestSharder(BaseTestSharder):
 
         with self._mock_sharder() as sharder:
             sharder.ring = ring
-            sharder._check_node = lambda *args: True
+            sharder._check_node = lambda node: os.path.join(
+                sharder.conf['devices'], node['device'])
             with mock.patch.object(
                     sharder, '_process_broker') as mock_process_broker:
                 sharder.run_once(devices='sdb,sdc')
