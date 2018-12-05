@@ -109,7 +109,7 @@ advocate for your change and iterate on it based on feedback. Reach out
 to other people working on the project on
 `IRC <http://eavesdrop.openstack.org/irclogs/%23openstack-swift/>`__ or
 the `mailing
-list <http://lists.openstack.org/pipermail/openstack-dev/>`__ - we want
+list <http://lists.openstack.org/pipermail/openstack-discuss/>`__ - we want
 to help.
 
 Recommended workflow
