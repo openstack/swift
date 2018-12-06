@@ -245,6 +245,10 @@ class FakeRing(Ring):
         self._device_char_iter = itertools.cycle(
             ['sd%s' % chr(ord('a') + x) for x in range(26)])
 
+    def add_node(self, dev):
+        # round trip through json to ensure unicode like real rings
+        self._devs.append(json.loads(json.dumps(dev)))
+
     def set_replicas(self, replicas):
         self.replicas = replicas
         self._devs = []
@@ -252,8 +256,7 @@ class FakeRing(Ring):
         for x in range(self.replicas):
             ip = '10.0.0.%s' % x
             port = self._base_port + x
-            # round trip through json to ensure unicode like real rings
-            self._devs.append(json.loads(json.dumps({
+            dev = {
                 'ip': ip,
                 'replication_ip': ip,
                 'port': port,
@@ -262,7 +265,8 @@ class FakeRing(Ring):
                 'zone': x % 3,
                 'region': x % 2,
                 'id': x,
-            })))
+            }
+            self.add_node(dev)
 
     @property
     def replica_count(self):
