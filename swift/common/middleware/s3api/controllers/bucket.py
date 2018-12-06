@@ -225,8 +225,14 @@ class BucketController(Controller):
                 if 's3_etag' in o:
                     # New-enough MUs are already in the right format
                     etag = o['s3_etag']
+                elif 'slo_etag' in o:
+                    # SLOs may be in something *close* to the MU format
+                    etag = '"%s-N"' % o['slo_etag'].strip('"')
                 else:
+                    # Normal objects just use the MD5
                     etag = '"%s"' % o['hash']
+                    # This also catches sufficiently-old SLOs, but we have
+                    # no way to identify those from container listings
                 SubElement(contents, 'ETag').text = etag
                 SubElement(contents, 'Size').text = str(o['bytes'])
                 if fetch_owner or listing_type != 'version-2':

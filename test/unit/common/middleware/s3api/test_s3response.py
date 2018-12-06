@@ -30,7 +30,10 @@ class TestResponse(unittest.TestCase):
                                          'Etag': 'theetag'})
                 s3resp = S3Response.from_swift_resp(resp)
                 self.assertEqual(expected, s3resp.is_slo)
-                self.assertEqual('"theetag"', s3resp.headers['ETag'])
+                if s3resp.is_slo:
+                    self.assertEqual('"theetag-N"', s3resp.headers['ETag'])
+                else:
+                    self.assertEqual('"theetag"', s3resp.headers['ETag'])
 
     def test_response_s3api_sysmeta_headers(self):
         for _server_type in ('object', 'container'):
