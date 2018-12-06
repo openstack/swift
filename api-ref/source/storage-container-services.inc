@@ -37,8 +37,9 @@ Example requests and responses:
 If the container does not exist, the call returns the ``Not Found
 (404)`` response code.
 
-Normal response codes: 200
-Error response codes:416,404,204,
+Normal response codes: 200, 204
+
+Error response codes: 404
 
 
 Request
@@ -327,7 +328,9 @@ If the request succeeds, the operation returns the ``No Content
 
 To confirm your changes, issue a show container metadata request.
 
-Error response codes:204,
+Normal response codes: 204
+
+Error response codes: 404
 
 
 Request
@@ -411,7 +414,7 @@ Show container metadata request:
 If the request succeeds, the operation returns the ``No Content
 (204)`` response code.
 
-Error response codes:204,
+Normal response codes: 204
 
 
 Request
@@ -519,7 +522,9 @@ If the container exists but is not empty, the response is:
    </p>
    </html>
 
-Error response codes:404,204,409,
+Normal response codes: 204
+
+Error response codes: 404, 409
 
 
 Request

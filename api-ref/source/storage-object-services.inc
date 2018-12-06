@@ -93,7 +93,8 @@ code for any ranged GET requests that specify more than:
 
 
 Normal response codes: 200
-Error response codes:416,404,
+
+Error response codes: 416, 404
 
 
 Request
@@ -224,6 +225,9 @@ Example requests and responses:
 
 The ``Created (201)`` response code indicates a successful write.
 
+If the container for the object does not already exist, the operation
+returns the ``404 Not Found`` response code.
+
 If the request times out, the operation returns the ``Request
 Timeout (408)`` response code.
 
@@ -234,7 +238,9 @@ If the MD5 checksum of the data that is written to the object store
 does not match the optional ``ETag`` value, the operation returns
 the ``Unprocessable Entity (422)`` response code.
 
-Error response codes:201,422,411,408,
+Normal response codes: 201
+
+Error response codes: 404, 408, 411, 422
 
 
 Request
@@ -394,7 +400,7 @@ When several replicas exist, the system copies from the most recent
 replica. That is, the COPY operation behaves as though the
 ``X-Newest`` header is in the request.
 
-Error response codes:201,
+Normal response codes: 201
 
 
 Request
@@ -488,7 +494,7 @@ However, with the ``multipart-manifest=delete`` query parameter,
 the response body contains a list of manifest and segment objects
 and the status of their DELETE operations.
 
-Error response codes:204,
+Normal response codes: 204
 
 
 Request
@@ -567,7 +573,6 @@ code.
 
 
 Normal response codes: 200
-Error response codes:204,
 
 
 Request
@@ -741,7 +746,7 @@ Example requests and responses:
      </p>
      </html>
 
-Error response codes:202,
+Normal response codes: 202
 
 
 Request
