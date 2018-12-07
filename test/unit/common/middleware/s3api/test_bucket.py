@@ -628,7 +628,7 @@ class TestS3ApiBucket(S3ApiTestCase):
 
     def _test_bucket_PUT_with_location(self, root_element):
         elem = Element(root_element)
-        SubElement(elem, 'LocationConstraint').text = 'US'
+        SubElement(elem, 'LocationConstraint').text = 'us-east-1'
         xml = tostring(elem)
 
         req = Request.blank('/bucket',

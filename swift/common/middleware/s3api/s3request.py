@@ -461,8 +461,8 @@ class S3Request(swob.Request):
     bucket_acl = _header_acl_property('container')
     object_acl = _header_acl_property('object')
 
-    def __init__(self, env, app=None, slo_enabled=True,
-                 storage_domain='', location='US', force_request_log=False,
+    def __init__(self, env, app=None, slo_enabled=True, storage_domain='',
+                 location='us-east-1', force_request_log=False,
                  dns_compliant_bucket_names=True, allow_multipart_uploads=True,
                  allow_no_owner=False):
         # NOTE: app and allow_no_owner are not used by this class, need for
@@ -1397,8 +1397,8 @@ class S3AclRequest(S3Request):
     """
     S3Acl request object.
     """
-    def __init__(self, env, app, slo_enabled=True,
-                 storage_domain='', location='US', force_request_log=False,
+    def __init__(self, env, app, slo_enabled=True, storage_domain='',
+                 location='us-east-1', force_request_log=False,
                  dns_compliant_bucket_names=True, allow_multipart_uploads=True,
                  allow_no_owner=False):
         super(S3AclRequest, self).__init__(

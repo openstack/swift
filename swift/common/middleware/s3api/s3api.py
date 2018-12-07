@@ -186,7 +186,7 @@ class S3ApiMiddleware(object):
         # Set default values if they are not configured
         self.conf.allow_no_owner = config_true_value(
             conf.get('allow_no_owner', False))
-        self.conf.location = conf.get('location', 'US')
+        self.conf.location = conf.get('location', 'us-east-1')
         self.conf.dns_compliant_bucket_names = config_true_value(
             conf.get('dns_compliant_bucket_names', True))
         self.conf.max_bucket_listing = config_positive_int_value(

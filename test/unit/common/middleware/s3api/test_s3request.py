@@ -400,7 +400,7 @@ class TestRequest(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test/%s/US/s3/aws4_request, '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=%s,'
                 'Signature=X' % (
                     self.get_v4_amz_date_header().split('T', 1)[0],
@@ -558,7 +558,7 @@ class TestRequest(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test/%s/US/s3/aws4_request, '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
             'X-Amz-Content-SHA256': '0123456789',
@@ -578,7 +578,7 @@ class TestRequest(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test/%s/US/s3/aws4_request, '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
             'X-Amz-Content-SHA256': '0123456789',
@@ -597,7 +597,7 @@ class TestRequest(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test/%s/US/s3/aws4_request, '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
             'X-Amz-Content-SHA256': '0123456789',
@@ -661,7 +661,7 @@ class TestRequest(S3ApiTestCase):
         headers = {
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test/%s/US/s3/aws4_request, '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
                 'Signature=X' % self.get_v4_amz_date_header().split('T', 1)[0],
             'X-Amz-Content-SHA256': '0123456789',
@@ -794,7 +794,7 @@ class TestRequest(S3ApiTestCase):
         req = Request.blank('/photos/puppy.jpg', headers={
             'Authorization':
                 'AWS4-HMAC-SHA256 '
-                'Credential=test/%s/US/s3/aws4_request, '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
                 'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
                 'Signature=X' % amz_date_header.split('T', 1)[0],
             'X-Amz-Content-SHA256': '0123456789',
