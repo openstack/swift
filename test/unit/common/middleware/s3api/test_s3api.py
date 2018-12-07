@@ -548,6 +548,15 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidStorageClass')
 
+    def test_invalid_ssc(self):
+        req = Request.blank('/',
+                            environ={'REQUEST_METHOD': 'GET',
+                                     'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
+                            headers={'x-amz-server-side-encryption': 'invalid',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(self._get_error_code(body), 'InvalidArgument')
+
     def _test_unsupported_header(self, header, value=None):
         if value is None:
             value = 'value'
@@ -562,8 +571,27 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_mfa(self):
         self._test_unsupported_header('x-amz-mfa')
 
-    def test_server_side_encryption(self):
-        self._test_unsupported_header('x-amz-server-side-encryption')
+    @mock.patch.object(utils, '_swift_admin_info', new_callable=dict)
+    def test_server_side_encryption(self, mock_info):
+        sse_header = 'x-amz-server-side-encryption'
+        self._test_unsupported_header(sse_header, 'AES256')
+        self._test_unsupported_header(sse_header, 'aws:kms')
+        utils.register_swift_info('encryption', admin=True, enabled=False)
+        self._test_unsupported_header(sse_header, 'AES256')
+        self._test_unsupported_header(sse_header, 'aws:kms')
+        utils.register_swift_info('encryption', admin=True, enabled=True)
+        # AES256 now works
+        self.swift.register('PUT', '/v1/AUTH_X/bucket/object',
+                            swob.HTTPCreated, {}, None)
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
+                            headers={sse_header: 'AES256',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '200 OK')
+        # ...but aws:kms continues to fail
+        self._test_unsupported_header(sse_header, 'aws:kms')
 
     def test_website_redirect_location(self):
         self._test_unsupported_header('x-amz-website-redirect-location')
