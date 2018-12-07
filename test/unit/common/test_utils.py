@@ -5939,6 +5939,13 @@ class TestAuditLocationGenerator(unittest.TestCase):
 
 
 class TestGreenAsyncPile(unittest.TestCase):
+
+    def setUp(self):
+        self.timeout = Timeout(5.0)
+
+    def tearDown(self):
+        self.timeout.cancel()
+
     def test_runs_everything(self):
         def run_test():
             tests_ran[0] += 1
@@ -6044,6 +6051,58 @@ class TestGreenAsyncPile(unittest.TestCase):
             self.assertRaises(StopIteration, pile.next)
             # pending remains 0
             self.assertEqual(0, pile._pending)
+
+    def _exploder(self, arg):
+        if isinstance(arg, Exception):
+            raise arg
+        else:
+            return arg
+
+    def test_blocking_last_next_explodes(self):
+        pile = utils.GreenAsyncPile(2)
+        pile.spawn(self._exploder, 1)
+        pile.spawn(self._exploder, 2)
+        pile.spawn(self._exploder, Exception('kaboom'))
+        self.assertEqual(1, next(pile))
+        self.assertEqual(2, next(pile))
+        with self.assertRaises(StopIteration):
+            next(pile)
+        self.assertEqual(pile.inflight, 0)
+        self.assertEqual(pile._pending, 0)
+
+    def test_no_blocking_last_next_explodes(self):
+        pile = utils.GreenAsyncPile(10)
+        pile.spawn(self._exploder, 1)
+        self.assertEqual(1, next(pile))
+        pile.spawn(self._exploder, 2)
+        self.assertEqual(2, next(pile))
+        pile.spawn(self._exploder, Exception('kaboom'))
+        with self.assertRaises(StopIteration):
+            next(pile)
+        self.assertEqual(pile.inflight, 0)
+        self.assertEqual(pile._pending, 0)
+
+    def test_exceptions_in_streaming_pile(self):
+        with utils.StreamingPile(2) as pile:
+            results = list(pile.asyncstarmap(self._exploder, [
+                (1,),
+                (Exception('kaboom'),),
+                (3,),
+            ]))
+        self.assertEqual(results, [1, 3])
+        self.assertEqual(pile.inflight, 0)
+        self.assertEqual(pile._pending, 0)
+
+    def test_exceptions_at_end_of_streaming_pile(self):
+        with utils.StreamingPile(2) as pile:
+            results = list(pile.asyncstarmap(self._exploder, [
+                (1,),
+                (2,),
+                (Exception('kaboom'),),
+            ]))
+        self.assertEqual(results, [1, 2])
+        self.assertEqual(pile.inflight, 0)
+        self.assertEqual(pile._pending, 0)
 
 
 class TestLRUCache(unittest.TestCase):

@@ -1570,6 +1570,45 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 404)
 
+    def test_GET_primaries_explode(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        codes = [Exception('kaboom!')] * self.obj_ring.replicas + (
+            [404] * self.obj_ring.max_more_nodes)
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_GET_primaries_timeout(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        codes = [Timeout()] * self.obj_ring.replicas + (
+            [404] * self.obj_ring.max_more_nodes)
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_GET_primaries_mixed_explode_and_timeout(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        primaries = []
+        for i in range(self.obj_ring.replicas):
+            if i % 2:
+                primaries.append(Timeout())
+            else:
+                primaries.append(Exception('kaboom!'))
+        codes = primaries + [404] * self.obj_ring.max_more_nodes
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_primary_returns_some_nonsense_timestamp(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        # an un-handled ValueError in _make_node_request should just continue
+        # to the next node rather than hang the request
+        headers = [{'X-Backend-Timestamp': 'not-a-timestamp'}, {}]
+        codes = [200, 200]
+        with set_http_connect(*codes, headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+
     def test_GET_not_found_when_404_newer(self):
         # if proxy receives a 404, it keeps waiting for other connections until
         # max number of nodes in hopes of finding an object, but if 404 is

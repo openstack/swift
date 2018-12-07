@@ -18,6 +18,7 @@ import json
 import unittest
 from datetime import datetime
 from hashlib import md5
+import mock
 
 from swift.common import swob
 from swift.common.swob import Request
@@ -319,6 +320,27 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             body=body)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'MalformedXML')
+
+    @s3acl
+    def test_object_multi_DELETE_unhandled_exception(self):
+        exploding_resp = mock.MagicMock(
+            side_effect=Exception('kaboom'))
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
+                            exploding_resp, {}, None)
+        elem = Element('Delete')
+        obj = SubElement(elem, 'Object')
+        SubElement(obj, 'Key').text = 'Key1'
+        body = tostring(elem, use_s3ns=False)
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
+
+        req = Request.blank('/bucket?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5},
+                            body=body)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
 
     def _test_object_multi_DELETE(self, account):
         self.keys = ['Key1', 'Key2']
