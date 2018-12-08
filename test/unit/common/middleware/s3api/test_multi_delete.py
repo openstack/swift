@@ -96,6 +96,43 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         ])
 
     @s3acl
+    def test_object_multi_DELETE_with_error(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key3',
+                            swob.HTTPForbidden, {}, None)
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
+                            swob.HTTPNoContent, {}, None)
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key2',
+                            swob.HTTPNotFound, {}, None)
+
+        elem = Element('Delete')
+        for key in ['Key1', 'Key2', 'Key3']:
+            obj = SubElement(elem, 'Object')
+            SubElement(obj, 'Key').text = key
+        body = tostring(elem, use_s3ns=False)
+        content_md5 = md5(body).digest().encode('base64').strip()
+
+        req = Request.blank('/bucket?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Content-Type': 'multipart/form-data',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5},
+                            body=body)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+        elem = fromstring(body)
+        self.assertEqual(len(elem.findall('Deleted')), 2)
+        self.assertEqual(len(elem.findall('Error')), 1)
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key1'),
+            ('DELETE', '/v1/AUTH_test/bucket/Key1'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key2'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key3'),
+        ])
+
+    @s3acl
     def test_object_multi_DELETE_quiet(self):
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
                             swob.HTTPNoContent, {}, None)
@@ -145,6 +182,31 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             body=body)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'UserKeyMustBeSpecified')
+
+    @s3acl
+    def test_object_multi_DELETE_versioned(self):
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
+                            swob.HTTPNoContent, {}, None)
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key2',
+                            swob.HTTPNotFound, {}, None)
+
+        elem = Element('Delete')
+        SubElement(elem, 'Quiet').text = 'true'
+        for key in ['Key1', 'Key2']:
+            obj = SubElement(elem, 'Object')
+            SubElement(obj, 'Key').text = key
+            SubElement(obj, 'VersionId').text = 'not-supported'
+        body = tostring(elem, use_s3ns=False)
+        content_md5 = md5(body).digest().encode('base64').strip()
+
+        req = Request.blank('/bucket?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5},
+                            body=body)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(self._get_error_code(body), 'NotImplemented')
 
     @s3acl
     def test_object_multi_DELETE_with_invalid_md5(self):
