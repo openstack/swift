@@ -65,7 +65,7 @@ class TestCommands(unittest.TestCase):
         for cmd in cmds:
             try:
                 with open(self.composite_builder_file, 'wb') as fd:
-                    fd.write('not json')
+                    fd.write(b'not json')
                 exit_code, stdout, stderr = self._run_composer(cmd)
                 self.assertEqual(2, exit_code)
                 self.assertIn('An error occurred while loading the composite '
