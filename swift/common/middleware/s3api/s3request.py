@@ -1155,6 +1155,7 @@ class S3Request(swob.Request):
                 ],
                 'PUT': [
                     HTTP_CREATED,
+                    HTTP_ACCEPTED,  # For SLO with heartbeating
                 ],
                 'POST': [
                     HTTP_ACCEPTED,

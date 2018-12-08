@@ -200,6 +200,7 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
     _status = ''
     _msg = ''
     _code = ''
+    xml_declaration = True
 
     def __init__(self, msg=None, *args, **kwargs):
         if msg:
@@ -212,10 +213,11 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
             if self.info.get(reserved_key):
                 del(self.info[reserved_key])
 
-        swob.HTTPException.__init__(self, status=self._status,
-                                    app_iter=self._body_iter(),
-                                    content_type='application/xml', *args,
-                                    **kwargs)
+        swob.HTTPException.__init__(
+            self, status=kwargs.pop('status', self._status),
+            app_iter=self._body_iter(),
+            content_type='application/xml', *args,
+            **kwargs)
         self.headers = HeaderKeyDict(self.headers)
 
     def _body_iter(self):
@@ -228,7 +230,8 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
 
         self._dict_to_etree(error_elem, self.info)
 
-        yield tostring(error_elem, use_s3ns=False)
+        yield tostring(error_elem, use_s3ns=False,
+                       xml_declaration=self.xml_declaration)
 
     def _dict_to_etree(self, parent, d):
         for key, value in d.items():
