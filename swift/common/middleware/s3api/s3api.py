@@ -43,7 +43,7 @@ Proxy-Server Setting
 ^^^^^^^^^^^^^^^^^^^^
 
 Set s3api before your auth in your pipeline in ``proxy-server.conf`` file.
-To enable all compatiblity currently supported, you should make sure that
+To enable all compatibility currently supported, you should make sure that
 bulk, slo, and your auth middleware are also included in your proxy
 pipeline setting.
 
