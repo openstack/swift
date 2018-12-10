@@ -16,7 +16,7 @@
 import unittest
 import mock
 
-from cStringIO import StringIO
+from six import BytesIO
 from hashlib import md5
 
 from swift.common.swob import Request, HTTPAccepted
@@ -76,7 +76,7 @@ class TestS3ApiAcl(S3ApiTestCase):
 
         req = Request.blank('/bucket?acl',
                             environ={'REQUEST_METHOD': 'PUT',
-                                     'wsgi.input': StringIO(xml)},
+                                     'wsgi.input': BytesIO(xml)},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(),
                                      'Transfer-Encoding': 'chunked'})
