@@ -2585,7 +2585,7 @@ def _get_any_lock(fds):
 
 
 @contextmanager
-def lock_path(directory, timeout=10, timeout_class=None, limit=1):
+def lock_path(directory, timeout=10, timeout_class=None, limit=1, name=None):
     """
     Context manager that acquires a lock on a directory.  This will block until
     the lock can be acquired, or the timeout time has expired (whichever occurs
@@ -2605,6 +2605,8 @@ def lock_path(directory, timeout=10, timeout_class=None, limit=1):
         the same directory at the time this method is called. Note that this
         limit is only applied during the current call to this method and does
         not prevent subsequent calls giving a larger limit. Defaults to 1.
+    :param name: A string to distinguishes different type of locks in a
+        directory
     :raises TypeError: if limit is not an int.
     :raises ValueError: if limit is less than 1.
     """
@@ -2614,6 +2616,8 @@ def lock_path(directory, timeout=10, timeout_class=None, limit=1):
         timeout_class = swift.common.exceptions.LockTimeout
     mkdirs(directory)
     lockpath = '%s/.lock' % directory
+    if name:
+        lockpath += '-%s' % str(name)
     fds = [os.open(get_zero_indexed_base_string(lockpath, i),
                    os.O_WRONLY | os.O_CREAT)
            for i in range(limit)]

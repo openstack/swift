@@ -158,7 +158,9 @@ class Receiver(object):
                     if not self.app.replication_semaphore.acquire(False):
                         raise swob.HTTPServiceUnavailable()
                 try:
-                    with self.diskfile_mgr.replication_lock(self.device):
+                    with self.diskfile_mgr.replication_lock(self.device,
+                                                            self.policy,
+                                                            self.partition):
                         for data in self.missing_check():
                             yield data
                         for data in self.updates():
