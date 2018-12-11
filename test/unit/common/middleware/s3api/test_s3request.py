@@ -13,8 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 from mock import patch, MagicMock
 import unittest
+
+from six import BytesIO
 
 from swift.common import swob
 from swift.common.swob import Request, HTTPNoContent
@@ -24,7 +27,7 @@ from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
     Grant, encode_acl
 from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
 from swift.common.middleware.s3api.s3request import S3Request, \
-    S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT
+    S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT, HashingInput
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed
@@ -760,6 +763,78 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
         self.assertTrue(sigv2_req.check_signature(
             'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'))
+
+
+class TestHashingInput(S3ApiTestCase):
+    def test_good(self):
+        raw = b'123456789'
+        wrapped = HashingInput(BytesIO(raw), 9, hashlib.md5,
+                               hashlib.md5(raw).hexdigest())
+        self.assertEqual(b'1234', wrapped.read(4))
+        self.assertEqual(b'56', wrapped.read(2))
+        # trying to read past the end gets us whatever's left
+        self.assertEqual(b'789', wrapped.read(4))
+        # can continue trying to read -- but it'll be empty
+        self.assertEqual(b'', wrapped.read(2))
+
+        self.assertFalse(wrapped._input.closed)
+        wrapped.close()
+        self.assertTrue(wrapped._input.closed)
+
+    def test_empty(self):
+        wrapped = HashingInput(BytesIO(b''), 0, hashlib.sha256,
+                               hashlib.sha256(b'').hexdigest())
+        self.assertEqual(b'', wrapped.read(4))
+        self.assertEqual(b'', wrapped.read(2))
+
+        self.assertFalse(wrapped._input.closed)
+        wrapped.close()
+        self.assertTrue(wrapped._input.closed)
+
+    def test_too_long(self):
+        raw = b'123456789'
+        wrapped = HashingInput(BytesIO(raw), 8, hashlib.md5,
+                               hashlib.md5(raw).hexdigest())
+        self.assertEqual(b'1234', wrapped.read(4))
+        self.assertEqual(b'56', wrapped.read(2))
+        # even though the hash matches, there was more data than we expected
+        with self.assertRaises(swob.Response) as raised:
+            wrapped.read(3)
+        self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
+        # the error causes us to close the input
+        self.assertTrue(wrapped._input.closed)
+
+    def test_too_short(self):
+        raw = b'123456789'
+        wrapped = HashingInput(BytesIO(raw), 10, hashlib.md5,
+                               hashlib.md5(raw).hexdigest())
+        self.assertEqual(b'1234', wrapped.read(4))
+        self.assertEqual(b'56', wrapped.read(2))
+        # even though the hash matches, there was more data than we expected
+        with self.assertRaises(swob.Response) as raised:
+            wrapped.read(4)
+        self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
+        self.assertTrue(wrapped._input.closed)
+
+    def test_bad_hash(self):
+        raw = b'123456789'
+        wrapped = HashingInput(BytesIO(raw), 9, hashlib.sha256,
+                               hashlib.md5(raw).hexdigest())
+        self.assertEqual(b'1234', wrapped.read(4))
+        self.assertEqual(b'5678', wrapped.read(4))
+        with self.assertRaises(swob.Response) as raised:
+            wrapped.read(4)
+        self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
+        self.assertTrue(wrapped._input.closed)
+
+    def test_empty_bad_hash(self):
+        wrapped = HashingInput(BytesIO(b''), 0, hashlib.sha256, 'nope')
+        with self.assertRaises(swob.Response) as raised:
+            wrapped.read(3)
+        self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
+        # the error causes us to close the input
+        self.assertTrue(wrapped._input.closed)
+
 
 if __name__ == '__main__':
     unittest.main()
