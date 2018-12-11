@@ -30,19 +30,25 @@ This middleware:
   access key.
 * Validates s3 token with Keystone.
 * Transforms the account name to AUTH_%(tenant_name).
+* Optionally can retrieve and cache secret from keystone
+  to validate signature locally
 
 """
 
 import base64
 import json
 
+from keystoneclient.v3 import client as keystone_client
+from keystoneauth1 import session as keystone_session
+from keystoneauth1 import loading as keystone_loading
 import requests
 import six
 from six.moves import urllib
 
 from swift.common.swob import Request, HTTPBadRequest, HTTPUnauthorized, \
     HTTPException
-from swift.common.utils import config_true_value, split_path, get_logger
+from swift.common.utils import config_true_value, split_path, get_logger, \
+    cache_from_env
 from swift.common.wsgi import ConfigFileError
 
 
@@ -155,6 +161,31 @@ class S3Token(object):
         else:
             self._verify = None
 
+        self._secret_cache_duration = int(conf.get('secret_cache_duration', 0))
+        if self._secret_cache_duration > 0:
+            try:
+                auth_plugin = keystone_loading.get_plugin_loader(
+                    conf.get('auth_type'))
+                available_auth_options = auth_plugin.get_options()
+                auth_options = {}
+                for option in available_auth_options:
+                    name = option.name.replace('-', '_')
+                    value = conf.get(name)
+                    if value:
+                        auth_options[name] = value
+
+                auth = auth_plugin.load_from_options(**auth_options)
+                session = keystone_session.Session(auth=auth)
+                self.keystoneclient = keystone_client.Client(session=session)
+                self._logger.info("Caching s3tokens for %s seconds",
+                                  self._secret_cache_duration)
+            except Exception:
+                self._logger.warning("Unable to load keystone auth_plugin. "
+                                     "Secret caching will be unavailable.",
+                                     exc_info=True)
+                self.keystoneclient = None
+                self._secret_cache_duration = 0
+
     def _deny_request(self, code):
         error_cls, message = {
             'AccessDenied': (HTTPUnauthorized, 'Access denied'),
@@ -245,64 +276,99 @@ class S3Token(object):
         creds = {'credentials': {'access': access,
                                  'token': token,
                                  'signature': signature}}
-        creds_json = json.dumps(creds)
-        self._logger.debug('Connecting to Keystone sending this JSON: %s',
-                           creds_json)
-        # NOTE(vish): We could save a call to keystone by having
-        #             keystone return token, tenant, user, and roles
-        #             from this call.
-        #
-        # NOTE(chmou): We still have the same problem we would need to
-        #              change token_auth to detect if we already
-        #              identified and not doing a second query and just
-        #              pass it through to swiftauth in this case.
-        try:
-            # NB: requests.Response, not swob.Response
-            resp = self._json_request(creds_json)
-        except HTTPException as e_resp:
-            if self._delay_auth_decision:
-                msg = 'Received error, deferring rejection based on error: %s'
-                self._logger.debug(msg, e_resp.status)
-                return self._app(environ, start_response)
-            else:
-                msg = 'Received error, rejecting request with error: %s'
-                self._logger.debug(msg, e_resp.status)
-                # NB: swob.Response, not requests.Response
-                return e_resp(environ, start_response)
 
-        self._logger.debug('Keystone Reply: Status: %d, Output: %s',
-                           resp.status_code, resp.content)
+        memcache_client = None
+        memcache_token_key = 's3secret/%s' % access
+        if self._secret_cache_duration > 0:
+            memcache_client = cache_from_env(environ)
+        cached_auth_data = None
 
-        try:
-            token = resp.json()
-            if 'access' in token:
-                headers, token_id, tenant = parse_v2_response(token)
-            elif 'token' in token:
-                headers, token_id, tenant = parse_v3_response(token)
-            else:
-                raise ValueError
+        if memcache_client:
+            cached_auth_data = memcache_client.get(memcache_token_key)
+            if cached_auth_data:
+                headers, token_id, tenant, secret = cached_auth_data
+                if s3_auth_details['check_signature'](secret):
+                    self._logger.debug("Cached creds valid")
+                else:
+                    self._logger.debug("Cached creds invalid")
+                    cached_auth_data = None
 
-            # Populate the environment similar to auth_token,
-            # so we don't have to contact Keystone again.
+        if not cached_auth_data:
+            creds_json = json.dumps(creds)
+            self._logger.debug('Connecting to Keystone sending this JSON: %s',
+                               creds_json)
+            # NOTE(vish): We could save a call to keystone by having
+            #             keystone return token, tenant, user, and roles
+            #             from this call.
             #
-            # Note that although the strings are unicode following json
-            # deserialization, Swift's HeaderEnvironProxy handles ensuring
-            # they're stored as native strings
-            req.headers.update(headers)
-            req.environ['keystone.token_info'] = token
-        except (ValueError, KeyError, TypeError):
-            if self._delay_auth_decision:
-                error = ('Error on keystone reply: %d %s - '
-                         'deferring rejection downstream')
-                self._logger.debug(error, resp.status_code, resp.content)
-                return self._app(environ, start_response)
-            else:
-                error = ('Error on keystone reply: %d %s - '
-                         'rejecting request')
-                self._logger.debug(error, resp.status_code, resp.content)
-                return self._deny_request('InvalidURI')(
-                    environ, start_response)
+            # NOTE(chmou): We still have the same problem we would need to
+            #              change token_auth to detect if we already
+            #              identified and not doing a second query and just
+            #              pass it through to swiftauth in this case.
+            try:
+                # NB: requests.Response, not swob.Response
+                resp = self._json_request(creds_json)
+            except HTTPException as e_resp:
+                if self._delay_auth_decision:
+                    msg = ('Received error, deferring rejection based on '
+                           'error: %s')
+                    self._logger.debug(msg, e_resp.status)
+                    return self._app(environ, start_response)
+                else:
+                    msg = 'Received error, rejecting request with error: %s'
+                    self._logger.debug(msg, e_resp.status)
+                    # NB: swob.Response, not requests.Response
+                    return e_resp(environ, start_response)
 
+            self._logger.debug('Keystone Reply: Status: %d, Output: %s',
+                               resp.status_code, resp.content)
+
+            try:
+                token = resp.json()
+                if 'access' in token:
+                    headers, token_id, tenant = parse_v2_response(token)
+                elif 'token' in token:
+                    headers, token_id, tenant = parse_v3_response(token)
+                else:
+                    raise ValueError
+                if memcache_client:
+                    user_id = headers.get('X-User-Id')
+                    if not user_id:
+                        raise ValueError
+                    try:
+                        cred_ref = self.keystoneclient.ec2.get(
+                            user_id=user_id,
+                            access=access)
+                        memcache_client.set(
+                            memcache_token_key,
+                            (headers, token_id, tenant, cred_ref.secret),
+                            time=self._secret_cache_duration)
+                        self._logger.debug("Cached keystone credentials")
+                    except Exception:
+                        self._logger.warning("Unable to cache secret",
+                                             exc_info=True)
+
+                # Populate the environment similar to auth_token,
+                # so we don't have to contact Keystone again.
+                #
+                # Note that although the strings are unicode following json
+                # deserialization, Swift's HeaderEnvironProxy handles ensuring
+                # they're stored as native strings
+                req.environ['keystone.token_info'] = token
+            except (ValueError, KeyError, TypeError):
+                if self._delay_auth_decision:
+                    error = ('Error on keystone reply: %d %s - '
+                             'deferring rejection downstream')
+                    self._logger.debug(error, resp.status_code, resp.content)
+                    return self._app(environ, start_response)
+                else:
+                    error = ('Error on keystone reply: %d %s - '
+                             'rejecting request')
+                    self._logger.debug(error, resp.status_code, resp.content)
+                    return self._deny_request('InvalidURI')(
+                        environ, start_response)
+
+        req.headers.update(headers)
         req.headers['X-Auth-Token'] = token_id
         tenant_to_connect = force_tenant or tenant['id']
         if six.PY2 and isinstance(tenant_to_connect, six.text_type):
