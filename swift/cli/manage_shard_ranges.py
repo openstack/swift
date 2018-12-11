@@ -146,7 +146,7 @@ be performed in isolation or, as shown below, using a single command.
 All three steps may be performed with one sub-command::
 
     $ swift-manage-shard-ranges <path_to_db> find_and_replace 500000 --enable \
-    > --force
+--force
     Loaded db broker for AUTH_test/c1.
     No shard ranges found to delete.
     Injected 7 shard ranges.
