@@ -469,6 +469,60 @@ class TestS3ApiObj(S3ApiTestCase):
         # Check that s3api converts a Content-MD5 header into an etag.
         self.assertEqual(headers['etag'], etag)
 
+    @s3acl
+    def test_object_PUT_v4(self):
+        body_sha = hashlib.sha256(self.object_body).hexdigest()
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={
+                'Authorization':
+                    'AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
+                    'SignedHeaders=host;x-amz-date, '
+                    'Signature=hmac' % (
+                        self.get_v4_amz_date_header().split('T', 1)[0]),
+                'x-amz-date': self.get_v4_amz_date_header(),
+                'x-amz-storage-class': 'STANDARD',
+                'x-amz-content-sha256': body_sha,
+                'Date': self.get_date_header()},
+            body=self.object_body)
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        # Check that s3api returns an etag header.
+        self.assertEqual(headers['etag'],
+                         '"%s"' % self.response_headers['etag'])
+
+        _, _, headers = self.swift.calls_with_headers[-1]
+        # No way to determine ETag to send
+        self.assertNotIn('etag', headers)
+
+    @s3acl
+    def test_object_PUT_v4_bad_hash(self):
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={
+                'Authorization':
+                    'AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
+                    'SignedHeaders=host;x-amz-date, '
+                    'Signature=hmac' % (
+                        self.get_v4_amz_date_header().split('T', 1)[0]),
+                'x-amz-date': self.get_v4_amz_date_header(),
+                'x-amz-storage-class': 'STANDARD',
+                'x-amz-content-sha256': 'not the hash',
+                'Date': self.get_date_header()},
+            body=self.object_body)
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        print(body)
+        self.assertEqual(self._get_error_code(body), 'BadDigest')
+
     def test_object_PUT_headers(self):
         content_md5 = self.etag.decode('hex').encode('base64').strip()
 
