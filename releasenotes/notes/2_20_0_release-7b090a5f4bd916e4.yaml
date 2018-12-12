@@ -1,0 +1,116 @@
+---
+features:
+  - |
+    S3 API compatibility updates
+
+    - Swift can now cache the S3 secret from Keystone to use for
+      subsequent requests. This functionality is disabled by default but
+      can be enabled by setting the ``secret_cache_duration`` in the
+      ``[filter:s3token]`` section of the proxy server config to a number
+      greater than 0.
+
+    - s3api now mimics the AWS S3 behavior of periodically sending
+      whitespace characters on a Complete Multipart Upload request to keep
+      the connection from timing out. Note that since a request could fail
+      after the initial 200 OK response has been sent, it is important to
+      check the response body to determine if the request succeeded.
+
+    - s3api now properly handles ``x-amz-metadata-directive`` headers on
+      COPY operations.
+
+    - s3api now uses concurrency (default 2) to handle multi-delete
+      requests. This allows multi-delete requests to be processed much
+      more quickly.
+
+    - s3api now mimics some forms of AWS server-side encryption
+      based on whether Swift's at-rest encryption functionality is enabled.
+      Note that S3 API users are now able to know more about how the
+      cluster is configured than they were previously, ie knowledge of
+      encryption at-rest functionality being enabled or not.
+
+    - s3api responses now include a '-' in multipart ETags.
+
+      For new multipart-uploads via the S3 API, the ETag that is
+      stored will be calculated in the same way that AWS uses. This
+      ETag will be used in GET/HEAD responses, bucket listings, and
+      conditional requests via the S3 API. Accessing the same object
+      via the Swift API will use the SLO Etag; however, in JSON
+      container listings the multipart upload etag will be exposed
+      in a new "s3_etag" key. Previously, some S3 clients would complain
+      about download corruption when the ETag did not have a '-'.
+
+    - S3 ETag for SLOs now include a '-'.
+
+      Ordinary objects in S3 use the MD5 of the object as the ETag,
+      just like Swift. Multipart Uploads follow a different format, notably
+      including a dash followed by the number of segments. To that end
+      (and for S3 API requests *only*), SLO responses via the S3 API have a
+      literal '-N' added on the end of the ETag.
+
+    - The default location is now set to "us-east-1". This is more likely
+      to be the default region that a client will try when using v4
+      signatures.
+
+      Deployers with clusters that relied on the old implicit default
+      location of "US" should explicitly set ``location = US`` in the
+      ``[filter:s3api]`` section of proxy-server.conf before upgrading.
+
+    - Add basic support for ?versions bucket listings. We still do not
+      have support for toggling S3 bucket versioning, but we can at least
+      support getting the latest versions of all objects.
+
+  - |
+    Fixed an issue with SSYNC requests to ensure that only one request
+    can be running on a partition at a time.
+
+  - |
+    Data encryption updates
+
+    - The ``kmip_keymaster`` middleware can now be configured directly in the
+      proxy-server config file. The existing behavior of using an external
+      config file is still supported.
+
+    - Multiple keymaster middlewares are now supported. This allows
+      migration from one key provider to another.
+
+      Note that ``secret_id`` values must remain unique across all keymasters
+      in a given pipeline. If they are not unique, the right-most keymaster
+      will take precedence.
+
+      When looking for the active root secret, only the right-most
+      keymaster is used.
+
+    - Prevent PyKMIP's kmip_protocol logger from logging at DEBUG.
+      Previously, some versions of PyKMIP would include all wire
+      data when the root logger was configured to log at DEBUG; this
+      could expose key material in logs. Only the ``kmip_keymaster`` was
+      affected.
+
+  - |
+    Fixed an issue where a failed drive could prevent the container sharder
+    from making progress.
+
+  - |
+    Storage policy definitions in swift.conf can now define the diskfile
+    to use to access objects. See the included swift.conf-sample file for
+    a description of usage.
+
+  - |
+    The EC reconstructor will now attempt to remove empty directories
+    immediately, while the inodes are still cached, rather than waiting
+    until the next run.
+
+  - |
+    Added a ``keep_idle`` config option to configure KEEPIDLE time for TCP
+    sockets. The default value is the old constant of 600.
+
+  - |
+    Add ``databases_per_second`` to the account-replicator,
+    container-replicator, and container-sharder. This prevents them from
+    using a full CPU core when they are not IO limited.
+
+  - |
+    Allow direct_client users to overwrite the ``X-Timestamp`` header.
+
+  - |
+    Various other minor bug fixes and improvements.
