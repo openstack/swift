@@ -132,7 +132,7 @@ class TestProfileMiddleware(unittest.TestCase):
                    'QUERY_STRING': 'profile=all&format=json',
                    'wsgi.input': wsgi_input}
         resp = self.app(environ, self.start_response)
-        self.assertTrue(resp[0].find('<html>') > 0, resp)
+        self.assertTrue(resp[0].find(b'<html>') > 0, resp)
         self.assertEqual(self.got_statuses, ['200 OK'])
         self.assertEqual(self.headers, [('content-type', 'text/html')])
         wsgi_input = BytesIO(body + b'&plot=plot')
@@ -144,12 +144,12 @@ class TestProfileMiddleware(unittest.TestCase):
         else:
             resp = self.app(environ, self.start_response)
             self.assertEqual(self.got_statuses, ['500 Internal Server Error'])
-        wsgi_input = BytesIO(body + '&download=download&format=default')
+        wsgi_input = BytesIO(body + b'&download=download&format=default')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         self.assertEqual(self.headers, [('content-type',
                                          HTMLViewer.format_dict['default'])])
-        wsgi_input = BytesIO(body + '&download=download&format=json')
+        wsgi_input = BytesIO(body + b'&download=download&format=json')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         self.assertTrue(self.headers == [('content-type',
