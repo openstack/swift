@@ -25,10 +25,16 @@
         executable: /bin/bash
         chdir: '{{ zuul.project.src_dir }}'
 
+    - name: build swift
+      shell:
+        cmd: python setup.py sdist
+        executable: /bin/bash
+        chdir: '{{ zuul.project.src_dir }}'
+
     - name: install swift
       become: true
       shell:
-        cmd: python setup.py develop
+        cmd: pip install dist/swift-*.tar.gz
         executable: /bin/bash
         chdir: '{{ zuul.project.src_dir }}'
 
