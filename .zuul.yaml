@@ -279,6 +279,12 @@
       previous_swift_version: origin/stable/queens
 
 - job:
+    name: swift-multinode-rolling-upgrade-rocky
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/rocky
+
+- job:
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
     vars:
@@ -413,6 +419,7 @@
         - swift-tox-func-encryption-centos-7
         - swift-tox-func-ec-centos-7
         - swift-multinode-rolling-upgrade-queens
+        - swift-multinode-rolling-upgrade-rocky
 
     post:
       jobs:
