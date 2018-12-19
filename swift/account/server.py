@@ -13,12 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import time
 import traceback
 from swift import gettext_ as _
 
 from eventlet import Timeout
+
+import six
 
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
@@ -28,7 +31,7 @@ from swift.common.request_helpers import get_param, \
     split_and_validate_path
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, config_true_value, \
-    json, timing_stats, replication, get_log_line, \
+    timing_stats, replication, get_log_line, \
     config_fallocate_value, fs_has_free_space
 from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
@@ -167,9 +170,21 @@ class AccountController(BaseStorageServer):
                 if broker.is_deleted():
                     return HTTPConflict(request=req)
             metadata = {}
-            metadata.update((key, (value, timestamp.internal))
-                            for key, value in req.headers.items()
-                            if is_sys_or_user_meta('account', key))
+            if six.PY2:
+                metadata.update((key, (value, timestamp.internal))
+                                for key, value in req.headers.items()
+                                if is_sys_or_user_meta('account', key))
+            else:
+                for key, value in req.headers.items():
+                    if is_sys_or_user_meta('account', key):
+                        # Cast to native strings, so that json inside
+                        # updata_metadata eats the data.
+                        try:
+                            value = value.encode('latin-1').decode('utf-8')
+                        except UnicodeDecodeError:
+                            raise HTTPBadRequest(
+                                'Metadata must be valid UTF-8')
+                        metadata[key] = (value, timestamp.internal)
             if metadata:
                 broker.update_metadata(metadata, validate_metadata=True)
             if created:

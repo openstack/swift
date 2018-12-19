@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import random
 import math
@@ -32,7 +33,7 @@ from swift.common.constraints import check_drive
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
-    json, parse_override_options, round_robin_iter, Everything, get_db_files, \
+    parse_override_options, round_robin_iter, Everything, get_db_files, \
     parse_db_filename, quote, RateLimitedIterator
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
@@ -476,7 +477,7 @@ class Replicator(Daemon):
         elif response.status == HTTP_INSUFFICIENT_STORAGE:
             raise DriveNotMounted()
         elif 200 <= response.status < 300:
-            rinfo = json.loads(response.data.decode('ascii'))
+            rinfo = json.loads(response.data)
             local_sync = broker.get_sync(rinfo['id'], incoming=False)
             if rinfo.get('metadata', ''):
                 broker.update_metadata(json.loads(rinfo['metadata']))

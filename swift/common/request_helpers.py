@@ -56,17 +56,36 @@ def get_param(req, name, default=None):
     :param name: parameter name
     :param default: result to return if the parameter is not found
     :returns: HTTP request parameter value
-              (as UTF-8 encoded str, not unicode object)
+              (in py2, as UTF-8 encoded str, not unicode object)
     :raises HTTPBadRequest: if param not valid UTF-8 byte sequence
     """
     value = req.params.get(name, default)
-    if value and not isinstance(value, six.text_type):
-        try:
-            value.decode('utf8')    # Ensure UTF8ness
-        except UnicodeDecodeError:
-            raise HTTPBadRequest(
-                request=req, content_type='text/plain',
-                body='"%s" parameter not valid UTF-8' % name)
+    if six.PY2:
+        if value and not isinstance(value, six.text_type):
+            try:
+                value.decode('utf8')    # Ensure UTF8ness
+            except UnicodeDecodeError:
+                raise HTTPBadRequest(
+                    request=req, content_type='text/plain',
+                    body='"%s" parameter not valid UTF-8' % name)
+    else:
+        if value:
+            try:
+                if isinstance(value, six.text_type):
+                    value = value.encode('latin1')
+            except UnicodeEncodeError:
+                # This happens, remarkably enough, when WSGI string is not
+                # a valid latin-1, and passed through parse_qsl().
+                raise HTTPBadRequest(
+                    request=req, content_type='text/plain',
+                    body='"%s" parameter not valid UTF-8' % name)
+            try:
+                # Ensure UTF8ness since we're at it
+                value = value.decode('utf8')
+            except UnicodeDecodeError:
+                raise HTTPBadRequest(
+                    request=req, content_type='text/plain',
+                    body='"%s" parameter not valid UTF-8' % name)
     return value
 
 
