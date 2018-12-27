@@ -340,7 +340,10 @@
         - swift-tox-func-s3api-ceph-s3tests-tempauth:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
-              - ^test/probe/.*$
+              # Keep doc/saio -- we use those sample configs in the saio playbooks
+              # Also keep doc/s3api -- it holds known failures for these tests
+              - ^doc/(requirements.txt|(manpages|source)/.*)$
+              - ^test/(unit|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-probetests-centos-7:
             irrelevant-files:
