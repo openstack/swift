@@ -751,7 +751,7 @@ class Accept(object):
 def _req_environ_property(environ_field, is_wsgi_string_field=True):
     """
     Set and retrieve value of the environ_field entry in self.environ.
-    (Used by both request and response)
+    (Used by Request)
     """
     def getter(self):
         return self.environ.get(environ_field, None)
@@ -967,7 +967,11 @@ class Request(object):
     @params.setter
     def params(self, param_pairs):
         self._params_cache = None
-        self.query_string = urllib.parse.urlencode(param_pairs)
+        if six.PY2:
+            self.query_string = urllib.parse.urlencode(param_pairs)
+        else:
+            self.query_string = urllib.parse.urlencode(param_pairs,
+                                                       encoding='latin-1')
 
     @property
     def timestamp(self):
