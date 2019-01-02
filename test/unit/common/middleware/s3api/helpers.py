@@ -41,11 +41,10 @@ class FakeSwift(object):
         if 'swift.authorize_override' in env:
             return
 
-        if 'HTTP_AUTHORIZATION' not in env:
+        if 's3api.auth_details' not in env:
             return
 
-        _, authorization = env['HTTP_AUTHORIZATION'].split(' ')
-        tenant_user, sign = authorization.rsplit(':', 1)
+        tenant_user = env['s3api.auth_details']['access_key']
         tenant, user = tenant_user.rsplit(':', 1)
 
         path = env['PATH_INFO']
