@@ -59,6 +59,7 @@ Static Large Object when the multipart upload is completed.
 
 """
 
+from hashlib import md5
 import os
 import re
 
@@ -71,7 +72,7 @@ from six.moves.urllib.parse import urlparse  # pylint: disable=F0401
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
-    ErrorResponse, MalformedXML, \
+    ErrorResponse, MalformedXML, BadDigest, \
     InvalidPart, BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, \
     InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \
     NoSuchBucket
@@ -576,6 +577,15 @@ class UploadController(Controller):
             xml = req.xml(MAX_COMPLETE_UPLOAD_BODY_SIZE)
             if not xml:
                 raise InvalidRequest(msg='You must specify at least one part')
+            if 'content-md5' in req.headers:
+                # If an MD5 was provided, we need to verify it.
+                # Note that S3Request already took care of translating to ETag
+                if req.headers['etag'] != md5(xml).hexdigest():
+                    raise BadDigest(content_md5=req.headers['content-md5'])
+                # We're only interested in the body here, in the
+                # multipart-upload controller -- *don't* let it get
+                # plumbed down to the object-server
+                del req.headers['etag']
 
             complete_elem = fromstring(
                 xml, 'CompleteMultipartUpload', self.logger)
