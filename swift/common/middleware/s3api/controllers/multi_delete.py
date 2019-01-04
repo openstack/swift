@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import copy
+import json
 
 from swift.common.constraints import MAX_OBJECT_NAME_LENGTH
 from swift.common.utils import public, StreamingPile
@@ -115,7 +116,30 @@ class MultiObjectDeleteController(Controller):
 
             try:
                 query = req.gen_multipart_manifest_delete_query(self.app)
-                req.get_response(self.app, method='DELETE', query=query)
+                resp = req.get_response(self.app, method='DELETE', query=query,
+                                        headers={'Accept': 'application/json'})
+                # Have to read the response to actually do the SLO delete
+                if query:
+                    try:
+                        delete_result = json.loads(resp.body)
+                        if delete_result['Errors']:
+                            # NB: bulk includes 404s in "Number Not Found",
+                            # not "Errors"
+                            msg_parts = [delete_result['Response Status']]
+                            msg_parts.extend(
+                                '%s: %s' % (obj, status)
+                                for obj, status in delete_result['Errors'])
+                            return key, {'code': 'SLODeleteError',
+                                         'message': '\n'.join(msg_parts)}
+                        # else, all good
+                    except (ValueError, TypeError, KeyError):
+                        # Logs get all the gory details
+                        self.logger.exception(
+                            'Could not parse SLO delete response: %r',
+                            resp.body)
+                        # Client gets something more generic
+                        return key, {'code': 'SLODeleteError',
+                                     'message': 'Unexpected swift response'}
             except NoSuchKey:
                 pass
             except ErrorResponse as e:
