@@ -1227,6 +1227,15 @@ class StaticLargeObject(object):
                         data_for_storage[i] = seg_data
                         total_size += segment_length
 
+            # Middleware left of SLO can add a callback to the WSGI
+            # environment to perform additional validation and/or
+            # manipulation on the manifest that will be written.
+            hook = req.environ.get('swift.callback.slo_manifest_hook')
+            if hook:
+                more_problems = hook(data_for_storage)
+                if more_problems:
+                    problem_segments.extend(more_problems)
+
             if problem_segments:
                 err = HTTPBadRequest(content_type=out_content_type)
                 resp_dict = {}
