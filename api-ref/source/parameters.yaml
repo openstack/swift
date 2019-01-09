@@ -228,7 +228,7 @@ If-Unmodified-Since:
 Last-Modified:
   description: |
     The date and time when the object was created or its metadata was
-    changed. The date and time is formaatted as shown in this
+    changed. The date and time is formatted as shown in this
     example: ``Fri, 12 Aug 2016 14:24:16 GMT``
 
     The time is always in UTC.
