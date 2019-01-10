@@ -52,11 +52,11 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.min_segment_size = int(tf.cluster_info['s3api'].get(
             'min_segment_size', 5242880))
 
-    def _gen_comp_xml(self, etags):
+    def _gen_comp_xml(self, etags, step=1):
         elem = Element('CompleteMultipartUpload')
         for i, etag in enumerate(etags):
             elem_part = SubElement(elem, 'Part')
-            SubElement(elem_part, 'PartNumber').text = str(i + 1)
+            SubElement(elem_part, 'PartNumber').text = str(i * step + 1)
             SubElement(elem_part, 'ETag').text = etag
         return tostring(elem)
 
@@ -731,13 +731,13 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         etags = []
         for i in range(1, 4):
-            query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
+            query = 'partNumber=%s&uploadId=%s' % (2 * i - 1, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key,
                                        body='A' * 1024 * 1024 * 5, query=query)
             etags.append(headers['etag'])
         query = 'uploadId=%s' % upload_id
-        xml = self._gen_comp_xml(etags[:-1])
+        xml = self._gen_comp_xml(etags[:-1], step=2)
         status, headers, body = \
             self.conn.make_request('POST', bucket, key, body=xml,
                                    query=query)

@@ -62,6 +62,7 @@ Static Large Object when the multipart upload is completed.
 from hashlib import md5
 import os
 import re
+import time
 
 from swift.common.swob import Range
 from swift.common.utils import json, public, reiterate
@@ -562,21 +563,7 @@ class UploadController(Controller):
         if content_type:
             headers['Content-Type'] = content_type
 
-        # Query for the objects in the segments area to make sure it completed
-        query = {
-            'format': 'json',
-            'prefix': '%s/%s/' % (req.object_name, upload_id),
-            'delimiter': '/'
-        }
-
         container = req.container_name + MULTIUPLOAD_SUFFIX
-        resp = req.get_response(self.app, 'GET', container, '', query=query)
-        objinfo = json.loads(resp.body)
-        objtable = dict((o['name'],
-                         {'path': '/'.join(['', container, o['name']]),
-                          'etag': o['hash'],
-                          'size_bytes': o['bytes']}) for o in objinfo)
-
         s3_etag_hasher = md5()
         manifest = []
         previous_number = 0
@@ -598,16 +585,16 @@ class UploadController(Controller):
                 if len(etag) >= 2 and etag[0] == '"' and etag[-1] == '"':
                     # strip double quotes
                     etag = etag[1:-1]
-
-                info = objtable.get("%s/%s/%s" % (req.object_name, upload_id,
-                                                  part_number))
-                if info is None or info['etag'] != etag:
+                if len(etag) != 32 or any(c not in '0123456789abcdef'
+                                          for c in etag):
                     raise InvalidPart(upload_id=upload_id,
                                       part_number=part_number)
 
+                manifest.append({
+                    'path': '/%s/%s/%s/%d' % (
+                        container, req.object_name, upload_id, part_number),
+                    'etag': etag})
                 s3_etag_hasher.update(etag.decode('hex'))
-                info['size_bytes'] = int(info['size_bytes'])
-                manifest.append(info)
         except (XMLSyntaxError, DocumentInvalid):
             # NB: our schema definitions catch uploads with no parts here
             raise MalformedXML()
@@ -623,11 +610,21 @@ class UploadController(Controller):
         c_etag = '; s3_etag=%s' % s3_etag
         headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = c_etag
 
-        # Check the size of each segment except the last and make sure they are
-        # all more than the minimum upload chunk size
-        for info in manifest[:-1]:
-            if info['size_bytes'] < self.conf.min_segment_size:
-                raise EntityTooSmall()
+        too_small_message = ('s3api requires that each segment be at least '
+                             '%d bytes' % self.conf.min_segment_size)
+
+        def size_checker(manifest):
+            # Check the size of each segment except the last and make sure
+            # they are all more than the minimum upload chunk size.
+            # Note that we need to use the *internal* keys, since we're
+            # looking at the manifest that's about to be written.
+            return [
+                (item['name'], too_small_message)
+                for item in manifest[:-1]
+                if item and item['bytes'] < self.conf.min_segment_size]
+
+        req.environ['swift.callback.slo_manifest_hook'] = size_checker
+        start_time = time.time()
 
         def response_iter():
             # NB: XML requires that the XML declaration, if present, be at the
@@ -650,27 +647,36 @@ class UploadController(Controller):
                         put_resp.fix_conditional_response()
                         for chunk in put_resp.response_iter:
                             if not chunk.strip():
+                                if time.time() - start_time < 10:
+                                    # Include some grace period to keep
+                                    # ceph-s3tests happy
+                                    continue
                                 if not yielded_anything:
                                     yield ('<?xml version="1.0" '
                                            'encoding="UTF-8"?>\n')
                                 yielded_anything = True
                                 yield chunk
+                                continue
                             body.append(chunk)
-                        body = json.loads(''.join(body))
+                        body = json.loads(b''.join(body))
                         if body['Response Status'] != '201 Created':
+                            for seg, err in body['Errors']:
+                                if err == too_small_message:
+                                    raise EntityTooSmall()
+                                elif err in ('Etag Mismatch', '404 Not Found'):
+                                    raise InvalidPart(upload_id=upload_id)
                             raise InvalidRequest(
                                 status=body['Response Status'],
                                 msg='\n'.join(': '.join(err)
                                               for err in body['Errors']))
                 except BadSwiftRequest as e:
                     msg = str(e)
-                    expected_msg = ('too small; each segment must be '
-                                    'at least 1 byte')
-                    if expected_msg in msg:
-                        # FIXME: AWS S3 allows a smaller object than 5 MB if
-                        # there is only one part.  Use a COPY request to copy
-                        # the part object from the segments container instead.
+                    if too_small_message in msg:
                         raise EntityTooSmall(msg)
+                    elif ', Etag Mismatch' in msg:
+                        raise InvalidPart(upload_id=upload_id)
+                    elif ', 404 Not Found' in msg:
+                        raise InvalidPart(upload_id=upload_id)
                     else:
                         raise
 
