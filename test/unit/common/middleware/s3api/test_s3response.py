@@ -54,6 +54,8 @@ class TestResponse(unittest.TestCase):
             expected_headers = HeaderKeyDict(
                 {sysmeta_prefix(_server_type) + 'test': 'ok'})
             self.assertEqual(expected_headers, s3resp.sysmeta_headers)
+            self.assertIn('x-%s-sysmeta-test-s3api' % _server_type,
+                          s3resp.sw_headers)
 
     def test_response_s3api_sysmeta_from_swift3_sysmeta(self):
         for _server_type in ('object', 'container'):
