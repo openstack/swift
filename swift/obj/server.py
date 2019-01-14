@@ -95,24 +95,17 @@ def _make_backend_fragments_header(fragments):
     return None
 
 
-if six.PY2:
-    class EventletPlungerString(str):
-        """
-        Eventlet won't send headers until it's accumulated at least
-        eventlet.wsgi.MINIMUM_CHUNK_SIZE bytes or the app iter is exhausted.
-        If we want to send the response body behind Eventlet's back, perhaps
-        with some zero-copy wizardry, then we have to unclog the plumbing in
-        eventlet.wsgi to force the headers out, so we use an
-        EventletPlungerString to empty out all of Eventlet's buffers.
-        """
-        def __len__(self):
-            return wsgi.MINIMUM_CHUNK_SIZE + 1
-else:
-    # Eventlet of 0.23.0 does encode('ascii') and strips our __len__.
-    # Avoid it by inheriting from bytes.
-    class EventletPlungerString(bytes):
-        def __len__(self):
-            return wsgi.MINIMUM_CHUNK_SIZE + 1
+class EventletPlungerString(bytes):
+    """
+    Eventlet won't send headers until it's accumulated at least
+    eventlet.wsgi.MINIMUM_CHUNK_SIZE bytes or the app iter is exhausted.
+    If we want to send the response body behind Eventlet's back, perhaps
+    with some zero-copy wizardry, then we have to unclog the plumbing in
+    eventlet.wsgi to force the headers out, so we use an
+    EventletPlungerString to empty out all of Eventlet's buffers.
+    """
+    def __len__(self):
+        return wsgi.MINIMUM_CHUNK_SIZE + 1
 
 
 class ObjectController(BaseStorageServer):
