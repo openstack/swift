@@ -282,12 +282,16 @@ class HeaderEnvironProxy(MutableMapping):
 
 
 def wsgi_to_bytes(wsgi_str):
+    if wsgi_str is None:
+        return None
     if six.PY2:
         return wsgi_str
     return wsgi_str.encode('latin1')
 
 
 def wsgi_to_str(wsgi_str):
+    if wsgi_str is None:
+        return None
     if six.PY2:
         return wsgi_str
     return wsgi_to_bytes(wsgi_str).decode('utf8', errors='surrogateescape')

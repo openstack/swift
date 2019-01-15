@@ -19,8 +19,6 @@ from __future__ import print_function
 import os
 import copy
 import logging
-from six.moves import range
-from six import BytesIO
 import sys
 from contextlib import contextmanager, closing
 from collections import defaultdict, Iterable
@@ -39,21 +37,22 @@ import random
 import errno
 import xattr
 
-
+from swift.common import storage_policy, swob, utils
+from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
+                                         VALID_EC_TYPES)
 from swift.common.utils import Timestamp, NOTICE
 from test import get_config
-from swift.common import utils
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.ring import Ring, RingData, RingBuilder
 from swift.obj import server
 from hashlib import md5
 import logging.handlers
 
+import six
+from six.moves import range
+from six import BytesIO
 from six.moves.http_client import HTTPException
-from swift.common import storage_policy
-from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
-                                         VALID_EC_TYPES)
-from swift.common import swob
+
 import functools
 import six.moves.cPickle as pickle
 from gzip import GzipFile
@@ -870,7 +869,7 @@ def fake_http_connect(*code_iter, **kwargs):
 
     class FakeConn(object):
 
-        def __init__(self, status, etag=None, body='', timestamp='1',
+        def __init__(self, status, etag=None, body=b'', timestamp='1',
                      headers=None, expect_headers=None, connection_id=None,
                      give_send=None, give_expect=None):
             if not isinstance(status, FakeStatus):
@@ -925,7 +924,7 @@ def fake_http_connect(*code_iter, **kwargs):
         def getheaders(self):
             etag = self.etag
             if not etag:
-                if isinstance(self.body, str):
+                if isinstance(self.body, six.binary_type):
                     etag = '"' + md5(self.body).hexdigest() + '"'
                 else:
                     etag = '"68b329da9893e34099c7d8ad5cb9c940"'
@@ -1190,7 +1189,7 @@ def encode_frag_archive_bodies(policy, body):
         fragment_payloads.append(fragments)
 
     # join up the fragment payloads per node
-    ec_archive_bodies = [''.join(frags)
+    ec_archive_bodies = [b''.join(frags)
                          for frags in zip(*fragment_payloads)]
     return ec_archive_bodies
 
