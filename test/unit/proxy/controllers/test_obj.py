@@ -2088,32 +2088,30 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         # create a dummy list of putters, check no handoffs
         putters = []
-        for index in range(self.policy.object_ring.replica_count):
-            putters.append(FakePutter(index))
-        got = controller._determine_chunk_destinations(putters, self.policy)
         expected = {}
-        for i, p in enumerate(putters):
-            expected[p] = i
+        for index in range(self.policy.object_ring.replica_count):
+            p = FakePutter(index)
+            putters.append(p)
+            expected[p] = self.policy.get_backend_index(index)
+        got = controller._determine_chunk_destinations(putters, self.policy)
         self.assertEqual(got, expected)
+
+        def _test_one_handoff(index):
+            with mock.patch.object(putters[index], 'node_index', None):
+                got = controller._determine_chunk_destinations(
+                    putters, self.policy)
+                self.assertEqual(got, expected)
+                # Check that we don't mutate the putter
+                self.assertEqual([p.node_index for p in putters],
+                                 [None if i == index else i
+                                  for i, _ in enumerate(putters)])
 
         # now lets make a handoff at the end
-        orig_index = putters[-1].node_index
-        putters[-1].node_index = None
-        got = controller._determine_chunk_destinations(putters, self.policy)
-        self.assertEqual(got, expected)
-        putters[-1].node_index = orig_index
-
+        _test_one_handoff(self.policy.object_ring.replica_count - 1)
         # now lets make a handoff at the start
-        putters[0].node_index = None
-        got = controller._determine_chunk_destinations(putters, self.policy)
-        self.assertEqual(got, expected)
-        putters[0].node_index = 0
-
+        _test_one_handoff(0)
         # now lets make a handoff in the middle
-        putters[2].node_index = None
-        got = controller._determine_chunk_destinations(putters, self.policy)
-        self.assertEqual(got, expected)
-        putters[2].node_index = 2
+        _test_one_handoff(2)
 
         # now lets make all of them handoffs
         for index in range(self.policy.object_ring.replica_count):
