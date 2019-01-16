@@ -718,7 +718,8 @@ class ObjectReconstructor(Daemon):
         suffixes = self.get_suffix_delta(job['hashes'],
                                          job['frag_index'],
                                          remote_suffixes,
-                                         node['index'])
+                                         job['policy'].get_backend_index(
+                                             node['index']))
         # now recalculate local hashes for suffixes that don't
         # match so we're comparing the latest
         local_suff = self._get_hashes(job['local_dev']['device'],
@@ -728,7 +729,8 @@ class ObjectReconstructor(Daemon):
         suffixes = self.get_suffix_delta(local_suff,
                                          job['frag_index'],
                                          remote_suffixes,
-                                         node['index'])
+                                         job['policy'].get_backend_index(
+                                             node['index']))
 
         self.suffix_count += len(suffixes)
         return suffixes
