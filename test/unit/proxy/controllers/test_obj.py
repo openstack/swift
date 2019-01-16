@@ -2097,7 +2097,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(got, expected)
 
         # now lets make a handoff at the end
-        orig_index = putters[-1].node_index = None
+        orig_index = putters[-1].node_index
         putters[-1].node_index = None
         got = controller._determine_chunk_destinations(putters, self.policy)
         self.assertEqual(got, expected)
