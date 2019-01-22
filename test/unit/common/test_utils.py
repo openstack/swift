@@ -1318,7 +1318,6 @@ class TestUtils(unittest.TestCase):
         logger = logging.getLogger()
         logger.addHandler(handler)
         lfo_stdout = utils.LoggerFileObject(logger)
-        lfo_stderr = utils.LoggerFileObject(logger)
         lfo_stderr = utils.LoggerFileObject(logger, 'STDERR')
         print('test1')
         self.assertEqual(sio.getvalue(), '')
