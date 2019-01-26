@@ -968,6 +968,11 @@ class ObjectReconstructor(Daemon):
             # primary who's node_index matches the data's frag_index.  With
             # duplicated EC frags a revert job must sync to all primary nodes
             # that should be holding this frag_index.
+            if fi >= len(part_nodes):
+                self.logger.warning(
+                    'Bad fragment index %r for suffixes %r under %s',
+                    fi, data_fi_to_suffixes[fi], part_path)
+                continue
             nodes_sync_to = []
             node_index = fi
             for n in range(policy.ec_duplication_factor):
