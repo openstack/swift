@@ -3454,8 +3454,8 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             '123': {job['frag_index']: 'hash', None: 'hash'},
             'abc': {job['frag_index']: 'hash', None: 'hash'},
         }
-        remote_index = (
-            job['frag_index'] - 1) % self.policy.ec_n_unique_fragments
+        self.assertEqual(node['index'], self.policy.object_ring.replicas - 1)
+        remote_index = self.policy.get_backend_index(node['index'])
         remote_hashes = {
             '123': {remote_index: 'hash', None: 'hash'},
             'abc': {remote_index: 'hash', None: 'hash'},
@@ -3518,15 +3518,15 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             '123': {frag_index: 'hash', None: 'hash'},
             'abc': {frag_index: 'hash', None: 'hash'},
         }
-        left_index = self.policy.get_backend_index(sync_to[0]['index'])
+        left_frag_index = self.policy.get_backend_index(sync_to[0]['index'])
         left_hashes = {
-            '123': {left_index: 'hash', None: 'hash'},
-            'abc': {left_index: 'hash', None: 'hash'},
+            '123': {left_frag_index: 'hash', None: 'hash'},
+            'abc': {left_frag_index: 'hash', None: 'hash'},
         }
-        right_index = self.policy.get_backend_index(sync_to[1]['index'])
+        right_frag_index = self.policy.get_backend_index(sync_to[1]['index'])
         right_hashes = {
-            '123': {right_index: 'hash', None: 'hash'},
-            'abc': {right_index: 'hash', None: 'hash'},
+            '123': {right_frag_index: 'hash', None: 'hash'},
+            'abc': {right_frag_index: 'hash', None: 'hash'},
         }
         partition = 0
         part_path = os.path.join(self.devices, self.local_dev['device'],
@@ -3641,16 +3641,17 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'abc': {frag_index: 'hash', None: 'hash'},
         }
         # left hand side is in sync
-        left_index = self.policy.get_backend_index(sync_to[0]['index'])
+        left_frag_index = self.policy.get_backend_index(sync_to[0]['index'])
         left_hashes = {
-            '123': {left_index: 'hash', None: 'hash'},
-            'abc': {left_index: 'hash', None: 'hash'},
+            '123': {left_frag_index: 'hash', None: 'hash'},
+            'abc': {left_frag_index: 'hash', None: 'hash'},
         }
         # right hand side has fragment, but no durable (None key is whack)
-        right_index = self.policy.get_backend_index(sync_to[1]['index'])
+        right_frag_index = self.policy.get_backend_index(sync_to[1]['index'])
         right_hashes = {
-            '123': {right_index: 'hash', None: 'hash'},
-            'abc': {right_index: 'hash', None: 'different-because-durable'},
+            '123': {right_frag_index: 'hash', None: 'hash'},
+            'abc': {right_frag_index: 'hash',
+                    None: 'different-because-durable'},
         }
 
         part_path = os.path.join(self.devices, self.local_dev['device'],
@@ -3709,14 +3710,14 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             '123': {frag_index: 'hash', None: 'hash'},
             'abc': {frag_index: 'hash', None: 'hash'},
         }
-        left_index = self.policy.get_backend_index(sync_to[0]['index'])
+        left_frag_index = self.policy.get_backend_index(sync_to[0]['index'])
         left_hashes = {
-            '123': {left_index: 'hashX', None: 'hash'},
-            'abc': {left_index: 'hash', None: 'hash'},
+            '123': {left_frag_index: 'hashX', None: 'hash'},
+            'abc': {left_frag_index: 'hash', None: 'hash'},
         }
-        right_index = self.policy.get_backend_index(sync_to[1]['index'])
+        right_frag_index = self.policy.get_backend_index(sync_to[1]['index'])
         right_hashes = {
-            '123': {right_index: 'hash', None: 'hash'},
+            '123': {right_frag_index: 'hash', None: 'hash'},
         }
         part_path = os.path.join(self.devices, self.local_dev['device'],
                                  diskfile.get_data_dir(self.policy),
