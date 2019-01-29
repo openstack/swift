@@ -344,7 +344,7 @@ class TestObjectReplicator(unittest.TestCase):
         f = open(os.path.join(df._datadir,
                               normalize_timestamp(time.time()) + '.data'),
                  'wb')
-        f.write('1234567890')
+        f.write(b'1234567890')
         f.close()
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
@@ -408,7 +408,7 @@ class TestObjectReplicator(unittest.TestCase):
         f = open(os.path.join(df._datadir,
                               normalize_timestamp(time.time()) + '.data'),
                  'wb')
-        f.write('1234567890')
+        f.write(b'1234567890')
         f.close()
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
@@ -842,7 +842,7 @@ class TestObjectReplicator(unittest.TestCase):
             ts = next(self.ts)
             df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o', policy)
             with df.create() as w:
-                w.write('asdf')
+                w.write(b'asdf')
                 w.put({'X-Timestamp': ts.internal})
                 w.commit(ts)
             expected_suffix_paths.append(os.path.dirname(df._datadir))
@@ -850,7 +850,7 @@ class TestObjectReplicator(unittest.TestCase):
             ts = next(self.ts)
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o', policy)
             with df.create() as w:
-                w.write('asdf')
+                w.write(b'asdf')
                 w.put({'X-Timestamp': ts.internal})
                 w.commit(ts)
             expected_suffix_paths.append(os.path.dirname(df._datadir))
@@ -925,7 +925,7 @@ class TestObjectReplicator(unittest.TestCase):
             ts = next(self.ts)
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o', policy)
             with df.create() as w:
-                w.write('asdf')
+                w.write(b'asdf')
                 w.put({'X-Timestamp': ts.internal})
                 w.commit(ts)
             handoff_suffix_paths.append(os.path.dirname(df._datadir))
@@ -1043,7 +1043,7 @@ class TestObjectReplicator(unittest.TestCase):
                                       policy=POLICIES.legacy)
         ts = next(self.ts)
         with df.create() as w:
-            w.write('asdf')
+            w.write(b'asdf')
             w.put({'X-Timestamp': ts.internal})
             w.commit(ts)
         # pre-flight and post sync request for both other primaries
@@ -1125,7 +1125,7 @@ class TestObjectReplicator(unittest.TestCase):
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
@@ -1155,7 +1155,7 @@ class TestObjectReplicator(unittest.TestCase):
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
@@ -1206,7 +1206,7 @@ class TestObjectReplicator(unittest.TestCase):
             ts = normalize_timestamp(time.time())
             f = open(os.path.join(df._datadir, ts + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             whole_path_from = storage_directory(self.objects, 1, ohash)
@@ -1232,7 +1232,7 @@ class TestObjectReplicator(unittest.TestCase):
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
@@ -1261,7 +1261,7 @@ class TestObjectReplicator(unittest.TestCase):
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
@@ -1297,7 +1297,7 @@ class TestObjectReplicator(unittest.TestCase):
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
@@ -1332,7 +1332,7 @@ class TestObjectReplicator(unittest.TestCase):
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
@@ -1367,7 +1367,7 @@ class TestObjectReplicator(unittest.TestCase):
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
@@ -1443,7 +1443,7 @@ class TestObjectReplicator(unittest.TestCase):
             ts = normalize_timestamp(time.time())
             f = open(os.path.join(df._datadir, ts + '.data'),
                      'wb')
-            f.write('0')
+            f.write(b'0')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             whole_path_from = storage_directory(self.objects, 1, ohash)
@@ -1491,7 +1491,7 @@ class TestObjectReplicator(unittest.TestCase):
             ts = normalize_timestamp(time.time())
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir, ts + '.data'), 'wb')
-            f.write('0')
+            f.write(b'0')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             whole_path_from = storage_directory(self.objects, 1, ohash)
@@ -1539,7 +1539,7 @@ class TestObjectReplicator(unittest.TestCase):
             mkdirs(df._datadir)
             ts = normalize_timestamp(time.time())
             f = open(os.path.join(df._datadir, ts + '.data'), 'wb')
-            f.write('0')
+            f.write(b'0')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             whole_path_from = storage_directory(self.objects, 1, ohash)
@@ -1580,7 +1580,7 @@ class TestObjectReplicator(unittest.TestCase):
             mkdirs(df._datadir)
             ts = normalize_timestamp(time.time())
             f = open(os.path.join(df._datadir, ts + '.data'), 'wb')
-            f.write('0')
+            f.write(b'0')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             whole_path_from = storage_directory(self.objects, 1, ohash)
@@ -1681,7 +1681,7 @@ class TestObjectReplicator(unittest.TestCase):
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
-            f.write('1234567890')
+            f.write(b'1234567890')
             f.close()
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
@@ -2070,7 +2070,7 @@ class TestObjectReplicator(unittest.TestCase):
         f = open(os.path.join(df._datadir,
                               normalize_timestamp(time.time()) + '.data'),
                  'wb')
-        f.write('1234567890')
+        f.write(b'1234567890')
         f.close()
 
         mock_procs = []
@@ -2106,7 +2106,7 @@ class TestObjectReplicator(unittest.TestCase):
         f = open(os.path.join(df._datadir,
                               normalize_timestamp(time.time()) + '.data'),
                  'wb')
-        f.write('1234567890')
+        f.write(b'1234567890')
         f.close()
 
         mock_procs = []

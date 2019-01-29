@@ -90,13 +90,13 @@ class Stats(object):
         total.suffix_hash = self.suffix_hash + other.suffix_hash
         total.suffix_sync = self.suffix_sync + other.suffix_sync
 
-        all_failed_ips = (set(self.failure_nodes.keys() +
-                              other.failure_nodes.keys()))
+        all_failed_ips = (set(list(self.failure_nodes.keys()) +
+                              list(other.failure_nodes.keys())))
         for ip in all_failed_ips:
             self_devs = self.failure_nodes.get(ip, {})
             other_devs = other.failure_nodes.get(ip, {})
             this_ip_failures = {}
-            for dev in set(self_devs.keys() + other_devs.keys()):
+            for dev in set(list(self_devs.keys()) + list(other_devs.keys())):
                 this_ip_failures[dev] = (
                     self_devs.get(dev, 0) + other_devs.get(dev, 0))
             total.failure_nodes[ip] = this_ip_failures
