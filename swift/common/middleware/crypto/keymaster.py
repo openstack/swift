@@ -18,7 +18,8 @@ import hmac
 from swift.common.exceptions import UnknownSecretIdError
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.swob import Request, HTTPException
-from swift.common.utils import readconf, strict_b64decode, get_logger
+from swift.common.utils import readconf, strict_b64decode, get_logger, \
+    split_path
 from swift.common.wsgi import WSGIContext
 
 
@@ -76,28 +77,53 @@ class KeyMasterContext(WSGIContext):
             version = key_id['v']
             if version not in ('1', '2'):
                 raise ValueError('Unknown key_id version: %s' % version)
+            if version == '1' and not key_id['path'].startswith(
+                    '/' + self.account + '/'):
+                # Well shoot. This was the bug that made us notice we needed
+                # a v2! Hope the current account/container was the original!
+                key_acct, key_cont, key_obj = (
+                    self.account, self.container, key_id['path'])
+            else:
+                key_acct, key_cont, key_obj = split_path(
+                    key_id['path'], 1, 3, True)
+
+            check_path = (
+                self.account, self.container or key_cont, self.obj or key_obj)
+            if (key_acct, key_cont, key_obj) != check_path:
+                self.keymaster.logger.info(
+                    "Path stored in meta (%r) does not match path from "
+                    "request (%r)! Using path from meta.",
+                    key_id['path'],
+                    '/' + '/'.join(x for x in [
+                        self.account, self.container, self.obj] if x))
         else:
             secret_id = self.keymaster.active_secret_id
             # v1 had a bug where we would claim the path was just the object
             # name if the object started with a slash. Bump versions to
             # establish that we can trust the path.
             version = '2'
+            key_acct, key_cont, key_obj = (
+                self.account, self.container, self.obj)
+
         if (secret_id, version) in self._keys:
             return self._keys[(secret_id, version)]
 
         keys = {}
-        account_path = '/' + self.account
+        account_path = '/' + key_acct
 
+        # self.account/container/obj reflect the level of the *request*,
+        # which may be different from the level of the key_id-path. Only
+        # fetch the keys that the request needs.
         if self.container:
-            path = account_path + '/' + self.container
+            path = account_path + '/' + key_cont
             keys['container'] = self.keymaster.create_key(
                 path, secret_id=secret_id)
 
             if self.obj:
-                if self.obj.startswith('/') and version == '1':
-                    path = self.obj
+                if key_obj.startswith('/') and version == '1':
+                    path = key_obj
                 else:
-                    path = path + '/' + self.obj
+                    path = path + '/' + key_obj
                 keys['object'] = self.keymaster.create_key(
                     path, secret_id=secret_id)
 
