@@ -44,8 +44,8 @@ from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        patch_policies, debug_logger, EMPTY_ETAG,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
-                       requires_o_tmpfile_support, encode_frag_archive_bodies,
-                       skip_if_no_xattrs)
+                       requires_o_tmpfile_support_in_tmp,
+                       encode_frag_archive_bodies, skip_if_no_xattrs)
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, Timestamp, \
@@ -3227,6 +3227,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             timestamp = time()
         timestamp = Timestamp(timestamp)
 
+        # avoid getting O_TMPFILE warning in logs
+        if not utils.o_tmpfile_in_tmpdir_supported():
+            df.manager.use_linkat = False
+
         if df.policy.policy_type == EC_POLICY:
             data = encode_frag_archive_bodies(df.policy, data)[df._frag_index]
 
@@ -5127,7 +5131,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         for line in error_lines:
             self.assertTrue(line.startswith("Error removing tempfile:"))
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_get_tempfile_use_linkat_os_open_called(self):
         df = self._simple_get_diskfile()
         self.assertTrue(df.manager.use_linkat)
@@ -5146,12 +5150,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertEqual(fd, 12345)
         self.assertFalse(_m_mkstemp.called)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_get_tempfile_fallback_to_mkstemp(self):
         df = self._simple_get_diskfile()
         df._logger = debug_logger()
         self.assertTrue(df.manager.use_linkat)
         for err in (errno.EOPNOTSUPP, errno.EISDIR, errno.EINVAL):
+            df.manager.use_linkat = True
             _m_open = mock.Mock(side_effect=OSError(err, os.strerror(err)))
             _m_mkstemp = mock.MagicMock(return_value=(0, "blah"))
             _m_mkc = mock.Mock()
@@ -5165,13 +5170,14 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # Fallback should succeed and mkstemp() should be called.
             self.assertTrue(_m_mkstemp.called)
             self.assertEqual(tmppath, "blah")
-            # Despite fs not supporting O_TMPFILE, use_linkat should not change
-            self.assertTrue(df.manager.use_linkat)
+            # Once opening file with O_TMPFILE has failed,
+            # failure is cached to not try again
+            self.assertFalse(df.manager.use_linkat)
             log = df.manager.logger.get_lines_for_level('warning')
             self.assertGreater(len(log), 0)
             self.assertTrue('O_TMPFILE' in log[-1])
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_get_tmpfile_os_open_other_exceptions_are_raised(self):
         df = self._simple_get_diskfile()
         _m_open = mock.Mock(side_effect=OSError(errno.ENOSPC,
@@ -5192,7 +5198,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # mkstemp() should not be invoked.
         self.assertFalse(_m_mkstemp.called)
 
-    @requires_o_tmpfile_support
+    @requires_o_tmpfile_support_in_tmp
     def test_create_use_linkat_renamer_not_called(self):
         df = self._simple_get_diskfile()
         data = '0' * 100
@@ -6754,6 +6760,10 @@ class TestSuffixHashes(unittest.TestCase):
             df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
                                      policy=policy)
             suffix = os.path.basename(os.path.dirname(df._datadir))
+
+            # avoid getting O_TMPFILE warning in logs
+            if not utils.o_tmpfile_in_tmpdir_supported():
+                df.manager.use_linkat = False
             if existing:
                 df.delete(self.ts())
                 hashes = df_mgr.get_hashes('sda1', '0', [], policy)
@@ -6915,6 +6925,10 @@ class TestSuffixHashes(unittest.TestCase):
             # create something to hash
             df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
                                      policy=policy)
+
+            # avoid getting O_TMPFILE warning in logs
+            if not utils.o_tmpfile_in_tmpdir_supported():
+                df.manager.use_linkat = False
             df.delete(self.ts())
             suffix_dir = os.path.dirname(df._datadir)
             suffix = os.path.basename(suffix_dir)

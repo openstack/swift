@@ -1131,15 +1131,6 @@ def requires_o_tmpfile_support_in_tmp(func):
     return wrapper
 
 
-def requires_o_tmpfile_support(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        if not utils.o_tmpfile_supported():
-            raise SkipTest('Requires O_TMPFILE support')
-        return func(*args, **kwargs)
-    return wrapper
-
-
 class StubResponse(object):
 
     def __init__(self, status, body='', headers=None, frag_index=None):
