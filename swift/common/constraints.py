@@ -408,9 +408,10 @@ def check_name_format(req, name, target_type):
         raise HTTPPreconditionFailed(
             request=req,
             body='%s name cannot be empty' % target_type)
-    if isinstance(name, six.text_type):
-        name = name.encode('utf-8')
-    if b'/' in name:
+    if six.PY2:
+        if isinstance(name, six.text_type):
+            name = name.encode('utf-8')
+    if '/' in name:
         raise HTTPPreconditionFailed(
             request=req,
             body='%s name cannot contain slashes' % target_type)
