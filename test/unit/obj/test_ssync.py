@@ -36,7 +36,7 @@ from swift.obj.replicator import ObjectReplicator
 from test import listen_zero
 from test.unit.obj.common import BaseTest
 from test.unit import patch_policies, debug_logger, \
-    encode_frag_archive_bodies, skip_if_no_xattrs
+    encode_frag_archive_bodies, skip_if_no_xattrs, quiet_eventlet_exceptions
 
 
 class TestBaseSsync(BaseTest):
@@ -957,7 +957,9 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
             [FakeResponse(i, self.obj_data)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
 
-        self._test_reconstructor_sync_job(frag_responses)
+        with quiet_eventlet_exceptions():
+            self._test_reconstructor_sync_job(frag_responses)
+
         msgs = []
         for obj_name in ('o1', 'o2'):
             try:
