@@ -1,0 +1,309 @@
+syntax = "proto3";
+
+package filemgr;
+
+// Python: python -m grpc.tools.protoc -I. --python_out=. --grpc_python_out=. fmgr.proto
+// Golang : protoc -I proto proto/fmgr.proto --go_out=plugins=grpc:proto
+
+
+// The FileMgr service definition.
+service FileMgr {
+    // Register a new Volume
+    rpc RegisterVolume (NewVolumeInfo) returns (NewVolumeReply) {}
+
+    // Unregister a Volume
+    rpc UnregisterVolume (VolumeIndex) returns (Empty) {}
+
+    // Register a new object
+    rpc RegisterObject (NewObjectInfo) returns (NewObjectReply) {}
+
+    // Unregister an object
+    rpc UnregisterObject (ObjectName) returns (DelObjectReply) {}
+
+    // Rename an object
+    rpc RenameObject (RenameInfo) returns (RenameReply) {}
+
+    // Quarantine a "directory" (all objects "below" ohash)
+    // DEPRECATED
+    rpc QuarantineDir (ObjectPrefix) returns (DelObjectReply) {}
+
+    // Quarantine an object
+    rpc QuarantineObject (ObjectName) returns (Empty) {}
+
+    // Unquarantine an object
+    rpc UnquarantineObject (ObjectName) returns (Empty) {}
+
+    // Get array of object locations
+    rpc LoadObjectsByPrefix (ObjectPrefix) returns (LoadObjectsResponse) {}
+
+    // List Volumes
+    rpc ListVolumes (ListVolumesInfo) returns (Volumes) {}
+
+    // Get Volume by index
+    rpc GetVolume (VolumeIndex) returns (Volume) {}
+
+    // List partitions
+    rpc ListPartitions (ListPartitionsInfo) returns (DirEntries) {}
+
+    // List suffixes within partition
+    rpc ListPartition (ListPartitionInfo) returns (DirEntries) {}
+
+    // List object hashes within partition/suffix
+    rpc ListSuffix (ListSuffixInfo) returns (DirEntries) {}
+
+    // Recursively list the partition content, down to files
+    rpc ListPartitionRecursive (ListPartitionInfo) returns (PartitionContent) {}
+
+    // List quarantined objects. This may be very large, so use a stream (no eventlet)
+    rpc ListQuarantinedOHashes (Empty) returns (stream QuarantinedObjectName) {}
+
+    // List files within a quarantined object (ohash)
+    rpc ListQuarantinedOHash (ObjectPrefix) returns (LoadObjectsResponse) {}
+
+    // TBD: define a ListOhash and deprecate LoadObjectsByPrefix
+
+    // Get object
+    rpc LoadObject (LoadObjectInfo) returns (Object) {}
+
+    // Get next offset to write to in a volume
+    rpc GetNextOffset (GetNextOffsetInfo) returns (VolumeNextOffset) {}
+
+    // Get KVStats
+    rpc GetStats (GetStatsInfo) returns (KVStats) {}
+
+    // List objects per volume - used for compaction (no eventlet, ok to use stream)
+    rpc LoadObjectsByVolume (VolumeIndex) returns (stream Object) {}
+
+    // Update Volume state
+    rpc UpdateVolumeState (NewVolumeState) returns (Empty) {}
+
+    // Set state (clean: in sync with the volumes)
+    rpc SetKvState (KvState) returns (Empty) {}
+
+    // Get state (clean: in sync with the volumes)
+    rpc GetKvState (Empty) returns (KvState) {}
+}
+
+message ListPartitionsInfo {
+    uint32 partition_bits = 1;
+}
+
+message ListPartitionInfo {
+    uint32 partition = 1;
+    uint32 partition_bits = 2;
+}
+
+message ListSuffixInfo {
+    uint32 partition = 1;
+    bytes suffix = 2;
+    uint32 partition_bits = 3;
+}
+
+// Generic reply message for List* functions (listdir like)
+message DirEntries {
+    repeated string entry = 1;
+}
+
+message VolumeIndex {
+    uint32 index = 2;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 3;
+}
+
+message Volume {
+    uint32 volume_index = 1;
+    uint32 volume_type = 2;
+    uint32 volume_state = 3;
+    uint32 partition = 4;
+    uint64 next_offset = 5;
+}
+
+// Similar to volume but we don't want to require the
+// partition
+message GetNextOffsetInfo {
+    uint32 volume_index = 1;
+    uint32 volume_type = 2;
+    uint32 volume_state = 3;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 4;
+}
+
+message ListVolumesInfo {
+    uint32 partition = 1;
+
+    VolumeType type = 2;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 3;
+}
+
+message Volumes {
+    repeated Volume volumes = 1;
+}
+
+// The response message to GetNextOffset
+message VolumeNextOffset {
+    uint64 offset = 1;
+}
+
+// Volume type
+enum VolumeType {
+    VOLUME_DEFAULT = 0;
+    VOLUME_TOMBSTONE = 1;
+    VOLUME_X_DELETE_AT = 2;
+}
+
+// VolumeState state
+enum VolumeState {
+    // Default state, volume can be read from and written to
+    STATE_RW = 0;
+    // Volume is being compacted (source). New objects cannot be appended
+    STATE_COMPACTION_SRC = 1;
+    // Volume is a compaction target. New objects cannot be appended
+    STATE_COMPACTION_TARGET = 2;
+}
+
+// The request message for a new volume
+message NewVolumeInfo {
+    // Swift partition
+    uint32 partition = 1;
+
+    VolumeType type = 2;
+
+    // Index number of the volume. It is up to the client to map this to an actual filename.
+    uint32 volume_index = 3;
+
+    // Next available offset to use in the volume.
+    uint64 offset = 4;
+
+    VolumeState state = 5;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 6;
+}
+
+message NewVolumeState {
+    uint32 volume_index = 1;
+    VolumeState state = 2;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 3;
+}
+
+// The response message for a new volume
+message NewVolumeReply {
+}
+
+message DelObjectReply {
+}
+
+message RenameReply {
+}
+
+// The request message for a new object
+message NewObjectInfo {
+    // Object "name". Name made of (md5, timestamp, etc..)
+    bytes name = 1;
+
+    // Index number of the volume.
+    uint32 volume_index = 2;
+
+    // Start offset of the object in the volume.
+    uint64 offset = 3;
+
+    // Next available offset to use in the volume.
+    uint64 next_offset = 4;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 5;
+}
+
+// The response message for a new object
+// Currently empty, but we may want to return something in the future
+message NewObjectReply {
+}
+
+message QuarantinedObjectName {
+    bytes name = 1;
+}
+
+message ObjectName {
+    // name of the object.
+    bytes name = 1;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 2;
+}
+
+message LoadObjectInfo {
+    // name of the object.
+    bytes name = 1;
+
+    // Is it quarantined ?
+    bool is_quarantined = 2;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 3;
+}
+
+// The request message to rename an object
+message RenameInfo {
+    // name of the object.
+    bytes name = 1;
+
+    // new name of the object
+    bytes new_name = 2;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 3;
+}
+
+message Object {
+    // name of the object.
+    bytes name = 1;
+
+    // Index number of the volume.
+    uint32 volume_index = 2;
+
+    // Start offset of the object in the volume.
+    uint64 offset = 3;
+}
+
+message LoadObjectsResponse {
+    repeated Object objects = 1;
+}
+
+message ObjectPrefix {
+    bytes prefix = 1;
+
+    // Is this request coming from a repair tool ?
+    bool repair_tool = 2;
+}
+
+message Empty {
+}
+
+message GetStatsInfo {
+}
+
+message PartitionContent {
+    repeated FullPathEntry file_entries = 1;
+}
+
+message FullPathEntry {
+    // We could add the partition if needed
+    bytes suffix = 1;
+    bytes ohash = 2;    // Object hash
+    bytes filename = 3; // '.data', '.meta'.. files
+}
+
+message KvState {
+    bool isClean = 1;
+}
+
+// KV stats
+message KVStats {
+    map<string, uint64> stats = 1;
+}

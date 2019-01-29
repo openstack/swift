@@ -1,0 +1,511 @@
+#!/usr/bin/env python
+# Copyright (c) 2010-2012 OpenStack Foundation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+View the vfiles as a filesystem, using FUSE
+Access goes through RPC so there is no need to stop a running object server to
+inspect files.
+This is meant as a debug tool.
+"""
+
+from __future__ import with_statement
+
+import os
+import sys
+import errno
+import argparse
+import logging
+import six
+
+from fuse import FUSE, FuseOSError, Operations
+from stat import S_IFDIR, S_IFREG, S_IRUSR, S_IFLNK
+
+from swift.common.storage_policy import POLICIES
+from swift.obj import vfile
+import pickle
+from threading import Lock
+from swift.obj.diskfile import METADATA_KEY, PICKLE_PROTOCOL, get_data_dir
+
+from swift.obj.vfile_utils import SwiftPathInfo
+from swift.obj import rpc_grpc as rpc
+from swift.common import utils
+from swift.common import manager
+
+
+# Decorator for all operations
+def op(func):
+    def fwrap(*args, **kwargs):
+        logging.debug(
+            "func: {} args: kwargs: {}".format(func.func_name, args, kwargs))
+        return func(*args, **kwargs)
+
+    return fwrap
+
+
+def dummy_getattr(path):
+    st_mode = S_IFDIR | S_IRUSR
+    st_size = 4096
+
+    stats = {"st_mode": st_mode, "st_ino": 6434658, "st_dev": 64515L,
+             "st_nlink": 2, "st_uid": 3014, "st_gid": 3014,
+             "st_size": st_size, "st_atime": 1494423623,
+             "st_mtime": 1494423609, "st_ctime": 1494423609}
+    return stats
+
+
+def vfile_getattr(path):
+    st_mode = S_IFREG | S_IRUSR
+    try:
+        vf = vfile.VFileReader.get_vfile(path, logging)
+        st_size = vf._header.data_size
+        vf.close()
+    except vfile.VIOError:
+        raise
+        # this signals a vfile is broken on the volume
+        st_mode = S_IFLNK | S_IRUSR
+        st_size = 0
+
+    stats = {"st_mode": st_mode, "st_ino": 6434658, "st_dev": 64515L,
+             "st_nlink": 2, "st_uid": 3014, "st_gid": 3014,
+             "st_size": st_size, "st_atime": 1494423623,
+             "st_mtime": 1494423609, "st_ctime": 1494423609}
+    return stats
+
+
+def quarantined_vfile_getattr(path):
+    st_mode = S_IFREG | S_IRUSR
+    try:
+        vf = vfile.VFileReader.get_quarantined_vfile(path, logging)
+        st_size = vf._header.data_size
+        vf.close()
+    except vfile.VIOError:
+        raise
+        # this signals a vfile is broken on the volume
+        st_mode = S_IFLNK | S_IRUSR
+        st_size = 0
+
+    stats = {"st_mode": st_mode, "st_ino": 6434658, "st_dev": 64515L,
+             "st_nlink": 2, "st_uid": 3014, "st_gid": 3014,
+             "st_size": st_size, "st_atime": 1494423623,
+             "st_mtime": 1494423609, "st_ctime": 1494423609}
+    return stats
+
+
+class Vfiles(Operations):
+    def __init__(self):
+        self.fd = 0
+        self.file_lock = Lock()
+        # open files
+        self.files = {}
+
+        # known devices
+        self.devices = []
+
+        self.type2functions = {
+            'abovedeviceroot': {
+                'listdir': os.listdir,
+                'getattr': dummy_getattr
+            },
+            'deviceroot': {
+                'listdir': self._get_device_root_entries,
+                'getattr': dummy_getattr,
+            },
+            'objdir': {
+                'listdir': vfile.listdir,
+                'getattr': dummy_getattr,
+            },
+            'objpartitions': {
+                'listdir': vfile.listdir,
+                'getattr': dummy_getattr,
+            },
+            'objsuffixes': {
+                'listdir': vfile.listdir,
+                'getattr': dummy_getattr,
+            },
+            'objohashes': {
+                'listdir': vfile.listdir,
+                'getattr': dummy_getattr,
+            },
+            'objfiles': {
+                'listdir': None,
+                'getattr': vfile_getattr,
+            },
+            'quardir': {
+                'listdir': self.quardir_listdir,
+                'getattr': dummy_getattr,
+            },
+            'quarobjects': {
+                'listdir': self.quarobjects_listdir,
+                'getattr': dummy_getattr,
+            },
+            'quarohashes': {
+                'listdir': self.quarohashes_listdir,
+                'getattr': dummy_getattr,
+            },
+            'quarfiles': {
+                'listdir': None,
+                'getattr': quarantined_vfile_getattr
+            },
+        }
+
+        # read object-server(s) configuration
+        s = manager.Server('object')
+        conf_files = s.conf_files()
+        for conf_file in conf_files:
+            conf = utils.readconf(conf_file)
+            self.devices.append(conf['app:object-server']['devices'])
+        # quick and ugly way to deal with SAIO
+        self.device_depth = len(self.devices[0].split(os.sep))
+
+        self.policies = POLICIES
+
+    def quardir_listdir(self, path):
+        return [get_data_dir(policy) for policy in self.policies]
+
+    def quarobjects_listdir(self, path):
+        # we get a stream from the rpc server, we may have a very large
+        # count of quarantined objects
+        response = vfile.list_quarantine(path)
+        for item in response:
+            yield item.name
+
+    def quarohashes_listdir(self, path):
+        return vfile.list_quarantined_ohash(path)
+
+    def _getdirtype(self, path):
+        path = os.path.normpath(path)
+        ldir = path.split(os.sep)
+
+        # First check for a device root
+        # ugly to deal with SAIO
+        if path.startswith('/srv/node') and \
+                len(ldir) == self.device_depth + 1:
+            return 'deviceroot'
+
+        obj_idx = quar_idx = None
+
+        try:
+            obj_idx = \
+                [i for i, elem in enumerate(ldir) if
+                 elem.startswith('objects')][0]
+        except (ValueError, IndexError):
+            pass
+
+        try:
+            quar_idx = \
+                [i for i, elem in enumerate(ldir) if
+                 elem == 'quarantined'][0]
+        except (ValueError, IndexError):
+            pass
+
+        if quar_idx:
+            quar_types = {
+                1: 'quardir',
+                2: 'quarobjects',
+                3: 'quarohashes',
+                4: 'quarfiles'
+            }
+            try:
+                return quar_types[len(ldir[quar_idx:])]
+            except KeyError:
+                return 'unknown'
+        elif obj_idx:
+            obj_types = {
+                1: 'objdir',
+                2: 'objpartitions',
+                3: 'objsuffixes',
+                4: 'objohashes',
+                5: 'objfiles'
+            }
+            try:
+                return obj_types[len(ldir[obj_idx:])]
+            except KeyError:
+                return 'unknown'
+        else:
+            return 'abovedeviceroot'
+
+    def _isinkv(self, path):
+        """
+        We look up in the KV if we're in an "objects*" directory, two levels
+        below the device dir
+        """
+        path = os.path.normpath(path)
+        ldir = path.split(os.sep)
+        if len(ldir) > 4 and \
+            any([p for p in self.devices if path.startswith(p)]) and \
+                ldir[4].startswith('objects'):
+            return True
+        return False
+
+    def _isindeviceroot(self, path):
+        """
+        Are we in /srv/node/disk*
+        """
+        path = os.path.normpath(path)
+        ldir = path.split(os.sep)
+        if len(ldir) == 4 and \
+                any([p for p in self.devices if path.startswith(p)]):
+            return True
+        return False
+
+    def _get_device_root_entries(self, path):
+        """
+        Removes "losf*" path, replaces them with "objects*", if an rpc.socket
+        is found
+        """
+        dirents = os.listdir(path)
+        dirents_ret = ['.', '..']
+        for entry in dirents:
+            if entry.startswith('losf'):
+                socket = os.path.join(path, entry, 'rpc.socket')
+                if os.path.exists(socket):
+                    dirents_ret.append(entry.replace('losf', 'objects'))
+            else:
+                dirents_ret.append(entry)
+
+        dirents_ret.append('quarantined')
+        return dirents_ret
+
+    @op
+    def access(self, path, mode):
+        return
+        # if not os.access(full_path, mode):
+        #     raise FuseOSError(errno.EACCES)
+
+    @op
+    def getattr(self, path, fh=None):
+        """
+        Very basic getattr. Everything above the object hash directory is set
+        as a directory.  For vfiles, the size is set correctly from the header.
+        This must succeed even if get_vfile fails (for example, bad header in
+        volume). Otherwise we can't delete the file from the KV.
+
+        For now, set size to 0 if we fail.
+        """
+        path = os.path.normpath(path)
+
+        etype = self._getdirtype(path)
+        return self.type2functions[etype]['getattr'](path)
+
+    @op
+    def readdir(self, path, fh):
+        path = os.path.normpath(path)
+
+        etype = self._getdirtype(path)
+        print(etype)
+        dirents = ['.', '..']
+        dirents.extend(self.type2functions[etype]['listdir'](path))
+
+        for r in dirents:
+            yield r
+
+    @op
+    def readlink(self, path):
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def mknod(self, path, mode, dev):
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def rmdir(self, path):
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def mkdir(self, path, mode):
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def statfs(self, path):
+        stv = os.statvfs('/')
+        return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
+                                                         'f_blocks', 'f_bsize',
+                                                         'f_favail', 'f_ffree',
+                                                         'f_files', 'f_flag',
+                                                         'f_frsize',
+                                                         'f_namemax'))
+
+    @op
+    def unlink(self, path):
+        if unlink_func:
+            unlink_func(path)
+        else:
+            raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def symlink(self, name, target):
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def rename(self, old, new):
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def link(self, target, name):
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def utimens(self, path, times=None):
+        raise FuseOSError(errno.ENOTSUP)
+
+    # provide read-only access exclusively, for now.
+    @op
+    def open(self, path, flags):
+        with self.file_lock:
+            self.fd += 1
+            if 'quarantined' in path:
+                vf = vfile.VFileReader.get_quarantined_vfile(path, logging)
+            else:
+                vf = vfile.VFileReader.get_vfile(path, logging)
+            self.files = {self.fd: vf}
+            return self.fd
+
+    @op
+    def create(self, path, mode, fi=None):
+        print("create unsupported")
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def read(self, path, length, offset, fh):
+        vf = self.files[fh]
+        try:
+            vf.seek(offset)
+        except Exception as e:
+            raise (e)
+        return vf.read(length)
+
+    @op
+    def write(self, path, buf, offset, fh):
+        print("write unsupported")
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def truncate(self, path, length, fh=None):
+        print("truncate unsupported")
+        raise FuseOSError(errno.ENOTSUP)
+
+    @op
+    def release(self, path, fh):
+        self.files[fh].close()
+        del self.files[fh]
+        return
+
+    @op
+    def listxattr(self, path):
+        # swift tools expect to find attributes in a pickled string,
+        # replicate that
+        return [METADATA_KEY]
+
+    @op
+    def getxattr(self, path, name, position=0):
+        # see comment in listxattr
+        if name != METADATA_KEY:
+            raise FuseOSError(errno.ENODATA)
+
+        vf = vfile.VFileReader.get_vfile(path, logging)
+        metastr = pickle.dumps(_encode_metadata(vf.metadata), PICKLE_PROTOCOL)
+        return metastr
+
+
+def _encode_metadata(metadata):
+    """
+    UTF8 encode any unicode keys or values in given metadata dict.
+
+    :param metadata: a dict
+    """
+
+    def encode_str(item):
+        if isinstance(item, six.text_type):
+            return item.encode('utf8')
+        return item
+
+    return dict(((encode_str(k), encode_str(v)) for k, v in metadata.items()))
+
+
+def delete_vfile_from_kv(path):
+    """
+    Deletes a vfile *from the KV only*.
+    This bypasses the vfile module and calls the RPC directly.
+    """
+    logging.info("delete vfile from KV")
+    si = SwiftPathInfo.from_path(path)
+    full_name = si.ohash + si.filename
+    # obj = rpc.get_object(si.socket_path, full_name)
+    rpc.unregister_object(si.socket_path, full_name)
+
+
+def delete_vfile(path):
+    """
+    Deletes a vfile from the volume and KV
+    :param path: path to the vfile
+    :return:
+    """
+    logging.info("delete vfile")
+    vfile.delete_vfile_from_path(path)
+
+
+def main(mountpoint):
+    FUSE(Vfiles(), mountpoint, nothreads=True, foreground=True, debug=False)
+
+
+log_levels = {
+    "critical": logging.CRITICAL,
+    "error": logging.ERROR,
+    "warning": logging.WARNING,
+    "info": logging.INFO,
+    "debug": logging.DEBUG
+}
+
+# Dangerous callbacks
+unlink_func = None
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    # log level
+    parser.add_argument("--log_level", help="logging level, defaults to info")
+
+    # mount dir
+    parser.add_argument("--mount_dir",
+                        help="directory on which to mount the filesystem")
+
+    # By default, only read access is provided. Options below will let you
+    # modify the KV content
+    help_txt = "DANGEROUS - enable unlinking of files."
+    unlink_funcs = {"delete_vfile": delete_vfile,
+                    "delete_vfile_from_kv": delete_vfile_from_kv}
+    unlink_choices = unlink_funcs.keys()
+    parser.add_argument("--unlink_function", choices=unlink_choices,
+                        help=help_txt)
+
+    args = parser.parse_args()
+
+    log_level = "info"
+    if args.log_level:
+        log_level = args.log_level
+
+    logging.basicConfig(level=log_levels[log_level])
+
+    if not args.mount_dir:
+        parser.print_help()
+        sys.exit(0)
+
+    if args.unlink_function:
+        unlink_func = unlink_funcs[args.unlink_function]
+        logging.critical(
+            "Enabled vfile deletion ({})".format(args.unlink_function))
+
+    main(args.mount_dir)
