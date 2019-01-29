@@ -101,7 +101,7 @@ class ContainerSyncRealms(object):
     def realms(self):
         """Returns a list of realms."""
         self._reload()
-        return self.data.keys()
+        return list(self.data.keys())
 
     def key(self, realm):
         """Returns the key for the realm."""
@@ -126,7 +126,7 @@ class ContainerSyncRealms(object):
         if result:
             result = result.get('clusters')
             if result:
-                result = result.keys()
+                result = list(result.keys())
         return result or []
 
     def endpoint(self, realm, cluster):
