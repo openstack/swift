@@ -443,7 +443,7 @@ class Application(object):
         except (Exception, Timeout):
             start_response('500 Server Error',
                            [('Content-Type', 'text/plain')])
-            return ['Internal server error.\n']
+            return [b'Internal server error.\n']
 
     def update_request(self, req):
         if 'x-storage-token' in req.headers and \

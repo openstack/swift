@@ -1563,7 +1563,7 @@ def segment_range_to_fragment_range(segment_start, segment_end, segment_size,
 
     # the index of the first byte of the first fragment
     fragment_start = ((
-        segment_start / segment_size * fragment_size)
+        segment_start // segment_size * fragment_size)
         if segment_start is not None else None)
     # the index of the last byte of the last fragment
     fragment_end = (
@@ -1572,13 +1572,13 @@ def segment_range_to_fragment_range(segment_start, segment_end, segment_size,
         # range unbounded on the left; no -1 since we're
         # asking for the last N bytes, not to have a
         # particular byte be the last one
-        ((segment_end + 1) / segment_size
+        ((segment_end + 1) // segment_size
          * fragment_size) if segment_start is None else
         # range bounded on both sides; the -1 is because the
         # rest of the expression computes the length of the
         # fragment, and a range of N bytes starts at index M
         # and ends at M + N - 1.
-        ((segment_end + 1) / segment_size * fragment_size) - 1)
+        ((segment_end + 1) // segment_size * fragment_size) - 1)
     return (fragment_start, fragment_end)
 
 

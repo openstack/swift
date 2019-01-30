@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import collections
-import email.parser
 import itertools
 import math
 import random
@@ -28,8 +27,14 @@ from hashlib import md5
 
 import mock
 from eventlet import Timeout
-from six import BytesIO
+
+import six
+from six import StringIO
 from six.moves import range
+if six.PY2:
+    from email.parser import FeedParser as EmailFeedParser
+else:
+    from email.parser import BytesFeedParser as EmailFeedParser
 
 import swift
 from swift.common import utils, swob, exceptions
@@ -50,10 +55,10 @@ from test.unit.proxy.test_server import node_error_count
 
 
 def unchunk_body(chunked_body):
-    body = ''
+    body = b''
     remaining = chunked_body
     while remaining:
-        hex_length, remaining = remaining.split('\r\n', 1)
+        hex_length, remaining = remaining.split(b'\r\n', 1)
         length = int(hex_length, 16)
         body += remaining[:length]
         remaining = remaining[length + 2:]
@@ -255,7 +260,8 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                 :self.replicas() + 1]])
         # we don't skip any nodes
         self.assertEqual(len(all_nodes), len(local_first_nodes))
-        self.assertEqual(sorted(all_nodes), sorted(local_first_nodes))
+        self.assertEqual(sorted(all_nodes, key=lambda dev: dev['id']),
+                         sorted(local_first_nodes, key=lambda dev: dev['id']))
 
     def test_iter_nodes_local_first_best_effort(self):
         controller = self.controller_cls(
@@ -279,11 +285,13 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.assertEqual(len(all_local_nodes), self.replicas())
         # but the local nodes we do have are at the front of the local iter
         first_n_local_first_nodes = local_first_nodes[:len(all_local_nodes)]
-        self.assertEqual(sorted(all_local_nodes),
-                         sorted(first_n_local_first_nodes))
+        self.assertEqual(sorted(all_local_nodes, key=lambda dev: dev['id']),
+                         sorted(first_n_local_first_nodes,
+                                key=lambda dev: dev['id']))
         # but we *still* don't *skip* any nodes
         self.assertEqual(len(all_nodes), len(local_first_nodes))
-        self.assertEqual(sorted(all_nodes), sorted(local_first_nodes))
+        self.assertEqual(sorted(all_nodes, key=lambda dev: dev['id']),
+                         sorted(local_first_nodes, key=lambda dev: dev['id']))
 
     def test_iter_nodes_local_handoff_first_noops_when_no_affinity(self):
         # this test needs a stable node order - most don't
@@ -325,7 +333,9 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                          POLICIES.default.object_ring.max_more_nodes)
 
         first_primary_nodes = prefered_nodes[:len(primary_nodes)]
-        self.assertEqual(sorted(primary_nodes), sorted(first_primary_nodes))
+        self.assertEqual(sorted(primary_nodes, key=lambda dev: dev['id']),
+                         sorted(first_primary_nodes,
+                                key=lambda dev: dev['id']))
 
         handoff_count = self.replicas() - len(primary_nodes)
         first_handoffs = prefered_nodes[len(primary_nodes):][:handoff_count]
@@ -359,7 +369,9 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                          POLICIES.default.object_ring.max_more_nodes)
 
         first_primary_nodes = prefered_nodes[:len(primary_nodes)]
-        self.assertEqual(sorted(primary_nodes), sorted(first_primary_nodes))
+        self.assertEqual(sorted(primary_nodes, key=lambda dev: dev['id']),
+                         sorted(first_primary_nodes,
+                                key=lambda dev: dev['id']))
 
         handoff_count = policy_conf.write_affinity_handoff_delete_count
         first_handoffs = prefered_nodes[len(primary_nodes):][:handoff_count]
@@ -437,7 +449,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.obj_ring.set_replicas(4)
 
         status_codes = (404, 404, 204, 204)
-        bodies = ('not found', 'not found', '', '')
+        bodies = (b'not found', b'not found', b'', b'')
         headers = [{}, {}, {'Pick-Me': 'yes'}, {'Pick-Me': 'yes'}]
 
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -446,7 +458,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(resp.headers.get('Pick-Me'), 'yes')
-        self.assertEqual(resp.body, '')
+        self.assertEqual(resp.body, b'')
 
     def test_DELETE_handoff(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -521,7 +533,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
     def test_DELETE_write_affinity_before_replication(self):
         policy_conf = self.app.get_policy_options(self.policy)
-        policy_conf.write_affinity_handoff_delete_count = self.replicas() / 2
+        policy_conf.write_affinity_handoff_delete_count = self.replicas() // 2
         policy_conf.write_affinity_is_local_fn = (
             lambda node: node['region'] == 1)
         handoff_count = policy_conf.write_affinity_handoff_delete_count
@@ -535,7 +547,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
     def test_DELETE_write_affinity_after_replication(self):
         policy_conf = self.app.get_policy_options(self.policy)
-        policy_conf.write_affinity_handoff_delete_count = self.replicas() / 2
+        policy_conf.write_affinity_handoff_delete_count = self.replicas() // 2
         policy_conf.write_affinity_is_local_fn = (
             lambda node: node['region'] == 1)
         handoff_count = policy_conf.write_affinity_handoff_delete_count
@@ -551,7 +563,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
     def test_PUT_limits_expirer_queue_deletes(self):
         req = swift.common.swob.Request.blank(
-            '/v1/a/c/o', method='PUT', body='',
+            '/v1/a/c/o', method='PUT', body=b'',
             headers={'Content-Type': 'application/octet-stream'})
         codes = [201] * self.replicas()
         captured_headers = []
@@ -587,7 +599,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
     def test_POST_limits_expirer_queue_deletes(self):
         req = swift.common.swob.Request.blank(
-            '/v1/a/c/o', method='POST', body='',
+            '/v1/a/c/o', method='POST', body=b'',
             headers={'Content-Type': 'application/octet-stream'})
         codes = [201] * self.replicas()
         captured_headers = []
@@ -621,17 +633,17 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                                           'X-Delete-After': t})
         resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('Non-integer X-Delete-After', resp.body)
+        self.assertEqual(b'Non-integer X-Delete-After', resp.body)
 
     def test_PUT_non_int_delete_after(self):
         t = str(int(time.time() + 100)) + '.1'
-        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body=b'',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-After': t})
         with set_http_connect():
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('Non-integer X-Delete-After', resp.body)
+        self.assertEqual(b'Non-integer X-Delete-After', resp.body)
 
     def test_POST_negative_delete_after(self):
         req = swob.Request.blank('/v1/a/c/o', method='POST',
@@ -639,16 +651,16 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                                           'X-Delete-After': '-60'})
         resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('X-Delete-After in past', resp.body)
+        self.assertEqual(b'X-Delete-After in past', resp.body)
 
     def test_PUT_negative_delete_after(self):
-        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body=b'',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-After': '-60'})
         with set_http_connect():
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('X-Delete-After in past', resp.body)
+        self.assertEqual(b'X-Delete-After in past', resp.body)
 
     def test_POST_delete_at_non_integer(self):
         t = str(int(time.time() + 100)) + '.1'
@@ -657,17 +669,17 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                                           'X-Delete-At': t})
         resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('Non-integer X-Delete-At', resp.body)
+        self.assertEqual(b'Non-integer X-Delete-At', resp.body)
 
     def test_PUT_delete_at_non_integer(self):
         t = str(int(time.time() - 100)) + '.1'
-        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body=b'',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-At': t})
         with set_http_connect():
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('Non-integer X-Delete-At', resp.body)
+        self.assertEqual(b'Non-integer X-Delete-At', resp.body)
 
     def test_POST_delete_at_in_past(self):
         t = str(int(time.time() - 100))
@@ -676,17 +688,17 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                                           'X-Delete-At': t})
         resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('X-Delete-At in past', resp.body)
+        self.assertEqual(b'X-Delete-At in past', resp.body)
 
     def test_PUT_delete_at_in_past(self):
         t = str(int(time.time() - 100))
-        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body=b'',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-At': t})
         with set_http_connect():
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('X-Delete-At in past', resp.body)
+        self.assertEqual(b'X-Delete-At in past', resp.body)
 
     def test_HEAD_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
@@ -1025,7 +1037,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.assertEqual(resp.status_int, 201)
 
     def test_PUT_error_with_footers(self):
-        footers_callback = make_footers_callback('')
+        footers_callback = make_footers_callback(b'')
         env = {'swift.callback.update_footers': footers_callback}
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
                                               environ=env)
@@ -1039,7 +1051,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
 
-    def _test_PUT_with_no_footers(self, test_body='', chunked=False):
+    def _test_PUT_with_no_footers(self, test_body=b'', chunked=False):
         # verify that when no footers are required then the PUT uses a regular
         # single part body
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1086,7 +1098,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                 time.gmtime(math.ceil(float(timestamps.pop())))),
         })
         for connection_id, info in put_requests.items():
-            body = ''.join(info['chunks'])
+            body = b''.join(info['chunks'])
             headers = info['headers']
             if chunked or not test_body:
                 body = unchunk_body(body)
@@ -1107,13 +1119,13 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertTrue(info['connection'].closed)
 
     def test_PUT_with_chunked_body_and_no_footers(self):
-        self._test_PUT_with_no_footers(test_body='asdf', chunked=True)
+        self._test_PUT_with_no_footers(test_body=b'asdf', chunked=True)
 
     def test_PUT_with_body_and_no_footers(self):
-        self._test_PUT_with_no_footers(test_body='asdf', chunked=False)
+        self._test_PUT_with_no_footers(test_body=b'asdf', chunked=False)
 
     def test_PUT_with_no_body_and_no_footers(self):
-        self._test_PUT_with_no_footers(test_body='', chunked=False)
+        self._test_PUT_with_no_footers(test_body=b'', chunked=False)
 
     def test_txn_id_logging_on_PUT(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -1121,7 +1133,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         req.headers['content-length'] = '0'
         # we capture stdout since the debug log formatter prints the formatted
         # message to stdout
-        stdout = BytesIO()
+        stdout = StringIO()
         with set_http_connect((100, Timeout()), 503, 503), \
                 mock.patch('sys.stdout', stdout):
             resp = req.get_response(self.app)
@@ -1182,7 +1194,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         def test_status_map(statuses, expected):
             self.app._error_limiting = {}
             req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                     body='test body')
+                                     body=b'test body')
             with set_http_connect(*statuses):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, expected)
@@ -1236,7 +1248,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
         req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                  method='PUT',
-                                 body='life is utf-gr8')
+                                 body=b'life is utf-gr8')
         self.app.logger.clear()
         with set_http_connect(*statuses):
             resp = req.get_response(self.app)
@@ -1245,14 +1257,17 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertFalse(log_lines[1:])
         self.assertIn('ERROR with Object server', log_lines[0])
-        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        if six.PY3:
+            self.assertIn(req.swift_entity_path, log_lines[0])
+        else:
+            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
         self.assertIn('re: Expect: 100-continue', log_lines[0])
 
     def test_PUT_get_expect_errors_with_unicode_path(self):
         def do_test(statuses):
             req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                      method='PUT',
-                                     body='life is utf-gr8')
+                                     body=b'life is utf-gr8')
             self.app.logger.clear()
             with set_http_connect(*statuses):
                 resp = req.get_response(self.app)
@@ -1280,7 +1295,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
             req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                      method='PUT',
-                                     body='life is utf-gr8')
+                                     body=b'life is utf-gr8')
             self.app.logger.clear()
             with set_http_connect(201, 201, 201, give_send=capture_send):
                 resp = req.get_response(self.app)
@@ -1289,7 +1304,11 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             log_lines = self.app.logger.get_lines_for_level('error')
             self.assertFalse(log_lines[1:])
             self.assertIn('ERROR with Object server', log_lines[0])
-            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+            if six.PY3:
+                self.assertIn(req.swift_entity_path, log_lines[0])
+            else:
+                self.assertIn(req.swift_entity_path.decode('utf-8'),
+                              log_lines[0])
             self.assertIn('Trying to write to', log_lines[0])
 
         do_test(Exception('Exception while sending data on connection'))
@@ -1299,7 +1318,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         def do_test(statuses):
             req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                      method='PUT',
-                                     body='life is utf-gr8')
+                                     body=b'life is utf-gr8')
             self.app.logger.clear()
             with set_http_connect(*statuses):
                 resp = req.get_response(self.app)
@@ -1311,20 +1330,31 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
         req, log_lines = do_test((201, (100, Exception('boom')), 201))
         self.assertIn('ERROR with Object server', log_lines[0])
-        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        if six.PY3:
+            self.assertIn(req.path, log_lines[0])
+        else:
+            self.assertIn(req.path.decode('utf-8'), log_lines[0])
         self.assertIn('Trying to get final status of PUT', log_lines[0])
 
         req, log_lines = do_test((201, (100, Timeout()), 201))
         self.assertIn('ERROR with Object server', log_lines[0])
-        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        if six.PY3:
+            self.assertIn(req.path, log_lines[0])
+        else:
+            self.assertIn(req.path.decode('utf-8'), log_lines[0])
         self.assertIn('Trying to get final status of PUT', log_lines[0])
 
         req, log_lines = do_test((201, (100, 507), 201))
         self.assertIn('ERROR Insufficient Storage', log_lines[0])
 
         req, log_lines = do_test((201, (100, 500), 201))
-        self.assertIn('ERROR 500  From Object Server', log_lines[0])
-        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        if six.PY3:
+            # We allow the b'' in logs because we want to see bad characters.
+            self.assertIn("ERROR 500 b'' From Object Server", log_lines[0])
+            self.assertIn(req.path, log_lines[0])
+        else:
+            self.assertIn('ERROR 500  From Object Server', log_lines[0])
+            self.assertIn(req.path.decode('utf-8'), log_lines[0])
 
     def test_DELETE_errors(self):
         # verify logged errors with and without non-ascii characters in path
@@ -1332,7 +1362,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
             req = swob.Request.blank('/v1' + path,
                                      method='DELETE',
-                                     body='life is utf-gr8')
+                                     body=b'life is utf-gr8')
             self.app.logger.clear()
             with set_http_connect(*statuses):
                 resp = req.get_response(self.app)
@@ -1345,13 +1375,19 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
                                  (201, 500, 201, 201))
         self.assertIn('Trying to DELETE', log_lines[0])
-        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        if six.PY3:
+            self.assertIn(req.swift_entity_path, log_lines[0])
+        else:
+            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
         self.assertIn(' From Object Server', log_lines[0])
 
         req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                  (201, 500, 201, 201))
         self.assertIn('Trying to DELETE', log_lines[0])
-        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        if six.PY3:
+            self.assertIn(req.swift_entity_path, log_lines[0])
+        else:
+            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
         self.assertIn(' From Object Server', log_lines[0])
 
         req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
@@ -1365,13 +1401,19 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
                                  (201, Exception(), 201, 201))
         self.assertIn('Trying to DELETE', log_lines[0])
-        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        if six.PY3:
+            self.assertIn(req.swift_entity_path, log_lines[0])
+        else:
+            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
         self.assertIn('ERROR with Object server', log_lines[0])
 
         req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                  (201, Exception(), 201, 201))
         self.assertIn('Trying to DELETE', log_lines[0])
-        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        if six.PY3:
+            self.assertIn(req.swift_entity_path, log_lines[0])
+        else:
+            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
         self.assertIn('ERROR with Object server', log_lines[0])
 
     def test_PUT_error_during_transfer_data(self):
@@ -1380,7 +1422,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                 raise IOError('error message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                 body='test body')
+                                 body=b'test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
@@ -1395,7 +1437,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                 raise exceptions.ChunkReadTimeout()
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                 body='test body')
+                                 body=b'test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
@@ -1415,7 +1457,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             conns.append(conn)
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                 body='test body')
+                                 body=b'test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
@@ -1433,7 +1475,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                 raise Exception('exception message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                 body='test body')
+                                 body=b'test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
@@ -1474,7 +1516,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         self.app.logger.txn_id = req.environ['swift.trans_id'] = 'my-txn-id'
-        stdout = BytesIO()
+        stdout = StringIO()
         with set_http_connect(503, 200), \
                 mock.patch('sys.stdout', stdout):
             resp = req.get_response(self.app)
@@ -1529,7 +1571,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
     def test_PUT_delete_at(self):
         t = str(int(time.time() + 100))
-        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body=b'',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-At': t})
         put_headers = []
@@ -1550,7 +1592,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertIn('X-Delete-At-Container', given_headers)
 
     def test_PUT_converts_delete_after_to_delete_at(self):
-        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body=b'',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-After': '60'})
         put_headers = []
@@ -1765,7 +1807,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             with mocked_http_conn() as fake_conn:
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 400)
-            self.assertIn('X-Timestamp should be a UNIX timestamp ', resp.body)
+            self.assertIn(b'X-Timestamp should be a UNIX timestamp ',
+                          resp.body)
 
         do_test('PUT', {'Content-Length': 0}, 200)
         do_test('DELETE', {}, 204)
@@ -1798,13 +1841,13 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [503] * self.replicas()
         with set_http_connect(*codes, expect_headers=self.expect_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
 
-    def _test_PUT_with_footers(self, test_body=''):
+    def _test_PUT_with_footers(self, test_body=b''):
         # verify that when footers are required the PUT body is multipart
         # and the footers are appended
         footers_callback = make_footers_callback(test_body)
@@ -1852,7 +1895,7 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
                 time.gmtime(math.ceil(float(timestamps.pop())))),
         })
         for connection_id, info in put_requests.items():
-            body = unchunk_body(''.join(info['chunks']))
+            body = unchunk_body(b''.join(info['chunks']))
             headers = info['headers']
             boundary = headers['X-Backend-Obj-Multipart-Mime-Boundary']
             self.assertTrue(boundary is not None,
@@ -1868,10 +1911,10 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
             # message and boundary together and parse it; it only knows how
             # to take a string, parse the headers, and figure out the
             # boundary on its own.
-            parser = email.parser.FeedParser()
+            parser = EmailFeedParser()
             parser.feed(
-                "Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n" %
-                boundary)
+                ("Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n" %
+                 boundary).encode('ascii'))
             parser.feed(body)
             message = parser.close()
 
@@ -1882,7 +1925,7 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
             obj_part, footer_part = mime_parts
 
             self.assertEqual(obj_part['X-Document'], 'object body')
-            self.assertEqual(test_body, obj_part.get_payload())
+            self.assertEqual(test_body, obj_part.get_payload(decode=True))
 
             # validate footer metadata
             self.assertEqual(footer_part['X-Document'], 'object metadata')
@@ -1895,7 +1938,7 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
             self.assertTrue(info['connection'].closed)
 
     def test_PUT_with_body_and_footers(self):
-        self._test_PUT_with_footers(test_body='asdf')
+        self._test_PUT_with_footers(test_body=b'asdf')
 
     def test_PUT_with_no_body_and_footers(self):
         self._test_PUT_with_footers()
@@ -1968,6 +2011,8 @@ class ECObjectControllerMixin(CommonObjectControllerMixin):
     def _make_ec_object_stub(self, pattern='test', policy=None,
                              timestamp=None):
         policy = policy or self.policy
+        if isinstance(pattern, six.text_type):
+            pattern = pattern.encode('utf-8')
         test_body = pattern * policy.ec_segment_size
         test_body = test_body[:-random.randint(1, 1000)]
         return make_ec_object_stub(test_body, policy, timestamp)
@@ -2076,7 +2121,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
     def _add_frag_index(self, index, headers):
         # helper method to add a frag index header to an existing header dict
         hdr_name = 'X-Object-Sysmeta-Ec-Frag-Index'
-        return dict(headers.items() + [(hdr_name, index)])
+        return dict(list(headers.items()) + [(hdr_name, index)])
 
     def test_determine_chunk_destinations(self):
         class FakePutter(object):
@@ -2117,7 +2162,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         for index in range(self.policy.object_ring.replica_count):
             putters[index].node_index = None
         got = controller._determine_chunk_destinations(putters, self.policy)
-        self.assertEqual(sorted(got), sorted(expected))
+        self.assertEqual(sorted(got, key=lambda p: id(p)),
+                         sorted(expected, key=lambda p: id(p)))
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -2250,7 +2296,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         # turn a real body into fragments
         segment_size = self.policy.ec_segment_size
-        real_body = ('asdf' * segment_size)[:-10]
+        real_body = (b'asdf' * segment_size)[:-10]
         # split it up into chunks
         chunks = [real_body[x:x + segment_size]
                   for x in range(0, len(real_body), segment_size)]
@@ -2262,7 +2308,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             fragment_payloads.append(
                 fragments * self.policy.ec_duplication_factor)
         # sanity
-        sanity_body = ''
+        sanity_body = b''
         for fragment_payload in fragment_payloads:
             sanity_body += self.policy.pyeclib_driver.decode(
                 fragment_payload)
@@ -2273,7 +2319,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         node_fragments = list(zip(*fragment_payloads))
         self.assertEqual(len(node_fragments), self.replicas())  # sanity
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
-        responses = [(200, ''.join(node_fragments[i]), headers)
+        responses = [(200, b''.join(node_fragments[i]), headers)
                      for i in range(POLICIES.default.ec_ndata)]
         status_codes, body_iter, headers = zip(*responses)
         with set_http_connect(*status_codes, body_iter=body_iter,
@@ -2285,7 +2331,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
     def test_GET_with_frags_swapped_around(self):
         segment_size = self.policy.ec_segment_size
-        test_data = ('test' * segment_size)[:-657]
+        test_data = (b'test' * segment_size)[:-657]
         etag = md5(test_data).hexdigest()
         ec_archive_bodies = self._make_ec_archive_bodies(test_data)
 
@@ -2293,7 +2339,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         node_key = lambda n: (n['ip'], n['port'])
         backend_index = self.policy.get_backend_index
-        ts = self._ts_iter.next()
+        ts = self.ts()
 
         response_map = {
             node_key(n): StubResponse(
@@ -2960,10 +3006,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         # At that point (or before) the proxy knows that a durable set of
         # frags for obj2 exists so will fetch them, requiring another 10
         # directed requests.
-        obj2 = self._make_ec_object_stub(pattern='obj2',
-                                         timestamp=self._ts_iter.next())
-        obj1 = self._make_ec_object_stub(pattern='obj1',
-                                         timestamp=self._ts_iter.next())
+        obj2 = self._make_ec_object_stub(pattern='obj2', timestamp=self.ts())
+        obj1 = self._make_ec_object_stub(pattern='obj1', timestamp=self.ts())
 
         node_frags = [
             [{'obj': obj1, 'frag': 0, 'durable': False}],  # obj2 missing
@@ -3012,12 +3056,9 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         # GETs to see all the obj3 frags plus 1 more to GET a durable frag.
         # The proxy may also do one more GET if the obj2 frag is found.
         # i.e. 10 + 1 durable for obj3, 2 for obj1 and 1 more if obj2 found
-        obj2 = self._make_ec_object_stub(pattern='obj2',
-                                         timestamp=self._ts_iter.next())
-        obj3 = self._make_ec_object_stub(pattern='obj3',
-                                         timestamp=self._ts_iter.next())
-        obj1 = self._make_ec_object_stub(pattern='obj1',
-                                         timestamp=self._ts_iter.next())
+        obj2 = self._make_ec_object_stub(pattern='obj2', timestamp=self.ts())
+        obj3 = self._make_ec_object_stub(pattern='obj3', timestamp=self.ts())
+        obj1 = self._make_ec_object_stub(pattern='obj1', timestamp=self.ts())
 
         node_frags = [
             [{'obj': obj1, 'frag': 0, 'durable': False},  # obj1 frag
@@ -3055,10 +3096,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         # scenario: non-durable frags of newer obj1 obscure all frags
         # of older obj2, so first 28 requests result in a non-durable set.
         # There are only 10 frags for obj2 and one is not durable.
-        obj2 = self._make_ec_object_stub(pattern='obj2',
-                                         timestamp=self._ts_iter.next())
-        obj1 = self._make_ec_object_stub(pattern='obj1',
-                                         timestamp=self._ts_iter.next())
+        obj2 = self._make_ec_object_stub(pattern='obj2', timestamp=self.ts())
+        obj1 = self._make_ec_object_stub(pattern='obj1', timestamp=self.ts())
 
         node_frags = [
             [{'obj': obj1, 'frag': 0, 'durable': False}],  # obj2 missing
@@ -3163,7 +3202,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                                                 frag_archive_size),
             'X-Object-Sysmeta-Ec-Content-Length': len(ec_stub['body']),
             'X-Object-Sysmeta-Ec-Etag': ec_stub['etag'],
-            'X-Timestamp': Timestamp(self._ts_iter.next()).normal,
+            'X-Timestamp': Timestamp(self.ts()).normal,
         }
         responses = [
             StubResponse(206, frag_archives[0][:fragment_size], headers, 0),
@@ -3190,7 +3229,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 206)
-        self.assertEqual(resp.body, 'test')
+        self.assertEqual(resp.body, b'test')
         self.assertEqual(len(log), self.policy.ec_ndata + 2)
 
         # verify that even when last responses to be collected are 416's
@@ -3218,7 +3257,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 206)
-        self.assertEqual(resp.body, 'test')
+        self.assertEqual(resp.body, b'test')
         self.assertEqual(len(log), self.policy.ec_ndata + 2)
 
     def test_GET_with_range_unsatisfiable_mixed_success(self):
@@ -3328,10 +3367,10 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
     def test_GET_mixed_ranged_responses_success(self):
         segment_size = self.policy.ec_segment_size
         frag_size = self.policy.fragment_size
-        new_data = ('test' * segment_size)[:-492]
+        new_data = (b'test' * segment_size)[:-492]
         new_etag = md5(new_data).hexdigest()
         new_archives = self._make_ec_archive_bodies(new_data)
-        old_data = ('junk' * segment_size)[:-492]
+        old_data = (b'junk' * segment_size)[:-492]
         old_etag = md5(old_data).hexdigest()
         old_archives = self._make_ec_archive_bodies(old_data)
         frag_archive_size = len(new_archives[0])
@@ -3346,7 +3385,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                                                 frag_archive_size),
             'X-Object-Sysmeta-Ec-Content-Length': len(old_data),
             'X-Object-Sysmeta-Ec-Etag': old_etag,
-            'X-Backend-Timestamp': Timestamp(self._ts_iter.next()).internal
+            'X-Backend-Timestamp': Timestamp(self.ts()).internal
         }
         new_headers = {
             'Content-Type': 'text/plain',
@@ -3355,7 +3394,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                                                 frag_archive_size),
             'X-Object-Sysmeta-Ec-Content-Length': len(new_data),
             'X-Object-Sysmeta-Ec-Etag': new_etag,
-            'X-Backend-Timestamp': Timestamp(self._ts_iter.next()).internal
+            'X-Backend-Timestamp': Timestamp(self.ts()).internal
         }
         # 7 primaries with stale frags, 3 handoffs failed to get new frags
         responses = [
@@ -3395,9 +3434,9 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
     def test_GET_mismatched_fragment_archives(self):
         segment_size = self.policy.ec_segment_size
-        test_data1 = ('test' * segment_size)[:-333]
+        test_data1 = (b'test' * segment_size)[:-333]
         # N.B. the object data *length* here is different
-        test_data2 = ('blah1' * segment_size)[:-333]
+        test_data2 = (b'blah1' * segment_size)[:-333]
 
         etag1 = md5(test_data1).hexdigest()
         etag2 = md5(test_data2).hexdigest()
@@ -3462,7 +3501,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
     def test_GET_read_timeout(self):
         segment_size = self.policy.ec_segment_size
-        test_data = ('test' * segment_size)[:-333]
+        test_data = (b'test' * segment_size)[:-333]
         etag = md5(test_data).hexdigest()
         ec_archive_bodies = self._make_ec_archive_bodies(test_data)
         headers = {'X-Object-Sysmeta-Ec-Etag': etag}
@@ -3475,7 +3514,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         req = swob.Request.blank('/v1/a/c/o')
 
         status_codes, body_iter, headers = zip(*responses + [
-            (404, '', {}) for i in range(
+            (404, [b''], {}) for i in range(
                 self.policy.object_ring.max_more_nodes)])
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers):
@@ -3494,7 +3533,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
     def test_GET_read_timeout_resume(self):
         segment_size = self.policy.ec_segment_size
-        test_data = ('test' * segment_size)[:-333]
+        test_data = (b'test' * segment_size)[:-333]
         etag = md5(test_data).hexdigest()
         ec_archive_bodies = self._make_ec_archive_bodies(test_data)
         headers = {'X-Object-Sysmeta-Ec-Etag': etag}
@@ -3524,20 +3563,20 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                    'X-Object-Sysmeta-Ec-Etag': 'foo'}
 
         # sucsessful HEAD
-        responses = [(200, '', headers)]
+        responses = [(200, b'', headers)]
         status_codes, body_iter, headers = zip(*responses)
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body, '')
+        self.assertEqual(resp.body, b'')
         # 200OK shows original object content length
         self.assertEqual(resp.headers['Content-Length'], '10')
         self.assertEqual(resp.headers['Etag'], 'foo')
 
         # not found HEAD
-        responses = [(404, '', {})] * self.replicas() * 2
+        responses = [(404, b'', {})] * self.replicas() * 2
         status_codes, body_iter, headers = zip(*responses)
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
         with set_http_connect(*status_codes, body_iter=body_iter,
@@ -3550,7 +3589,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
     def test_GET_with_invalid_ranges(self):
         # real body size is segment_size - 10 (just 1 segment)
         segment_size = self.policy.ec_segment_size
-        real_body = ('a' * segment_size)[:-10]
+        real_body = (b'a' * segment_size)[:-10]
 
         # range is out of real body but in segment size
         self._test_invalid_ranges('GET', real_body,
@@ -3570,7 +3609,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         fragments = self.policy.pyeclib_driver.encode(real_body)
         fragment_payloads = [fragments * self.policy.ec_duplication_factor]
 
-        node_fragments = zip(*fragment_payloads)
+        node_fragments = list(zip(*fragment_payloads))
         self.assertEqual(len(node_fragments), self.replicas())  # sanity
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body)),
                    'X-Object-Sysmeta-Ec-Etag': body_etag}
@@ -3579,12 +3618,13 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         title, exp = swob.RESPONSE_REASONS[416]
         range_not_satisfiable_body = \
             '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
+        range_not_satisfiable_body = range_not_satisfiable_body.encode('utf-8')
         if start >= segment_size:
             responses = [(416, range_not_satisfiable_body,
                           self._add_frag_index(i, headers))
                          for i in range(POLICIES.default.ec_ndata)]
         else:
-            responses = [(200, ''.join(node_fragments[i]),
+            responses = [(200, b''.join(node_fragments[i]),
                           self._add_frag_index(i, headers))
                          for i in range(POLICIES.default.ec_ndata)]
         status_codes, body_iter, headers = zip(*responses)
@@ -3608,7 +3648,8 @@ class TestECFunctions(unittest.TestCase):
             segment_size = 1024
             orig_chunks = []
             for i in range(segments):
-                orig_chunks.append(chr(i + 97) * segment_size)
+                orig_chunks.append(
+                    chr(i + 97).encode('latin-1') * segment_size)
             policy = ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
                                      ec_ndata=8, ec_nparity=2,
                                      object_ring=FakeRing(
@@ -3622,21 +3663,21 @@ class TestECFunctions(unittest.TestCase):
                 for frag_index, frag_data in enumerate(frag_set):
                     encoded_chunks[frag_index].append(frag_data)
             # chunk_transformer buffers and concatenates multiple frags
-            expected = [''.join(frags) for frags in encoded_chunks]
+            expected = [b''.join(frags) for frags in encoded_chunks]
 
             transform = obj.chunk_transformer(policy)
             transform.send(None)
-            backend_chunks = transform.send(''.join(orig_chunks))
+            backend_chunks = transform.send(b''.join(orig_chunks))
             self.assertIsNotNone(backend_chunks)  # sanity
             self.assertEqual(
                 len(backend_chunks), policy.ec_n_unique_fragments)
             self.assertEqual(expected, backend_chunks)
 
             # flush out last chunk buffer
-            backend_chunks = transform.send('')
+            backend_chunks = transform.send(b'')
             self.assertEqual(
                 len(backend_chunks), policy.ec_n_unique_fragments)
-            self.assertEqual([''] * policy.ec_n_unique_fragments,
+            self.assertEqual([b''] * policy.ec_n_unique_fragments,
                              backend_chunks)
 
         do_test(dup_factor=1, segments=1)
@@ -3647,7 +3688,7 @@ class TestECFunctions(unittest.TestCase):
         do_test(dup_factor=3, segments=2)
 
     def test_chunk_transformer_non_aligned_last_chunk(self):
-        last_chunk = 'a' * 128
+        last_chunk = b'a' * 128
 
         def do_test(dup):
             policy = ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
@@ -3661,7 +3702,7 @@ class TestECFunctions(unittest.TestCase):
 
             transform.send(last_chunk)
             # flush out last chunk buffer
-            backend_chunks = transform.send('')
+            backend_chunks = transform.send(b'')
 
             self.assertEqual(
                 len(backend_chunks), policy.ec_n_unique_fragments)
@@ -3714,7 +3755,7 @@ class TestECDuplicationObjController(
         self.assertLessEqual(len(log), self.replicas())
         self.assertEqual(len(collected_responses), 1)
 
-        etag, frags = collected_responses.items()[0]
+        etag, frags = list(collected_responses.items())[0]
         # the backend requests will stop at enough ec_ndata responses
         self.assertEqual(
             len(frags), self.policy.ec_ndata,
@@ -3827,8 +3868,10 @@ class TestECDuplicationObjController(
         # default node_iter will exhaust to the last of handoffs
         self.assertEqual(len(log), self.replicas() * 2)
         # we have obj1, obj2, and 404 NotFound in collected_responses
-        self.assertEqual(sorted([obj1['etag'], obj2['etag'], None]),
-                         sorted(collected_responses.keys()))
+        self.assertEqual(len(list(collected_responses.keys())), 3)
+        self.assertIn(obj1['etag'], collected_responses)
+        self.assertIn(obj2['etag'], collected_responses)
+        self.assertIn(None, collected_responses)
 
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
@@ -4229,7 +4272,7 @@ class ECCommonPutterMixin(object):
                 raise IOError('error message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                 body='test body')
+                                 body=b'test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
@@ -4245,7 +4288,7 @@ class ECCommonPutterMixin(object):
                 raise exceptions.ChunkReadTimeout()
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                 body='test body')
+                                 body=b'test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
@@ -4261,7 +4304,7 @@ class ECCommonPutterMixin(object):
                 raise exceptions.Timeout()
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                 body='test body')
+                                 body=b'test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
@@ -4277,7 +4320,7 @@ class ECCommonPutterMixin(object):
                 raise Exception('exception message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
-                                 body='test body')
+                                 body=b'test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
@@ -4318,7 +4361,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [201] * self.replicas()
         with set_http_connect(*codes, expect_headers=self.expect_headers):
             resp = req.get_response(self.app)
@@ -4326,7 +4369,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_with_body_and_bad_etag(self):
         segment_size = self.policy.ec_segment_size
-        test_body = ('asdf' * segment_size)[:-10]
+        test_body = (b'asdf' * segment_size)[:-10]
         codes = [201] * self.replicas()
         conns = []
 
@@ -4359,7 +4402,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         self.assertEqual(201, resp.status_int)
 
         # make the footers callback send a bad Etag footer
-        footers_callback = make_footers_callback('not the test body')
+        footers_callback = make_footers_callback(b'not the test body')
         env = {'swift.callback.update_footers': footers_callback}
         req = swift.common.swob.Request.blank(
             '/v1/a/c/o', method='PUT', environ=env, body=test_body)
@@ -4369,22 +4412,21 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_txn_id_logging_ECPUT(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         self.app.logger.txn_id = req.environ['swift.trans_id'] = 'test-txn-id'
         codes = [(100, Timeout(), 503, 503)] * self.replicas()
-        stdout = BytesIO()
+        stdout = StringIO()
         with set_http_connect(*codes, expect_headers=self.expect_headers), \
                 mock.patch('sys.stdout', stdout):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
         for line in stdout.getvalue().splitlines():
             self.assertIn('test-txn-id', line)
-        self.assertIn('Trying to get ',
-                      stdout.getvalue())
+        self.assertIn('Trying to get ', stdout.getvalue())
 
     def test_PUT_with_explicit_commit_status(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [(100, 100, 201)] * self.replicas()
         with set_http_connect(*codes, expect_headers=self.expect_headers):
             resp = req.get_response(self.app)
@@ -4392,7 +4434,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_mostly_success(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [201] * self.quorum()
         codes += [503] * (self.replicas() - len(codes))
         random.shuffle(codes)
@@ -4402,7 +4444,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_error_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [(100, 503, Exception('not used'))] * self.replicas()
         with set_http_connect(*codes, expect_headers=self.expect_headers):
             resp = req.get_response(self.app)
@@ -4410,7 +4452,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_mostly_success_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [201] * self.quorum()
         codes += [(100, 503, Exception('not used'))] * (
             self.replicas() - len(codes))
@@ -4421,7 +4463,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_mostly_error_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [(100, 503, Exception('not used'))] * self.quorum()
         if isinstance(self.policy, ECStoragePolicy):
             codes *= self.policy.ec_duplication_factor
@@ -4433,7 +4475,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_commit_timeout(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [201] * (self.replicas() - 1)
         codes.append((100, Timeout(), Exception('not used')))
         with set_http_connect(*codes, expect_headers=self.expect_headers):
@@ -4442,7 +4484,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_commit_exception(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         codes = [201] * (self.replicas() - 1)
         codes.append((100, Exception('kaboom!'), Exception('not used')))
         with set_http_connect(*codes, expect_headers=self.expect_headers):
@@ -4503,7 +4545,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         })
         frag_archives = []
         for connection_id, info in put_requests.items():
-            body = unchunk_body(''.join(info['chunks']))
+            body = unchunk_body(b''.join(info['chunks']))
             self.assertIsNotNone(info['boundary'],
                                  "didn't get boundary for conn %r" % (
                                      connection_id,))
@@ -4515,10 +4557,10 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             # message and boundary together and parse it; it only knows how
             # to take a string, parse the headers, and figure out the
             # boundary on its own.
-            parser = email.parser.FeedParser()
+            parser = EmailFeedParser()
             parser.feed(
-                "Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n" %
-                info['boundary'])
+                ("Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n" %
+                 info['boundary']).encode('ascii'))
             parser.feed(body)
             message = parser.close()
 
@@ -4529,7 +4571,8 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
             # attach the body to frag_archives list
             self.assertEqual(obj_part['X-Document'], 'object body')
-            frag_archives.append(obj_part.get_payload())
+            obj_payload = obj_part.get_payload(decode=True)
+            frag_archives.append(obj_payload)
 
             # assert length was correct for this connection
             self.assertEqual(int(info['backend-content-length']),
@@ -4551,7 +4594,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
                 'X-Object-Sysmeta-Ec-Etag': etag,
                 'X-Backend-Container-Update-Override-Etag': etag,
                 'X-Object-Sysmeta-Ec-Segment-Size': str(segment_size),
-                'Etag': md5(obj_part.get_payload()).hexdigest()})
+                'Etag': md5(obj_payload).hexdigest()})
             for header, value in expected.items():
                 self.assertEqual(footer_metadata[header], value)
 
@@ -4567,7 +4610,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             node_payloads.append(payload)
         fragment_payloads = zip(*node_payloads)
 
-        expected_body = ''
+        expected_body = b''
         for fragment_payload in fragment_payloads:
             self.assertEqual(len(fragment_payload), self.replicas())
             if True:
@@ -4582,7 +4625,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         # verify footers supplied by a footers callback being added to
         # trailing metadata
         segment_size = self.policy.ec_segment_size
-        test_body = ('asdf' * segment_size)[:-10]
+        test_body = (b'asdf' * segment_size)[:-10]
         etag = md5(test_body).hexdigest()
         size = len(test_body)
         codes = [201] * self.replicas()
@@ -4631,15 +4674,15 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
                 'Etag': etag,
             })
             for connection_id, info in put_requests.items():
-                body = unchunk_body(''.join(info['chunks']))
+                body = unchunk_body(b''.join(info['chunks']))
                 # email.parser.FeedParser doesn't know how to take a multipart
                 # message and boundary together and parse it; it only knows how
                 # to take a string, parse the headers, and figure out the
                 # boundary on its own.
-                parser = email.parser.FeedParser()
+                parser = EmailFeedParser()
                 parser.feed(
-                    "Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n"
-                    % info['boundary'])
+                    ("Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n"
+                     % info['boundary']).encode('ascii'))
                 parser.feed(body)
                 message = parser.close()
 
@@ -4659,7 +4702,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
                     'X-Object-Sysmeta-Ec-Content-Length': str(size),
                     'X-Object-Sysmeta-Ec-Etag': etag,
                     'X-Object-Sysmeta-Ec-Segment-Size': str(segment_size),
-                    'Etag': md5(obj_part.get_payload()).hexdigest()}
+                    'Etag': md5(obj_part.get_payload(decode=True)).hexdigest()}
                 expected.update(expect_added)
                 for header, value in expected.items():
                     self.assertIn(header, footer_metadata)
@@ -4706,7 +4749,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_old_obj_server(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         responses = [
             # one server will response 100-continue but not include the
             # needful expect headers and the connection will be dropped
@@ -4733,7 +4776,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         # for.
         self.app.post_quorum_timeout = 0.01
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
         # plenty of slow commits
         response_sleep = 5.0
         codes = [FakeStatus(201, response_sleep=response_sleep)
@@ -4755,7 +4798,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_with_just_enough_durable_responses(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
 
         codes = [201] * (self.policy.ec_ndata + 1)
         codes += [503] * (self.policy.ec_nparity - 1)
@@ -4767,7 +4810,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
 
     def test_PUT_with_less_durable_responses(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
-                                              body='')
+                                              body=b'')
 
         codes = [201] * (self.policy.ec_ndata)
         codes += [503] * (self.policy.ec_nparity)
