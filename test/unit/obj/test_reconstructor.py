@@ -3628,6 +3628,92 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             set(c['suffixes']),
         ) for c in ssync_calls))
 
+    def test_sync_duplicates_to_remote_region(self):
+        partition = 0
+        part_nodes = self.policy.object_ring.get_part_nodes(partition)
+        # in the non-duplicate case we just pick a random node
+        local_dev = random.choice(part_nodes[-14:])
+        frag_index = self.policy.get_backend_index(local_dev['index'])
+        sync_to = object_reconstructor._get_partners(
+            local_dev['index'], part_nodes)
+        part_path = os.path.join(self.devices, self.local_dev['device'],
+                                 diskfile.get_data_dir(self.policy),
+                                 str(partition))
+        # setup left and right hashes
+        stub_hashes = {
+            '123': {frag_index: 'hash', None: 'hash'},
+            'abc': {frag_index: 'hash', None: 'hash'},
+        }
+        # left hand side is in sync
+        left_frag_index = self.policy.get_backend_index(sync_to[0]['index'])
+        left_hashes = {
+            '123': {left_frag_index: 'hash', None: 'hash'},
+            'abc': {left_frag_index: 'hash', None: 'hash'},
+        }
+        # right hand side needs sync
+        right_frag_index = self.policy.get_backend_index(sync_to[1]['index'])
+        right_hashes = {
+            '123': {right_frag_index: 'hash', None: 'hash'},
+            'abc': {right_frag_index: 'hashX', None: 'hash'},
+        }
+
+        job = {
+            'job_type': object_reconstructor.SYNC,
+            'frag_index': frag_index,
+            'suffixes': stub_hashes.keys(),
+            'sync_to': sync_to,
+            'partition': partition,
+            'path': part_path,
+            'hashes': stub_hashes,
+            'policy': self.policy,
+            'local_dev': self.local_dev,
+            'device': self.local_dev['device'],
+        }
+
+        responses = [
+            (200, pickle.dumps(left_hashes)),
+            (200, pickle.dumps(right_hashes)),
+            (200, pickle.dumps(right_hashes)),
+        ]
+        codes, body_iter = zip(*responses)
+
+        # we're going to dip our mocks into the ssync layer a bit
+        ssync_resp = mock.MagicMock()
+        ssync_resp.status = 200
+        ssync_resp.readline.side_effect = [
+            ':MISSING_CHECK: START',
+            ':MISSING_CHECK: END',
+            ':UPDATES: START',
+            ':UPDATES: END',
+        ]
+
+        ssync_headers = []
+
+        def capture_headers(name, value):
+            ssync_headers.append((name, value))
+
+        ssync_conn = mock.MagicMock()
+        ssync_conn.getresponse.return_value = ssync_resp
+        ssync_conn.putheader = capture_headers
+
+        with mock.patch('swift.obj.ssync_sender.SsyncBufferedHTTPConnection',
+                        return_value=ssync_conn), \
+                mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
+                           return_value=(None, stub_hashes)), \
+                mock.patch('swift.obj.diskfile.ECDiskFileManager.yield_hashes',
+                           return_value=iter([])), \
+                mocked_http_conn(*codes, body_iter=body_iter):
+            self.reconstructor.process_job(job)
+
+        # ... to make sure it sets up our headers correctly
+        self.assertEqual(ssync_headers, [
+            ('Transfer-Encoding', 'chunked'),
+            ('X-Backend-Storage-Policy-Index', 0),
+            ('X-Backend-Ssync-Frag-Index', right_frag_index),
+            # we include this for backwards compat
+            ('X-Backend-Ssync-Node-Index', right_frag_index),
+        ])
+
     def test_process_job_sync_missing_durable(self):
         partition = 0
         part_nodes = self.policy.object_ring.get_part_nodes(partition)
@@ -4101,9 +4187,10 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(self.reconstructor.handoffs_remaining, 0)
 
     def test_process_job_revert_cleanup_tombstone(self):
-        sync_to = [random.choice([n for n in self.policy.object_ring.devs
-                                  if n != self.local_dev])]
         partition = 0
+        sync_to = [random.choice([
+            n for n in self.policy.object_ring.get_part_nodes(partition)
+            if n['id'] != self.local_dev['id']])]
 
         part_path = os.path.join(self.devices, self.local_dev['device'],
                                  diskfile.get_data_dir(self.policy),
@@ -4205,6 +4292,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4268,6 +4356,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[4]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4304,6 +4393,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[4]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4349,6 +4439,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[-4]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         # make up some data (trim some amount to make it unaligned with
         # segment size)
@@ -4385,6 +4476,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
         policy = self.policy
 
         possible_errors = [Timeout(), Exception('kaboom!')]
@@ -4414,6 +4506,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
         policy = self.policy
 
         codes = [404 for i in range(policy.object_ring.replicas - 1)]
@@ -4438,6 +4531,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4488,6 +4582,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4542,6 +4637,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4603,6 +4699,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         ec_archive_dict = dict()
@@ -4677,7 +4774,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             'policy': self.policy,
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
-        broken_node = random.randint(0, self.policy.ec_ndata - 1)
+        broken_index = random.randint(0, self.policy.ec_ndata - 1)
+        node = part_nodes[broken_index]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4685,7 +4784,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
 
         # instead of popping the broken body, we'll just leave it in the list
         # of responses and take away something else.
-        broken_body = ec_archive_bodies[broken_node]
+        broken_body = ec_archive_bodies[broken_index]
         ec_archive_bodies = ec_archive_bodies[:-1]
 
         def make_header(body):
@@ -4698,7 +4797,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             df = self.reconstructor.reconstruct_fa(
-                job, part_nodes[broken_node], self.obj_metadata)
+                job, node, self.obj_metadata)
             fixed_body = ''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
             self.assertEqual(md5(fixed_body).hexdigest(),
@@ -4711,7 +4810,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         debug_log_lines = self.logger.get_lines_for_level('debug')
         # redundant frag found once in first ec_ndata responses
         self.assertIn(
-            'Found existing frag #%s at' % broken_node,
+            'Found existing frag #%s at' % broken_index,
             debug_log_lines[0])
 
         # N.B. in the future, we could avoid those check because
@@ -4722,12 +4821,12 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         # liberasurecode[1].
         # 1: https://github.com/openstack/liberasurecode/blob/
         #    master/src/erasurecode.c#L870
-        log_prefix = 'Reconstruct frag #%s with frag indexes' % broken_node
+        log_prefix = 'Reconstruct frag #%s with frag indexes' % broken_index
         self.assertIn(log_prefix, debug_log_lines[1])
         self.assertFalse(debug_log_lines[2:])
         got_frag_index_list = json.loads(
             debug_log_lines[1][len(log_prefix):])
-        self.assertNotIn(broken_node, got_frag_index_list)
+        self.assertNotIn(broken_index, got_frag_index_list)
 
     def test_reconstruct_fa_finds_duplicate_does_not_fail(self):
         job = {
@@ -4736,6 +4835,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4785,6 +4885,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4854,6 +4955,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -4928,6 +5030,7 @@ class TestObjectReconstructorECDuplicationFactor(TestObjectReconstructor):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[index]
+        node['backend_index'] = self.policy.get_backend_index(node['index'])
         metadata = {
             'name': '/a/c/o',
             'Content-Length': 0,

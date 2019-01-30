@@ -211,7 +211,6 @@ class TestReceiver(unittest.TestCase):
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[1])
         self.assertEqual(rcvr.frag_index, 7)
-        self.assertIsNone(rcvr.node_index)
 
     @unit.patch_policies()
     def test_Receiver_with_only_node_index_header(self):
@@ -226,13 +225,17 @@ class TestReceiver(unittest.TestCase):
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
-        with self.assertRaises(HTTPException) as e:
-            ssync_receiver.Receiver(self.controller, req)
-        self.assertEqual(e.exception.status_int, 400)
-        # if a node index is included - it *must* be
-        # the same value of frag index
-        self.assertEqual(e.exception.body,
-                         'Frag-Index (None) != Node-Index (7)')
+        rcvr = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in rcvr() if chunk.strip()]
+        self.assertEqual(
+            body_lines,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(rcvr.policy, POLICIES[1])
+        # we used to require the reconstructor to send the frag_index twice as
+        # two different headers because of evolutionary reasons, now we ignore
+        # node_index
+        self.assertEqual(rcvr.frag_index, None)
 
     @unit.patch_policies()
     def test_Receiver_with_matched_indexes(self):
@@ -256,7 +259,6 @@ class TestReceiver(unittest.TestCase):
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[1])
         self.assertEqual(rcvr.frag_index, 7)
-        self.assertEqual(rcvr.node_index, 7)
 
     @unit.patch_policies()
     def test_Receiver_with_invalid_indexes(self):
@@ -289,8 +291,16 @@ class TestReceiver(unittest.TestCase):
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
-        self.assertRaises(HTTPException, ssync_receiver.Receiver,
-                          self.controller, req)
+        rcvr = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in rcvr() if chunk.strip()]
+        self.assertEqual(
+            body_lines,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(rcvr.policy, POLICIES[1])
+        # node_index if provided should always match frag_index; but if they
+        # differ, frag_index takes precedence
+        self.assertEqual(rcvr.frag_index, 7)
 
     def test_SSYNC_replication_lock_fail(self):
         def _mock(path, policy, partition):
@@ -2057,7 +2067,8 @@ class TestSsyncRxServer(unittest.TestCase):
         sender = ssync_sender.Sender(self.daemon, node, job, ['abc'])
 
         # kick off the sender and let the error trigger failure
-        with mock.patch('swift.obj.ssync_receiver.Receiver.initialize_request')\
+        with mock.patch(
+                'swift.obj.ssync_receiver.Receiver.initialize_request') \
                 as mock_initialize_request:
             mock_initialize_request.side_effect = \
                 swob.HTTPInternalServerError()

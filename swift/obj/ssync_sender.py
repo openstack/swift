@@ -231,21 +231,14 @@ class Sender(object):
             connection.putheader('Transfer-Encoding', 'chunked')
             connection.putheader('X-Backend-Storage-Policy-Index',
                                  int(self.job['policy']))
-            # a sync job must use the node's index for the frag_index of the
-            # rebuilt fragments instead of the frag_index from the job which
-            # will be rebuilding them
-            frag_index = self.node.get('index', self.job.get('frag_index'))
-            if frag_index is None:
-                # replication jobs will not have a frag_index key;
-                # reconstructor jobs with only tombstones will have a
-                # frag_index key explicitly set to the value of None - in both
-                # cases on the wire we write the empty string which
-                # ssync_receiver will translate to None
-                frag_index = ''
-            connection.putheader('X-Backend-Ssync-Frag-Index', frag_index)
-            # a revert job to a handoff will not have a node index
-            connection.putheader('X-Backend-Ssync-Node-Index',
-                                 self.node.get('index', ''))
+            # a sync job must use the node's backend_index for the frag_index
+            # of the rebuilt fragments instead of the frag_index from the job
+            # which will be rebuilding them
+            frag_index = self.node.get('backend_index')
+            if frag_index is not None:
+                connection.putheader('X-Backend-Ssync-Frag-Index', frag_index)
+                # Node-Index header is for backwards compat 2.4.0-2.20.0
+                connection.putheader('X-Backend-Ssync-Node-Index', frag_index)
             connection.endheaders()
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'connect receive'):

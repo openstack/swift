@@ -369,14 +369,13 @@ class ObjectReconstructor(Daemon):
         :returns: a DiskFile like class for use by ssync
         :raises DiskFileError: if the fragment archive cannot be reconstructed
         """
-
-        part_nodes = job['policy'].object_ring.get_part_nodes(
-            job['partition'])
-        part_nodes.remove(node)
+        # don't try and fetch a fragment from the node we're rebuilding to
+        part_nodes = [n for n in job['policy'].object_ring.get_part_nodes(
+            job['partition']) if n['id'] != node['id']]
 
         # the fragment index we need to reconstruct is the position index
         # of the node we're rebuilding to within the primary part list
-        fi_to_rebuild = job['policy'].get_backend_index(node['index'])
+        fi_to_rebuild = node['backend_index']
 
         # KISS send out connection requests to all nodes, see what sticks.
         # Use fragment preferences header to tell other nodes that we want
@@ -829,6 +828,8 @@ class ObjectReconstructor(Daemon):
                 syncd_with += 1
                 continue
 
+            node['backend_index'] = job['policy'].get_backend_index(
+                node['index'])
             # ssync any out-of-sync suffixes with the remote node
             success, _ = ssync_sender(
                 self, node, job, suffixes)()
@@ -850,6 +851,8 @@ class ObjectReconstructor(Daemon):
         syncd_with = 0
         reverted_objs = {}
         for node in job['sync_to']:
+            node['backend_index'] = job['policy'].get_backend_index(
+                node['index'])
             success, in_sync_objs = ssync_sender(
                 self, node, job, job['suffixes'])()
             if success:

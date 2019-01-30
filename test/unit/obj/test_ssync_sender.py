@@ -182,7 +182,7 @@ class TestSender(BaseTest):
 
     def test_connect(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
-                    device='sda1', index=0)
+                    device='sda1', backend_index=0)
         job = dict(partition='9', policy=POLICIES[1])
         self.sender = ssync_sender.Sender(self.daemon, node, job, None)
         self.sender.suffixes = ['abc']
@@ -236,8 +236,6 @@ class TestSender(BaseTest):
             'putheader': [
                 mock.call('Transfer-Encoding', 'chunked'),
                 mock.call('X-Backend-Storage-Policy-Index', 1),
-                mock.call('X-Backend-Ssync-Frag-Index', 9),
-                mock.call('X-Backend-Ssync-Node-Index', ''),
             ],
             'endheaders': [mock.call()],
         }
@@ -270,8 +268,6 @@ class TestSender(BaseTest):
             'putheader': [
                 mock.call('Transfer-Encoding', 'chunked'),
                 mock.call('X-Backend-Storage-Policy-Index', 0),
-                mock.call('X-Backend-Ssync-Frag-Index', ''),
-                mock.call('X-Backend-Ssync-Node-Index', ''),
             ],
             'endheaders': [mock.call()],
         }
@@ -304,8 +300,40 @@ class TestSender(BaseTest):
             'putheader': [
                 mock.call('Transfer-Encoding', 'chunked'),
                 mock.call('X-Backend-Storage-Policy-Index', 1),
-                mock.call('X-Backend-Ssync-Frag-Index', ''),
-                mock.call('X-Backend-Ssync-Node-Index', ''),
+            ],
+            'endheaders': [mock.call()],
+        }
+        for method_name, expected_calls in expectations.items():
+            mock_method = getattr(mock_conn, method_name)
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
+
+    def test_connect_handoff_none_frag_to_primary(self):
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1', backend_index=42)
+        job = dict(partition='9', policy=POLICIES[1], frag_index=None)
+        self.sender = ssync_sender.Sender(self.daemon, node, job, None)
+        self.sender.suffixes = ['abc']
+        with mock.patch(
+                'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
+        ) as mock_conn_class:
+            mock_conn = mock_conn_class.return_value
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 200
+            mock_conn.getresponse.return_value = mock_resp
+            self.sender.connect()
+        mock_conn_class.assert_called_once_with('1.2.3.4:5678')
+        expectations = {
+            'putrequest': [
+                mock.call('SSYNC', '/sda1/9'),
+            ],
+            'putheader': [
+                mock.call('Transfer-Encoding', 'chunked'),
+                mock.call('X-Backend-Storage-Policy-Index', 1),
+                mock.call('X-Backend-Ssync-Frag-Index', 42),
+                mock.call('X-Backend-Ssync-Node-Index', 42),
             ],
             'endheaders': [mock.call()],
         }
@@ -339,8 +367,6 @@ class TestSender(BaseTest):
             'putheader': [
                 mock.call('Transfer-Encoding', 'chunked'),
                 mock.call('X-Backend-Storage-Policy-Index', 1),
-                mock.call('X-Backend-Ssync-Frag-Index', ''),
-                mock.call('X-Backend-Ssync-Node-Index', ''),
             ],
             'endheaders': [mock.call()],
         }

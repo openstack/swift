@@ -766,9 +766,8 @@ class ObjectController(BaseStorageServer):
                 except ValueError as e:
                     raise HTTPBadRequest(body=str(e), request=request,
                                          content_type='text/plain')
-        # SSYNC will include Frag-Index header for subrequests to primary
-        # nodes; handoff nodes should 409 subrequests to over-write an
-        # existing data fragment until they offloaded the existing fragment
+        # SSYNC will include Frag-Index header for subrequests, in which case
+        # get_diskfile will ignore non-matching on-disk data files
         frag_index = request.headers.get('X-Backend-Ssync-Frag-Index')
         next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
