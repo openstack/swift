@@ -1902,7 +1902,7 @@ class TestContainerSharding(BaseTestContainerSharding):
         old_primary_dir, container_hash = self.get_storage_dir(
             self.brain.part, handoff_node)
         utils.mkdirs(os.path.dirname(old_primary_dir))
-        os.rename(new_primary_dir, old_primary_dir)
+        shutil.move(new_primary_dir, old_primary_dir)
 
         # make the cluster more or less "healthy" again
         self.brain.servers.start(number=new_primary_node_number)
@@ -2009,7 +2009,7 @@ class TestContainerSharding(BaseTestContainerSharding):
         old_primary_dir, container_hash = self.get_storage_dir(
             self.brain.part, handoff_node)
         utils.mkdirs(os.path.dirname(old_primary_dir))
-        os.rename(new_primary_dir, old_primary_dir)
+        shutil.move(new_primary_dir, old_primary_dir)
         self.assert_container_state(handoff_node, 'sharding', 3)
 
         # run replicator on handoff node to create a fresh db on new primary

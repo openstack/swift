@@ -20,7 +20,7 @@ from collections import defaultdict
 from eventlet import Timeout
 
 from swift.container.sync_store import ContainerSyncStore
-from swift.container.backend import ContainerBroker, DATADIR
+from swift.container.backend import ContainerBroker, DATADIR, SHARDED
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, incorrect_policy_index,
     get_reconciler_container_name, get_row_to_q_entry_translator)
@@ -113,11 +113,20 @@ class ContainerReplicator(db_replicator.Replicator):
                 'peer may need upgrading', broker.db_file,
                 '%(ip)s:%(port)s/%(device)s' % node)
         if broker.sharding_initiated():
-            self.logger.warning(
-                '%s is able to shard -- refusing to replicate objects to peer '
-                '%s; have shard ranges and will wait for cleaving',
-                broker.db_file,
-                '%(ip)s:%(port)s/%(device)s' % node)
+            if info['db_state'] == SHARDED and len(
+                    broker.get_objects(limit=1)) == 0:
+                self.logger.debug('%s is sharded and has nothing more to '
+                                  'replicate to peer %s',
+                                  broker.db_file,
+                                  '%(ip)s:%(port)s/%(device)s' % node)
+            else:
+                # Only print the scary warning if there was something that
+                # didn't get replicated
+                self.logger.warning(
+                    '%s is able to shard -- refusing to replicate objects to '
+                    'peer %s; have shard ranges and will wait for cleaving',
+                    broker.db_file,
+                    '%(ip)s:%(port)s/%(device)s' % node)
             self.stats['deferred'] += 1
             return shard_range_success
 
