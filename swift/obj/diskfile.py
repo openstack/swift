@@ -65,7 +65,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     fsync_dir, drop_buffer_cache, lock_path, write_pickle, \
     config_true_value, listdir, split_path, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
-    MD5_OF_EMPTY_STRING, link_fd_to_path, o_tmpfile_supported, \
+    MD5_OF_EMPTY_STRING, link_fd_to_path, \
     O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
@@ -705,7 +705,7 @@ class BaseDiskFileManager(object):
                 with open('/proc/sys/fs/pipe-max-size') as f:
                     max_pipe_size = int(f.read())
                 self.pipe_size = min(max_pipe_size, self.disk_chunk_size)
-        self.use_linkat = o_tmpfile_supported()
+        self.use_linkat = True
 
     @classmethod
     def check_policy(cls, policy):
@@ -1672,7 +1672,6 @@ class BaseDiskFileWriter(object):
         return self.manager.logger
 
     def _get_tempfile(self):
-        fallback_to_mkstemp = False
         tmppath = None
         if self.manager.use_linkat:
             self._dirs_created = makedirs_count(self._datadir)
@@ -1684,10 +1683,10 @@ class BaseDiskFileWriter(object):
                            Falling back to using mkstemp()' \
                            % (self._datadir, os.strerror(err.errno))
                     self.logger.warning(msg)
-                    fallback_to_mkstemp = True
+                    self.manager.use_linkat = False
                 else:
                     raise
-        if not self.manager.use_linkat or fallback_to_mkstemp:
+        if not self.manager.use_linkat:
             tmpdir = join(self._diskfile._device_path,
                           get_tmp_dir(self._diskfile.policy))
             if not exists(tmpdir):
@@ -2244,8 +2243,7 @@ class BaseDiskFile(object):
     def __init__(self, mgr, device_path, partition,
                  account=None, container=None, obj=None, _datadir=None,
                  policy=None, use_splice=False, pipe_size=None,
-                 open_expired=False, next_part_power=None,
-                 **kwargs):
+                 open_expired=False, next_part_power=None, **kwargs):
         self._manager = mgr
         self._device_path = device_path
         self._logger = mgr.logger

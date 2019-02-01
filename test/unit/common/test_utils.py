@@ -77,8 +77,8 @@ from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import Request, Response
-from test.unit import FakeLogger, requires_o_tmpfile_support, \
-    requires_o_tmpfile_support_in_tmp, quiet_eventlet_exceptions
+from test.unit import FakeLogger, requires_o_tmpfile_support_in_tmp, \
+    quiet_eventlet_exceptions
 
 threading = eventlet.patcher.original('threading')
 
@@ -3930,7 +3930,6 @@ cluster_dfw1 = http://dfw1.host/v1/
             os.close(fd)
             shutil.rmtree(tempdir)
 
-    @requires_o_tmpfile_support
     def test_link_fd_to_path_errno_not_EEXIST_or_ENOENT(self):
         _m_linkat = mock.Mock(
             side_effect=IOError(errno.EACCES, os.strerror(errno.EACCES)))
