@@ -1132,7 +1132,8 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         self.assertDictEqual(obj_dict_2, body_json[1])
 
     def test_cont_get_json_req_with_cipher_mismatch(self):
-        bad_crypto_meta = fake_get_crypto_meta()
+        key_id = {'path': '/a/c/testfile'}
+        bad_crypto_meta = fake_get_crypto_meta(key_id=key_id)
         bad_crypto_meta['cipher'] = 'unknown_cipher'
         key = fetch_crypto_keys()['container']
         pt_etag = 'c6e8196d7f0fff6444b90861fe8d609d'
@@ -1158,6 +1159,42 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       self.decrypter.logger.get_lines_for_level('error')[0])
         self.assertIn('Error decrypting container listing',
                       self.decrypter.logger.get_lines_for_level('error')[0])
+
+    def test_cont_get_json_req_with_bad_key(self):
+        # etag is encrypted with a different key than returned by keymaster
+        listing = []
+        for obj in ('testfile1', 'testfile2'):
+            key_id = {'path': '/a/c/%s' % obj}
+            crypto_meta = fake_get_crypto_meta(key_id=key_id)
+            key = fetch_crypto_keys()['container']
+            pt_etag = 'c6e8196d7f0fff6444b90861fe8d609d'
+            ct_etag = encrypt_and_append_meta(pt_etag, key[:-1] + b'x',
+                                              crypto_meta=crypto_meta)
+            obj_dict = {"bytes": 16,
+                        "last_modified": "2015-04-14T23:33:06.439040",
+                        "hash": ct_etag,
+                        "name": obj,
+                        "content_type": "image/jpeg"}
+            listing.append(obj_dict)
+
+        fake_body = json.dumps(listing).encode('ascii')
+
+        resp = self._make_cont_get_req(fake_body, 'json')
+
+        self.assertEqual('200 OK', resp.status)
+        actual_listing = json.loads(resp.body)
+        self.assertEqual(2, len(actual_listing))
+        self.assertEqual(
+            ['<unknown>', '<unknown>'],
+            [x['hash'] for x in actual_listing])
+        error_lines = self.decrypter.logger.get_lines_for_level('error')
+        self.assertEqual(2, len(error_lines))
+        for error_line, item in zip(error_lines, actual_listing):
+            self.assertIn("invalid continuation byte", error_line)
+            self.assertIn(
+                "Error decrypting container listing for /v1/a/c/{0} "
+                "with key {{'path': '/a/c/{0}'}}".format(item['name']),
+                error_line)
 
     def test_cont_get_json_req_with_unknown_secret_id(self):
         bad_crypto_meta = fake_get_crypto_meta()
