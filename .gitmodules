@@ -1,0 +1,6 @@
+[submodule "snappy"]
+	path = go/swift-rpc-losf/snappy
+	url = https://github.com/google/snappy.git
+[submodule "leveldb"]
+	path = go/swift-rpc-losf/leveldb
+	url = https://github.com/google/leveldb.git

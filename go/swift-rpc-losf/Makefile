@@ -13,12 +13,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: all build
+.PHONY: all build-snappy build-leveldb build-losf install install-snappy install-leveldb
 
-all: build
+all: build-snappy build-leveldb build-losf
 
-build:
+install: install-snappy install-leveldb
+
+build-losf:
 	go get -u github.com/golang/protobuf/protoc-gen-go
 	protoc -I ../../swift/obj fmgr.proto --go_out=plugins=grpc:proto
 	go get
-	go build -o ../../swift-rpc-losf
+	go build -o ../../bin/swift-rpc-losf
+
+# assuming installation will be taken by setup.py when swift-rpc-losf is
+# included bin/ directory
+# install-losf:
+
+build-snappy:
+	git submodule update --init snappy
+	sed -i 's/\(BUILD_SHARED_LIBS "Build.*\) OFF/\1 ON/' snappy/CMakeLists.txt
+	mkdir -p snappy/build
+	cmake -S snappy -B snappy/build
+	$(MAKE) -C snappy/build all
+
+install-snappy:
+	$(MAKE) -C snappy/build install
+
+build-leveldb:
+	git submodule update --init leveldb
+	# add set(BUILD_SHARED_LIBS ON) to leveldb/CMakeLists.txt (only if it doesn't exist)
+	grep -q -x -F 'set(BUILD_SHARED_LIBS ON)' leveldb/CMakeLists.txt || echo 'set(BUILD_SHARED_LIBS ON)' >> leveldb/CMakeLists.txt
+	mkdir -p leveldb/build
+	cmake -S leveldb -B leveldb/build
+	$(MAKE) -C leveldb/build all
+	# TODO: Make sure if it should run after leveldb install
+	CGO_CFLAGS=/usr/local/include CGO_LDFLAGS="-L/usr/local/lib" go get github.com/jmhodges/levigo
+
+install-leveldb:
+	$(MAKE) -C leveldb/build install
