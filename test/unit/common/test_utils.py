@@ -4939,6 +4939,38 @@ class TestFileLikeIter(unittest.TestCase):
         iter_file.close()
         self.assertTrue(iter_file.closed)
 
+    def test_get_hub(self):
+        # This test mock the eventlet.green.select module without poll
+        # as in eventlet > 0.20
+        # https://github.com/eventlet/eventlet/commit/614a20462
+        # We add __original_module_select to sys.modules to mock usage
+        # of eventlet.patcher.original
+
+        class SelectWithPoll(object):
+            def poll():
+                pass
+
+        class SelectWithoutPoll(object):
+            pass
+
+        # Platform with poll() that call get_hub before eventlet patching
+        with mock.patch.dict('sys.modules',
+                             {'select': SelectWithPoll,
+                              '__original_module_select': SelectWithPoll}):
+            self.assertEqual(utils.get_hub(), 'poll')
+
+        # Platform with poll() that call get_hub after eventlet patching
+        with mock.patch.dict('sys.modules',
+                             {'select': SelectWithoutPoll,
+                              '__original_module_select': SelectWithPoll}):
+            self.assertEqual(utils.get_hub(), 'poll')
+
+        # Platform without poll() -- before or after patching doesn't matter
+        with mock.patch.dict('sys.modules',
+                             {'select': SelectWithoutPoll,
+                              '__original_module_select': SelectWithoutPoll}):
+            self.assertEqual(utils.get_hub(), 'selects')
+
 
 class TestStatsdLogging(unittest.TestCase):
     def setUp(self):
