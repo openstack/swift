@@ -6863,7 +6863,10 @@ class TestObjectController(unittest.TestCase):
                 })
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            suffix = list(pickle.loads(resp.body).keys())[0]
+            suffixes = list(pickle.loads(resp.body).keys())
+            self.assertEqual(1, len(suffixes),
+                             'Expected just one suffix; got %r' % (suffixes,))
+            suffix = suffixes[0]
             self.assertEqual(suffix, os.path.basename(
                 os.path.dirname(objfile._datadir)))
             # tombstone still exists
@@ -7619,7 +7622,7 @@ class TestObjectServer(unittest.TestCase):
         if six.PY2:
             conn.sock.fd._sock.close()
         else:
-            conn.sock.fd.close()
+            conn.sock.fd._real_close()
         for i in range(2):
             sleep(0)
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -7722,7 +7725,7 @@ class TestObjectServer(unittest.TestCase):
 
         # give the object server a little time to trampoline enough to
         # recognize request has finished, or socket has closed or whatever
-        sleep(0.1)
+        sleep(0.01)
 
     def test_multiphase_put_client_disconnect_right_before_commit(self):
         with self._check_multiphase_put_commit_handling() as context:
@@ -7731,7 +7734,7 @@ class TestObjectServer(unittest.TestCase):
             if six.PY2:
                 conn.sock.fd._sock.close()
             else:
-                conn.sock.fd.close()
+                conn.sock.fd._real_close()
         sleep(0)
 
         put_timestamp = context['put_timestamp']
@@ -7775,7 +7778,7 @@ class TestObjectServer(unittest.TestCase):
             if six.PY2:
                 conn.sock.fd._sock.close()
             else:
-                conn.sock.fd.close()
+                conn.sock.fd._real_close()
         sleep(0)
 
         put_timestamp = context['put_timestamp']
@@ -7957,7 +7960,7 @@ class TestObjectServer(unittest.TestCase):
             if six.PY2:
                 conn.sock.fd._sock.close()
             else:
-                conn.sock.fd.close()
+                conn.sock.fd._real_close()
         sleep(0)
 
         # and make sure it demonstrates the client disconnect
@@ -8155,7 +8158,7 @@ class TestObjectServer(unittest.TestCase):
             if six.PY2:
                 conn.sock.fd._sock.close()
             else:
-                conn.sock.fd.close()
+                conn.sock.fd._real_close()
         sleep(0)
 
         # and make sure it demonstrates the client disconnect

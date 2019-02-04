@@ -48,7 +48,6 @@ from swift.obj import server
 from hashlib import md5
 import logging.handlers
 
-import six
 from six.moves import range
 from six import BytesIO
 from six.moves.http_client import HTTPException
@@ -924,7 +923,7 @@ def fake_http_connect(*code_iter, **kwargs):
         def getheaders(self):
             etag = self.etag
             if not etag:
-                if isinstance(self.body, six.binary_type):
+                if isinstance(self.body, bytes):
                     etag = '"' + md5(self.body).hexdigest() + '"'
                 else:
                     etag = '"68b329da9893e34099c7d8ad5cb9c940"'
