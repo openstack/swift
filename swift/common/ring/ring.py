@@ -24,7 +24,7 @@ from time import time
 import os
 from io import BufferedReader
 from hashlib import md5
-from itertools import chain
+from itertools import chain, count
 from tempfile import NamedTemporaryFile
 import sys
 
@@ -237,34 +237,35 @@ class Ring(object):
             self._replica2part2dev_id = ring_data._replica2part2dev_id
             self._part_shift = ring_data._part_shift
             self._rebuild_tier_data()
-
-            # Do this now, when we know the data has changed, rather than
-            # doing it on every call to get_more_nodes().
-            #
-            # Since this is to speed up the finding of handoffs, we only
-            # consider devices with at least one partition assigned. This
-            # way, a region, zone, or server with no partitions assigned
-            # does not count toward our totals, thereby keeping the early
-            # bailouts in get_more_nodes() working.
-            dev_ids_with_parts = set()
-            for part2dev_id in self._replica2part2dev_id:
-                for dev_id in part2dev_id:
-                    dev_ids_with_parts.add(dev_id)
-
-            regions = set()
-            zones = set()
-            ips = set()
-            self._num_devs = 0
-            for dev in self._devs:
-                if dev and dev['id'] in dev_ids_with_parts:
-                    regions.add(dev['region'])
-                    zones.add((dev['region'], dev['zone']))
-                    ips.add((dev['region'], dev['zone'], dev['ip']))
-                    self._num_devs += 1
-            self._num_regions = len(regions)
-            self._num_zones = len(zones)
-            self._num_ips = len(ips)
+            self._update_bookkeeping()
             self._next_part_power = ring_data.next_part_power
+
+    def _update_bookkeeping(self):
+        # Do this now, when we know the data has changed, rather than
+        # doing it on every call to get_more_nodes().
+        #
+        # Since this is to speed up the finding of handoffs, we only
+        # consider devices with at least one partition assigned. This
+        # way, a region, zone, or server with no partitions assigned
+        # does not count toward our totals, thereby keeping the early
+        # bailouts in get_more_nodes() working.
+        dev_ids_with_parts = set()
+        for part2dev_id in self._replica2part2dev_id:
+            for dev_id in part2dev_id:
+                dev_ids_with_parts.add(dev_id)
+        regions = set()
+        zones = set()
+        ips = set()
+        self._num_devs = 0
+        for dev in self._devs:
+            if dev and dev['id'] in dev_ids_with_parts:
+                regions.add(dev['region'])
+                zones.add((dev['region'], dev['zone']))
+                ips.add((dev['region'], dev['zone'], dev['ip']))
+                self._num_devs += 1
+        self._num_regions = len(regions)
+        self._num_zones = len(zones)
+        self._num_ips = len(ips)
 
     @property
     def next_part_power(self):
@@ -407,8 +408,8 @@ class Ring(object):
         if time() > self._rtime:
             self._reload()
         primary_nodes = self._get_part_nodes(part)
-
         used = set(d['id'] for d in primary_nodes)
+        index = count()
         same_regions = set(d['region'] for d in primary_nodes)
         same_zones = set((d['region'], d['zone']) for d in primary_nodes)
         same_ips = set(
@@ -434,7 +435,7 @@ class Ring(object):
                     dev = self._devs[dev_id]
                     region = dev['region']
                     if dev_id not in used and region not in same_regions:
-                        yield dev
+                        yield dict(dev, handoff_index=next(index))
                         used.add(dev_id)
                         same_regions.add(region)
                         zone = dev['zone']
@@ -459,7 +460,7 @@ class Ring(object):
                     dev = self._devs[dev_id]
                     zone = (dev['region'], dev['zone'])
                     if dev_id not in used and zone not in same_zones:
-                        yield dev
+                        yield dict(dev, handoff_index=next(index))
                         used.add(dev_id)
                         same_zones.add(zone)
                         ip = zone + (dev['ip'],)
@@ -482,7 +483,7 @@ class Ring(object):
                     dev = self._devs[dev_id]
                     ip = (dev['region'], dev['zone'], dev['ip'])
                     if dev_id not in used and ip not in same_ips:
-                        yield dev
+                        yield dict(dev, handoff_index=next(index))
                         used.add(dev_id)
                         same_ips.add(ip)
                         if len(same_ips) == self._num_ips:
@@ -501,7 +502,8 @@ class Ring(object):
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
                     if dev_id not in used:
-                        yield self._devs[dev_id]
+                        dev = self._devs[dev_id]
+                        yield dict(dev, handoff_index=next(index))
                         used.add(dev_id)
                         if len(used) == self._num_devs:
                             hit_all_devs = True

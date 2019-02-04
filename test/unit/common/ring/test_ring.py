@@ -568,6 +568,10 @@ class TestRing(TestRingBase):
         self.assertEqual(len(devs), len(exp_handoffs))
         dev_ids = [d['id'] for d in devs]
         self.assertEqual(dev_ids, exp_handoffs)
+        # We mark handoffs so code consuming extra nodes can reason about how
+        # far they've gone
+        for i, d in enumerate(devs):
+            self.assertEqual(d['handoff_index'], i)
 
         # The first 6 replicas plus the 3 primary nodes should cover all 9
         # zones in this test
