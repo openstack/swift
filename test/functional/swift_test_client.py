@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import hashlib
+import io
 import json
 import os
 import random
@@ -30,6 +31,7 @@ from six.moves import urllib
 from swiftclient import get_auth
 
 from swift.common import constraints
+from swift.common.http import is_success
 from swift.common.utils import config_true_value
 
 from test import safe_repr
@@ -216,7 +218,7 @@ class Connection(object):
                                    cfg={'absolute_path': True})
         if status // 100 == 4:
             return {}
-        if not 200 <= status <= 299:
+        if not is_success(status):
             raise ResponseError(self.response, 'GET', '/info')
         return json.loads(self.response.read())
 
@@ -436,7 +438,7 @@ class Account(Base):
                        for k, v in metadata.items())
 
         self.conn.make_request('POST', self.path, hdrs=headers, cfg=cfg)
-        if not 200 <= self.conn.response.status <= 299:
+        if not is_success(self.conn.response.status):
             raise ResponseError(self.conn.response, 'POST',
                                 self.conn.make_path(self.path))
         return True
@@ -554,7 +556,7 @@ class Container(Base):
             cfg = {}
 
         self.conn.make_request('POST', self.path, hdrs=hdrs, cfg=cfg)
-        if 200 <= self.conn.response.status <= 299:
+        if is_success(self.conn.response.status):
             return True
         if tolerate_missing and self.conn.response.status == 404:
             return True
@@ -848,7 +850,7 @@ class File(Base):
                                         parms=parms)
         if status == 404:
             return False
-        elif (status < 200) or (status > 299):
+        elif not is_success(status):
             raise ResponseError(self.conn.response, 'HEAD',
                                 self.conn.make_path(self.path))
 
@@ -901,7 +903,7 @@ class File(Base):
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
                                         cfg=cfg, parms=parms)
 
-        if (status < 200) or (status > 299):
+        if not is_success(status):
             raise ResponseError(self.conn.response, 'GET',
                                 self.conn.make_path(self.path))
 
@@ -928,7 +930,7 @@ class File(Base):
     def read_md5(self):
         status = self.conn.make_request('GET', self.path)
 
-        if (status < 200) or (status > 299):
+        if not is_success(status):
             raise ResponseError(self.conn.response, 'GET',
                                 self.conn.make_path(self.path))
 
@@ -998,7 +1000,7 @@ class File(Base):
         else:
             raise RuntimeError
 
-    def write(self, data='', hdrs=None, parms=None, callback=None, cfg=None,
+    def write(self, data=b'', hdrs=None, parms=None, callback=None, cfg=None,
               return_resp=False):
         if hdrs is None:
             hdrs = {}
@@ -1017,32 +1019,33 @@ class File(Base):
                 pass
             self.size = int(os.fstat(data.fileno())[6])
         else:
-            data = six.StringIO(data)
-            self.size = data.len
+            data = io.BytesIO(data)
+            self.size = data.seek(0, os.SEEK_END)
+            data.seek(0)
 
         headers = self.make_headers(cfg=cfg)
         headers.update(hdrs)
 
-        self.conn.put_start(self.path, hdrs=headers, parms=parms, cfg=cfg)
+        for _attempt in range(3):
+            self.conn.put_start(self.path, hdrs=headers, parms=parms, cfg=cfg)
 
-        transferred = 0
-        buff = data.read(block_size)
-        buff_len = len(buff)
-        try:
-            while buff_len > 0:
-                self.conn.put_data(buff)
-                transferred += buff_len
-                if callable(callback):
-                    callback(transferred, self.size)
-                buff = data.read(block_size)
-                buff_len = len(buff)
+            transferred = 0
+            try:
+                for buff in iter(lambda: data.read(block_size), b''):
+                    self.conn.put_data(buff)
+                    transferred += len(buff)
+                    if callable(callback):
+                        callback(transferred, self.size)
 
-            self.conn.put_end()
-        except socket.timeout as err:
-            raise err
+                self.conn.put_end()
+            except socket.timeout as err:
+                raise err
 
-        if (self.conn.response.status < 200) or \
-           (self.conn.response.status > 299):
+            if is_success(self.conn.response.status):
+                break
+            # else, rewind to be ready for another attempt
+            data.seek(0)
+        else:
             raise ResponseError(self.conn.response, 'PUT',
                                 self.conn.make_path(self.path))
 
