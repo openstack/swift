@@ -105,7 +105,8 @@ class KmipKeyMaster(keymaster.BaseKeyMaster):
                       'active_root_secret_id', 'key_id*')
     keymaster_conf_section = 'kmip_keymaster'
 
-    def _get_root_secret(self, conf):
+    def _load_keymaster_config_file(self, conf):
+        conf = super(KmipKeyMaster, self)._load_keymaster_config_file(conf)
         if self.keymaster_config_path:
             section = self.keymaster_conf_section
         else:
@@ -119,6 +120,8 @@ class KmipKeyMaster(keymaster.BaseKeyMaster):
                 'keymaster_config_path option in the proxy server config to '
                 'specify a config file.')
 
+        # Make sure we've got the kmip log handler set up before
+        # we instantiate a client
         kmip_logger = logging.getLogger('kmip')
         for handler in self.logger.logger.handlers:
             kmip_logger.addHandler(handler)
@@ -135,15 +138,17 @@ class KmipKeyMaster(keymaster.BaseKeyMaster):
         ):
             logging.getLogger(name).addFilter(debug_filter)
 
-        multikey_opts = self._load_multikey_opts(conf, 'key_id')
-        if not multikey_opts:
-            raise ValueError('key_id option is required')
-        kmip_to_secret = {}
-        root_secrets = {}
-        with ProxyKmipClient(
+        self.proxy_kmip_client = ProxyKmipClient(
             config=section,
             config_file=conf['__file__']
-        ) as client:
+        )
+        return conf
+
+    def _get_root_secret(self, conf):
+        multikey_opts = self._load_multikey_opts(conf, 'key_id')
+        kmip_to_secret = {}
+        root_secrets = {}
+        with self.proxy_kmip_client as client:
             for opt, secret_id, kmip_id in multikey_opts:
                 if kmip_id in kmip_to_secret:
                     # Save some round trips if there are multiple
