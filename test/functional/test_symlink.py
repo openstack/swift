@@ -23,6 +23,7 @@ import time
 from six.moves import urllib
 from uuid import uuid4
 
+from swift.common.http import is_success
 from swift.common.utils import json, MD5_OF_EMPTY_STRING
 from swift.common.middleware.slo import SloGetContext
 from test.functional import check_response, retry, requires_acls, \
@@ -94,7 +95,7 @@ class TestSymlinkEnv(BaseEnv):
         headers = headers or {}
         resp = retry(cls._make_request, method='PUT', container=name,
                      headers=headers, use_account=use_account)
-        if resp.status != 201:
+        if resp.status not in (201, 202):
             raise ResponseError(resp)
         return name
 
@@ -132,7 +133,7 @@ class TestSymlinkEnv(BaseEnv):
                                  use_account=use_account)
                     if resp.status == 404:
                         break
-                    if resp.status // 100 != 2:
+                    if not is_success(resp.status):
                         raise ResponseError(resp)
                     objs = json.loads(resp.content)
                     if not objs:
@@ -141,7 +142,7 @@ class TestSymlinkEnv(BaseEnv):
                         resp = retry(cls._make_request, method='DELETE',
                                      container=container, obj=obj['name'],
                                      use_account=use_account)
-                        if (resp.status != 204):
+                        if resp.status not in (204, 404):
                             raise ResponseError(resp)
 
         # delete the containers
