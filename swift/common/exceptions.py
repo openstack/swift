@@ -125,6 +125,10 @@ class ChunkReadError(SwiftException):
     pass
 
 
+class ShortReadError(SwiftException):
+    pass
+
+
 class ChunkReadTimeout(Timeout):
     pass
 
