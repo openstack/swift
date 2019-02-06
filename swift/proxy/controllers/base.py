@@ -1739,7 +1739,7 @@ class Controller(object):
             response.append(resp)
             statuses.append(resp[0])
         while len(response) < node_number:
-            response.append((HTTP_SERVICE_UNAVAILABLE, '', '', ''))
+            response.append((HTTP_SERVICE_UNAVAILABLE, '', '', b''))
         statuses, reasons, resp_headers, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (self.server_type, req.method),

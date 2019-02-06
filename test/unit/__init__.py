@@ -1055,10 +1055,10 @@ def fake_http_connect(*code_iter, **kwargs):
         expect_headers = next(expect_headers_iter)
         timestamp = next(timestamps_iter)
 
-        if status <= 0:
+        if isinstance(status, int) and status <= 0:
             raise HTTPException()
         if body_iter is None:
-            body = static_body or ''
+            body = static_body or b''
         else:
             body = next(body_iter)
         return FakeConn(status, etag, body=body, timestamp=timestamp,
@@ -1143,7 +1143,7 @@ def requires_o_tmpfile_support_in_tmp(func):
 
 class StubResponse(object):
 
-    def __init__(self, status, body='', headers=None, frag_index=None):
+    def __init__(self, status, body=b'', headers=None, frag_index=None):
         self.status = status
         self.body = body
         self.readable = BytesIO(body)
@@ -1198,7 +1198,7 @@ def encode_frag_archive_bodies(policy, body):
 def make_ec_object_stub(test_body, policy, timestamp):
     segment_size = policy.ec_segment_size
     test_body = test_body or (
-        'test' * segment_size)[:-random.randint(1, 1000)]
+        b'test' * segment_size)[:-random.randint(1, 1000)]
     timestamp = timestamp or utils.Timestamp.now()
     etag = md5(test_body).hexdigest()
     ec_archive_bodies = encode_frag_archive_bodies(policy, test_body)
