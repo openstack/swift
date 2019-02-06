@@ -219,7 +219,7 @@ class Receiver(object):
         self.device, self.partition, self.policy = \
             request_helpers.get_name_and_placement(self.request, 2, 2, False)
 
-        self.frag_index = self.node_index = None
+        self.frag_index = None
         if self.request.headers.get('X-Backend-Ssync-Frag-Index'):
             try:
                 self.frag_index = int(
@@ -228,19 +228,6 @@ class Receiver(object):
                 raise swob.HTTPBadRequest(
                     'Invalid X-Backend-Ssync-Frag-Index %r' %
                     self.request.headers['X-Backend-Ssync-Frag-Index'])
-        if self.request.headers.get('X-Backend-Ssync-Node-Index'):
-            try:
-                self.node_index = int(
-                    self.request.headers['X-Backend-Ssync-Node-Index'])
-            except ValueError:
-                raise swob.HTTPBadRequest(
-                    'Invalid X-Backend-Ssync-Node-Index %r' %
-                    self.request.headers['X-Backend-Ssync-Node-Index'])
-            if self.node_index != self.frag_index:
-                # a primary node should only receive it's own fragments
-                raise swob.HTTPBadRequest(
-                    'Frag-Index (%s) != Node-Index (%s)' % (
-                        self.frag_index, self.node_index))
         utils.validate_device_partition(self.device, self.partition)
         self.diskfile_mgr = self.app._diskfile_router[self.policy]
         if not self.diskfile_mgr.get_dev_path(self.device):
@@ -476,9 +463,9 @@ class Receiver(object):
                 raise Exception('Invalid subrequest method %s' % method)
             subreq.headers['X-Backend-Storage-Policy-Index'] = int(self.policy)
             subreq.headers['X-Backend-Replication'] = 'True'
-            if self.node_index is not None:
+            if self.frag_index is not None:
                 # primary node should not 409 if it has a non-primary fragment
-                subreq.headers['X-Backend-Ssync-Frag-Index'] = self.node_index
+                subreq.headers['X-Backend-Ssync-Frag-Index'] = self.frag_index
             if replication_headers:
                 subreq.headers['X-Backend-Replication-Headers'] = \
                     ' '.join(replication_headers)
