@@ -48,12 +48,13 @@ class RequestError(Exception):
 
 
 class ResponseError(Exception):
-    def __init__(self, response, method=None, path=None):
+    def __init__(self, response, method=None, path=None, details=None):
         self.status = response.status
         self.reason = response.reason
         self.method = method
         self.path = path
         self.headers = response.getheaders()
+        self.details = details
 
         for name, value in self.headers:
             if name.lower() == 'x-trans-id':
@@ -68,8 +69,11 @@ class ResponseError(Exception):
         return repr(self)
 
     def __repr__(self):
-        return '%d: %r (%r %r) txid=%s' % (
+        msg = '%d: %r (%r %r) txid=%s' % (
             self.status, self.reason, self.method, self.path, self.txid)
+        if self.details:
+            msg += '\n%s' % self.details
+        return msg
 
 
 def listing_empty(method):
@@ -299,6 +303,16 @@ class Connection(object):
             self.connection.request(method, path, data, headers)
             return self.connection.getresponse()
 
+        try:
+            self.response = self.request_with_retry(try_request)
+        except RequestError as e:
+            details = "{method} {path} headers: {headers} data: {data}".format(
+                method=method, path=path, headers=headers, data=data)
+            raise RequestError('Unable to complete request: %s.\n%s' % (
+                details, str(e)))
+        return self.response.status
+
+    def request_with_retry(self, try_request):
         self.response = None
         try_count = 0
         fail_messages = []
@@ -307,6 +321,9 @@ class Connection(object):
 
             try:
                 self.response = try_request()
+            except socket.timeout as e:
+                fail_messages.append(safe_repr(e))
+                continue
             except http_client.HTTPException as e:
                 fail_messages.append(safe_repr(e))
                 continue
@@ -320,17 +337,13 @@ class Connection(object):
                 if try_count != 5:
                     time.sleep(5)
                 continue
-
             break
 
         if self.response:
-            return self.response.status
+            return self.response
 
-        request = "{method} {path} headers: {headers} data: {data}".format(
-            method=method, path=path, headers=headers, data=data)
-        raise RequestError('Unable to complete http request: %s. '
-                           'Attempts: %s, Failures: %s' %
-                           (request, len(fail_messages), fail_messages))
+        raise RequestError('Attempts: %s, Failures: %s' % (
+            len(fail_messages), fail_messages))
 
     def put_start(self, path, hdrs=None, parms=None, cfg=None, chunked=False):
         if hdrs is None:
@@ -1026,26 +1039,27 @@ class File(Base):
         headers = self.make_headers(cfg=cfg)
         headers.update(hdrs)
 
-        for _attempt in range(3):
+        def try_request():
+            # rewind to be ready for another attempt
+            data.seek(0)
             self.conn.put_start(self.path, hdrs=headers, parms=parms, cfg=cfg)
 
             transferred = 0
-            try:
-                for buff in iter(lambda: data.read(block_size), b''):
-                    self.conn.put_data(buff)
-                    transferred += len(buff)
-                    if callable(callback):
-                        callback(transferred, self.size)
+            for buff in iter(lambda: data.read(block_size), b''):
+                self.conn.put_data(buff)
+                transferred += len(buff)
+                if callable(callback):
+                    callback(transferred, self.size)
 
-                self.conn.put_end()
-            except socket.timeout as err:
-                raise err
+            self.conn.put_end()
+            return self.conn.response
 
-            if is_success(self.conn.response.status):
-                break
-            # else, rewind to be ready for another attempt
-            data.seek(0)
-        else:
+        try:
+            self.response = self.conn.request_with_retry(try_request)
+        except RequestError as e:
+            raise ResponseError(self.conn.response, 'PUT',
+                                self.conn.make_path(self.path), details=str(e))
+        if not is_success(self.response.status):
             raise ResponseError(self.conn.response, 'PUT',
                                 self.conn.make_path(self.path))
 
