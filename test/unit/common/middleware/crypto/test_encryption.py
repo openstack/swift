@@ -479,7 +479,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                     '/a/%s/%s' % (self.container_name, self.object_name),
                     meta['key_id']['path'])
                 self.assertIn('v', meta['key_id'])
-                self.assertEqual('1', meta['key_id']['v'])
+                self.assertEqual('2', meta['key_id']['v'])
                 self.assertIn('cipher', meta)
                 self.assertEqual(Crypto.cipher, meta['cipher'])
 

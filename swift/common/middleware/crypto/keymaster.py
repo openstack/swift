@@ -14,7 +14,6 @@
 # limitations under the License.
 import hashlib
 import hmac
-import os
 
 from swift.common.exceptions import UnknownSecretIdError
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
@@ -48,8 +47,8 @@ class KeyMasterContext(WSGIContext):
         self._keys = {}
         self.alternate_fetch_keys = None
 
-    def _make_key_id(self, path, secret_id):
-        key_id = {'v': '1', 'path': path}
+    def _make_key_id(self, path, secret_id, version):
+        key_id = {'v': version, 'path': path}
         if secret_id:
             # stash secret_id so that decrypter can pass it back to get the
             # same keys
@@ -75,22 +74,32 @@ class KeyMasterContext(WSGIContext):
         """
         if key_id:
             secret_id = key_id.get('secret_id')
+            version = key_id['v']
+            if version not in ('1', '2'):
+                raise ValueError('Unknown key_id version: %s' % version)
         else:
             secret_id = self.keymaster.active_secret_id
-        if secret_id in self._keys:
-            return self._keys[secret_id]
+            # v1 had a bug where we would claim the path was just the object
+            # name if the object started with a slash. Bump versions to
+            # establish that we can trust the path.
+            version = '2'
+        if (secret_id, version) in self._keys:
+            return self._keys[(secret_id, version)]
 
         keys = {}
-        account_path = os.path.join(os.sep, self.account)
+        account_path = '/' + self.account
 
         try:
             if self.container:
-                path = os.path.join(account_path, self.container)
+                path = account_path + '/' + self.container
                 keys['container'] = self.keymaster.create_key(
                     path, secret_id=secret_id)
 
                 if self.obj:
-                    path = os.path.join(path, self.obj)
+                    if self.obj.startswith('/') and version == '1':
+                        path = self.obj
+                    else:
+                        path = path + '/' + self.obj
                     keys['object'] = self.keymaster.create_key(
                         path, secret_id=secret_id)
 
@@ -104,21 +113,21 @@ class KeyMasterContext(WSGIContext):
                 # metadata had its keys generated. Currently we have no need to
                 # do that, so we are simply persisting this information for
                 # future use.
-                keys['id'] = self._make_key_id(path, secret_id)
+                keys['id'] = self._make_key_id(path, secret_id, version)
                 # pass back a list of key id dicts for all other secret ids in
                 # case the caller is interested, in which case the caller can
                 # call this method again for different secret ids; this avoided
                 # changing the return type of the callback or adding another
                 # callback. Note that the caller should assume no knowledge of
                 # the content of these key id dicts.
-                keys['all_ids'] = [self._make_key_id(path, id_)
+                keys['all_ids'] = [self._make_key_id(path, id_, version)
                                    for id_ in self.keymaster.root_secret_ids]
                 if self.alternate_fetch_keys:
                     alternate_keys = self.alternate_fetch_keys(
                         key_id=None, *args, **kwargs)
                     keys['all_ids'].extend(alternate_keys.get('all_ids', []))
 
-                self._keys[secret_id] = keys
+                self._keys[(secret_id, version)] = keys
 
             return keys
         except UnknownSecretIdError:
