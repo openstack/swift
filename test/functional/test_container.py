@@ -86,21 +86,23 @@ class TestContainer(unittest2.TestCase):
                 for obj in objs:
                     resp = retry(delete, container, obj)
                     resp.read()
-                    self.assertEqual(resp.status, 204)
+                    # Under load, container listing may not upate immediately,
+                    # so we may attempt to delete the same object multiple
+                    # times. Tolerate the object having already been deleted.
+                    self.assertIn(resp.status, (204, 404))
 
         def delete(url, token, parsed, conn, container):
             conn.request('DELETE', parsed.path + '/' + container, '',
                          {'X-Auth-Token': token})
             return check_response(conn)
 
-        resp = retry(delete, self.name)
-        resp.read()
-        self.assertEqual(resp.status, 204)
-
-        # container may have not been created
-        resp = retry(delete, self.container)
-        resp.read()
-        self.assertIn(resp.status, (204, 404))
+        for container in (self.name, self.container):
+            resp = retry(delete, container)
+            resp.read()
+            # self.container may not have been created at all, but even if it
+            # has, for either container there may be a failure that trips the
+            # retry despite the request having been successfully processed.
+            self.assertIn(resp.status, (204, 404))
 
     def test_multi_metadata(self):
         if tf.skip:
