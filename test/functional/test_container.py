@@ -50,7 +50,10 @@ class TestContainer(unittest2.TestCase):
 
         resp = retry(put)
         resp.read()
-        self.assertEqual(resp.status, 201)
+        # If the request was received and processed but the container-server
+        # timed out getting the response back to the proxy, or the proxy timed
+        # out getting the response back to the client, the next retry will 202
+        self.assertIn(resp.status, (201, 202))
 
         self.max_meta_count = load_constraint('max_meta_count')
         self.max_meta_name_length = load_constraint('max_meta_name_length')
