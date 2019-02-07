@@ -50,6 +50,8 @@ class TestKeymaster(unittest.TestCase):
     def test_object_path(self):
         self.verify_keys_for_path(
             '/a/c/o', expected_keys=('object', 'container'))
+        self.verify_keys_for_path(
+            '/a/c//o', expected_keys=('object', 'container'))
 
     def test_container_path(self):
         self.verify_keys_for_path(
@@ -78,7 +80,7 @@ class TestKeymaster(unittest.TestCase):
             self.assertIn('id', keys)
             id = keys.pop('id')
             self.assertEqual(path, id['path'])
-            self.assertEqual('1', id['v'])
+            self.assertEqual('2', id['v'])
             keys.pop('all_ids')
             self.assertListEqual(sorted(expected_keys), sorted(keys.keys()),
                                  '%s %s got keys %r, but expected %r'
@@ -249,8 +251,9 @@ class TestKeymaster(unittest.TestCase):
 
         # secret_id passed to fetch_crypto_keys callback
         for secret_id in ('my_secret_id', None):
-            keys = self.verify_keys_for_path('/a/c/o', ('container', 'object'),
-                                             key_id={'secret_id': secret_id})
+            keys = self.verify_keys_for_path(
+                '/a/c/o', ('container', 'object'),
+                key_id={'secret_id': secret_id, 'v': '2', 'path': '/a/c/o'})
             expected_keys = {
                 'container': hmac.new(secrets[secret_id], '/a/c',
                                       digestmod=hashlib.sha256).digest(),
@@ -284,11 +287,11 @@ class TestKeymaster(unittest.TestCase):
                                   digestmod=hashlib.sha256).digest(),
             'object': hmac.new(secrets['22'], '/a/c/o',
                                digestmod=hashlib.sha256).digest(),
-            'id': {'path': '/a/c/o', 'secret_id': '22', 'v': '1'},
+            'id': {'path': '/a/c/o', 'secret_id': '22', 'v': '2'},
             'all_ids': [
-                {'path': '/a/c/o', 'v': '1'},
-                {'path': '/a/c/o', 'secret_id': '22', 'v': '1'},
-                {'path': '/a/c/o', 'secret_id': 'my_secret_id', 'v': '1'}]}
+                {'path': '/a/c/o', 'v': '2'},
+                {'path': '/a/c/o', 'secret_id': '22', 'v': '2'},
+                {'path': '/a/c/o', 'secret_id': 'my_secret_id', 'v': '2'}]}
         self.assertEqual(expected_keys, keys)
         self.assertEqual([('/a/c', '22'), ('/a/c/o', '22')], calls)
         with mock.patch.object(self.app, 'create_key', mock_create_key):
@@ -297,21 +300,90 @@ class TestKeymaster(unittest.TestCase):
         self.assertEqual([('/a/c', '22'), ('/a/c/o', '22')], calls)
         self.assertEqual(expected_keys, keys)
         with mock.patch.object(self.app, 'create_key', mock_create_key):
-            keys = context.fetch_crypto_keys(key_id={'secret_id': None})
+            keys = context.fetch_crypto_keys(key_id={
+                'secret_id': None, 'v': '2', 'path': '/a/c/o'})
         expected_keys = {
             'container': hmac.new(secrets[None], '/a/c',
                                   digestmod=hashlib.sha256).digest(),
             'object': hmac.new(secrets[None], '/a/c/o',
                                digestmod=hashlib.sha256).digest(),
-            'id': {'path': '/a/c/o', 'v': '1'},
+            'id': {'path': '/a/c/o', 'v': '2'},
             'all_ids': [
-                {'path': '/a/c/o', 'v': '1'},
-                {'path': '/a/c/o', 'secret_id': '22', 'v': '1'},
-                {'path': '/a/c/o', 'secret_id': 'my_secret_id', 'v': '1'}]}
+                {'path': '/a/c/o', 'v': '2'},
+                {'path': '/a/c/o', 'secret_id': '22', 'v': '2'},
+                {'path': '/a/c/o', 'secret_id': 'my_secret_id', 'v': '2'}]}
         self.assertEqual(expected_keys, keys)
         self.assertEqual([('/a/c', '22'), ('/a/c/o', '22'),
                           ('/a/c', None), ('/a/c/o', None)],
                          calls)
+
+    def test_v1_keys(self):
+        secrets = {None: os.urandom(32),
+                   '22': os.urandom(33)}
+        conf = {}
+        for secret_id, secret in secrets.items():
+            opt = ('encryption_root_secret%s' %
+                   (('_%s' % secret_id) if secret_id else ''))
+            conf[opt] = base64.b64encode(secret)
+        conf['active_root_secret_id'] = '22'
+        self.app = keymaster.KeyMaster(self.swift, conf)
+        orig_create_key = self.app.create_key
+        calls = []
+
+        def mock_create_key(path, secret_id=None):
+            calls.append((path, secret_id))
+            return orig_create_key(path, secret_id)
+
+        context = keymaster.KeyMasterContext(self.app, 'a', 'c', 'o')
+        for version in ('1', '2'):
+            with mock.patch.object(self.app, 'create_key', mock_create_key):
+                keys = context.fetch_crypto_keys(key_id={
+                    'v': version, 'path': '/a/c/o'})
+            expected_keys = {
+                'container': hmac.new(secrets[None], b'/a/c',
+                                      digestmod=hashlib.sha256).digest(),
+                'object': hmac.new(secrets[None], b'/a/c/o',
+                                   digestmod=hashlib.sha256).digest(),
+                'id': {'path': '/a/c/o', 'v': version},
+                'all_ids': [
+                    {'path': '/a/c/o', 'v': version},
+                    {'path': '/a/c/o', 'secret_id': '22', 'v': version}]}
+            self.assertEqual(expected_keys, keys)
+            self.assertEqual([('/a/c', None), ('/a/c/o', None)], calls)
+            del calls[:]
+
+        context = keymaster.KeyMasterContext(self.app, 'a', 'c', '/o')
+        with mock.patch.object(self.app, 'create_key', mock_create_key):
+            keys = context.fetch_crypto_keys(key_id={
+                'v': '1', 'path': '/o'})
+        expected_keys = {
+            'container': hmac.new(secrets[None], b'/a/c',
+                                  digestmod=hashlib.sha256).digest(),
+            'object': hmac.new(secrets[None], b'/o',
+                               digestmod=hashlib.sha256).digest(),
+            'id': {'path': '/o', 'v': '1'},
+            'all_ids': [
+                {'path': '/o', 'v': '1'},
+                {'path': '/o', 'secret_id': '22', 'v': '1'}]}
+        self.assertEqual(expected_keys, keys)
+        self.assertEqual([('/a/c', None), ('/o', None)], calls)
+        del calls[:]
+
+        context = keymaster.KeyMasterContext(self.app, 'a', 'c', '/o')
+        with mock.patch.object(self.app, 'create_key', mock_create_key):
+            keys = context.fetch_crypto_keys(key_id={
+                'v': '2', 'path': '/a/c//o'})
+        expected_keys = {
+            'container': hmac.new(secrets[None], b'/a/c',
+                                  digestmod=hashlib.sha256).digest(),
+            'object': hmac.new(secrets[None], b'/a/c//o',
+                               digestmod=hashlib.sha256).digest(),
+            'id': {'path': '/a/c//o', 'v': '2'},
+            'all_ids': [
+                {'path': '/a/c//o', 'v': '2'},
+                {'path': '/a/c//o', 'secret_id': '22', 'v': '2'}]}
+        self.assertEqual(expected_keys, keys)
+        self.assertEqual([('/a/c', None), ('/a/c//o', None)], calls)
 
     @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     def test_keymaster_config_path(self, mock_readconf):
