@@ -291,7 +291,7 @@ def write_fake_ring(path, *devs):
     """
     dev1 = {'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
             'port': 6200}
-    dev2 = {'id': 0, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
+    dev2 = {'id': 1, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
             'port': 6200}
 
     dev1_updates, dev2_updates = devs or ({}, {})
