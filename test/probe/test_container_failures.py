@@ -163,9 +163,12 @@ class TestContainerFailures(ReplProbeTest):
             else:
                 client.delete_container(self.url, self.token, container)
 
+        proxy_conf = readconf(self.configs['proxy-server'],
+                              section_name='app:proxy-server')
+        node_timeout = int(proxy_conf.get('node_timeout', 10))
         pool = GreenPool()
         try:
-            with Timeout(15):
+            with Timeout(node_timeout + 5):
                 pool.spawn(run_test, 1, False)
                 pool.spawn(run_test, 2, True)
                 pool.spawn(run_test, 3, True)

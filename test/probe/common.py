@@ -363,6 +363,9 @@ class ProbeTest(unittest.TestCase):
             server='object',
             ipport2server=self.ipport2server,
             config_paths=self.configs)
+        for server in Manager(['proxy-server']):
+            for conf in server.conf_files():
+                self.configs['proxy-server'] = conf
 
     def setUp(self):
         resetswift()
@@ -377,7 +380,10 @@ class ProbeTest(unittest.TestCase):
             Manager(['main']).start(wait=True)
             for ipport in self.ipport2server:
                 check_server(ipport, self.ipport2server)
-            proxy_ipport = ('127.0.0.1', 8080)
+            proxy_conf = readconf(self.configs['proxy-server'],
+                                  section_name='app:proxy-server')
+            proxy_ipport = (proxy_conf.get('bind_ip', '127.0.0.1'),
+                            int(proxy_conf.get('bind_port', 8080)))
             self.ipport2server[proxy_ipport] = 'proxy'
             self.url, self.token, self.account = check_server(
                 proxy_ipport, self.ipport2server)

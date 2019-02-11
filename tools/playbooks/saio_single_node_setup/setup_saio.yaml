@@ -152,6 +152,12 @@
       replace: dest={{ item.path }} regexp=<your-user-name> replace={{ ansible_user_id }}
       with_items: "{{ find_result.files }}"
 
+    - name: set the options in the proxy config file
+      shell:
+        cmd: |
+          crudini --set /etc/swift/proxy-server.conf app:proxy-server node_timeout 20
+        executable: /bin/bash
+
     - name: copy the SAIO scripts for resetting the environment
       command: cp -r {{ zuul.project.src_dir }}/doc/saio/bin /home/{{ ansible_ssh_user }}/bin creates=/home/{{ ansible_ssh_user }}/bin
 
