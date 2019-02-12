@@ -1823,7 +1823,7 @@ class TestHandoffsOnly(unittest.TestCase):
         # part 2 does not belong on sdq
         self._make_fake_db('sdq', 2, 'bcbcbcbc15d3835053d568c57e2c83b5')
 
-    def cleanUp(self):
+    def tearDown(self):
         rmtree(self.root, ignore_errors=True)
 
     def test_scary_warnings(self):

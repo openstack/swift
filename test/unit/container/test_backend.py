@@ -128,7 +128,7 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.is_deleted() and get_info_is_deleted()
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
 
@@ -235,7 +235,7 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.empty
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
         self.assertTrue(broker.is_root_container())
@@ -340,7 +340,7 @@ class TestContainerBroker(unittest.TestCase):
         # usage should not be considered
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='.shards_a', container='cc')
         broker.initialize(next(ts_iter).internal, 0)
         broker.set_sharding_sysmeta('Root', 'a/c')
@@ -478,7 +478,7 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def test_reclaim_deadlock(self, tempdir):
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', '%s.db' % uuid4())
+            tempdir, 'containers', 'part', 'suffix', 'hash', '%s.db' % uuid4())
         broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(Timestamp(100).internal, 0)
         # there's some magic count here that causes the failure, something
@@ -507,7 +507,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_reclaim_shard_ranges(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', '%s.db' % uuid4())
+            tempdir, 'containers', 'part', 'suffix', 'hash', '%s.db' % uuid4())
         broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
         older = next(ts_iter)
@@ -1415,7 +1415,7 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def test_sharding_initiated_and_required(self, tempdir):
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', '%s.db' % uuid4())
+            tempdir, 'containers', 'part', 'suffix', 'hash', '%s.db' % uuid4())
         broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(Timestamp.now().internal, 0)
         # no shard ranges
@@ -1857,7 +1857,8 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def test_get_info_sharding_states(self, tempdir):
         ts_iter = make_timestamp_iter()
-        db_path = os.path.join(tempdir, 'part', 'suffix', 'hash', 'hash.db')
+        db_path = os.path.join(
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'hash.db')
         broker = ContainerBroker(
             db_path, account='myaccount', container='mycontainer')
         broker.initialize(next(ts_iter).internal, 0)
@@ -2016,7 +2017,8 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def test_get_replication_info(self, tempdir):
         ts_iter = make_timestamp_iter()
-        db_path = os.path.join(tempdir, 'part', 'suffix', 'hash', 'hash.db')
+        db_path = os.path.join(
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'hash.db')
         broker = ContainerBroker(
             db_path, account='myaccount', container='mycontainer')
         broker.initialize(next(ts_iter).internal, 0)
@@ -2065,7 +2067,8 @@ class TestContainerBroker(unittest.TestCase):
 
         def do_setup():
             db_path = os.path.join(
-                tempdir, 'part', 'suffix', 'hash', '%s.db' % uuid4())
+                tempdir, 'containers', 'part', 'suffix',
+                'hash', '%s.db' % uuid4())
             broker = ContainerBroker(db_path, account='a', container='c')
             broker.initialize(Timestamp.now().internal, 0)
             for obj in objects:
@@ -3943,7 +3946,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_set_db_states(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
 
@@ -3989,8 +3992,8 @@ class TestContainerBroker(unittest.TestCase):
                             state=ShardRange.ACTIVE)
         broker.merge_shard_ranges([own_sr] + shard_ranges + [deleted_range])
         ts_epoch = next(ts_iter)
-        new_db_path = os.path.join(tempdir, 'part', 'suffix', 'hash',
-                                   'container_%s.db' % ts_epoch.normal)
+        new_db_path = os.path.join(tempdir, 'containers', 'part', 'suffix',
+                                   'hash', 'container_%s.db' % ts_epoch.normal)
 
         def check_broker_properties(broker):
             # these broker properties should remain unchanged as state changes
@@ -4136,7 +4139,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_set_sharding_state_errors(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c',
                                  logger=FakeLogger())
         broker.initialize(next(ts_iter).internal, 0)
@@ -4172,7 +4175,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_set_sharded_state_errors(self, tempdir):
         ts_iter = make_timestamp_iter()
         retiring_db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(retiring_db_path, account='a', container='c',
                                  logger=FakeLogger())
         broker.initialize(next(ts_iter).internal, 0)
@@ -4217,7 +4220,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_get_brokers(self, tempdir):
         ts_iter = make_timestamp_iter()
         retiring_db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(retiring_db_path, account='a', container='c',
                                  logger=FakeLogger())
         broker.initialize(next(ts_iter).internal, 0)
@@ -4272,7 +4275,7 @@ class TestContainerBroker(unittest.TestCase):
         ts_iter = make_timestamp_iter()
         ts = [next(ts_iter) for _ in range(13)]
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(
             db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
@@ -4370,7 +4373,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_merge_shard_ranges_state(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
         expected_shard_ranges = []
@@ -4416,7 +4419,7 @@ class TestContainerBroker(unittest.TestCase):
         # common setup and assertions for root and shard containers
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(
-            tempdir, 'part', 'suffix', 'hash', 'container.db')
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(
             db_path, account=a, container=c)
         broker.initialize(next(ts_iter).internal, 0)
