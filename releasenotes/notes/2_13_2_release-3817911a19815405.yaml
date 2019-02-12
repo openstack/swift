@@ -1,0 +1,24 @@
+---
+fixes:
+  - >
+    Fixed deadlock when logging from a tpool thread.
+
+    The object server runs certain IO-intensive methods outside the
+    main pthread for performance. Previously, if one of those methods
+    tried to log, this can cause a crash that eventually leads to an
+    object server with hundreds or thousands of greenthreads, all
+    deadlocked. The fix is to use a mutex that works across different
+    greenlets and different pthreads.
+
+  - >
+    Fixed a rare issue where multiple backend timeouts could result
+    in bad data being returned to the client.
+
+  - >
+    Removed a race condition where a POST to an SLO could modify the
+    X-Static-Large-Object metadata.
+
+  - >
+    Fixed a cache invalidation issue related to GET and PUT requests to
+    containers that would occasionally cause object PUTs to a container to
+    404 after the container had been successfully created.
