@@ -1,0 +1,22 @@
+---
+fixes:
+  - >
+    Fixed a cache invalidation issue related to GET and PUT requests to
+    containers that would occasionally cause object PUTs to a container to
+    404 after the container had been successfully created.
+
+  - >
+    Removed a race condition where a POST to an SLO could modify the
+    X-Static-Large-Object metadata.
+
+  - Fixed rare socket leak on range requests to erasure-coded objects.
+
+  - Fix SLO delete for accounts with non-ASCII names.
+
+  - >
+    Fixed an issue in COPY where concurrent requests may have copied the
+    wrong data.
+
+  - Fixed time skew when using X-Delete-After.
+
+  - Send ETag header in 206 Partial Content responses to SLO reads.
