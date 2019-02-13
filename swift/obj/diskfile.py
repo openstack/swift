@@ -77,7 +77,6 @@ from swift.common.swob import multi_range_iterator
 from swift.common.storage_policy import (
     get_policy_string, split_policy_string, PolicyError, POLICIES,
     REPL_POLICY, EC_POLICY)
-from functools import partial
 
 
 PICKLE_PROTOCOL = 2
@@ -94,12 +93,42 @@ DATAFILE_SYSTEM_META = {'x-static-large-object'}
 DATADIR_BASE = 'objects'
 ASYNCDIR_BASE = 'async_pending'
 TMP_BASE = 'tmp'
-get_data_dir = partial(get_policy_string, DATADIR_BASE)
-get_async_dir = partial(get_policy_string, ASYNCDIR_BASE)
-get_tmp_dir = partial(get_policy_string, TMP_BASE)
 MIN_TIME_UPDATE_AUDITOR_STATUS = 60
 # This matches rsync tempfiles, like ".<timestamp>.data.Xy095a"
 RE_RSYNC_TEMPFILE = re.compile(r'^\..*\.([a-zA-Z0-9_]){6}$')
+
+
+def get_data_dir(policy_or_index):
+    '''
+    Get the data dir for the given policy.
+
+    :param policy_or_index: ``StoragePolicy`` instance, or an index (string or
+                            int); if None, the legacy Policy-0 is assumed.
+    :returns: ``objects`` or ``objects-<N>`` as appropriate
+    '''
+    return get_policy_string(DATADIR_BASE, policy_or_index)
+
+
+def get_async_dir(policy_or_index):
+    '''
+    Get the async dir for the given policy.
+
+    :param policy_or_index: ``StoragePolicy`` instance, or an index (string or
+                            int); if None, the legacy Policy-0 is assumed.
+    :returns: ``async_pending`` or ``async_pending-<N>`` as appropriate
+    '''
+    return get_policy_string(ASYNCDIR_BASE, policy_or_index)
+
+
+def get_tmp_dir(policy_or_index):
+    '''
+    Get the temp dir for the given policy.
+
+    :param policy_or_index: ``StoragePolicy`` instance, or an index (string or
+                            int); if None, the legacy Policy-0 is assumed.
+    :returns: ``tmp`` or ``tmp-<N>`` as appropriate
+    '''
+    return get_policy_string(TMP_BASE, policy_or_index)
 
 
 def _unlink_if_present(filename):
