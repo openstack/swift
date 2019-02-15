@@ -296,10 +296,10 @@ class TestContainer(unittest2.TestCase):
             put, name,
             {'X-Container-Meta-' + ('k' * self.max_meta_name_length): 'v'})
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
         resp = retry(delete, name)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
         name = uuid4().hex
         resp = retry(
             put, name,
@@ -316,10 +316,10 @@ class TestContainer(unittest2.TestCase):
             put, name,
             {'X-Container-Meta-Too-Long': 'k' * self.max_meta_value_length})
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
         resp = retry(delete, name)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
         name = uuid4().hex
         resp = retry(
             put, name,
@@ -337,10 +337,10 @@ class TestContainer(unittest2.TestCase):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(put, name, headers)
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
         resp = retry(delete, name)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
         name = uuid4().hex
         headers = {}
         for x in range(self.max_meta_count + 1):
@@ -367,10 +367,10 @@ class TestContainer(unittest2.TestCase):
                 'v' * (self.max_meta_overall_size - size - 1)
         resp = retry(put, name, headers)
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
         resp = retry(delete, name)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
         name = uuid4().hex
         headers['X-Container-Meta-k'] = \
             'v' * (self.max_meta_overall_size - size)
