@@ -274,6 +274,7 @@ class FakeRing(Ring):
         return [dict(node, index=i) for i, node in enumerate(list(self._devs))]
 
     def get_more_nodes(self, part):
+        index_counter = itertools.count()
         for x in range(self.replicas, (self.replicas + self.max_more_nodes)):
             yield {'ip': '10.0.0.%s' % x,
                    'replication_ip': '10.0.0.%s' % x,
@@ -282,7 +283,8 @@ class FakeRing(Ring):
                    'device': 'sda',
                    'zone': x % 3,
                    'region': x % 2,
-                   'id': x}
+                   'id': x,
+                   'handoff_index': next(index_counter)}
 
 
 def write_fake_ring(path, *devs):
@@ -291,7 +293,7 @@ def write_fake_ring(path, *devs):
     """
     dev1 = {'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
             'port': 6200}
-    dev2 = {'id': 0, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
+    dev2 = {'id': 1, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
             'port': 6200}
 
     dev1_updates, dev2_updates = devs or ({}, {})
@@ -346,6 +348,9 @@ class FabricatedRing(Ring):
         self._part_shift = 32 - part_power
         self._reload()
 
+    def has_changed(self):
+        return False
+
     def _reload(self, *args, **kwargs):
         self._rtime = time.time() * 2
         if hasattr(self, '_replica2part2dev_id'):
@@ -370,6 +375,7 @@ class FabricatedRing(Ring):
         for p in range(2 ** self.part_power):
             for r in range(self.replicas):
                 self._replica2part2dev_id[r][p] = next(dev_ids)
+        self._update_bookkeeping()
 
 
 class FakeMemcache(object):

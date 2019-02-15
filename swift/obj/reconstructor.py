@@ -19,7 +19,6 @@ import os
 from os.path import join
 import random
 import time
-import itertools
 from collections import defaultdict
 import six
 import six.moves.cPickle as pickle
@@ -51,18 +50,22 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
 SYNC, REVERT = ('sync_only', 'sync_revert')
 
 
-def _get_partners(frag_index, part_nodes):
+def _get_partners(node_index, part_nodes):
     """
-    Returns the left and right partners of the node whose index is
-    equal to the given frag_index.
+    Returns the left, right and far partners of the node whose index is equal
+    to the given node_index.
 
-    :param frag_index: a fragment index
+    :param node_index: the primary index
     :param part_nodes: a list of primary nodes
-    :returns: [<node-to-left>, <node-to-right>]
+    :returns: [<node-to-left>, <node-to-right>, <node-opposite>]
     """
+    num_nodes = len(part_nodes)
     return [
-        part_nodes[(frag_index - 1) % len(part_nodes)],
-        part_nodes[(frag_index + 1) % len(part_nodes)],
+        part_nodes[(node_index - 1) % num_nodes],
+        part_nodes[(node_index + 1) % num_nodes],
+        part_nodes[(
+            node_index + (num_nodes // 2)
+        ) % num_nodes],
     ]
 
 
@@ -203,6 +206,8 @@ class ObjectReconstructor(Daemon):
         elif default_handoffs_only:
             self.logger.warning('Ignored handoffs_first option in favor '
                                 'of handoffs_only.')
+        self.rebuild_handoff_node_count = int(conf.get(
+            'rebuild_handoff_node_count', 2))
         self._df_router = DiskFileRouter(conf, self.logger)
         self.all_local_devices = self.get_local_devices()
 
@@ -667,6 +672,33 @@ class ObjectReconstructor(Daemon):
                 _("Trying to sync suffixes with %s") % _full_path(
                     node, job['partition'], '', job['policy']))
 
+    def _iter_nodes_for_frag(self, policy, partition, node):
+        """
+        Generate a priority list of nodes that can sync to the given node.
+
+        The primary node is always the highest priority, after that we'll use
+        handoffs.
+
+        To avoid conflicts placing frags we'll skip through the handoffs and
+        only yield back those that are offset equal to to the given primary
+        node index.
+
+        Nodes returned from this iterator will have 'backend_index' set.
+        """
+        node['backend_index'] = policy.get_backend_index(node['index'])
+        yield node
+        count = 0
+        for handoff_node in policy.object_ring.get_more_nodes(partition):
+            handoff_backend_index = policy.get_backend_index(
+                handoff_node['handoff_index'])
+            if handoff_backend_index == node['backend_index']:
+                if (self.rebuild_handoff_node_count >= 0 and
+                        count >= self.rebuild_handoff_node_count):
+                    break
+                handoff_node['backend_index'] = handoff_backend_index
+                yield handoff_node
+                count += 1
+
     def _get_suffixes_to_sync(self, job, node):
         """
         For SYNC jobs we need to make a remote REPLICATE request to get
@@ -677,48 +709,56 @@ class ObjectReconstructor(Daemon):
         :param: the job dict, with the keys defined in ``_get_part_jobs``
         :param node: the remote node dict
         :returns: a (possibly empty) list of strings, the suffixes to be
-                  synced with the remote node.
+                  synced and the remote node.
         """
         # get hashes from the remote node
         remote_suffixes = None
+        attempts_remaining = 1
         headers = self.headers.copy()
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
-        try:
-            with Timeout(self.http_timeout):
-                resp = http_connect(
-                    node['replication_ip'], node['replication_port'],
-                    node['device'], job['partition'], 'REPLICATE',
-                    '', headers=headers).getresponse()
-            if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                self.logger.error(
-                    _('%s responded as unmounted'),
-                    _full_path(node, job['partition'], '',
-                               job['policy']))
-            elif resp.status != HTTP_OK:
-                full_path = _full_path(node, job['partition'], '',
-                                       job['policy'])
-                self.logger.error(
-                    _("Invalid response %(resp)s from %(full_path)s"),
-                    {'resp': resp.status, 'full_path': full_path})
-            else:
-                remote_suffixes = pickle.loads(resp.read())
-        except (Exception, Timeout):
-            # all exceptions are logged here so that our caller can
-            # safely catch our exception and continue to the next node
-            # without logging
-            self.logger.exception('Unable to get remote suffix hashes '
-                                  'from %r' % _full_path(
-                                      node, job['partition'], '',
-                                      job['policy']))
-
+        possible_nodes = self._iter_nodes_for_frag(
+            job['policy'], job['partition'], node)
+        while remote_suffixes is None and attempts_remaining:
+            try:
+                node = next(possible_nodes)
+            except StopIteration:
+                break
+            attempts_remaining -= 1
+            try:
+                with Timeout(self.http_timeout):
+                    resp = http_connect(
+                        node['replication_ip'], node['replication_port'],
+                        node['device'], job['partition'], 'REPLICATE',
+                        '', headers=headers).getresponse()
+                if resp.status == HTTP_INSUFFICIENT_STORAGE:
+                    self.logger.error(
+                        _('%s responded as unmounted'),
+                        _full_path(node, job['partition'], '',
+                                   job['policy']))
+                    attempts_remaining += 1
+                elif resp.status != HTTP_OK:
+                    full_path = _full_path(node, job['partition'], '',
+                                           job['policy'])
+                    self.logger.error(
+                        _("Invalid response %(resp)s from %(full_path)s"),
+                        {'resp': resp.status, 'full_path': full_path})
+                else:
+                    remote_suffixes = pickle.loads(resp.read())
+            except (Exception, Timeout):
+                # all exceptions are logged here so that our caller can
+                # safely catch our exception and continue to the next node
+                # without logging
+                self.logger.exception('Unable to get remote suffix hashes '
+                                      'from %r' % _full_path(
+                                          node, job['partition'], '',
+                                          job['policy']))
         if remote_suffixes is None:
             raise SuffixSyncError('Unable to get remote suffix hashes')
 
         suffixes = self.get_suffix_delta(job['hashes'],
                                          job['frag_index'],
                                          remote_suffixes,
-                                         job['policy'].get_backend_index(
-                                             node['index']))
+                                         node['backend_index'])
         # now recalculate local hashes for suffixes that don't
         # match so we're comparing the latest
         local_suff = self._get_hashes(job['local_dev']['device'],
@@ -728,11 +768,10 @@ class ObjectReconstructor(Daemon):
         suffixes = self.get_suffix_delta(local_suff,
                                          job['frag_index'],
                                          remote_suffixes,
-                                         job['policy'].get_backend_index(
-                                             node['index']))
+                                         node['backend_index'])
 
         self.suffix_count += len(suffixes)
-        return suffixes
+        return suffixes, node
 
     def delete_reverted_objs(self, job, objects, frag_index):
         """
@@ -798,38 +837,15 @@ class ObjectReconstructor(Daemon):
         """
         self.logger.increment(
             'partition.update.count.%s' % (job['local_dev']['device'],))
-        # after our left and right partners, if there's some sort of
-        # failure we'll continue onto the remaining primary nodes and
-        # make sure they're in sync - or potentially rebuild missing
-        # fragments we find
-        dest_nodes = itertools.chain(
-            job['sync_to'],
-            # I think we could order these based on our index to better
-            # protect against a broken chain
-            [
-                n for n in
-                job['policy'].object_ring.get_part_nodes(job['partition'])
-                if n['id'] != job['local_dev']['id'] and
-                n['id'] not in (m['id'] for m in job['sync_to'])
-            ],
-        )
-        syncd_with = 0
-        for node in dest_nodes:
-            if syncd_with >= len(job['sync_to']):
-                # success!
-                break
-
+        for node in job['sync_to']:
             try:
-                suffixes = self._get_suffixes_to_sync(job, node)
+                suffixes, node = self._get_suffixes_to_sync(job, node)
             except SuffixSyncError:
                 continue
 
             if not suffixes:
-                syncd_with += 1
                 continue
 
-            node['backend_index'] = job['policy'].get_backend_index(
-                node['index'])
             # ssync any out-of-sync suffixes with the remote node
             success, _ = ssync_sender(
                 self, node, job, suffixes)()
@@ -838,8 +854,6 @@ class ObjectReconstructor(Daemon):
             # update stats for this attempt
             self.suffix_sync += len(suffixes)
             self.logger.update_stats('suffix.syncs', len(suffixes))
-            if success:
-                syncd_with += 1
         self.logger.timing_since('partition.update.timing', begin)
 
     def _revert(self, job, begin):
@@ -951,6 +965,8 @@ class ObjectReconstructor(Daemon):
                 try:
                     suffixes = data_fi_to_suffixes.pop(frag_index)
                 except KeyError:
+                    # N.B. If this function ever returns an empty list of jobs
+                    # the entire partition will be deleted.
                     suffixes = []
                 sync_job = build_job(
                     job_type=SYNC,

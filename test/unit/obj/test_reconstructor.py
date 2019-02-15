@@ -40,7 +40,7 @@ from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
-from swift.obj.reconstructor import REVERT
+from swift.obj.reconstructor import SYNC, REVERT
 
 from test.unit import (patch_policies, debug_logger, mocked_http_conn,
                        FabricatedRing, make_timestamp_iter,
@@ -143,7 +143,7 @@ def get_header_frag_index(self, body):
 @patch_policies([StoragePolicy(0, name='zero', is_default=True),
                  ECStoragePolicy(1, name='one',
                                  ec_type=DEFAULT_TEST_EC_TYPE,
-                                 ec_ndata=2, ec_nparity=1)])
+                                 ec_ndata=3, ec_nparity=2)])
 class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     # Tests for reconstructor using real objects in test partition directories.
     legacy_durable = False
@@ -151,9 +151,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     def setUp(self):
         skip_if_no_xattrs()
         self.testdir = tempfile.mkdtemp()
-        _create_test_rings(self.testdir)
-        POLICIES[0].object_ring = ring.Ring(self.testdir, ring_name='object')
-        POLICIES[1].object_ring = ring.Ring(self.testdir, ring_name='object-1')
+        POLICIES[0].object_ring = FabricatedRing(3)
+        POLICIES[1].object_ring = FabricatedRing(5)
         utils.HASH_PATH_SUFFIX = b'endcap'
         utils.HASH_PATH_PREFIX = b''
         self.devices = os.path.join(self.testdir, 'node')
@@ -176,7 +175,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
         self.conf = dict(
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
-            timeout='300', stats_interval='1')
+            timeout='300', stats_interval='1',
+            bind_ip='10.0.0.1', bind_port=6200)
         self.logger = debug_logger('test-reconstructor')
         self.reconstructor = object_reconstructor.ObjectReconstructor(
             self.conf, logger=self.logger)
@@ -189,13 +189,16 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # part 0: 3C1/hash/xxx#1#d.data  <-- job: sync_only - partners (FI 1)
         #         061/hash/xxx#1#d.data  <-- included in earlier job (FI 1)
         #                 /xxx#2#d.data  <-- job: sync_revert to index 2
+        # part_nodes: ['sda0', 'sda1', 'sda2', 'sda3', 'sda4']
 
-        # part 1: 3C1/hash/xxx#0#d.data  <-- job: sync_only - partners (FI 0)
+        # part 1: 3C1/hash/xxx#0#d.data  <-- job: sync_revert to index 0
         #                 /xxx#1#d.data  <-- job: sync_revert to index 1
         #         061/hash/xxx#1#d.data  <-- included in earlier job (FI 1)
+        # part_nodes: ['sda5', 'sda6', 'sda7', 'sda0', 'sda1']
 
         # part 2: 3C1/hash/xxx#2#d.data  <-- job: sync_revert to index 2
         #         061/hash/xxx#0#d.data  <-- job: sync_revert to index 0
+        # part_nodes: ['sda2', 'sda3', 'sda4', 'sda5', 'sda6']
 
         def _create_frag_archives(policy, obj_path, local_id, obj_set):
             # we'll create 2 sets of objects in different suffix dirs
@@ -251,7 +254,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 for obj_num in range(0, 3):
                     _create_df(obj_num, part_num)
 
-        ips = utils.whataremyips()
+        ips = utils.whataremyips(self.reconstructor.bind_ip)
         for policy in [p for p in POLICIES if p.policy_type == EC_POLICY]:
             self.ec_policy = policy
             self.ec_obj_ring = self.reconstructor.load_object_ring(
@@ -312,13 +315,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'sync_to': [{
                     'index': 2,
                     'replication_port': 6200,
-                    'zone': 2,
-                    'ip': '127.0.0.2',
+                    'zone': 1,
+                    'ip': '10.0.0.2',
                     'region': 1,
                     'port': 6200,
-                    'replication_ip': '127.0.0.2',
-                    'device': 'sda1',
+                    'replication_ip': '10.0.0.2',
+                    'device': 'sda2',
                     'id': 2,
+                    'weight': 1.0,
                 }],
                 'job_type': object_reconstructor.REVERT,
                 'suffixes': ['061'],
@@ -328,11 +332,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'local_dev': {
                     'replication_port': 6200,
                     'zone': 1,
-                    'ip': '127.0.0.1',
+                    'ip': '10.0.0.1',
                     'region': 1,
                     'id': 1,
-                    'replication_ip': '127.0.0.1',
-                    'device': 'sda1', 'port': 6200,
+                    'replication_ip': '10.0.0.1',
+                    'device': 'sda1',
+                    'port': 6200,
+                    'weight': 1.0,
                 },
                 'hashes': {
                     '061': {
@@ -349,22 +355,36 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'sync_to': [{
                     'index': 0,
                     'replication_port': 6200,
-                    'zone': 0,
-                    'ip': '127.0.0.0',
+                    'zone': 1,
+                    'ip': '10.0.0.0',
                     'region': 1,
                     'port': 6200,
-                    'replication_ip': '127.0.0.0',
-                    'device': 'sda1', 'id': 0,
+                    'replication_ip': '10.0.0.0',
+                    'device': 'sda0',
+                    'id': 0,
+                    'weight': 1.0,
                 }, {
                     'index': 2,
                     'replication_port': 6200,
-                    'zone': 2,
-                    'ip': '127.0.0.2',
+                    'zone': 1,
+                    'ip': '10.0.0.2',
                     'region': 1,
                     'port': 6200,
-                    'replication_ip': '127.0.0.2',
-                    'device': 'sda1',
+                    'replication_ip': '10.0.0.2',
+                    'device': 'sda2',
                     'id': 2,
+                    'weight': 1.0,
+                }, {
+                    'index': 3,
+                    'replication_port': 6200,
+                    'zone': 1,
+                    'ip': '10.0.0.3',
+                    'region': 1,
+                    'port': 6200,
+                    'replication_ip': '10.0.0.3',
+                    'device': 'sda3',
+                    'id': 3,
+                    'weight': 1.0,
                 }],
                 'job_type': object_reconstructor.SYNC,
                 'sync_diskfile_builder': self.reconstructor.reconstruct_fa,
@@ -375,12 +395,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'local_dev': {
                     'replication_port': 6200,
                     'zone': 1,
-                    'ip': '127.0.0.1',
+                    'ip': '10.0.0.1',
                     'region': 1,
                     'id': 1,
-                    'replication_ip': '127.0.0.1',
+                    'replication_ip': '10.0.0.1',
                     'device': 'sda1',
                     'port': 6200,
+                    'weight': 1.0,
                 },
                 'hashes':
                 {
@@ -402,13 +423,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'sync_to': [{
                     'index': 1,
                     'replication_port': 6200,
-                    'zone': 2,
-                    'ip': '127.0.0.2',
+                    'zone': 1,
+                    'ip': '10.0.0.2',
                     'region': 1,
                     'port': 6200,
-                    'replication_ip': '127.0.0.2',
-                    'device': 'sda1',
-                    'id': 2,
+                    'replication_ip': '10.0.0.2',
+                    'device': 'sda6',
+                    'id': 6,
+                    'weight': 1.0,
                 }],
                 'job_type': object_reconstructor.REVERT,
                 'suffixes': ['061', '3c1'],
@@ -418,12 +440,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'local_dev': {
                     'replication_port': 6200,
                     'zone': 1,
-                    'ip': '127.0.0.1',
+                    'ip': '10.0.0.1',
                     'region': 1,
                     'id': 1,
-                    'replication_ip': '127.0.0.1',
+                    'replication_ip': '10.0.0.1',
                     'device': 'sda1',
                     'port': 6200,
+                    'weight': 1.0,
                 },
                 'hashes':
                 {
@@ -439,27 +462,18 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
             }, {
                 'sync_to': [{
-                    'index': 2,
+                    'index': 0,
                     'replication_port': 6200,
-                    'zone': 4,
-                    'ip': '127.0.0.3',
+                    'zone': 1,
+                    'ip': '10.0.0.1',
                     'region': 1,
                     'port': 6200,
-                    'replication_ip': '127.0.0.3',
-                    'device': 'sda1', 'id': 3,
-                }, {
-                    'index': 1,
-                    'replication_port': 6200,
-                    'zone': 2,
-                    'ip': '127.0.0.2',
-                    'region': 1,
-                    'port': 6200,
-                    'replication_ip': '127.0.0.2',
-                    'device': 'sda1',
-                    'id': 2,
+                    'replication_ip': '10.0.0.1',
+                    'device': 'sda5',
+                    'id': 5,
+                    'weight': 1.0,
                 }],
-                'job_type': object_reconstructor.SYNC,
-                'sync_diskfile_builder': self.reconstructor.reconstruct_fa,
+                'job_type': object_reconstructor.REVERT,
                 'suffixes': ['3c1'],
                 'partition': 1,
                 'frag_index': 0,
@@ -467,12 +481,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'local_dev': {
                     'replication_port': 6200,
                     'zone': 1,
-                    'ip': '127.0.0.1',
+                    'ip': '10.0.0.1',
                     'region': 1,
                     'id': 1,
-                    'replication_ip': '127.0.0.1',
+                    'replication_ip': '10.0.0.1',
                     'device': 'sda1',
                     'port': 6200,
+                    'weight': 1.0,
                 },
                 'hashes': {
                     '061': {
@@ -485,6 +500,70 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         1: '0e6e8d48d801dc89fd31904ae3b31229',
                     },
                 },
+            }, {
+                'sync_to': [{
+                    'index': 3,
+                    'replication_port': 6200,
+                    'zone': 1,
+                    'ip': '10.0.0.0',
+                    'region': 1,
+                    'port': 6200,
+                    'replication_ip': '10.0.0.0',
+                    'device': 'sda0',
+                    'id': 0,
+                    'weight': 1.0,
+                }, {
+                    'index': 0,
+                    'replication_port': 6200,
+                    'zone': 1,
+                    'ip': '10.0.0.1',
+                    'region': 1,
+                    'port': 6200,
+                    'replication_ip': '10.0.0.1',
+                    'device': 'sda5',
+                    'id': 5,
+                    'weight': 1.0,
+                }, {
+                    'index': 1,
+                    'replication_port': 6200,
+                    'zone': 1,
+                    'ip': '10.0.0.2',
+                    'region': 1,
+                    'port': 6200,
+                    'replication_ip': '10.0.0.2',
+                    'device': 'sda6',
+                    'id': 6,
+                    'weight': 1.0,
+                }],
+                'job_type': object_reconstructor.SYNC,
+                'sync_diskfile_builder': self.reconstructor.reconstruct_fa,
+                'suffixes': [],
+                'partition': 1,
+                'frag_index': 4,
+                'device': 'sda1',
+                'local_dev': {
+                    'replication_port': 6200,
+                    'zone': 1,
+                    'ip': '10.0.0.1',
+                    'region': 1,
+                    'id': 1,
+                    'replication_ip': '10.0.0.1',
+                    'device': 'sda1',
+                    'port': 6200,
+                    'weight': 1.0,
+                },
+                'hashes': {
+                    '061': {
+                        None: '85b02a5283704292a511078a5c483da5',
+                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                    },
+                    '3c1': {
+                        0: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: '85b02a5283704292a511078a5c483da5',
+                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                    },
+                },
+
             }]
         )
         # part num 2
@@ -493,12 +572,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'sync_to': [{
                     'index': 0,
                     'replication_port': 6200,
-                    'zone': 2,
-                    'ip': '127.0.0.2',
+                    'zone': 1,
+                    'ip': '10.0.0.2',
                     'region': 1,
                     'port': 6200,
-                    'replication_ip': '127.0.0.2',
-                    'device': 'sda1', 'id': 2,
+                    'replication_ip': '10.0.0.2',
+                    'device': 'sda2',
+                    'id': 2,
+                    'weight': 1.0,
                 }],
                 'job_type': object_reconstructor.REVERT,
                 'suffixes': ['061'],
@@ -508,12 +589,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'local_dev': {
                     'replication_port': 6200,
                     'zone': 1,
-                    'ip': '127.0.0.1',
+                    'ip': '10.0.0.1',
                     'region': 1,
                     'id': 1,
-                    'replication_ip': '127.0.0.1',
+                    'replication_ip': '10.0.0.1',
                     'device': 'sda1',
                     'port': 6200,
+                    'weight': 1.0,
                 },
                 'hashes': {
                     '061': {
@@ -529,13 +611,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'sync_to': [{
                     'index': 2,
                     'replication_port': 6200,
-                    'zone': 0,
-                    'ip': '127.0.0.0',
+                    'zone': 1,
+                    'ip': '10.0.0.0',
                     'region': 1,
                     'port': 6200,
-                    'replication_ip': '127.0.0.0',
-                    'device': 'sda1',
-                    'id': 0,
+                    'replication_ip': '10.0.0.0',
+                    'device': 'sda4',
+                    'id': 4,
+                    'weight': 1.0,
                 }],
                 'job_type': object_reconstructor.REVERT,
                 'suffixes': ['3c1'],
@@ -545,12 +628,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'local_dev': {
                     'replication_port': 6200,
                     'zone': 1,
-                    'ip': '127.0.0.1',
+                    'ip': '10.0.0.1',
                     'region': 1,
                     'id': 1,
-                    'replication_ip': '127.0.0.1',
+                    'replication_ip': '10.0.0.1',
                     'device': 'sda1',
-                    'port': 6200
+                    'port': 6200,
+                    'weight': 1.0,
                 },
                 'hashes': {
                     '061': {
@@ -572,6 +656,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 self.fail('Unknown part number %r' % part_num)
             expected_by_part_frag_index = dict(
                 ((j['partition'], j['frag_index']), j) for j in expected_jobs)
+            unexpected_jobs = []
             for job in jobs:
                 job_key = (job['partition'], job['frag_index'])
                 if job_key in expected_by_part_frag_index:
@@ -585,15 +670,17 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                             self.assertEqual(value, expected_value)
                         except AssertionError as e:
                             extra_info = \
-                                '\n\n... for %r in part num %s job %r' % (
-                                    k, part_num, job_key)
+                                '\n\n... for %r in part num %s frag %s' % (
+                                    k, part_num, job_key[1])
                             raise AssertionError(str(e) + extra_info)
                 else:
-                    self.fail(
-                        'Unexpected job %r for part num %s - '
-                        'expected jobs where %r' % (
-                            job_key, part_num,
-                            expected_by_part_frag_index.keys()))
+                    unexpected_jobs.append(job)
+            if unexpected_jobs:
+                self.fail(
+                    'Unexpected jobs for frags %r in part num %s - '
+                    'expected jobs for frags %r' % (
+                        [j['frag_index'] for j in unexpected_jobs], part_num,
+                        [k[1] for k in expected_by_part_frag_index]))
             for expected_job in expected_jobs:
                 if expected_job in jobs:
                     jobs.remove(expected_job)
@@ -601,22 +688,30 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         check_jobs(part_num)
 
     def _run_once(self, http_count, extra_devices, override_devices=None):
-        ring_devs = list(self.policy.object_ring.devs)
+        id_counter = itertools.count(
+            max(d['id'] for d in self.policy.object_ring.devs) + 1)
         for device, parts in extra_devices.items():
             device_path = os.path.join(self.devices, device)
             os.mkdir(device_path)
             for part in range(parts):
-                os.makedirs(os.path.join(device_path, 'objects-1', str(part)))
-            # we update the ring to make is_local happy
-            devs = [dict(d) for d in ring_devs]
-            for d in devs:
-                d['device'] = device
-            self.policy.object_ring.devs.extend(devs)
+                hash_path = os.path.join(
+                    device_path, 'objects-1', str(part), 'abc', 'hash')
+                os.makedirs(hash_path)
+                tombstone_file = utils.Timestamp(time.time()).internal + '.ts'
+                with open(os.path.join(hash_path, tombstone_file), 'w'):
+                    pass
+            # use sda1 as a base to make is_local happy
+            new_device = dict(self.policy.object_ring.devs[1])
+            new_device['device'] = device
+            new_device['id'] = next(id_counter)
+            self.policy.object_ring.devs.append(new_device)
         self.reconstructor.stats_interval = 0
         self.process_job = lambda j: sleep(0)
-        with mocked_http_conn(*[200] * http_count, body=pickle.dumps({})):
-            with mock_ssync_sender():
+        with mock_ssync_sender(), \
+            mocked_http_conn(*[200] * http_count,
+                             body=pickle.dumps({})) as request_log:
                 self.reconstructor.run_once(devices=override_devices)
+        return request_log
 
     def test_run_once(self):
         # sda1: 3 is done in setup
@@ -625,7 +720,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             'sdc1': 1,
             'sdd1': 0,
         }
-        self._run_once(18, extra_devices)
+        self._run_once(32, extra_devices)
         stats_lines = set()
         for line in self.logger.get_lines_for_level('info'):
             if 'reconstructed in' not in line:
@@ -651,7 +746,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             'sdc1': 1,
             'sdd1': 0,
         }
-        self._run_once(2, extra_devices, 'sdc1')
+        self._run_once(3, extra_devices, 'sdc1')
         stats_lines = set()
         for line in self.logger.get_lines_for_level('info'):
             if 'reconstructed in' not in line:
@@ -822,38 +917,87 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertIn('You should disable handoffs_only', msgs[-1])
 
     def test_get_partners(self):
-        # we're going to perform an exhaustive test of every possible
-        # combination of partitions and nodes in our custom test ring
+        expected = (
+            # node_index, part_nodes => partners
+            (0, [0, 1, 2, 3], [3, 1, 2]),
+            (0, [2, 3, 1, 0], [0, 3, 1]),
+            (0, [0, 1, 2, 3, 4], [4, 1, 2]),
+            (0, [0, 1, 2, 3, 4, 5], [5, 1, 3]),
+            (1, [0, 1, 2, 3, 4, 5], [0, 2, 4]),
+            (2, [0, 1, 2, 3, 4, 5], [1, 3, 5]),
+            (3, [0, 1, 2, 3, 4, 5], [2, 4, 0]),
+            (4, [0, 1, 2, 3, 4, 5], [3, 5, 1]),
+            (5, [0, 1, 2, 3, 4, 5], [4, 0, 2]),
+            (5, [1, 4, 0, 2, 3, 5], [3, 1, 0]),
+        )
+        failures = []
+        for frag_index, part_nodes, partners in expected:
+            sync_to = object_reconstructor._get_partners(
+                frag_index, part_nodes)
+            if partners != sync_to:
+                failures.append('Given nodes %r for index %s we expected '
+                                '%r but got %r' % (
+                                    part_nodes, frag_index, partners, sync_to))
+        if failures:
+            failures.insert(0, 'Some test scenarios failed:')
+            self.fail('\n'.join(failures))
 
-        # format: [dev_id in question, 'part_num',
-        #          [part_nodes for the given part], left id, right id...]
-        expected_partners = sorted([
-            (0, '0', [0, 1, 2], 2, 1), (0, '2', [2, 3, 0], 3, 2),
-            (1, '0', [0, 1, 2], 0, 2), (1, '1', [1, 2, 3], 3, 2),
-            (2, '0', [0, 1, 2], 1, 0), (2, '1', [1, 2, 3], 1, 3),
-            (2, '2', [2, 3, 0], 0, 3), (3, '1', [1, 2, 3], 2, 1),
-            (3, '2', [2, 3, 0], 2, 0), (0, '0', [0, 1, 2], 2, 1),
-            (0, '2', [2, 3, 0], 3, 2), (1, '0', [0, 1, 2], 0, 2),
-            (1, '1', [1, 2, 3], 3, 2), (2, '0', [0, 1, 2], 1, 0),
-            (2, '1', [1, 2, 3], 1, 3), (2, '2', [2, 3, 0], 0, 3),
-            (3, '1', [1, 2, 3], 2, 1), (3, '2', [2, 3, 0], 2, 0),
-        ])
+    def test_iter_nodes_for_frag(self):
+        # no limit
+        self.reconstructor.rebuild_handoff_node_count = -1
+        policy = ECStoragePolicy(1, name='test', ec_type=DEFAULT_TEST_EC_TYPE,
+                                 ec_ndata=4, ec_nparity=3)
+        policy.object_ring = FabricatedRing(replicas=7, devices=28)
+        primaries = policy.object_ring.get_part_nodes(0)
 
-        got_partners = []
-        for pol in POLICIES:
-            obj_ring = pol.object_ring
-            for part_num in self.part_nums:
-                part_nodes = obj_ring.get_part_nodes(int(part_num))
-                primary_ids = [n['id'] for n in part_nodes]
-                for node in part_nodes:
-                    partners = object_reconstructor._get_partners(
-                        node['index'], part_nodes)
-                    left = partners[0]['id']
-                    right = partners[1]['id']
-                    got_partners.append((
-                        node['id'], part_num, primary_ids, left, right))
+        node = primaries[0]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [0, 0, 7, 14]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(0, node['backend_index'])
 
-        self.assertEqual(expected_partners, sorted(got_partners))
+        node = primaries[3]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [3, 3, 10, 17]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(3, node['backend_index'])
+
+        node = primaries[-1]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [6, 6, 13, 20]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(6, node['backend_index'])
+
+        # default limit is 2
+        self.reconstructor.rebuild_handoff_node_count = 2
+        node = primaries[0]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [0, 0, 7]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(0, node['backend_index'])
+
+        # zero means only primaries
+        self.reconstructor.rebuild_handoff_node_count = 0
+        node = primaries[0]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [0]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(0, node['backend_index'])
 
     def test_collect_parts(self):
         self.reconstructor._reset_stats()
@@ -880,6 +1024,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.assertEqual(str(log_kwargs['exc_info'][1]), 'Ow!')
 
     def test_removes_zbf(self):
+        # suppress unmount warning
+        os.mkdir(os.path.join(self.devices, 'sda5'))
         # After running xfs_repair, a partition directory could become a
         # zero-byte file. If this happens, the reconstructor should clean it
         # up, log something, and move on to the next partition.
@@ -926,6 +1072,9 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     except OSError as e:
                         if e.errno != 2:
                             raise
+
+        # suppress unmount warning
+        os.mkdir(os.path.join(self.devices, 'sda5'))
 
         # since our collect_parts job is a generator, that yields directly
         # into build_jobs and then spawns it's safe to do the remove_files
@@ -996,40 +1145,46 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
         # run reconstructor with delete function mocked out to check calls
         ssync_calls = []
-        delete_func =\
-            'swift.obj.reconstructor.ObjectReconstructor.delete_reverted_objs'
         with mock.patch('swift.obj.reconstructor.ssync_sender',
-                        self._make_fake_ssync(ssync_calls)):
-            with mocked_http_conn(*[200] * 12, body=pickle.dumps({})):
-                with mock.patch(delete_func) as mock_delete:
-                    self.reconstructor.reconstruct()
-                expected_calls = []
-                for context in ssync_calls:
-                    if context['job']['job_type'] == REVERT:
-                        for dirpath, files in visit_obj_dirs(context):
-                            # sanity check - expect some files to be in dir,
-                            # may not be for the reverted frag index
-                            self.assertTrue(files)
-                            n_files += len(files)
-                        expected_calls.append(mock.call(context['job'],
-                                              context['available_map'],
-                                              context['node']['index']))
-                mock_delete.assert_has_calls(expected_calls, any_order=True)
+                        self._make_fake_ssync(ssync_calls)), \
+                mocked_http_conn(*[200] * 17, body=pickle.dumps({})), \
+                mock.patch.object(
+                    self.reconstructor, 'delete_reverted_objs') as mock_delete:
+            self.reconstructor.reconstruct()
+        expected_calls = []
+        for context in ssync_calls:
+            if context['job']['job_type'] == REVERT:
+                for dirpath, files in visit_obj_dirs(context):
+                    # sanity check - expect some files to be in dir,
+                    # may not be for the reverted frag index
+                    self.assertTrue(files)
+                    n_files += len(files)
+                expected_calls.append(mock.call(context['job'],
+                                      context['available_map'],
+                                      context['node']['index']))
+        mock_delete.assert_has_calls(expected_calls, any_order=True)
 
+        # N.B. in this next test sequence we acctually delete files after
+        # revert, so the on-disk hashes can change.  In partition 1, if the
+        # revert jobs (for frag_index 0 or 1) run before the sync job
+        # (frag_index 4) all suffixes will get removed and the sync job won't
+        # have anything to ship the remote (meaning there's no post-sync
+        # REPLICATE call).  To keep the number of mocked_http_conn responses
+        # predictable we force a stable job order by mocking random's shuffle.
         ssync_calls = []
         with mock.patch('swift.obj.reconstructor.ssync_sender',
-                        self._make_fake_ssync(ssync_calls)):
-            with mocked_http_conn(*[200] * 12, body=pickle.dumps({})):
-                self.reconstructor.reconstruct()
-                for context in ssync_calls:
-                    if context['job']['job_type'] == REVERT:
-                        data_file_tail = ('#%s.data'
-                                          % context['node']['index'])
-                        for dirpath, files in visit_obj_dirs(context):
-                            n_files_after += len(files)
-                            for filename in files:
-                                self.assertFalse(
-                                    filename.endswith(data_file_tail))
+                        self._make_fake_ssync(ssync_calls)), \
+                mocked_http_conn(*[200] * 17, body=pickle.dumps({})), \
+                mock.patch('swift.obj.reconstructor.random.shuffle'):
+            self.reconstructor.reconstruct()
+        for context in ssync_calls:
+            if context['job']['job_type'] == REVERT:
+                data_file_tail = ('#%s.data'
+                                  % context['node']['index'])
+                for dirpath, files in visit_obj_dirs(context):
+                    n_files_after += len(files)
+                    for filename in files:
+                        self.assertFalse(filename.endswith(data_file_tail))
 
         # sanity check that some files should were deleted
         self.assertGreater(n_files, n_files_after)
@@ -1037,6 +1192,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     def test_no_delete_failed_revert(self):
         # test will only process revert jobs
         self.reconstructor.handoffs_only = True
+        # suppress unmount warning
+        os.mkdir(os.path.join(self.devices, 'sda5'))
 
         captured_ssync = []
         # fail all jobs on part 2 on sda1
@@ -1092,7 +1249,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             job = context['job']
             expected_suffix_calls.append(
                 (job['sync_to'][0]['replication_ip'], '/%s/%s/%s' % (
-                    job['device'], job['partition'],
+                    job['sync_to'][0]['device'], job['partition'],
                     '-'.join(sorted(job['suffixes']))))
             )
         self.assertEqual(set(expected_suffix_calls),
@@ -1145,16 +1302,16 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                             self._make_fake_ssync(ssync_calls)):
                 self.reconstructor.reconstruct(override_partitions=[2])
         expected_repliate_calls = set([
-            ('127.0.0.0', '/sda1/2/3c1'),
-            ('127.0.0.2', '/sda1/2/061'),
+            (u'10.0.0.0', '/sda4/2/3c1'),
+            (u'10.0.0.2', '/sda2/2/061'),
         ])
         found_calls = set((r['ip'], r['path'])
                           for r in request_log.requests)
         self.assertEqual(expected_repliate_calls, found_calls)
 
         expected_ssync_calls = sorted([
-            ('127.0.0.0', REVERT, 2, ['3c1']),
-            ('127.0.0.2', REVERT, 2, ['061']),
+            (u'10.0.0.0', REVERT, 2, [u'3c1']),
+            (u'10.0.0.2', REVERT, 2, [u'061']),
         ])
         self.assertEqual(expected_ssync_calls, sorted((
             c['node']['ip'],
@@ -1179,48 +1336,50 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_process_job_all_success(self):
+        rehash_per_job_type = {SYNC: 2, REVERT: 1}
         self.reconstructor._reset_stats()
         with mock_ssync_sender():
-            with mocked_http_conn(*[200] * 12, body=pickle.dumps({})):
-                found_jobs = []
-                for part_info in self.reconstructor.collect_parts():
-                    jobs = self.reconstructor.build_reconstruction_jobs(
-                        part_info)
-                    found_jobs.extend(jobs)
-                    for job in jobs:
-                        self.logger._clear()
-                        node_count = len(job['sync_to'])
+            found_jobs = []
+            for part_info in self.reconstructor.collect_parts():
+                jobs = self.reconstructor.build_reconstruction_jobs(
+                    part_info)
+                found_jobs.extend(jobs)
+                for job in jobs:
+                    self.logger._clear()
+                    node_count = len(job['sync_to'])
+                    rehash_count = node_count * rehash_per_job_type[
+                        job['job_type']]
+                    with mocked_http_conn(*[200] * rehash_count,
+                                          body=pickle.dumps({})):
                         self.reconstructor.process_job(job)
-                        if job['job_type'] == object_reconstructor.REVERT:
-                            self.assertEqual(0, count_stats(
-                                self.logger, 'update_stats', 'suffix.hashes'))
-                        else:
-                            self.assertStatCount('update_stats',
-                                                 'suffix.hashes',
-                                                 node_count)
-                            self.assertEqual(node_count, count_stats(
-                                self.logger, 'update_stats', 'suffix.hashes'))
-                            self.assertEqual(node_count, count_stats(
-                                self.logger, 'update_stats', 'suffix.syncs'))
-                        self.assertNotIn('error', self.logger.all_log_lines())
+                    if job['job_type'] == object_reconstructor.REVERT:
+                        self.assertStatCount('update_stats',
+                                             'suffix.hashes', 0)
+                    else:
+                        self.assertStatCount('update_stats',
+                                             'suffix.hashes', node_count)
+                        self.assertStatCount('update_stats',
+                                             'suffix.syncs', node_count)
+                    self.assertNotIn('error', self.logger.all_log_lines())
         self.assertEqual(
-            dict(collections.Counter(
-                (job['device'], job['partition'], job['frag_index'])
-                for job in found_jobs)),
-            {('sda1', 0, 1): 1,
-             ('sda1', 0, 2): 1,
-             ('sda1', 1, 0): 1,
-             ('sda1', 1, 1): 1,
-             ('sda1', 2, 0): 1,
-             ('sda1', 2, 2): 1})
-        self.assertEqual(self.reconstructor.suffix_sync, 8)
-        self.assertEqual(self.reconstructor.suffix_count, 8)
-        self.assertEqual(self.reconstructor.reconstruction_count, 6)
+            dict(collections.Counter((job['device'], job['partition'],
+                                      job['frag_index'], job['job_type'])
+                                     for job in found_jobs)),
+            {('sda1', 0, 1, SYNC): 1,
+             ('sda1', 0, 2, REVERT): 1,
+             ('sda1', 1, 0, REVERT): 1,
+             ('sda1', 1, 1, REVERT): 1,
+             ('sda1', 1, 4, SYNC): 1,
+             ('sda1', 2, 0, REVERT): 1,
+             ('sda1', 2, 2, REVERT): 1})
+        self.assertEqual(self.reconstructor.suffix_sync, 12)
+        self.assertEqual(self.reconstructor.suffix_count, 12)
+        self.assertEqual(self.reconstructor.reconstruction_count, 7)
 
     def test_process_job_all_insufficient_storage(self):
         self.reconstructor._reset_stats()
         with mock_ssync_sender():
-            with mocked_http_conn(*[507] * 8):
+            with mocked_http_conn(*[507] * 15):
                 found_jobs = []
                 for part_info in self.reconstructor.collect_parts():
                     jobs = self.reconstructor.build_reconstruction_jobs(
@@ -1236,23 +1395,24 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         self.assertEqual(0, count_stats(
                             self.logger, 'update_stats', 'suffix.syncs'))
         self.assertEqual(
-            dict(collections.Counter(
-                (job['device'], job['partition'], job['frag_index'])
-                for job in found_jobs)),
-            {('sda1', 0, 1): 1,
-             ('sda1', 0, 2): 1,
-             ('sda1', 1, 0): 1,
-             ('sda1', 1, 1): 1,
-             ('sda1', 2, 0): 1,
-             ('sda1', 2, 2): 1})
+            dict(collections.Counter((job['device'], job['partition'],
+                                      job['frag_index'], job['job_type'])
+                                     for job in found_jobs)),
+            {('sda1', 0, 1, SYNC): 1,
+             ('sda1', 0, 2, REVERT): 1,
+             ('sda1', 1, 0, REVERT): 1,
+             ('sda1', 1, 1, REVERT): 1,
+             ('sda1', 1, 4, SYNC): 1,
+             ('sda1', 2, 0, REVERT): 1,
+             ('sda1', 2, 2, REVERT): 1})
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
-        self.assertEqual(self.reconstructor.reconstruction_count, 6)
+        self.assertEqual(self.reconstructor.reconstruction_count, 7)
 
     def test_process_job_all_client_error(self):
         self.reconstructor._reset_stats()
         with mock_ssync_sender():
-            with mocked_http_conn(*[400] * 8):
+            with mocked_http_conn(*[400] * 11):
                 found_jobs = []
                 for part_info in self.reconstructor.collect_parts():
                     jobs = self.reconstructor.build_reconstruction_jobs(
@@ -1275,15 +1435,16 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
              ('sda1', 0, 2): 1,
              ('sda1', 1, 0): 1,
              ('sda1', 1, 1): 1,
+             ('sda1', 1, 4): 1,
              ('sda1', 2, 0): 1,
              ('sda1', 2, 2): 1})
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
-        self.assertEqual(self.reconstructor.reconstruction_count, 6)
+        self.assertEqual(self.reconstructor.reconstruction_count, 7)
 
     def test_process_job_all_timeout(self):
         self.reconstructor._reset_stats()
-        with mock_ssync_sender(), mocked_http_conn(*[Timeout()] * 8):
+        with mock_ssync_sender(), mocked_http_conn(*[Timeout()] * 11):
             found_jobs = []
             for part_info in self.reconstructor.collect_parts():
                 jobs = self.reconstructor.build_reconstruction_jobs(
@@ -1306,11 +1467,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
              ('sda1', 0, 2): 1,
              ('sda1', 1, 0): 1,
              ('sda1', 1, 1): 1,
+             ('sda1', 1, 4): 1,
              ('sda1', 2, 0): 1,
              ('sda1', 2, 2): 1})
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
-        self.assertEqual(self.reconstructor.reconstruction_count, 6)
+        self.assertEqual(self.reconstructor.reconstruction_count, 7)
 
     def test_reconstructor_skipped_partpower_increase(self):
         self.reconstructor._reset_stats()
@@ -3133,7 +3295,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(job['job_type'], object_reconstructor.SYNC)
         self.assertEqual(job['frag_index'], 0)
         self.assertEqual(job['suffixes'], [])
-        self.assertEqual(len(job['sync_to']), 2)
+        self.assertEqual(len(job['sync_to']), 3)
         self.assertEqual(job['partition'], 0)
         self.assertEqual(job['path'], part_path)
         self.assertEqual(job['hashes'], {})
@@ -3165,7 +3327,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(job['job_type'], object_reconstructor.SYNC)
         self.assertEqual(job['frag_index'], 0)
         self.assertEqual(job['suffixes'], [])
-        self.assertEqual(len(job['sync_to']), 2)
+        self.assertEqual(len(job['sync_to']), 3)
         self.assertEqual(job['partition'], 0)
         self.assertEqual(job['path'], part_path)
         self.assertEqual(job['hashes'], {})
@@ -3210,7 +3372,9 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(job['suffixes'], stub_hashes.keys())
         self.assertEqual(set([n['index'] for n in job['sync_to']]),
                          set([(frag_index + 1) % ring.replicas,
-                              (frag_index - 1) % ring.replicas]))
+                              (frag_index - 1) % ring.replicas,
+                              (frag_index + int(0.5 * ring.replicas)),
+                              ]))
         self.assertEqual(job['partition'], partition)
         self.assertEqual(job['path'], part_path)
         self.assertEqual(job['hashes'], stub_hashes)
@@ -3320,10 +3484,12 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         job = sync_jobs[0]
         self.assertEqual(job['frag_index'], frag_index)
         self.assertEqual(sorted(job['suffixes']), sorted(['123', 'abc']))
-        self.assertEqual(len(job['sync_to']), 2)
+        self.assertEqual(len(job['sync_to']), 3)
         self.assertEqual(set([n['index'] for n in job['sync_to']]),
                          set([(frag_index + 1) % ring.replicas,
-                              (frag_index - 1) % ring.replicas]))
+                              (frag_index - 1) % ring.replicas,
+                              (frag_index + int(0.5 * ring.replicas)),
+                              ]))
         self.assertEqual(1, len(revert_jobs))
         job = revert_jobs[0]
         self.assertEqual(job['frag_index'], other_frag_index)
@@ -3431,10 +3597,13 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             self.reconstructor.headers['X-Backend-Storage-Policy-Index'],
             int(job['policy']))
         with mocked_http_conn(200, body=pickle.dumps({})) as request_log:
-            self.reconstructor._get_suffixes_to_sync(job, node)
+            suffixes, new_node = self.reconstructor._get_suffixes_to_sync(
+                job, node)
         self.assertEqual([int(job['policy'])], [
             r['headers']['X-Backend-Storage-Policy-Index']
             for r in request_log.requests])
+        self.assertEqual(suffixes, [])
+        self.assertEqual(new_node, node)
 
     def test_get_suffixes_in_sync(self):
         part_path = os.path.join(self.devices, self.local_dev['device'],
@@ -3464,10 +3633,12 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
                         return_value=(None, local_hashes)), \
                 mocked_http_conn(200, body=remote_response) as request_log:
-            suffixes = self.reconstructor._get_suffixes_to_sync(job, node)
+            suffixes, new_node = self.reconstructor._get_suffixes_to_sync(
+                job, node)
         self.assertEqual([node['replication_ip']],
                          [r['ip'] for r in request_log.requests])
         self.assertEqual(suffixes, [])
+        self.assertEqual(new_node, node)
 
     def test_get_suffix_delta(self):
         # different
@@ -3513,7 +3684,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         frag_index = self.policy.get_backend_index(local_dev['index'])
         sync_to = object_reconstructor._get_partners(
             local_dev['index'], part_nodes)
-        # setup left and right hashes
+        # setup left, right and far hashes
         stub_hashes = {
             '123': {frag_index: 'hash', None: 'hash'},
             'abc': {frag_index: 'hash', None: 'hash'},
@@ -3527,6 +3698,11 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         right_hashes = {
             '123': {right_frag_index: 'hash', None: 'hash'},
             'abc': {right_frag_index: 'hash', None: 'hash'},
+        }
+        far_index = self.policy.get_backend_index(sync_to[2]['index'])
+        far_hashes = {
+            '123': {far_index: 'hash', None: 'hash'},
+            'abc': {far_index: 'hash', None: 'hash'},
         }
         partition = 0
         part_path = os.path.join(self.devices, self.local_dev['device'],
@@ -3545,7 +3721,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         }
 
         responses = [(200, pickle.dumps(hashes)) for hashes in (
-            left_hashes, right_hashes)]
+            left_hashes, right_hashes, far_hashes)]
         codes, body_iter = zip(*responses)
 
         ssync_calls = []
@@ -3556,13 +3732,13 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                 mocked_http_conn(*codes, body_iter=body_iter) as request_log:
             self.reconstructor.process_job(job)
 
-        expected_suffix_calls = set([
+        expected_suffix_calls = [
             (sync_to[0]['ip'], '/%s/0' % sync_to[0]['device']),
             (sync_to[1]['ip'], '/%s/0' % sync_to[1]['device']),
-        ])
+            (sync_to[2]['ip'], '/%s/0' % sync_to[2]['device']),
+        ]
         self.assertEqual(expected_suffix_calls,
-                         set((r['ip'], r['path'])
-                             for r in request_log.requests))
+                         [(r['ip'], r['path']) for r in request_log.requests])
 
         self.assertFalse(ssync_calls)
 
@@ -3580,6 +3756,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         }
         left_hashes = {}
         right_hashes = {}
+        far_hashes = {}
 
         partition = 0
         part_path = os.path.join(self.devices, self.local_dev['device'],
@@ -3597,8 +3774,9 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'local_dev': self.local_dev,
         }
 
-        responses = [(200, pickle.dumps(hashes)) for hashes in (
-            left_hashes, left_hashes, right_hashes, right_hashes)]
+        responses = []
+        for hashes in (left_hashes, right_hashes, far_hashes):
+            responses.extend([(200, pickle.dumps(hashes))] * 2)
         codes, body_iter = zip(*responses)
 
         ssync_calls = []
@@ -3608,19 +3786,21 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                 mocked_http_conn(*codes, body_iter=body_iter) as request_log:
             self.reconstructor.process_job(job)
 
-        expected_suffix_calls = set([
+        expected_suffix_calls = [
             (sync_to[0]['ip'], '/%s/0' % sync_to[0]['device']),
             (sync_to[0]['ip'], '/%s/0/123-abc' % sync_to[0]['device']),
             (sync_to[1]['ip'], '/%s/0' % sync_to[1]['device']),
             (sync_to[1]['ip'], '/%s/0/123-abc' % sync_to[1]['device']),
-        ])
+            (sync_to[2]['ip'], '/%s/0' % sync_to[2]['device']),
+            (sync_to[2]['ip'], '/%s/0/123-abc' % sync_to[2]['device']),
+        ]
         self.assertEqual(expected_suffix_calls,
-                         set((r['ip'], r['path'])
-                             for r in request_log.requests))
+                         [(r['ip'], r['path']) for r in request_log.requests])
 
         expected_ssync_calls = sorted([
             (sync_to[0]['ip'], 0, set(['123', 'abc'])),
             (sync_to[1]['ip'], 0, set(['123', 'abc'])),
+            (sync_to[2]['ip'], 0, set(['123', 'abc'])),
         ])
         self.assertEqual(expected_ssync_calls, sorted((
             c['node']['ip'],
@@ -3656,6 +3836,11 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             '123': {right_frag_index: 'hash', None: 'hash'},
             'abc': {right_frag_index: 'hashX', None: 'hash'},
         }
+        far_index = self.policy.get_backend_index(sync_to[2]['index'])
+        far_hashes = {
+            '123': {far_index: 'hash', None: 'hash'},
+            'abc': {far_index: 'hash', None: 'hash'},
+        }
 
         job = {
             'job_type': object_reconstructor.SYNC,
@@ -3674,6 +3859,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             (200, pickle.dumps(left_hashes)),
             (200, pickle.dumps(right_hashes)),
             (200, pickle.dumps(right_hashes)),
+            (200, pickle.dumps(far_hashes)),
         ]
         codes, body_iter = zip(*responses)
 
@@ -3739,6 +3925,12 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'abc': {right_frag_index: 'hash',
                     None: 'different-because-durable'},
         }
+        # far side is in sync
+        far_index = self.policy.get_backend_index(sync_to[2]['index'])
+        far_hashes = {
+            '123': {far_index: 'hash', None: 'hash'},
+            'abc': {far_index: 'hash', None: 'hash'},
+        }
 
         part_path = os.path.join(self.devices, self.local_dev['device'],
                                  diskfile.get_data_dir(self.policy),
@@ -3756,7 +3948,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         }
 
         responses = [(200, pickle.dumps(hashes)) for hashes in (
-            left_hashes, right_hashes, right_hashes)]
+            left_hashes, right_hashes, right_hashes, far_hashes)]
         codes, body_iter = zip(*responses)
 
         ssync_calls = []
@@ -3770,6 +3962,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             (sync_to[0]['ip'], '/%s/0' % sync_to[0]['device']),
             (sync_to[1]['ip'], '/%s/0' % sync_to[1]['device']),
             (sync_to[1]['ip'], '/%s/0/abc' % sync_to[1]['device']),
+            (sync_to[2]['ip'], '/%s/0' % sync_to[2]['device']),
         ])
         self.assertEqual(expected_suffix_calls,
                          set((r['ip'], r['path'])
@@ -3805,6 +3998,10 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         right_hashes = {
             '123': {right_frag_index: 'hash', None: 'hash'},
         }
+        far_index = self.policy.get_backend_index(sync_to[2]['index'])
+        far_hashes = {
+            'abc': {far_index: 'hashX', None: 'hash'},
+        }
         part_path = os.path.join(self.devices, self.local_dev['device'],
                                  diskfile.get_data_dir(self.policy),
                                  str(partition))
@@ -3820,8 +4017,9 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'local_dev': self.local_dev,
         }
 
-        responses = [(200, pickle.dumps(hashes)) for hashes in (
-            left_hashes, left_hashes, right_hashes, right_hashes)]
+        responses = []
+        for hashes in (left_hashes, right_hashes, far_hashes):
+            responses.extend([(200, pickle.dumps(hashes))] * 2)
         codes, body_iter = zip(*responses)
 
         ssync_calls = []
@@ -3837,6 +4035,8 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             (sync_to[0]['ip'], '/%s/0/123' % sync_to[0]['device']),
             (sync_to[1]['ip'], '/%s/0' % sync_to[1]['device']),
             (sync_to[1]['ip'], '/%s/0/abc' % sync_to[1]['device']),
+            (sync_to[2]['ip'], '/%s/0' % sync_to[2]['device']),
+            (sync_to[2]['ip'], '/%s/0/123-abc' % sync_to[2]['device']),
         ])
         self.assertEqual(expected_suffix_calls,
                          set((r['ip'], r['path'])
@@ -3844,10 +4044,12 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
 
         self.assertEqual(
             dict(collections.Counter(
-                (c['node']['index'], tuple(c['suffixes']))
+                (c['node']['index'], tuple(sorted(c['suffixes'])))
                 for c in ssync_calls)),
-            {(sync_to[0]['index'], ('123', )): 1,
-             (sync_to[1]['index'], ('abc', )): 1})
+            {(sync_to[0]['index'], ('123',)): 1,
+             (sync_to[1]['index'], ('abc',)): 1,
+             (sync_to[2]['index'], ('123', 'abc')): 1,
+             })
 
     def test_process_job_primary_down(self):
         partition = 0
@@ -3859,7 +4061,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         }
 
         part_nodes = self.policy.object_ring.get_part_nodes(partition)
-        sync_to = part_nodes[:2]
+        sync_to = part_nodes[:3]
 
         part_path = os.path.join(self.devices, self.local_dev['device'],
                                  diskfile.get_data_dir(self.policy),
@@ -3948,9 +4150,9 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
 
         expected_suffix_calls = set((
             node['replication_ip'], '/%s/0' % node['device']
-        ) for node in part_nodes)
+        ) for node in sync_to)
 
-        possible_errors = [404, 507, Timeout(), Exception('kaboom!')]
+        possible_errors = [404, Timeout(), Exception('kaboom!')]
         codes = [random.choice(possible_errors)
                  for r in expected_suffix_calls]
 
@@ -3966,6 +4168,86 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(expected_suffix_calls, found_suffix_calls)
 
         self.assertFalse(ssync_calls)
+
+    def test_process_job_sync_partner_unmounted(self):
+        partition = 0
+        part_nodes = self.policy.object_ring.get_part_nodes(partition)
+        frag_index = [n['id'] for n in part_nodes].index(self.local_dev['id'])
+        sync_to = object_reconstructor._get_partners(frag_index, part_nodes)
+        self.assertEqual(3, len(sync_to))
+        stub_hashes = {
+            '123': {frag_index: 'hash', None: 'hash'},
+            'abc': {frag_index: 'hash', None: 'hash'},
+        }
+        # left partner out of sync
+        left_frag_index = self.policy.get_backend_index(sync_to[0]['index'])
+        left_hashes = {
+            '123': {left_frag_index: 'not-in-sync-hash', None: 'hash'},
+            'abc': {left_frag_index: 'hash', None: 'hash'},
+        }
+        # we don't need right partner hashes
+        # far partner in sync
+        far_index = self.policy.get_backend_index(sync_to[2]['index'])
+        far_hashes = {
+            '123': {far_index: 'hash', None: 'hash'},
+            'abc': {far_index: 'hash', None: 'hash'},
+        }
+        part_path = os.path.join(self.devices, self.local_dev['device'],
+                                 diskfile.get_data_dir(self.policy),
+                                 str(partition))
+        job = {
+            'job_type': object_reconstructor.SYNC,
+            'frag_index': frag_index,
+            'suffixes': stub_hashes.keys(),
+            'sync_to': sync_to,
+            'partition': partition,
+            'path': part_path,
+            'hashes': stub_hashes,
+            'policy': self.policy,
+            'device': self.local_dev['device'],
+            'local_dev': self.local_dev,
+        }
+
+        responses = [
+            (200, pickle.dumps(left_hashes)),  # hashes left partner
+            (200, pickle.dumps(left_hashes)),  # hashes post-sync
+            (507, ''),  # unmounted right partner
+            (200, pickle.dumps({})),  # hashes handoff
+            (200, ''),  # hashes post-sync
+            (200, pickle.dumps(far_hashes)),  # hashes far partner
+        ]
+        codes, body_iter = zip(*responses)
+
+        ssync_calls = []
+        with mock_ssync_sender(ssync_calls), \
+                mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*codes, body_iter=body_iter) as request_log:
+            self.reconstructor.process_job(job)
+        # increment frag_index since we're rebuilding to our right
+        frag_index = (frag_index + 1) % self.policy.ec_n_unique_fragments
+        handoffs = self.policy.object_ring.get_more_nodes(partition)
+        for i, handoff in enumerate(handoffs):
+            if i == frag_index:
+                break
+        else:
+            self.fail('Unable to find handoff?!')
+        expected = collections.Counter([
+            (200, sync_to[0]['ip']),
+            (200, sync_to[0]['ip']),
+            (507, sync_to[1]['ip']),
+            (200, handoff['ip']),
+            (200, handoff['ip']),
+            (200, sync_to[2]['ip']),
+        ])
+        self.assertEqual(expected, collections.Counter(
+            [(c, r['ip']) for c, r in zip(codes, request_log.requests)]))
+        expected = collections.Counter([
+            sync_to[0]['ip'],
+            handoff['ip'],
+        ])
+        self.assertEqual(expected, collections.Counter(
+            [c['node']['ip'] for c in ssync_calls]))
 
     def test_process_job_handoff(self):
         frag_index = random.randint(
@@ -5091,6 +5373,50 @@ class TestObjectReconstructorECDuplicationFactor(TestObjectReconstructor):
         # any fragments can be broken
         for index in range(28):
             self._test_reconstruct_with_duplicate_frags_no_errors(index)
+
+    def test_iter_nodes_for_frag(self):
+        self.reconstructor.rebuild_handoff_node_count = -1
+        policy = ECStoragePolicy(1, name='test', ec_type=DEFAULT_TEST_EC_TYPE,
+                                 ec_ndata=4, ec_nparity=3,
+                                 ec_duplication_factor=2)
+        policy.object_ring = FabricatedRing(replicas=14, devices=42)
+        primaries = policy.object_ring.get_part_nodes(0)
+
+        node = primaries[0]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [0, 0, 7, 14, 21]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(0, node['backend_index'])
+
+        node = primaries[3]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [3, 3, 10, 17, 24]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(3, node['backend_index'])
+
+        node = primaries[7]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [7, 0, 7, 14, 21]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(0, node['backend_index'])
+
+        node = primaries[-1]
+        nodes_for_frag = list(self.reconstructor._iter_nodes_for_frag(
+            policy, 0, node))
+        expected = [13, 6, 13, 20, 27]
+        self.assertEqual(expected, [n.get('index', n.get('handoff_index'))
+                                    for n in nodes_for_frag])
+        for node in nodes_for_frag:
+            self.assertEqual(6, node['backend_index'])
 
 
 if __name__ == '__main__':

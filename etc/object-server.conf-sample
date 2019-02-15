@@ -352,6 +352,15 @@ use = egg:swift#recon
 # honored as a synonym, but may be ignored in a future release.
 # handoffs_only = False
 #
+# The default strategy for unmounted drives will stage rebuilt data on a
+# handoff node until updated rings are deployed.  Because fragments are rebuilt
+# on offset handoffs based on fragment index and the proxy limits how deep it
+# will search for EC frags we restrict how many nodes we'll try.  Setting to 0
+# will disable rebuilds to handoffs and only rebuild fragments for unmounted
+# devices to mounted primaries after a ring change.
+# Setting to -1 means "no limit".
+# rebuild_handoff_node_count = 2
+#
 # You can set scheduling priority of processes. Niceness values range from -20
 # (most favorable to the process) to 19 (least favorable to the process).
 # nice_priority =

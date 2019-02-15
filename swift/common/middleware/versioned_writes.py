@@ -20,23 +20,23 @@ the URL-encoded container name where the versions are stored (commonly referred
 to as the "archive container"). The flag itself is one of two headers, which
 determines how object ``DELETE`` requests are handled:
 
-  * ``X-History-Location``
+* ``X-History-Location``
 
-    On ``DELETE``, copy the current version of the object to the archive
-    container, write a zero-byte "delete marker" object that notes when the
-    delete took place, and delete the object from the versioned container. The
-    object will no longer appear in container listings for the versioned
-    container and future requests there will return ``404 Not Found``. However,
-    the content will still be recoverable from the archive container.
+  On ``DELETE``, copy the current version of the object to the archive
+  container, write a zero-byte "delete marker" object that notes when the
+  delete took place, and delete the object from the versioned container. The
+  object will no longer appear in container listings for the versioned
+  container and future requests there will return ``404 Not Found``. However,
+  the content will still be recoverable from the archive container.
 
-  * ``X-Versions-Location``
+* ``X-Versions-Location``
 
-    On ``DELETE``, only remove the current version of the object. If any
-    previous versions exist in the archive container, the most recent one is
-    copied over the current version, and the copy in the archive container is
-    deleted. As a result, if you have 5 total versions of the object, you must
-    delete the object 5 times for that object name to start responding with
-    ``404 Not Found``.
+  On ``DELETE``, only remove the current version of the object. If any
+  previous versions exist in the archive container, the most recent one is
+  copied over the current version, and the copy in the archive container is
+  deleted. As a result, if you have 5 total versions of the object, you must
+  delete the object 5 times for that object name to start responding with
+  ``404 Not Found``.
 
 Either header may be used for the various containers within an account, but
 only one may be set for any given container. Attempting to set both
@@ -94,15 +94,15 @@ set ``allow_versioned_writes`` to ``True`` in the middleware options
 to enable the information about this middleware to be returned in a /info
 request.
 
- .. note::
-     You need to add the middleware to the proxy pipeline and set
-     ``allow_versioned_writes = True`` to use ``X-History-Location``. Setting
-     ``allow_versions = True`` in the container server is not sufficient to
-     enable the use of ``X-History-Location``.
+.. note::
+    You need to add the middleware to the proxy pipeline and set
+    ``allow_versioned_writes = True`` to use ``X-History-Location``. Setting
+    ``allow_versions = True`` in the container server is not sufficient to
+    enable the use of ``X-History-Location``.
 
 
-Upgrade considerations:
-+++++++++++++++++++++++
+Upgrade considerations
+++++++++++++++++++++++
 
 If ``allow_versioned_writes`` is set in the filter configuration, you can leave
 the ``allow_versions`` flag in the container server configuration files

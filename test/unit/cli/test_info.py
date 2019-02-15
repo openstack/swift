@@ -1404,6 +1404,69 @@ Other Metadata:
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
+    def test_print_obj_crypto_metadata(self):
+        cryto_body_meta = '%7B%22body_key%22%3A+%7B%22iv%22%3A+%22HmpwLDjlo' \
+            '6JxFvOOCVyT6Q%3D%3D%22%2C+%22key%22%3A+%22dEox1dyZJPCs4mtmiQDg' \
+            'u%2Fv1RTointi%2FUhm2y%2BgB3F8%3D%22%7D%2C+%22cipher%22%3A+%22A' \
+            'ES_CTR_256%22%2C+%22iv%22%3A+%22l3W0NZekjt4PFkAJXubVYQ%3D%3D%2' \
+            '2%2C+%22key_id%22%3A+%7B%22path%22%3A+%22%2FAUTH_test%2Ftest%2' \
+            'Ftest%22%2C+%22secret_id%22%3A+%222018%22%2C+%22v%22%3A+%221%2' \
+            '2%7D%7D'
+
+        crypto_meta_meta = '%7B%22cipher%22%3A+%22AES_CTR_256%22%2C+%22key_' \
+            'id%22%3A+%7B%22path%22%3A+%22%2FAUTH_test%2Ftest%2Ftest%22%2C+' \
+            '%22secret_id%22%3A+%222018%22%2C+%22v%22%3A+%221%22%7D%7D'
+
+        stub_metadata = {
+            'name': '/AUTH_test/test/test',
+            'Content-Type': 'application/sekret',
+            'X-Timestamp': '1549899598.237075',
+            'X-Object-Sysmeta-Crypto-Body-Meta': cryto_body_meta,
+            'X-Object-Transient-Sysmeta-Crypto-Meta': crypto_meta_meta,
+        }
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(stub_metadata)
+        exp_out = '''Path: /AUTH_test/test/test
+  Account: AUTH_test
+  Container: test
+  Object: test
+  Object hash: dc3a7d53522b9392b0d19571a752fdfb
+Content-Type: application/sekret
+Timestamp: 2019-02-11T15:39:58.237080 (1549899598.23708)
+System Metadata:
+  X-Object-Sysmeta-Crypto-Body-Meta: %s
+Transient System Metadata:
+  X-Object-Transient-Sysmeta-Crypto-Meta: %s
+User Metadata:
+  No metadata found
+Other Metadata:
+  No metadata found
+Data crypto details: {
+  "body_key": {
+    "iv": "HmpwLDjlo6JxFvOOCVyT6Q==",
+    "key": "dEox1dyZJPCs4mtmiQDgu/v1RTointi/Uhm2y+gB3F8="
+  },
+  "cipher": "AES_CTR_256",
+  "iv": "l3W0NZekjt4PFkAJXubVYQ==",
+  "key_id": {
+    "path": "/AUTH_test/test/test",
+    "secret_id": "2018",
+    "v": "1"
+  }
+}
+Metadata crypto details: {
+  "cipher": "AES_CTR_256",
+  "key_id": {
+    "path": "/AUTH_test/test/test",
+    "secret_id": "2018",
+    "v": "1"
+  }
+}''' % (cryto_body_meta, crypto_meta_meta)
+
+        self.maxDiff = None
+        self.assertMultiLineEqual(out.getvalue().strip(), exp_out)
+
 
 class TestPrintObjWeirdPath(TestPrintObjFullMeta):
     def setUp(self):

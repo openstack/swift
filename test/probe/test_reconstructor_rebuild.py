@@ -22,7 +22,6 @@ import unittest
 import uuid
 import shutil
 import random
-from collections import defaultdict
 import os
 import time
 
@@ -32,7 +31,6 @@ from test.probe.common import ECProbeTest
 from swift.common import direct_client
 from swift.common.storage_policy import EC_POLICY
 from swift.common.manager import Manager
-from swift.obj.reconstructor import _get_partners
 
 from swiftclient import client, ClientException
 
@@ -300,46 +298,46 @@ class TestReconstructorRebuild(ECProbeTest):
             self._test_rebuild_scenario(failed, non_durable, 3)
 
     def test_rebuild_partner_down(self):
-        # find a primary server that only has one of it's devices in the
-        # primary node list
-        group_nodes_by_config = defaultdict(list)
-        for n in self.onodes:
-            group_nodes_by_config[self.config_number(n)].append(n)
-        for config_number, node_list in group_nodes_by_config.items():
-            if len(node_list) == 1:
-                break
-        else:
-            self.fail('ring balancing did not use all available nodes')
-        primary_node = node_list[0]
+        # we have to pick a lower index because we have few handoffs
+        nodes = self.onodes[:2]
+        random.shuffle(nodes)  # left or right is fine
+        primary_node, partner_node = nodes
 
-        # pick one it's partners to fail randomly
-        partner_node = random.choice(_get_partners(
-            primary_node['index'], self.onodes))
+        # capture fragment etag from partner
+        failed_partner_meta, failed_partner_etag = self.direct_get(
+            partner_node, self.opart)
 
-        # 507 the partner device
+        # and 507 the failed partner device
         device_path = self.device_dir('object', partner_node)
         self.kill_drive(device_path)
-
-        # select another primary sync_to node to fail
-        failed_primary = [n for n in self.onodes if n['id'] not in
-                          (primary_node['id'], partner_node['id'])][0]
-        # ... capture it's fragment etag
-        failed_primary_meta, failed_primary_etag = self.direct_get(
-            failed_primary, self.opart)
-        # ... and delete it
-        part_dir = self.storage_dir('object', failed_primary, part=self.opart)
-        shutil.rmtree(part_dir, True)
 
         # reconstruct from the primary, while one of it's partners is 507'd
         self.reconstructor.once(number=self.config_number(primary_node))
 
-        # the other failed primary will get it's fragment rebuilt instead
-        failed_primary_meta_new, failed_primary_etag_new = self.direct_get(
-            failed_primary, self.opart)
-        del failed_primary_meta['Date']
-        del failed_primary_meta_new['Date']
-        self.assertEqual(failed_primary_etag, failed_primary_etag_new)
-        self.assertEqual(failed_primary_meta, failed_primary_meta_new)
+        # a handoff will pickup the rebuild
+        hnodes = list(self.object_ring.get_more_nodes(self.opart))
+        for node in hnodes:
+            try:
+                found_meta, found_etag = self.direct_get(
+                    node, self.opart)
+            except DirectClientException as e:
+                if e.http_status != 404:
+                    raise
+            else:
+                break
+        else:
+            self.fail('Unable to fetch rebuilt frag from handoffs %r '
+                      'given primary nodes %r with %s unmounted '
+                      'trying to rebuild from %s' % (
+                          [h['device'] for h in hnodes],
+                          [n['device'] for n in self.onodes],
+                          partner_node['device'],
+                          primary_node['device'],
+                      ))
+        self.assertEqual(failed_partner_etag, found_etag)
+        del failed_partner_meta['Date']
+        del found_meta['Date']
+        self.assertEqual(failed_partner_meta, found_meta)
 
         # just to be nice
         self.revive_drive(device_path)
