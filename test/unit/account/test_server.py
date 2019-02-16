@@ -915,8 +915,8 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
-                         ['c1', 'c2'])
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'c1', b'c2'])
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
                                      'X-Delete-Timestamp': '0',
@@ -934,8 +934,8 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
-                         ['c1', 'c2'])
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'c1', b'c2'])
         self.assertEqual(resp.content_type, 'text/plain')
         self.assertEqual(resp.charset, 'utf-8')
 
@@ -944,8 +944,8 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
-                         ['c1', 'c2'])
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'c1', b'c2'])
         self.assertEqual(resp.content_type, 'text/plain')
         self.assertEqual(resp.charset, 'utf-8')
 
@@ -1198,14 +1198,14 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
-                         ['c0', 'c1', 'c2'])
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'c0', b'c1', b'c2'])
         req = Request.blank('/sda1/p/a?limit=3&marker=c2',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
-                         ['c3', 'c4'])
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'c3', b'c4'])
 
     def test_GET_limit_marker_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1474,21 +1474,21 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
-                         ['sub.'])
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'sub.'])
         req = Request.blank('/sda1/p/a?prefix=sub.&delimiter=.',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(
-            resp.body.decode('utf-8').strip().split('\n'),
-            ['sub.0', 'sub.0.', 'sub.1', 'sub.1.', 'sub.2', 'sub.2.'])
+            resp.body.strip().split(b'\n'),
+            [b'sub.0', b'sub.0.', b'sub.1', b'sub.1.', b'sub.2', b'sub.2.'])
         req = Request.blank('/sda1/p/a?prefix=sub.1.&delimiter=.',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body.decode('utf-8').strip().split('\n'),
-                         ['sub.1.0', 'sub.1.1', 'sub.1.2'])
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'sub.1.0', b'sub.1.1', b'sub.1.2'])
 
     def test_GET_prefix_delimiter_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1836,14 +1836,13 @@ class TestAccountController(unittest.TestCase):
         # swift.account.server.AccountController.__call__
         inbuf = BytesIO()
         errbuf = StringIO()
-        outbuf = StringIO()
         self.controller = AccountController(
             {'devices': self.testdir,
              'mount_check': 'false',
              'replication_server': 'false'})
 
         def start_response(*args):
-            outbuf.write(args[0])
+            pass
 
         method = 'PUT'
         env = {'REQUEST_METHOD': method,
@@ -1874,13 +1873,12 @@ class TestAccountController(unittest.TestCase):
         # swift.account.server.AccountController.__call__
         inbuf = BytesIO()
         errbuf = StringIO()
-        outbuf = StringIO()
         self.controller = AccountController(
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false'})
 
         def start_response(*args):
-            outbuf.write(args[0])
+            pass
 
         method = 'PUT'
         env = {'REQUEST_METHOD': method,
@@ -1941,7 +1939,6 @@ class TestAccountController(unittest.TestCase):
     def test__call__raise_timeout(self):
         inbuf = WsgiBytesIO()
         errbuf = StringIO()
-        outbuf = StringIO()
         self.logger = debug_logger('test')
         self.account_controller = AccountController(
             {'devices': self.testdir, 'mount_check': 'false',
@@ -1949,7 +1946,7 @@ class TestAccountController(unittest.TestCase):
             logger=self.logger)
 
         def start_response(*args):
-            outbuf.write(args[0])
+            pass
 
         method = 'PUT'
 

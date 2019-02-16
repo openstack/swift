@@ -565,6 +565,24 @@ class TestRequest(unittest.TestCase):
         req.params = new_params
         self.assertDictEqual(dict(new_params), req.params)
 
+    def test_unicode_params(self):
+        # NB: all of these strings are WSGI strings
+        req = swift.common.swob.Request.blank(
+            '/?\xe1\x88\xb4=%E1%88%B4&%FF=\xff')
+        self.assertEqual(req.params['\xff'], '\xff')
+        self.assertEqual(req.params['\xe1\x88\xb4'], '\xe1\x88\xb4')
+
+        new_params = {'\xff': '\xe1\x88\xb4', '\xe1\x88\xb4': '\xff'}
+        req.params = new_params
+        self.assertDictEqual(new_params, req.params)
+        self.assertIn('%FF=%E1%88%B4', req.environ['QUERY_STRING'])
+        self.assertIn('%E1%88%B4=%FF', req.environ['QUERY_STRING'])
+
+        # ...well, until we get to unicode that isn't WSGI-friendly
+        new_params = ((u'\u1234', u'\u1234'), )
+        with self.assertRaises(UnicodeEncodeError):
+            req.params = new_params
+
     def test_timestamp_missing(self):
         req = swift.common.swob.Request.blank('/')
         self.assertRaises(exceptions.InvalidTimestamp,
