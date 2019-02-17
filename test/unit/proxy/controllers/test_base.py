@@ -18,6 +18,9 @@ import json
 from collections import defaultdict
 import unittest
 import mock
+
+import six
+
 from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_cache_key, get_account_info, get_info, get_object_info, \
@@ -375,7 +378,10 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['bytes'], 3333)
         self.assertEqual(resp['object_count'], 10)
         self.assertEqual(resp['status'], 404)
-        self.assertEqual(resp['versions'], "\xe1\xbd\x8a\x39")
+        if six.PY3:
+            self.assertEqual(resp['versions'], u'\u1f4a9')
+        else:
+            self.assertEqual(resp['versions'], "\xe1\xbd\x8a\x39")
 
     def test_get_container_info_env(self):
         cache_key = get_cache_key("account", "cont")
@@ -705,9 +711,9 @@ class TestFuncs(unittest.TestCase):
     def test_best_response_overrides(self):
         base = Controller(self.app)
         responses = [
-            (302, 'Found', '', 'The resource has moved temporarily.'),
-            (100, 'Continue', '', ''),
-            (404, 'Not Found', '', 'Custom body'),
+            (302, 'Found', '', b'The resource has moved temporarily.'),
+            (100, 'Continue', '', b''),
+            (404, 'Not Found', '', b'Custom body'),
         ]
         server_type = "Base DELETE"
         req = Request.blank('/v1/a/c/o', method='DELETE')
@@ -726,7 +732,7 @@ class TestFuncs(unittest.TestCase):
         resp = base.best_response(req, statuses, reasons, bodies, server_type,
                                   headers=headers, overrides=overrides)
         self.assertEqual(resp.status, '404 Not Found')
-        self.assertEqual(resp.body, 'Custom body')
+        self.assertEqual(resp.body, b'Custom body')
 
     def test_range_fast_forward(self):
         req = Request.blank('/')
@@ -854,7 +860,7 @@ class TestFuncs(unittest.TestCase):
                 if self.chunks:
                     return self.chunks.pop(0)
                 else:
-                    return ''
+                    return b''
 
             def getheader(self, header):
                 if header.lower() == "content-length":
@@ -864,7 +870,7 @@ class TestFuncs(unittest.TestCase):
                 return [('content-length', self.getheader('content-length'))]
 
         source = TestSource((
-            'abcd', '1234', 'abc', 'd1', '234abcd1234abcd1', '2'))
+            b'abcd', b'1234', b'abc', b'd1', b'234abcd1234abcd1', b'2'))
         req = Request.blank('/v1/a/c/o')
         node = {}
         handler = GetOrHeadHandler(self.app, req, None, None, None, None, {},
@@ -873,7 +879,7 @@ class TestFuncs(unittest.TestCase):
         app_iter = handler._make_app_iter(req, node, source)
         client_chunks = list(app_iter)
         self.assertEqual(client_chunks, [
-            'abcd1234', 'abcd1234', 'abcd1234', 'abcd12'])
+            b'abcd1234', b'abcd1234', b'abcd1234', b'abcd12'])
 
     def test_client_chunk_size_resuming(self):
 
@@ -890,7 +896,7 @@ class TestFuncs(unittest.TestCase):
                     else:
                         return chunk
                 else:
-                    return ''
+                    return b''
 
             def getheader(self, header):
                 # content-length for the whole object is generated dynamically
@@ -904,11 +910,11 @@ class TestFuncs(unittest.TestCase):
 
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
-        source1 = TestSource(['abcd', '1234', None,
-                              'efgh', '5678', 'lots', 'more', 'data'])
+        source1 = TestSource([b'abcd', b'1234', None,
+                              b'efgh', b'5678', b'lots', b'more', b'data'])
         # incomplete reads of client_chunk_size will be re-fetched
-        source2 = TestSource(['efgh', '5678', 'lots', None])
-        source3 = TestSource(['lots', 'more', 'data'])
+        source2 = TestSource([b'efgh', b'5678', b'lots', None])
+        source3 = TestSource([b'lots', b'more', b'data'])
         req = Request.blank('/v1/a/c/o')
         handler = GetOrHeadHandler(
             self.app, req, 'Object', None, None, None, {},
@@ -927,7 +933,7 @@ class TestFuncs(unittest.TestCase):
             client_chunks = list(app_iter)
         self.assertEqual(range_headers, ['bytes=8-27', 'bytes=16-27'])
         self.assertEqual(client_chunks, [
-            'abcd1234', 'efgh5678', 'lotsmore', 'data'])
+            b'abcd1234', b'efgh5678', b'lotsmore', b'data'])
 
     def test_client_chunk_size_resuming_chunked(self):
 
@@ -946,7 +952,7 @@ class TestFuncs(unittest.TestCase):
                     else:
                         return chunk
                 else:
-                    return ''
+                    return b''
 
             def getheader(self, header):
                 return self.headers.get(header.lower())
@@ -956,8 +962,8 @@ class TestFuncs(unittest.TestCase):
 
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
-        source1 = TestChunkedSource(['abcd', '1234', 'abc', None])
-        source2 = TestChunkedSource(['efgh5678'])
+        source1 = TestChunkedSource([b'abcd', b'1234', b'abc', None])
+        source2 = TestChunkedSource([b'efgh5678'])
         req = Request.blank('/v1/a/c/o')
         handler = GetOrHeadHandler(
             self.app, req, 'Object', None, None, None, {},
@@ -967,7 +973,7 @@ class TestFuncs(unittest.TestCase):
         with mock.patch.object(handler, '_get_source_and_node',
                                lambda: (source2, node)):
             client_chunks = list(app_iter)
-        self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
+        self.assertEqual(client_chunks, [b'abcd1234', b'efgh5678'])
 
     def test_disconnected_warning(self):
         self.app.logger = mock.Mock()
@@ -980,7 +986,7 @@ class TestFuncs(unittest.TestCase):
                 self.status = 200
 
             def read(self, _read_size):
-                return 'the cake is a lie'
+                return b'the cake is a lie'
 
             def getheader(self, header):
                 return self.headers.get(header.lower())
@@ -1047,7 +1053,8 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a/c', method='GET')
         resp_headers = {'X-Backend-Record-Type': 'shard'}
         with mocked_http_conn(
-            200, 200, body_iter=iter(['', json.dumps(shard_ranges)]),
+            200, 200,
+            body_iter=iter([b'', json.dumps(shard_ranges).encode('ascii')]),
             headers=resp_headers
         ) as fake_conn:
             actual = base._get_shard_ranges(req, 'a', 'c')
@@ -1076,7 +1083,9 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', method='PUT')
         resp_headers = {'X-Backend-Record-Type': 'shard'}
         with mocked_http_conn(
-            200, 200, body_iter=iter(['', json.dumps(shard_ranges[1:2])]),
+            200, 200,
+            body_iter=iter([b'',
+                            json.dumps(shard_ranges[1:2]).encode('ascii')]),
             headers=resp_headers
         ) as fake_conn:
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
@@ -1101,7 +1110,7 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', method='PUT')
         # empty response
         headers = {'X-Backend-Record-Type': 'shard'}
-        with mocked_http_conn(200, 200, body_iter=iter(['', body]),
+        with mocked_http_conn(200, 200, body_iter=iter([b'', body]),
                               headers=headers):
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
         self.assertIsNone(actual)
@@ -1109,19 +1118,21 @@ class TestFuncs(unittest.TestCase):
         return lines
 
     def test_get_shard_ranges_empty_body(self):
-        error_lines = self._check_get_shard_ranges_bad_data('')
+        error_lines = self._check_get_shard_ranges_bad_data(b'')
         self.assertIn('Problem with listing response', error_lines[0])
         self.assertIn('No JSON', error_lines[0])
         self.assertFalse(error_lines[1:])
 
     def test_get_shard_ranges_not_a_list(self):
-        error_lines = self._check_get_shard_ranges_bad_data(json.dumps({}))
+        body = json.dumps({}).encode('ascii')
+        error_lines = self._check_get_shard_ranges_bad_data(body)
         self.assertIn('Problem with listing response', error_lines[0])
         self.assertIn('not a list', error_lines[0])
         self.assertFalse(error_lines[1:])
 
     def test_get_shard_ranges_key_missing(self):
-        error_lines = self._check_get_shard_ranges_bad_data(json.dumps([{}]))
+        body = json.dumps([{}]).encode('ascii')
+        error_lines = self._check_get_shard_ranges_bad_data(body)
         self.assertIn('Failed to get shard ranges', error_lines[0])
         self.assertIn('KeyError', error_lines[0])
         self.assertFalse(error_lines[1:])
@@ -1129,8 +1140,8 @@ class TestFuncs(unittest.TestCase):
     def test_get_shard_ranges_invalid_shard_range(self):
         sr = ShardRange('a/c', Timestamp.now())
         bad_sr_data = dict(sr, name='bad_name')
-        error_lines = self._check_get_shard_ranges_bad_data(
-            json.dumps([bad_sr_data]))
+        body = json.dumps([bad_sr_data]).encode('ascii')
+        error_lines = self._check_get_shard_ranges_bad_data(body)
         self.assertIn('Failed to get shard ranges', error_lines[0])
         self.assertIn('ValueError', error_lines[0])
         self.assertFalse(error_lines[1:])
@@ -1139,9 +1150,9 @@ class TestFuncs(unittest.TestCase):
         base = Controller(self.app)
         req = Request.blank('/v1/a/c/o', method='PUT')
         sr = ShardRange('a/c', Timestamp.now())
-        body = json.dumps([dict(sr)])
+        body = json.dumps([dict(sr)]).encode('ascii')
         with mocked_http_conn(
-                200, 200, body_iter=iter(['', body])):
+                200, 200, body_iter=iter([b'', body])):
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
         self.assertIsNone(actual)
         error_lines = self.app.logger.get_lines_for_level('error')
@@ -1154,10 +1165,10 @@ class TestFuncs(unittest.TestCase):
         base = Controller(self.app)
         req = Request.blank('/v1/a/c/o', method='PUT')
         sr = ShardRange('a/c', Timestamp.now())
-        body = json.dumps([dict(sr)])
+        body = json.dumps([dict(sr)]).encode('ascii')
         headers = {'X-Backend-Record-Type': 'object'}
         with mocked_http_conn(
-                200, 200, body_iter=iter(['', body]),
+                200, 200, body_iter=iter([b'', body]),
                 headers=headers):
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
         self.assertIsNone(actual)
