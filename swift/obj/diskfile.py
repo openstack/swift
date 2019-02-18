@@ -45,7 +45,7 @@ from hashlib import md5
 import logging
 import traceback
 import xattr
-from os.path import basename, dirname, exists, join, splitext, isdir, isfile
+from os.path import basename, dirname, exists, join, splitext
 from random import shuffle
 from tempfile import mkstemp
 from contextlib import contextmanager
@@ -1555,13 +1555,13 @@ class BaseDiskFileManager(object):
         """
         :param path: full path to directory
         """
-        return isdir(path)
+        return os.path.isdir(path)
 
     def isfile(self, path):
         """
         :param path: full path to directory
         """
-        return isfile(path)
+        return os.path.isfile(path)
 
     def rmdir(self, path):
         """
