@@ -45,7 +45,6 @@ from hashlib import md5
 import logging
 import traceback
 import xattr
-from os.path import basename, dirname, exists, join, splitext
 from random import shuffle
 from tempfile import mkstemp
 from contextlib import contextmanager
@@ -326,11 +325,11 @@ def quarantine_renamer(device_path, corrupted_file_path):
     if policy is None:
         # TODO: support a quarantine-unknown location
         policy = POLICIES.legacy
-    from_dir = dirname(corrupted_file_path)
-    to_dir = join(device_path, 'quarantined',
-                  get_data_dir(policy),
-                  basename(from_dir))
-    invalidate_hash(dirname(from_dir))
+    from_dir = os.path.dirname(corrupted_file_path)
+    to_dir = os.path.join(device_path, 'quarantined',
+                          get_data_dir(policy),
+                          os.path.basename(from_dir))
+    invalidate_hash(os.path.dirname(from_dir))
     try:
         renamer(from_dir, to_dir, fsync=False)
     except OSError as e:
@@ -348,7 +347,7 @@ def read_hashes(partition_dir):
     :returns: a dict, the suffix hashes (if any), the key 'valid' will be False
               if hashes.pkl is corrupt, cannot be read or does not exist
     """
-    hashes_file = join(partition_dir, HASH_FILE)
+    hashes_file = os.path.join(partition_dir, HASH_FILE)
     hashes = {'valid': False}
     try:
         with open(hashes_file, 'rb') as hashes_fp:
@@ -375,7 +374,7 @@ def write_hashes(partition_dir, hashes):
 
     The updated key is added to hashes before it is written.
     """
-    hashes_file = join(partition_dir, HASH_FILE)
+    hashes_file = os.path.join(partition_dir, HASH_FILE)
     # 'valid' key should always be set by the caller; however, if there's a bug
     # setting invalid is most safe
     hashes.setdefault('valid', False)
@@ -394,7 +393,7 @@ def consolidate_hashes(partition_dir):
     :returns: a dict, the suffix hashes (if any), the key 'valid' will be False
               if hashes.pkl is corrupt, cannot be read or does not exist
     """
-    invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
+    invalidations_file = os.path.join(partition_dir, HASH_INVALIDATIONS_FILE)
 
     with lock_path(partition_dir):
         hashes = read_hashes(partition_dir)
@@ -428,9 +427,9 @@ def invalidate_hash(suffix_dir):
                        invalidating
     """
 
-    suffix = basename(suffix_dir)
-    partition_dir = dirname(suffix_dir)
-    invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
+    suffix = os.path.basename(suffix_dir)
+    partition_dir = os.path.dirname(suffix_dir)
+    invalidations_file = os.path.join(partition_dir, HASH_INVALIDATIONS_FILE)
     if not isinstance(suffix, bytes):
         suffix = suffix.encode('utf-8')
     with lock_path(partition_dir), open(invalidations_file, 'ab') as inv_fh:
@@ -800,7 +799,7 @@ class BaseDiskFileManager(object):
                                validated.
         """
         ts_ctype = None
-        fname, ext = splitext(filename)
+        fname, ext = os.path.splitext(filename)
         try:
             if ext == '.meta':
                 timestamp, ts_ctype = decode_timestamps(
@@ -1029,7 +1028,8 @@ class BaseDiskFileManager(object):
         for info_key in ('data_info', 'meta_info', 'ts_info', 'ctype_info'):
             info = results.get(info_key)
             key = info_key[:-5] + '_file'
-            results[key] = join(datadir, info['filename']) if info else None
+            results[key] = os.path.join(
+                datadir, info['filename']) if info else None
 
         if verify:
             assert self._verify_ondisk_files(
@@ -1071,14 +1071,14 @@ class BaseDiskFileManager(object):
             files, hsh_path, verify=False, **kwargs)
         if 'ts_info' in results and is_reclaimable(
                 results['ts_info']['timestamp']):
-            remove_file(join(hsh_path, results['ts_info']['filename']))
+            remove_file(os.path.join(hsh_path, results['ts_info']['filename']))
             files.remove(results.pop('ts_info')['filename'])
         for file_info in results.get('possible_reclaim', []):
             # stray files are not deleted until reclaim-age
             if is_reclaimable(file_info['timestamp']):
                 results.setdefault('obsolete', []).append(file_info)
         for file_info in results.get('obsolete', []):
-            remove_file(join(hsh_path, file_info['filename']))
+            remove_file(os.path.join(hsh_path, file_info['filename']))
             files.remove(file_info['filename'])
         results['files'] = files
         if not files:  # everything got unlinked
@@ -1132,15 +1132,15 @@ class BaseDiskFileManager(object):
                 raise PathNotDir()
             raise
         for hsh in path_contents:
-            hsh_path = join(path, hsh)
+            hsh_path = os.path.join(path, hsh)
             try:
                 ondisk_info = self.cleanup_ondisk_files(
                     hsh_path, policy=policy)
             except OSError as err:
                 if err.errno == errno.ENOTDIR:
-                    partition_path = dirname(path)
-                    objects_path = dirname(partition_path)
-                    device_path = dirname(objects_path)
+                    partition_path = os.path.dirname(path)
+                    objects_path = os.path.dirname(partition_path)
+                    device_path = os.path.dirname(objects_path)
                     quar_path = quarantine_renamer(device_path, hsh_path)
                     logging.exception(
                         _('Quarantined %(hsh_path)s to %(quar_path)s because '
@@ -1226,7 +1226,7 @@ class BaseDiskFileManager(object):
         hashed = 0
         dev_path = self.get_dev_path(device)
         partition_path = get_part_path(dev_path, policy, partition)
-        hashes_file = join(partition_path, HASH_FILE)
+        hashes_file = os.path.join(partition_path, HASH_FILE)
         modified = False
         orig_hashes = {'valid': False}
 
@@ -1268,7 +1268,7 @@ class BaseDiskFileManager(object):
         hashes.update((suffix, None) for suffix in recalculate)
         for suffix, hash_ in list(hashes.items()):
             if not hash_:
-                suffix_dir = join(partition_path, suffix)
+                suffix_dir = os.path.join(partition_path, suffix)
                 try:
                     hashes[suffix] = self._hash_suffix(
                         suffix_dir, policy=policy)
@@ -1312,7 +1312,7 @@ class BaseDiskFileManager(object):
         """
         if mount_check is False:
             # explicitly forbidden from syscall, just return path
-            return join(self.devices, device)
+            return os.path.join(self.devices, device)
         # we'll do some kind of check if not explicitly forbidden
         try:
             return check_drive(self.devices, device,
@@ -1774,9 +1774,9 @@ class BaseDiskFileWriter(object):
                 else:
                     raise
         if not self.manager.use_linkat:
-            tmpdir = join(self._diskfile._device_path,
-                          get_tmp_dir(self._diskfile.policy))
-            if not exists(tmpdir):
+            tmpdir = os.path.join(self._diskfile._device_path,
+                                  get_tmp_dir(self._diskfile.policy))
+            if not os.path.exists(tmpdir):
                 mkdirs(tmpdir)
             fd, tmppath = mkstemp(dir=tmpdir)
         return fd, tmppath
@@ -1865,7 +1865,7 @@ class BaseDiskFileWriter(object):
         # drop_cache() after fsync() to avoid redundant work (pages all
         # clean).
         drop_buffer_cache(self._fd, 0, self._upload_size)
-        self.manager.invalidate_hash(dirname(self._datadir))
+        self.manager.invalidate_hash(os.path.dirname(self._datadir))
         # After the rename/linkat completes, this object will be available for
         # requests to reference.
         if self._tmppath:
@@ -1925,7 +1925,7 @@ class BaseDiskFileWriter(object):
             timestamp, self._extension, ctype_timestamp=ctype_timestamp,
             *a, **kw)
         metadata['name'] = self._name
-        target_path = join(self._datadir, filename)
+        target_path = os.path.join(self._datadir, filename)
 
         tpool.execute(self._finalize_put, metadata, target_path, cleanup)
 
@@ -2359,7 +2359,7 @@ class BaseDiskFile(object):
             self._account = None
             self._container = None
             self._obj = None
-        self._tmpdir = join(device_path, get_tmp_dir(policy))
+        self._tmpdir = os.path.join(device_path, get_tmp_dir(policy))
         self._ondisk_info = None
         self._metadata = None
         self._datafile_metadata = None
@@ -2372,7 +2372,7 @@ class BaseDiskFile(object):
             self._datadir = _datadir
         else:
             name_hash = hash_path(account, container, obj)
-            self._datadir = join(
+            self._datadir = os.path.join(
                 device_path, storage_directory(get_data_dir(policy),
                                                partition, name_hash))
 
@@ -3160,7 +3160,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
         :raises DiskFileError: if the diskfile frag_index has not been set
                               (either during initialisation or a call to put())
         """
-        data_file_path = join(
+        data_file_path = os.path.join(
             self._datadir, self.manager.make_on_disk_filename(
                 timestamp, '.data', self._diskfile._frag_index))
         durable_data_file_path = os.path.join(
@@ -3318,7 +3318,7 @@ class ECDiskFile(BaseDiskFile):
                 timestamp, ext='.data', frag_index=frag_index, durable=True)
             remove_file(os.path.join(self._datadir, purge_file))
             remove_directory(self._datadir)
-        self.manager.invalidate_hash(dirname(self._datadir))
+        self.manager.invalidate_hash(os.path.dirname(self._datadir))
 
 
 class ECDiskFileManager(BaseDiskFileManager):
@@ -3402,7 +3402,7 @@ class ECDiskFileManager(BaseDiskFileManager):
                                validated.
         """
         frag_index = None
-        float_frag, ext = splitext(filename)
+        float_frag, ext = os.path.splitext(filename)
         if ext == '.data':
             parts = float_frag.split('#')
             try:
