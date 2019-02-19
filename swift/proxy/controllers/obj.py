@@ -25,6 +25,7 @@
 # collected. We've seen objects hang around forever otherwise.
 
 from six.moves.urllib.parse import unquote
+from six.moves import zip
 
 import collections
 import itertools
@@ -1112,18 +1113,14 @@ class ECAppIter(object):
             resp.content_type = self.learned_content_type
         resp.content_length = self.obj_length
 
-    def _next_range(self):
+    def _next_ranges(self):
         # Each FA part should have approximately the same headers. We really
         # only care about Content-Range and Content-Type, and that'll be the
         # same for all the different FAs.
-        frag_iters = []
-        headers = None
-        for parts_iter in self.internal_parts_iters:
-            part_info = next(parts_iter)
-            frag_iters.append(part_info['part_iter'])
-            headers = part_info['headers']
-        headers = HeaderKeyDict(headers)
-        return headers, frag_iters
+        for part_infos in zip(*self.internal_parts_iters):
+            frag_iters = [pi['part_iter'] for pi in part_infos]
+            headers = HeaderKeyDict(part_infos[0]['headers'])
+            yield headers, frag_iters
 
     def _actual_range(self, req_start, req_end, entity_length):
         # Takes 3 args: (requested-first-byte, requested-last-byte,
@@ -1272,11 +1269,7 @@ class ECAppIter(object):
             seen_first_headers = False
             ranges_for_resp = {}
 
-            while True:
-                # this'll raise StopIteration and exit the loop
-                next_range = self._next_range()
-
-                headers, frag_iters = next_range
+            for headers, frag_iters in self._next_ranges():
                 content_type = headers['Content-Type']
 
                 content_range = headers.get('Content-Range')
