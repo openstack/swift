@@ -1327,12 +1327,31 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         for stat_key, expected in expected_stats.items():
             stat_method, stat_prefix = stat_key
             self.assertStatCount(stat_method, stat_prefix, expected)
+
+        stub_data = self.reconstructor._get_hashes(
+            'sda1', 2, self.policy, do_listdir=True)
+        stub_data.update({'7ca': {None: '8f19c38e1cf8e2390d4ca29051407ae3'}})
+        pickle_path = os.path.join(part_path, 'hashes.pkl')
+        with open(pickle_path, 'w') as f:
+            pickle.dump(stub_data, f)
+
         # part 2 should be totally empty
         hash_gen = self.reconstructor._df_router[self.policy].yield_hashes(
-            'sda1', '2', self.policy)
+            'sda1', '2', self.policy, suffixes=stub_data.keys())
         for path, hash_, ts in hash_gen:
             self.fail('found %s with %s in %s' % (hash_, ts, path))
-        # even the partition directory is gone
+
+        new_hashes = self.reconstructor._get_hashes(
+            'sda1', 2, self.policy, do_listdir=True)
+        self.assertFalse(new_hashes)
+
+        # N.B. the partition directory is removed next pass
+        ssync_calls = []
+        with mocked_http_conn() as request_log:
+            with mock.patch('swift.obj.reconstructor.ssync_sender',
+                            self._make_fake_ssync(ssync_calls)):
+                self.reconstructor.reconstruct(override_partitions=[2])
+        self.assertEqual([], ssync_calls)
         self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_process_job_all_success(self):

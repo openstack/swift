@@ -1565,12 +1565,10 @@ class BaseDiskFileManager(object):
         partition_path = get_part_path(dev_path, policy, partition)
         if suffixes is None:
             suffixes = self.yield_suffixes(device, partition, policy)
-            considering_all_suffixes = True
         else:
             suffixes = (
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)
-            considering_all_suffixes = False
 
         key_preference = (
             ('ts_meta', 'meta_info', 'timestamp'),
@@ -1581,17 +1579,16 @@ class BaseDiskFileManager(object):
 
         # We delete as many empty directories as we can.
         # cleanup_ondisk_files() takes care of the hash dirs, and we take
-        # care of the suffix dirs and possibly even the partition dir.
-        have_nonempty_suffix = False
+        # care of the suffix dirs and invalidate them
         for suffix_path, suffix in suffixes:
-            have_nonempty_hashdir = False
+            found_files = False
             for object_hash in self._listdir(suffix_path):
                 object_path = os.path.join(suffix_path, object_hash)
                 try:
                     results = self.cleanup_ondisk_files(
                         object_path, **kwargs)
                     if results['files']:
-                        have_nonempty_hashdir = True
+                        found_files = True
                     timestamps = {}
                     for ts_key, info_key, info_ts_key in key_preference:
                         if info_key not in results:
@@ -1611,38 +1608,8 @@ class BaseDiskFileManager(object):
                         'Invalid diskfile filename in %r (%s)' % (
                             object_path, err))
 
-            if have_nonempty_hashdir:
-                have_nonempty_suffix = True
-            else:
-                try:
-                    os.rmdir(suffix_path)
-                except OSError as err:
-                    if err.errno not in (errno.ENOENT, errno.ENOTEMPTY):
-                        self.logger.debug(
-                            'Error cleaning up empty suffix directory %s: %s',
-                            suffix_path, err)
-                    # cleanup_ondisk_files tries to remove empty hash dirs,
-                    # but if it fails, so will we. An empty directory
-                    # structure won't cause errors (just slowdown), so we
-                    # ignore the exception.
-        if considering_all_suffixes and not have_nonempty_suffix:
-            # There's nothing of interest in the partition, so delete it
-            try:
-                # Remove hashes.pkl *then* hashes.invalid; otherwise, if we
-                # remove hashes.invalid but leave hashes.pkl, that makes it
-                # look as though the invalidations in hashes.invalid never
-                # occurred.
-                _unlink_if_present(os.path.join(partition_path, HASH_FILE))
-                _unlink_if_present(os.path.join(partition_path,
-                                                HASH_INVALIDATIONS_FILE))
-                # This lock is only held by people dealing with the hashes
-                # or the hash invalidations, and we've just removed those.
-                _unlink_if_present(os.path.join(partition_path, ".lock"))
-                _unlink_if_present(os.path.join(partition_path,
-                                                ".lock-replication"))
-                os.rmdir(partition_path)
-            except OSError as err:
-                self.logger.debug("Error cleaning up empty partition: %s", err)
+            if not found_files:
+                self.invalidate_hash(suffix_path)
 
 
 class BaseDiskFileWriter(object):

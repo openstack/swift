@@ -1415,7 +1415,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 df2_suffix, df2_hash,
                 "1525354556.65758.ts")))
 
-            # Expire the tombstones
+            # Cache the hashes and expire the tombstones
+            self.df_mgr.get_hashes(self.existing_device, '0', [], POLICIES[0])
             the_time[0] += 2 * self.df_mgr.reclaim_age
 
             hashes = list(self.df_mgr.yield_hashes(
@@ -1440,7 +1441,30 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.testdir, self.existing_device, 'objects', '0',
             df2_suffix, df2_hash)))
 
-        # The empty suffix dirs are gone
+        # The empty suffix dirs, and partition are still there
+        self.assertTrue(os.path.isdir(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0',
+            df1_suffix)))
+        self.assertTrue(os.path.isdir(os.path.join(
+            self.testdir, self.existing_device, 'objects', '0',
+            df2_suffix)))
+
+        # but the suffixes is invalid
+        part_dir = os.path.join(
+            self.testdir, self.existing_device, 'objects', '0')
+        invalidations_file = os.path.join(
+            part_dir, diskfile.HASH_INVALIDATIONS_FILE)
+        with open(invalidations_file) as f:
+            self.assertEqual('%s\n%s' % (df1_suffix, df2_suffix),
+                             f.read().strip('\n'))  # sanity
+
+        # next time get hashes runs
+        with mock.patch('time.time', mock_time):
+            hashes = self.df_mgr.get_hashes(
+                self.existing_device, '0', [], POLICIES[0])
+        self.assertEqual(hashes, {})
+
+        # ... suffixes will get cleanup
         self.assertFalse(os.path.exists(os.path.join(
             self.testdir, self.existing_device, 'objects', '0',
             df1_suffix)))
@@ -1448,8 +1472,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.testdir, self.existing_device, 'objects', '0',
             df2_suffix)))
 
-        # The empty partition dir is gone
-        self.assertFalse(os.path.exists(os.path.join(
+        # but really it's not diskfile's jobs to decide if a partition belongs
+        # on a node or not
+        self.assertTrue(os.path.isdir(os.path.join(
             self.testdir, self.existing_device, 'objects', '0')))
 
     def test_focused_yield_hashes_does_not_clean_up(self):
