@@ -55,7 +55,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
-    HTTPServerError, wsgi_to_bytes
+    HTTPServerError, wsgi_to_bytes, wsgi_to_str
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 
 
@@ -1271,7 +1271,7 @@ class ObjectController(BaseStorageServer):
         req = Request(env)
         self.logger.txn_id = req.headers.get('x-trans-id', None)
 
-        if not check_utf8(req.path_info):
+        if not check_utf8(wsgi_to_str(req.path_info)):
             res = HTTPPreconditionFailed(body='Invalid UTF8 or contains NULL')
         else:
             try:

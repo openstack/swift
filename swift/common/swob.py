@@ -921,9 +921,10 @@ class Request(object):
         """
         headers = headers or {}
         environ = environ or {}
-        if six.PY2 and isinstance(path, six.text_type):
-            path = path.encode('utf-8')
-        elif not six.PY2:
+        if six.PY2:
+            if isinstance(path, six.text_type):
+                path = path.encode('utf-8')
+        else:
             if isinstance(path, six.binary_type):
                 path = path.decode('latin1')
             else:

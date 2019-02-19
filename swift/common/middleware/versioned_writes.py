@@ -531,8 +531,7 @@ class VersionedWritesContext(WSGIContext):
 
         put_path_info = "/%s/%s/%s/%s" % (
             api_version, account_name, container_name, object_name)
-        put_resp = self._put_versioned_obj(
-            req, put_path_info, get_resp)
+        put_resp = self._put_versioned_obj(req, put_path_info, get_resp)
 
         self._check_response_error(req, put_resp)
         close_if_possible(put_resp.app_iter)
