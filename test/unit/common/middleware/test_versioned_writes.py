@@ -891,7 +891,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
                      'CONTENT_LENGTH': '0'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '204 No Content')
-        self.assertEqual('', body)
+        self.assertEqual(b'', body)
         self.assertEqual(len(self.authorized), 2)
 
         req.environ['REQUEST_METHOD'] = 'PUT'
