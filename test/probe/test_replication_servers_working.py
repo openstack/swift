@@ -124,13 +124,13 @@ class TestReplicatorFunctions(ReplProbeTest):
                 test_node_dir_list.append(d)
         # Run all replicators
         try:
-            self.replicators.start()
-
             # Delete some files
             for directory in os.listdir(test_node):
                 shutil.rmtree(os.path.join(test_node, directory))
 
             self.assertFalse(os.listdir(test_node))
+
+            self.replicators.start()
 
             # We will keep trying these tests until they pass for up to 60s
             begin = time.time()
