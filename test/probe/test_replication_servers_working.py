@@ -150,9 +150,10 @@ class TestReplicatorFunctions(ReplProbeTest):
                         raise
                     time.sleep(1)
 
+            self.replicators.stop()
+
             # Delete directories and files in objects storage without
             # deleting file "hashes.pkl".
-            # Check, that files not replicated.
             for directory in os.listdir(os.path.join(test_node, data_dir)):
                 for input_dir in os.listdir(os.path.join(
                         test_node, data_dir, directory)):
@@ -161,23 +162,17 @@ class TestReplicatorFunctions(ReplProbeTest):
                         shutil.rmtree(os.path.join(
                             test_node, data_dir, directory, input_dir))
 
-            # We will keep trying these tests until they pass for up to 60s
-            begin = time.time()
-            while True:
-                try:
-                    for directory in os.listdir(os.path.join(
-                            test_node, data_dir)):
-                        for input_dir in os.listdir(os.path.join(
-                                test_node, data_dir, directory)):
-                            self.assertFalse(os.path.isdir(
-                                os.path.join(test_node, data_dir,
-                                             directory, input_dir)))
-                    break
-                except Exception:
-                    if time.time() - begin > 60:
-                        raise
-                    time.sleep(1)
+            self.replicators.once()
+            # Check, that files not replicated.
+            for directory in os.listdir(os.path.join(
+                    test_node, data_dir)):
+                for input_dir in os.listdir(os.path.join(
+                        test_node, data_dir, directory)):
+                    self.assertFalse(os.path.isdir(
+                        os.path.join(test_node, data_dir,
+                                     directory, input_dir)))
 
+            self.replicators.start()
             # Now, delete file "hashes.pkl".
             # Check, that all files were replicated.
             for directory in os.listdir(os.path.join(test_node, data_dir)):

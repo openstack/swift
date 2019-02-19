@@ -568,9 +568,9 @@ included implementation of :class:`.Diskfile` lays out the directory structure
 described earlier but that's owned within :class:`.Diskfile`; external modules
 have no visibility into that detail.  A common function is provided to map
 various directory names and/or strings based on their policy index. For example
-:class:`.Diskfile` defines ``get_data_dir`` which builds off of a generic
-:func:`.get_policy_string` to consistently build policy aware strings for
-various usage.
+:class:`.Diskfile` defines :func:`~swift.obj.diskfile.get_data_dir` which builds
+off of a generic :func:`.get_policy_string` to consistently build policy aware
+strings for various usage.
 
 Container Server
 ----------------
