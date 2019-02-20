@@ -50,7 +50,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
         path = '/V1.0/' + 'c' * (MAX_LENGTH - 6)
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
                              ).get_response(self.test_check)
-        self.assertEqual(resp.body, 'OK')
+        self.assertEqual(resp.body, b'OK')
 
     def test_invalid_character(self):
         for c in self.conf['forbidden_chars']:
@@ -61,7 +61,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
             self.assertEqual(
                 resp.body,
                 ("Object/Container/Account name contains forbidden chars "
-                 "from %s" % self.conf['forbidden_chars']))
+                 "from %s" % self.conf['forbidden_chars']).encode('utf8'))
             self.assertEqual(resp.status_int, 400)
 
     def test_maximum_length_from_config(self):
@@ -73,7 +73,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
         self.assertEqual(
             resp.body,
             ("Object/Container/Account name longer than the allowed "
-             "maximum 500"))
+             "maximum 500").encode('utf-8'))
         self.assertEqual(resp.status_int, 400)
 
         # test valid length
@@ -81,7 +81,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
                              ).get_response(app)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body, 'OK')
+        self.assertEqual(resp.body, b'OK')
 
     def test_invalid_length(self):
         path = '/V1.0/' + 'c' * (MAX_LENGTH - 5)
@@ -90,7 +90,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
         self.assertEqual(
             resp.body,
             ("Object/Container/Account name longer than the allowed maximum %s"
-             % self.conf['maximum_length']))
+             % self.conf['maximum_length']).encode('utf-8'))
         self.assertEqual(resp.status_int, 400)
 
     def test_invalid_regexp(self):
@@ -103,7 +103,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
                 resp.body,
                 ("Object/Container/Account name contains a forbidden "
                  "substring from regular expression %s"
-                 % self.conf['forbidden_regexp']))
+                 % self.conf['forbidden_regexp']).encode('utf-8'))
             self.assertEqual(resp.status_int, 400)
 
     def test_valid_regexp(self):
@@ -112,7 +112,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
             resp = Request.blank(
                 path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
                     self.test_check)
-            self.assertEqual(resp.body, 'OK')
+            self.assertEqual(resp.body, b'OK')
 
 
 class TestSwiftInfo(unittest.TestCase):

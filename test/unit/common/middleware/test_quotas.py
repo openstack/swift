@@ -94,7 +94,7 @@ class TestContainerQuotas(unittest.TestCase):
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
         self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_not_exceed_bytes_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
@@ -115,7 +115,7 @@ class TestContainerQuotas(unittest.TestCase):
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
         self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_not_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
@@ -211,7 +211,7 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                             headers={'Destination': '/c/o'})
         res = req.get_response(self.copy_filter)
         self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_not_exceed_bytes_quota_copy_verb(self):
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk,
@@ -235,7 +235,7 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                             headers={'Destination': '/c/o'})
         res = req.get_response(self.copy_filter)
         self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_exceed_counts_quota_copy_cross_account_verb(self):
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk, {}, 'passed')
@@ -252,7 +252,7 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                                      'Destination-Account': 'a2'})
         res = req.get_response(self.copy_filter)
         self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_exceed_counts_quota_copy_cross_account_PUT_verb(self):
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk, {}, 'passed')
@@ -269,7 +269,7 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                                      'X-Copy-From-Account': 'a'})
         res = req.get_response(self.copy_filter)
         self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_exceed_bytes_quota_copy_from(self):
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk,
@@ -282,7 +282,7 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                             headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(self.copy_filter)
         self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_not_exceed_bytes_quota_copy_from(self):
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk,
@@ -328,7 +328,7 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                             headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(self.copy_filter)
         self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.body, b'Upload exceeds quota.')
 
     def test_not_exceed_counts_quota_copy_from(self):
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk,

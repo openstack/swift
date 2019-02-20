@@ -316,6 +316,8 @@ class ProxyLoggingMiddleware(object):
                     bytes_sent += len(chunk)
                     yield chunk
                     chunk = next(iterator)
+            except StopIteration:  # iterator was depleted
+                return
             except GeneratorExit:  # generator was closed before we finished
                 client_disconnect = True
                 raise
