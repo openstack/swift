@@ -438,7 +438,7 @@ def _make_parser():
     parser.add_argument('--verbose', '-v', action='count', default=0,
                         help='Increase output verbosity')
     subparsers = parser.add_subparsers(
-        help='Sub-command help', title='Sub-commands')
+        dest='subcommand', help='Sub-command help', title='Sub-commands')
 
     # find
     find_parser = subparsers.add_parser(
@@ -503,6 +503,15 @@ def _make_parser():
 def main(args=None):
     parser = _make_parser()
     args = parser.parse_args(args)
+    if not args.subcommand:
+        # On py2, subparsers are required; on py3 they are not; see
+        # https://bugs.python.org/issue9253. py37 added a `required` kwarg
+        # to let you control it, but prior to that, there was no choice in
+        # the matter. So, check whether the destination was set and bomb
+        # out if not.
+        parser.print_help()
+        print('\nA sub-command is required.')
+        return 1
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
     broker = ContainerBroker(args.container_db, logger=logger,
                              skip_commits=True)
