@@ -19,9 +19,11 @@ from __future__ import print_function
 import os
 import copy
 import logging
+import logging.handlers
 import sys
 from contextlib import contextmanager, closing
 from collections import defaultdict, Iterable
+from hashlib import md5
 import itertools
 from numbers import Number
 from tempfile import NamedTemporaryFile
@@ -37,6 +39,11 @@ import random
 import errno
 import xattr
 
+import six.moves.cPickle as pickle
+from six import BytesIO
+from six.moves import range
+from six.moves.http_client import HTTPException
+
 from swift.common import storage_policy, swob, utils
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
@@ -45,15 +52,8 @@ from test import get_config
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.ring import Ring, RingData, RingBuilder
 from swift.obj import server
-from hashlib import md5
-import logging.handlers
-
-from six.moves import range
-from six import BytesIO
-from six.moves.http_client import HTTPException
 
 import functools
-import six.moves.cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 import inspect

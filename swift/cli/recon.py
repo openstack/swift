@@ -986,7 +986,8 @@ class SwiftRecon(object):
                         help="Print verbose info")
         args.add_option('--suppress', action="store_true",
                         help="Suppress most connection related errors")
-        args.add_option('--async', '-a', action="store_true",
+        args.add_option('--async', '-a',
+                        action="store_true", dest="async_check",
                         help="Get async stats")
         args.add_option('--replication', '-r', action="store_true",
                         help="Get replication stats")
@@ -1104,7 +1105,7 @@ class SwiftRecon(object):
                 self.time_check(hosts, options.jitter)
                 self.version_check(hosts)
             else:
-                if options.async:
+                if options.async_check:
                     if self.server_type == 'object':
                         self.async_check(hosts)
                     else:

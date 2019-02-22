@@ -86,8 +86,8 @@ class TestContainerSync(unittest.TestCase):
     def test_FileLikeIter(self):
         # Retained test to show new FileLikeIter acts just like the removed
         # _Iter2FileLikeObject did.
-        flo = sync.FileLikeIter(iter(['123', '4567', '89', '0']))
-        expect = '1234567890'
+        flo = sync.FileLikeIter(iter([b'123', b'4567', b'89', b'0']))
+        expect = b'1234567890'
 
         got = flo.read(2)
         self.assertTrue(len(got) <= 2)
@@ -100,13 +100,13 @@ class TestContainerSync(unittest.TestCase):
         expect = expect[len(got):]
 
         self.assertEqual(flo.read(), expect)
-        self.assertEqual(flo.read(), '')
-        self.assertEqual(flo.read(2), '')
+        self.assertEqual(flo.read(), b'')
+        self.assertEqual(flo.read(2), b'')
 
-        flo = sync.FileLikeIter(iter(['123', '4567', '89', '0']))
-        self.assertEqual(flo.read(), '1234567890')
-        self.assertEqual(flo.read(), '')
-        self.assertEqual(flo.read(2), '')
+        flo = sync.FileLikeIter(iter([b'123', b'4567', b'89', b'0']))
+        self.assertEqual(flo.read(), b'1234567890')
+        self.assertEqual(flo.read(), b'')
+        self.assertEqual(flo.read(2), b'')
 
     def assertLogMessage(self, msg_level, expected, skip=0):
         for line in self.logger.get_lines_for_level(msg_level)[skip:]:
@@ -659,7 +659,7 @@ class TestContainerSync(unittest.TestCase):
             def fake_hash_path(account, container, obj, raw_digest=False):
                 # Ensures that no rows match for second loop, ordinal is 0 and
                 # all hashes are 1
-                return '\x01' * 16
+                return b'\x01' * 16
 
             sync.hash_path = fake_hash_path
             fcb = FakeContainerBroker(
@@ -685,7 +685,7 @@ class TestContainerSync(unittest.TestCase):
             def fake_hash_path(account, container, obj, raw_digest=False):
                 # Ensures that all rows match for second loop, ordinal is 0 and
                 # all hashes are 0
-                return '\x00' * 16
+                return b'\x00' * 16
 
             def fake_delete_object(*args, **kwargs):
                 pass
@@ -787,10 +787,9 @@ class TestContainerSync(unittest.TestCase):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
-            funcType = type(sync.ContainerSync.container_sync_row)
-            cs.container_sync_row = funcType(fake_container_sync_row,
-                                             cs, sync.ContainerSync)
-            cs.container_sync('isa.db')
+            with mock.patch.object(cs, 'container_sync_row',
+                                   fake_container_sync_row):
+                cs.container_sync('isa.db')
             # Succeeds because no rows match
             log_line = cs.logger.get_lines_for_level('info')[0]
             lines = log_line.split(',')
@@ -954,7 +953,7 @@ class TestContainerSync(unittest.TestCase):
                         'x-container-sync-key': 'key'})
                 expected_headers.update(extra_headers)
                 self.assertDictEqual(expected_headers, headers)
-                self.assertEqual(contents.read(), 'contents')
+                self.assertEqual(contents.read(), b'contents')
                 self.assertEqual(proxy, 'http://proxy')
                 self.assertEqual(timeout, 5.0)
                 self.assertEqual(logger, self.logger)
@@ -978,7 +977,7 @@ class TestContainerSync(unittest.TestCase):
                          'etag': '"etagvalue"',
                          'x-timestamp': timestamp.internal,
                          'content-type': 'text/plain; swift_bytes=123'},
-                        iter('contents'))
+                        iter([b'contents']))
 
             cs.swift.get_object = fake_get_object
             # Success as everything says it worked.
@@ -1019,7 +1018,7 @@ class TestContainerSync(unittest.TestCase):
                          'other-header': 'other header value',
                          'etag': '"etagvalue"',
                          'content-type': 'text/plain; swift_bytes=123'},
-                        iter('contents'))
+                        iter([b'contents']))
 
             cs.swift.get_object = fake_get_object
 
@@ -1073,7 +1072,7 @@ class TestContainerSync(unittest.TestCase):
                          'etag': '"etagvalue"',
                          'x-static-large-object': 'true',
                          'content-type': 'text/plain; swift_bytes=123'},
-                        iter('contents'))
+                        iter([b'contents']))
 
             cs.swift.get_object = fake_get_object
 
@@ -1156,7 +1155,7 @@ class TestContainerSync(unittest.TestCase):
                 return (200, {'other-header': 'other header value',
                               'x-timestamp': timestamp.internal,
                               'etag': '"etagvalue"'},
-                        iter('contents'))
+                        iter([b'contents']))
 
             def fake_put_object(*args, **kwargs):
                 raise ClientException('test client exception', http_status=401)

@@ -60,8 +60,9 @@ class TestAuditor(unittest.TestCase):
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
+    @mock.patch('swift.container.auditor.dump_recon_cache')
     @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
-    def test_run_forever(self):
+    def test_run_forever(self, mock_recon):
         sleep_times = random.randint(5, 10)
         call_times = sleep_times - 1
 
@@ -100,8 +101,9 @@ class TestAuditor(unittest.TestCase):
             with mock.patch('swift.container.auditor.time', FakeTime()):
                 self.assertRaises(ValueError, test_auditor.run_forever)
 
+    @mock.patch('swift.container.auditor.dump_recon_cache')
     @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
-    def test_run_once(self):
+    def test_run_once(self, mock_recon):
         conf = {}
         test_auditor = auditor.ContainerAuditor(conf, logger=self.logger)
 
@@ -115,8 +117,9 @@ class TestAuditor(unittest.TestCase):
         self.assertEqual(test_auditor.container_failures, 2)
         self.assertEqual(test_auditor.container_passes, 3)
 
+    @mock.patch('swift.container.auditor.dump_recon_cache')
     @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
-    def test_one_audit_pass(self):
+    def test_one_audit_pass(self, mock_recon):
         conf = {}
         test_auditor = auditor.ContainerAuditor(conf, logger=self.logger)
 
@@ -147,7 +150,8 @@ class TestAuditor(unittest.TestCase):
 class TestAuditorMigrations(unittest.TestCase):
 
     @with_tempdir
-    def test_db_migration(self, tempdir):
+    @mock.patch('swift.container.auditor.dump_recon_cache')
+    def test_db_migration(self, tempdir, mock_recon):
         db_path = os.path.join(tempdir, 'sda', 'containers', '0', '0', '0',
                                'test.db')
         with test_backend.TestContainerBrokerBeforeSPI.old_broker() as \

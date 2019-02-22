@@ -875,15 +875,10 @@ class DatabaseBroker(object):
         meta_count = 0
         meta_size = 0
         for key, (value, timestamp) in metadata.items():
-            if key and not isinstance(key, six.text_type):
-                if not check_utf8(key):
-                    raise HTTPBadRequest('Metadata must be valid UTF-8')
-                # Promote to a natural string for the checks below
-                if six.PY3:
-                    key = key.decode('utf8')
-            if value and not isinstance(value, six.text_type):
-                if not check_utf8(value):
-                    raise HTTPBadRequest('Metadata must be valid UTF-8')
+            if key and not check_utf8(key):
+                raise HTTPBadRequest('Metadata must be valid UTF-8')
+            if value and not check_utf8(value):
+                raise HTTPBadRequest('Metadata must be valid UTF-8')
             key = key.lower()
             if value and key.startswith(('x-account-meta-',
                                          'x-container-meta-')):

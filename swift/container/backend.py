@@ -1081,8 +1081,9 @@ class ContainerBroker(DatabaseBroker):
         if transform_func is None:
             transform_func = self._transform_record
         delim_force_gte = False
-        (marker, end_marker, prefix, delimiter, path) = utf8encode(
-            marker, end_marker, prefix, delimiter, path)
+        if six.PY2:
+            (marker, end_marker, prefix, delimiter, path) = utf8encode(
+                marker, end_marker, prefix, delimiter, path)
         self._commit_puts_stale_ok()
         if reverse:
             # Reverse the markers if we are reversing the listing.
@@ -1117,7 +1118,7 @@ class ContainerBroker(DatabaseBroker):
                     query_args.append(marker)
                     # Always set back to False
                     delim_force_gte = False
-                elif marker and marker >= prefix:
+                elif marker and (not prefix or marker >= prefix):
                     query_conditions.append('name > ?')
                     query_args.append(marker)
                 elif prefix:
@@ -1268,6 +1269,8 @@ class ContainerBroker(DatabaseBroker):
         for item in item_list:
             if six.PY2 and isinstance(item['name'], six.text_type):
                 item['name'] = item['name'].encode('utf-8')
+            elif not six.PY2 and isinstance(item['name'], six.binary_type):
+                item['name'] = item['name'].decode('utf-8')
 
         def _really_really_merge_items(conn):
             curs = conn.cursor()
@@ -1364,6 +1367,8 @@ class ContainerBroker(DatabaseBroker):
             for col in ('name', 'lower', 'upper'):
                 if six.PY2 and isinstance(item[col], six.text_type):
                     item[col] = item[col].encode('utf-8')
+                elif not six.PY2 and isinstance(item[col], six.binary_type):
+                    item[col] = item[col].decode('utf-8')
             item_list.append(item)
 
         def _really_merge_items(conn):
@@ -1418,6 +1423,11 @@ class ContainerBroker(DatabaseBroker):
             try:
                 return _really_merge_items(conn)
             except sqlite3.OperationalError as err:
+                # Without the rollback, new enough (>= py37) python/sqlite3
+                # will panic:
+                #   sqlite3.OperationalError: cannot start a transaction
+                #   within a transaction
+                conn.rollback()
                 if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
                     raise
                 self.create_shard_range_table(conn)
@@ -2137,7 +2147,7 @@ class ContainerBroker(DatabaseBroker):
         found_ranges = []
         sub_broker = self.get_brokers()[0]
         index = len(existing_ranges)
-        while limit < 0 or len(found_ranges) < limit:
+        while limit is None or limit < 0 or len(found_ranges) < limit:
             if progress + shard_size >= object_count:
                 # next shard point is at or beyond final object name so don't
                 # bother with db query

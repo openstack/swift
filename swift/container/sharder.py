@@ -29,6 +29,7 @@ from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
 from swift.common.exceptions import DeviceUnavailable
 from swift.common.ring.utils import is_local_device
+from swift.common.swob import str_to_wsgi
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
     config_float_value, config_positive_int_value, \
@@ -571,7 +572,7 @@ class ContainerSharder(ContainerReplicator):
 
     def _send_shard_ranges(self, account, container, shard_ranges,
                            headers=None):
-        body = json.dumps([dict(sr) for sr in shard_ranges])
+        body = json.dumps([dict(sr) for sr in shard_ranges]).encode('ascii')
         part, nodes = self.ring.get_nodes(account, container)
         headers = headers or {}
         headers.update({'X-Backend-Record-Type': RECORD_TYPE_SHARD,
@@ -676,8 +677,8 @@ class ContainerSharder(ContainerReplicator):
         if own_shard_range:
             shard_ranges = self._fetch_shard_ranges(
                 broker, newest=True,
-                params={'marker': own_shard_range.lower,
-                        'end_marker': own_shard_range.upper},
+                params={'marker': str_to_wsgi(own_shard_range.lower_str),
+                        'end_marker': str_to_wsgi(own_shard_range.upper_str)},
                 include_deleted=True)
             if shard_ranges:
                 for shard_range in shard_ranges:
@@ -940,8 +941,10 @@ class ContainerSharder(ContainerReplicator):
                     ranges = self._fetch_shard_ranges(
                         broker, newest=True,
                         params={'states': 'updating',
-                                'marker': src_shard_range.lower_str,
-                                'end_marker': src_shard_range.end_marker})
+                                'marker': str_to_wsgi(
+                                    src_shard_range.lower_str),
+                                'end_marker': str_to_wsgi(
+                                    src_shard_range.end_marker)})
                 outer['ranges'] = iter(ranges)
             return outer['ranges']
         return shard_range_fetcher
@@ -992,7 +995,7 @@ class ContainerSharder(ContainerReplicator):
             their correct shard containers, False otherwise
         """
         self.logger.debug('Looking for misplaced objects in %s (%s)',
-                          broker.path.decode('utf-8'), broker.db_file)
+                          broker.path, broker.db_file)
         self._increment_stat('misplaced', 'attempted')
         src_broker = src_broker or broker
         if src_bounds is None:
@@ -1135,7 +1138,7 @@ class ContainerSharder(ContainerReplicator):
         source_max_row = source_broker.get_max_row()
         sync_point = shard_broker.get_sync(source_db_id)
         if sync_point < source_max_row:
-            sync_from_row = max(cleaving_context.last_cleave_to_row,
+            sync_from_row = max(cleaving_context.last_cleave_to_row or -1,
                                 sync_point)
             for objects, info in self.yield_objects(
                     source_broker, shard_range,
