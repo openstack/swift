@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package meta;
+
+// Generate module with: python -m grpc.tools.protoc -I. --python_out=. --grpc_python_out=. meta.proto
+
+message Attr {
+    bytes key = 1;
+    bytes value = 2;
+}
+
+message Metadata {
+    repeated Attr attrs = 1;
+}
