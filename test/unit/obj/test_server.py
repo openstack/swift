@@ -8159,7 +8159,9 @@ class TestObjectServer(unittest.TestCase):
                 conn.sock.fd._sock.close()
             else:
                 conn.sock.fd._real_close()
-        sleep(0)
+        # We've seen a bunch of failures here -- try waiting some non-zero
+        # amount of time.
+        sleep(0.01)
 
         # and make sure it demonstrates the client disconnect
         log_lines = self.logger.get_lines_for_level('info')
