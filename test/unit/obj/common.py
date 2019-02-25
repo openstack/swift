@@ -23,7 +23,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common.utils import Timestamp
 
 
-def write_diskfile(df, timestamp, data='test data', frag_index=None,
+def write_diskfile(df, timestamp, data=b'test data', frag_index=None,
                    commit=True, legacy_durable=False, extra_metadata=None):
     # Helper method to write some data and metadata to a diskfile.
     # Optionally do not commit the diskfile, or commit but using a legacy
@@ -89,7 +89,7 @@ class BaseTest(unittest.TestCase):
             # when we write and commit stub data, sanity check it's readable
             # and not quarantined because of any validation check
             with df.open():
-                self.assertEqual(''.join(df.reader()), body)
+                self.assertEqual(b''.join(df.reader()), body)
             # sanity checks
             listing = os.listdir(df._datadir)
             self.assertTrue(listing)
@@ -98,7 +98,7 @@ class BaseTest(unittest.TestCase):
         return df
 
     def _make_open_diskfile(self, device='dev', partition='9',
-                            account='a', container='c', obj='o', body='test',
+                            account='a', container='c', obj='o', body=b'test',
                             extra_metadata=None, policy=None,
                             frag_index=None, timestamp=None, df_mgr=None):
         df = self._make_diskfile(device, partition, account, container, obj,
