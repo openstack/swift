@@ -1,0 +1,11 @@
+---
+fixes:
+  - Fix SLO delete for accounts with non-ASCII names.
+
+  - >
+    Fixed an issue in COPY where concurrent requests may have copied the
+    wrong data.
+
+  - >
+    Fixed a bug in how Swift uses eventlet that was exposed under high
+    concurrency.

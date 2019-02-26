@@ -1,0 +1,16 @@
+---
+fixes:
+  - >
+    Prevent PyKMIP's kmip_protocol logger from logging at DEBUG.
+    Previously, some versions of PyKMIP would include all wire
+    data when the root logger was configured to log at DEBUG; this
+    could expose key material in logs. Only the kmip_keymaster was
+    affected.
+
+  - >
+    Fixed an issue where a failed drive could prevent the container sharder
+    from making progress.
+
+  - >
+    Fixed a bug in how Swift uses eventlet that was exposed under high
+    concurrency.
