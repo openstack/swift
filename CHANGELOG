@@ -104,6 +104,20 @@ swift (2.20.0)
 
     * Various other minor bug fixes and improvements.
 
+2.19.1 (rocky stable backports)
+
+    * Prevent PyKMIP's kmip_protocol logger from logging at DEBUG.
+      Previously, some versions of PyKMIP would include all wire
+      data when the root logger was configured to log at DEBUG; this
+      could expose key material in logs. Only the kmip_keymaster was
+      affected.
+
+    * Fixed an issue where a failed drive could prevent the container sharder
+      from making progress.
+
+    * Fixed a bug in how Swift uses eventlet that was exposed under high
+      concurrency.
+
 swift (2.19.0, OpenStack Rocky)
 
     * TempURLs now support IP range restrictions. Please see
@@ -267,6 +281,15 @@ swift (2.18.0)
 
     * Various other minor bug fixes and improvements.
 
+2.17.1 (queens stable backports)
+
+    * Fix SLO delete for accounts with non-ASCII names.
+
+    * Fixed an issue in COPY where concurrent requests may have copied the
+      wrong data.
+
+    * Fixed a bug in how Swift uses eventlet that was exposed under high
+      concurrency.
 
 swift (2.17.0, OpenStack Queens)
 
@@ -460,6 +483,25 @@ swift (2.16.0)
 
     * Various other minor bug fixes and improvements.
 
+2.15.2 (pike stable backports)
+
+    * Fixed a cache invalidation issue related to GET and PUT requests to
+      containers that would occasionally cause object PUTs to a container to
+      404 after the container had been successfully created.
+
+    * Removed a race condition where a POST to an SLO could modify the
+      X-Static-Large-Object metadata.
+
+    * Fixed rare socket leak on range requests to erasure-coded objects.
+
+    * Fix SLO delete for accounts with non-ASCII names.
+
+    * Fixed an issue in COPY where concurrent requests may have copied the
+      wrong data.
+
+    * Fixed time skew when using X-Delete-After.
+
+    * Send ETag header in 206 Partial Content responses to SLO reads.
 
 swift (2.15.1, OpenStack Pike)
 
