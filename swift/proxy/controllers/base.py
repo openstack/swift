@@ -857,7 +857,7 @@ class ResumingGetter(object):
                     # we're done with it
                     raise RangeAlreadyComplete()
 
-                if end is not None and (begin > end or end < 0):
+                if end is not None and begin > end:
                     raise HTTPRequestedRangeNotSatisfiable()
 
             req_range.ranges = [(begin, end)] + req_range.ranges[1:]
@@ -2082,12 +2082,6 @@ class Controller(object):
             return None, response
 
         try:
-            # We used to let the empty input fall through, where json.loads
-            # threw and error. Unfortunately, on py3 it throws JSONDecodeError
-            # that is a pain to catch. So we emulate py2, simple and works
-            # as long as bodies are not iterators.
-            if len(response.body) == 0:
-                raise ValueError('No JSON object could be decoded')
             data = json.loads(response.body)
             if not isinstance(data, list):
                 raise ValueError('not a list')
