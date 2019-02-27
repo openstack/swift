@@ -126,7 +126,9 @@ import hmac
 from hashlib import sha1
 from time import time
 
+import six
 from six.moves.urllib.parse import quote
+
 from swift.common.exceptions import MimeInvalid
 from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
 from swift.common.utils import streq_const_time, register_swift_info, \
@@ -229,7 +231,7 @@ class FormPost(object):
                     start_response(status, headers)
                     return [body]
             except MimeInvalid:
-                body = 'FormPost: invalid starting boundary'
+                body = b'FormPost: invalid starting boundary'
                 start_response(
                     '400 Bad Request',
                     (('Content-Type', 'text/plain'),
@@ -237,6 +239,8 @@ class FormPost(object):
                 return [body]
             except (FormInvalid, EOFError) as err:
                 body = 'FormPost: %s' % err
+                if six.PY3:
+                    body = body.encode('utf-8')
                 start_response(
                     '400 Bad Request',
                     (('Content-Type', 'text/plain'),
@@ -258,6 +262,8 @@ class FormPost(object):
         :returns: status_line, headers_list, body
         """
         keys = self._get_keys(env)
+        if six.PY3:
+            boundary = boundary.encode('utf-8')
         status = message = ''
         attributes = {}
         subheaders = []
@@ -282,14 +288,13 @@ class FormPost(object):
                         hdrs['Content-Type'] or 'application/octet-stream'
                 if 'content-encoding' not in attributes and \
                         'content-encoding' in hdrs:
-                    attributes['content-encoding'] = \
-                        hdrs['Content-Encoding']
+                    attributes['content-encoding'] = hdrs['Content-Encoding']
                 status, subheaders = \
                     self._perform_subrequest(env, attributes, fp, keys)
                 if not status.startswith('2'):
                     break
             else:
-                data = ''
+                data = b''
                 mxln = MAX_VALUE_LENGTH
                 while mxln:
                     chunk = fp.read(mxln)
@@ -299,6 +304,8 @@ class FormPost(object):
                     data += chunk
                 while fp.read(READ_CHUNK_SIZE):
                     pass
+                if six.PY3:
+                    data = data.decode('utf-8')
                 if 'name' in attrs:
                     attributes[attrs['name'].lower()] = data.rstrip('\r\n--')
         if not status:
@@ -315,6 +322,8 @@ class FormPost(object):
                 body = status + '\r\nFormPost: ' + message.title()
             headers.extend([('Content-Type', 'text/plain'),
                             ('Content-Length', len(body))])
+            if six.PY3:
+                body = body.encode('utf-8')
             return status, headers, body
         status = status.split(' ', 1)[0]
         if '?' in redirect:
@@ -324,6 +333,8 @@ class FormPost(object):
         redirect += 'status=%s&message=%s' % (quote(status), quote(message))
         body = '<html><body><p><a href="%s">' \
                'Click to continue...</a></p></body></html>' % redirect
+        if six.PY3:
+            body = body.encode('utf-8')
         headers.extend(
             [('Location', redirect), ('Content-Length', str(len(body)))])
         return '303 See Other', headers, body
@@ -385,6 +396,8 @@ class FormPost(object):
             attributes.get('max_file_size') or '0',
             attributes.get('max_file_count') or '0',
             attributes.get('expires') or '0')
+        if six.PY3:
+            hmac_body = hmac_body.encode('utf-8')
 
         has_valid_sig = False
         for key in keys:

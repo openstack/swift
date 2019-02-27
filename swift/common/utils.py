@@ -4273,8 +4273,7 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     for doing that if necessary.
 
     :param wsgi_input: The file-like object to read from.
-    :param boundary: The mime boundary to separate new file-like
-                     objects on.
+    :param boundary: The mime boundary to separate new file-like objects on.
     :returns: A generator of file-like objects for each part.
     :raises MimeInvalid: if the document is malformed
     """
