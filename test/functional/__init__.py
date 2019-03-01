@@ -574,7 +574,7 @@ def in_process_setup(the_object_server=object_server):
             "Content-Language, Expires, X-Robots-Tag",
         # Below are values used by the functional test framework, as well as
         # by the various in-process swift servers
-        'auth_uri': 'http://127.0.0.1:%d/auth/v1.0' % prolis.getsockname()[1],
+        'auth_uri': 'http://127.0.0.1:%d/auth/v1.0/' % prolis.getsockname()[1],
         # Primary functional test account (needs admin access to the
         # account)
         'account': 'test',
@@ -848,10 +848,11 @@ def setup_package():
             # improve it to take a s3_storage_url option
             parsed = urlsplit(config['auth_uri'])
             config.update({
-                'auth_ssl': parsed.scheme == 'https',
+                'auth_ssl': str(parsed.scheme == 'https'),
                 'auth_host': parsed.hostname,
-                'auth_port': (parsed.port if parsed.port is not None else
-                              443 if parsed.scheme == 'https' else 80),
+                'auth_port': str(
+                    parsed.port if parsed.port is not None else
+                    443 if parsed.scheme == 'https' else 80),
                 'auth_prefix': parsed.path,
             })
         elif 'auth_host' in config:

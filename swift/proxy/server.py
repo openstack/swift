@@ -42,7 +42,8 @@ from swift.proxy.controllers.base import get_container_info, NodeIter, \
     DEFAULT_RECHECK_CONTAINER_EXISTENCE, DEFAULT_RECHECK_ACCOUNT_EXISTENCE
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
-    HTTPServerError, HTTPException, Request, HTTPServiceUnavailable
+    HTTPServerError, HTTPException, Request, HTTPServiceUnavailable, \
+    wsgi_to_str
 from swift.common.exceptions import APIVersionError
 
 
@@ -465,7 +466,7 @@ class Application(object):
                                       body='Invalid Content-Length')
 
             try:
-                if not check_utf8(req.path_info):
+                if not check_utf8(wsgi_to_str(req.path_info)):
                     self.logger.increment('errors')
                     return HTTPPreconditionFailed(
                         request=req, body='Invalid UTF8 or contains NULL')

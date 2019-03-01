@@ -41,7 +41,11 @@ if six.PY2:
     httplib = eventlet.import_patched('httplib')
 else:
     httplib = eventlet.import_patched('http.client')
-httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
+
+# Apparently http.server uses this to decide when/whether to send a 431.
+# Give it some slack, so the app is more likely to get the chance to reject
+# with a 400 instead.
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
 
 
 class BufferedHTTPResponse(HTTPResponse):

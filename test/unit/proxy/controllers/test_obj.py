@@ -99,7 +99,7 @@ class PatchedObjControllerApp(proxy_server.Application):
 
         def _fake_get_container_info(env, app, swift_source=None):
             _vrs, account, container, _junk = utils.split_path(
-                env['PATH_INFO'], 3, 4)
+                swob.wsgi_to_str(env['PATH_INFO']), 3, 4)
 
             # Seed the cache with our container info so that the real
             # get_container_info finds it.

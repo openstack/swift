@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from swift.common.swob import bytes_to_wsgi
 from swift.common.utils import json, public
 
 from swift.common.middleware.s3api.controllers.base import Controller
@@ -51,8 +52,9 @@ class ServiceController(Controller):
         buckets = SubElement(elem, 'Buckets')
         for c in containers:
             if self.conf.s3_acl and self.conf.check_bucket_owner:
+                container = bytes_to_wsgi(c['name'].encode('utf8'))
                 try:
-                    req.get_response(self.app, 'HEAD', c['name'])
+                    req.get_response(self.app, 'HEAD', container)
                 except AccessDenied:
                     continue
                 except NoSuchBucket:
