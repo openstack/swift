@@ -49,11 +49,11 @@ class RequestError(Exception):
 
 class ResponseError(Exception):
     def __init__(self, response, method=None, path=None, details=None):
-        self.status = response.status
-        self.reason = response.reason
+        self.status = getattr(response, 'status', 0)
+        self.reason = getattr(response, 'reason', '[unknown]')
         self.method = method
         self.path = path
-        self.headers = response.getheaders()
+        self.headers = getattr(response, 'getheaders', lambda: [])()
         self.details = details
 
         for name, value in self.headers:
@@ -269,7 +269,7 @@ class Connection(object):
             headers.update(hdrs)
         return headers
 
-    def make_request(self, method, path=None, data='', hdrs=None, parms=None,
+    def make_request(self, method, path=None, data=b'', hdrs=None, parms=None,
                      cfg=None):
         if path is None:
             path = []
@@ -294,9 +294,9 @@ class Connection(object):
             path = '%s?%s' % (path, '&'.join(query_args))
         if not cfg.get('no_content_length'):
             if cfg.get('set_content_length'):
-                headers['Content-Length'] = cfg.get('set_content_length')
+                headers['Content-Length'] = str(cfg.get('set_content_length'))
             else:
-                headers['Content-Length'] = len(data)
+                headers['Content-Length'] = str(len(data))
 
         def try_request():
             self.http_connect()
@@ -377,13 +377,13 @@ class Connection(object):
 
     def put_data(self, data, chunked=False):
         if chunked:
-            self.connection.send('%x\r\n%s\r\n' % (len(data), data))
+            self.connection.send(b'%x\r\n%s\r\n' % (len(data), data))
         else:
             self.connection.send(data)
 
     def put_end(self, chunked=False):
         if chunked:
-            self.connection.send('0\r\n\r\n')
+            self.connection.send(b'0\r\n\r\n')
 
         self.response = self.connection.getresponse()
         # Hope it isn't big!
@@ -418,8 +418,8 @@ class Base(object):
 
         for return_key, header in required_fields:
             if header not in headers:
-                raise ValueError("%s was not found in response header" %
-                                 (header,))
+                raise ValueError("%s was not found in response headers: %r" %
+                                 (header, headers))
 
             if is_int_header(header):
                 ret[return_key] = int(headers[header])
@@ -478,8 +478,9 @@ class Account(Base):
         if status == 200:
             if format_type == 'json':
                 conts = json.loads(self.conn.response.read())
-                for cont in conts:
-                    cont['name'] = cont['name'].encode('utf-8')
+                if six.PY2:
+                    for cont in conts:
+                        cont['name'] = cont['name'].encode('utf-8')
                 return conts
             elif format_type == 'xml':
                 conts = []
@@ -491,13 +492,18 @@ class Account(Base):
                             childNodes[0].nodeValue
                     conts.append(cont)
                 for cont in conts:
-                    cont['name'] = cont['name'].encode('utf-8')
+                    if six.PY2:
+                        cont['name'] = cont['name'].encode('utf-8')
+                    for key in ('count', 'bytes'):
+                        cont[key] = int(cont[key])
                 return conts
             else:
-                lines = self.conn.response.read().split('\n')
+                lines = self.conn.response.read().split(b'\n')
                 if lines and not lines[-1]:
                     lines = lines[:-1]
-                return lines
+                if six.PY2:
+                    return lines
+                return [line.decode('utf-8') for line in lines]
         elif status == 204:
             return []
 
@@ -617,10 +623,11 @@ class Container(Base):
             if format_type == 'json':
                 files = json.loads(self.conn.response.read())
 
-                for file_item in files:
-                    for key in ('name', 'subdir', 'content_type'):
-                        if key in file_item:
-                            file_item[key] = file_item[key].encode('utf-8')
+                if six.PY2:
+                    for file_item in files:
+                        for key in ('name', 'subdir', 'content_type'):
+                            if key in file_item:
+                                file_item[key] = file_item[key].encode('utf-8')
                 return files
             elif format_type == 'xml':
                 files = []
@@ -643,28 +650,32 @@ class Container(Base):
 
                 for file_item in files:
                     if 'subdir' in file_item:
-                        file_item['subdir'] = file_item['subdir'].\
-                            encode('utf-8')
+                        if six.PY2:
+                            file_item['subdir'] = \
+                                file_item['subdir'].encode('utf-8')
                     else:
-                        file_item['name'] = file_item['name'].encode('utf-8')
-                        file_item['content_type'] = file_item['content_type'].\
-                            encode('utf-8')
+                        if six.PY2:
+                            file_item.update({
+                                k: file_item[k].encode('utf-8')
+                                for k in ('name', 'content_type')})
                         file_item['bytes'] = int(file_item['bytes'])
                 return files
             else:
                 content = self.conn.response.read()
                 if content:
-                    lines = content.split('\n')
+                    lines = content.split(b'\n')
                     if lines and not lines[-1]:
                         lines = lines[:-1]
-                    return lines
+                    if six.PY2:
+                        return lines
+                    return [line.decode('utf-8') for line in lines]
                 else:
                     return []
         elif status == 204:
             return []
 
         raise ResponseError(self.conn.response, 'GET',
-                            self.conn.make_path(self.path))
+                            self.conn.make_path(self.path, cfg=cfg))
 
     def info(self, hdrs=None, parms=None, cfg=None):
         if hdrs is None:
@@ -719,11 +730,11 @@ class File(Base):
         headers = {}
         if not cfg.get('no_content_length'):
             if cfg.get('set_content_length'):
-                headers['Content-Length'] = cfg.get('set_content_length')
+                headers['Content-Length'] = str(cfg.get('set_content_length'))
             elif self.size:
-                headers['Content-Length'] = self.size
+                headers['Content-Length'] = str(self.size)
             else:
-                headers['Content-Length'] = 0
+                headers['Content-Length'] = '0'
 
         if cfg.get('use_token'):
             headers['X-Auth-Token'] = cfg.get('use_token')
@@ -744,8 +755,8 @@ class File(Base):
     def compute_md5sum(cls, data):
         block_size = 4096
 
-        if isinstance(data, str):
-            data = six.StringIO(data)
+        if isinstance(data, bytes):
+            data = six.BytesIO(data)
 
         checksum = hashlib.md5()
         buff = data.read(block_size)
@@ -894,7 +905,7 @@ class File(Base):
     def random_data(cls, size=None):
         if size is None:
             size = random.randint(1, 32768)
-        fd = open('/dev/urandom', 'r')
+        fd = open('/dev/urandom', 'rb')
         data = fd.read(size)
         fd.close()
         return data
@@ -973,10 +984,10 @@ class File(Base):
             headers = self.make_headers(cfg=cfg)
             if not cfg.get('no_content_length'):
                 if cfg.get('set_content_length'):
-                    headers['Content-Length'] = \
-                        cfg.get('set_content_length')
+                    headers['Content-Length'] = str(
+                        cfg.get('set_content_length'))
                 else:
-                    headers['Content-Length'] = 0
+                    headers['Content-Length'] = '0'
 
             self.conn.make_request('POST', self.path, hdrs=headers,
                                    parms=parms, cfg=cfg)
@@ -1024,7 +1035,7 @@ class File(Base):
 
         block_size = 2 ** 20
 
-        if isinstance(data, file):
+        if all(hasattr(data, attr) for attr in ('flush', 'seek', 'fileno')):
             try:
                 data.flush()
                 data.seek(0)
@@ -1086,7 +1097,7 @@ class File(Base):
         if not self.write(data, hdrs=hdrs, parms=parms, cfg=cfg):
             raise ResponseError(self.conn.response, 'PUT',
                                 self.conn.make_path(self.path))
-        self.md5 = self.compute_md5sum(six.StringIO(data))
+        self.md5 = self.compute_md5sum(six.BytesIO(data))
         return data
 
     def write_random_return_resp(self, size=None, hdrs=None, parms=None,
@@ -1103,7 +1114,7 @@ class File(Base):
                           return_resp=True)
         if not resp:
             raise ResponseError(self.conn.response)
-        self.md5 = self.compute_md5sum(six.StringIO(data))
+        self.md5 = self.compute_md5sum(six.BytesIO(data))
         return resp
 
     def post(self, hdrs=None, parms=None, cfg=None, return_resp=False):
