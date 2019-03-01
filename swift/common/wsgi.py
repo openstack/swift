@@ -32,8 +32,6 @@ from eventlet.green import socket, ssl, os as green_os
 import six
 from six import BytesIO
 from six import StringIO
-if six.PY2:
-    import mimetools
 
 from swift.common import utils, constraints
 from swift.common.storage_policy import BindPortsCache
@@ -145,31 +143,6 @@ def wrap_conf_type(f):
 
 
 appconfig = wrap_conf_type(loadwsgi.appconfig)
-
-
-def monkey_patch_mimetools():
-    """
-    mimetools.Message defaults content-type to "text/plain"
-    This changes it to default to None, so we can detect missing headers.
-    """
-    if six.PY3:
-        # The mimetools has been removed from Python 3
-        return
-
-    orig_parsetype = mimetools.Message.parsetype
-
-    def parsetype(self):
-        if not self.typeheader:
-            self.type = None
-            self.maintype = None
-            self.subtype = None
-            self.plisttext = ''
-        else:
-            orig_parsetype(self)
-    parsetype.patched = True
-
-    if not getattr(mimetools.Message.parsetype, 'patched', None):
-        mimetools.Message.parsetype = parsetype
 
 
 def get_socket(conf):
@@ -446,6 +419,18 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
             # eventlet<=0.17.4 doesn't have an error method, and in newer
             # versions the output from error is same as info anyway
             self.server.log.info('ERROR WSGI: ' + f, *a)
+
+    class MessageClass(wsgi.HttpProtocol.MessageClass):
+        '''Subclass to see when the client didn't provide a Content-Type'''
+        # for py2:
+        def parsetype(self):
+            if self.typeheader is None:
+                self.typeheader = ''
+            wsgi.HttpProtocol.MessageClass.parsetype(self)
+
+        # for py3:
+        def get_default_type(self):
+            return ''
 
 
 class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
@@ -1155,7 +1140,6 @@ def _initrp(conf_path, app_section, *args, **kwargs):
     if config_true_value(conf.get('disable_fallocate', 'no')):
         disable_fallocate()
 
-    monkey_patch_mimetools()
     return (conf, logger, log_name)
 
 

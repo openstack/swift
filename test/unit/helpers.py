@@ -40,6 +40,7 @@ from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 from swift.common.middleware import listing_formats, proxy_logging
 from swift.common import utils
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
+from swift.common.wsgi import SwiftHttpProtocol
 from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.proxy import server as proxy_server
@@ -212,17 +213,28 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
     nl = NullLogger()
     logging_prosv = proxy_logging.ProxyLoggingMiddleware(
         listing_formats.ListingFilter(prosrv), conf, logger=prosrv.logger)
-    prospa = spawn(wsgi.server, prolis, logging_prosv, nl)
-    acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl)
-    acc2spa = spawn(wsgi.server, acc2lis, acc2srv, nl)
-    con1spa = spawn(wsgi.server, con1lis, con1srv, nl)
-    con2spa = spawn(wsgi.server, con2lis, con2srv, nl)
-    obj1spa = spawn(wsgi.server, obj1lis, obj1srv, nl)
-    obj2spa = spawn(wsgi.server, obj2lis, obj2srv, nl)
-    obj3spa = spawn(wsgi.server, obj3lis, obj3srv, nl)
-    obj4spa = spawn(wsgi.server, obj4lis, obj4srv, nl)
-    obj5spa = spawn(wsgi.server, obj5lis, obj5srv, nl)
-    obj6spa = spawn(wsgi.server, obj6lis, obj6srv, nl)
+    prospa = spawn(wsgi.server, prolis, logging_prosv, nl,
+                   protocol=SwiftHttpProtocol)
+    acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl,
+                    protocol=SwiftHttpProtocol)
+    acc2spa = spawn(wsgi.server, acc2lis, acc2srv, nl,
+                    protocol=SwiftHttpProtocol)
+    con1spa = spawn(wsgi.server, con1lis, con1srv, nl,
+                    protocol=SwiftHttpProtocol)
+    con2spa = spawn(wsgi.server, con2lis, con2srv, nl,
+                    protocol=SwiftHttpProtocol)
+    obj1spa = spawn(wsgi.server, obj1lis, obj1srv, nl,
+                    protocol=SwiftHttpProtocol)
+    obj2spa = spawn(wsgi.server, obj2lis, obj2srv, nl,
+                    protocol=SwiftHttpProtocol)
+    obj3spa = spawn(wsgi.server, obj3lis, obj3srv, nl,
+                    protocol=SwiftHttpProtocol)
+    obj4spa = spawn(wsgi.server, obj4lis, obj4srv, nl,
+                    protocol=SwiftHttpProtocol)
+    obj5spa = spawn(wsgi.server, obj5lis, obj5srv, nl,
+                    protocol=SwiftHttpProtocol)
+    obj6spa = spawn(wsgi.server, obj6lis, obj6srv, nl,
+                    protocol=SwiftHttpProtocol)
     context["test_coros"] = \
         (prospa, acc1spa, acc2spa, con1spa, con2spa, obj1spa, obj2spa, obj3spa,
          obj4spa, obj5spa, obj6spa)

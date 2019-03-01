@@ -53,8 +53,7 @@ from test.unit import SkipTest
 
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
-from swift.common.wsgi import (
-    monkey_patch_mimetools, loadapp, SwiftHttpProtocol)
+from swift.common.wsgi import loadapp, SwiftHttpProtocol
 from swift.common.utils import config_true_value, split_path
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -492,8 +491,6 @@ def in_process_setup(the_object_server=object_server):
     _info('Using proxy config from %s' % proxy_conf)
     swift_conf_src = _in_process_find_conf_file(conf_src_dir, 'swift.conf')
     _info('Using swift config from %s' % swift_conf_src)
-
-    monkey_patch_mimetools()
 
     global _testdir
     _testdir = os.path.join(mkdtemp(), 'tmp_functional')
