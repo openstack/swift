@@ -114,12 +114,11 @@ greater than 5GB.
 
 """
 
-from six.moves.urllib.parse import quote, unquote
-
 from swift.common.utils import get_logger, config_true_value, FileLikeIter, \
     close_if_possible
 from swift.common.swob import Request, HTTPPreconditionFailed, \
-    HTTPRequestEntityTooLarge, HTTPBadRequest, HTTPException
+    HTTPRequestEntityTooLarge, HTTPBadRequest, HTTPException, \
+    wsgi_quote, wsgi_unquote
 from swift.common.http import HTTP_MULTIPLE_CHOICES, is_success, HTTP_OK
 from swift.common.constraints import check_account_format, MAX_FILE_SIZE
 from swift.common.request_helpers import copy_header_subset, remove_items, \
@@ -183,7 +182,7 @@ class ServerSideCopyWebContext(WSGIContext):
 
     def get_source_resp(self, req):
         sub_req = make_subrequest(
-            req.environ, path=quote(req.path_info), headers=req.headers,
+            req.environ, path=wsgi_quote(req.path_info), headers=req.headers,
             swift_source='SSC')
         return sub_req.get_response(self.app)
 
@@ -257,9 +256,9 @@ class ServerSideCopyMiddleware(object):
                                           )(req.environ, start_response)
         dest_account = account
         if 'Destination-Account' in req.headers:
-            dest_account = unquote(req.headers.get('Destination-Account'))
+            dest_account = wsgi_unquote(req.headers.get('Destination-Account'))
             dest_account = check_account_format(req, dest_account)
-            req.headers['X-Copy-From-Account'] = quote(account)
+            req.headers['X-Copy-From-Account'] = wsgi_quote(account)
             account = dest_account
             del req.headers['Destination-Account']
         dest_container, dest_object = _check_destination_header(req)
@@ -275,7 +274,7 @@ class ServerSideCopyMiddleware(object):
         req.path_info = '/%s/%s/%s/%s' % (
             ver, dest_account, dest_container, dest_object)
         req.headers['Content-Length'] = 0
-        req.headers['X-Copy-From'] = quote(source)
+        req.headers['X-Copy-From'] = wsgi_quote(source)
         del req.headers['Destination']
         return self.handle_PUT(req, start_response)
 
@@ -312,8 +311,8 @@ class ServerSideCopyMiddleware(object):
     def _create_response_headers(self, source_path, source_resp, sink_req):
         resp_headers = dict()
         acct, path = source_path.split('/', 3)[2:4]
-        resp_headers['X-Copied-From-Account'] = quote(acct)
-        resp_headers['X-Copied-From'] = quote(path)
+        resp_headers['X-Copied-From-Account'] = wsgi_quote(acct)
+        resp_headers['X-Copied-From'] = wsgi_quote(path)
         if 'last-modified' in source_resp.headers:
             resp_headers['X-Copied-From-Last-Modified'] = \
                 source_resp.headers['last-modified']
@@ -334,7 +333,7 @@ class ServerSideCopyMiddleware(object):
         src_account_name = req.headers.get('X-Copy-From-Account')
         if src_account_name:
             src_account_name = check_account_format(
-                req, unquote(src_account_name))
+                req, wsgi_unquote(src_account_name))
         else:
             src_account_name = acct
         src_container_name, src_obj_name = _check_copy_from_header(req)
