@@ -178,6 +178,14 @@ class BufferedHTTPConnection(HTTPConnection):
         return ret
 
     def putrequest(self, method, url, skip_host=0, skip_accept_encoding=0):
+        '''Send a request to the server.
+
+        :param method: specifies an HTTP request method, e.g. 'GET'.
+        :param url: specifies the object being requested, e.g. '/index.html'.
+        :param skip_host: if True does not add automatically a 'Host:' header
+        :param skip_accept_encoding: if True does not add automatically an
+           'Accept-Encoding:' header
+        '''
         self._method = method
         self._path = url
         return HTTPConnection.putrequest(self, method, url, skip_host,
