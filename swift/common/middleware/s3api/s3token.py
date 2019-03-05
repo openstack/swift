@@ -33,6 +33,25 @@ This middleware:
 * Optionally can retrieve and cache secret from keystone
   to validate signature locally
 
+.. note::
+   If upgrading from swift3, the ``auth_version`` config option has been
+   removed, and the ``auth_uri`` option now includes the Keystone API
+   version. If you previously had a configuration like
+
+   .. code-block:: ini
+
+      [filter:s3token]
+      use = egg:swift3#s3token
+      auth_uri = https://keystonehost:35357
+      auth_version = 3
+
+   you should now use
+
+   .. code-block:: ini
+
+      [filter:s3token]
+      use = egg:swift#s3token
+      auth_uri = https://keystonehost:35357/v3
 """
 
 import base64
