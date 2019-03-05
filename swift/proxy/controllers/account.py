@@ -55,7 +55,7 @@ class AccountController(Controller):
         length_limit = self.get_name_length_limit()
         if len(self.account_name) > length_limit:
             resp = HTTPBadRequest(request=req)
-            resp.body = 'Account name length of %d longer than %d' % \
+            resp.body = b'Account name length of %d longer than %d' % \
                         (len(self.account_name), length_limit)
             # Don't cache this. We know the account doesn't exist because
             # the name is bad; we don't need to cache that because it's
@@ -119,7 +119,7 @@ class AccountController(Controller):
         length_limit = self.get_name_length_limit()
         if len(self.account_name) > length_limit:
             resp = HTTPBadRequest(request=req)
-            resp.body = 'Account name length of %d longer than %d' % \
+            resp.body = b'Account name length of %d longer than %d' % \
                         (len(self.account_name), length_limit)
             return resp
         account_partition, accounts = \
@@ -138,7 +138,7 @@ class AccountController(Controller):
         length_limit = self.get_name_length_limit()
         if len(self.account_name) > length_limit:
             resp = HTTPBadRequest(request=req)
-            resp.body = 'Account name length of %d longer than %d' % \
+            resp.body = b'Account name length of %d longer than %d' % \
                         (len(self.account_name), length_limit)
             return resp
         error_response = check_metadata(req, 'account')
