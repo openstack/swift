@@ -47,7 +47,7 @@ class FakeResponse(object):
 
     base_headers = {}
 
-    def __init__(self, status_int=200, headers=None, body=''):
+    def __init__(self, status_int=200, headers=None, body=b''):
         self.status_int = status_int
         self._headers = headers or {}
         self.body = body
