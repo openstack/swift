@@ -150,7 +150,7 @@ def _in_process_setup_swift_conf(swift_conf_src, testdir):
         conf.set(section, 'swift_hash_path_prefix', 'inprocfunctests')
         section = 'swift-constraints'
         max_file_size = (8 * 1024 * 1024) + 2  # 8 MB + 2
-        conf.set(section, 'max_file_size', max_file_size)
+        conf.set(section, 'max_file_size', str(max_file_size))
     except NoSectionError:
         msg = 'Conf file %s is missing section %s' % (swift_conf_src, section)
         raise InProcessException(msg)
@@ -232,8 +232,8 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
     sp_zero_section = sp_prefix + '0'
     conf.add_section(sp_zero_section)
     for (k, v) in policy_to_test.get_info(config=True).items():
-        conf.set(sp_zero_section, k, v)
-    conf.set(sp_zero_section, 'default', True)
+        conf.set(sp_zero_section, k, str(v))
+    conf.set(sp_zero_section, 'default', 'True')
 
     with open(swift_conf, 'w') as fp:
         conf.write(fp)
@@ -714,7 +714,7 @@ def in_process_setup(the_object_server=object_server):
                 '/' + act, {'X-Timestamp': ts, 'x-trans-id': act})
             resp = conn.getresponse()
             assert resp.status == 201, 'Unable to create account: %s\n%s' % (
-                resp.status, resp.body)
+                resp.status, resp.read())
 
     create_account('AUTH_test')
     create_account('AUTH_test2')
