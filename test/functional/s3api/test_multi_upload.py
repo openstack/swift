@@ -32,7 +32,8 @@ from swift.common.middleware.s3api.utils import mktime
 
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
-from test.functional.s3api.utils import get_error_code, get_error_msg
+from test.functional.s3api.utils import get_error_code, get_error_msg, \
+    calculate_md5
 
 
 def setUpModule():
@@ -907,6 +908,27 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
         self.assertEqual(status, 200)  # sanity
         self.assertEqual(content, body)  # sanity
 
+        # Can delete it with DeleteMultipleObjects request
+        elem = Element('Delete')
+        SubElement(elem, 'Quiet').text = 'true'
+        obj_elem = SubElement(elem, 'Object')
+        SubElement(obj_elem, 'Key').text = key
+        body = tostring(elem, use_s3ns=False)
+
+        status, headers, body = self.conn.make_request(
+            'POST', bucket, body=body, query='delete',
+            headers={'Content-MD5': calculate_md5(body)})
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+
+        status, headers, body = \
+            self.conn.make_request('GET', bucket, key)
+        self.assertEqual(status, 404)  # sanity
+
+        # Now we can delete
+        status, headers, body = \
+            self.conn.make_request('DELETE', bucket)
+        self.assertEqual(status, 204)  # sanity
 
 if __name__ == '__main__':
     unittest2.main()

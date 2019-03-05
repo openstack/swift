@@ -171,7 +171,7 @@ from swift.container.sharder import make_shard_ranges, sharding_enabled, \
 
 def _load_and_validate_shard_data(args):
     try:
-        with open(args.input, 'rb') as fd:
+        with open(args.input, 'r') as fd:
             try:
                 data = json.load(fd)
                 if not isinstance(data, list):
@@ -329,7 +329,7 @@ def delete_shard_ranges(broker, args):
     return 0
 
 
-def _replace_shard_ranges(broker, args, shard_data, timeout=None):
+def _replace_shard_ranges(broker, args, shard_data, timeout=0):
     own_shard_range = _check_own_shard_range(broker, args)
     shard_ranges = make_shard_ranges(
         broker, shard_data, args.shards_account_prefix)
@@ -435,10 +435,10 @@ def _add_enable_args(parser):
 def _make_parser():
     parser = argparse.ArgumentParser(description='Manage shard ranges')
     parser.add_argument('container_db')
-    parser.add_argument('--verbose', '-v', action='count',
+    parser.add_argument('--verbose', '-v', action='count', default=0,
                         help='Increase output verbosity')
     subparsers = parser.add_subparsers(
-        help='Sub-command help', title='Sub-commands')
+        dest='subcommand', help='Sub-command help', title='Sub-commands')
 
     # find
     find_parser = subparsers.add_parser(
@@ -503,6 +503,15 @@ def _make_parser():
 def main(args=None):
     parser = _make_parser()
     args = parser.parse_args(args)
+    if not args.subcommand:
+        # On py2, subparsers are required; on py3 they are not; see
+        # https://bugs.python.org/issue9253. py37 added a `required` kwarg
+        # to let you control it, but prior to that, there was no choice in
+        # the matter. So, check whether the destination was set and bomb
+        # out if not.
+        parser.print_help()
+        print('\nA sub-command is required.')
+        return 1
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
     broker = ContainerBroker(args.container_db, logger=logger,
                              skip_commits=True)

@@ -26,6 +26,7 @@ import random
 
 from collections import defaultdict
 from datetime import datetime
+import six
 from six.moves import urllib
 from swift.container import reconciler
 from swift.container.server import gen_resp_headers
@@ -105,8 +106,10 @@ class FakeInternalClient(reconciler.InternalClient):
             else:
                 timestamp, content_type = timestamp, 'application/x-put'
             storage_policy_index, path = item
+            if six.PY2 and isinstance(path, six.text_type):
+                path = path.encode('utf-8')
             account, container_name, obj_name = split_path(
-                path.encode('utf-8'), 0, 3, rest_with_last=True)
+                path, 0, 3, rest_with_last=True)
             self.accounts[account][container_name].append(
                 (obj_name, storage_policy_index, timestamp, content_type))
         for account_name, containers in self.accounts.items():
@@ -124,7 +127,8 @@ class FakeInternalClient(reconciler.InternalClient):
                     if storage_policy_index is None and not obj_name:
                         # empty container
                         continue
-                    obj_path = container_path + '/' + obj_name
+                    obj_path = swob.str_to_wsgi(
+                        container_path + '/' + obj_name)
                     ts = Timestamp(timestamp)
                     headers = {'X-Timestamp': ts.normal,
                                'X-Backend-Timestamp': ts.internal}
@@ -139,12 +143,15 @@ class FakeInternalClient(reconciler.InternalClient):
                     # strings, so normalize here
                     if isinstance(timestamp, numbers.Number):
                         timestamp = '%f' % timestamp
+                    if six.PY2:
+                        obj_name = obj_name.decode('utf-8')
+                        timestamp = timestamp.decode('utf-8')
                     obj_data = {
                         'bytes': 0,
                         # listing data is unicode
-                        'name': obj_name.decode('utf-8'),
+                        'name': obj_name,
                         'last_modified': last_modified,
-                        'hash': timestamp.decode('utf-8'),
+                        'hash': timestamp,
                         'content_type': content_type,
                     }
                     container_listing_data.append(obj_data)
@@ -752,7 +759,7 @@ class TestReconciler(unittest.TestCase):
         with mock.patch.multiple(reconciler, **items) as mocks:
             self.mock_delete_container_entry = \
                 mocks['direct_delete_container_entry']
-            with mock.patch('time.time', mock_time_iter.next):
+            with mock.patch('time.time', lambda: next(mock_time_iter)):
                 self.reconciler.run_once()
 
         return [c[1][1:4] for c in
@@ -974,7 +981,10 @@ class TestReconciler(unittest.TestCase):
         # functions where we call them with (account, container, obj)
         obj_name = u"AUTH_bob/c \u062a/o1 \u062a"
         # anytime we talk about a call made to swift for a path
-        obj_path = obj_name.encode('utf-8')
+        if six.PY2:
+            obj_path = obj_name.encode('utf-8')
+        else:
+            obj_path = obj_name.encode('utf-8').decode('latin-1')
         # this mock expects unquoted unicode because it handles container
         # listings as well as paths
         self._mock_listing({

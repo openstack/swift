@@ -23,7 +23,8 @@ from test.unit import FakeLogger
 
 class FakeApp(object):
     def __call__(self, env, start_response):
-        return ['204 No Content']
+        start_response('200 OK', [])
+        return [b'Some Content']
 
 
 def start_response(*args):
@@ -32,7 +33,7 @@ def start_response(*args):
 
 read_methods = 'GET HEAD'.split()
 write_methods = 'COPY DELETE POST PUT'.split()
-ro_resp = ['Writes are disabled for this account.']
+ro_resp = [b'Writes are disabled for this account.']
 
 
 class TestReadOnly(unittest.TestCase):
@@ -50,7 +51,7 @@ class TestReadOnly(unittest.TestCase):
                 req = Request.blank('/v/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
-                self.assertTrue(resp[0].startswith('204'))
+                self.assertEqual(resp, [b'Some Content'])
 
     def test_global_read_only_on(self):
         conf = {
@@ -66,7 +67,7 @@ class TestReadOnly(unittest.TestCase):
                 req = Request.blank('/v/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
-                self.assertTrue(resp[0].startswith('204'))
+                self.assertEqual(resp, [b'Some Content'])
 
             for method in write_methods:
                 req = Request.blank('/v/a')
@@ -86,7 +87,7 @@ class TestReadOnly(unittest.TestCase):
                 req = Request.blank('/v/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
-                self.assertTrue(resp[0].startswith('204'))
+                self.assertEqual(resp, [b'Some Content'])
 
             for method in write_methods:
                 req = Request.blank('/v/a')
@@ -106,7 +107,7 @@ class TestReadOnly(unittest.TestCase):
                 req = Request.blank('/v/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
-                self.assertTrue(resp[0].startswith('204'))
+                self.assertEqual(resp, [b'Some Content'])
 
     def test_global_read_only_on_account_off(self):
         conf = {
@@ -122,7 +123,7 @@ class TestReadOnly(unittest.TestCase):
                 req = Request.blank('/v/a')
                 req.method = method
                 resp = ro(req.environ, start_response)
-                self.assertTrue(resp[0].startswith('204'))
+                self.assertEqual(resp, [b'Some Content'])
 
     def test_global_read_only_on_allow_deletes(self):
         conf = {
@@ -138,7 +139,7 @@ class TestReadOnly(unittest.TestCase):
             req = Request.blank('/v/a')
             req.method = "DELETE"
             resp = ro(req.environ, start_response)
-            self.assertTrue(resp[0].startswith('204'))
+            self.assertEqual(resp, [b'Some Content'])
 
     def test_account_read_only_on_allow_deletes(self):
         conf = {
@@ -153,7 +154,7 @@ class TestReadOnly(unittest.TestCase):
             req = Request.blank('/v/a')
             req.method = "DELETE"
             resp = ro(req.environ, start_response)
-            self.assertTrue(resp[0].startswith('204'))
+            self.assertEqual(resp, [b'Some Content'])
 
     def test_global_read_only_on_destination_account_off_on_copy(self):
         conf = {
@@ -174,7 +175,7 @@ class TestReadOnly(unittest.TestCase):
             req = Request.blank('/v/a', headers=headers)
             req.method = "COPY"
             resp = ro(req.environ, start_response)
-            self.assertTrue(resp[0].startswith('204'))
+            self.assertEqual(resp, [b'Some Content'])
 
     def test_global_read_only_off_destination_account_on_on_copy(self):
         conf = {}
@@ -214,7 +215,7 @@ class TestReadOnly(unittest.TestCase):
             req = Request.blank('/v/a', headers=headers)
             req.method = "COPY"
             resp = ro(req.environ, start_response)
-            self.assertTrue(resp[0].startswith('204'))
+            self.assertEqual(resp, [b'Some Content'])
 
     def test_global_read_only_off_src_acct_on_dest_acct_on_on_copy(self):
         conf = {}

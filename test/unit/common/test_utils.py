@@ -7274,7 +7274,7 @@ class TestShardRange(unittest.TestCase):
     def test_lower_setter(self):
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', '')
         # sanity checks
-        self.assertEqual('b', sr.lower)
+        self.assertEqual('b', sr.lower_str)
         self.assertEqual(sr.MAX, sr.upper)
 
         def do_test(good_value, expected):
@@ -7284,11 +7284,19 @@ class TestShardRange(unittest.TestCase):
 
         do_test(utils.ShardRange.MIN, utils.ShardRange.MIN)
         do_test(utils.ShardRange.MAX, utils.ShardRange.MAX)
-        do_test('', utils.ShardRange.MIN)
+        do_test(b'', utils.ShardRange.MIN)
         do_test(u'', utils.ShardRange.MIN)
         do_test(None, utils.ShardRange.MIN)
-        do_test('a', 'a')
-        do_test('y', 'y')
+        do_test(b'a', 'a')
+        do_test(b'y', 'y')
+        do_test(u'a', 'a')
+        do_test(u'y', 'y')
+
+        expected = u'\N{SNOWMAN}'
+        if six.PY2:
+            expected = expected.encode('utf-8')
+        do_test(u'\N{SNOWMAN}', expected)
+        do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
 
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
         sr.lower = ''
@@ -7297,17 +7305,16 @@ class TestShardRange(unittest.TestCase):
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
         with self.assertRaises(ValueError) as cm:
             sr.lower = 'z'
-        self.assertIn("lower ('z') must be less than or equal to upper ('y')",
-                      str(cm.exception))
-        self.assertEqual('b', sr.lower)
-        self.assertEqual('y', sr.upper)
+        self.assertIn("must be less than or equal to upper", str(cm.exception))
+        self.assertEqual('b', sr.lower_str)
+        self.assertEqual('y', sr.upper_str)
 
         def do_test(bad_value):
             with self.assertRaises(TypeError) as cm:
                 sr.lower = bad_value
             self.assertIn("lower must be a string", str(cm.exception))
-            self.assertEqual('b', sr.lower)
-            self.assertEqual('y', sr.upper)
+            self.assertEqual('b', sr.lower_str)
+            self.assertEqual('y', sr.upper_str)
 
         do_test(1)
         do_test(1.234)
@@ -7316,7 +7323,7 @@ class TestShardRange(unittest.TestCase):
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', 'y')
         # sanity checks
         self.assertEqual(sr.MIN, sr.lower)
-        self.assertEqual('y', sr.upper)
+        self.assertEqual('y', sr.upper_str)
 
         def do_test(good_value, expected):
             sr.upper = good_value
@@ -7325,11 +7332,19 @@ class TestShardRange(unittest.TestCase):
 
         do_test(utils.ShardRange.MIN, utils.ShardRange.MIN)
         do_test(utils.ShardRange.MAX, utils.ShardRange.MAX)
-        do_test('', utils.ShardRange.MAX)
+        do_test(b'', utils.ShardRange.MAX)
         do_test(u'', utils.ShardRange.MAX)
         do_test(None, utils.ShardRange.MAX)
-        do_test('z', 'z')
-        do_test('b', 'b')
+        do_test(b'z', 'z')
+        do_test(b'b', 'b')
+        do_test(u'z', 'z')
+        do_test(u'b', 'b')
+
+        expected = u'\N{SNOWMAN}'
+        if six.PY2:
+            expected = expected.encode('utf-8')
+        do_test(u'\N{SNOWMAN}', expected)
+        do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
 
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
         sr.upper = ''
@@ -7339,17 +7354,17 @@ class TestShardRange(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             sr.upper = 'a'
         self.assertIn(
-            "upper ('a') must be greater than or equal to lower ('b')",
+            "must be greater than or equal to lower",
             str(cm.exception))
-        self.assertEqual('b', sr.lower)
-        self.assertEqual('y', sr.upper)
+        self.assertEqual('b', sr.lower_str)
+        self.assertEqual('y', sr.upper_str)
 
         def do_test(bad_value):
             with self.assertRaises(TypeError) as cm:
                 sr.upper = bad_value
             self.assertIn("upper must be a string", str(cm.exception))
-            self.assertEqual('b', sr.lower)
-            self.assertEqual('y', sr.upper)
+            self.assertEqual('b', sr.lower_str)
+            self.assertEqual('y', sr.upper_str)
 
         do_test(1)
         do_test(1.234)
@@ -7373,18 +7388,16 @@ class TestShardRange(unittest.TestCase):
         upper = u'\u00fb'
         sr = utils.ShardRange('a/%s-%s' % (lower, upper),
                               utils.Timestamp.now(), lower, upper)
-        if six.PY3:
-            self.assertEqual(u'\u00e4', sr.lower)
-            self.assertEqual(u'\u00e4', sr.lower_str)
-            self.assertEqual(u'\u00fb', sr.upper)
-            self.assertEqual(u'\u00fb', sr.upper_str)
-            self.assertEqual(u'\u00fb\x00', sr.end_marker)
-        else:
-            self.assertEqual(u'\u00e4'.encode('utf8'), sr.lower)
-            self.assertEqual(u'\u00e4'.encode('utf8'), sr.lower_str)
-            self.assertEqual(u'\u00fb'.encode('utf8'), sr.upper)
-            self.assertEqual(u'\u00fb'.encode('utf8'), sr.upper_str)
-            self.assertEqual(u'\u00fb\x00'.encode('utf8'), sr.end_marker)
+        exp_lower = lower
+        exp_upper = upper
+        if six.PY2:
+            exp_lower = exp_lower.encode('utf-8')
+            exp_upper = exp_upper.encode('utf-8')
+        self.assertEqual(exp_lower, sr.lower)
+        self.assertEqual(exp_lower, sr.lower_str)
+        self.assertEqual(exp_upper, sr.upper)
+        self.assertEqual(exp_upper, sr.upper_str)
+        self.assertEqual(exp_upper + '\x00', sr.end_marker)
 
     def test_entire_namespace(self):
         # test entire range (no boundaries)
@@ -7606,9 +7619,10 @@ class TestShardRange(unittest.TestCase):
                               state=utils.ShardRange.ACTIVE,
                               state_timestamp=state_ts)
         self.assertEqual(
-            "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s, "
+            "ShardRange<%r to %r as of %s, (100, 1000) as of %s, "
             "active as of %s>"
-            % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
+            % ('l', 'u',
+               ts.internal, meta_ts.internal, state_ts.internal), str(sr))
 
         ts.offset = 0
         meta_ts.offset = 2

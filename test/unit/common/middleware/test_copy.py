@@ -117,7 +117,7 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
             headers[0] = h
 
         body_iter = app(req.environ, start_response)
-        body = ''
+        body = b''
         caught_exc = None
         try:
             # appease the close-checker
@@ -336,7 +336,7 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('/v1/a/c/o', self.authorized[1].path)
 
     def test_copy_with_spaces_in_x_copy_from_and_account(self):
-        self.app.register('GET', '/v1/a/c/o o2', swob.HTTPOk, {}, 'passed')
+        self.app.register('GET', '/v1/a/c/o o2', swob.HTTPOk, {}, b'passed')
         self.app.register('PUT', '/v1/a1/c1/o', swob.HTTPCreated, {})
         # space in soure path
         req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -643,7 +643,7 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         get_resp_headers['etag'] = 'source etag'
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
-            headers=get_resp_headers, body='passed')
+            headers=get_resp_headers, body=b'passed')
 
         def verify_headers(expected_headers, unexpected_headers,
                            actual_headers):
@@ -1275,7 +1275,7 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('6', req_headers['content-length'])
         req = swob.Request.blank('/v1/a/c1/o', method='GET')
         status, headers, body = self.call_ssc(req)
-        self.assertEqual('fghijk', body)
+        self.assertEqual(b'fghijk', body)
 
 
 @patch_policies(with_ec_default=True)
@@ -1307,7 +1307,7 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
                      'Range': 'bytes=5-10'})
         # turn a real body into fragments
         segment_size = self.policy.ec_segment_size
-        real_body = ('asdf' * segment_size)[:-10]
+        real_body = (b'asdf' * segment_size)[:-10]
 
         # split it up into chunks
         chunks = [real_body[x:x + segment_size]
@@ -1318,13 +1318,13 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
         fragment_payloads = []
         fragment_payloads.append(fragments)
 
-        node_fragments = zip(*fragment_payloads)
+        node_fragments = list(zip(*fragment_payloads))
         self.assertEqual(len(node_fragments),
                          self.policy.object_ring.replicas)  # sanity
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
-        responses = [(200, ''.join(node_fragments[i]), headers)
+        responses = [(200, b''.join(node_fragments[i]), headers)
                      for i in range(POLICIES.default.ec_ndata)]
-        responses += [(201, '', {})] * self.policy.object_ring.replicas
+        responses += [(201, b'', {})] * self.policy.object_ring.replicas
         status_codes, body_iter, headers = zip(*responses)
         expect_headers = {
             'X-Obj-Metadata-Footer': 'yes',
@@ -1352,7 +1352,7 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
     def test_COPY_with_invalid_ranges(self):
         # real body size is segment_size - 10 (just 1 segment)
         segment_size = self.policy.ec_segment_size
-        real_body = ('a' * segment_size)[:-10]
+        real_body = (b'a' * segment_size)[:-10]
 
         # range is out of real body but in segment size
         self._test_invalid_ranges('COPY', real_body,
@@ -1372,7 +1372,7 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
         fragments = self.policy.pyeclib_driver.encode(real_body)
         fragment_payloads = [fragments]
 
-        node_fragments = zip(*fragment_payloads)
+        node_fragments = list(zip(*fragment_payloads))
         self.assertEqual(len(node_fragments),
                          self.policy.object_ring.replicas)  # sanity
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body)),
@@ -1382,11 +1382,12 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
         title, exp = swob.RESPONSE_REASONS[416]
         range_not_satisfiable_body = \
             '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
+        range_not_satisfiable_body = range_not_satisfiable_body.encode('ascii')
         if start >= segment_size:
             responses = [(416, range_not_satisfiable_body, headers)
                          for i in range(POLICIES.default.ec_ndata)]
         else:
-            responses = [(200, ''.join(node_fragments[i]), headers)
+            responses = [(200, b''.join(node_fragments[i]), headers)
                          for i in range(POLICIES.default.ec_ndata)]
         status_codes, body_iter, headers = zip(*responses)
         expect_headers = {

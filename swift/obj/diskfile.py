@@ -224,7 +224,7 @@ def read_metadata(fd, add_missing_checksum=False):
         # exist. This is fine; it just means that this object predates the
         # introduction of metadata checksums.
         if add_missing_checksum:
-            new_checksum = md5(metadata).hexdigest()
+            new_checksum = md5(metadata).hexdigest().encode('ascii')
             try:
                 xattr.setxattr(fd, METADATA_CHECKSUM_KEY, new_checksum)
             except (IOError, OSError) as e:

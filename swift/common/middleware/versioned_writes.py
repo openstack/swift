@@ -222,6 +222,7 @@ Disable versioning from a container (x is any value except empty)::
 
 import calendar
 import json
+import six
 from six.moves.urllib.parse import quote, unquote
 import time
 
@@ -596,10 +597,12 @@ class VersionedWritesContext(WSGIContext):
                             DELETE_MARKER_CONTENT_TYPE:
                         # Nothing to restore
                         break
-                    prev_obj_name = version_to_restore['name'].encode('utf-8')
+                    obj_to_restore = version_to_restore['name']
+                    if six.PY2:
+                        obj_to_restore = obj_to_restore.encode('utf-8')
                     restored_path = self._restore_data(
                         req, versions_cont, api_version, account_name,
-                        container_name, object_name, prev_obj_name)
+                        container_name, object_name, obj_to_restore)
                     if not restored_path:
                         continue
 
@@ -614,9 +617,12 @@ class VersionedWritesContext(WSGIContext):
                         # else, well, it existed long enough to do the
                         # copy; we won't worry too much
                     break
+                prev_obj_name = previous_version['name']
+                if six.PY2:
+                    prev_obj_name = prev_obj_name.encode('utf-8')
                 marker_path = "/%s/%s/%s/%s" % (
                     api_version, account_name, versions_cont,
-                    previous_version['name'].encode('utf-8'))
+                    prev_obj_name)
                 # done restoring, redirect the delete to the marker
                 req = make_pre_authed_request(
                     req.environ, path=quote(marker_path), method='DELETE',
@@ -624,7 +630,9 @@ class VersionedWritesContext(WSGIContext):
             else:
                 # there are older versions so copy the previous version to the
                 # current object and delete the previous version
-                prev_obj_name = previous_version['name'].encode('utf-8')
+                prev_obj_name = previous_version['name']
+                if six.PY2:
+                    prev_obj_name = prev_obj_name.encode('utf-8')
                 restored_path = self._restore_data(
                     req, versions_cont, api_version, account_name,
                     container_name, object_name, prev_obj_name)

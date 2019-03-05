@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import unittest
 from datetime import datetime
 from hashlib import md5
@@ -64,8 +65,15 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             swob.HTTPNoContent, {}, None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key2',
                             swob.HTTPNotFound, {}, None)
+        slo_delete_resp = {
+            'Number Not Found': 0,
+            'Response Status': '200 OK',
+            'Errors': [],
+            'Response Body': '',
+            'Number Deleted': 8
+        }
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key3',
-                            swob.HTTPOk, {}, None)
+                            swob.HTTPOk, {}, json.dumps(slo_delete_resp))
 
         elem = Element('Delete')
         for key in ['Key1', 'Key2', 'Key3']:
@@ -97,15 +105,31 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
 
     @s3acl
     def test_object_multi_DELETE_with_error(self):
-        self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key3',
-                            swob.HTTPForbidden, {}, None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
                             swob.HTTPNoContent, {}, None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key2',
                             swob.HTTPNotFound, {}, None)
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key3',
+                            swob.HTTPForbidden, {}, None)
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key4',
+                            swob.HTTPOk,
+                            {'x-static-large-object': 'True'},
+                            None)
+        slo_delete_resp = {
+            'Number Not Found': 0,
+            'Response Status': '400 Bad Request',
+            'Errors': [
+                ["/bucket+segments/obj1", "403 Forbidden"],
+                ["/bucket+segments/obj2", "403 Forbidden"]
+            ],
+            'Response Body': '',
+            'Number Deleted': 8
+        }
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key4',
+                            swob.HTTPOk, {}, json.dumps(slo_delete_resp))
 
         elem = Element('Delete')
-        for key in ['Key1', 'Key2', 'Key3']:
+        for key in ['Key1', 'Key2', 'Key3', 'Key4']:
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
@@ -123,13 +147,24 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
 
         elem = fromstring(body)
         self.assertEqual(len(elem.findall('Deleted')), 2)
-        self.assertEqual(len(elem.findall('Error')), 1)
+        self.assertEqual(len(elem.findall('Error')), 2)
+        self.assertEqual(
+            [(el.find('Code').text, el.find('Message').text)
+             for el in elem.findall('Error')],
+            [('AccessDenied', 'Access Denied.'),
+             ('SLODeleteError', '\n'.join([
+                 '400 Bad Request',
+                 '/bucket+segments/obj1: 403 Forbidden',
+                 '/bucket+segments/obj2: 403 Forbidden']))]
+        )
         self.assertEqual(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket/Key1'),
             ('DELETE', '/v1/AUTH_test/bucket/Key1'),
             ('HEAD', '/v1/AUTH_test/bucket/Key2'),
             ('HEAD', '/v1/AUTH_test/bucket/Key3'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key4'),
+            ('DELETE', '/v1/AUTH_test/bucket/Key4?multipart-manifest=delete'),
         ])
 
     @s3acl

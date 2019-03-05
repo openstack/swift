@@ -47,7 +47,7 @@ class FakeResponse(object):
 
     base_headers = {}
 
-    def __init__(self, status_int=200, headers=None, body=''):
+    def __init__(self, status_int=200, headers=None, body=b''):
         self.status_int = status_int
         self._headers = headers or {}
         self.body = body
@@ -1120,7 +1120,10 @@ class TestFuncs(unittest.TestCase):
     def test_get_shard_ranges_empty_body(self):
         error_lines = self._check_get_shard_ranges_bad_data(b'')
         self.assertIn('Problem with listing response', error_lines[0])
-        self.assertIn('No JSON', error_lines[0])
+        if six.PY2:
+            self.assertIn('No JSON', error_lines[0])
+        else:
+            self.assertIn('JSONDecodeError', error_lines[0])
         self.assertFalse(error_lines[1:])
 
     def test_get_shard_ranges_not_a_list(self):

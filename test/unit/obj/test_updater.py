@@ -489,7 +489,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(ou.logger.get_increment_counts(),
                          {'failures': 1, 'unlinks': 1})
-        self.assertIsNone(pickle.load(open(op_path)).get('successes'))
+        self.assertIsNone(pickle.load(open(op_path, 'rb')).get('successes'))
 
         bindsock = listen_zero()
 
@@ -498,20 +498,20 @@ class TestObjectUpdater(unittest.TestCase):
                 with Timeout(3):
                     inc = sock.makefile('rb')
                     out = sock.makefile('wb')
-                    out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
+                    out.write(b'HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
                     self.assertEqual(inc.readline(),
-                                     'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
+                                     b'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
                     headers = HeaderKeyDict()
                     line = inc.readline()
-                    while line and line != '\r\n':
-                        headers[line.split(':')[0]] = \
-                            line.split(':')[1].strip()
+                    while line and line != b'\r\n':
+                        headers[line.split(b':')[0]] = \
+                            line.split(b':')[1].strip()
                         line = inc.readline()
-                    self.assertTrue('x-container-timestamp' in headers)
-                    self.assertTrue('X-Backend-Storage-Policy-Index' in
-                                    headers)
+                    self.assertIn(b'x-container-timestamp', headers)
+                    self.assertIn(b'X-Backend-Storage-Policy-Index',
+                                  headers)
             except BaseException as err:
                 return err
             return None
@@ -546,7 +546,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(ou.logger.get_increment_counts(),
                          {'failures': 1})
         self.assertEqual([0],
-                         pickle.load(open(op_path)).get('successes'))
+                         pickle.load(open(op_path, 'rb')).get('successes'))
 
         event = spawn(accept, [404, 201])
         ou.logger._clear()
@@ -558,7 +558,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(ou.logger.get_increment_counts(),
                          {'failures': 1})
         self.assertEqual([0, 2],
-                         pickle.load(open(op_path)).get('successes'))
+                         pickle.load(open(op_path, 'rb')).get('successes'))
 
         event = spawn(accept, [201])
         ou.logger._clear()
@@ -867,7 +867,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual([mock.ANY], async_files)
         async_path = os.path.join(
             async_dir, async_subdirs[0], async_files[0])
-        with open(async_path) as fd:
+        with open(async_path, 'rb') as fd:
             async_data = pickle.load(fd)
         return async_path, async_data
 

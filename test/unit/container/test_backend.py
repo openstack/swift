@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """ Tests for swift.container.backend """
+import base64
 import errno
 import os
 import hashlib
@@ -27,6 +28,8 @@ from contextlib import contextmanager
 import sqlite3
 import pickle
 import json
+
+import six
 
 from swift.common.exceptions import LockTimeout
 from swift.container.backend import ContainerBroker, \
@@ -2877,22 +2880,25 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual([row[0] for row in listing], ['b:a', 'b:b'])
 
     def test_chexor(self):
+        def md5_str(s):
+            if not isinstance(s, bytes):
+                s = s.encode('utf8')
+            return hashlib.md5(s).hexdigest()
+
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('a', Timestamp(1).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object('b', Timestamp(2).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        hasha = hashlib.md5('%s-%s' % ('a', Timestamp(1).internal)).digest()
-        hashb = hashlib.md5('%s-%s' % ('b', Timestamp(2).internal)).digest()
-        hashc = ''.join(
-            ('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
+        hasha = md5_str('%s-%s' % ('a', Timestamp(1).internal))
+        hashb = md5_str('%s-%s' % ('b', Timestamp(2).internal))
+        hashc = '%032x' % (int(hasha, 16) ^ int(hashb, 16))
         self.assertEqual(broker.get_info()['hash'], hashc)
         broker.put_object('b', Timestamp(3).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        hashb = hashlib.md5('%s-%s' % ('b', Timestamp(3).internal)).digest()
-        hashc = ''.join(
-            ('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
+        hashb = md5_str('%s-%s' % ('b', Timestamp(3).internal))
+        hashc = '%032x' % (int(hasha, 16) ^ int(hashb, 16))
         self.assertEqual(broker.get_info()['hash'], hashc)
 
     def test_newid(self):
@@ -2968,7 +2974,9 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_merge_items_overwrite_unicode(self):
         # test DatabaseBroker.merge_items
-        snowman = u'\N{SNOWMAN}'.encode('utf-8')
+        snowman = u'\N{SNOWMAN}'
+        if six.PY2:
+            snowman = snowman.encode('utf-8')
         broker1 = ContainerBroker(':memory:', account='a', container='c')
         broker1.initialize(Timestamp('1').internal, 0)
         id = broker1.get_info()['id']
@@ -3151,10 +3159,10 @@ class TestContainerBroker(unittest.TestCase):
             for i in range(10):
                 name, timestamp, size, content_type, etag, deleted = (
                     'o%s' % i, next(ts).internal, 0, 'c', 'e', 0)
-                fp.write(':')
-                fp.write(pickle.dumps(
+                fp.write(b':')
+                fp.write(base64.b64encode(pickle.dumps(
                     (name, timestamp, size, content_type, etag, deleted),
-                    protocol=2).encode('base64'))
+                    protocol=2)))
                 fp.flush()
 
         # use put_object to append some more entries with different
@@ -3198,10 +3206,10 @@ class TestContainerBroker(unittest.TestCase):
             for i in range(10):
                 name, timestamp, size, content_type, etag, deleted = (
                     'o%s' % i, next(ts).internal, 0, 'c', 'e', 0)
-                fp.write(':')
-                fp.write(pickle.dumps(
+                fp.write(b':')
+                fp.write(base64.b64encode(pickle.dumps(
                     (name, timestamp, size, content_type, etag, deleted),
-                    protocol=2).encode('base64'))
+                    protocol=2)))
                 fp.flush()
 
         broker._commit_puts = mock_commit_puts
@@ -3227,10 +3235,10 @@ class TestContainerBroker(unittest.TestCase):
             for i in range(10):
                 name, timestamp, size, content_type, etag, deleted = (
                     'o%s' % i, next(ts).internal, 0, 'c', 'e', 0)
-                fp.write(':')
-                fp.write(pickle.dumps(
+                fp.write(b':')
+                fp.write(base64.b64encode(pickle.dumps(
                     (name, timestamp, size, content_type, etag, deleted),
-                    protocol=2).encode('base64'))
+                    protocol=2)))
                 fp.flush()
 
         broker._commit_puts = mock_commit_puts
@@ -3731,7 +3739,7 @@ class TestContainerBroker(unittest.TestCase):
             broker = ContainerBroker(db_path, account=a, container=c)
             broker.initialize(next(ts_iter).internal, 0)
             broker.set_sharding_sysmeta('Root', 'a/c')
-            broker.merge_shard_ranges(shard_range_by_state.values())
+            broker.merge_shard_ranges(list(shard_range_by_state.values()))
             return broker
 
         # make broker appear to be a root container

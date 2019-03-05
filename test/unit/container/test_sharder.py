@@ -31,6 +31,8 @@ import time
 
 from copy import deepcopy
 
+import six
+
 from swift.common import internal_client
 from swift.container import replicator
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
@@ -61,7 +63,7 @@ class BaseTestSharder(unittest.TestCase):
 
     def _make_broker(self, account='a', container='c', epoch=None,
                      device='sda', part=0, hash_=None):
-        hash_ = hash_ or hashlib.md5(container).hexdigest()
+        hash_ = hash_ or hashlib.md5(container.encode('utf-8')).hexdigest()
         datadir = os.path.join(
             self.tempdir, device, 'containers', str(part), hash_[-3:], hash_)
         if epoch:
@@ -211,14 +213,14 @@ class TestSharder(BaseTestSharder):
         with self.assertRaises(ValueError) as cm:
             do_test({'shard_shrink_point': 101}, {})
         self.assertIn(
-            'greater than 0, less than 100, not "101"', cm.exception.message)
-        self.assertIn('shard_shrink_point', cm.exception.message)
+            'greater than 0, less than 100, not "101"', str(cm.exception))
+        self.assertIn('shard_shrink_point', str(cm.exception))
 
         with self.assertRaises(ValueError) as cm:
             do_test({'shard_shrink_merge_point': 101}, {})
         self.assertIn(
-            'greater than 0, less than 100, not "101"', cm.exception.message)
-        self.assertIn('shard_shrink_merge_point', cm.exception.message)
+            'greater than 0, less than 100, not "101"', str(cm.exception))
+        self.assertIn('shard_shrink_merge_point', str(cm.exception))
 
     def test_init_internal_client_conf_loading_error(self):
         with mock.patch('swift.common.db_replicator.ring.Ring') \
@@ -350,7 +352,7 @@ class TestSharder(BaseTestSharder):
                             with self.assertRaises(Exception) as cm:
                                 sharder.run_forever()
 
-            self.assertEqual('Test over', cm.exception.message)
+            self.assertEqual('Test over', str(cm.exception))
             # four cycles are started, two brokers visited per cycle, but
             # fourth never completes
             self.assertEqual(8, len(fake_process_broker_calls))
@@ -836,7 +838,8 @@ class TestSharder(BaseTestSharder):
             'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
             params=params)
 
-        params = {'format': 'json', 'end_marker': 'there', 'marker': 'here'}
+        params = {'format': 'json',
+                  'end_marker': 'there', 'marker': 'here'}
         actual, mock_call = do_test(json.dumps([]), params=params)
         self._assert_shard_ranges_equal([], actual)
         mock_call.assert_called_once_with(
@@ -1248,7 +1251,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
-        self.assertEqual(str(shard_ranges[1].upper), context.cursor)
+        self.assertEqual(shard_ranges[1].upper_str, context.cursor)
         self.assertEqual(8, context.cleave_to_row)
         self.assertEqual(8, context.max_row)
 
@@ -1281,7 +1284,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
-        self.assertEqual(str(shard_ranges[1].upper), context.cursor)
+        self.assertEqual(shard_ranges[1].upper_str, context.cursor)
         self.assertEqual(8, context.cleave_to_row)
         self.assertEqual(8, context.max_row)
 
@@ -1313,7 +1316,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertTrue(context.cleaving_done)
-        self.assertEqual(str(shard_ranges[2].upper), context.cursor)
+        self.assertEqual(shard_ranges[2].upper_str, context.cursor)
         self.assertEqual(8, context.cleave_to_row)
         self.assertEqual(8, context.max_row)
 
@@ -1388,7 +1391,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertFalse(context.misplaced_done)
         self.assertFalse(context.cleaving_done)
-        self.assertEqual(str(shard_ranges[0].upper), context.cursor)
+        self.assertEqual(shard_ranges[0].upper_str, context.cursor)
         self.assertEqual(6, context.cleave_to_row)
         self.assertEqual(6, context.max_row)
 
@@ -1433,7 +1436,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertTrue(context.cleaving_done)
-        self.assertEqual(str(shard_ranges[1].upper), context.cursor)
+        self.assertEqual(shard_ranges[1].upper_str, context.cursor)
         self.assertEqual(6, context.cleave_to_row)
         self.assertEqual(6, context.max_row)
 
@@ -1492,7 +1495,7 @@ class TestSharder(BaseTestSharder):
         context = CleavingContext.load(broker)
         self.assertTrue(context.misplaced_done)
         self.assertTrue(context.cleaving_done)
-        self.assertEqual(str(acceptor.upper), context.cursor)
+        self.assertEqual(acceptor.upper_str, context.cursor)
         self.assertEqual(2, context.cleave_to_row)
         self.assertEqual(2, context.max_row)
 
@@ -3058,9 +3061,9 @@ class TestSharder(BaseTestSharder):
             sharder._move_misplaced_objects(broker)
 
         sharder._fetch_shard_ranges.assert_has_calls(
-            [mock.call(broker, newest=True, params={'states': 'updating',
-                                                    'marker': '',
-                                                    'end_marker': 'here\x00'}),
+            [mock.call(broker, newest=True,
+                       params={'states': 'updating',
+                               'marker': '', 'end_marker': 'here\x00'}),
              mock.call(broker, newest=True, params={'states': 'updating',
                                                     'marker': 'where',
                                                     'end_marker': ''})])
@@ -3147,12 +3150,12 @@ class TestSharder(BaseTestSharder):
             sharder._move_misplaced_objects(broker)
 
         sharder._fetch_shard_ranges.assert_has_calls(
-            [mock.call(broker, newest=True, params={'states': 'updating',
-                                                    'marker': '',
-                                                    'end_marker': 'here\x00'}),
-             mock.call(broker, newest=True, params={'states': 'updating',
-                                                    'marker': 'where',
-                                                    'end_marker': ''})])
+            [mock.call(broker, newest=True,
+                       params={'states': 'updating',
+                               'marker': '', 'end_marker': 'here\x00'}),
+             mock.call(broker, newest=True,
+                       params={'states': 'updating',
+                               'marker': 'where', 'end_marker': ''})])
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, expected_shard_dbs[-1], 0)],
         )
@@ -3614,7 +3617,7 @@ class TestSharder(BaseTestSharder):
         shard_ranges = self._make_shard_ranges((('', 'h'), ('h', '')))
 
         def do_test(replicas, *resp_codes):
-            sent_data = defaultdict(str)
+            sent_data = defaultdict(bytes)
 
             def on_send(fake_conn, data):
                 sent_data[fake_conn] += data
@@ -3627,6 +3630,7 @@ class TestSharder(BaseTestSharder):
 
             self.assertEqual(sharder.ring.replica_count, len(conn.requests))
             expected_body = json.dumps([dict(sr) for sr in shard_ranges])
+            expected_body = expected_body.encode('ascii')
             expected_headers = {'Content-Type': 'application/json',
                                 'Content-Length': str(len(expected_body)),
                                 'X-Timestamp': now.internal,
@@ -4513,11 +4517,28 @@ class TestCleavingContext(BaseTestSharder):
 
         for curs in ('curs', u'curs\u00e4\u00fb'):
             with annotate_failure('%r' % curs):
+                expected = curs.encode('utf-8') if six.PY2 else curs
                 ctx = CleavingContext(ref, curs, 12, 11, 10, False, True)
-                self.assertEqual(curs.encode('utf8'), ctx.cursor)
+                self.assertEqual(dict(ctx), {
+                    'cursor': expected,
+                    'max_row': 12,
+                    'cleave_to_row': 11,
+                    'last_cleave_to_row': 10,
+                    'cleaving_done': False,
+                    'misplaced_done': True,
+                    'ranges_done': 0,
+                    'ranges_todo': 0,
+                    'ref': ref,
+                })
+                self.assertEqual(expected, ctx.cursor)
                 ctx.store(broker)
-                ctx = CleavingContext.load(broker)
-                self.assertEqual(curs.encode('utf8'), ctx.cursor)
+                reloaded_ctx = CleavingContext.load(broker)
+                self.assertEqual(expected, reloaded_ctx.cursor)
+                # Since we reloaded, the max row gets updated from the broker
+                self.assertEqual(reloaded_ctx.max_row, -1)
+                # reset it so the dict comparison will succeed
+                reloaded_ctx.max_row = 12
+                self.assertEqual(dict(ctx), dict(reloaded_ctx))
 
     def test_load(self):
         broker = self._make_broker()

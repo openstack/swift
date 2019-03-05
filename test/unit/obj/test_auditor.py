@@ -257,7 +257,8 @@ class TestAuditor(unittest.TestCase):
             checksum = xattr.getxattr(
                 file_path, "user.swift.metadata_checksum")
 
-            self.assertEqual(checksum, md5(metadata).hexdigest())
+            self.assertEqual(checksum,
+                             md5(metadata).hexdigest().encode('ascii'))
 
     def test_object_audit_diff_data(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
@@ -327,16 +328,16 @@ class TestAuditor(unittest.TestCase):
 
         # two good frags in an EC archive
         frag_0 = disk_file.policy.pyeclib_driver.encode(
-            'x' * disk_file.policy.ec_segment_size)[0]
+            b'x' * disk_file.policy.ec_segment_size)[0]
         frag_1 = disk_file.policy.pyeclib_driver.encode(
-            'y' * disk_file.policy.ec_segment_size)[0]
+            b'y' * disk_file.policy.ec_segment_size)[0]
         data = frag_0 + frag_1
         auditor_worker = do_test(data)
         self.assertEqual(0, auditor_worker.quarantines)
         self.assertFalse(auditor_worker.logger.get_lines_for_level('error'))
 
         # corrupt second frag headers
-        corrupt_frag_1 = 'blah' * 16 + frag_1[64:]
+        corrupt_frag_1 = b'blah' * 16 + frag_1[64:]
         data = frag_0 + corrupt_frag_1
         auditor_worker = do_test(data)
         self.assertEqual(1, auditor_worker.quarantines)
@@ -347,7 +348,7 @@ class TestAuditor(unittest.TestCase):
                       log_lines[0])
 
         # dangling extra corrupt frag data
-        data = frag_0 + frag_1 + 'wtf' * 100
+        data = frag_0 + frag_1 + b'wtf' * 100
         auditor_worker = do_test(data)
         self.assertEqual(1, auditor_worker.quarantines)
         log_lines = auditor_worker.logger.get_lines_for_level('error')
@@ -365,7 +366,8 @@ class TestAuditor(unittest.TestCase):
             b'X-Object-Sysmeta-Ec-Content-Length: 1024\r\n' +
             b'X-Object-Sysmeta-Ec-Etag: 1234bff7eb767cc6d19627c6b6f9edef\r\n' +
             b'X-Object-Sysmeta-Ec-Frag-Index: 1\r\n' +
-            b'X-Object-Sysmeta-Ec-Scheme: ' + DEFAULT_TEST_EC_TYPE + '\r\n' +
+            b'X-Object-Sysmeta-Ec-Scheme: ' +
+            DEFAULT_TEST_EC_TYPE.encode('ascii') + b'\r\n' +
             b'X-Object-Sysmeta-Ec-Segment-Size: 1048576\r\n' +
             b'X-Timestamp: 1471512345.17333\r\n\r\n'
         )
@@ -689,7 +691,7 @@ class TestAuditor(unittest.TestCase):
 
     def test_object_run_recon_cache(self):
         ts = Timestamp(time.time())
-        data = 'test_data'
+        data = b'test_data'
 
         with self.disk_file.create() as writer:
             writer.write(data)
@@ -986,7 +988,7 @@ class TestAuditor(unittest.TestCase):
         hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
         self.assertTrue(os.path.exists(hash_invalid))
         with open(hash_invalid, 'rb') as fp:
-            self.assertEqual('', fp.read().strip('\n'))
+            self.assertEqual(b'', fp.read().strip(b'\n'))
         # Run auditor
         self.auditor.run_audit(mode='once', zero_byte_fps=zero_byte_fps)
         # sanity check - auditor should not remove tombstone file
@@ -1002,7 +1004,7 @@ class TestAuditor(unittest.TestCase):
         hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
         self.assertTrue(os.path.exists(hash_invalid))
         with open(hash_invalid, 'rb') as fp:
-            self.assertEqual('', fp.read().strip('\n'))
+            self.assertEqual(b'', fp.read().strip(b'\n'))
 
     def test_reclaimable_tombstone(self):
         # audit with a reclaimable tombstone
@@ -1013,7 +1015,7 @@ class TestAuditor(unittest.TestCase):
         self.assertTrue(os.path.exists(hash_invalid))
         with open(hash_invalid, 'rb') as fp:
             hash_val = fp.read()
-        self.assertEqual(suffix, hash_val.strip('\n'))
+        self.assertEqual(suffix.encode('ascii'), hash_val.strip(b'\n'))
 
     def test_non_reclaimable_tombstone_with_custom_reclaim_age(self):
         # audit with a tombstone newer than custom reclaim age
@@ -1025,7 +1027,7 @@ class TestAuditor(unittest.TestCase):
         hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
         self.assertTrue(os.path.exists(hash_invalid))
         with open(hash_invalid, 'rb') as fp:
-            self.assertEqual('', fp.read().strip('\n'))
+            self.assertEqual(b'', fp.read().strip(b'\n'))
 
     def test_reclaimable_tombstone_with_custom_reclaim_age(self):
         # audit with a tombstone older than custom reclaim age
@@ -1038,7 +1040,7 @@ class TestAuditor(unittest.TestCase):
         self.assertTrue(os.path.exists(hash_invalid))
         with open(hash_invalid, 'rb') as fp:
             hash_val = fp.read()
-        self.assertEqual(suffix, hash_val.strip('\n'))
+        self.assertEqual(suffix.encode('ascii'), hash_val.strip(b'\n'))
 
     def test_reclaimable_tombstone_with_zero_byte_fps(self):
         # audit with a tombstone older than reclaim age by a zero_byte_fps
@@ -1050,7 +1052,7 @@ class TestAuditor(unittest.TestCase):
         hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
         self.assertTrue(os.path.exists(hash_invalid))
         with open(hash_invalid, 'rb') as fp:
-            self.assertEqual('', fp.read().strip('\n'))
+            self.assertEqual(b'', fp.read().strip(b'\n'))
 
     def _test_expired_object_is_ignored(self, zero_byte_fps):
         # verify that an expired object does not get mistaken for a tombstone
@@ -1065,8 +1067,9 @@ class TestAuditor(unittest.TestCase):
         part_dir = dirname(dirname(self.disk_file._datadir))
         hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
         with open(hash_invalid, 'rb') as fp:
-            self.assertEqual(basename(dirname(self.disk_file._datadir)),
-                             fp.read().strip('\n'))  # sanity check
+            self.assertEqual(
+                basename(dirname(self.disk_file._datadir)).encode('ascii'),
+                fp.read().strip(b'\n'))  # sanity check
 
         # run the auditor...
         with mock.patch.object(auditor, 'dump_recon_cache'):
@@ -1075,14 +1078,15 @@ class TestAuditor(unittest.TestCase):
         # the auditor doesn't touch anything on the invalidation file
         # (i.e. not truncate and add no entry)
         with open(hash_invalid, 'rb') as fp:
-            self.assertEqual(basename(dirname(self.disk_file._datadir)),
-                             fp.read().strip('\n'))  # sanity check
+            self.assertEqual(
+                basename(dirname(self.disk_file._datadir)).encode('ascii'),
+                fp.read().strip(b'\n'))  # sanity check
 
         # this get_hashes call will truncate the invalid hashes entry
         self.disk_file.manager.get_hashes(
             'sda', '0', [], self.disk_file.policy)
         with open(hash_invalid, 'rb') as fp:
-            self.assertEqual('', fp.read().strip('\n'))  # sanity check
+            self.assertEqual(b'', fp.read().strip(b'\n'))  # sanity check
 
         # run the auditor, again...
         with mock.patch.object(auditor, 'dump_recon_cache'):
@@ -1095,7 +1099,7 @@ class TestAuditor(unittest.TestCase):
         self.assertFalse(audit.logger.get_lines_for_level('warning'))
         # and there was no hash invalidation
         with open(hash_invalid, 'rb') as fp:
-            self.assertEqual('', fp.read().strip('\n'))
+            self.assertEqual(b'', fp.read().strip(b'\n'))
 
     def test_expired_object_is_ignored(self):
         self._test_expired_object_is_ignored(0)
@@ -1420,7 +1424,7 @@ class TestAuditor(unittest.TestCase):
         ts = Timestamp(time.time())
         with self.disk_file.create() as writer:
             metadata = {
-                'ETag': md5('').hexdigest(),
+                'ETag': md5(b'').hexdigest(),
                 'X-Timestamp': ts.normal,
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }

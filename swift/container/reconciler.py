@@ -13,11 +13,13 @@
 
 import time
 from collections import defaultdict
+import functools
 import socket
 import itertools
 import logging
 
 from eventlet import GreenPile, GreenPool, Timeout
+import six
 
 from swift.common import constraints
 from swift.common.daemon import Daemon
@@ -117,8 +119,9 @@ def translate_container_headers_to_info(headers):
 
 
 def best_policy_index(headers):
-    container_info = map(translate_container_headers_to_info, headers)
-    container_info.sort(cmp=cmp_policy_info)
+    container_info = [translate_container_headers_to_info(header_set)
+                      for header_set in headers]
+    container_info.sort(key=functools.cmp_to_key(cmp_policy_info))
     return container_info[0]['storage_policy_index']
 
 
@@ -261,7 +264,10 @@ def parse_raw_obj(obj_info):
     :returns: a queue entry dict with the keys: q_policy_index, account,
               container, obj, q_op, q_ts, q_record, and path
     """
-    raw_obj_name = obj_info['name'].encode('utf-8')
+    if six.PY2:
+        raw_obj_name = obj_info['name'].encode('utf-8')
+    else:
+        raw_obj_name = obj_info['name']
 
     policy_index, obj_name = raw_obj_name.split(':', 1)
     q_policy_index = int(policy_index)
@@ -691,8 +697,10 @@ class ContainerReconciler(Daemon):
                 break
             # reversed order since we expect older containers to be empty
             for c in reversed(one_page):
-                # encoding here is defensive
-                container = c['name'].encode('utf8')
+                container = c['name']
+                if six.PY2:
+                    # encoding here is defensive
+                    container = container.encode('utf8')
                 if container == current_container:
                     continue  # we've already hit this one this pass
                 yield container

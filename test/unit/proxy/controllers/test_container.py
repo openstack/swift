@@ -450,7 +450,8 @@ class TestContainerController(TestRingBase):
                 self.assertLess(name(prev), name(next_))
         container_path = '/v1/a/c' + query_string
         codes = (resp[0] for resp in mock_responses)
-        bodies = iter([json.dumps(resp[1]) for resp in mock_responses])
+        bodies = iter([json.dumps(resp[1]).encode('ascii')
+                       for resp in mock_responses])
         exp_headers = [resp[2] for resp in mock_responses]
         request = Request.blank(container_path)
         with mocked_http_conn(
@@ -1010,7 +1011,7 @@ class TestContainerController(TestRingBase):
             'X-Backend-Sharding-State': 'unsharded',
             'X-Container-Object-Count': 0,
             'X-Container-Bytes-Used': 0,
-            'X-Container-Meta-Flavour': 'flavour%d' % i,
+            'X-Container-Meta-Flavour': 'flavour',
             'X-Backend-Storage-Policy-Index': 0}
 
         # empty first shard range

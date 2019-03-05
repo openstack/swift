@@ -74,7 +74,8 @@ class FakeMemcache(object):
 class FakeApp(object):
 
     def __call__(self, env, start_response):
-        return ['204 No Content']
+        start_response('200 OK', [])
+        return [b'Some Content']
 
 
 def start_response(*args):
@@ -306,7 +307,7 @@ class TestRateLimit(unittest.TestCase):
                 thread.join()
             the_498s = [
                 t for t in threads
-                if ''.join(t.result).startswith('Slow down')]
+                if b''.join(t.result).startswith(b'Slow down')]
             self.assertEqual(len(the_498s), 0)
             self.assertEqual(time_ticker, 0)
 
@@ -348,7 +349,7 @@ class TestRateLimit(unittest.TestCase):
                 thread.join()
             the_497s = [
                 t for t in threads
-                if ''.join(t.result).startswith('Your account')]
+                if b''.join(t.result).startswith(b'Your account')]
             self.assertEqual(len(the_497s), 5)
             self.assertEqual(time_ticker, 0)
 
@@ -374,13 +375,14 @@ class TestRateLimit(unittest.TestCase):
             r = self.test_ratelimit(req.environ, start_response)
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], 'Slow down')
+            self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], 'Slow down')
+            self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], '204 No Content')
+            print(repr(r))
+            self.assertEqual(r[0], b'Some Content')
 
     def test_ratelimit_max_rate_double_container(self):
         global time_ticker
@@ -407,13 +409,13 @@ class TestRateLimit(unittest.TestCase):
             r = self.test_ratelimit(req.environ, start_response)
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], 'Slow down')
+            self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], 'Slow down')
+            self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], '204 No Content')
+            self.assertEqual(r[0], b'Some Content')
 
     def test_ratelimit_max_rate_double_container_listing(self):
         global time_ticker
@@ -440,13 +442,13 @@ class TestRateLimit(unittest.TestCase):
             r = self.test_ratelimit(req.environ, start_response)
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], 'Slow down')
+            self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], 'Slow down')
+            self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
             r = self.test_ratelimit(req.environ, start_response)
-            self.assertEqual(r[0], '204 No Content')
+            self.assertEqual(r[0], b'Some Content')
             mc = self.test_ratelimit.memcache_client
             try:
                 self.test_ratelimit.memcache_client = None
@@ -579,7 +581,7 @@ class TestSwiftInfo(unittest.TestCase):
             try:
                 swift_info[key]
             except KeyError as err:
-                if key not in err:
+                if key not in str(err):
                     raise
 
         test_limits = {'account_ratelimit': 1,

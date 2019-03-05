@@ -17,6 +17,7 @@ from swift import gettext_ as _
 import json
 
 from six.moves.urllib.parse import unquote
+
 from swift.common.utils import public, csv_append, Timestamp, \
     config_true_value, ShardRange
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
@@ -26,7 +27,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, set_info_cache, clear_info_cache
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
-    HTTPNotFound, HTTPServiceUnavailable
+    HTTPNotFound, HTTPServiceUnavailable, str_to_wsgi, wsgi_to_bytes
 
 
 class ContainerController(Controller):
@@ -187,9 +188,9 @@ class ContainerController(Controller):
             if end_marker and end_marker in shard_range:
                 params['end_marker'] = end_marker
             elif reverse:
-                params['end_marker'] = shard_range.lower_str
+                params['end_marker'] = str_to_wsgi(shard_range.lower_str)
             else:
-                params['end_marker'] = shard_range.end_marker
+                params['end_marker'] = str_to_wsgi(shard_range.end_marker)
 
             if (shard_range.account == self.account_name and
                     shard_range.container == self.container_name):
@@ -212,11 +213,13 @@ class ContainerController(Controller):
 
             if limit <= 0:
                 break
-            elif (end_marker and reverse and
-                  end_marker >= objects[-1]['name'].encode('utf-8')):
+            if (end_marker and reverse and
+                (wsgi_to_bytes(end_marker) >=
+                 objects[-1]['name'].encode('utf-8'))):
                 break
-            elif (end_marker and not reverse and
-                  end_marker <= objects[-1]['name'].encode('utf-8')):
+            if (end_marker and not reverse and
+                (wsgi_to_bytes(end_marker) <=
+                 objects[-1]['name'].encode('utf-8'))):
                 break
 
         resp.body = json.dumps(objects).encode('ascii')

@@ -15,6 +15,7 @@
 
 import array
 from contextlib import contextmanager
+import json
 import mock
 import os
 from posix import stat_result, statvfs_result
@@ -45,7 +46,7 @@ def fail_io_open(file_path, open_mode):
 
 class FakeApp(object):
     def __call__(self, env, start_response):
-        return "FAKE APP"
+        return b"FAKE APP"
 
 
 def start_response(*args):
@@ -76,13 +77,15 @@ class OpenAndReadTester(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         if self.index == self.out_len:
             raise StopIteration
         else:
             line = self.data[self.index]
             self.index += 1
         return line
+
+    next = __next__
 
     def read(self, *args, **kwargs):
         self.read_calls.append((args, kwargs))
@@ -1138,7 +1141,7 @@ class TestReconMiddleware(unittest.TestCase):
         self.app.get_time = self.frecon.fake_time
 
     def test_recon_get_mem(self):
-        get_mem_resp = ['{"memtest": "1"}']
+        get_mem_resp = [b'{"memtest": "1"}']
         req = Request.blank('/recon/mem', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_mem_resp)
@@ -1147,29 +1150,30 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/version',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, [utils.json.dumps({'version': swiftver})])
+        self.assertEqual(resp, [json.dumps({
+            'version': swiftver}).encode('ascii')])
 
     def test_recon_get_load(self):
-        get_load_resp = ['{"loadtest": "1"}']
+        get_load_resp = [b'{"loadtest": "1"}']
         req = Request.blank('/recon/load', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_load_resp)
 
     def test_recon_get_async(self):
-        get_async_resp = ['{"asynctest": "1"}']
+        get_async_resp = [b'{"asynctest": "1"}']
         req = Request.blank('/recon/async', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_async_resp)
 
     def test_get_device_info(self):
-        get_device_resp = ['{"/srv/1/node": ["sdb1"]}']
+        get_device_resp = [b'{"/srv/1/node": ["sdb1"]}']
         req = Request.blank('/recon/devices',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_device_resp)
 
     def test_recon_get_replication_notype(self):
-        get_replication_resp = ['{"replicationtest": "1"}']
+        get_replication_resp = [b'{"replicationtest": "1"}']
         req = Request.blank('/recon/replication',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
@@ -1178,7 +1182,7 @@ class TestReconMiddleware(unittest.TestCase):
         self.frecon.fake_replication_rtype = None
 
     def test_recon_get_replication_all(self):
-        get_replication_resp = ['{"replicationtest": "1"}']
+        get_replication_resp = [b'{"replicationtest": "1"}']
         # test account
         req = Request.blank('/recon/replication/account',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1202,21 +1206,21 @@ class TestReconMiddleware(unittest.TestCase):
         self.frecon.fake_replication_rtype = None
 
     def test_recon_get_auditor_invalid(self):
-        get_auditor_resp = ['Invalid path: /recon/auditor/invalid']
+        get_auditor_resp = [b'Invalid path: /recon/auditor/invalid']
         req = Request.blank('/recon/auditor/invalid',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_auditor_resp)
 
     def test_recon_get_auditor_notype(self):
-        get_auditor_resp = ['Invalid path: /recon/auditor']
+        get_auditor_resp = [b'Invalid path: /recon/auditor']
         req = Request.blank('/recon/auditor',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_auditor_resp)
 
     def test_recon_get_auditor_all(self):
-        get_auditor_resp = ['{"auditortest": "1"}']
+        get_auditor_resp = [b'{"auditortest": "1"}']
         req = Request.blank('/recon/auditor/account',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
@@ -1237,21 +1241,21 @@ class TestReconMiddleware(unittest.TestCase):
         self.frecon.fake_auditor_rtype = None
 
     def test_recon_get_updater_invalid(self):
-        get_updater_resp = ['Invalid path: /recon/updater/invalid']
+        get_updater_resp = [b'Invalid path: /recon/updater/invalid']
         req = Request.blank('/recon/updater/invalid',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_updater_resp)
 
     def test_recon_get_updater_notype(self):
-        get_updater_resp = ['Invalid path: /recon/updater']
+        get_updater_resp = [b'Invalid path: /recon/updater']
         req = Request.blank('/recon/updater',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_updater_resp)
 
     def test_recon_get_updater(self):
-        get_updater_resp = ['{"updatertest": "1"}']
+        get_updater_resp = [b'{"updatertest": "1"}']
         req = Request.blank('/recon/updater/container',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
@@ -1266,21 +1270,21 @@ class TestReconMiddleware(unittest.TestCase):
         self.frecon.fake_updater_rtype = None
 
     def test_recon_get_expirer_invalid(self):
-        get_updater_resp = ['Invalid path: /recon/expirer/invalid']
+        get_updater_resp = [b'Invalid path: /recon/expirer/invalid']
         req = Request.blank('/recon/expirer/invalid',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_updater_resp)
 
     def test_recon_get_expirer_notype(self):
-        get_updater_resp = ['Invalid path: /recon/expirer']
+        get_updater_resp = [b'Invalid path: /recon/expirer']
         req = Request.blank('/recon/expirer',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_updater_resp)
 
     def test_recon_get_expirer_object(self):
-        get_expirer_resp = ['{"expirertest": "1"}']
+        get_expirer_resp = [b'{"expirertest": "1"}']
         req = Request.blank('/recon/expirer/object',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
@@ -1289,14 +1293,14 @@ class TestReconMiddleware(unittest.TestCase):
         self.frecon.fake_updater_rtype = None
 
     def test_recon_get_mounted(self):
-        get_mounted_resp = ['{"mountedtest": "1"}']
+        get_mounted_resp = [b'{"mountedtest": "1"}']
         req = Request.blank('/recon/mounted',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_mounted_resp)
 
     def test_recon_get_unmounted(self):
-        get_unmounted_resp = ['{"unmountedtest": "1"}']
+        get_unmounted_resp = [b'{"unmountedtest": "1"}']
         self.app.get_unmounted = self.frecon.fake_unmounted
         req = Request.blank('/recon/unmounted',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1304,43 +1308,43 @@ class TestReconMiddleware(unittest.TestCase):
         self.assertEqual(resp, get_unmounted_resp)
 
     def test_recon_get_unmounted_empty(self):
-        get_unmounted_resp = '[]'
+        get_unmounted_resp = b'[]'
         self.app.get_unmounted = self.frecon.fake_unmounted_empty
         req = Request.blank('/recon/unmounted',
                             environ={'REQUEST_METHOD': 'GET'})
-        resp = ''.join(self.app(req.environ, start_response))
+        resp = b''.join(self.app(req.environ, start_response))
         self.assertEqual(resp, get_unmounted_resp)
 
     def test_recon_get_diskusage(self):
-        get_diskusage_resp = ['{"diskusagetest": "1"}']
+        get_diskusage_resp = [b'{"diskusagetest": "1"}']
         req = Request.blank('/recon/diskusage',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_diskusage_resp)
 
     def test_recon_get_ringmd5(self):
-        get_ringmd5_resp = ['{"ringmd5test": "1"}']
+        get_ringmd5_resp = [b'{"ringmd5test": "1"}']
         req = Request.blank('/recon/ringmd5',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_ringmd5_resp)
 
     def test_recon_get_swiftconfmd5(self):
-        get_swiftconfmd5_resp = ['{"/etc/swift/swift.conf": "abcdef"}']
+        get_swiftconfmd5_resp = [b'{"/etc/swift/swift.conf": "abcdef"}']
         req = Request.blank('/recon/swiftconfmd5',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_swiftconfmd5_resp)
 
     def test_recon_get_quarantined(self):
-        get_quarantined_resp = ['{"quarantinedtest": "1"}']
+        get_quarantined_resp = [b'{"quarantinedtest": "1"}']
         req = Request.blank('/recon/quarantined',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_quarantined_resp)
 
     def test_recon_get_sockstat(self):
-        get_sockstat_resp = ['{"sockstattest": "1"}']
+        get_sockstat_resp = [b'{"sockstattest": "1"}']
         req = Request.blank('/recon/sockstat',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
@@ -1350,28 +1354,28 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/invalid',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, ['Invalid path: /recon/invalid'])
+        self.assertEqual(resp, [b'Invalid path: /recon/invalid'])
 
     def test_no_content(self):
         self.app.get_load = self.frecon.nocontent
         req = Request.blank('/recon/load', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, ['Internal server error.'])
+        self.assertEqual(resp, [b'Internal server error.'])
 
     def test_recon_pass(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, 'FAKE APP')
+        self.assertEqual(resp, b'FAKE APP')
 
     def test_recon_get_driveaudit(self):
-        get_driveaudit_resp = ['{"driveaudittest": "1"}']
+        get_driveaudit_resp = [b'{"driveaudittest": "1"}']
         req = Request.blank('/recon/driveaudit',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_driveaudit_resp)
 
     def test_recon_get_time(self):
-        get_time_resp = ['{"timetest": "1"}']
+        get_time_resp = [b'{"timetest": "1"}']
         req = Request.blank('/recon/time',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
