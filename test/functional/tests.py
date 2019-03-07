@@ -128,11 +128,13 @@ class Base(unittest2.TestCase):
 
 
 class Base2(object):
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         Utils.create_name = Utils.create_utf8_name
-        super(Base2, self).setUp()
+        super(Base2, cls).setUpClass()
 
-    def tearDown(self):
+    @classmethod
+    def tearDownClass(cls):
         Utils.create_name = Utils.create_ascii_name
 
 
@@ -353,8 +355,10 @@ class TestAccount(Base):
             self.assertEqual(len(containers), len(self.env.containers))
             self.assert_status(200)
 
+            marker = (containers[-1] if format_type is None
+                      else containers[-1]['name'])
             containers = self.env.account.containers(
-                parms={'format': format_type, 'marker': containers[-1]})
+                parms={'format': format_type, 'marker': marker})
             self.assertEqual(len(containers), 0)
             if format_type is None:
                 self.assert_status(204)
@@ -771,8 +775,9 @@ class TestContainer(Base):
             self.assertEqual(len(files), len(self.env.files))
             self.assert_status(200)
 
+            marker = files[-1] if format_type is None else files[-1]['name']
             files = self.env.container.files(
-                parms={'format': format_type, 'marker': files[-1]})
+                parms={'format': format_type, 'marker': marker})
             self.assertEqual(len(files), 0)
 
             if format_type is None:
