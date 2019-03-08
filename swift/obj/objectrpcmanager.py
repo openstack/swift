@@ -22,7 +22,7 @@ from swift.common.ring.utils import is_local_device
 from swift.common.storage_policy import POLICIES, get_policy_string
 from swift.common.utils import PrefixLoggerAdapter, get_logger, \
     config_true_value, whataremyips
-from swift.obj import rpc_grpc as rpc
+from swift.obj import rpc_http as rpc
 
 
 class ObjectRpcManager(Daemon):
@@ -142,12 +142,14 @@ class ObjectRpcManager(Daemon):
                 try:
                     state = rpc.get_kv_state(socket_path)
                     if not state.isClean:
+                        self.logger.debug(volcheck_args)
                         subprocess.call(volcheck_args)
                 except Exception:
                     self.logger.exception("state check failed, continue")
                 sleep(10)
         else:
             losf_args = ['swift-losf-rpc', '-diskPath', str(disk_path),
+                         '-debug', 'info',
                          '-policyIdx', str(policy_idx),
                          '-waitForMount={}'.format(str(self.mount_check))]
             if self.use_go_leveldb:

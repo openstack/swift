@@ -23,7 +23,7 @@ import logging.handlers
 import os
 from os.path import basename, dirname, normpath
 
-from grpc import RpcError, StatusCode
+from swift.obj.rpc_http import RpcError, StatusCode
 import glob
 import sys
 
@@ -37,7 +37,7 @@ from swift.obj.header import read_volume_header, HeaderException, \
 from swift.obj.vfile_utils import get_socket_path_from_volume_path, \
     next_aligned_offset, change_user, get_mountpoint_from_volume_path
 from swift.common.utils import ismount
-from swift.obj import rpc_grpc as rpc
+from swift.obj import rpc_http as rpc
 
 # Not available in this python version
 SEEK_DATA = 3
@@ -187,7 +187,7 @@ def check_volume(volume_path, socket_path=None, force_full_check=False):
     try:
         rpc.get_volume(socket_path, vh.volume_idx, repair_tool=True)
     except RpcError as e:
-        if e.code() == StatusCode.NOT_FOUND:
+        if e.code() == StatusCode.NotFound:
             txt = "Missing volume: {} in the KV"
             logger.warn(txt.format(vh.volume_idx))
             missing_in_kv = True
@@ -224,7 +224,7 @@ def check_volume(volume_path, socket_path=None, force_full_check=False):
                 obj = rpc.get_object(socket_path, "{}".format(objname),
                                      repair_tool=True)
             except RpcError as e:
-                if e.code() == StatusCode.NOT_FOUND:
+                if e.code() == StatusCode.NotFound:
                     handle_obj_missing_in_kv(socket_path, volume_path, header,
                                              offset, args)
                     continue

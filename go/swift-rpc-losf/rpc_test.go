@@ -17,32 +17,25 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"fmt"
+	"github.com/alecuyer/statsd/v2"
+	"github.com/golang/protobuf/proto"
+	"github.com/openstack/swift-rpc-losf/codes"
 	pb "github.com/openstack/swift-rpc-losf/proto"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"github.com/alecuyer/statsd/v2"
-	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"path"
 	"strings"
 	"testing"
-	"time"
 )
 
-func runTestServer(kv KV, diskPath string, addr string) (err error) {
-	lis, err := net.Listen("tcp", addr)
-	if err != nil {
-		return
-	}
-
-	s := grpc.NewServer()
+func runTestServer(kv KV, diskPath string, socketPath string, listening chan bool) (err error) {
 	_, diskName := path.Split(path.Clean(diskPath))
-	fs := &server{kv: kv, diskPath: diskPath, diskName: diskName, isClean: true}
+	fs := &server{kv: kv, diskPath: diskPath, diskName: diskName, socketPath: socketPath, isClean: true}
 
 	statsdPrefix := "kv"
 	fs.statsd_c, err = statsd.New(statsd.Prefix(statsdPrefix))
@@ -50,8 +43,19 @@ func runTestServer(kv KV, diskPath string, addr string) (err error) {
 		return
 	}
 
-	pb.RegisterFileMgrServer(s, fs)
-	s.Serve(lis)
+	go func() {
+		os.Remove(fs.socketPath)
+		unixListener, err := net.Listen("unix", fs.socketPath)
+		if err != nil {
+			log.Fatalf("Cannot serve: %v", err)
+		}
+		listening <- true
+		server := http.Server{Handler: fs}
+		fs.httpServer = &server
+		log.Debug("Start serving")
+		server.Serve(unixListener)
+
+	}()
 	return
 }
 
@@ -61,7 +65,23 @@ func teardown(tempdir string) {
 	}
 }
 
-var client pb.FileMgrClient
+// var client pb.FileMgrClient
+var client http.Client
+
+// Check that err == nil and HTTP's status code is 200. If err is not nil, return err,
+// if status code is not 200, returns an error with the status code received, if err is nil
+// and status code is 200, return nil)
+func check_200(response *http.Response, err error) error {
+	if err != nil {
+		return err
+	}
+
+	if response.StatusCode != 200 {
+		return fmt.Errorf("HTTP status code is not 200: %v", response.StatusCode)
+	}
+
+	return nil
+}
 
 func populateKV() (err error) {
 	volumes := []pb.NewVolumeInfo{
@@ -172,25 +192,38 @@ func populateKV() (err error) {
 
 	// Register volumes
 	for _, df := range volumes {
-		_, err = client.RegisterVolume(context.Background(), &df)
+		out, err := proto.Marshal(&df)
 		if err != nil {
-			return
+			log.Error("failed to marshal")
+			return err
 		}
+		body := bytes.NewReader(out)
+		resp, err := client.Post("http://unix/register_volume", "application/octet-stream", body)
+		if err = check_200(resp, err); err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 	}
 
 	// Register objects
 	for _, obj := range objects {
-		_, err = client.RegisterObject(context.Background(), &obj)
+		out, err := proto.Marshal(&obj)
 		if err != nil {
-			return
+			log.Error("failed to marshal")
+			return err
 		}
+		body := bytes.NewReader(out)
+		resp, err := client.Post("http://unix/register_object", "application/octet-stream", body)
+		if err = check_200(resp, err); err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 	}
 	return
 }
 
 func TestMain(m *testing.M) {
-	log.Info("RPC test setup")
-	log.SetLevel(logrus.ErrorLevel)
+	log.SetLevel(logrus.InfoLevel)
 	diskPath, err := ioutil.TempDir("/tmp", "losf-test")
 	if err != nil {
 		log.Fatal(err)
@@ -207,17 +240,17 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatal("failed to create leveldb")
 	}
-	addr := "127.0.0.1:22345"
-	go runTestServer(kv, diskPath, addr)
+	socket_path := "/tmp/rpc.socket"
+	listening := make(chan bool, 1)
+	go runTestServer(kv, diskPath, socket_path, listening)
+	// Wait for the socket
+	<-listening
 
-	// test client
-	opts := []grpc.DialOption{grpc.WithBlock(), grpc.WithTimeout(time.Second), grpc.WithInsecure()}
-	conn, err := grpc.Dial(addr, opts...)
-	if err != nil {
-		log.Fatal(err)
+	client = http.Client{Transport: &http.Transport{DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+		return net.Dial("unix", "/tmp/rpc.socket")
+	},
+	},
 	}
-
-	client = pb.NewFileMgrClient(conn)
 
 	err = populateKV()
 	if err != nil {
@@ -239,14 +272,28 @@ func TestMain(m *testing.M) {
 func TestLoadObjectsByPrefix(t *testing.T) {
 	prefix := &pb.ObjectPrefix{Prefix: []byte("105de5f388ab4b72e56bc93f36ad388a")}
 
+	out, err := proto.Marshal(prefix)
+	if err != nil {
+		t.Error("failed to marshal")
+	}
+	body := bytes.NewReader(out)
+
 	expectedObjects := []pb.Object{
 		{Name: []byte("105de5f388ab4b72e56bc93f36ad388a1515750802.73393#2#d.data"), VolumeIndex: 33, Offset: 4096},
 		{Name: []byte("105de5f388ab4b72e56bc93f36ad388a1515873948.27383#2#d.meta"), VolumeIndex: 33, Offset: 8192},
 	}
 
-	r, err := client.LoadObjectsByPrefix(context.Background(), prefix)
-	if err != nil {
+	response, err := client.Post("http://unix/load_objects_by_prefix", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatalf("RPC call failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	r := &pb.LoadObjectsResponse{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Error("failed to unmarshal")
 	}
 
 	for i, obj := range r.Objects {
@@ -260,11 +307,26 @@ func TestLoadObjectsByPrefix(t *testing.T) {
 func TestListPartitions(t *testing.T) {
 	partPower := uint32(10)
 
+	lpInfo := &pb.ListPartitionsInfo{PartitionBits: partPower}
+	out, err := proto.Marshal(lpInfo)
+	if err != nil {
+		t.Error("failed to marshal")
+	}
+	body := bytes.NewReader(out)
+
 	expectedPartitions := []string{"9", "10", "40", "63", "65", "71", "111", "127", "139", "171", "195", "211", "213", "243", "271", "295", "327", "360", "379", "417", "420", "421", "428", "439", "453", "466", "500", "513", "530", "535", "559", "602", "604", "673", "675", "710", "765", "766", "786", "809", "810", "855", "974", "977", "1009", "1019"}
 
-	r, err := client.ListPartitions(context.Background(), &pb.ListPartitionsInfo{PartitionBits: partPower})
-	if err != nil {
+	response, err := client.Post("http://unix/list_partitions", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatalf("RPC call failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	r := &pb.DirEntries{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Error("failed to unmarshal")
 	}
 
 	if len(r.Entry) != len(expectedPartitions) {
@@ -282,15 +344,30 @@ func TestListPartitionRecursive(t *testing.T) {
 	partition := uint32(428)
 	partPower := uint32(10)
 
+	lpInfo := &pb.ListPartitionInfo{Partition: partition, PartitionBits: partPower}
+	out, err := proto.Marshal(lpInfo)
+	if err != nil {
+		t.Error("failed to marshal")
+	}
+	body := bytes.NewReader(out)
+
 	expEntries := []pb.FullPathEntry{
 		{Suffix: []byte("845"), Ohash: []byte("6b08eabf5667557c72dc6570aa1fb845"), Filename: []byte("1515750801.08639#4#d.data")},
 		{Suffix: []byte("845"), Ohash: []byte("6b08eabf5667557c72dc6570aa1fb845"), Filename: []byte("1515750856.77219.meta")},
 		{Suffix: []byte("845"), Ohash: []byte("6b08eabf5667557c72dc6570abcfb845"), Filename: []byte("1515643210.72429#4#d.data")},
 	}
 
-	r, err := client.ListPartitionRecursive(context.Background(), &pb.ListPartitionInfo{Partition: partition, PartitionBits: partPower})
-	if err != nil {
+	response, err := client.Post("http://unix/list_partition_recursive", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatalf("RPC call failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	r := &pb.PartitionContent{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Error("failed to unmarshal")
 	}
 
 	if len(r.FileEntries) != len(expEntries) {
@@ -310,11 +387,26 @@ func TestListSuffix(t *testing.T) {
 	partPower := uint32(10)
 	suffix := []byte("845")
 
+	lsInfo := &pb.ListSuffixInfo{Partition: partition, Suffix: suffix, PartitionBits: partPower}
+	out, err := proto.Marshal(lsInfo)
+	if err != nil {
+		t.Error(err)
+	}
+	body := bytes.NewReader(out)
+
 	expectedHashes := []string{"6b08eabf5667557c72dc6570aa1fb845", "6b08eabf5667557c72dc6570abcfb845"}
 
-	r, err := client.ListSuffix(context.Background(), &pb.ListSuffixInfo{Partition: partition, Suffix: suffix, PartitionBits: partPower})
-	if err != nil {
+	response, err := client.Post("http://unix/list_suffix", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatalf("RPC call failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	r := &pb.DirEntries{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Error(err)
 	}
 
 	if len(r.Entry) != len(expectedHashes) {
@@ -330,86 +422,149 @@ func TestListSuffix(t *testing.T) {
 
 func TestState(t *testing.T) {
 	// Mark dirty and check
-	_, err := client.SetKvState(context.Background(), &pb.KvState{IsClean: false})
+	kvstate := &pb.KvState{}
+	out, err := proto.Marshal(kvstate)
 	if err != nil {
-		t.Fatalf("Failed to change KV state")
+		t.Error(err)
 	}
-	resp, err := client.GetKvState(context.Background(), &pb.Empty{})
+	body := bytes.NewReader(out)
+
+	response, err := client.Post("http://unix/set_kv_state", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("Failed to change KV state: %v", err)
+	}
+	response.Body.Close()
+
+	empty := &pb.Empty{}
+	empty_serialized, err := proto.Marshal(empty)
 	if err != nil {
+		t.Error(err)
+	}
+	body = bytes.NewReader(empty_serialized)
+
+	response, err = client.Post("http://unix/get_kv_state", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatalf("RPC call failed: %v", err)
 	}
-	if resp.IsClean != false {
+	r := &pb.KvState{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Error(err)
+	}
+
+	if r.IsClean != false {
 		t.Fatal("isClean true, should be false")
 	}
 
 	// Mark clean and check
-	_, err = client.SetKvState(context.Background(), &pb.KvState{IsClean: true})
+	kvstate = &pb.KvState{IsClean: true}
+	out, err = proto.Marshal(kvstate)
 	if err != nil {
-		t.Fatalf("Failed to change KV state")
+		t.Error(err)
 	}
-	resp, err = client.GetKvState(context.Background(), &pb.Empty{})
-	if err != nil {
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/set_kv_state", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("Failed to change KV state: %v", err)
+	}
+	response.Body.Close()
+
+	body = bytes.NewReader(empty_serialized)
+	response, err = client.Post("http://unix/get_kv_state", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatalf("RPC call failed: %v", err)
 	}
-	if resp.IsClean != true {
+	defer response.Body.Close()
+	buf.Reset()
+	buf.ReadFrom(response.Body)
+
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Error(err)
+	}
+
+	if r.IsClean != true {
 		t.Fatal("isClean false, should be true")
 	}
 
 }
 
 func TestRegisterObject(t *testing.T) {
-    // Register new non-existing object
+	// Register new non-existing object
 	name := []byte("33dea50d391ee52a8ead7cb562a9b4e2/1539791765.84449#5#d.data")
-    obj := &pb.NewObjectInfo{Name: name, VolumeIndex: 1, Offset: 4096, NextOffset: 8192, RepairTool: false}
-    _, err := client.RegisterObject(context.Background(), obj)
-    if err != nil {
-        t.Fatalf("failed to register object: %s", err)
-    }
-
-    objInfo := &pb.LoadObjectInfo{Name: name, IsQuarantined: false, RepairTool: false}
-    r, err := client.LoadObject(context.Background(), objInfo)
-    if err != nil {
-        t.Fatalf("error getting registered object: %s", err)
-    }
-    if !bytes.Equal(r.Name, name) || r.VolumeIndex != 1 || r.Offset != 4096 {
-        t.Fatalf("object found but name, volume index, or offset, is wrong: %v", r)
-    }
-
-    // Register existing object, which should fail
-    obj = &pb.NewObjectInfo{Name: name, VolumeIndex: 1, Offset: 4096, NextOffset: 8192, RepairTool: false}
-    _, err = client.RegisterObject(context.Background(), obj)
+	obj := &pb.NewObjectInfo{Name: name, VolumeIndex: 1, Offset: 4096, NextOffset: 8192, RepairTool: false}
+	out, err := proto.Marshal(obj)
 	if err != nil {
-		grpcStatus, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("failed to convert error to grpc status")
-		}
-		if grpcStatus.Code() != codes.AlreadyExists {
-			t.Fatalf("registering existing object, expected AlreadyExists, got: %s", err)
-		}
-	} else {
-		t.Fatal("was able to register an existing object")
+		t.Fatal(err)
+	}
+	body := bytes.NewReader(out)
+
+	response, err := client.Post("http://unix/register_object", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to register object: %s", err)
+	}
+	response.Body.Close()
+
+	objInfo := &pb.LoadObjectInfo{Name: name, IsQuarantined: false, RepairTool: false}
+	out, err = proto.Marshal(objInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+	response, err = client.Post("http://unix/load_object", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("error getting registered object: %s", err)
+	}
+	r := &pb.Object{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+
+	if !bytes.Equal(r.Name, name) || r.VolumeIndex != 1 || r.Offset != 4096 {
+		t.Fatalf("object found but name, volume index, or offset, is wrong: %v", r)
 	}
 
-    // Remove object
-    unregInfo := &pb.ObjectName{Name: name}
-    _, err = client.UnregisterObject(context.Background(), unregInfo)
-    if err != nil {
-        t.Fatalf("failed to unregister object: %s", err)
-    }
-
-    // Attempt to remove again, should fail
-    unregInfo = &pb.ObjectName{Name: name}
-    _, err = client.UnregisterObject(context.Background(), unregInfo)
+	// Register existing object, which should fail
+	obj = &pb.NewObjectInfo{Name: name, VolumeIndex: 1, Offset: 4096, NextOffset: 8192, RepairTool: false}
+	out, err = proto.Marshal(obj)
 	if err != nil {
-		grpcStatus, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("failed to convert error to grpc status")
-		}
-		if grpcStatus.Code() != codes.NotFound {
-			t.Fatalf("unregistering non-existent object, expected NotFound, got: %s", err)
-		}
-	} else {
-		t.Fatal("was able to unregister a non-existent object")
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+	response, err = client.Post("http://unix/register_object", "application/octet-stream", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != int(codes.AlreadyExists) {
+		t.Fatalf("wrong status code, expected: %d, got: %d", codes.AlreadyExists, response.StatusCode)
+	}
+	response.Body.Close()
+
+	// Remove object
+	unregInfo := &pb.ObjectName{Name: name}
+	out, err = proto.Marshal(unregInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+	response, err = client.Post("http://unix/unregister_object", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to unregister object: %s", err)
+	}
+	response.Body.Close()
+
+	// Attempt to remove again, should fail
+	body = bytes.NewReader(out)
+	response, err = client.Post("http://unix/unregister_object", "application/octet-stream", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != int(codes.NotFound) {
+		t.Fatalf("wrong status code, expected: %d, got: %d", codes.NotFound, response.StatusCode)
 	}
 }
 
@@ -417,43 +572,66 @@ func TestQuarantineObject(t *testing.T) {
 	// Quarantine an existing object
 	name := []byte("bf43763a98208f15da803e76bf52e7d11515750803.01357#0#d.data")
 	objName := &pb.ObjectName{Name: name, RepairTool: false}
-	_, err := client.QuarantineObject(context.Background(), objName)
+	out, err := proto.Marshal(objName)
 	if err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.NewReader(out)
+	response, err := client.Post("http://unix/quarantine_object", "applicable/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatal("Failed to quarantine object")
 	}
+	response.Body.Close()
+
 	// We shouldn't be able to find it
 	objInfo := &pb.LoadObjectInfo{Name: name, IsQuarantined: false, RepairTool: false}
-	_, err = client.LoadObject(context.Background(), objInfo)
+	out, err = proto.Marshal(objInfo)
 	if err != nil {
-		grpcStatus, ok := status.FromError(err)
-		if !ok {
-			t.Fatal("failed to convert error to grpc status")
-		}
-		if grpcStatus.Code() != codes.NotFound {
-			t.Fatalf("Getting quarantined object, expected NotFound, got: %s", err)
-		}
-	} else {
-		t.Fatal("Quarantined object can still be found")
+		t.Fatal(err)
 	}
+	body = bytes.NewReader(out)
+	response, err = client.Post("http://unix/quarantine_object", "applicable/octet-stream", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != int(codes.NotFound) {
+		t.Fatalf("wrong status code, expected: %d, got: %d", codes.NotFound, response.StatusCode)
+	}
+	response.Body.Close()
 
 	// TODO, need to test that the quarantined object exists
 	// then try to quarantine non existent object
 }
 
 func TestUnquarantineObject(t *testing.T) {
-	// Unuarantine an existing quarantined object (check that)
+	// Unquarantine an existing quarantined object (check that)
 	name := []byte("bf43763a98208f15da803e76bf52e7d11515750803.01357#0#d.data")
 	objName := &pb.ObjectName{Name: name, RepairTool: false}
-	_, err := client.UnquarantineObject(context.Background(), objName)
+	out, err := proto.Marshal(objName)
 	if err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.NewReader(out)
+
+	response, err := client.Post("http://unix/unquarantine_object", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatal("Failed to quarantine object")
 	}
+	response.Body.Close()
+
 	// We should be able to find it
 	objInfo := &pb.LoadObjectInfo{Name: name, IsQuarantined: false, RepairTool: false}
-	_, err = client.LoadObject(context.Background(), objInfo)
+	out, err = proto.Marshal(objInfo)
 	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/load_object", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatal("cannot find unquarantined object")
 	}
+	response.Body.Close()
 
 	// TODO, need to test that the quarantined object exists
 	// then try to quarantine non existent object
@@ -461,23 +639,32 @@ func TestUnquarantineObject(t *testing.T) {
 
 // This test modifies the DB
 func TestListQuarantinedOHashes(t *testing.T) {
-	empty := &pb.Empty{}
-	stream, err := client.ListQuarantinedOHashes(context.Background(), empty)
+	// We shouldn't find any quarantined object initially
+	lqInfo := &pb.ListQuarantinedOHashesInfo{PageSize: 100}
+	out, err := proto.Marshal(lqInfo)
 	if err != nil {
-		t.Fatalf("failed to initialize stream for ListQuarantinedOHashes")
+		t.Fatal(err)
+	}
+	body := bytes.NewReader(out)
+
+	response, err := client.Post("http://unix/list_quarantined_ohashes", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to list quarantined ohashes: %v", err)
 	}
 
-	for {
-		_, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatal("error listing quarantined objects")
-		}
-		t.Fatal("expected no quarantined objects")
+	r := &pb.QuarantinedObjectNames{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
 	}
 
+	if r.Objects != nil {
+		t.Fatalf("Did not expect to find any quarantined objects. Found: %v", r.Objects)
+	}
+	response.Body.Close()
+
+	// Quarantine a few objects and check we can find them
 	objectsToQuarantine := []pb.ObjectName{
 		{Name: []byte("02573d31b770cda8e0effd7762e8a0751515750801.09785#2#d.data"), RepairTool: false},
 		{Name: []byte("6b08eabf5667557c72dc6570aa1fb8451515750801.08639#4#d.data"), RepairTool: false},
@@ -498,26 +685,43 @@ func TestListQuarantinedOHashes(t *testing.T) {
 	}
 
 	for _, qObj := range objectsToQuarantine {
-		if _, err := client.QuarantineObject(context.Background(), &qObj); err != nil {
+		out, err = proto.Marshal(&qObj)
+		if err != nil {
+			t.Error(err)
+		}
+		body = bytes.NewReader(out)
+
+		response, err = client.Post("http://unix/quarantine_object", "application/octet-stream", body)
+		if err = check_200(response, err); err != nil {
 			t.Fatalf("failed to quarantine object: %s", err)
 		}
+		response.Body.Close()
 	}
+
+	// List quarantined objects
+	lqInfo = &pb.ListQuarantinedOHashesInfo{PageSize: 100}
+	out, err = proto.Marshal(lqInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/list_quarantined_ohashes", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to list quarantined ohashes: %v", err)
+	}
+
+	r = &pb.QuarantinedObjectNames{}
+	buf.Reset()
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+
+	response.Body.Close()
 
 	receivedOhashes := [][]byte{}
-
-	stream, err = client.ListQuarantinedOHashes(context.Background(), empty)
-	if err != nil {
-		t.Fatalf("failed to initialize stream for ListQuarantinedOHashes")
-	}
-
-	for {
-		obj, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatal("error listing quarantined objects")
-		}
+	for _, obj := range r.Objects {
 		receivedOhashes = append(receivedOhashes, obj.Name)
 	}
 
@@ -525,14 +729,290 @@ func TestListQuarantinedOHashes(t *testing.T) {
 		t.Fatalf("\nexpected %v\ngot      %v", expectedOhashes, receivedOhashes)
 	}
 
+	// We got all quarantined objects, so NextPageToken shouldn't be set
+	if !bytes.Equal(r.NextPageToken, []byte("")) {
+		t.Fatalf("\nexpected %v got %v", []byte("foo"), r.NextPageToken)
+	}
+
+	// List quarantined objects, with a PageSize of 1
+	lqInfo = &pb.ListQuarantinedOHashesInfo{PageSize: 1}
+	out, err = proto.Marshal(lqInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/list_quarantined_ohashes", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to list quarantined ohashes: %v", err)
+	}
+
+	r = &pb.QuarantinedObjectNames{}
+	buf.Reset()
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+
+	response.Body.Close()
+
+	receivedOhashes = [][]byte{}
+	for _, obj := range r.Objects {
+		receivedOhashes = append(receivedOhashes, obj.Name)
+	}
+
+	if !testEqSliceBytes(receivedOhashes, [][]byte{expectedOhashes[0]}) {
+		t.Fatalf("\nexpected %v\ngot      %v", [][]byte{expectedOhashes[0]}, receivedOhashes)
+	}
+
+	// We got the first object, expect NextPageToken to be the second quarantined object hash
+	if !bytes.Equal(r.NextPageToken, expectedOhashes[1]) {
+		t.Fatalf("\nexpected %v got %v", expectedOhashes[1], r.NextPageToken)
+	}
+
+	// Get the next two entries
+	lqInfo = &pb.ListQuarantinedOHashesInfo{PageSize: 2, PageToken: r.NextPageToken}
+	out, err = proto.Marshal(lqInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/list_quarantined_ohashes", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to list quarantined ohashes: %v", err)
+	}
+
+	r = &pb.QuarantinedObjectNames{}
+	buf.Reset()
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+
+	response.Body.Close()
+
+	receivedOhashes = [][]byte{}
+	for _, obj := range r.Objects {
+		receivedOhashes = append(receivedOhashes, obj.Name)
+	}
+
+	if !testEqSliceBytes(receivedOhashes, expectedOhashes[1:3]) {
+		t.Fatalf("\nexpected %v\ngot      %v", expectedOhashes[1:3], receivedOhashes)
+	}
+
+	// We've read 3, expecte NextPageToken to be the 4th quarantined object
+	if !bytes.Equal(r.NextPageToken, expectedOhashes[3]) {
+		t.Fatalf("\nexpected %v got %v", expectedOhashes[3], r.NextPageToken)
+	}
+
+	// Get all remaining entries
+	lqInfo = &pb.ListQuarantinedOHashesInfo{PageSize: 100, PageToken: r.NextPageToken}
+	out, err = proto.Marshal(lqInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/list_quarantined_ohashes", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to list quarantined ohashes: %v", err)
+	}
+
+	r = &pb.QuarantinedObjectNames{}
+	buf.Reset()
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+
+	response.Body.Close()
+
+	receivedOhashes = [][]byte{}
+	for _, obj := range r.Objects {
+		receivedOhashes = append(receivedOhashes, obj.Name)
+	}
+
+	if !testEqSliceBytes(receivedOhashes, expectedOhashes[3:]) {
+		t.Fatalf("\nexpected %v\ngot      %v", expectedOhashes[1:3], receivedOhashes)
+	}
+
+	// We've read all quarantined objects, NextPageToken should not be set
+	if !bytes.Equal(r.NextPageToken, []byte("")) {
+		t.Fatalf("\nexpected %v got %v", []byte(""), r.NextPageToken)
+	}
+
+}
+
+func TestLoadObjectsByVolume(t *testing.T) {
+	// List non quarantined objects from volume 22, we should not find any
+	volIndex := &pb.VolumeIndex{Index: 22}
+	out, err := proto.Marshal(volIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.NewReader(out)
+
+	response, err := client.Post("http://unix/load_objects_by_volume", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to call LoadObjectsByVolume: %v", err)
+	}
+
+	r := &pb.LoadObjectsResponse{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+
+	if r.Objects != nil {
+		t.Fatalf("did not expect to find objects")
+	}
+
+	// List quarantined objects from volume 22
+	volIndex = &pb.VolumeIndex{Index: 22, Quarantined: true}
+	out, err = proto.Marshal(volIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/load_objects_by_volume", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to call LoadObjectsByVolume: %v", err)
+	}
+
+	r = &pb.LoadObjectsResponse{}
+	buf = new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedObjects := []pb.Object{
+		{Name: []byte("687ba0410f4323c66397a85292077b101515750801.10244#0#d.data"), VolumeIndex: 22, Offset: 4096},
+		{Name: []byte("6b08eabf5667557c72dc6570abcfb8451515643210.72429#4#d.data"), VolumeIndex: 22, Offset: 8192},
+	}
+
+	// we should have all of them
+	if len(r.Objects) != len(expectedObjects) {
+		t.Fatalf("Expected %d objects, got %d", len(expectedObjects), len(r.Objects))
+	}
+	if r.NextPageToken != nil {
+		t.Fatalf("Expected NextPageToken to be nil, but got: %s", string(r.NextPageToken))
+	}
+
+	for i, obj := range r.Objects {
+		if !bytes.Equal(obj.Name, expectedObjects[i].Name) {
+			// t.Fatalf("expected %v, got %v", expectedObjects[i].Name, obj.Name)
+			t.Fatalf("expected %s, got %s", string(expectedObjects[i].Name), string(obj.Name))
+		}
+		if obj.VolumeIndex != expectedObjects[i].VolumeIndex {
+			t.Fatalf("expected %d, got %d", expectedObjects[i].VolumeIndex, obj.VolumeIndex)
+		}
+		if obj.Offset != expectedObjects[i].Offset {
+			t.Fatalf("expected %d, got %d", expectedObjects[i].Offset, obj.Offset)
+		}
+	}
+
+	// List quarantined objects from volume 22 with pagination
+	volIndex = &pb.VolumeIndex{Index: 22, Quarantined: true, PageSize: 1}
+	out, err = proto.Marshal(volIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/load_objects_by_volume", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to call LoadObjectsByVolume: %v", err)
+	}
+
+	r = &pb.LoadObjectsResponse{}
+	buf = new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+
+	// we should have one object
+	if len(r.Objects) != 1 {
+		t.Fatalf("Expected 1 objects, got %d", len(r.Objects))
+	}
+	if !bytes.Equal(r.NextPageToken, expectedObjects[1].Name) {
+		t.Fatalf("Expected NextPageToken to be %s, but got: %s", string(expectedObjects[1].Name), string(r.NextPageToken))
+	}
+
+	if !bytes.Equal(r.Objects[0].Name, expectedObjects[0].Name) {
+		// t.Fatalf("expected %v, got %v", expectedObjects[i].Name, obj.Name)
+		t.Fatalf("expected %s, got %s", string(expectedObjects[0].Name), string(r.Objects[0].Name))
+	}
+	if r.Objects[0].VolumeIndex != expectedObjects[0].VolumeIndex {
+		t.Fatalf("expected %d, got %d", expectedObjects[0].VolumeIndex, r.Objects[0].VolumeIndex)
+	}
+	if r.Objects[0].Offset != expectedObjects[0].Offset {
+		t.Fatalf("expected %d, got %d", expectedObjects[0].Offset, r.Objects[0].Offset)
+	}
+
+	// Second call with pagination
+	volIndex = &pb.VolumeIndex{Index: 22, Quarantined: true, PageSize: 1, PageToken: r.NextPageToken}
+	out, err = proto.Marshal(volIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewReader(out)
+
+	response, err = client.Post("http://unix/load_objects_by_volume", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
+		t.Fatalf("failed to call LoadObjectsByVolume: %v", err)
+	}
+
+	r = &pb.LoadObjectsResponse{}
+	buf = new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
+		t.Fatal(err)
+	}
+
+	// we should have one object
+	if len(r.Objects) != 1 {
+		t.Fatalf("Expected 1 objects, got %d", len(r.Objects))
+	}
+	if r.NextPageToken != nil {
+		t.Fatalf("Expected NextPageToken to be nil, but got: %s", string(r.NextPageToken))
+	}
+
+	if !bytes.Equal(r.Objects[0].Name, expectedObjects[1].Name) {
+		t.Fatalf("expected %s, got %s", string(expectedObjects[0].Name), string(r.Objects[0].Name))
+	}
+	if r.Objects[0].VolumeIndex != expectedObjects[1].VolumeIndex {
+		t.Fatalf("expected %d, got %d", expectedObjects[1].VolumeIndex, r.Objects[0].VolumeIndex)
+	}
+	if r.Objects[0].Offset != expectedObjects[1].Offset {
+		t.Fatalf("expected %d, got %d", expectedObjects[1].Offset, r.Objects[0].Offset)
+	}
 }
 
 func TestListQuarantinedOHash(t *testing.T) {
-	ohash := pb.ObjectPrefix{Prefix: []byte("6b08eabf5667557c72dc6570aa1fb845"), RepairTool: false}
-	qList, err := client.ListQuarantinedOHash(context.Background(), &ohash)
+	ohash := &pb.ObjectPrefix{Prefix: []byte("6b08eabf5667557c72dc6570aa1fb845"), RepairTool: false}
+	out, err := proto.Marshal(ohash)
 	if err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.NewReader(out)
+
+	response, err := client.Post("http://unix/list_quarantined_ohash", "application/octet-stream", body)
+	if err = check_200(response, err); err != nil {
 		t.Fatalf("error listing quarantined object files: %s", err)
 	}
+
+	qList := &pb.LoadObjectsResponse{}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(response.Body)
+	if err = proto.Unmarshal(buf.Bytes(), qList); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
 
 	expectedFiles := [][]byte{
 		[]byte("6b08eabf5667557c72dc6570aa1fb8451515750801.08639#4#d.data"),
@@ -573,5 +1053,3 @@ func testEqSliceBytes(a, b [][]byte) bool {
 	}
 	return true
 }
-
-// func (s * server) ListQuarantinedOHashes(ctx context.Context, in *pb.ListQuarantinedOHashesInfo) (*pb.QuarantinedObjects, error) {

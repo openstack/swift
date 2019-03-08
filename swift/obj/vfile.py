@@ -25,7 +25,6 @@ import hashlib
 import re
 from collections import defaultdict
 from eventlet.green import os
-from grpc import RpcError, StatusCode
 from swift.obj.header import ObjectHeader, VolumeHeader, ALIGNMENT, \
     read_volume_header, HeaderException, STATE_OBJ_QUARANTINED, \
     STATE_OBJ_FILE, write_object_header, \
@@ -35,7 +34,8 @@ from swift.common.exceptions import DiskFileNoSpace, \
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import fsync, fdatasync, fsync_dir, \
     fallocate
-from swift.obj import rpc_grpc as rpc
+from swift.obj import rpc_http as rpc
+from swift.obj.rpc_http import RpcError, StatusCode
 from swift.obj.fmgr_pb2 import STATE_RW
 from swift.obj.meta_pb2 import Metadata
 from swift.obj.diskfile import _encode_metadata
@@ -140,7 +140,7 @@ class VFileReader(object):
                                  is_quarantined=is_quarantined,
                                  repair_tool=repair_tool)
         except RpcError as e:
-            if e.code() == StatusCode.NOT_FOUND:
+            if e.code == StatusCode.NotFound:
                 raise VIOError(errno.ENOENT,
                                "No such file or directory: {}".format(name))
             # May need to handle more cases ?
@@ -865,7 +865,7 @@ def set_header_state(socket_path, name, quarantine):
         obj = rpc.get_object(socket_path, name, is_quarantined=not quarantine,
                              repair_tool=False)
     except RpcError as e:
-        if e.code() == StatusCode.NOT_FOUND:
+        if e.code == StatusCode.NotFound:
             raise IOError("No such file or directory: {}".format(name))
         raise (e)
 
@@ -935,7 +935,7 @@ def quarantine_ohash(dirpath, policy):
             # update KV
             rpc.quarantine_object(si.socket_path, full_name)
         except RpcError as e:
-            if e.code() == StatusCode.NOT_FOUND:
+            if e.code == StatusCode.NotFound:
                 errmsg = "No such file or directory: '{}'"
                 raise OSError(2, errmsg.format(vfilepath))
             raise(e)
@@ -954,7 +954,7 @@ def unquarantine_ohash(socket_path, ohash):
         try:
             rpc.unquarantine_object(socket_path, full_name)
         except RpcError as e:
-            if e.code() == StatusCode.NOT_FOUND:
+            if e.code == StatusCode.NotFound:
                 errmsg = "No such file or directory: '{}'"
                 raise OSError(2, errmsg.format(full_name))
             raise(e)
@@ -972,7 +972,7 @@ def unquarantine_ohash(socket_path, ohash):
 #         VFileReader.get_vfile(path, None)
 #         return True
 #     except RpcError as e:
-#         if e.code() == StatusCode.NOT_FOUND:
+#         if e.code == StatusCode.NotFound:
 #             return False
 #         raise (e)
 
@@ -1025,7 +1025,7 @@ def delete_vfile_from_path(filepath):
         try:
             rpc.unregister_object(socket_path, name)
         except RpcError as e:
-            if e.code() == StatusCode.NOT_FOUND:
+            if e.code == StatusCode.NotFound:
                 raise VOSError(errno.ENOENT, "No such file or directory:\
                                '{}'".format(filepath))
             raise(e)
@@ -1033,7 +1033,7 @@ def delete_vfile_from_path(filepath):
     try:
         obj = rpc.get_object(si.socket_path, full_name)
     except RpcError as e:
-        if e.code() == StatusCode.NOT_FOUND:
+        if e.code == StatusCode.NotFound:
             raise VOSError(errno.ENOENT, "No such file or directory:\
                            '{}'".format(filepath))
     volume_filename = get_volume_name(obj.volume_index)

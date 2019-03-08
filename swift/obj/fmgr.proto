@@ -2,87 +2,8 @@ syntax = "proto3";
 
 package filemgr;
 
-// Python: python -m grpc.tools.protoc -I. --python_out=. --grpc_python_out=. fmgr.proto
-// Golang : protoc -I proto proto/fmgr.proto --go_out=plugins=grpc:proto
-
-
-// The FileMgr service definition.
-service FileMgr {
-    // Register a new Volume
-    rpc RegisterVolume (NewVolumeInfo) returns (NewVolumeReply) {}
-
-    // Unregister a Volume
-    rpc UnregisterVolume (VolumeIndex) returns (Empty) {}
-
-    // Register a new object
-    rpc RegisterObject (NewObjectInfo) returns (NewObjectReply) {}
-
-    // Unregister an object
-    rpc UnregisterObject (ObjectName) returns (DelObjectReply) {}
-
-    // Rename an object
-    rpc RenameObject (RenameInfo) returns (RenameReply) {}
-
-    // Quarantine a "directory" (all objects "below" ohash)
-    // DEPRECATED
-    rpc QuarantineDir (ObjectPrefix) returns (DelObjectReply) {}
-
-    // Quarantine an object
-    rpc QuarantineObject (ObjectName) returns (Empty) {}
-
-    // Unquarantine an object
-    rpc UnquarantineObject (ObjectName) returns (Empty) {}
-
-    // Get array of object locations
-    rpc LoadObjectsByPrefix (ObjectPrefix) returns (LoadObjectsResponse) {}
-
-    // List Volumes
-    rpc ListVolumes (ListVolumesInfo) returns (Volumes) {}
-
-    // Get Volume by index
-    rpc GetVolume (VolumeIndex) returns (Volume) {}
-
-    // List partitions
-    rpc ListPartitions (ListPartitionsInfo) returns (DirEntries) {}
-
-    // List suffixes within partition
-    rpc ListPartition (ListPartitionInfo) returns (DirEntries) {}
-
-    // List object hashes within partition/suffix
-    rpc ListSuffix (ListSuffixInfo) returns (DirEntries) {}
-
-    // Recursively list the partition content, down to files
-    rpc ListPartitionRecursive (ListPartitionInfo) returns (PartitionContent) {}
-
-    // List quarantined objects. This may be very large, so use a stream (no eventlet)
-    rpc ListQuarantinedOHashes (Empty) returns (stream QuarantinedObjectName) {}
-
-    // List files within a quarantined object (ohash)
-    rpc ListQuarantinedOHash (ObjectPrefix) returns (LoadObjectsResponse) {}
-
-    // TBD: define a ListOhash and deprecate LoadObjectsByPrefix
-
-    // Get object
-    rpc LoadObject (LoadObjectInfo) returns (Object) {}
-
-    // Get next offset to write to in a volume
-    rpc GetNextOffset (GetNextOffsetInfo) returns (VolumeNextOffset) {}
-
-    // Get KVStats
-    rpc GetStats (GetStatsInfo) returns (KVStats) {}
-
-    // List objects per volume - used for compaction (no eventlet, ok to use stream)
-    rpc LoadObjectsByVolume (VolumeIndex) returns (stream Object) {}
-
-    // Update Volume state
-    rpc UpdateVolumeState (NewVolumeState) returns (Empty) {}
-
-    // Set state (clean: in sync with the volumes)
-    rpc SetKvState (KvState) returns (Empty) {}
-
-    // Get state (clean: in sync with the volumes)
-    rpc GetKvState (Empty) returns (KvState) {}
-}
+// Python: protoc -I. --python_out=. fmgr.proto
+// Golang : protoc -I proto proto/fmgr.proto --go_out=proto
 
 message ListPartitionsInfo {
     uint32 partition_bits = 1;
@@ -105,10 +26,16 @@ message DirEntries {
 }
 
 message VolumeIndex {
-    uint32 index = 2;
+    uint32 index = 1;
+
+    // List only quarantined files, if true
+    bool quarantined = 2;
+
+    bytes page_token = 3;
+    uint32 page_size = 4;
 
     // Is this request coming from a repair tool ?
-    bool repair_tool = 3;
+    bool repair_tool = 5;
 }
 
 message Volume {
@@ -229,6 +156,11 @@ message QuarantinedObjectName {
     bytes name = 1;
 }
 
+message QuarantinedObjectNames {
+    repeated QuarantinedObjectName objects = 1;
+    bytes next_page_token = 2;
+}
+
 message ObjectName {
     // name of the object.
     bytes name = 1;
@@ -245,7 +177,7 @@ message LoadObjectInfo {
     bool is_quarantined = 2;
 
     // Is this request coming from a repair tool ?
-    bool repair_tool = 3;
+    bool repair_tool = 5;
 }
 
 // The request message to rename an object
@@ -273,6 +205,7 @@ message Object {
 
 message LoadObjectsResponse {
     repeated Object objects = 1;
+    bytes next_page_token = 2;
 }
 
 message ObjectPrefix {
@@ -306,4 +239,9 @@ message KvState {
 // KV stats
 message KVStats {
     map<string, uint64> stats = 1;
+}
+
+message ListQuarantinedOHashesInfo {
+    bytes page_token = 1;
+    uint32 page_size = 2;
 }

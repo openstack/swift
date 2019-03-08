@@ -19,7 +19,7 @@ all: build-snappy install-snappy build-leveldb install-leveldb install-go-leveld
 build-losf:
 	# this installs the protoc-gen-go in $HOME/go/bin, and requires the PATH be set accordingly
 	go get -u github.com/golang/protobuf/protoc-gen-go
-	protoc -I ../../swift/obj fmgr.proto --go_out=plugins=grpc:proto
+	protoc -I ../../swift/obj fmgr.proto --go_out=proto
 	go get
 	go build -o ../../bin/swift-rpc-losf
 

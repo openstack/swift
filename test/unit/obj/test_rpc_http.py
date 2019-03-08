@@ -13,24 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for swift.obj.rpc_grpc"""
+"""Tests for swift.obj.rpc_http"""
 
 import unittest
-from swift.obj import rpc_grpc, fmgr_pb2
+from swift.obj import rpc_http, fmgr_pb2
 import mock
 
 
-class TestRpcGrpc(unittest.TestCase):
+class TestRpcHttp(unittest.TestCase):
 
     def setUp(self):
         self.socket_path = "/path/to/rpc.socket"
         self.part_power = 18
 
-    def test_vfile_list_partitions(self):
-        with mock.patch("swift.obj.rpc_grpc.connections.connections") as m_conn:
-            ret = rpc_grpc.list_partitions(self.socket_path, self.part_power)
+    @mock.patch("swift.obj.rpc_http.get_rpc_reply")
+    def test_vfile_list_partitions(self, m_get_rpc_reply):
+        m_conn = mock.MagicMock()
+        with mock.patch("swift.obj.rpc_http.UnixHTTPConnection",
+                        return_value=m_conn):
+            rpc_http.list_partitions(self.socket_path, self.part_power)
             arg = fmgr_pb2.ListPartitionsInfo(partition_bits=self.part_power)
-            m_conn[self.socket_path].stub.ListPartitions.assert_called_once_with(arg)
+            # m_conn[self.socket_path].stub.ListPartitions.assert_called_once_with(arg)
+            serialized_arg = arg.SerializeToString()
+            m_conn.request.assert_called_once_with('POST', '/list_partitions',
+                                                   serialized_arg)
 
 
 if __name__ == '__main__':

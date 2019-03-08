@@ -40,7 +40,7 @@ from threading import Lock
 from swift.obj.diskfile import METADATA_KEY, PICKLE_PROTOCOL, get_data_dir
 
 from swift.obj.vfile_utils import SwiftPathInfo
-from swift.obj import rpc_grpc as rpc
+from swift.obj import rpc_http as rpc
 from swift.common import utils
 from swift.common import manager
 

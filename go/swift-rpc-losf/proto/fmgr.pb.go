@@ -3,13 +3,10 @@
 
 package filemgr
 
-import proto "github.com/golang/protobuf/proto"
-import fmt "fmt"
-import math "math"
-
 import (
-	context "golang.org/x/net/context"
-	grpc "google.golang.org/grpc"
+	fmt "fmt"
+	proto "github.com/golang/protobuf/proto"
+	math "math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -21,7 +18,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 // Volume type
 type VolumeType int32
@@ -37,6 +34,7 @@ var VolumeType_name = map[int32]string{
 	1: "VOLUME_TOMBSTONE",
 	2: "VOLUME_X_DELETE_AT",
 }
+
 var VolumeType_value = map[string]int32{
 	"VOLUME_DEFAULT":     0,
 	"VOLUME_TOMBSTONE":   1,
@@ -46,8 +44,9 @@ var VolumeType_value = map[string]int32{
 func (x VolumeType) String() string {
 	return proto.EnumName(VolumeType_name, int32(x))
 }
+
 func (VolumeType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{0}
+	return fileDescriptor_1fcd0776e05e82a6, []int{0}
 }
 
 // VolumeState state
@@ -67,6 +66,7 @@ var VolumeState_name = map[int32]string{
 	1: "STATE_COMPACTION_SRC",
 	2: "STATE_COMPACTION_TARGET",
 }
+
 var VolumeState_value = map[string]int32{
 	"STATE_RW":                0,
 	"STATE_COMPACTION_SRC":    1,
@@ -76,8 +76,9 @@ var VolumeState_value = map[string]int32{
 func (x VolumeState) String() string {
 	return proto.EnumName(VolumeState_name, int32(x))
 }
+
 func (VolumeState) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{1}
+	return fileDescriptor_1fcd0776e05e82a6, []int{1}
 }
 
 type ListPartitionsInfo struct {
@@ -91,16 +92,17 @@ func (m *ListPartitionsInfo) Reset()         { *m = ListPartitionsInfo{} }
 func (m *ListPartitionsInfo) String() string { return proto.CompactTextString(m) }
 func (*ListPartitionsInfo) ProtoMessage()    {}
 func (*ListPartitionsInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{0}
+	return fileDescriptor_1fcd0776e05e82a6, []int{0}
 }
+
 func (m *ListPartitionsInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ListPartitionsInfo.Unmarshal(m, b)
 }
 func (m *ListPartitionsInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ListPartitionsInfo.Marshal(b, m, deterministic)
 }
-func (dst *ListPartitionsInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ListPartitionsInfo.Merge(dst, src)
+func (m *ListPartitionsInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ListPartitionsInfo.Merge(m, src)
 }
 func (m *ListPartitionsInfo) XXX_Size() int {
 	return xxx_messageInfo_ListPartitionsInfo.Size(m)
@@ -130,16 +132,17 @@ func (m *ListPartitionInfo) Reset()         { *m = ListPartitionInfo{} }
 func (m *ListPartitionInfo) String() string { return proto.CompactTextString(m) }
 func (*ListPartitionInfo) ProtoMessage()    {}
 func (*ListPartitionInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{1}
+	return fileDescriptor_1fcd0776e05e82a6, []int{1}
 }
+
 func (m *ListPartitionInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ListPartitionInfo.Unmarshal(m, b)
 }
 func (m *ListPartitionInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ListPartitionInfo.Marshal(b, m, deterministic)
 }
-func (dst *ListPartitionInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ListPartitionInfo.Merge(dst, src)
+func (m *ListPartitionInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ListPartitionInfo.Merge(m, src)
 }
 func (m *ListPartitionInfo) XXX_Size() int {
 	return xxx_messageInfo_ListPartitionInfo.Size(m)
@@ -177,16 +180,17 @@ func (m *ListSuffixInfo) Reset()         { *m = ListSuffixInfo{} }
 func (m *ListSuffixInfo) String() string { return proto.CompactTextString(m) }
 func (*ListSuffixInfo) ProtoMessage()    {}
 func (*ListSuffixInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{2}
+	return fileDescriptor_1fcd0776e05e82a6, []int{2}
 }
+
 func (m *ListSuffixInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ListSuffixInfo.Unmarshal(m, b)
 }
 func (m *ListSuffixInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ListSuffixInfo.Marshal(b, m, deterministic)
 }
-func (dst *ListSuffixInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ListSuffixInfo.Merge(dst, src)
+func (m *ListSuffixInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ListSuffixInfo.Merge(m, src)
 }
 func (m *ListSuffixInfo) XXX_Size() int {
 	return xxx_messageInfo_ListSuffixInfo.Size(m)
@@ -230,16 +234,17 @@ func (m *DirEntries) Reset()         { *m = DirEntries{} }
 func (m *DirEntries) String() string { return proto.CompactTextString(m) }
 func (*DirEntries) ProtoMessage()    {}
 func (*DirEntries) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{3}
+	return fileDescriptor_1fcd0776e05e82a6, []int{3}
 }
+
 func (m *DirEntries) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_DirEntries.Unmarshal(m, b)
 }
 func (m *DirEntries) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_DirEntries.Marshal(b, m, deterministic)
 }
-func (dst *DirEntries) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DirEntries.Merge(dst, src)
+func (m *DirEntries) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DirEntries.Merge(m, src)
 }
 func (m *DirEntries) XXX_Size() int {
 	return xxx_messageInfo_DirEntries.Size(m)
@@ -258,9 +263,13 @@ func (m *DirEntries) GetEntry() []string {
 }
 
 type VolumeIndex struct {
-	Index uint32 `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
+	Index uint32 `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
+	// List only quarantined files, if true
+	Quarantined bool   `protobuf:"varint,2,opt,name=quarantined,proto3" json:"quarantined,omitempty"`
+	PageToken   []byte `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	PageSize    uint32 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// Is this request coming from a repair tool ?
-	RepairTool           bool     `protobuf:"varint,3,opt,name=repair_tool,json=repairTool,proto3" json:"repair_tool,omitempty"`
+	RepairTool           bool     `protobuf:"varint,5,opt,name=repair_tool,json=repairTool,proto3" json:"repair_tool,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -270,16 +279,17 @@ func (m *VolumeIndex) Reset()         { *m = VolumeIndex{} }
 func (m *VolumeIndex) String() string { return proto.CompactTextString(m) }
 func (*VolumeIndex) ProtoMessage()    {}
 func (*VolumeIndex) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{4}
+	return fileDescriptor_1fcd0776e05e82a6, []int{4}
 }
+
 func (m *VolumeIndex) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_VolumeIndex.Unmarshal(m, b)
 }
 func (m *VolumeIndex) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_VolumeIndex.Marshal(b, m, deterministic)
 }
-func (dst *VolumeIndex) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_VolumeIndex.Merge(dst, src)
+func (m *VolumeIndex) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_VolumeIndex.Merge(m, src)
 }
 func (m *VolumeIndex) XXX_Size() int {
 	return xxx_messageInfo_VolumeIndex.Size(m)
@@ -293,6 +303,27 @@ var xxx_messageInfo_VolumeIndex proto.InternalMessageInfo
 func (m *VolumeIndex) GetIndex() uint32 {
 	if m != nil {
 		return m.Index
+	}
+	return 0
+}
+
+func (m *VolumeIndex) GetQuarantined() bool {
+	if m != nil {
+		return m.Quarantined
+	}
+	return false
+}
+
+func (m *VolumeIndex) GetPageToken() []byte {
+	if m != nil {
+		return m.PageToken
+	}
+	return nil
+}
+
+func (m *VolumeIndex) GetPageSize() uint32 {
+	if m != nil {
+		return m.PageSize
 	}
 	return 0
 }
@@ -319,16 +350,17 @@ func (m *Volume) Reset()         { *m = Volume{} }
 func (m *Volume) String() string { return proto.CompactTextString(m) }
 func (*Volume) ProtoMessage()    {}
 func (*Volume) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{5}
+	return fileDescriptor_1fcd0776e05e82a6, []int{5}
 }
+
 func (m *Volume) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Volume.Unmarshal(m, b)
 }
 func (m *Volume) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Volume.Marshal(b, m, deterministic)
 }
-func (dst *Volume) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Volume.Merge(dst, src)
+func (m *Volume) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Volume.Merge(m, src)
 }
 func (m *Volume) XXX_Size() int {
 	return xxx_messageInfo_Volume.Size(m)
@@ -391,16 +423,17 @@ func (m *GetNextOffsetInfo) Reset()         { *m = GetNextOffsetInfo{} }
 func (m *GetNextOffsetInfo) String() string { return proto.CompactTextString(m) }
 func (*GetNextOffsetInfo) ProtoMessage()    {}
 func (*GetNextOffsetInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{6}
+	return fileDescriptor_1fcd0776e05e82a6, []int{6}
 }
+
 func (m *GetNextOffsetInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_GetNextOffsetInfo.Unmarshal(m, b)
 }
 func (m *GetNextOffsetInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_GetNextOffsetInfo.Marshal(b, m, deterministic)
 }
-func (dst *GetNextOffsetInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_GetNextOffsetInfo.Merge(dst, src)
+func (m *GetNextOffsetInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetNextOffsetInfo.Merge(m, src)
 }
 func (m *GetNextOffsetInfo) XXX_Size() int {
 	return xxx_messageInfo_GetNextOffsetInfo.Size(m)
@@ -453,16 +486,17 @@ func (m *ListVolumesInfo) Reset()         { *m = ListVolumesInfo{} }
 func (m *ListVolumesInfo) String() string { return proto.CompactTextString(m) }
 func (*ListVolumesInfo) ProtoMessage()    {}
 func (*ListVolumesInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{7}
+	return fileDescriptor_1fcd0776e05e82a6, []int{7}
 }
+
 func (m *ListVolumesInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ListVolumesInfo.Unmarshal(m, b)
 }
 func (m *ListVolumesInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ListVolumesInfo.Marshal(b, m, deterministic)
 }
-func (dst *ListVolumesInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ListVolumesInfo.Merge(dst, src)
+func (m *ListVolumesInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ListVolumesInfo.Merge(m, src)
 }
 func (m *ListVolumesInfo) XXX_Size() int {
 	return xxx_messageInfo_ListVolumesInfo.Size(m)
@@ -505,16 +539,17 @@ func (m *Volumes) Reset()         { *m = Volumes{} }
 func (m *Volumes) String() string { return proto.CompactTextString(m) }
 func (*Volumes) ProtoMessage()    {}
 func (*Volumes) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{8}
+	return fileDescriptor_1fcd0776e05e82a6, []int{8}
 }
+
 func (m *Volumes) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Volumes.Unmarshal(m, b)
 }
 func (m *Volumes) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Volumes.Marshal(b, m, deterministic)
 }
-func (dst *Volumes) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Volumes.Merge(dst, src)
+func (m *Volumes) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Volumes.Merge(m, src)
 }
 func (m *Volumes) XXX_Size() int {
 	return xxx_messageInfo_Volumes.Size(m)
@@ -544,16 +579,17 @@ func (m *VolumeNextOffset) Reset()         { *m = VolumeNextOffset{} }
 func (m *VolumeNextOffset) String() string { return proto.CompactTextString(m) }
 func (*VolumeNextOffset) ProtoMessage()    {}
 func (*VolumeNextOffset) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{9}
+	return fileDescriptor_1fcd0776e05e82a6, []int{9}
 }
+
 func (m *VolumeNextOffset) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_VolumeNextOffset.Unmarshal(m, b)
 }
 func (m *VolumeNextOffset) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_VolumeNextOffset.Marshal(b, m, deterministic)
 }
-func (dst *VolumeNextOffset) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_VolumeNextOffset.Merge(dst, src)
+func (m *VolumeNextOffset) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_VolumeNextOffset.Merge(m, src)
 }
 func (m *VolumeNextOffset) XXX_Size() int {
 	return xxx_messageInfo_VolumeNextOffset.Size(m)
@@ -592,16 +628,17 @@ func (m *NewVolumeInfo) Reset()         { *m = NewVolumeInfo{} }
 func (m *NewVolumeInfo) String() string { return proto.CompactTextString(m) }
 func (*NewVolumeInfo) ProtoMessage()    {}
 func (*NewVolumeInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{10}
+	return fileDescriptor_1fcd0776e05e82a6, []int{10}
 }
+
 func (m *NewVolumeInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewVolumeInfo.Unmarshal(m, b)
 }
 func (m *NewVolumeInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_NewVolumeInfo.Marshal(b, m, deterministic)
 }
-func (dst *NewVolumeInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_NewVolumeInfo.Merge(dst, src)
+func (m *NewVolumeInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_NewVolumeInfo.Merge(m, src)
 }
 func (m *NewVolumeInfo) XXX_Size() int {
 	return xxx_messageInfo_NewVolumeInfo.Size(m)
@@ -668,16 +705,17 @@ func (m *NewVolumeState) Reset()         { *m = NewVolumeState{} }
 func (m *NewVolumeState) String() string { return proto.CompactTextString(m) }
 func (*NewVolumeState) ProtoMessage()    {}
 func (*NewVolumeState) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{11}
+	return fileDescriptor_1fcd0776e05e82a6, []int{11}
 }
+
 func (m *NewVolumeState) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewVolumeState.Unmarshal(m, b)
 }
 func (m *NewVolumeState) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_NewVolumeState.Marshal(b, m, deterministic)
 }
-func (dst *NewVolumeState) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_NewVolumeState.Merge(dst, src)
+func (m *NewVolumeState) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_NewVolumeState.Merge(m, src)
 }
 func (m *NewVolumeState) XXX_Size() int {
 	return xxx_messageInfo_NewVolumeState.Size(m)
@@ -720,16 +758,17 @@ func (m *NewVolumeReply) Reset()         { *m = NewVolumeReply{} }
 func (m *NewVolumeReply) String() string { return proto.CompactTextString(m) }
 func (*NewVolumeReply) ProtoMessage()    {}
 func (*NewVolumeReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{12}
+	return fileDescriptor_1fcd0776e05e82a6, []int{12}
 }
+
 func (m *NewVolumeReply) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewVolumeReply.Unmarshal(m, b)
 }
 func (m *NewVolumeReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_NewVolumeReply.Marshal(b, m, deterministic)
 }
-func (dst *NewVolumeReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_NewVolumeReply.Merge(dst, src)
+func (m *NewVolumeReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_NewVolumeReply.Merge(m, src)
 }
 func (m *NewVolumeReply) XXX_Size() int {
 	return xxx_messageInfo_NewVolumeReply.Size(m)
@@ -750,16 +789,17 @@ func (m *DelObjectReply) Reset()         { *m = DelObjectReply{} }
 func (m *DelObjectReply) String() string { return proto.CompactTextString(m) }
 func (*DelObjectReply) ProtoMessage()    {}
 func (*DelObjectReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{13}
+	return fileDescriptor_1fcd0776e05e82a6, []int{13}
 }
+
 func (m *DelObjectReply) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_DelObjectReply.Unmarshal(m, b)
 }
 func (m *DelObjectReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_DelObjectReply.Marshal(b, m, deterministic)
 }
-func (dst *DelObjectReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DelObjectReply.Merge(dst, src)
+func (m *DelObjectReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DelObjectReply.Merge(m, src)
 }
 func (m *DelObjectReply) XXX_Size() int {
 	return xxx_messageInfo_DelObjectReply.Size(m)
@@ -780,16 +820,17 @@ func (m *RenameReply) Reset()         { *m = RenameReply{} }
 func (m *RenameReply) String() string { return proto.CompactTextString(m) }
 func (*RenameReply) ProtoMessage()    {}
 func (*RenameReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{14}
+	return fileDescriptor_1fcd0776e05e82a6, []int{14}
 }
+
 func (m *RenameReply) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RenameReply.Unmarshal(m, b)
 }
 func (m *RenameReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_RenameReply.Marshal(b, m, deterministic)
 }
-func (dst *RenameReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RenameReply.Merge(dst, src)
+func (m *RenameReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RenameReply.Merge(m, src)
 }
 func (m *RenameReply) XXX_Size() int {
 	return xxx_messageInfo_RenameReply.Size(m)
@@ -821,16 +862,17 @@ func (m *NewObjectInfo) Reset()         { *m = NewObjectInfo{} }
 func (m *NewObjectInfo) String() string { return proto.CompactTextString(m) }
 func (*NewObjectInfo) ProtoMessage()    {}
 func (*NewObjectInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{15}
+	return fileDescriptor_1fcd0776e05e82a6, []int{15}
 }
+
 func (m *NewObjectInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewObjectInfo.Unmarshal(m, b)
 }
 func (m *NewObjectInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_NewObjectInfo.Marshal(b, m, deterministic)
 }
-func (dst *NewObjectInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_NewObjectInfo.Merge(dst, src)
+func (m *NewObjectInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_NewObjectInfo.Merge(m, src)
 }
 func (m *NewObjectInfo) XXX_Size() int {
 	return xxx_messageInfo_NewObjectInfo.Size(m)
@@ -888,16 +930,17 @@ func (m *NewObjectReply) Reset()         { *m = NewObjectReply{} }
 func (m *NewObjectReply) String() string { return proto.CompactTextString(m) }
 func (*NewObjectReply) ProtoMessage()    {}
 func (*NewObjectReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{16}
+	return fileDescriptor_1fcd0776e05e82a6, []int{16}
 }
+
 func (m *NewObjectReply) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewObjectReply.Unmarshal(m, b)
 }
 func (m *NewObjectReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_NewObjectReply.Marshal(b, m, deterministic)
 }
-func (dst *NewObjectReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_NewObjectReply.Merge(dst, src)
+func (m *NewObjectReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_NewObjectReply.Merge(m, src)
 }
 func (m *NewObjectReply) XXX_Size() int {
 	return xxx_messageInfo_NewObjectReply.Size(m)
@@ -919,16 +962,17 @@ func (m *QuarantinedObjectName) Reset()         { *m = QuarantinedObjectName{} }
 func (m *QuarantinedObjectName) String() string { return proto.CompactTextString(m) }
 func (*QuarantinedObjectName) ProtoMessage()    {}
 func (*QuarantinedObjectName) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{17}
+	return fileDescriptor_1fcd0776e05e82a6, []int{17}
 }
+
 func (m *QuarantinedObjectName) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_QuarantinedObjectName.Unmarshal(m, b)
 }
 func (m *QuarantinedObjectName) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_QuarantinedObjectName.Marshal(b, m, deterministic)
 }
-func (dst *QuarantinedObjectName) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QuarantinedObjectName.Merge(dst, src)
+func (m *QuarantinedObjectName) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QuarantinedObjectName.Merge(m, src)
 }
 func (m *QuarantinedObjectName) XXX_Size() int {
 	return xxx_messageInfo_QuarantinedObjectName.Size(m)
@@ -942,6 +986,53 @@ var xxx_messageInfo_QuarantinedObjectName proto.InternalMessageInfo
 func (m *QuarantinedObjectName) GetName() []byte {
 	if m != nil {
 		return m.Name
+	}
+	return nil
+}
+
+type QuarantinedObjectNames struct {
+	Objects              []*QuarantinedObjectName `protobuf:"bytes,1,rep,name=objects,proto3" json:"objects,omitempty"`
+	NextPageToken        []byte                   `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
+}
+
+func (m *QuarantinedObjectNames) Reset()         { *m = QuarantinedObjectNames{} }
+func (m *QuarantinedObjectNames) String() string { return proto.CompactTextString(m) }
+func (*QuarantinedObjectNames) ProtoMessage()    {}
+func (*QuarantinedObjectNames) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1fcd0776e05e82a6, []int{18}
+}
+
+func (m *QuarantinedObjectNames) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_QuarantinedObjectNames.Unmarshal(m, b)
+}
+func (m *QuarantinedObjectNames) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_QuarantinedObjectNames.Marshal(b, m, deterministic)
+}
+func (m *QuarantinedObjectNames) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QuarantinedObjectNames.Merge(m, src)
+}
+func (m *QuarantinedObjectNames) XXX_Size() int {
+	return xxx_messageInfo_QuarantinedObjectNames.Size(m)
+}
+func (m *QuarantinedObjectNames) XXX_DiscardUnknown() {
+	xxx_messageInfo_QuarantinedObjectNames.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_QuarantinedObjectNames proto.InternalMessageInfo
+
+func (m *QuarantinedObjectNames) GetObjects() []*QuarantinedObjectName {
+	if m != nil {
+		return m.Objects
+	}
+	return nil
+}
+
+func (m *QuarantinedObjectNames) GetNextPageToken() []byte {
+	if m != nil {
+		return m.NextPageToken
 	}
 	return nil
 }
@@ -960,16 +1051,17 @@ func (m *ObjectName) Reset()         { *m = ObjectName{} }
 func (m *ObjectName) String() string { return proto.CompactTextString(m) }
 func (*ObjectName) ProtoMessage()    {}
 func (*ObjectName) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{18}
+	return fileDescriptor_1fcd0776e05e82a6, []int{19}
 }
+
 func (m *ObjectName) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ObjectName.Unmarshal(m, b)
 }
 func (m *ObjectName) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ObjectName.Marshal(b, m, deterministic)
 }
-func (dst *ObjectName) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ObjectName.Merge(dst, src)
+func (m *ObjectName) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ObjectName.Merge(m, src)
 }
 func (m *ObjectName) XXX_Size() int {
 	return xxx_messageInfo_ObjectName.Size(m)
@@ -1000,7 +1092,7 @@ type LoadObjectInfo struct {
 	// Is it quarantined ?
 	IsQuarantined bool `protobuf:"varint,2,opt,name=is_quarantined,json=isQuarantined,proto3" json:"is_quarantined,omitempty"`
 	// Is this request coming from a repair tool ?
-	RepairTool           bool     `protobuf:"varint,3,opt,name=repair_tool,json=repairTool,proto3" json:"repair_tool,omitempty"`
+	RepairTool           bool     `protobuf:"varint,5,opt,name=repair_tool,json=repairTool,proto3" json:"repair_tool,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -1010,16 +1102,17 @@ func (m *LoadObjectInfo) Reset()         { *m = LoadObjectInfo{} }
 func (m *LoadObjectInfo) String() string { return proto.CompactTextString(m) }
 func (*LoadObjectInfo) ProtoMessage()    {}
 func (*LoadObjectInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{19}
+	return fileDescriptor_1fcd0776e05e82a6, []int{20}
 }
+
 func (m *LoadObjectInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_LoadObjectInfo.Unmarshal(m, b)
 }
 func (m *LoadObjectInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_LoadObjectInfo.Marshal(b, m, deterministic)
 }
-func (dst *LoadObjectInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_LoadObjectInfo.Merge(dst, src)
+func (m *LoadObjectInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_LoadObjectInfo.Merge(m, src)
 }
 func (m *LoadObjectInfo) XXX_Size() int {
 	return xxx_messageInfo_LoadObjectInfo.Size(m)
@@ -1068,16 +1161,17 @@ func (m *RenameInfo) Reset()         { *m = RenameInfo{} }
 func (m *RenameInfo) String() string { return proto.CompactTextString(m) }
 func (*RenameInfo) ProtoMessage()    {}
 func (*RenameInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{20}
+	return fileDescriptor_1fcd0776e05e82a6, []int{21}
 }
+
 func (m *RenameInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RenameInfo.Unmarshal(m, b)
 }
 func (m *RenameInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_RenameInfo.Marshal(b, m, deterministic)
 }
-func (dst *RenameInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RenameInfo.Merge(dst, src)
+func (m *RenameInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RenameInfo.Merge(m, src)
 }
 func (m *RenameInfo) XXX_Size() int {
 	return xxx_messageInfo_RenameInfo.Size(m)
@@ -1125,16 +1219,17 @@ func (m *Object) Reset()         { *m = Object{} }
 func (m *Object) String() string { return proto.CompactTextString(m) }
 func (*Object) ProtoMessage()    {}
 func (*Object) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{21}
+	return fileDescriptor_1fcd0776e05e82a6, []int{22}
 }
+
 func (m *Object) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Object.Unmarshal(m, b)
 }
 func (m *Object) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Object.Marshal(b, m, deterministic)
 }
-func (dst *Object) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Object.Merge(dst, src)
+func (m *Object) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Object.Merge(m, src)
 }
 func (m *Object) XXX_Size() int {
 	return xxx_messageInfo_Object.Size(m)
@@ -1168,6 +1263,7 @@ func (m *Object) GetOffset() uint64 {
 
 type LoadObjectsResponse struct {
 	Objects              []*Object `protobuf:"bytes,1,rep,name=objects,proto3" json:"objects,omitempty"`
+	NextPageToken        []byte    `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}  `json:"-"`
 	XXX_unrecognized     []byte    `json:"-"`
 	XXX_sizecache        int32     `json:"-"`
@@ -1177,16 +1273,17 @@ func (m *LoadObjectsResponse) Reset()         { *m = LoadObjectsResponse{} }
 func (m *LoadObjectsResponse) String() string { return proto.CompactTextString(m) }
 func (*LoadObjectsResponse) ProtoMessage()    {}
 func (*LoadObjectsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{22}
+	return fileDescriptor_1fcd0776e05e82a6, []int{23}
 }
+
 func (m *LoadObjectsResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_LoadObjectsResponse.Unmarshal(m, b)
 }
 func (m *LoadObjectsResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_LoadObjectsResponse.Marshal(b, m, deterministic)
 }
-func (dst *LoadObjectsResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_LoadObjectsResponse.Merge(dst, src)
+func (m *LoadObjectsResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_LoadObjectsResponse.Merge(m, src)
 }
 func (m *LoadObjectsResponse) XXX_Size() int {
 	return xxx_messageInfo_LoadObjectsResponse.Size(m)
@@ -1204,6 +1301,13 @@ func (m *LoadObjectsResponse) GetObjects() []*Object {
 	return nil
 }
 
+func (m *LoadObjectsResponse) GetNextPageToken() []byte {
+	if m != nil {
+		return m.NextPageToken
+	}
+	return nil
+}
+
 type ObjectPrefix struct {
 	Prefix []byte `protobuf:"bytes,1,opt,name=prefix,proto3" json:"prefix,omitempty"`
 	// Is this request coming from a repair tool ?
@@ -1217,16 +1321,17 @@ func (m *ObjectPrefix) Reset()         { *m = ObjectPrefix{} }
 func (m *ObjectPrefix) String() string { return proto.CompactTextString(m) }
 func (*ObjectPrefix) ProtoMessage()    {}
 func (*ObjectPrefix) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{23}
+	return fileDescriptor_1fcd0776e05e82a6, []int{24}
 }
+
 func (m *ObjectPrefix) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ObjectPrefix.Unmarshal(m, b)
 }
 func (m *ObjectPrefix) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ObjectPrefix.Marshal(b, m, deterministic)
 }
-func (dst *ObjectPrefix) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ObjectPrefix.Merge(dst, src)
+func (m *ObjectPrefix) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ObjectPrefix.Merge(m, src)
 }
 func (m *ObjectPrefix) XXX_Size() int {
 	return xxx_messageInfo_ObjectPrefix.Size(m)
@@ -1261,16 +1366,17 @@ func (m *Empty) Reset()         { *m = Empty{} }
 func (m *Empty) String() string { return proto.CompactTextString(m) }
 func (*Empty) ProtoMessage()    {}
 func (*Empty) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{24}
+	return fileDescriptor_1fcd0776e05e82a6, []int{25}
 }
+
 func (m *Empty) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Empty.Unmarshal(m, b)
 }
 func (m *Empty) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Empty.Marshal(b, m, deterministic)
 }
-func (dst *Empty) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Empty.Merge(dst, src)
+func (m *Empty) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Empty.Merge(m, src)
 }
 func (m *Empty) XXX_Size() int {
 	return xxx_messageInfo_Empty.Size(m)
@@ -1291,16 +1397,17 @@ func (m *GetStatsInfo) Reset()         { *m = GetStatsInfo{} }
 func (m *GetStatsInfo) String() string { return proto.CompactTextString(m) }
 func (*GetStatsInfo) ProtoMessage()    {}
 func (*GetStatsInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{25}
+	return fileDescriptor_1fcd0776e05e82a6, []int{26}
 }
+
 func (m *GetStatsInfo) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_GetStatsInfo.Unmarshal(m, b)
 }
 func (m *GetStatsInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_GetStatsInfo.Marshal(b, m, deterministic)
 }
-func (dst *GetStatsInfo) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_GetStatsInfo.Merge(dst, src)
+func (m *GetStatsInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetStatsInfo.Merge(m, src)
 }
 func (m *GetStatsInfo) XXX_Size() int {
 	return xxx_messageInfo_GetStatsInfo.Size(m)
@@ -1322,16 +1429,17 @@ func (m *PartitionContent) Reset()         { *m = PartitionContent{} }
 func (m *PartitionContent) String() string { return proto.CompactTextString(m) }
 func (*PartitionContent) ProtoMessage()    {}
 func (*PartitionContent) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{26}
+	return fileDescriptor_1fcd0776e05e82a6, []int{27}
 }
+
 func (m *PartitionContent) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_PartitionContent.Unmarshal(m, b)
 }
 func (m *PartitionContent) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_PartitionContent.Marshal(b, m, deterministic)
 }
-func (dst *PartitionContent) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PartitionContent.Merge(dst, src)
+func (m *PartitionContent) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PartitionContent.Merge(m, src)
 }
 func (m *PartitionContent) XXX_Size() int {
 	return xxx_messageInfo_PartitionContent.Size(m)
@@ -1363,16 +1471,17 @@ func (m *FullPathEntry) Reset()         { *m = FullPathEntry{} }
 func (m *FullPathEntry) String() string { return proto.CompactTextString(m) }
 func (*FullPathEntry) ProtoMessage()    {}
 func (*FullPathEntry) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{27}
+	return fileDescriptor_1fcd0776e05e82a6, []int{28}
 }
+
 func (m *FullPathEntry) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_FullPathEntry.Unmarshal(m, b)
 }
 func (m *FullPathEntry) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_FullPathEntry.Marshal(b, m, deterministic)
 }
-func (dst *FullPathEntry) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_FullPathEntry.Merge(dst, src)
+func (m *FullPathEntry) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_FullPathEntry.Merge(m, src)
 }
 func (m *FullPathEntry) XXX_Size() int {
 	return xxx_messageInfo_FullPathEntry.Size(m)
@@ -1415,16 +1524,17 @@ func (m *KvState) Reset()         { *m = KvState{} }
 func (m *KvState) String() string { return proto.CompactTextString(m) }
 func (*KvState) ProtoMessage()    {}
 func (*KvState) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{28}
+	return fileDescriptor_1fcd0776e05e82a6, []int{29}
 }
+
 func (m *KvState) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_KvState.Unmarshal(m, b)
 }
 func (m *KvState) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_KvState.Marshal(b, m, deterministic)
 }
-func (dst *KvState) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_KvState.Merge(dst, src)
+func (m *KvState) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_KvState.Merge(m, src)
 }
 func (m *KvState) XXX_Size() int {
 	return xxx_messageInfo_KvState.Size(m)
@@ -1454,16 +1564,17 @@ func (m *KVStats) Reset()         { *m = KVStats{} }
 func (m *KVStats) String() string { return proto.CompactTextString(m) }
 func (*KVStats) ProtoMessage()    {}
 func (*KVStats) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fmgr_9bd830dff177b0b0, []int{29}
+	return fileDescriptor_1fcd0776e05e82a6, []int{30}
 }
+
 func (m *KVStats) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_KVStats.Unmarshal(m, b)
 }
 func (m *KVStats) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_KVStats.Marshal(b, m, deterministic)
 }
-func (dst *KVStats) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_KVStats.Merge(dst, src)
+func (m *KVStats) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_KVStats.Merge(m, src)
 }
 func (m *KVStats) XXX_Size() int {
 	return xxx_messageInfo_KVStats.Size(m)
@@ -1481,7 +1592,56 @@ func (m *KVStats) GetStats() map[string]uint64 {
 	return nil
 }
 
+type ListQuarantinedOHashesInfo struct {
+	PageToken            []byte   `protobuf:"bytes,1,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	PageSize             uint32   `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ListQuarantinedOHashesInfo) Reset()         { *m = ListQuarantinedOHashesInfo{} }
+func (m *ListQuarantinedOHashesInfo) String() string { return proto.CompactTextString(m) }
+func (*ListQuarantinedOHashesInfo) ProtoMessage()    {}
+func (*ListQuarantinedOHashesInfo) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1fcd0776e05e82a6, []int{31}
+}
+
+func (m *ListQuarantinedOHashesInfo) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ListQuarantinedOHashesInfo.Unmarshal(m, b)
+}
+func (m *ListQuarantinedOHashesInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ListQuarantinedOHashesInfo.Marshal(b, m, deterministic)
+}
+func (m *ListQuarantinedOHashesInfo) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ListQuarantinedOHashesInfo.Merge(m, src)
+}
+func (m *ListQuarantinedOHashesInfo) XXX_Size() int {
+	return xxx_messageInfo_ListQuarantinedOHashesInfo.Size(m)
+}
+func (m *ListQuarantinedOHashesInfo) XXX_DiscardUnknown() {
+	xxx_messageInfo_ListQuarantinedOHashesInfo.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ListQuarantinedOHashesInfo proto.InternalMessageInfo
+
+func (m *ListQuarantinedOHashesInfo) GetPageToken() []byte {
+	if m != nil {
+		return m.PageToken
+	}
+	return nil
+}
+
+func (m *ListQuarantinedOHashesInfo) GetPageSize() uint32 {
+	if m != nil {
+		return m.PageSize
+	}
+	return 0
+}
+
 func init() {
+	proto.RegisterEnum("filemgr.VolumeType", VolumeType_name, VolumeType_value)
+	proto.RegisterEnum("filemgr.VolumeState", VolumeState_name, VolumeState_value)
 	proto.RegisterType((*ListPartitionsInfo)(nil), "filemgr.ListPartitionsInfo")
 	proto.RegisterType((*ListPartitionInfo)(nil), "filemgr.ListPartitionInfo")
 	proto.RegisterType((*ListSuffixInfo)(nil), "filemgr.ListSuffixInfo")
@@ -1500,6 +1660,7 @@ func init() {
 	proto.RegisterType((*NewObjectInfo)(nil), "filemgr.NewObjectInfo")
 	proto.RegisterType((*NewObjectReply)(nil), "filemgr.NewObjectReply")
 	proto.RegisterType((*QuarantinedObjectName)(nil), "filemgr.QuarantinedObjectName")
+	proto.RegisterType((*QuarantinedObjectNames)(nil), "filemgr.QuarantinedObjectNames")
 	proto.RegisterType((*ObjectName)(nil), "filemgr.ObjectName")
 	proto.RegisterType((*LoadObjectInfo)(nil), "filemgr.LoadObjectInfo")
 	proto.RegisterType((*RenameInfo)(nil), "filemgr.RenameInfo")
@@ -1513,1030 +1674,76 @@ func init() {
 	proto.RegisterType((*KvState)(nil), "filemgr.KvState")
 	proto.RegisterType((*KVStats)(nil), "filemgr.KVStats")
 	proto.RegisterMapType((map[string]uint64)(nil), "filemgr.KVStats.StatsEntry")
-	proto.RegisterEnum("filemgr.VolumeType", VolumeType_name, VolumeType_value)
-	proto.RegisterEnum("filemgr.VolumeState", VolumeState_name, VolumeState_value)
-}
-
-// Reference imports to suppress errors if they are not otherwise used.
-var _ context.Context
-var _ grpc.ClientConn
-
-// This is a compile-time assertion to ensure that this generated file
-// is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
-
-// FileMgrClient is the client API for FileMgr service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
-type FileMgrClient interface {
-	// Register a new Volume
-	RegisterVolume(ctx context.Context, in *NewVolumeInfo, opts ...grpc.CallOption) (*NewVolumeReply, error)
-	// Unregister a Volume
-	UnregisterVolume(ctx context.Context, in *VolumeIndex, opts ...grpc.CallOption) (*Empty, error)
-	// Register a new object
-	RegisterObject(ctx context.Context, in *NewObjectInfo, opts ...grpc.CallOption) (*NewObjectReply, error)
-	// Unregister an object
-	UnregisterObject(ctx context.Context, in *ObjectName, opts ...grpc.CallOption) (*DelObjectReply, error)
-	// Rename an object
-	RenameObject(ctx context.Context, in *RenameInfo, opts ...grpc.CallOption) (*RenameReply, error)
-	// Quarantine a "directory" (all objects "below" ohash)
-	// DEPRECATED
-	QuarantineDir(ctx context.Context, in *ObjectPrefix, opts ...grpc.CallOption) (*DelObjectReply, error)
-	// Quarantine an object
-	QuarantineObject(ctx context.Context, in *ObjectName, opts ...grpc.CallOption) (*Empty, error)
-	// Unquarantine an object
-	UnquarantineObject(ctx context.Context, in *ObjectName, opts ...grpc.CallOption) (*Empty, error)
-	// Get array of object locations
-	LoadObjectsByPrefix(ctx context.Context, in *ObjectPrefix, opts ...grpc.CallOption) (*LoadObjectsResponse, error)
-	// List Volumes
-	ListVolumes(ctx context.Context, in *ListVolumesInfo, opts ...grpc.CallOption) (*Volumes, error)
-	// Get Volume by index
-	GetVolume(ctx context.Context, in *VolumeIndex, opts ...grpc.CallOption) (*Volume, error)
-	// List partitions
-	ListPartitions(ctx context.Context, in *ListPartitionsInfo, opts ...grpc.CallOption) (*DirEntries, error)
-	// List suffixes within partition
-	ListPartition(ctx context.Context, in *ListPartitionInfo, opts ...grpc.CallOption) (*DirEntries, error)
-	// List object hashes within partition/suffix
-	ListSuffix(ctx context.Context, in *ListSuffixInfo, opts ...grpc.CallOption) (*DirEntries, error)
-	// Recursively list the partition content, down to files
-	ListPartitionRecursive(ctx context.Context, in *ListPartitionInfo, opts ...grpc.CallOption) (*PartitionContent, error)
-	// List quarantined objects. This may be very large, so use a stream (no eventlet)
-	ListQuarantinedOHashes(ctx context.Context, in *Empty, opts ...grpc.CallOption) (FileMgr_ListQuarantinedOHashesClient, error)
-	// List files within a quarantined object (ohash)
-	ListQuarantinedOHash(ctx context.Context, in *ObjectPrefix, opts ...grpc.CallOption) (*LoadObjectsResponse, error)
-	// Get object
-	LoadObject(ctx context.Context, in *LoadObjectInfo, opts ...grpc.CallOption) (*Object, error)
-	// Get next offset to write to in a volume
-	GetNextOffset(ctx context.Context, in *GetNextOffsetInfo, opts ...grpc.CallOption) (*VolumeNextOffset, error)
-	// Get KVStats
-	GetStats(ctx context.Context, in *GetStatsInfo, opts ...grpc.CallOption) (*KVStats, error)
-	// List objects per volume - used for compaction (no eventlet, ok to use stream)
-	LoadObjectsByVolume(ctx context.Context, in *VolumeIndex, opts ...grpc.CallOption) (FileMgr_LoadObjectsByVolumeClient, error)
-	// Update Volume state
-	UpdateVolumeState(ctx context.Context, in *NewVolumeState, opts ...grpc.CallOption) (*Empty, error)
-	// Set state (clean: in sync with the volumes)
-	SetKvState(ctx context.Context, in *KvState, opts ...grpc.CallOption) (*Empty, error)
-	// Get state (clean: in sync with the volumes)
-	GetKvState(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*KvState, error)
-}
-
-type fileMgrClient struct {
-	cc *grpc.ClientConn
-}
-
-func NewFileMgrClient(cc *grpc.ClientConn) FileMgrClient {
-	return &fileMgrClient{cc}
-}
-
-func (c *fileMgrClient) RegisterVolume(ctx context.Context, in *NewVolumeInfo, opts ...grpc.CallOption) (*NewVolumeReply, error) {
-	out := new(NewVolumeReply)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/RegisterVolume", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) UnregisterVolume(ctx context.Context, in *VolumeIndex, opts ...grpc.CallOption) (*Empty, error) {
-	out := new(Empty)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/UnregisterVolume", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) RegisterObject(ctx context.Context, in *NewObjectInfo, opts ...grpc.CallOption) (*NewObjectReply, error) {
-	out := new(NewObjectReply)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/RegisterObject", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) UnregisterObject(ctx context.Context, in *ObjectName, opts ...grpc.CallOption) (*DelObjectReply, error) {
-	out := new(DelObjectReply)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/UnregisterObject", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) RenameObject(ctx context.Context, in *RenameInfo, opts ...grpc.CallOption) (*RenameReply, error) {
-	out := new(RenameReply)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/RenameObject", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) QuarantineDir(ctx context.Context, in *ObjectPrefix, opts ...grpc.CallOption) (*DelObjectReply, error) {
-	out := new(DelObjectReply)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/QuarantineDir", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) QuarantineObject(ctx context.Context, in *ObjectName, opts ...grpc.CallOption) (*Empty, error) {
-	out := new(Empty)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/QuarantineObject", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) UnquarantineObject(ctx context.Context, in *ObjectName, opts ...grpc.CallOption) (*Empty, error) {
-	out := new(Empty)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/UnquarantineObject", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) LoadObjectsByPrefix(ctx context.Context, in *ObjectPrefix, opts ...grpc.CallOption) (*LoadObjectsResponse, error) {
-	out := new(LoadObjectsResponse)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/LoadObjectsByPrefix", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) ListVolumes(ctx context.Context, in *ListVolumesInfo, opts ...grpc.CallOption) (*Volumes, error) {
-	out := new(Volumes)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/ListVolumes", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) GetVolume(ctx context.Context, in *VolumeIndex, opts ...grpc.CallOption) (*Volume, error) {
-	out := new(Volume)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/GetVolume", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) ListPartitions(ctx context.Context, in *ListPartitionsInfo, opts ...grpc.CallOption) (*DirEntries, error) {
-	out := new(DirEntries)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/ListPartitions", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) ListPartition(ctx context.Context, in *ListPartitionInfo, opts ...grpc.CallOption) (*DirEntries, error) {
-	out := new(DirEntries)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/ListPartition", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) ListSuffix(ctx context.Context, in *ListSuffixInfo, opts ...grpc.CallOption) (*DirEntries, error) {
-	out := new(DirEntries)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/ListSuffix", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) ListPartitionRecursive(ctx context.Context, in *ListPartitionInfo, opts ...grpc.CallOption) (*PartitionContent, error) {
-	out := new(PartitionContent)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/ListPartitionRecursive", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) ListQuarantinedOHashes(ctx context.Context, in *Empty, opts ...grpc.CallOption) (FileMgr_ListQuarantinedOHashesClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_FileMgr_serviceDesc.Streams[0], "/filemgr.FileMgr/ListQuarantinedOHashes", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &fileMgrListQuarantinedOHashesClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type FileMgr_ListQuarantinedOHashesClient interface {
-	Recv() (*QuarantinedObjectName, error)
-	grpc.ClientStream
-}
-
-type fileMgrListQuarantinedOHashesClient struct {
-	grpc.ClientStream
-}
-
-func (x *fileMgrListQuarantinedOHashesClient) Recv() (*QuarantinedObjectName, error) {
-	m := new(QuarantinedObjectName)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *fileMgrClient) ListQuarantinedOHash(ctx context.Context, in *ObjectPrefix, opts ...grpc.CallOption) (*LoadObjectsResponse, error) {
-	out := new(LoadObjectsResponse)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/ListQuarantinedOHash", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) LoadObject(ctx context.Context, in *LoadObjectInfo, opts ...grpc.CallOption) (*Object, error) {
-	out := new(Object)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/LoadObject", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) GetNextOffset(ctx context.Context, in *GetNextOffsetInfo, opts ...grpc.CallOption) (*VolumeNextOffset, error) {
-	out := new(VolumeNextOffset)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/GetNextOffset", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) GetStats(ctx context.Context, in *GetStatsInfo, opts ...grpc.CallOption) (*KVStats, error) {
-	out := new(KVStats)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/GetStats", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) LoadObjectsByVolume(ctx context.Context, in *VolumeIndex, opts ...grpc.CallOption) (FileMgr_LoadObjectsByVolumeClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_FileMgr_serviceDesc.Streams[1], "/filemgr.FileMgr/LoadObjectsByVolume", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &fileMgrLoadObjectsByVolumeClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type FileMgr_LoadObjectsByVolumeClient interface {
-	Recv() (*Object, error)
-	grpc.ClientStream
-}
-
-type fileMgrLoadObjectsByVolumeClient struct {
-	grpc.ClientStream
-}
-
-func (x *fileMgrLoadObjectsByVolumeClient) Recv() (*Object, error) {
-	m := new(Object)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *fileMgrClient) UpdateVolumeState(ctx context.Context, in *NewVolumeState, opts ...grpc.CallOption) (*Empty, error) {
-	out := new(Empty)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/UpdateVolumeState", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) SetKvState(ctx context.Context, in *KvState, opts ...grpc.CallOption) (*Empty, error) {
-	out := new(Empty)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/SetKvState", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileMgrClient) GetKvState(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*KvState, error) {
-	out := new(KvState)
-	err := c.cc.Invoke(ctx, "/filemgr.FileMgr/GetKvState", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// FileMgrServer is the server API for FileMgr service.
-type FileMgrServer interface {
-	// Register a new Volume
-	RegisterVolume(context.Context, *NewVolumeInfo) (*NewVolumeReply, error)
-	// Unregister a Volume
-	UnregisterVolume(context.Context, *VolumeIndex) (*Empty, error)
-	// Register a new object
-	RegisterObject(context.Context, *NewObjectInfo) (*NewObjectReply, error)
-	// Unregister an object
-	UnregisterObject(context.Context, *ObjectName) (*DelObjectReply, error)
-	// Rename an object
-	RenameObject(context.Context, *RenameInfo) (*RenameReply, error)
-	// Quarantine a "directory" (all objects "below" ohash)
-	// DEPRECATED
-	QuarantineDir(context.Context, *ObjectPrefix) (*DelObjectReply, error)
-	// Quarantine an object
-	QuarantineObject(context.Context, *ObjectName) (*Empty, error)
-	// Unquarantine an object
-	UnquarantineObject(context.Context, *ObjectName) (*Empty, error)
-	// Get array of object locations
-	LoadObjectsByPrefix(context.Context, *ObjectPrefix) (*LoadObjectsResponse, error)
-	// List Volumes
-	ListVolumes(context.Context, *ListVolumesInfo) (*Volumes, error)
-	// Get Volume by index
-	GetVolume(context.Context, *VolumeIndex) (*Volume, error)
-	// List partitions
-	ListPartitions(context.Context, *ListPartitionsInfo) (*DirEntries, error)
-	// List suffixes within partition
-	ListPartition(context.Context, *ListPartitionInfo) (*DirEntries, error)
-	// List object hashes within partition/suffix
-	ListSuffix(context.Context, *ListSuffixInfo) (*DirEntries, error)
-	// Recursively list the partition content, down to files
-	ListPartitionRecursive(context.Context, *ListPartitionInfo) (*PartitionContent, error)
-	// List quarantined objects. This may be very large, so use a stream (no eventlet)
-	ListQuarantinedOHashes(*Empty, FileMgr_ListQuarantinedOHashesServer) error
-	// List files within a quarantined object (ohash)
-	ListQuarantinedOHash(context.Context, *ObjectPrefix) (*LoadObjectsResponse, error)
-	// Get object
-	LoadObject(context.Context, *LoadObjectInfo) (*Object, error)
-	// Get next offset to write to in a volume
-	GetNextOffset(context.Context, *GetNextOffsetInfo) (*VolumeNextOffset, error)
-	// Get KVStats
-	GetStats(context.Context, *GetStatsInfo) (*KVStats, error)
-	// List objects per volume - used for compaction (no eventlet, ok to use stream)
-	LoadObjectsByVolume(*VolumeIndex, FileMgr_LoadObjectsByVolumeServer) error
-	// Update Volume state
-	UpdateVolumeState(context.Context, *NewVolumeState) (*Empty, error)
-	// Set state (clean: in sync with the volumes)
-	SetKvState(context.Context, *KvState) (*Empty, error)
-	// Get state (clean: in sync with the volumes)
-	GetKvState(context.Context, *Empty) (*KvState, error)
-}
-
-func RegisterFileMgrServer(s *grpc.Server, srv FileMgrServer) {
-	s.RegisterService(&_FileMgr_serviceDesc, srv)
-}
-
-func _FileMgr_RegisterVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(NewVolumeInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).RegisterVolume(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/RegisterVolume",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).RegisterVolume(ctx, req.(*NewVolumeInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_UnregisterVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(VolumeIndex)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).UnregisterVolume(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/UnregisterVolume",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).UnregisterVolume(ctx, req.(*VolumeIndex))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_RegisterObject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(NewObjectInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).RegisterObject(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/RegisterObject",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).RegisterObject(ctx, req.(*NewObjectInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_UnregisterObject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ObjectName)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).UnregisterObject(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/UnregisterObject",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).UnregisterObject(ctx, req.(*ObjectName))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_RenameObject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RenameInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).RenameObject(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/RenameObject",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).RenameObject(ctx, req.(*RenameInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_QuarantineDir_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ObjectPrefix)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).QuarantineDir(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/QuarantineDir",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).QuarantineDir(ctx, req.(*ObjectPrefix))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_QuarantineObject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ObjectName)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).QuarantineObject(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/QuarantineObject",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).QuarantineObject(ctx, req.(*ObjectName))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_UnquarantineObject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ObjectName)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).UnquarantineObject(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/UnquarantineObject",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).UnquarantineObject(ctx, req.(*ObjectName))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_LoadObjectsByPrefix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ObjectPrefix)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).LoadObjectsByPrefix(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/LoadObjectsByPrefix",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).LoadObjectsByPrefix(ctx, req.(*ObjectPrefix))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_ListVolumes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListVolumesInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).ListVolumes(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/ListVolumes",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).ListVolumes(ctx, req.(*ListVolumesInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_GetVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(VolumeIndex)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).GetVolume(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/GetVolume",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).GetVolume(ctx, req.(*VolumeIndex))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_ListPartitions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListPartitionsInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).ListPartitions(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/ListPartitions",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).ListPartitions(ctx, req.(*ListPartitionsInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_ListPartition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListPartitionInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).ListPartition(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/ListPartition",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).ListPartition(ctx, req.(*ListPartitionInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_ListSuffix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListSuffixInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).ListSuffix(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/ListSuffix",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).ListSuffix(ctx, req.(*ListSuffixInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_ListPartitionRecursive_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListPartitionInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).ListPartitionRecursive(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/ListPartitionRecursive",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).ListPartitionRecursive(ctx, req.(*ListPartitionInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_ListQuarantinedOHashes_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(Empty)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(FileMgrServer).ListQuarantinedOHashes(m, &fileMgrListQuarantinedOHashesServer{stream})
-}
-
-type FileMgr_ListQuarantinedOHashesServer interface {
-	Send(*QuarantinedObjectName) error
-	grpc.ServerStream
-}
-
-type fileMgrListQuarantinedOHashesServer struct {
-	grpc.ServerStream
-}
-
-func (x *fileMgrListQuarantinedOHashesServer) Send(m *QuarantinedObjectName) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func _FileMgr_ListQuarantinedOHash_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ObjectPrefix)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).ListQuarantinedOHash(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/ListQuarantinedOHash",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).ListQuarantinedOHash(ctx, req.(*ObjectPrefix))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_LoadObject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(LoadObjectInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).LoadObject(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/LoadObject",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).LoadObject(ctx, req.(*LoadObjectInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_GetNextOffset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetNextOffsetInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).GetNextOffset(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/GetNextOffset",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).GetNextOffset(ctx, req.(*GetNextOffsetInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_GetStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetStatsInfo)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).GetStats(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/GetStats",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).GetStats(ctx, req.(*GetStatsInfo))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_LoadObjectsByVolume_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(VolumeIndex)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(FileMgrServer).LoadObjectsByVolume(m, &fileMgrLoadObjectsByVolumeServer{stream})
-}
-
-type FileMgr_LoadObjectsByVolumeServer interface {
-	Send(*Object) error
-	grpc.ServerStream
-}
-
-type fileMgrLoadObjectsByVolumeServer struct {
-	grpc.ServerStream
-}
-
-func (x *fileMgrLoadObjectsByVolumeServer) Send(m *Object) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func _FileMgr_UpdateVolumeState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(NewVolumeState)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).UpdateVolumeState(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/UpdateVolumeState",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).UpdateVolumeState(ctx, req.(*NewVolumeState))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_SetKvState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(KvState)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).SetKvState(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/SetKvState",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).SetKvState(ctx, req.(*KvState))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileMgr_GetKvState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileMgrServer).GetKvState(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/filemgr.FileMgr/GetKvState",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileMgrServer).GetKvState(ctx, req.(*Empty))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-var _FileMgr_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "filemgr.FileMgr",
-	HandlerType: (*FileMgrServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "RegisterVolume",
-			Handler:    _FileMgr_RegisterVolume_Handler,
-		},
-		{
-			MethodName: "UnregisterVolume",
-			Handler:    _FileMgr_UnregisterVolume_Handler,
-		},
-		{
-			MethodName: "RegisterObject",
-			Handler:    _FileMgr_RegisterObject_Handler,
-		},
-		{
-			MethodName: "UnregisterObject",
-			Handler:    _FileMgr_UnregisterObject_Handler,
-		},
-		{
-			MethodName: "RenameObject",
-			Handler:    _FileMgr_RenameObject_Handler,
-		},
-		{
-			MethodName: "QuarantineDir",
-			Handler:    _FileMgr_QuarantineDir_Handler,
-		},
-		{
-			MethodName: "QuarantineObject",
-			Handler:    _FileMgr_QuarantineObject_Handler,
-		},
-		{
-			MethodName: "UnquarantineObject",
-			Handler:    _FileMgr_UnquarantineObject_Handler,
-		},
-		{
-			MethodName: "LoadObjectsByPrefix",
-			Handler:    _FileMgr_LoadObjectsByPrefix_Handler,
-		},
-		{
-			MethodName: "ListVolumes",
-			Handler:    _FileMgr_ListVolumes_Handler,
-		},
-		{
-			MethodName: "GetVolume",
-			Handler:    _FileMgr_GetVolume_Handler,
-		},
-		{
-			MethodName: "ListPartitions",
-			Handler:    _FileMgr_ListPartitions_Handler,
-		},
-		{
-			MethodName: "ListPartition",
-			Handler:    _FileMgr_ListPartition_Handler,
-		},
-		{
-			MethodName: "ListSuffix",
-			Handler:    _FileMgr_ListSuffix_Handler,
-		},
-		{
-			MethodName: "ListPartitionRecursive",
-			Handler:    _FileMgr_ListPartitionRecursive_Handler,
-		},
-		{
-			MethodName: "ListQuarantinedOHash",
-			Handler:    _FileMgr_ListQuarantinedOHash_Handler,
-		},
-		{
-			MethodName: "LoadObject",
-			Handler:    _FileMgr_LoadObject_Handler,
-		},
-		{
-			MethodName: "GetNextOffset",
-			Handler:    _FileMgr_GetNextOffset_Handler,
-		},
-		{
-			MethodName: "GetStats",
-			Handler:    _FileMgr_GetStats_Handler,
-		},
-		{
-			MethodName: "UpdateVolumeState",
-			Handler:    _FileMgr_UpdateVolumeState_Handler,
-		},
-		{
-			MethodName: "SetKvState",
-			Handler:    _FileMgr_SetKvState_Handler,
-		},
-		{
-			MethodName: "GetKvState",
-			Handler:    _FileMgr_GetKvState_Handler,
-		},
-	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "ListQuarantinedOHashes",
-			Handler:       _FileMgr_ListQuarantinedOHashes_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "LoadObjectsByVolume",
-			Handler:       _FileMgr_LoadObjectsByVolume_Handler,
-			ServerStreams: true,
-		},
-	},
-	Metadata: "fmgr.proto",
-}
-
-func init() { proto.RegisterFile("fmgr.proto", fileDescriptor_fmgr_9bd830dff177b0b0) }
-
-var fileDescriptor_fmgr_9bd830dff177b0b0 = []byte{
-	// 1303 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x58, 0x59, 0x6f, 0xdb, 0x46,
-	0x10, 0x26, 0x75, 0x7b, 0x74, 0x84, 0xd9, 0x28, 0x8e, 0xa2, 0x04, 0x4d, 0xca, 0x22, 0x68, 0xea,
-	0x02, 0x46, 0x9a, 0xa6, 0x40, 0x8e, 0xa2, 0x88, 0x2c, 0x29, 0x8a, 0x11, 0x1d, 0x0e, 0x45, 0x3b,
-	0x29, 0x50, 0x80, 0xa0, 0xe3, 0x95, 0xcd, 0x96, 0x26, 0x15, 0x72, 0x25, 0x5b, 0x6f, 0xfd, 0x1f,
-	0x7d, 0xe9, 0x4b, 0x5f, 0xfb, 0x93, 0xfa, 0x5b, 0x0a, 0xee, 0x2e, 0x6f, 0x5a, 0x76, 0x83, 0xa0,
-	0x2f, 0x02, 0x67, 0x76, 0x76, 0xe6, 0x9b, 0x63, 0x67, 0x76, 0x05, 0x30, 0x3b, 0x3d, 0x76, 0xb6,
-	0xe7, 0x8e, 0x4d, 0x6c, 0x54, 0x9e, 0x19, 0x26, 0x3e, 0x3d, 0x76, 0xe4, 0x17, 0x80, 0x86, 0x86,
-	0x4b, 0xf6, 0x74, 0x87, 0x18, 0xc4, 0xb0, 0x2d, 0x77, 0xd7, 0x9a, 0xd9, 0xe8, 0x01, 0x34, 0xe6,
-	0x3e, 0x47, 0x3b, 0x34, 0x88, 0xdb, 0x12, 0xef, 0x8b, 0x0f, 0xeb, 0x4a, 0x3d, 0xe0, 0xee, 0x18,
-	0xc4, 0x95, 0xdf, 0xc3, 0xf5, 0xd8, 0x66, 0xba, 0xf7, 0x2e, 0x6c, 0x04, 0x52, 0x7c, 0x5b, 0xc8,
-	0xc8, 0xd0, 0x9c, 0xcb, 0xd2, 0x7c, 0x0a, 0x0d, 0x4f, 0xf3, 0x74, 0x31, 0x9b, 0x19, 0xe7, 0x57,
-	0x50, 0xbb, 0x09, 0x25, 0x97, 0xca, 0x52, 0x75, 0x35, 0x85, 0x53, 0x19, 0xe6, 0xf2, 0x59, 0xe6,
-	0x64, 0x80, 0x9e, 0xe1, 0xf4, 0x2d, 0xe2, 0x18, 0xd8, 0x45, 0x4d, 0x28, 0x62, 0x8b, 0x38, 0xab,
-	0x96, 0x78, 0x3f, 0xff, 0x70, 0x43, 0x61, 0x84, 0xdc, 0x83, 0xea, 0x81, 0x6d, 0x2e, 0x4e, 0xf1,
-	0xae, 0x75, 0x84, 0xcf, 0x3d, 0x21, 0xc3, 0xfb, 0xe0, 0xf8, 0x19, 0x81, 0xee, 0x41, 0xd5, 0xc1,
-	0x73, 0xdd, 0x70, 0x34, 0x62, 0xdb, 0x26, 0x35, 0x56, 0x51, 0x80, 0xb1, 0x54, 0xdb, 0x36, 0xe5,
-	0xbf, 0x45, 0x28, 0x31, 0x35, 0xe8, 0x4b, 0xa8, 0x2d, 0xe9, 0x97, 0xc6, 0x14, 0x31, 0xa7, 0xaa,
-	0xcb, 0x88, 0x91, 0x7b, 0xc0, 0x49, 0x8d, 0xac, 0xe6, 0x98, 0x9b, 0x02, 0xc6, 0x52, 0x57, 0xf3,
-	0xa8, 0x0e, 0x97, 0xe8, 0x04, 0x73, 0xef, 0xf8, 0xa6, 0xa9, 0xc7, 0x8a, 0x07, 0xae, 0x90, 0x0c,
-	0xdc, 0x3d, 0xa8, 0x5a, 0xf8, 0x9c, 0x68, 0xf6, 0x6c, 0xe6, 0x62, 0xd2, 0x2a, 0xde, 0x17, 0x1f,
-	0x16, 0x14, 0xf0, 0x58, 0x13, 0xca, 0x91, 0xff, 0x10, 0xe1, 0xfa, 0x00, 0x93, 0x71, 0xc0, 0xa1,
-	0xd9, 0xf8, 0x9f, 0xb0, 0x27, 0xc2, 0x59, 0x48, 0x85, 0x73, 0x05, 0xd7, 0xbc, 0x3a, 0x61, 0x11,
-	0x75, 0xaf, 0x50, 0x28, 0x5f, 0x43, 0x21, 0x80, 0xd3, 0x78, 0x7c, 0x63, 0x9b, 0x9f, 0x83, 0xed,
-	0x83, 0x00, 0x97, 0x42, 0x05, 0x2e, 0xcf, 0xe4, 0x13, 0x28, 0x73, 0xb3, 0xe8, 0x1b, 0x28, 0x33,
-	0xd4, 0x2e, 0x2d, 0x99, 0xea, 0xe3, 0x6b, 0x09, 0xbd, 0x8a, 0xbf, 0x2e, 0x6f, 0x81, 0xc4, 0x58,
-	0x61, 0x40, 0xbd, 0xe2, 0xe5, 0xe1, 0x17, 0x69, 0xf8, 0x39, 0x25, 0xff, 0x23, 0x42, 0x7d, 0x8c,
-	0xcf, 0xfc, 0xaa, 0xfb, 0x7c, 0xbe, 0x25, 0xb3, 0x97, 0x4f, 0x67, 0x2f, 0xc4, 0x54, 0x88, 0x62,
-	0x42, 0x5b, 0x50, 0x64, 0xd9, 0x2a, 0x52, 0x23, 0xcd, 0x84, 0x11, 0x9a, 0x36, 0x85, 0x89, 0x24,
-	0x43, 0x58, 0x4a, 0x85, 0xf0, 0x77, 0x11, 0x1a, 0x81, 0x83, 0x2c, 0xe3, 0x57, 0x28, 0xac, 0x00,
-	0x42, 0xee, 0x3f, 0x43, 0x48, 0x67, 0x51, 0x8a, 0x20, 0x50, 0xf0, 0xdc, 0x5c, 0x79, 0x9c, 0x1e,
-	0x36, 0x27, 0x87, 0xbf, 0xe2, 0x0f, 0x84, 0x71, 0xea, 0x50, 0x55, 0xb0, 0xa5, 0xfb, 0x02, 0x7f,
-	0xb2, 0xb4, 0x30, 0x09, 0x9a, 0x16, 0x04, 0x05, 0x6f, 0x99, 0x82, 0xad, 0x29, 0xf4, 0x3b, 0xe5,
-	0x48, 0x6e, 0x5d, 0x8c, 0xf3, 0xb1, 0x18, 0x27, 0xce, 0x64, 0x21, 0x79, 0x26, 0x93, 0x5e, 0x15,
-	0x2f, 0xf0, 0x2a, 0xea, 0xc3, 0xb7, 0x70, 0xf3, 0xed, 0x42, 0x77, 0x74, 0x8b, 0x18, 0x16, 0x3e,
-	0x62, 0x2b, 0x63, 0x0f, 0x67, 0x06, 0x76, 0xb9, 0x03, 0xb0, 0x5e, 0x22, 0x89, 0x20, 0x97, 0x42,
-	0x60, 0x42, 0x63, 0x68, 0xeb, 0x47, 0x97, 0x04, 0xe9, 0x01, 0x34, 0x0c, 0x57, 0xfb, 0x18, 0x02,
-	0xe3, 0x9a, 0xea, 0x86, 0x1b, 0x41, 0x7b, 0x79, 0x16, 0x7f, 0x01, 0x60, 0x19, 0xba, 0xd0, 0xd2,
-	0x6d, 0xa8, 0x58, 0xf8, 0x4c, 0xa3, 0x7c, 0x36, 0x22, 0xca, 0x16, 0x3e, 0x1b, 0x67, 0xf8, 0x92,
-	0xd6, 0xfe, 0x0e, 0x4a, 0xcc, 0x8f, 0xcf, 0x9c, 0x68, 0xf9, 0x25, 0xdc, 0x08, 0x83, 0xe4, 0x2a,
-	0xd8, 0x9d, 0xdb, 0x96, 0x8b, 0xbd, 0x76, 0x62, 0x33, 0x56, 0xaa, 0x9d, 0xf0, 0x94, 0xfa, 0xeb,
-	0xf2, 0x00, 0x6a, 0x8c, 0xb5, 0xe7, 0x60, 0x6f, 0xde, 0x6d, 0x42, 0x69, 0x4e, 0xbf, 0x38, 0x44,
-	0x4e, 0x5d, 0x9e, 0xaf, 0x32, 0x14, 0xfb, 0xa7, 0x73, 0xb2, 0x92, 0x1b, 0x50, 0x1b, 0x60, 0xe2,
-	0x1d, 0x22, 0xda, 0x4e, 0xe5, 0x11, 0x48, 0xc1, 0x7c, 0xef, 0xda, 0x16, 0xc1, 0x16, 0x41, 0xcf,
-	0xa0, 0xe6, 0x01, 0xd2, 0x30, 0x1b, 0x98, 0x1c, 0xe5, 0x66, 0x80, 0xf2, 0xd5, 0xc2, 0x34, 0xf7,
-	0x74, 0x72, 0xe2, 0x0d, 0xd4, 0x95, 0x52, 0xf5, 0xd8, 0x7c, 0xb6, 0xca, 0x3f, 0x43, 0x3d, 0xb6,
-	0x1a, 0x99, 0xdc, 0x62, 0x6c, 0x72, 0x37, 0xa1, 0x68, 0x9f, 0xe8, 0xee, 0x09, 0xcf, 0x16, 0x23,
-	0x50, 0x1b, 0x2a, 0x9e, 0x36, 0x9a, 0x84, 0x3c, 0x5d, 0x08, 0x68, 0xf9, 0x2b, 0x28, 0xbf, 0x59,
-	0xb2, 0x2e, 0xd2, 0x82, 0xb2, 0xe1, 0x76, 0x4d, 0xac, 0xb3, 0x2e, 0x59, 0x51, 0x7c, 0x52, 0x5e,
-	0x42, 0xf9, 0xcd, 0x01, 0xf5, 0x0e, 0x7d, 0xc7, 0xfa, 0x88, 0x0f, 0xff, 0x4e, 0x00, 0x9f, 0x0b,
-	0x6c, 0xd3, 0x5f, 0xe6, 0x03, 0x93, 0x6c, 0x3f, 0x05, 0x08, 0x99, 0x48, 0x82, 0xfc, 0x6f, 0x78,
-	0x45, 0x2d, 0x6c, 0x28, 0xde, 0xa7, 0x07, 0x7a, 0xa9, 0x9b, 0x0b, 0x56, 0x62, 0x05, 0x85, 0x11,
-	0xcf, 0x73, 0x4f, 0xc5, 0xad, 0x31, 0x40, 0xd8, 0x86, 0x11, 0x82, 0xc6, 0xc1, 0x64, 0xb8, 0x3f,
-	0xea, 0x6b, 0xbd, 0xfe, 0xab, 0xce, 0xfe, 0x50, 0x95, 0x04, 0xd4, 0x04, 0x89, 0xf3, 0xd4, 0xc9,
-	0x68, 0x67, 0xaa, 0x4e, 0xc6, 0x7d, 0x49, 0x44, 0x9b, 0x80, 0x38, 0xf7, 0xbd, 0xd6, 0xeb, 0x0f,
-	0xfb, 0x6a, 0x5f, 0xeb, 0xa8, 0x52, 0x6e, 0x4b, 0xf1, 0x6f, 0x23, 0xcc, 0xe1, 0x1a, 0x54, 0xa6,
-	0x6a, 0x47, 0xed, 0x6b, 0xca, 0x3b, 0x49, 0x40, 0x2d, 0x68, 0x32, 0xaa, 0x3b, 0x19, 0xed, 0x75,
-	0xba, 0xea, 0xee, 0x64, 0xac, 0x4d, 0x95, 0xae, 0x24, 0xa2, 0x3b, 0x70, 0x2b, 0xb5, 0xa2, 0x76,
-	0x94, 0x41, 0x5f, 0x95, 0x72, 0x8f, 0xff, 0xaa, 0x41, 0xf9, 0x95, 0x61, 0xe2, 0xd1, 0xb1, 0x83,
-	0xba, 0xd0, 0x50, 0xf0, 0xb1, 0xe1, 0x12, 0xec, 0xf0, 0xeb, 0x4a, 0x98, 0xde, 0xd8, 0x4c, 0x6a,
-	0xdf, 0x4a, 0xf3, 0x59, 0xcb, 0x11, 0xd0, 0x73, 0x90, 0xf6, 0x2d, 0x27, 0xae, 0x26, 0xd9, 0xae,
-	0xe9, 0x09, 0x69, 0x37, 0x02, 0x2e, 0xab, 0x42, 0x21, 0x0a, 0x80, 0x1f, 0xbe, 0x18, 0x80, 0xb0,
-	0xb1, 0xc4, 0x01, 0x44, 0x7b, 0x9e, 0x80, 0x76, 0xa2, 0x00, 0xb8, 0x9a, 0x1b, 0x89, 0xc3, 0xe4,
-	0xf5, 0x80, 0x88, 0x8e, 0x44, 0xef, 0x17, 0xd0, 0x0b, 0xa8, 0xb1, 0xde, 0x92, 0xda, 0x1f, 0xb6,
-	0x9c, 0x76, 0x33, 0xc1, 0xf4, 0x37, 0x77, 0xa0, 0x1e, 0x36, 0xb2, 0x9e, 0xe1, 0xa0, 0x9b, 0x09,
-	0xeb, 0xec, 0xdc, 0xae, 0xb3, 0xff, 0x0c, 0xa4, 0x50, 0xc5, 0x3a, 0x1f, 0xd2, 0x31, 0x7c, 0x01,
-	0x68, 0xdf, 0xfa, 0xf8, 0x89, 0x9b, 0x87, 0xb1, 0xe6, 0xb4, 0xb3, 0xe2, 0x1d, 0xe6, 0x02, 0x07,
-	0xee, 0x06, 0xec, 0x8c, 0x8e, 0x46, 0xa1, 0x54, 0x23, 0x17, 0x35, 0xd4, 0x0a, 0xc5, 0xe3, 0xd7,
-	0xb7, 0xb6, 0x94, 0xa8, 0x0f, 0x57, 0x16, 0xd0, 0x13, 0xd8, 0x18, 0x60, 0xb2, 0xb6, 0x80, 0x92,
-	0x37, 0x2e, 0x59, 0x40, 0x3d, 0xf6, 0x86, 0x08, 0x9f, 0x36, 0xe8, 0x4e, 0xcc, 0x6a, 0xfc, 0xcd,
-	0xd3, 0x0e, 0xc3, 0x12, 0x3e, 0x05, 0x68, 0x09, 0xd5, 0x63, 0xc2, 0xa8, 0x9d, 0xad, 0x64, 0x9d,
-	0x8e, 0x1f, 0x01, 0xc2, 0xd7, 0x0c, 0xba, 0x15, 0x53, 0x10, 0x3e, 0x71, 0x2e, 0xda, 0xfd, 0x16,
-	0x36, 0x63, 0x96, 0x14, 0xfc, 0x61, 0xe1, 0xb8, 0xc6, 0x12, 0xaf, 0x85, 0x72, 0x3b, 0x58, 0x4b,
-	0xb6, 0x6f, 0x9a, 0x5b, 0xaa, 0x32, 0x7a, 0x23, 0x78, 0xad, 0xbb, 0x27, 0xd8, 0x45, 0x89, 0x3a,
-	0x68, 0x7f, 0x11, 0xd0, 0x99, 0xd7, 0x07, 0x59, 0x78, 0x24, 0xa2, 0x11, 0x34, 0xb3, 0xb4, 0x7d,
-	0x6a, 0xa9, 0x3c, 0x05, 0x08, 0x17, 0xa2, 0xd1, 0x8a, 0xdd, 0x27, 0xda, 0xc9, 0xa1, 0x28, 0x0b,
-	0xe8, 0x35, 0xd4, 0x63, 0x4f, 0x95, 0x48, 0x80, 0x52, 0x4f, 0x98, 0x48, 0x80, 0x92, 0x17, 0x72,
-	0x59, 0x40, 0x3f, 0x40, 0xc5, 0x9f, 0x82, 0x11, 0x37, 0xa2, 0x83, 0x31, 0x52, 0xa8, 0x7c, 0x5e,
-	0xc8, 0x02, 0x7a, 0x99, 0x38, 0x33, 0x57, 0x2c, 0x59, 0xdf, 0x81, 0x47, 0x22, 0xfa, 0x09, 0xae,
-	0xef, 0xcf, 0x8f, 0x74, 0x82, 0xa3, 0xdd, 0x3d, 0xa3, 0xc5, 0xd2, 0x85, 0x8c, 0x53, 0xfb, 0x08,
-	0x60, 0x8a, 0x89, 0x3f, 0x07, 0x23, 0x18, 0x97, 0x6b, 0x76, 0x0c, 0xc2, 0x1d, 0xc9, 0xfc, 0xa7,
-	0x34, 0xc8, 0xc2, 0x61, 0x89, 0xfe, 0x87, 0xf0, 0xfd, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0xee,
-	0xf4, 0xe7, 0x41, 0x51, 0x10, 0x00, 0x00,
+	proto.RegisterType((*ListQuarantinedOHashesInfo)(nil), "filemgr.ListQuarantinedOHashesInfo")
+}
+
+func init() { proto.RegisterFile("fmgr.proto", fileDescriptor_1fcd0776e05e82a6) }
+
+var fileDescriptor_1fcd0776e05e82a6 = []byte{
+	// 1039 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x56, 0xdd, 0x6e, 0xe3, 0x44,
+	0x14, 0x5e, 0xe7, 0x7f, 0x4f, 0x7e, 0xea, 0x9d, 0x2d, 0x25, 0xb4, 0x40, 0x8b, 0xd1, 0xc2, 0x52,
+	0xa4, 0x4a, 0x2c, 0x5c, 0x14, 0xb8, 0xca, 0xb6, 0xde, 0x52, 0x6d, 0x9a, 0x84, 0x89, 0xb7, 0x5b,
+	0x24, 0x24, 0xcb, 0xa5, 0x93, 0xc6, 0xac, 0x63, 0x1b, 0xcf, 0x24, 0x6d, 0x7a, 0xc5, 0x7b, 0x70,
+	0x83, 0x78, 0x00, 0x1e, 0x89, 0x67, 0x41, 0xf3, 0x63, 0xc7, 0xb1, 0x43, 0xdb, 0x95, 0x56, 0xdc,
+	0x58, 0x3e, 0xdf, 0x9c, 0x99, 0xf9, 0xbe, 0x73, 0xce, 0xcc, 0x1c, 0x80, 0xd1, 0xe4, 0x32, 0xda,
+	0x0b, 0xa3, 0x80, 0x05, 0xa8, 0x3a, 0x72, 0x3d, 0x32, 0xb9, 0x8c, 0x8c, 0xef, 0x01, 0x75, 0x5d,
+	0xca, 0x06, 0x4e, 0xc4, 0x5c, 0xe6, 0x06, 0x3e, 0x3d, 0xf6, 0x47, 0x01, 0x7a, 0x02, 0xad, 0x30,
+	0x46, 0xec, 0x73, 0x97, 0xd1, 0xb6, 0xb6, 0xa3, 0x3d, 0x6d, 0xe2, 0x66, 0x82, 0x3e, 0x77, 0x19,
+	0x35, 0xce, 0xe0, 0xd1, 0xd2, 0x64, 0x31, 0xf7, 0x43, 0x78, 0x98, 0x78, 0xa9, 0x69, 0x0b, 0x60,
+	0xc5, 0xca, 0x85, 0x55, 0x2b, 0x4f, 0xa0, 0xc5, 0x57, 0x1e, 0x4e, 0x47, 0x23, 0xf7, 0xfa, 0x1e,
+	0xcb, 0x6e, 0x40, 0x85, 0x0a, 0x5f, 0xb1, 0x5c, 0x03, 0x2b, 0x6b, 0xc5, 0x76, 0xc5, 0x55, 0xdb,
+	0x19, 0x00, 0x87, 0x6e, 0x64, 0xfa, 0x2c, 0x72, 0x09, 0x45, 0xeb, 0x50, 0x26, 0x3e, 0x8b, 0xe6,
+	0x6d, 0x6d, 0xa7, 0xf8, 0xf4, 0x21, 0x96, 0x86, 0xf1, 0x97, 0x06, 0xf5, 0xd3, 0xc0, 0x9b, 0x4e,
+	0xc8, 0xb1, 0x7f, 0x41, 0xae, 0xb9, 0x97, 0xcb, 0x7f, 0x14, 0x19, 0x69, 0xa0, 0x1d, 0xa8, 0xff,
+	0x36, 0x75, 0x22, 0xc7, 0x67, 0xae, 0x4f, 0x2e, 0x04, 0x9b, 0x1a, 0x4e, 0x43, 0xe8, 0x23, 0x80,
+	0xd0, 0xb9, 0x24, 0x36, 0x0b, 0xde, 0x10, 0x5f, 0xd0, 0x69, 0x70, 0x25, 0x97, 0xc4, 0xe2, 0x00,
+	0xda, 0x02, 0x61, 0xd8, 0xd4, 0xbd, 0x21, 0xed, 0x92, 0x58, 0xba, 0xc6, 0x81, 0xa1, 0x7b, 0x43,
+	0xd0, 0x36, 0xd4, 0x23, 0x12, 0x3a, 0x6e, 0x64, 0xb3, 0x20, 0xf0, 0xda, 0x65, 0xb1, 0x3a, 0x48,
+	0xc8, 0x0a, 0x02, 0xcf, 0xf8, 0x5b, 0x83, 0x8a, 0x24, 0x89, 0x3e, 0x81, 0xc6, 0x4c, 0xfc, 0xd9,
+	0x69, 0x9a, 0xf5, 0x59, 0x4a, 0xc2, 0x36, 0x28, 0xd3, 0x66, 0xf3, 0x90, 0xa8, 0x4c, 0x80, 0x84,
+	0xac, 0x79, 0x98, 0x5e, 0x83, 0x32, 0x87, 0x11, 0x15, 0x3c, 0x35, 0x69, 0xc8, 0xa1, 0xe5, 0xbc,
+	0x94, 0xb2, 0x79, 0xd9, 0x86, 0xba, 0x4f, 0xae, 0x99, 0x1d, 0x8c, 0x46, 0x94, 0x30, 0x41, 0xb8,
+	0x84, 0x81, 0x43, 0x7d, 0x81, 0x18, 0x7f, 0x68, 0xf0, 0xe8, 0x88, 0xb0, 0x5e, 0x82, 0x88, 0x64,
+	0xff, 0x4f, 0xdc, 0x33, 0xe1, 0x2c, 0xe5, 0xc2, 0x39, 0x87, 0x35, 0x5e, 0x86, 0x32, 0xa2, 0xf4,
+	0x1e, 0x75, 0xf8, 0x39, 0x94, 0x12, 0x3a, 0xad, 0x67, 0x8f, 0xf7, 0xd4, 0x31, 0xdb, 0x3b, 0x4d,
+	0x78, 0x61, 0xe1, 0x90, 0xdd, 0xba, 0x98, 0xdb, 0xfa, 0x1b, 0xa8, 0xaa, 0x6d, 0xd1, 0x17, 0x50,
+	0x95, 0xac, 0xa9, 0xa8, 0xc8, 0xfa, 0xb3, 0xb5, 0xcc, 0xba, 0x38, 0x1e, 0x37, 0x76, 0x41, 0x97,
+	0xd0, 0x22, 0xa0, 0xfc, 0x6c, 0xa8, 0xf0, 0x6b, 0x22, 0xfc, 0xca, 0x32, 0xfe, 0xd1, 0xa0, 0xd9,
+	0x23, 0x57, 0x71, 0x4d, 0xbf, 0x3b, 0x6d, 0xd9, 0xec, 0x15, 0xf3, 0xd9, 0x5b, 0x70, 0x2a, 0xa5,
+	0x39, 0xa1, 0x5d, 0x28, 0xcb, 0x6c, 0x95, 0xc5, 0x26, 0xeb, 0x99, 0x4d, 0x44, 0xda, 0xb0, 0x74,
+	0xc9, 0x86, 0xb0, 0x92, 0x0b, 0xe1, 0xef, 0x1a, 0xb4, 0x12, 0x81, 0x32, 0xe3, 0xf7, 0x28, 0xac,
+	0x84, 0x42, 0xe1, 0xad, 0x29, 0xe4, 0xb3, 0xa8, 0xa7, 0x18, 0x60, 0x12, 0x7a, 0x73, 0x8e, 0x1c,
+	0x12, 0xaf, 0x7f, 0xfe, 0x2b, 0xf9, 0x85, 0x49, 0xa4, 0x09, 0x75, 0x4c, 0x7c, 0x27, 0x76, 0xf8,
+	0x53, 0xa6, 0x45, 0x7a, 0x88, 0xb4, 0x20, 0x28, 0xf1, 0x61, 0x41, 0xb6, 0x81, 0xc5, 0x7f, 0x4e,
+	0x48, 0xe1, 0xb6, 0x18, 0x17, 0x97, 0x62, 0x9c, 0x39, 0x93, 0xa5, 0xec, 0x99, 0xbc, 0xfb, 0x96,
+	0x91, 0xaa, 0xd2, 0x1a, 0xbe, 0x84, 0xf7, 0x7e, 0x5c, 0xdc, 0x71, 0x72, 0xa4, 0xc7, 0x79, 0xae,
+	0xe0, 0x6e, 0xdc, 0xc0, 0xc6, 0x4a, 0x67, 0x8a, 0xf6, 0xa1, 0x1a, 0x08, 0x33, 0xae, 0xf4, 0x8f,
+	0x93, 0xe8, 0xaf, 0x9c, 0x81, 0x63, 0x77, 0xf4, 0x19, 0xac, 0x09, 0x51, 0xa9, 0xab, 0x55, 0xbe,
+	0x04, 0x4d, 0x0e, 0x0f, 0xe2, 0xeb, 0xd5, 0xe8, 0x00, 0xdc, 0xce, 0x2e, 0xab, 0xbe, 0x90, 0x53,
+	0xef, 0x41, 0xab, 0x1b, 0x38, 0x17, 0x77, 0x24, 0xe8, 0x09, 0xb4, 0x5c, 0x6a, 0xe7, 0xdf, 0x82,
+	0xa6, 0x4b, 0x53, 0x52, 0xee, 0x8e, 0xf5, 0xcf, 0x00, 0xb2, 0x3a, 0xfe, 0x73, 0xa7, 0x0f, 0xa0,
+	0xe6, 0x93, 0x2b, 0x5b, 0xe0, 0x52, 0x73, 0xd5, 0x27, 0x57, 0xbd, 0x15, 0x5a, 0xf2, 0xf5, 0xf9,
+	0x1a, 0x2a, 0x52, 0xc7, 0x3b, 0x2e, 0x32, 0x63, 0x0c, 0x8f, 0x17, 0x41, 0xa2, 0x98, 0xd0, 0x30,
+	0xf0, 0x29, 0xe1, 0x57, 0xd9, 0x72, 0x82, 0x17, 0x57, 0x99, 0x2a, 0xa7, 0xb7, 0xce, 0xe8, 0x11,
+	0x34, 0xe4, 0xd4, 0x41, 0x44, 0xf8, 0x93, 0xbf, 0x01, 0x95, 0x50, 0xfc, 0x29, 0x29, 0xca, 0xba,
+	0x3b, 0xaf, 0x55, 0x28, 0x9b, 0x93, 0x90, 0xcd, 0x8d, 0x16, 0x34, 0x8e, 0x08, 0xe3, 0x07, 0x5d,
+	0x5c, 0xf9, 0xc6, 0x09, 0xe8, 0x49, 0x8b, 0x73, 0x10, 0xf8, 0x8c, 0xf8, 0x0c, 0x7d, 0x0b, 0x0d,
+	0x4e, 0xdc, 0x26, 0xb2, 0x67, 0x50, 0x6a, 0x36, 0x12, 0x35, 0x2f, 0xa6, 0x9e, 0x37, 0x70, 0xd8,
+	0x98, 0xf7, 0x14, 0x73, 0x5c, 0xe7, 0xb0, 0x6a, 0x2f, 0x8c, 0x9f, 0xa0, 0xb9, 0x34, 0x9a, 0x6a,
+	0x5e, 0xb4, 0xa5, 0xe6, 0x65, 0x1d, 0xca, 0xc1, 0xd8, 0xa1, 0x63, 0xa5, 0x5b, 0x1a, 0x68, 0x13,
+	0x6a, 0x7c, 0x35, 0x91, 0x2c, 0xd9, 0x3d, 0x24, 0xb6, 0xf1, 0x29, 0x54, 0x5f, 0xce, 0xe4, 0x4d,
+	0xd7, 0x86, 0xaa, 0x4b, 0x0f, 0x3c, 0xe2, 0xc8, 0x9b, 0xbc, 0x86, 0x63, 0xd3, 0x98, 0x41, 0xf5,
+	0xe5, 0xa9, 0x50, 0x87, 0xbe, 0x92, 0x77, 0x5d, 0x4c, 0x7f, 0x2b, 0xa1, 0xaf, 0x1c, 0xf6, 0xc4,
+	0x57, 0x6a, 0x90, 0x9e, 0x9b, 0xfb, 0x00, 0x0b, 0x10, 0xe9, 0x50, 0x7c, 0x43, 0xe6, 0x62, 0x87,
+	0x87, 0x98, 0xff, 0x72, 0xd2, 0x33, 0xc7, 0x9b, 0xca, 0x52, 0x2c, 0x61, 0x69, 0x7c, 0x57, 0xd8,
+	0xd7, 0x8c, 0x33, 0xd8, 0xe4, 0x8f, 0x69, 0xfa, 0x20, 0xff, 0xe0, 0xd0, 0xb1, 0x7a, 0x57, 0x97,
+	0xdb, 0x22, 0xed, 0xd6, 0xb6, 0xa8, 0xb0, 0xdc, 0x16, 0xed, 0xf6, 0x00, 0x16, 0x8f, 0x10, 0x42,
+	0xd0, 0x3a, 0xed, 0x77, 0x5f, 0x9d, 0x98, 0xf6, 0xa1, 0xf9, 0xa2, 0xf3, 0xaa, 0x6b, 0xe9, 0x0f,
+	0xd0, 0x3a, 0xe8, 0x0a, 0xb3, 0xfa, 0x27, 0xcf, 0x87, 0x56, 0xbf, 0x67, 0xea, 0x1a, 0xda, 0x00,
+	0xa4, 0xd0, 0x33, 0xfb, 0xd0, 0xec, 0x9a, 0x96, 0x69, 0x77, 0x2c, 0xbd, 0xb0, 0x8b, 0xe3, 0x4e,
+	0x4f, 0x86, 0xb2, 0x01, 0xb5, 0xa1, 0xd5, 0xb1, 0x4c, 0x1b, 0xbf, 0xd6, 0x1f, 0xa0, 0x36, 0xac,
+	0x4b, 0xeb, 0xa0, 0x7f, 0x32, 0xe8, 0x1c, 0x58, 0xc7, 0xfd, 0x9e, 0x3d, 0xc4, 0x07, 0xba, 0x86,
+	0xb6, 0xe0, 0xfd, 0xdc, 0x88, 0xd5, 0xc1, 0x47, 0xa6, 0xa5, 0x17, 0xce, 0x2b, 0xa2, 0xf1, 0xfe,
+	0xfa, 0xdf, 0x00, 0x00, 0x00, 0xff, 0xff, 0x6e, 0x9b, 0x48, 0x2a, 0x86, 0x0b, 0x00, 0x00,
 }
