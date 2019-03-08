@@ -309,6 +309,50 @@ def str_to_wsgi(native_str):
     return bytes_to_wsgi(native_str.encode('utf8', errors='surrogateescape'))
 
 
+def wsgi_quote(wsgi_str):
+    if six.PY2:
+        if not isinstance(wsgi_str, bytes):
+            raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
+        return urllib.parse.quote(wsgi_str)
+
+    if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
+        raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
+    return urllib.parse.quote(wsgi_str, encoding='latin-1')
+
+
+def wsgi_unquote(wsgi_str):
+    if six.PY2:
+        if not isinstance(wsgi_str, bytes):
+            raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
+        return urllib.parse.unquote(wsgi_str)
+
+    if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
+        raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
+    return urllib.parse.unquote(wsgi_str, encoding='latin-1')
+
+
+def wsgi_quote_plus(wsgi_str):
+    if six.PY2:
+        if not isinstance(wsgi_str, bytes):
+            raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
+        return urllib.parse.quote_plus(wsgi_str)
+
+    if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
+        raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
+    return urllib.parse.quote_plus(wsgi_str, encoding='latin-1')
+
+
+def wsgi_unquote_plus(wsgi_str):
+    if six.PY2:
+        if not isinstance(wsgi_str, bytes):
+            raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
+        return urllib.parse.unquote_plus(wsgi_str)
+
+    if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
+        raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
+    return urllib.parse.unquote_plus(wsgi_str, encoding='latin-1')
+
+
 def _resp_status_property():
     """
     Set and retrieve the value of Response.status

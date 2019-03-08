@@ -32,13 +32,12 @@ from eventlet.green import socket, ssl, os as green_os
 import six
 from six import BytesIO
 from six import StringIO
-from six.moves.urllib.parse import unquote
 if six.PY2:
     import mimetools
 
 from swift.common import utils, constraints
 from swift.common.storage_policy import BindPortsCache
-from swift.common.swob import Request
+from swift.common.swob import Request, wsgi_unquote
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
@@ -1319,7 +1318,7 @@ def make_subrequest(env, method=None, path=None, body=None, headers=None,
     path = path or ''
     if path and '?' in path:
         path, query_string = path.split('?', 1)
-    newenv = make_env(env, method, path=unquote(path), agent=agent,
+    newenv = make_env(env, method, path=wsgi_unquote(path), agent=agent,
                       query_string=query_string, swift_source=swift_source)
     if not headers:
         headers = {}
