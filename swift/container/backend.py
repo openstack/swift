@@ -338,7 +338,7 @@ class ContainerBroker(DatabaseBroker):
         self._db_files = None
 
     @classmethod
-    def create_broker(self, device_path, part, account, container, logger=None,
+    def create_broker(cls, device_path, part, account, container, logger=None,
                       epoch=None, put_timestamp=None,
                       storage_policy_index=None):
         """
