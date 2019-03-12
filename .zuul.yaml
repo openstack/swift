@@ -149,9 +149,13 @@
     description: |
       Setup a Swift/Keystone environment and run Swift's func tests.
     required-projects:
-      - git.openstack.org/openstack/requirements
+      - name: git.openstack.org/openstack/requirements
+        override-checkout: master
       - git.openstack.org/openstack/swift
-      - git.openstack.org/openstack/keystone
+      - name: git.openstack.org/openstack/keystone
+        override-checkout: master
+      - name: git.openstack.org/openstack-dev/devstack
+        override-checkout: master
     timeout: 2700
     vars:
       tox_constraints_file: '{{ ansible_user_dir }}/src/git.openstack.org/openstack/requirements/upper-constraints.txt'
