@@ -279,6 +279,7 @@
 - job:
     name: swift-multinode-rolling-upgrade
     parent: multinode
+    voting: false
     nodeset: swift-five-nodes
     description: |
       Build a 4 node swift cluster and run functional tests
