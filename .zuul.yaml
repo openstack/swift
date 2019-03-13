@@ -35,6 +35,7 @@
 - job:
     name: swift-tox-py35
     parent: swift-tox-base
+    nodeset: ubuntu-xenial
     description: |
       Run unit-tests for swift under cPython version 3.5.
 
