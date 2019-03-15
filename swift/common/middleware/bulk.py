@@ -380,6 +380,10 @@ class Bulk(object):
             query request.
         """
         last_yield = time()
+        if out_content_type and out_content_type.endswith('/xml'):
+            to_yield = '<?xml version="1.0" encoding="UTF-8"?>\n'
+        else:
+            to_yield = ' '
         separator = ''
         failed_files = []
         resp_dict = {'Response Status': HTTPOk().status,
@@ -390,8 +394,6 @@ class Bulk(object):
         try:
             if not out_content_type:
                 raise HTTPNotAcceptable(request=req)
-            if out_content_type.endswith('/xml'):
-                yield '<?xml version="1.0" encoding="UTF-8"?>\n'
 
             try:
                 vrs, account, _junk = req.split_path(2, 3, True)
@@ -452,9 +454,9 @@ class Bulk(object):
                     for resp, obj_name, retry in pile.asyncstarmap(
                             do_delete, names_to_delete):
                         if last_yield + self.yield_frequency < time():
-                            separator = '\r\n\r\n'
                             last_yield = time()
-                            yield ' '
+                            yield to_yield
+                            to_yield, separator = ' ', '\r\n\r\n'
                         self._process_delete(resp, pile, obj_name,
                                              resp_dict, failed_files,
                                              failed_file_response, retry)
@@ -462,9 +464,9 @@ class Bulk(object):
                             # Abort, but drain off the in-progress deletes
                             for resp, obj_name, retry in pile:
                                 if last_yield + self.yield_frequency < time():
-                                    separator = '\r\n\r\n'
                                     last_yield = time()
-                                    yield ' '
+                                    yield to_yield
+                                    to_yield, separator = ' ', '\r\n\r\n'
                                 # Don't pass in the pile, as we shouldn't retry
                                 self._process_delete(
                                     resp, None, obj_name, resp_dict,
@@ -508,14 +510,16 @@ class Bulk(object):
                      'Response Body': '', 'Number Files Created': 0}
         failed_files = []
         last_yield = time()
+        if out_content_type and out_content_type.endswith('/xml'):
+            to_yield = '<?xml version="1.0" encoding="UTF-8"?>\n'
+        else:
+            to_yield = ' '
         separator = ''
         containers_accessed = set()
         req.environ['eventlet.minimum_write_chunk_size'] = 0
         try:
             if not out_content_type:
                 raise HTTPNotAcceptable(request=req)
-            if out_content_type.endswith('/xml'):
-                yield '<?xml version="1.0" encoding="UTF-8"?>\n'
 
             if req.content_length is None and \
                     req.headers.get('transfer-encoding',
@@ -533,9 +537,9 @@ class Bulk(object):
             containers_created = 0
             while True:
                 if last_yield + self.yield_frequency < time():
-                    separator = '\r\n\r\n'
                     last_yield = time()
-                    yield ' '
+                    yield to_yield
+                    to_yield, separator = ' ', '\r\n\r\n'
                 tar_info = next(tar)
                 if tar_info is None or \
                         len(failed_files) >= self.max_failed_extractions:

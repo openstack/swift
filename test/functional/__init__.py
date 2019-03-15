@@ -1289,3 +1289,15 @@ def requires_policies(f):
         return f(self, *args, **kwargs)
 
     return wrapper
+
+
+def requires_bulk(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if skip or not cluster_info:
+            raise SkipTest('Requires bulk middleware')
+        # Determine whether this cluster has bulk middleware; if not, skip test
+        if not cluster_info.get('bulk_upload', {}):
+            raise SkipTest('Requires bulk middleware')
+        return f(*args, **kwargs)
+    return wrapper

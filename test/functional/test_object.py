@@ -20,11 +20,12 @@ import json
 import unittest2
 from uuid import uuid4
 import time
+from xml.dom import minidom
 
 from six.moves import range
 
 from test.functional import check_response, retry, requires_acls, \
-    requires_policies, SkipTest
+    requires_policies, SkipTest, requires_bulk
 import test.functional as tf
 
 
@@ -1645,6 +1646,37 @@ class TestObject(unittest2.TestCase):
             resp = retry(get_obj, c, o)
             self.assertEqual(resp.status, 200)
             self.assertEqual(body, resp.read())
+
+    @requires_bulk
+    def test_bulk_delete(self):
+
+        def bulk_delete(url, token, parsed, conn):
+            # try to bulk delete the object that was created during test setup
+            conn.request('DELETE', '%s/%s/%s?bulk-delete' % (
+                parsed.path, self.container, self.obj),
+                '%s/%s' % (self.container, self.obj),
+                {'X-Auth-Token': token,
+                 'Accept': 'application/xml',
+                 'Expect': '100-continue',
+                 'Content-Type': 'text/plain'})
+            return check_response(conn)
+        resp = retry(bulk_delete)
+        self.assertEqual(resp.status, 200)
+        body = resp.read()
+        tree = minidom.parseString(body)
+        self.assertEqual(tree.documentElement.tagName, 'delete')
+
+        errors = tree.getElementsByTagName('errors')
+        self.assertEqual(len(errors), 1)
+        errors = [c.data if c.nodeType == c.TEXT_NODE else c.childNodes[0].data
+                  for c in errors[0].childNodes
+                  if c.nodeType != c.TEXT_NODE or c.data.strip()]
+        self.assertEqual(errors, [])
+
+        final_status = tree.getElementsByTagName('response_status')
+        self.assertEqual(len(final_status), 1)
+        self.assertEqual(len(final_status[0].childNodes), 1)
+        self.assertEqual(final_status[0].childNodes[0].data, '200 OK')
 
 
 if __name__ == '__main__':
