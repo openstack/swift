@@ -528,7 +528,7 @@ class TestStaticWeb(unittest.TestCase):
     def test_container3indexhtml(self):
         resp = Request.blank('/v1/a/c3/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Test main index.html file.' in resp.body)
+        self.assertIn(b'Test main index.html file.', resp.body)
 
     def test_container3subsubdir(self):
         resp = Request.blank(
@@ -539,16 +539,16 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank(
             '/v1/a/c3/subdir3/subsubdir/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body, 'index file')
+        self.assertEqual(resp.body, b'index file')
 
     def test_container3subdir(self):
         resp = Request.blank(
             '/v1/a/c3/subdir/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertIn('Listing of /v1/a/c3/subdir/', resp.body)
-        self.assertIn('</style>', resp.body)
-        self.assertNotIn('<link', resp.body)
-        self.assertNotIn('listing.css', resp.body)
+        self.assertIn(b'Listing of /v1/a/c3/subdir/', resp.body)
+        self.assertIn(b'</style>', resp.body)
+        self.assertNotIn(b'<link', resp.body)
+        self.assertNotIn(b'listing.css', resp.body)
 
     def test_container3subdirx(self):
         resp = Request.blank(
@@ -569,18 +569,18 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank(
             '/v1/a/c3/unknown').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertNotIn("Chrome's 404 fancy-page sucks.", resp.body)
+        self.assertNotIn(b"Chrome's 404 fancy-page sucks.", resp.body)
 
     def test_container3bindexhtml(self):
         resp = Request.blank('/v1/a/c3b/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(resp.body, '')
+        self.assertEqual(resp.body, b'')
 
     def test_container4indexhtml(self):
         resp = Request.blank('/v1/a/c4/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertIn('Listing of /v1/a/c4/', resp.body)
-        self.assertIn('href="listing.css"', resp.body)
+        self.assertIn(b'Listing of /v1/a/c4/', resp.body)
+        self.assertIn(b'href="listing.css"', resp.body)
 
     def test_container4indexhtmlauthed(self):
         resp = Request.blank('/v1/a/c4').get_response(self.test_staticweb)
@@ -600,16 +600,16 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank(
             '/v1/a/c4/unknown').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertIn("Chrome's 404 fancy-page sucks.", resp.body)
+        self.assertIn(b"Chrome's 404 fancy-page sucks.", resp.body)
 
     def test_container4subdir(self):
         resp = Request.blank(
             '/v1/a/c4/subdir/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertIn('Listing of /v1/a/c4/subdir/', resp.body)
-        self.assertNotIn('</style>', resp.body)
-        self.assertIn('<link', resp.body)
-        self.assertIn('href="../listing.css"', resp.body)
+        self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
+        self.assertNotIn(b'</style>', resp.body)
+        self.assertIn(b'<link', resp.body)
+        self.assertIn(b'href="../listing.css"', resp.body)
         self.assertEqual(resp.headers['content-type'],
                          'text/html; charset=UTF-8')
 
@@ -631,7 +631,7 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank(
             '/v1/a/c5/unknown').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertNotIn("Chrome's 404 fancy-page sucks.", resp.body)
+        self.assertNotIn(b"Chrome's 404 fancy-page sucks.", resp.body)
 
     def test_container6subdir(self):
         resp = Request.blank(
@@ -649,7 +649,7 @@ class TestStaticWeb(unittest.TestCase):
             staticweb.filter_factory({})(self.app), deny_listing=True)
         resp = Request.blank('/v1/a/c6/').get_response(test_staticweb)
         self.assertEqual(resp.status_int, 401)
-        self.assertIn("Hey, you're not authorized to see this!", resp.body)
+        self.assertIn(b"Hey, you're not authorized to see this!", resp.body)
 
         # expect default 401 if request is not auth'd for listing or object GET
         test_staticweb = FakeAuthFilter(
@@ -657,20 +657,20 @@ class TestStaticWeb(unittest.TestCase):
             deny_objects=True)
         resp = Request.blank('/v1/a/c6/').get_response(test_staticweb)
         self.assertEqual(resp.status_int, 401)
-        self.assertNotIn("Hey, you're not authorized to see this!", resp.body)
+        self.assertNotIn(b"Hey, you're not authorized to see this!", resp.body)
 
     def test_container6blisting(self):
         label = 'Listing of {0}/'.format(
             meta_map['c6b']['meta']['web-listings-label'])
         resp = Request.blank('/v1/a/c6b/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertIn(label, resp.body)
+        self.assertIn(label.encode('utf-8'), resp.body)
 
     def test_container7listing(self):
         # container7 has web-listings = f, web-error=error.html
         resp = Request.blank('/v1/a/c7/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertIn("Web Listing Disabled", resp.body)
+        self.assertIn(b"Web Listing Disabled", resp.body)
 
         # expect 301 if auth'd but no trailing '/'
         resp = Request.blank('/v1/a/c7').get_response(self.test_staticweb)
@@ -682,14 +682,14 @@ class TestStaticWeb(unittest.TestCase):
             deny_objects=True)
         resp = Request.blank('/v1/a/c7').get_response(test_staticweb)
         self.assertEqual(resp.status_int, 401)
-        self.assertNotIn("Hey, you're not authorized to see this!", resp.body)
+        self.assertNotIn(b"Hey, you're not authorized to see this!", resp.body)
 
         # expect custom 401 if request is not auth'd for listing
         test_staticweb = FakeAuthFilter(
             staticweb.filter_factory({})(self.app), deny_listing=True)
         resp = Request.blank('/v1/a/c7/').get_response(test_staticweb)
         self.assertEqual(resp.status_int, 401)
-        self.assertIn("Hey, you're not authorized to see this!", resp.body)
+        self.assertIn(b"Hey, you're not authorized to see this!", resp.body)
 
         # expect default 401 if request is not auth'd for listing or object GET
         test_staticweb = FakeAuthFilter(
@@ -697,69 +697,69 @@ class TestStaticWeb(unittest.TestCase):
             deny_objects=True)
         resp = Request.blank('/v1/a/c7/').get_response(test_staticweb)
         self.assertEqual(resp.status_int, 401)
-        self.assertNotIn("Hey, you're not authorized to see this!", resp.body)
+        self.assertNotIn(b"Hey, you're not authorized to see this!", resp.body)
 
     def test_container8listingcss(self):
         resp = Request.blank(
             '/v1/a/c8/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c8/' in resp.body)
-        self.assertTrue('<link' in resp.body)
-        self.assertTrue(
-            'href="http://localhost/stylesheets/listing.css"' in resp.body)
+        self.assertIn(b'Listing of /v1/a/c8/', resp.body)
+        self.assertIn(b'<link', resp.body)
+        self.assertIn(b'href="http://localhost/stylesheets/listing.css"',
+                      resp.body)
 
     def test_container8subdirlistingcss(self):
         resp = Request.blank(
             '/v1/a/c8/subdir/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c8/subdir/' in resp.body)
-        self.assertTrue('<link' in resp.body)
-        self.assertTrue(
-            'href="http://localhost/stylesheets/listing.css"' in resp.body)
+        self.assertIn(b'Listing of /v1/a/c8/subdir/', resp.body)
+        self.assertIn(b'<link', resp.body)
+        self.assertIn(b'href="http://localhost/stylesheets/listing.css"',
+                      resp.body)
 
     def test_container9listingcss(self):
         resp = Request.blank(
             '/v1/a/c9/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c9/' in resp.body)
-        self.assertTrue('<link' in resp.body)
-        self.assertTrue('href="/absolute/listing.css"' in resp.body)
+        self.assertIn(b'Listing of /v1/a/c9/', resp.body)
+        self.assertIn(b'<link', resp.body)
+        self.assertIn(b'href="/absolute/listing.css"', resp.body)
 
     def test_container9subdirlistingcss(self):
         resp = Request.blank(
             '/v1/a/c9/subdir/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c9/subdir/' in resp.body)
-        self.assertTrue('<link' in resp.body)
-        self.assertTrue('href="/absolute/listing.css"' in resp.body)
+        self.assertIn(b'Listing of /v1/a/c9/subdir/', resp.body)
+        self.assertIn(b'<link', resp.body)
+        self.assertIn(b'href="/absolute/listing.css"', resp.body)
 
     def test_container10unicodesubdirlisting(self):
         resp = Request.blank(
             '/v1/a/c10/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c10/' in resp.body)
+        self.assertIn(b'Listing of /v1/a/c10/', resp.body)
         resp = Request.blank(
             '/v1/a/c10/\xe2\x98\x83/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c10/\xe2\x98\x83/' in resp.body)
+        self.assertIn(b'Listing of /v1/a/c10/\xe2\x98\x83/', resp.body)
         resp = Request.blank(
             '/v1/a/c10/\xe2\x98\x83/\xe2\x98\x83/'
         ).get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue(
-            'Listing of /v1/a/c10/\xe2\x98\x83/\xe2\x98\x83/' in resp.body)
+        self.assertIn(
+            b'Listing of /v1/a/c10/\xe2\x98\x83/\xe2\x98\x83/', resp.body)
 
     def test_container11subdirmarkerobjectindex(self):
         resp = Request.blank('/v1/a/c11/subdir/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('<h2>c11 subdir index</h2>' in resp.body)
+        self.assertIn(b'<h2>c11 subdir index</h2>', resp.body)
 
     def test_container11subdirmarkermatchdirtype(self):
         resp = Request.blank('/v1/a/c11a/subdir/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertIn('Index File Not Found', resp.body)
+        self.assertIn(b'Index File Not Found', resp.body)
 
     def test_container11subdirmarkeraltdirtype(self):
         resp = Request.blank('/v1/a/c11a/subdir2/').get_response(
@@ -775,27 +775,27 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c12/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertIn('index file', resp.body)
+        self.assertIn(b'index file', resp.body)
 
     def test_container_404_has_css(self):
         resp = Request.blank('/v1/a/c13/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertIn('listing.css', resp.body)
+        self.assertIn(b'listing.css', resp.body)
 
     def test_container_404_has_no_css(self):
         resp = Request.blank('/v1/a/c7/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertNotIn('listing.css', resp.body)
-        self.assertIn('<style', resp.body)
+        self.assertNotIn(b'listing.css', resp.body)
+        self.assertIn(b'<style', resp.body)
 
     def test_subrequest_once_if_possible(self):
         resp = Request.blank(
             '/v1/a/c4/one.txt').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['x-object-meta-test'], 'value')
-        self.assertEqual(resp.body, '1')
+        self.assertEqual(resp.body, b'1')
         self.assertEqual(self.app.calls, 1)
 
     def test_no_auth_middleware(self):
