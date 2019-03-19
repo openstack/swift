@@ -69,6 +69,25 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
+    name: swift-tox-py37
+    parent: swift-tox-base
+    nodeset: ubuntu-bionic
+    description: |
+      Run unit-tests for swift under cPython version 3.7.
+
+      Uses tox with the ``py37`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py37
+      bindep_profile: test py37
+      python_version: 3.7
+      tox_environment:
+        NOSE_COVER_HTML: 1
+        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
+    post-run: tools/playbooks/common/cover-post.yaml
+
+- job:
     name: swift-tox-func
     parent: swift-tox-base
     description: |
@@ -309,6 +328,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
         - swift-tox-py36:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+            voting: false
+        - swift-tox-py37:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
