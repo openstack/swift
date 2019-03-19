@@ -210,7 +210,7 @@ class KeystoneAuth(object):
             return self.app(environ, start_response)
 
         if env_identity:
-            self.logger.debug('Using identity: %r', env_identity)
+            self.logger.info('Using identity: %r', env_identity)
             environ['REMOTE_USER'] = env_identity.get('tenant')
             environ['keystone.identity'] = env_identity
             environ['swift.authorize'] = functools.partial(
