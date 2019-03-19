@@ -131,14 +131,6 @@ def get_tmp_dir(policy_or_index):
     return get_policy_string(TMP_BASE, policy_or_index)
 
 
-def _unlink_if_present(filename):
-    try:
-        os.unlink(filename)
-    except OSError as err:
-        if err.errno != errno.ENOENT:
-            raise
-
-
 def _get_filename(fd):
     """
     Helper function to get to file name from a file descriptor or filename.
@@ -1577,9 +1569,9 @@ class BaseDiskFileManager(object):
             ('ts_ctype', 'ctype_info', 'ctype_timestamp'),
         )
 
-        # We delete as many empty directories as we can.
-        # cleanup_ondisk_files() takes care of the hash dirs, and we take
-        # care of the suffix dirs and invalidate them
+        # cleanup_ondisk_files() will remove empty hash dirs, and we'll
+        # invalidate any empty suffix dirs so they'll get cleaned up on
+        # the next rehash
         for suffix_path, suffix in suffixes:
             found_files = False
             for object_hash in self._listdir(suffix_path):
