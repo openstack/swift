@@ -1024,6 +1024,36 @@ class TestAuth(unittest.TestCase):
         resp = req.get_response(ath)
         self.assertEqual(204, resp.status_int)
 
+    def test_request_method_not_allowed(self):
+        test_auth = auth.filter_factory({'user_ac_user': 'testing'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'},
+            environ={'REQUEST_METHOD': 'PUT'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 405)
+
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'},
+            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 405)
+
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'},
+            environ={'REQUEST_METHOD': 'POST'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 405)
+
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'},
+            environ={'REQUEST_METHOD': 'DELETE'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 405)
+
 
 class TestAuthWithMultiplePrefixes(TestAuth):
     """
