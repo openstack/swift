@@ -22,7 +22,6 @@ import unittest
 
 from logging import DEBUG
 from mock import patch, call, DEFAULT
-import six
 import eventlet
 
 from swift.account import reaper
@@ -85,9 +84,13 @@ class FakeAccountBroker(object):
                 'delete_timestamp': time.time() - 10}
         return info
 
-    def list_containers_iter(self, *args):
+    def list_containers_iter(self, limit, marker, *args):
         for cont in self.containers:
-            yield cont, None, None, None, None
+            if cont > marker:
+                yield cont, None, None, None, None
+            limit -= 1
+            if limit <= 0:
+                break
 
     def is_status_deleted(self):
         return True
@@ -196,11 +199,11 @@ class TestReaper(unittest.TestCase):
             raise self.myexp
         if self.timeout:
             raise eventlet.Timeout()
-        objects = [{'name': 'o1'},
-                   {'name': 'o2'},
-                   {'name': six.text_type('o3')},
-                   {'name': ''}]
-        return None, objects
+        objects = [{'name': u'o1'},
+                   {'name': u'o2'},
+                   {'name': u'o3'},
+                   {'name': u'o4'}]
+        return None, [o for o in objects if o['name'] > kwargs['marker']]
 
     def fake_container_ring(self):
         return FakeRing()
@@ -589,7 +592,7 @@ class TestReaper(unittest.TestCase):
             self.r.stats_return_codes.get(2, 0) + 1
 
     def test_reap_account(self):
-        containers = ('c1', 'c2', 'c3', '')
+        containers = ('c1', 'c2', 'c3', 'c4')
         broker = FakeAccountBroker(containers)
         self.called_amount = 0
         self.r = r = self.init_reaper({}, fakelogger=True)
