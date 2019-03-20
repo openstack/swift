@@ -697,7 +697,8 @@ class BaseObjectController(Controller):
         """
         raise NotImplementedError()
 
-    def _delete_object(self, req, obj_ring, partition, headers):
+    def _delete_object(self, req, obj_ring, partition, headers,
+                       node_count=None, node_iterator=None):
         """Delete object considering write-affinity.
 
         When deleting object in write affinity deployment, also take configured
@@ -711,37 +712,12 @@ class BaseObjectController(Controller):
         :param headers: system headers to storage nodes
         :return: Response object
         """
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        policy = POLICIES.get_by_index(policy_index)
-
-        node_count = None
-        node_iterator = None
-
-        policy_options = self.app.get_policy_options(policy)
-        is_local = policy_options.write_affinity_is_local_fn
-        if is_local is not None:
-            primaries = obj_ring.get_part_nodes(partition)
-            node_count = len(primaries)
-
-            local_handoffs = policy_options.write_affinity_handoff_delete_count
-            if local_handoffs is None:
-                local_primaries = [node for node in primaries
-                                   if is_local(node)]
-                local_handoffs = len(primaries) - len(local_primaries)
-
-            node_count += local_handoffs
-
-            node_iterator = self.iter_nodes_local_first(
-                obj_ring, partition, policy=policy, local_handoffs_first=True
-            )
-
         status_overrides = {404: 204}
         resp = self.make_requests(req, obj_ring,
                                   partition, 'DELETE', req.swift_entity_path,
                                   headers, overrides=status_overrides,
                                   node_count=node_count,
                                   node_iterator=node_iterator)
-
         return resp
 
     def _post_object(self, req, obj_ring, partition, headers):
@@ -861,6 +837,7 @@ class BaseObjectController(Controller):
 
         # Include local handoff nodes if write-affinity is enabled.
         node_count = len(nodes)
+        node_iterator = None
         policy = POLICIES.get_by_index(policy_index)
         policy_options = self.app.get_policy_options(policy)
         is_local = policy_options.write_affinity_is_local_fn
@@ -870,11 +847,16 @@ class BaseObjectController(Controller):
                 local_primaries = [node for node in nodes if is_local(node)]
                 local_handoffs = len(nodes) - len(local_primaries)
             node_count += local_handoffs
+            node_iterator = self.iter_nodes_local_first(
+                obj_ring, partition, policy=policy, local_handoffs_first=True
+            )
 
         headers = self._backend_requests(
             req, node_count, container_partition, container_nodes,
             container_path=container_path)
-        return self._delete_object(req, obj_ring, partition, headers)
+        return self._delete_object(req, obj_ring, partition, headers,
+                                   node_count=node_count,
+                                   node_iterator=node_iterator)
 
 
 @ObjectControllerRouter.register(REPL_POLICY)

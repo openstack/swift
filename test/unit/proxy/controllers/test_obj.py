@@ -531,7 +531,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             self.assertNotIn('X-Delete-At-Host', headers)
             self.assertNotIn('X-Delete-At-Device', headers)
 
-    def test_DELETE_write_affinity_before_replication(self):
+    def test_DELETE_write_affinity_after_replication(self):
         policy_conf = self.app.get_policy_options(self.policy)
         policy_conf.write_affinity_handoff_delete_count = self.replicas() // 2
         policy_conf.write_affinity_is_local_fn = (
@@ -545,7 +545,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
         self.assertEqual(resp.status_int, 204)
 
-    def test_DELETE_write_affinity_after_replication(self):
+    def test_DELETE_write_affinity_before_replication(self):
         policy_conf = self.app.get_policy_options(self.policy)
         policy_conf.write_affinity_handoff_delete_count = self.replicas() // 2
         policy_conf.write_affinity_is_local_fn = (
@@ -1416,6 +1416,36 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
         self.assertIn('ERROR with Object server', log_lines[0])
 
+    def test_DELETE_with_write_affinity(self):
+        policy_conf = self.app.get_policy_options(self.policy)
+        policy_conf.write_affinity_handoff_delete_count = self.replicas() // 2
+        policy_conf.write_affinity_is_local_fn = (
+            lambda node: node['region'] == 1)
+
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+
+        codes = [204, 204, 404, 204]
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
+
+        codes = [204, 404, 404, 204]
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
+
+        policy_conf.write_affinity_handoff_delete_count = 2
+
+        codes = [204, 204, 404, 204, 404]
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
+
+        codes = [204, 404, 404, 204, 204]
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
+
     def test_PUT_error_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
@@ -1816,14 +1846,38 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
 @patch_policies(
     [StoragePolicy(0, '1-replica', True),
-     StoragePolicy(1, '5-replica', False),
+     StoragePolicy(1, '4-replica', False),
      StoragePolicy(2, '8-replica', False),
      StoragePolicy(3, '15-replica', False)],
     fake_ring_args=[
-        {'replicas': 1}, {'replicas': 5}, {'replicas': 8}, {'replicas': 15}])
+        {'replicas': 1}, {'replicas': 4}, {'replicas': 8}, {'replicas': 15}])
 class TestReplicatedObjControllerVariousReplicas(CommonObjectControllerMixin,
                                                  unittest.TestCase):
     controller_cls = obj.ReplicatedObjectController
+
+    def test_DELETE_with_write_affinity(self):
+        policy_index = 1
+        self.policy = POLICIES[policy_index]
+        policy_conf = self.app.get_policy_options(self.policy)
+        self.app.container_info['storage_policy'] = policy_index
+        policy_conf.write_affinity_handoff_delete_count = \
+            self.replicas(self.policy) // 2
+        policy_conf.write_affinity_is_local_fn = (
+            lambda node: node['region'] == 1)
+
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+
+        codes = [204, 204, 404, 404, 204, 204]
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
+
+        policy_conf.write_affinity_handoff_delete_count = 1
+
+        codes = [204, 204, 404, 404, 204]
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
 
 
 @patch_policies()
