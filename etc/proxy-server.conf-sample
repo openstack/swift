@@ -589,7 +589,8 @@ reseller_prefix = AUTH_
 # useful if there are multiple auth systems in the proxy pipeline.
 delay_auth_decision = False
 
-# Keystone server details
+# Keystone server details. Note that this differs from how swift3 was
+# configured: in particular, the Keystone API version must be included.
 auth_uri = http://keystonehost:35357/v3
 
 # Connect/read timeout to use when communicating with Keystone
