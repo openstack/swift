@@ -144,7 +144,8 @@ class GetContext(WSGIContext):
     def _get_container_listing(self, req, version, account, container,
                                prefix, marker=''):
         con_req = make_subrequest(
-            req.environ, path='/'.join(['', version, account, container]),
+            req.environ,
+            path=quote('/'.join(['', version, account, container])),
             method='GET',
             headers={'x-auth-token': req.headers.get('x-auth-token')},
             agent=('%(orig)s ' + 'DLO MultipartGET'), swift_source='DLO')

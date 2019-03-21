@@ -96,6 +96,8 @@ class TestSloEnv(BaseEnv):
                         seg_info['seg_e']]),
             parms={'multipart-manifest': 'put'})
 
+        cls.container.file('seg_with_%ff_funky_name').write('z' * 10)
+
         # Put the same manifest in the container2
         file_item = cls.container2.file("manifest-abcde")
         file_item.write(
@@ -563,6 +565,17 @@ class TestSlo(Base):
                 'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
             parms={'multipart-manifest': 'put'})
         self.assert_status(201)
+
+    def test_slo_funky_segment(self):
+        file_item = self.env.container.file("manifest-with-funky-segment")
+        file_item.write(
+            json.dumps([{
+                'path': '/%s/%s' % (self.env.container.name,
+                                    'seg_with_%ff_funky_name')}]),
+            parms={'multipart-manifest': 'put'})
+        self.assert_status(201)
+
+        self.assertEqual('z' * 10, file_item.read())
 
     def test_slo_missing_etag(self):
         file_item = self.env.container.file("manifest-a-missing-etag")
