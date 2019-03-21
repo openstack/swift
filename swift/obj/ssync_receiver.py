@@ -478,8 +478,8 @@ class Receiver(object):
                 successes += 1
             else:
                 self.app.logger.warning(
-                    'ssync subrequest failed with %s: %s %s' %
-                    (resp.status_int, method, subreq.path))
+                    'ssync subrequest failed with %s: %s %s (%s)' %
+                    (resp.status_int, method, subreq.path, resp.body))
                 failures += 1
             if failures >= self.app.replication_failure_threshold and (
                     not successes or
