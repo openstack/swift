@@ -238,8 +238,9 @@ class ContainerSync(Daemon):
         try:
             self.swift = InternalClient(
                 internal_client_conf, 'Swift Container Sync', request_tries)
-        except IOError as err:
-            if err.errno != errno.ENOENT:
+        except (OSError, IOError) as err:
+            if err.errno != errno.ENOENT and \
+                    not str(err).endswith(' not found'):
                 raise
             raise SystemExit(
                 _('Unable to load internal client from config: '
