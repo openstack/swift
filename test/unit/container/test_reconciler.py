@@ -1171,7 +1171,7 @@ class TestReconciler(unittest.TestCase):
         q_path = '.misplaced_objects/%s' % container
         self._mock_listing({
             (None, "/%s/1:/AUTH_bob/c/o1" % q_path): q_ts,
-            (1, '/AUTH_bob/c/o1'): q_ts - 0.00001,  # slightly older
+            (1, '/AUTH_bob/c/o1'): q_ts - 1,  # slightly older
         })
         self._mock_oldest_spi({'c': 0})
         deleted_container_entries = self._run_once()
@@ -1411,7 +1411,7 @@ class TestReconciler(unittest.TestCase):
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): 3679.2019,
             (1, "/AUTH_bob/c/o1"): 3679.2019,
-            (0, "/AUTH_bob/c/o1"): 3679.2019 + 0.00001,  # slightly newer
+            (0, "/AUTH_bob/c/o1"): 3679.2019 + 1,  # slightly newer
         })
         self._mock_oldest_spi({'c': 0})
         deleted_container_entries = self._run_once()
@@ -1452,7 +1452,7 @@ class TestReconciler(unittest.TestCase):
         self._mock_listing({
             (None, "/.misplaced_objects/36000/1:/AUTH_bob/c/o1"): 36123.38393,
             (1, "/AUTH_bob/c/o1"): 36123.38393,
-            (0, "/AUTH_bob/c/o1"): 36123.38393 - 0.00001,  # slightly older
+            (0, "/AUTH_bob/c/o1"): 36123.38393 - 1,  # slightly older
         })
         self._mock_oldest_spi({'c': 0})
         deleted_container_entries = self._run_once()
