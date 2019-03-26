@@ -398,7 +398,10 @@ def _load_domain_remap_staticweb(proxy_conf_file, swift_conf_file, **kwargs):
         old_pipeline = conf.get(section, 'pipeline')
         pipeline = old_pipeline.replace(
             " tempauth ",
-            " domain_remap tempauth staticweb ")
+            " tempauth staticweb ")
+        pipeline = pipeline.replace(
+            " listing_formats ",
+            " domain_remap listing_formats ")
         if pipeline == old_pipeline:
             raise InProcessException(
                 "Failed to insert domain_remap and staticweb into pipeline: %s"
