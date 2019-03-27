@@ -717,7 +717,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                 'Response Status': '201 Created',
                 'Errors': [],
             })])
-        mock_time.return_value.time.side_effect = (
+        mock_time.time.side_effect = (
             1,  # start_time
             12,  # first whitespace
             13,  # second...
@@ -769,7 +769,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                 'Response Status': '400 Bad Request',
                 'Errors': [['some/object', '403 Forbidden']],
             })])
-        mock_time.return_value.time.side_effect = (
+        mock_time.time.side_effect = (
             1,  # start_time
             12,  # first whitespace
             13,  # second...
@@ -818,7 +818,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                 'Response Status': '400 Bad Request',
                 'Errors': [['some/object', '404 Not Found']],
             })])
-        mock_time.return_value.time.side_effect = (
+        mock_time.time.side_effect = (
             1,  # start_time
             12,  # first whitespace
             13,  # second...

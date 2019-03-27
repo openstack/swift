@@ -335,6 +335,29 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('PUT', self.authorized[1].method)
         self.assertEqual('/v1/a/c/o', self.authorized[1].path)
 
+    def test_copy_with_unicode(self):
+        self.app.register('GET', '/v1/a/c/\xF0\x9F\x8C\xB4', swob.HTTPOk,
+                          {}, 'passed')
+        self.app.register('PUT', '/v1/a/c/\xE2\x98\x83', swob.HTTPCreated, {})
+        # Just for fun, let's have a mix of properly encoded and not
+        req = Request.blank('/v1/a/c/%F0\x9F%8C%B4',
+                            environ={'REQUEST_METHOD': 'COPY'},
+                            headers={'Content-Length': '0',
+                                     'Destination': 'c/%E2\x98%83'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '201 Created')
+        calls = self.app.calls_with_headers
+        method, path, req_headers = calls[0]
+        self.assertEqual('GET', method)
+        self.assertEqual('/v1/a/c/\xF0\x9F\x8C\xB4', path)
+        self.assertIn(('X-Copied-From', 'c/%F0%9F%8C%B4'), headers)
+
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/c/%F0%9F%8C%B4', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/c/%E2%98%83', self.authorized[1].path)
+
     def test_copy_with_spaces_in_x_copy_from_and_account(self):
         self.app.register('GET', '/v1/a/c/o o2', swob.HTTPOk, {}, b'passed')
         self.app.register('PUT', '/v1/a1/c1/o', swob.HTTPCreated, {})

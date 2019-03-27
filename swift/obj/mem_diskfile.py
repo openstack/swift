@@ -412,6 +412,9 @@ class DiskFile(object):
             raise DiskFileNotOpen()
         return self._metadata
 
+    get_datafile_metadata = get_metadata
+    get_metafile_metadata = get_metadata
+
     def read_metadata(self, current_time=None):
         """
         Return the metadata for an object.

@@ -26,7 +26,6 @@ import sys
 import time
 
 import six
-from six.moves.urllib.parse import unquote
 from swift.common.header_key_dict import HeaderKeyDict
 
 from swift import gettext_ as _
@@ -35,11 +34,11 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import HTTPBadRequest, \
     HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator, \
-    HTTPPreconditionFailed, wsgi_to_bytes
+    HTTPPreconditionFailed, wsgi_to_bytes, wsgi_unquote, wsgi_to_str
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range, csv_append, list_from_csv, Spliterator
+    parse_content_range, csv_append, list_from_csv, Spliterator, quote
 
 from swift.common.wsgi import make_subrequest
 
@@ -115,14 +114,13 @@ def split_and_validate_path(request, minsegs=1, maxsegs=None,
     Utility function to split and validate the request path.
 
     :returns: result of :meth:`~swift.common.utils.split_path` if
-              everything's okay
+              everything's okay, as native strings
     :raises HTTPBadRequest: if something's not okay
     """
     try:
-        segs = split_path(unquote(request.path),
-                          minsegs, maxsegs, rest_with_last)
+        segs = request.split_path(minsegs, maxsegs, rest_with_last)
         validate_device_partition(segs[0], segs[1])
-        return segs
+        return [wsgi_to_str(seg) for seg in segs]
     except ValueError as err:
         raise HTTPBadRequest(body=str(err), request=request,
                              content_type='text/plain')
@@ -308,7 +306,7 @@ def check_path_header(req, name, length, error_msg):
     :raise: HTTPPreconditionFailed if header value
             is not well formatted.
     """
-    hdr = unquote(req.headers.get(name))
+    hdr = wsgi_unquote(req.headers.get(name))
     if not hdr.startswith('/'):
         hdr = '/' + hdr
     try:
@@ -391,7 +389,7 @@ class SegmentedIterable(object):
                 # segment is a plain old object, not some flavor of large
                 # object; therefore, its etag is its MD5sum and hence we can
                 # check it.
-                path = seg_path + '?multipart-manifest=get'
+                path = quote(seg_path) + '?multipart-manifest=get'
                 seg_req = make_subrequest(
                     self.req.environ, path=path, method='GET',
                     headers={'x-auth-token': self.req.headers.get(

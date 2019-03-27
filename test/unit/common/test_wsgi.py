@@ -27,12 +27,8 @@ import types
 
 import eventlet.wsgi
 
-import six
 from six import BytesIO
-from six import StringIO
 from six.moves.urllib.parse import quote
-if six.PY2:
-    import mimetools
 
 import mock
 
@@ -68,53 +64,6 @@ def _fake_rings(tmpdir):
 @patch_policies
 class TestWSGI(unittest.TestCase):
     """Tests for swift.common.wsgi"""
-
-    def setUp(self):
-        if six.PY2:
-            self._orig_parsetype = mimetools.Message.parsetype
-
-    def tearDown(self):
-        if six.PY2:
-            mimetools.Message.parsetype = self._orig_parsetype
-
-    @unittest.skipIf(six.PY3, "test specific to Python 2")
-    def test_monkey_patch_mimetools(self):
-        sio = StringIO('blah')
-        self.assertEqual(mimetools.Message(sio).type, 'text/plain')
-        sio = StringIO('blah')
-        self.assertEqual(mimetools.Message(sio).plisttext, '')
-        sio = StringIO('blah')
-        self.assertEqual(mimetools.Message(sio).maintype, 'text')
-        sio = StringIO('blah')
-        self.assertEqual(mimetools.Message(sio).subtype, 'plain')
-        sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
-        self.assertEqual(mimetools.Message(sio).type, 'text/html')
-        sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
-        self.assertEqual(mimetools.Message(sio).plisttext,
-                         '; charset=ISO-8859-4')
-        sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
-        self.assertEqual(mimetools.Message(sio).maintype, 'text')
-        sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
-        self.assertEqual(mimetools.Message(sio).subtype, 'html')
-
-        wsgi.monkey_patch_mimetools()
-        sio = StringIO('blah')
-        self.assertIsNone(mimetools.Message(sio).type)
-        sio = StringIO('blah')
-        self.assertEqual(mimetools.Message(sio).plisttext, '')
-        sio = StringIO('blah')
-        self.assertIsNone(mimetools.Message(sio).maintype)
-        sio = StringIO('blah')
-        self.assertIsNone(mimetools.Message(sio).subtype)
-        sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
-        self.assertEqual(mimetools.Message(sio).type, 'text/html')
-        sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
-        self.assertEqual(mimetools.Message(sio).plisttext,
-                         '; charset=ISO-8859-4')
-        sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
-        self.assertEqual(mimetools.Message(sio).maintype, 'text')
-        sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
-        self.assertEqual(mimetools.Message(sio).subtype, 'html')
 
     def test_init_request_processor(self):
         config = """

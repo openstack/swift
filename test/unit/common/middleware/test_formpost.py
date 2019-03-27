@@ -27,6 +27,14 @@ from swift.common.utils import split_path
 from swift.proxy.controllers.base import get_cache_key
 
 
+def hmac_msg(path, redirect, max_file_size, max_file_count, expires):
+    msg = '%s\n%s\n%s\n%s\n%s' % (
+        path, redirect, max_file_size, max_file_count, expires)
+    if six.PY3:
+        msg = msg.encode('utf-8')
+    return msg
+
+
 class FakeApp(object):
 
     def __init__(self, status_headers_body_iter=None,
@@ -36,7 +44,7 @@ class FakeApp(object):
             self.status_headers_body_iter = iter([('404 Not Found', {
                 'x-test-header-one-a': 'value1',
                 'x-test-header-two-a': 'value2',
-                'x-test-header-two-b': 'value3'}, '')])
+                'x-test-header-two-b': 'value3'}, b'')])
         self.requests = []
         self.check_no_query_string = check_no_query_string
 
@@ -68,7 +76,7 @@ class FakeApp(object):
         except EOFError:
             start_response('499 Client Disconnect',
                            [('Content-Type', 'text/plain')])
-            return ['Client Disconnect\n']
+            return [b'Client Disconnect\n']
 
 
 class TestCappedFileLikeObject(unittest.TestCase):
@@ -156,8 +164,7 @@ class TestFormPost(unittest.TestCase):
                            expires, key, user_agent=True):
         sig = hmac.new(
             key,
-            '%s\n%s\n%s\n%s\n%s' % (
-                path, redirect, max_file_size, max_file_count, expires),
+            hmac_msg(path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
         body = [
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
@@ -243,18 +250,18 @@ class TestFormPost(unittest.TestCase):
                 '/v1/a/c/o',
                 environ={'REQUEST_METHOD': method}).get_response(self.formpost)
             self.assertEqual(resp.status_int, 401)
-            self.assertNotIn('FormPost', resp.body)
+            self.assertNotIn(b'FormPost', resp.body)
 
     def test_auth_scheme(self):
         # FormPost rejects
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() - 10), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -266,7 +273,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -275,11 +282,11 @@ class TestFormPost(unittest.TestCase):
         for h, v in headers:
             if h.lower() == 'www-authenticate':
                 authenticate_v = v
-        self.assertTrue('FormPost: Form Expired' in body)
+        self.assertTrue(b'FormPost: Form Expired' in body)
         self.assertEqual('Swift realm="unknown"', authenticate_v)
 
     def test_safari(self):
-        key = 'abc'
+        key = b'abc'
         path = '/v1/AUTH_test/container'
         redirect = 'http://brim.net'
         max_file_size = 1024
@@ -287,8 +294,7 @@ class TestFormPost(unittest.TestCase):
         expires = int(time() + 86400)
         sig = hmac.new(
             key,
-            '%s\n%s\n%s\n%s\n%s' % (
-                path, redirect, max_file_size, max_file_count, expires),
+            hmac_msg(path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
         wsgi_input = '\r\n'.join([
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
@@ -368,8 +374,8 @@ class TestFormPost(unittest.TestCase):
             'wsgi.url_scheme': 'http',
             'wsgi.version': (1, 0),
         }
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -381,7 +387,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -392,13 +398,13 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertEqual(location, 'http://brim.net?status=201&message=')
         self.assertIsNone(exc_info)
-        self.assertTrue('http://brim.net?status=201&message=' in body)
+        self.assertTrue(b'http://brim.net?status=201&message=' in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
 
     def test_firefox(self):
-        key = 'abc'
+        key = b'abc'
         path = '/v1/AUTH_test/container'
         redirect = 'http://brim.net'
         max_file_size = 1024
@@ -406,8 +412,7 @@ class TestFormPost(unittest.TestCase):
         expires = int(time() + 86400)
         sig = hmac.new(
             key,
-            '%s\n%s\n%s\n%s\n%s' % (
-                path, redirect, max_file_size, max_file_count, expires),
+            hmac_msg(path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
         wsgi_input = '\r\n'.join([
             '-----------------------------168072824752491622650073',
@@ -486,8 +491,8 @@ class TestFormPost(unittest.TestCase):
             'wsgi.url_scheme': 'http',
             'wsgi.version': (1, 0),
         }
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -499,7 +504,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -510,13 +515,13 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertEqual(location, 'http://brim.net?status=201&message=')
         self.assertIsNone(exc_info)
-        self.assertTrue('http://brim.net?status=201&message=' in body)
+        self.assertTrue(b'http://brim.net?status=201&message=' in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
 
     def test_chrome(self):
-        key = 'abc'
+        key = b'abc'
         path = '/v1/AUTH_test/container'
         redirect = 'http://brim.net'
         max_file_size = 1024
@@ -524,8 +529,7 @@ class TestFormPost(unittest.TestCase):
         expires = int(time() + 86400)
         sig = hmac.new(
             key,
-            '%s\n%s\n%s\n%s\n%s' % (
-                path, redirect, max_file_size, max_file_count, expires),
+            hmac_msg(path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
         wsgi_input = '\r\n'.join([
             '------WebKitFormBoundaryq3CFxUjfsDMu8XsA',
@@ -607,8 +611,8 @@ class TestFormPost(unittest.TestCase):
             'wsgi.url_scheme': 'http',
             'wsgi.version': (1, 0),
         }
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -620,7 +624,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -631,13 +635,13 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertEqual(location, 'http://brim.net?status=201&message=')
         self.assertIsNone(exc_info)
-        self.assertTrue('http://brim.net?status=201&message=' in body)
+        self.assertTrue(b'http://brim.net?status=201&message=' in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
 
     def test_explorer(self):
-        key = 'abc'
+        key = b'abc'
         path = '/v1/AUTH_test/container'
         redirect = 'http://brim.net'
         max_file_size = 1024
@@ -645,8 +649,7 @@ class TestFormPost(unittest.TestCase):
         expires = int(time() + 86400)
         sig = hmac.new(
             key,
-            '%s\n%s\n%s\n%s\n%s' % (
-                path, redirect, max_file_size, max_file_count, expires),
+            hmac_msg(path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
         wsgi_input = '\r\n'.join([
             '-----------------------------7db20d93017c',
@@ -724,8 +727,8 @@ class TestFormPost(unittest.TestCase):
             'wsgi.url_scheme': 'http',
             'wsgi.version': (1, 0),
         }
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -737,7 +740,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -748,13 +751,13 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertEqual(location, 'http://brim.net?status=201&message=')
         self.assertIsNone(exc_info)
-        self.assertTrue('http://brim.net?status=201&message=' in body)
+        self.assertTrue(b'http://brim.net?status=201&message=' in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
 
     def test_messed_up_start(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 5, 10,
             int(time() + 86400), key)
@@ -763,8 +766,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
 
@@ -781,17 +784,17 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
         self.assertEqual(status, '400 Bad Request')
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: invalid starting boundary' in body)
+        self.assertIn(b'FormPost: invalid starting boundary', body)
         self.assertEqual(len(self.app.requests), 0)
 
     def test_max_file_size_exceeded(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 5, 10,
             int(time() + 86400), key)
@@ -800,8 +803,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -813,17 +816,17 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
         self.assertEqual(status, '400 Bad Request')
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: max_file_size exceeded' in body)
+        self.assertIn(b'FormPost: max_file_size exceeded', body)
         self.assertEqual(len(self.app.requests), 0)
 
     def test_max_file_count_exceeded(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 1024, 1,
             int(time() + 86400), key)
@@ -832,8 +835,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -845,7 +848,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -859,13 +862,13 @@ class TestFormPost(unittest.TestCase):
             'http://brim.net?status=400&message=max%20file%20count%20exceeded')
         self.assertIsNone(exc_info)
         self.assertTrue(
-            'http://brim.net?status=400&message=max%20file%20count%20exceeded'
+            b'http://brim.net?status=400&message=max%20file%20count%20exceeded'
             in body)
         self.assertEqual(len(self.app.requests), 1)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
 
     def test_subrequest_does_not_pass_query(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         env['QUERY_STRING'] = 'this=should&not=get&passed'
@@ -875,8 +878,8 @@ class TestFormPost(unittest.TestCase):
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
         self.app = FakeApp(
-            iter([('201 Created', {}, ''),
-                  ('201 Created', {}, '')]),
+            iter([('201 Created', {}, b''),
+                  ('201 Created', {}, b'')]),
             check_no_query_string=True)
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
@@ -889,7 +892,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -897,11 +900,11 @@ class TestFormPost(unittest.TestCase):
         # (and FakeApp verifies that no QUERY_STRING got passed).
         self.assertEqual(status, '201 Created')
         self.assertIsNone(exc_info)
-        self.assertTrue('201 Created' in body)
+        self.assertTrue(b'201 Created' in body)
         self.assertEqual(len(self.app.requests), 2)
 
     def test_subrequest_fails(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 1024, 10,
             int(time() + 86400), key)
@@ -910,8 +913,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('404 Not Found', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('404 Not Found', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -923,7 +926,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -934,11 +937,11 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertEqual(location, 'http://brim.net?status=404&message=')
         self.assertIsNone(exc_info)
-        self.assertTrue('http://brim.net?status=404&message=' in body)
+        self.assertTrue(b'http://brim.net?status=404&message=' in body)
         self.assertEqual(len(self.app.requests), 1)
 
     def test_truncated_attr_value(self):
-        key = 'abc'
+        key = b'abc'
         redirect = 'a' * formpost.MAX_VALUE_LENGTH
         max_file_size = 1024
         max_file_count = 10
@@ -997,8 +1000,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1010,7 +1013,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1023,14 +1026,14 @@ class TestFormPost(unittest.TestCase):
             location,
             ('a' * formpost.MAX_VALUE_LENGTH) + '?status=201&message=')
         self.assertIsNone(exc_info)
-        self.assertTrue(
-            ('a' * formpost.MAX_VALUE_LENGTH) + '?status=201&message=' in body)
+        self.assertIn(
+            (b'a' * formpost.MAX_VALUE_LENGTH) + b'?status=201&message=', body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
 
     def test_no_file_to_process(self):
-        key = 'abc'
+        key = b'abc'
         redirect = 'http://brim.net'
         max_file_size = 1024
         max_file_count = 10
@@ -1069,8 +1072,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1082,7 +1085,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1096,12 +1099,12 @@ class TestFormPost(unittest.TestCase):
             'http://brim.net?status=400&message=no%20files%20to%20process')
         self.assertIsNone(exc_info)
         self.assertTrue(
-            'http://brim.net?status=400&message=no%20files%20to%20process'
+            b'http://brim.net?status=400&message=no%20files%20to%20process'
             in body)
         self.assertEqual(len(self.app.requests), 0)
 
     def test_formpost_without_useragent(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
             int(time() + 86400), key, user_agent=False)
@@ -1110,20 +1113,20 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
 
         def start_response(s, h, e=None):
             pass
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         self.assertIn('User-Agent', self.app.requests[0].headers)
         self.assertEqual(self.app.requests[0].headers['User-Agent'],
                          'FormPost')
 
     def test_formpost_with_origin(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
             int(time() + 86400), key, user_agent=False)
@@ -1133,10 +1136,10 @@ class TestFormPost(unittest.TestCase):
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
         env['HTTP_ORIGIN'] = 'http://localhost:5000'
-        self.app = FakeApp(iter([('201 Created', {}, ''),
+        self.app = FakeApp(iter([('201 Created', {}, b''),
                                  ('201 Created',
                                   {'Access-Control-Allow-Origin':
-                                   'http://localhost:5000'}, '')]))
+                                   'http://localhost:5000'}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
 
@@ -1147,12 +1150,12 @@ class TestFormPost(unittest.TestCase):
                 headers[k] = v
             pass
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         self.assertEqual(headers['Access-Control-Allow-Origin'],
                          'http://localhost:5000')
 
     def test_formpost_with_multiple_keys(self):
-        key = 'ernie'
+        key = b'ernie'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
             int(time() + 86400), key)
@@ -1162,8 +1165,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
 
@@ -1173,15 +1176,15 @@ class TestFormPost(unittest.TestCase):
         def start_response(s, h, e=None):
             status[0] = s
             headers[0] = h
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         self.assertEqual('303 See Other', status[0])
         self.assertEqual(
             'http://redirect?status=201&message=',
             dict(headers[0]).get('Location'))
 
     def test_formpost_with_multiple_container_keys(self):
-        first_key = 'ernie'
-        second_key = 'bert'
+        first_key = b'ernie'
+        second_key = b'bert'
         keys = [first_key, second_key]
 
         meta = {}
@@ -1200,8 +1203,8 @@ class TestFormPost(unittest.TestCase):
             # Stick it in X-Container-Meta-Temp-URL-Key-2 and ensure we get it
             env['swift.infocache'][get_cache_key(
                 'AUTH_test', 'container')] = {'meta': meta}
-            self.app = FakeApp(iter([('201 Created', {}, ''),
-                                     ('201 Created', {}, '')]))
+            self.app = FakeApp(iter([('201 Created', {}, b''),
+                                     ('201 Created', {}, b'')]))
             self.auth = tempauth.filter_factory({})(self.app)
             self.formpost = formpost.filter_factory({})(self.auth)
 
@@ -1211,14 +1214,14 @@ class TestFormPost(unittest.TestCase):
             def start_response(s, h, e=None):
                 status[0] = s
                 headers[0] = h
-            body = ''.join(self.formpost(env, start_response))
+            body = b''.join(self.formpost(env, start_response))
             self.assertEqual('303 See Other', status[0])
             self.assertEqual(
                 'http://redirect?status=201&message=',
                 dict(headers[0]).get('Location'))
 
     def test_redirect(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
             int(time() + 86400), key)
@@ -1227,8 +1230,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1240,7 +1243,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1251,13 +1254,13 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertEqual(location, 'http://redirect?status=201&message=')
         self.assertIsNone(exc_info)
-        self.assertTrue(location in body)
+        self.assertTrue(location.encode('utf-8') in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
 
     def test_redirect_with_query(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect?one=two', 1024, 10,
             int(time() + 86400), key)
@@ -1266,8 +1269,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1279,7 +1282,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1291,13 +1294,13 @@ class TestFormPost(unittest.TestCase):
         self.assertEqual(location,
                          'http://redirect?one=two&status=201&message=')
         self.assertIsNone(exc_info)
-        self.assertTrue(location in body)
+        self.assertTrue(location.encode('utf-8') in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
 
     def test_no_redirect(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
@@ -1305,8 +1308,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1318,7 +1321,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1329,20 +1332,20 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('201 Created' in body)
+        self.assertTrue(b'201 Created' in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[0].body, b'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
 
     def test_no_redirect_expired(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() - 10), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1354,7 +1357,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1365,18 +1368,18 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: Form Expired' in body)
+        self.assertTrue(b'FormPost: Form Expired' in body)
 
     def test_no_redirect_invalid_sig(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         # Change key to invalidate sig
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
-            self._fake_cache_env('AUTH_test', [key + ' is bogus now']))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+            self._fake_cache_env('AUTH_test', [key + b' is bogus now']))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1388,7 +1391,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1399,17 +1402,17 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: Invalid Signature' in body)
+        self.assertTrue(b'FormPost: Invalid Signature' in body)
 
     def test_no_redirect_with_error(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         env['wsgi.input'] = BytesIO(b'XX' + b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1421,7 +1424,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1432,17 +1435,17 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: invalid starting boundary' in body)
+        self.assertTrue(b'FormPost: invalid starting boundary' in body)
 
     def test_no_v1(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v2/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1454,7 +1457,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1465,17 +1468,17 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: Invalid Signature' in body)
+        self.assertTrue(b'FormPost: Invalid Signature' in body)
 
     def test_empty_v1(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '//AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1487,7 +1490,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1498,17 +1501,17 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: Invalid Signature' in body)
+        self.assertTrue(b'FormPost: Invalid Signature' in body)
 
     def test_empty_account(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1//container', '', 1024, 10, int(time() + 86400), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1520,7 +1523,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1531,19 +1534,19 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: Invalid Signature' in body)
+        self.assertTrue(b'FormPost: Invalid Signature' in body)
 
     def test_wrong_account(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_tst/container', '', 1024, 10, int(time() + 86400), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
         self.app = FakeApp(iter([
-            ('200 Ok', {'x-account-meta-temp-url-key': 'def'}, ''),
-            ('201 Created', {}, ''),
-            ('201 Created', {}, '')]))
+            ('200 Ok', {'x-account-meta-temp-url-key': 'def'}, b''),
+            ('201 Created', {}, b''),
+            ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1555,7 +1558,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1566,17 +1569,17 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: Invalid Signature' in body)
+        self.assertTrue(b'FormPost: Invalid Signature' in body)
 
     def test_no_container(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test', '', 1024, 10, int(time() + 86400), key)
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1588,7 +1591,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1599,22 +1602,22 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: Invalid Signature' in body)
+        self.assertTrue(b'FormPost: Invalid Signature' in body)
 
     def test_completely_non_int_expires(self):
-        key = 'abc'
+        key = b'abc'
         expires = int(time() + 86400)
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, expires, key)
         for i, v in enumerate(body):
-            if v == str(expires):
-                body[i] = 'badvalue'
+            if v.decode('utf-8') == str(expires):
+                body[i] = b'badvalue'
                 break
         env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1626,7 +1629,7 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
@@ -1637,7 +1640,7 @@ class TestFormPost(unittest.TestCase):
                 location = v
         self.assertIsNone(location)
         self.assertIsNone(exc_info)
-        self.assertTrue('FormPost: expired not an integer' in body)
+        self.assertTrue(b'FormPost: expired not an integer' in body)
 
     def test_x_delete_at(self):
         delete_at = int(time() + 100)
@@ -1647,7 +1650,10 @@ class TestFormPost(unittest.TestCase):
             '',
             str(delete_at),
         ]
-        key = 'abc'
+        if six.PY3:
+            x_delete_body_part = [line.encode('utf-8')
+                                  for line in x_delete_body_part]
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         wsgi_input = b'\r\n'.join(x_delete_body_part + body)
@@ -1656,8 +1662,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1669,12 +1675,12 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
         self.assertEqual(status, '201 Created')
-        self.assertTrue('201 Created' in body)
+        self.assertTrue(b'201 Created' in body)
         self.assertEqual(len(self.app.requests), 2)
         self.assertIn("X-Delete-At", self.app.requests[0].headers)
         self.assertIn("X-Delete-At", self.app.requests[1].headers)
@@ -1691,15 +1697,18 @@ class TestFormPost(unittest.TestCase):
             '',
             str(delete_at),
         ]
-        key = 'abc'
+        if six.PY3:
+            x_delete_body_part = [line.encode('utf-8')
+                                  for line in x_delete_body_part]
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         wsgi_input = b'\r\n'.join(x_delete_body_part + body)
         env['wsgi.input'] = BytesIO(wsgi_input)
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1711,12 +1720,12 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
         self.assertEqual(status, '400 Bad Request')
-        self.assertTrue('FormPost: x_delete_at not an integer' in body)
+        self.assertTrue(b'FormPost: x_delete_at not an integer' in body)
 
     def test_x_delete_after(self):
         delete_after = 100
@@ -1726,7 +1735,10 @@ class TestFormPost(unittest.TestCase):
             '',
             str(delete_after),
         ]
-        key = 'abc'
+        if six.PY3:
+            x_delete_body_part = [line.encode('utf-8')
+                                  for line in x_delete_body_part]
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         wsgi_input = b'\r\n'.join(x_delete_body_part + body)
@@ -1735,8 +1747,8 @@ class TestFormPost(unittest.TestCase):
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1748,12 +1760,12 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
         self.assertEqual(status, '201 Created')
-        self.assertTrue('201 Created' in body)
+        self.assertTrue(b'201 Created' in body)
         self.assertEqual(len(self.app.requests), 2)
         self.assertIn("X-Delete-After", self.app.requests[0].headers)
         self.assertIn("X-Delete-After", self.app.requests[1].headers)
@@ -1770,15 +1782,18 @@ class TestFormPost(unittest.TestCase):
             '',
             str(delete_after),
         ]
-        key = 'abc'
+        if six.PY3:
+            x_delete_body_part = [line.encode('utf-8')
+                                  for line in x_delete_body_part]
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         wsgi_input = b'\r\n'.join(x_delete_body_part + body)
         env['wsgi.input'] = BytesIO(wsgi_input)
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1790,12 +1805,12 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
         self.assertEqual(status, '400 Bad Request')
-        self.assertTrue('FormPost: x_delete_after not an integer' in body)
+        self.assertTrue(b'FormPost: x_delete_after not an integer' in body)
 
     def test_global_content_type_encoding(self):
         body_part = [
@@ -1808,21 +1823,21 @@ class TestFormPost(unittest.TestCase):
             '',
             'text/html',
         ]
+        if six.PY3:
+            body_part = [line.encode('utf-8') for line in body_part]
 
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         wsgi_input = b'\r\n'.join(body_part + body)
-        if six.PY3:
-            wsgi_input = wsgi_input.encode('utf-8')
         env['wsgi.input'] = BytesIO(wsgi_input)
 
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1834,12 +1849,12 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
         self.assertEqual(status, '201 Created')
-        self.assertTrue('201 Created' in body)
+        self.assertTrue(b'201 Created' in body)
         self.assertEqual(len(self.app.requests), 2)
         self.assertIn("Content-Type", self.app.requests[0].headers)
         self.assertIn("Content-Type", self.app.requests[1].headers)
@@ -1855,20 +1870,18 @@ class TestFormPost(unittest.TestCase):
                          self.app.requests[1].headers["Content-Encoding"])
 
     def test_single_content_type_encoding(self):
-        key = 'abc'
+        key = b'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         wsgi_input = b'\r\n'.join(body)
-        if six.PY3:
-            wsgi_input = wsgi_input.encode('utf-8')
         env['wsgi.input'] = BytesIO(wsgi_input)
 
         env['swift.infocache'][get_cache_key('AUTH_test')] = (
             self._fake_cache_env('AUTH_test', [key]))
         env['swift.infocache'][get_cache_key(
             'AUTH_test', 'container')] = {'meta': {}}
-        self.app = FakeApp(iter([('201 Created', {}, ''),
-                                 ('201 Created', {}, '')]))
+        self.app = FakeApp(iter([('201 Created', {}, b''),
+                                 ('201 Created', {}, b'')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
         status = [None]
@@ -1880,15 +1893,15 @@ class TestFormPost(unittest.TestCase):
             headers[0] = h
             exc_info[0] = e
 
-        body = ''.join(self.formpost(env, start_response))
+        body = b''.join(self.formpost(env, start_response))
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
         self.assertEqual(status, '201 Created')
-        self.assertTrue('201 Created' in body)
+        self.assertTrue(b'201 Created' in body)
 
         self.assertEqual(len(self.app.requests), 2)
-        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(self.app.requests[1].body, b'Test\nFile\nTwo\n')
         self.assertIn("Content-Type", self.app.requests[0].headers)
         self.assertIn("Content-Type", self.app.requests[1].headers)
         self.assertEqual("text/plain",

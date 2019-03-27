@@ -515,7 +515,12 @@ def main(args=None):
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
     broker = ContainerBroker(args.container_db, logger=logger,
                              skip_commits=True)
-    broker.get_info()
+    try:
+        broker.get_info()
+    except Exception as exc:
+        print('Error opening container DB %s: %s' % (args.container_db, exc),
+              file=sys.stderr)
+        return 2
     print('Loaded db broker for %s.' % broker.path, file=sys.stderr)
     return args.func(broker, args)
 

@@ -24,7 +24,7 @@ from swift.common.middleware.copy import ServerSideCopyMiddleware
 from swift.common.storage_policy import StoragePolicy
 from swift.common.swob import Request
 from swift.common.utils import mkdirs, split_path
-from swift.common.wsgi import monkey_patch_mimetools, WSGIContext
+from swift.common.wsgi import WSGIContext
 from swift.obj import server as object_server
 from swift.proxy import server as proxy
 import swift.proxy.controllers
@@ -138,7 +138,6 @@ class TestObjectSysmeta(unittest.TestCase):
                                      account_ring=FakeRing(replicas=1),
                                      container_ring=FakeRing(replicas=1))
         self.copy_app = ServerSideCopyMiddleware(self.app, {})
-        monkey_patch_mimetools()
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(self.tmpdir,
                                     'tmp_test_object_server_ObjectController')

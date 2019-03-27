@@ -35,6 +35,7 @@
 - job:
     name: swift-tox-py35
     parent: swift-tox-base
+    nodeset: ubuntu-xenial
     description: |
       Run unit-tests for swift under cPython version 3.5.
 
@@ -62,6 +63,25 @@
     vars:
       tox_envlist: py36
       bindep_profile: test py36
+      tox_environment:
+        NOSE_COVER_HTML: 1
+        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
+    post-run: tools/playbooks/common/cover-post.yaml
+
+- job:
+    name: swift-tox-py37
+    parent: swift-tox-base
+    nodeset: ubuntu-bionic
+    description: |
+      Run unit-tests for swift under cPython version 3.7.
+
+      Uses tox with the ``py37`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py37
+      bindep_profile: test py37
+      python_version: 3.7
       tox_environment:
         NOSE_COVER_HTML: 1
         NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
@@ -316,6 +336,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
             voting: false
+        - swift-tox-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+            voting: false
         - swift-tox-func:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -344,7 +369,10 @@
         - swift-tox-func-s3api-ceph-s3tests-tempauth:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
-              - ^test/probe/.*$
+              # Keep doc/saio -- we use those sample configs in the saio playbooks
+              # Also keep doc/s3api -- it holds known failures for these tests
+              - ^doc/(requirements.txt|(manpages|source)/.*)$
+              - ^test/(unit|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-probetests-centos-7:
             irrelevant-files:
@@ -428,3 +456,4 @@
     post:
       jobs:
         - publish-openstack-python-branch-tarball
+

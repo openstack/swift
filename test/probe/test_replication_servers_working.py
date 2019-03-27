@@ -142,8 +142,8 @@ class TestReplicatorFunctions(ReplProbeTest):
                     for files in test_node_files_list:
                         self.assertIn(files, new_files_list[0])
 
-                    for dir in test_node_dir_list:
-                        self.assertIn(dir, new_dir_list[0])
+                    for directory in test_node_dir_list:
+                        self.assertIn(directory, new_dir_list[0])
                     break
                 except Exception:
                     if time.time() - begin > 60:

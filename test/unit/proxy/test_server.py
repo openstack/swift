@@ -71,7 +71,7 @@ from swift.common import utils, constraints
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
     iter_multipart_mime_documents, public, mkdirs, NullLogger
-from swift.common.wsgi import monkey_patch_mimetools, loadapp, ConfigString
+from swift.common.wsgi import loadapp, ConfigString
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_cache_key, cors_validation, \
     get_account_info, get_container_info
@@ -97,7 +97,6 @@ def do_setup(object_server):
     # setup test context and break out some globals for convenience
     global _test_context, _testdir, _test_servers, _test_sockets, \
         _test_POLICIES
-    monkey_patch_mimetools()
     _test_context = setup_servers(object_server)
     _testdir = _test_context["testdir"]
     _test_servers = _test_context["test_servers"]
@@ -3269,37 +3268,35 @@ class TestReplicatedObjectController(
         self.assertNotEqual(last_modified_put, last_modified_head)
         _do_conditional_GET_checks(last_modified_head)
 
+    @unpatch_policies
     def test_PUT_auto_content_type(self):
-        with save_globals():
-            controller = ReplicatedObjectController(
-                self.app, 'account', 'container', 'object')
+        prolis = _test_sockets[0]
 
-            def test_content_type(filename, expected):
-                # The three responses here are for account_info() (HEAD to
-                # account server), container_info() (HEAD to container server)
-                # and three calls to _connect_put_node() (PUT to three object
-                # servers)
-                set_http_connect(201, 201, 201, 201, 201,
-                                 give_content_type=lambda content_type:
-                                 self.assertEqual(content_type,
-                                                  next(expected)))
-                # We need into include a transfer-encoding to get past
-                # constraints.check_object_creation()
-                req = Request.blank('/v1/a/c/%s' % filename, {},
-                                    headers={'transfer-encoding': 'chunked'})
-                self.app.update_request(req)
-                self.app.memcache.store = {}
-                res = controller.PUT(req)
-                # If we don't check the response here we could miss problems
-                # in PUT()
-                self.assertEqual(res.status_int, 201)
+        def do_test(ext, content_type):
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile('rwb')
+            fd.write(b'PUT /v1/a/c/o.%s HTTP/1.1\r\n'
+                     b'Host: localhost\r\n'
+                     b'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
+                     ext.encode())
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = b'HTTP/1.1 201'
+            self.assertEqual(headers[:len(exp)], exp)
 
-            test_content_type('test.jpg', iter(['', '', 'image/jpeg',
-                                                'image/jpeg', 'image/jpeg']))
-            test_content_type('test.html', iter(['', '', 'text/html',
-                                                 'text/html', 'text/html']))
-            test_content_type('test.css', iter(['', '', 'text/css',
-                                                'text/css', 'text/css']))
+            fd.write(b'GET /v1/a/c/o.%s HTTP/1.1\r\n'
+                     b'Host: localhost\r\nConnection: close\r\n'
+                     b'X-Storage-Token: t\r\n\r\n' % ext.encode())
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = b'HTTP/1.1 200'
+            self.assertIn(b'Content-Type: %s' % content_type.encode(),
+                          headers.split(b'\r\n'))
+            sock.close()
+
+        do_test('jpg', 'image/jpeg')
+        do_test('html', 'text/html')
+        do_test('css', 'text/css')
 
     def test_custom_mime_types_files(self):
         swift_dir = mkdtemp()

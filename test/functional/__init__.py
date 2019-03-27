@@ -53,8 +53,7 @@ from test.unit import SkipTest
 
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
-from swift.common.wsgi import (
-    monkey_patch_mimetools, loadapp, SwiftHttpProtocol)
+from swift.common.wsgi import loadapp, SwiftHttpProtocol
 from swift.common.utils import config_true_value, split_path
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -492,8 +491,6 @@ def in_process_setup(the_object_server=object_server):
     _info('Using proxy config from %s' % proxy_conf)
     swift_conf_src = _in_process_find_conf_file(conf_src_dir, 'swift.conf')
     _info('Using swift config from %s' % swift_conf_src)
-
-    monkey_patch_mimetools()
 
     global _testdir
     _testdir = os.path.join(mkdtemp(), 'tmp_functional')
@@ -1291,4 +1288,16 @@ def requires_policies(f):
             raise SkipTest("Multiple policies not enabled")
         return f(self, *args, **kwargs)
 
+    return wrapper
+
+
+def requires_bulk(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if skip or not cluster_info:
+            raise SkipTest('Requires bulk middleware')
+        # Determine whether this cluster has bulk middleware; if not, skip test
+        if not cluster_info.get('bulk_upload', {}):
+            raise SkipTest('Requires bulk middleware')
+        return f(*args, **kwargs)
     return wrapper

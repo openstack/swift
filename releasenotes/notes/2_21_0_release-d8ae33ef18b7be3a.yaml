@@ -1,0 +1,69 @@
+---
+features:
+  - |
+    Change the behavior of the EC reconstructor to perform a
+    fragment rebuild to a handoff node when a primary peer responds
+    with 507 to the REPLICATE request. This changes EC to match the
+    existing behavior of replication when drives fail. After a
+    rebalance of EC rings (potentially removing unmounted/failed
+    devices), it's most IO efficient to run in handoffs_only mode to
+    avoid unnecessary rebuilds.
+
+  - |
+    O_TMPFILE support is now detected by attempting to use it
+    instead of looking at the kernel version. This allows older
+    kernels with backported patches to take advantage of the
+    O_TMPFILE functionality.
+
+  - |
+    Add slo_manifest_hook callback to allow other middlewares to
+    impose additional constraints on or make edits to SLO manifests
+    before being written. For example, a middleware could enforce
+    minimum segment size or insert data segments.
+
+  - |
+    Fixed an issue with multi-region EC policies that caused the EC
+    reconstructor to constantly attempt cross-region rebuild
+    traffic.
+
+  - |
+    Fixed an issue where S3 API v4 signatures would not be validated
+    against the body of the request, allowing a replay attack if
+    request headers were captured by a malicious third party.
+
+  - Display crypto data/metadata details in swift-object-info.
+
+  - formpost can now accept a content-encoding parameter.
+
+  - |
+    Fixed an issue where multipart uploads with the S3 API would
+    sometimes report an error despite all segments being upload
+    successfully.
+
+  - |
+    Multipart object segments are now actually deleted when the
+    multipart object is deleted via the S3 API.
+
+  - |
+    Swift now returns a 503 (instead of a 500) when an account
+    auto-create fails.
+
+  - |
+    Fixed a bug where encryption would store the incorrect key
+    metadata if the object name starts with a slash.
+
+  - |
+    Fixed an issue where an object server failure during a client
+    download could leave an open socket between the proxy and
+    client.
+
+  - |
+    Fixed an issue where deleted EC objects didn't have their
+    on-disk directories cleaned up. This would cause extra resource
+    usage on the object servers.
+
+  - |
+    Fixed issue where bulk requests using xml and expect
+    100-continue would return a malformed HTTP response.
+
+  - Various other minor bug fixes and improvements.

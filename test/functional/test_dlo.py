@@ -49,7 +49,8 @@ class TestDloEnv(BaseEnv):
             file_item = cls.container.file("%s/seg_lower%s" % (prefix, letter))
             file_item.write(letter * 10)
 
-            file_item = cls.container.file("%s/seg_upper%s" % (prefix, letter))
+            file_item = cls.container.file(
+                "%s/seg_upper_%%ff%s" % (prefix, letter))
             file_item.write(letter.upper() * 10)
 
         for letter in ('f', 'g', 'h', 'i', 'j'):
@@ -64,7 +65,7 @@ class TestDloEnv(BaseEnv):
 
         man2 = cls.container.file("man2")
         man2.write('man2-contents',
-                   hdrs={"X-Object-Manifest": "%s/%s/seg_upper" %
+                   hdrs={"X-Object-Manifest": "%s/%s/seg_upper_%%25ff" %
                          (cls.container.name, prefix)})
 
         manall = cls.container.file("manall")
