@@ -254,7 +254,8 @@ class TestObjectExpirer(TestCase):
                 self.deleted_objects = {}
 
             def delete_object(self, target_path, delete_timestamp,
-                              task_account, task_container, task_object):
+                              task_account, task_container, task_object,
+                              is_async_delete):
                 if task_container not in self.deleted_objects:
                     self.deleted_objects[task_container] = set()
                 self.deleted_objects[task_container].add(task_object)
@@ -303,9 +304,10 @@ class TestObjectExpirer(TestCase):
             with mock.patch.object(x, 'delete_actual_object',
                                    side_effect=exc) as delete_actual:
                 with mock.patch.object(x, 'pop_queue') as pop_queue:
-                    x.delete_object(actual_obj, ts, account, container, obj)
+                    x.delete_object(actual_obj, ts, account, container, obj,
+                                    False)
 
-            delete_actual.assert_called_once_with(actual_obj, ts)
+            delete_actual.assert_called_once_with(actual_obj, ts, False)
             log_lines = x.logger.get_lines_for_level('error')
             if should_pop:
                 pop_queue.assert_called_once_with(account, container, obj)
@@ -377,13 +379,14 @@ class TestObjectExpirer(TestCase):
         assert_parse_task_obj('1000-a/c/o', 1000, 'a', 'c', 'o')
         assert_parse_task_obj('0000-acc/con/obj', 0, 'acc', 'con', 'obj')
 
-    def make_task(self, delete_at, target):
+    def make_task(self, delete_at, target, is_async_delete=False):
         return {
             'task_account': '.expiring_objects',
             'task_container': delete_at,
             'task_object': delete_at + '-' + target,
             'delete_timestamp': Timestamp(delete_at),
             'target_path': target,
+            'is_async_delete': is_async_delete,
         }
 
     def test_round_robin_order(self):
@@ -620,7 +623,7 @@ class TestObjectExpirer(TestCase):
         # executed tasks are with past time
         self.assertEqual(
             mock_method.call_args_list,
-            [mock.call(target_path, self.past_time)
+            [mock.call(target_path, self.past_time, False)
              for target_path in self.expired_target_path_list])
 
     def test_failed_delete_keeps_entry(self):
@@ -638,7 +641,7 @@ class TestObjectExpirer(TestCase):
 
         # all tasks are done
         with mock.patch.object(self.expirer, 'delete_actual_object',
-                               lambda o, t: None), \
+                               lambda o, t, b: None), \
                 mock.patch.object(self.expirer, 'pop_queue') as mock_method:
             self.expirer.run_once()
 
@@ -653,7 +656,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(self.expirer.report_objects, 0)
         with mock.patch('swift.obj.expirer.MAX_OBJECTS_TO_CACHE', 0), \
                 mock.patch.object(self.expirer, 'delete_actual_object',
-                                  lambda o, t: None), \
+                                  lambda o, t, b: None), \
                 mock.patch.object(self.expirer, 'pop_queue',
                                   lambda a, c, o: None):
             self.expirer.run_once()
@@ -662,7 +665,8 @@ class TestObjectExpirer(TestCase):
     def test_delete_actual_object_gets_native_string(self):
         got_str = [False]
 
-        def delete_actual_object_test_for_string(actual_obj, timestamp):
+        def delete_actual_object_test_for_string(actual_obj, timestamp,
+                                                 is_async_delete):
             if isinstance(actual_obj, str):
                 got_str[0] = True
 
@@ -681,7 +685,7 @@ class TestObjectExpirer(TestCase):
         def fail_delete_container(*a, **kw):
             raise Exception('failed to delete container')
 
-        def fail_delete_actual_object(actual_obj, timestamp):
+        def fail_delete_actual_object(actual_obj, timestamp, is_async_delete):
             raise Exception('failed to delete actual object')
 
         with mock.patch.object(self.fake_swift, 'delete_container',
@@ -761,10 +765,30 @@ class TestObjectExpirer(TestCase):
 
         x = expirer.ObjectExpirer({})
         ts = Timestamp('1234')
-        x.delete_actual_object('/path/to/object', ts)
+        x.delete_actual_object('/path/to/object', ts, False)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
         self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
                          got_env[0]['HTTP_X_IF_DELETE_AT'])
+        self.assertEqual(
+            got_env[0]['HTTP_X_BACKEND_CLEAN_EXPIRING_OBJECT_QUEUE'], 'no')
+
+    def test_delete_actual_object_bulk(self):
+        got_env = [None]
+
+        def fake_app(env, start_response):
+            got_env[0] = env
+            start_response('204 No Content', [('Content-Length', '0')])
+            return []
+
+        internal_client.loadapp = lambda *a, **kw: fake_app
+
+        x = expirer.ObjectExpirer({})
+        ts = Timestamp('1234')
+        x.delete_actual_object('/path/to/object', ts, True)
+        self.assertNotIn('HTTP_X_IF_DELETE_AT', got_env[0])
+        self.assertNotIn('HTTP_X_BACKEND_CLEAN_EXPIRING_OBJECT_QUEUE',
+                         got_env[0])
+        self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'], ts.internal)
 
     def test_delete_actual_object_nourlquoting(self):
         # delete_actual_object should not do its own url quoting because
@@ -780,11 +804,40 @@ class TestObjectExpirer(TestCase):
 
         x = expirer.ObjectExpirer({})
         ts = Timestamp('1234')
-        x.delete_actual_object('/path/to/object name', ts)
+        x.delete_actual_object('/path/to/object name', ts, False)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
         self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
                          got_env[0]['HTTP_X_IF_DELETE_AT'])
         self.assertEqual(got_env[0]['PATH_INFO'], '/v1/path/to/object name')
+
+    def test_delete_actual_object_async_returns_expected_error(self):
+        def do_test(test_status, should_raise):
+            calls = [0]
+
+            def fake_app(env, start_response):
+                calls[0] += 1
+                calls.append(env['PATH_INFO'])
+                start_response(test_status, [('Content-Length', '0')])
+                return []
+
+            internal_client.loadapp = lambda *a, **kw: fake_app
+
+            x = expirer.ObjectExpirer({})
+            ts = Timestamp('1234')
+            if should_raise:
+                with self.assertRaises(internal_client.UnexpectedResponse):
+                    x.delete_actual_object('/path/to/object', ts, True)
+            else:
+                x.delete_actual_object('/path/to/object', ts, True)
+            self.assertEqual(calls[0], 1, calls)
+
+        # object was deleted and tombstone reaped
+        do_test('404 Not Found', False)
+        # object was overwritten *after* the original delete, or
+        # object was deleted but tombstone still exists, or ...
+        do_test('409 Conflict', False)
+        # Anything else, raise
+        do_test('400 Bad Request', True)
 
     def test_delete_actual_object_returns_expected_error(self):
         def do_test(test_status, should_raise):
@@ -801,9 +854,9 @@ class TestObjectExpirer(TestCase):
             ts = Timestamp('1234')
             if should_raise:
                 with self.assertRaises(internal_client.UnexpectedResponse):
-                    x.delete_actual_object('/path/to/object', ts)
+                    x.delete_actual_object('/path/to/object', ts, False)
             else:
-                x.delete_actual_object('/path/to/object', ts)
+                x.delete_actual_object('/path/to/object', ts, False)
             self.assertEqual(calls[0], 1)
 
         # object was deleted and tombstone reaped
@@ -828,7 +881,7 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         exc = None
         try:
-            x.delete_actual_object('/path/to/object', Timestamp('1234'))
+            x.delete_actual_object('/path/to/object', Timestamp('1234'), False)
         except Exception as err:
             exc = err
         finally:
@@ -841,7 +894,7 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         x.swift.make_request = mock.Mock()
         x.swift.make_request.return_value.status_int = 204
-        x.delete_actual_object(name, timestamp)
+        x.delete_actual_object(name, timestamp, False)
         self.assertEqual(x.swift.make_request.call_count, 1)
         self.assertEqual(x.swift.make_request.call_args[0][1],
                          '/v1/' + urllib.parse.quote(name))
@@ -851,7 +904,7 @@ class TestObjectExpirer(TestCase):
         timestamp = Timestamp('1515544858.80602')
         x = expirer.ObjectExpirer({})
         x.swift.make_request = mock.MagicMock()
-        x.delete_actual_object(name, timestamp)
+        x.delete_actual_object(name, timestamp, False)
         self.assertEqual(x.swift.make_request.call_count, 1)
         header = 'X-Backend-Clean-Expiring-Object-Queue'
         self.assertEqual(

@@ -57,6 +57,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
     HTTPServerError, wsgi_to_bytes, wsgi_to_str
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
+from swift.obj.expirer import build_task_obj
 
 
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
@@ -493,7 +494,7 @@ class ObjectController(BaseStorageServer):
         for host, contdevice in updates:
             self.async_update(
                 op, self.expiring_objects_account, delete_at_container,
-                '%s-%s/%s/%s' % (delete_at, account, container, obj),
+                build_task_obj(delete_at, account, container, obj),
                 host, partition, contdevice, headers_out, objdevice,
                 policy)
 

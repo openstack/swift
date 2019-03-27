@@ -753,6 +753,32 @@ class ContainerController(BaseStorageServer):
 
     @public
     @timing_stats()
+    def UPDATE(self, req):
+        """
+        Handle HTTP UPDATE request (merge_items RPCs coming from the proxy.)
+        """
+        drive, part, account, container = split_and_validate_path(req, 4)
+        req_timestamp = valid_timestamp(req)
+        try:
+            check_drive(self.root, drive, self.mount_check)
+        except ValueError:
+            return HTTPInsufficientStorage(drive=drive, request=req)
+        if not self.check_free_space(drive):
+            return HTTPInsufficientStorage(drive=drive, request=req)
+
+        requested_policy_index = self.get_and_validate_policy_index(req)
+        broker = self._get_container_broker(drive, part, account, container)
+        self._maybe_autocreate(broker, req_timestamp, account,
+                               requested_policy_index)
+        try:
+            objs = json.load(req.environ['wsgi.input'])
+        except ValueError as err:
+            return HTTPBadRequest(body=str(err), content_type='text/plain')
+        broker.merge_items(objs)
+        return HTTPAccepted(request=req)
+
+    @public
+    @timing_stats()
     def POST(self, req):
         """Handle HTTP POST request."""
         drive, part, account, container = split_and_validate_path(req, 4)

@@ -321,7 +321,7 @@ class TestController(unittest.TestCase):
                 self.controller.account_info(self.account, self.request)
             set_http_connect(201, raise_timeout_exc=True)
             self.controller._make_request(
-                nodes, partition, 'POST', '/', '', '',
+                nodes, partition, 'POST', '/', '', '', None,
                 self.controller.app.logger.thread_locals)
 
     # tests if 200 is cached and used
@@ -667,6 +667,27 @@ class TestProxyServer(unittest.TestCase):
         resp = baseapp.handle_request(
             Request.blank('/v1/a', environ={'REQUEST_METHOD': '!invalid'}))
         self.assertEqual(resp.status, '405 Method Not Allowed')
+
+    def test_private_method_request(self):
+        baseapp = proxy_server.Application({},
+                                           FakeMemcache(),
+                                           container_ring=FakeRing(),
+                                           account_ring=FakeRing())
+        baseapp.logger = debug_logger()
+        resp = baseapp.handle_request(
+            Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'UPDATE'}))
+        self.assertEqual(resp.status, '405 Method Not Allowed')
+        # Note that UPDATE definitely *isn't* advertised
+        self.assertEqual(sorted(resp.headers['Allow'].split(', ')), [
+            'DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT'])
+
+        # But with appropriate (internal-only) overrides, you can still use it
+        resp = baseapp.handle_request(
+            Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'UPDATE'},
+                          headers={'X-Backend-Allow-Method': 'UPDATE',
+                                   'X-Backend-Storage-Policy-Index': '0'}))
+        # Now we actually make the requests, but there aren't any nodes
+        self.assertEqual(resp.status, '503 Service Unavailable')
 
     def test_calls_authorize_allow(self):
         called = [False]
