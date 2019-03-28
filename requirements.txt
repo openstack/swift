@@ -2,15 +2,15 @@
 # of appearance. Changing the order has an impact on the overall integration
 # process, which may cause wedges in the gate later.
 
-dnspython>=1.14.0;python_version=='2.7'  # http://www.dnspython.org/LICENSE
-eventlet>=0.17.4,!=0.23.0  # MIT
+dnspython>=1.14.0;python_version=='2.7' # http://www.dnspython.org/LICENSE
+eventlet>=0.17.4,!=0.23.0               # MIT
 greenlet>=0.3.1
-netifaces>=0.5,!=0.10.0,!=0.10.1
+netifaces>=0.8,!=0.10.0,!=0.10.1
 PasteDeploy>=1.3.3
 lxml>=3.4.1
-requests>=2.14.2 # Apache-2.0
+requests>=2.14.2                        # Apache-2.0
 six>=1.9.0
-xattr>=0.4
+xattr>=0.4;sys_platform!='win32'        # MIT
 PyECLib>=1.3.1                          # BSD
-cryptography!=2.0,>=1.6                 # BSD/Apache-2.0
-ipaddress>=1.0.16;python_version<'3.3'          # PSF
+cryptography!=2.0,>=1.8.2               # BSD/Apache-2.0
+ipaddress>=1.0.16;python_version<'3.3'  # PSF
