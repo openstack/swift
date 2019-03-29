@@ -430,6 +430,7 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
 
         # for py3:
         def get_default_type(self):
+            '''If the client didn't provide a content type, leave it blank.'''
             return ''
 
 
