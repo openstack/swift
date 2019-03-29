@@ -275,7 +275,9 @@ class S3Token(object):
         string_to_sign = s3_auth_details['string_to_sign']
         if isinstance(string_to_sign, six.text_type):
             string_to_sign = string_to_sign.encode('utf-8')
-        token = base64.urlsafe_b64encode(string_to_sign).encode('ascii')
+        token = base64.urlsafe_b64encode(string_to_sign)
+        if isinstance(token, six.binary_type):
+            token = token.decode('ascii')
 
         # NOTE(chmou): This is to handle the special case with nova
         # when we have the option s3_affix_tenant. We will force it to
