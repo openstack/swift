@@ -162,6 +162,11 @@ try:
 except OSError:
     warnings.warn('Cannot get last updated time from git repository. '
                   'Not setting "html_last_updated_fmt".')
+else:
+    if not isinstance(html_last_updated_fmt, str):
+        # for py3
+        html_last_updated_fmt = html_last_updated_fmt.decode('ascii')
+
 
 # If true, SmartyPants will be used to convert quotes and dashes to
 # typographically correct entities.
