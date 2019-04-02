@@ -1401,10 +1401,10 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertTrue(os.access(part_path, os.F_OK))
         self.replicator.replicate(override_devices=['sdb'])
         self.assertTrue(os.access(part_path, os.F_OK))
-        self.replicator.replicate(override_partitions=['9'])
+        self.replicator.replicate(override_partitions=[9])
         self.assertTrue(os.access(part_path, os.F_OK))
         self.replicator.replicate(override_devices=['sda'],
-                                  override_partitions=['1'])
+                                  override_partitions=[1])
         self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_delete_policy_override_params(self):
