@@ -90,6 +90,8 @@ def _header_strip(value):
         # behave as though it wasn't provided
         return None
     return stripped
+
+
 _header_strip.re = re.compile('^[\x00-\x20]*|[\x00-\x20]*$')
 
 
@@ -1427,8 +1429,10 @@ class S3Request(swob.Request):
         else:
             # otherwise we do naive HEAD request with the authentication
             resp = self.get_response(app, 'HEAD', self.container_name, '')
+            headers = resp.sw_headers.copy()
+            headers.update(resp.sysmeta_headers)
             return headers_to_container_info(
-                resp.sw_headers, resp.status_int)  # pylint: disable-msg=E1101
+                headers, resp.status_int)  # pylint: disable-msg=E1101
 
     def gen_multipart_manifest_delete_query(self, app, obj=None):
         if not self.allow_multipart_uploads:
