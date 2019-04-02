@@ -16,8 +16,10 @@
 import os
 import test.functional as tf
 from boto.s3.connection import S3Connection, OrdinaryCallingFormat, \
-    BotoClientError, S3ResponseError
+    S3ResponseError
 import six
+import sys
+import traceback
 
 
 RETRY_COUNT = 3
@@ -92,11 +94,12 @@ class Connection(object):
                         # 404 means NoSuchBucket, NoSuchKey, or NoSuchUpload
                         if e.status != 404:
                             raise
-            except (BotoClientError, S3ResponseError) as e:
-                exceptions.append(e)
+            except Exception as e:
+                exceptions.append(''.join(
+                    traceback.format_exception(*sys.exc_info())))
         if exceptions:
-            # raise the first exception
-            raise exceptions.pop(0)
+            exceptions.insert(0, 'Too many errors to continue:')
+            raise Exception('\n========\n'.join(exceptions))
 
     def make_request(self, method, bucket='', obj='', headers=None, body='',
                      query=None):
