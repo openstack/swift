@@ -1109,6 +1109,8 @@ multipart-manifest_put:
   description: |
     If you include the ``multipart-manifest=put`` query parameter, the object
     is a static large object manifest and the body contains the manifest.
+    See `Static large objects <https://docs.openstack.org/swift/latest
+    /api/large_objects.html#static-large-objects>`_ for more information.
   in: query
   required: false
   type: string
