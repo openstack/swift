@@ -372,6 +372,15 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         middleware = s3token.filter_factory(config)(self.app)
         self.assertIs('false_ind', middleware._verify)
 
+    def test_reseller_prefix(self):
+        def do_test(conf, expected):
+            conf.update(self.conf)
+            middleware = s3token.filter_factory(conf)(self.app)
+            self.assertEqual(expected, middleware._reseller_prefix)
+        do_test({}, 'AUTH_')
+        do_test({'reseller_prefix': 'KEY_'}, 'KEY_')
+        do_test({'reseller_prefix': 'KEY'}, 'KEY_')
+
     def test_auth_uris(self):
         for conf, expected in [
                 ({'auth_uri': 'https://example.com/v2.0'},

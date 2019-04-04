@@ -67,7 +67,7 @@ from six.moves import urllib
 from swift.common.swob import Request, HTTPBadRequest, HTTPUnauthorized, \
     HTTPException
 from swift.common.utils import config_true_value, split_path, get_logger, \
-    cache_from_env
+    cache_from_env, append_underscore
 from swift.common.wsgi import ConfigFileError
 
 
@@ -149,7 +149,8 @@ class S3Token(object):
         self._timeout = float(conf.get('http_timeout', '10.0'))
         if not (0 < self._timeout <= 60):
             raise ValueError('http_timeout must be between 0 and 60 seconds')
-        self._reseller_prefix = conf.get('reseller_prefix', 'AUTH_')
+        self._reseller_prefix = append_underscore(
+            conf.get('reseller_prefix', 'AUTH'))
         self._delay_auth_decision = config_true_value(
             conf.get('delay_auth_decision'))
 
