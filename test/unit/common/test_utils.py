@@ -2463,28 +2463,6 @@ log_name = %(yarr)s'''
 
         self.verify_under_pseudo_time(testfunc, target_runtime_ms=900)
 
-    def test_urlparse(self):
-        parsed = utils.urlparse('http://127.0.0.1/')
-        self.assertEqual(parsed.scheme, 'http')
-        self.assertEqual(parsed.hostname, '127.0.0.1')
-        self.assertEqual(parsed.path, '/')
-
-        parsed = utils.urlparse('http://127.0.0.1:8080/')
-        self.assertEqual(parsed.port, 8080)
-
-        parsed = utils.urlparse('https://127.0.0.1/')
-        self.assertEqual(parsed.scheme, 'https')
-
-        parsed = utils.urlparse('http://[::1]/')
-        self.assertEqual(parsed.hostname, '::1')
-
-        parsed = utils.urlparse('http://[::1]:8080/')
-        self.assertEqual(parsed.hostname, '::1')
-        self.assertEqual(parsed.port, 8080)
-
-        parsed = utils.urlparse('www.example.com')
-        self.assertEqual(parsed.hostname, '')
-
     def test_search_tree(self):
         # file match & ext miss
         with temptree(['asdf.conf', 'blarg.conf', 'asdf.cfg']) as t:
