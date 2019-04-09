@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import binascii
 import unittest
 from datetime import datetime
 import hashlib
@@ -20,6 +21,7 @@ import os
 from os.path import join
 import time
 from mock import patch
+import six
 
 from swift.common import swob
 from swift.common.swob import Request
@@ -37,7 +39,7 @@ class TestS3ApiObj(S3ApiTestCase):
     def setUp(self):
         super(TestS3ApiObj, self).setUp()
 
-        self.object_body = 'hello'
+        self.object_body = b'hello'
         self.etag = hashlib.md5(self.object_body).hexdigest()
         self.last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
 
@@ -110,7 +112,7 @@ class TestS3ApiObj(S3ApiTestCase):
                             swob.HTTPUnauthorized, {}, None)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '403')
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
 
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'HEAD'},
@@ -120,7 +122,7 @@ class TestS3ApiObj(S3ApiTestCase):
                             swob.HTTPForbidden, {}, None)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '403')
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
 
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'HEAD'},
@@ -130,7 +132,7 @@ class TestS3ApiObj(S3ApiTestCase):
                             swob.HTTPNotFound, {}, None)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '404')
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
 
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'HEAD'},
@@ -140,7 +142,7 @@ class TestS3ApiObj(S3ApiTestCase):
                             swob.HTTPPreconditionFailed, {}, None)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '412')
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
 
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'HEAD'},
@@ -150,7 +152,7 @@ class TestS3ApiObj(S3ApiTestCase):
                             swob.HTTPServerError, {}, None)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '500')
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
 
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'HEAD'},
@@ -160,7 +162,7 @@ class TestS3ApiObj(S3ApiTestCase):
                             swob.HTTPServiceUnavailable, {}, None)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '500')
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
 
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
@@ -448,7 +450,9 @@ class TestS3ApiObj(S3ApiTestCase):
     @s3acl
     def test_object_PUT(self):
         etag = self.response_headers['etag']
-        content_md5 = etag.decode('hex').encode('base64').strip()
+        content_md5 = binascii.b2a_base64(binascii.a2b_hex(etag)).strip()
+        if not six.PY2:
+            content_md5 = content_md5.decode('ascii')
 
         req = Request.blank(
             '/bucket/object',
@@ -524,7 +528,9 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'BadDigest')
 
     def test_object_PUT_headers(self):
-        content_md5 = self.etag.decode('hex').encode('base64').strip()
+        content_md5 = binascii.b2a_base64(binascii.a2b_hex(self.etag)).strip()
+        if not six.PY2:
+            content_md5 = content_md5.decode('ascii')
 
         self.swift.register('HEAD', '/v1/AUTH_test/some/source',
                             swob.HTTPOk, {'last-modified': self.last_modified},
@@ -540,10 +546,12 @@ class TestS3ApiObj(S3ApiTestCase):
                      'X-Amz-Meta-Lots-Of-Unprintable': 5 * '\x04',
                      'X-Amz-Copy-Source': '/some/source',
                      'Content-MD5': content_md5,
-                     'Date': self.get_date_header()})
+                     'Date': self.get_date_header()},
+            body=self.object_body)
         req.date = datetime.now()
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
+        self.assertEqual('200 ', status[:4], body)
         # Check that s3api does not return an etag header,
         # specified copy source.
         self.assertTrue(headers.get('etag') is None)
@@ -1002,7 +1010,7 @@ class TestS3ApiObj(S3ApiTestCase):
                                      'Content-Type': 'foo/bar'})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '204')
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
 
         self.assertIn(('HEAD', '/v1/AUTH_test/bucket/object'),
                       self.swift.calls)

@@ -243,8 +243,10 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
             if isinstance(value, (dict, MutableMapping)):
                 self._dict_to_etree(elem, value)
             else:
+                if isinstance(value, (int, float, bool)):
+                    value = str(value)
                 try:
-                    elem.text = str(value)
+                    elem.text = value
                 except ValueError:
                     # We set an invalid string for XML.
                     elem.text = '(invalid string)'

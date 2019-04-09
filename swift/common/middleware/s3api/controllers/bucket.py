@@ -18,6 +18,7 @@ from base64 import standard_b64decode as b64decode
 
 from six.moves.urllib.parse import quote
 
+from swift.common import swob
 from swift.common.http import HTTP_OK
 from swift.common.utils import json, public, config_true_value
 
@@ -66,8 +67,9 @@ class BucketController(Controller):
                 segments = json.loads(resp.body)
                 for seg in segments:
                     try:
-                        req.get_response(self.app, 'DELETE', container,
-                                         seg['name'].encode('utf8'))
+                        req.get_response(
+                            self.app, 'DELETE', container,
+                            swob.bytes_to_wsgi(seg['name'].encode('utf8')))
                     except NoSuchKey:
                         pass
                     except InternalError:

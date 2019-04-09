@@ -17,6 +17,7 @@ import unittest
 import cgi
 import mock
 
+import six
 from six.moves.urllib.parse import quote
 
 from swift.common import swob
@@ -62,7 +63,8 @@ class TestS3ApiBucket(S3ApiTestCase):
         for name, _, _, _ in self.objects:
             self.swift.register(
                 'DELETE',
-                '/v1/AUTH_test/bucket+segments/' + name.encode('utf-8'),
+                '/v1/AUTH_test/bucket+segments/' +
+                swob.bytes_to_wsgi(name.encode('utf-8')),
                 swob.HTTPNoContent, {}, json.dumps([]))
         self.swift.register(
             'GET',
@@ -118,7 +120,7 @@ class TestS3ApiBucket(S3ApiTestCase):
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '404')
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
 
     def test_bucket_HEAD_slash(self):
         req = Request.blank('/junk/',
@@ -168,7 +170,8 @@ class TestS3ApiBucket(S3ApiTestCase):
             self.assertEqual('2011-01-05T02:19:14.275Z',
                              o.find('./LastModified').text)
         self.assertEqual(items, [
-            (i[0].encode('utf-8'), '"0-N"' if i[0] == 'slo' else '"0"')
+            (i[0].encode('utf-8') if six.PY2 else i[0],
+             '"0-N"' if i[0] == 'slo' else '"0"')
             for i in self.objects])
 
     def test_bucket_GET_url_encoded(self):
@@ -519,8 +522,12 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.findall('./DeleteMarker'), [])
         versions = elem.findall('./Version')
         objects = list(self.objects)
-        self.assertEqual([v.find('./Key').text for v in versions],
-                         [v[0].encode('utf-8') for v in objects])
+        if six.PY2:
+            self.assertEqual([v.find('./Key').text for v in versions],
+                             [v[0].encode('utf-8') for v in objects])
+        else:
+            self.assertEqual([v.find('./Key').text for v in versions],
+                             [v[0] for v in objects])
         self.assertEqual([v.find('./IsLatest').text for v in versions],
                          ['true' for v in objects])
         self.assertEqual([v.find('./VersionId').text for v in versions],
@@ -598,7 +605,7 @@ class TestS3ApiBucket(S3ApiTestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(headers['Location'], '/bucket')
 
@@ -610,7 +617,7 @@ class TestS3ApiBucket(S3ApiTestCase):
                                      'Date': self.get_date_header(),
                                      'Transfer-Encoding': 'chunked'})
         status, headers, body = self.call_s3api(req)
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(headers['Location'], '/bucket')
 
@@ -622,7 +629,7 @@ class TestS3ApiBucket(S3ApiTestCase):
                 headers={'Authorization': 'AWS test:tester:hmac',
                          'Date': self.get_date_header()})
             status, headers, body = self.call_s3api(req)
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(headers['Location'], '/bucket')
 

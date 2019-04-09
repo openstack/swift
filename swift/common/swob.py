@@ -309,15 +309,15 @@ def str_to_wsgi(native_str):
     return bytes_to_wsgi(native_str.encode('utf8', errors='surrogateescape'))
 
 
-def wsgi_quote(wsgi_str):
+def wsgi_quote(wsgi_str, safe='/'):
     if six.PY2:
         if not isinstance(wsgi_str, bytes):
             raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
-        return urllib.parse.quote(wsgi_str)
+        return urllib.parse.quote(wsgi_str, safe=safe)
 
     if not isinstance(wsgi_str, str) or any(ord(x) > 255 for x in wsgi_str):
         raise TypeError('Expected a WSGI string; got %r' % wsgi_str)
-    return urllib.parse.quote(wsgi_str, encoding='latin-1')
+    return urllib.parse.quote(wsgi_str, safe=safe, encoding='latin-1')
 
 
 def wsgi_unquote(wsgi_str):
@@ -478,6 +478,10 @@ def _resp_app_iter_property():
 
     def setter(self, value):
         if isinstance(value, (list, tuple)):
+            for i, item in enumerate(value):
+                if not isinstance(item, bytes):
+                    raise TypeError('WSGI responses must be bytes; '
+                                    'got %s for item %d' % (type(item), i))
             self.content_length = sum(map(len, value))
         elif value is not None:
             self.content_length = None

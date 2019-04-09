@@ -156,7 +156,7 @@ class ObjectController(Controller):
                 for chunk in resp.app_iter:
                     pass  # drain the bulk-deleter response
                 resp.status = HTTP_NO_CONTENT
-                resp.body = ''
+                resp.body = b''
         except NoSuchKey:
             # expect to raise NoSuchBucket when the bucket doesn't exist
             req.get_container_info(self.app)
