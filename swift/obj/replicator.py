@@ -817,8 +817,8 @@ class ObjectReplicator(Daemon):
                     self.logger.exception('ERROR creating %s' % obj_path)
                 continue
             for partition in os.listdir(obj_path):
-                if (override_partitions is not None
-                        and partition not in override_partitions):
+                if (override_partitions is not None and partition.isdigit()
+                        and int(partition) not in override_partitions):
                     continue
 
                 if (partition.startswith('auditor_status_') and
