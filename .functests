@@ -7,7 +7,7 @@ SRC_DIR=$(python -c "import os; print os.path.dirname(os.path.realpath('$0'))")
 
 cd ${SRC_DIR} > /dev/null
 export TESTS_DIR=${SRC_DIR}/test/functional
-ARGS="--serial ${@:-"--pretty"}"
+ARGS="--concurrency 1 ${@:-"--pretty"}"
 ostestr $ARGS
 rvalue=$?
 cd -  > /dev/null
