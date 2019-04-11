@@ -75,9 +75,8 @@ from six.moves import cPickle as pickle
 from six.moves.configparser import (ConfigParser, NoSectionError,
                                     NoOptionError, RawConfigParser)
 from six.moves import range, http_client
-from six.moves.urllib.parse import ParseResult
 from six.moves.urllib.parse import quote as _quote
-from six.moves.urllib.parse import urlparse as stdlib_urlparse
+from six.moves.urllib.parse import urlparse
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -3242,38 +3241,6 @@ class StreamingPile(GreenAsyncPile):
 
     def __exit__(self, type, value, traceback):
         self.pool.__exit__(type, value, traceback)
-
-
-class ModifiedParseResult(ParseResult):
-    """Parse results class for urlparse."""
-
-    @property
-    def hostname(self):
-        netloc = self.netloc.split('@', 1)[-1]
-        if netloc.startswith('['):
-            return netloc[1:].split(']')[0]
-        elif ':' in netloc:
-            return netloc.rsplit(':')[0]
-        return netloc
-
-    @property
-    def port(self):
-        netloc = self.netloc.split('@', 1)[-1]
-        if netloc.startswith('['):
-            netloc = netloc.rsplit(']')[1]
-        if ':' in netloc:
-            return int(netloc.rsplit(':')[1])
-        return None
-
-
-def urlparse(url):
-    """
-    urlparse augmentation.
-    This is necessary because urlparse can't handle RFC 2732 URLs.
-
-    :param url: URL to parse.
-    """
-    return ModifiedParseResult(*stdlib_urlparse(url))
 
 
 def validate_sync_to(value, allowed_sync_hosts, realms_conf):

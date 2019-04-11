@@ -127,8 +127,10 @@ import cgi
 import json
 import time
 
+from six.moves.urllib.parse import urlparse
+
 from swift.common.utils import human_readable, split_path, config_true_value, \
-    quote, register_swift_info, get_logger, urlparse
+    quote, register_swift_info, get_logger
 from swift.common.wsgi import make_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound, \

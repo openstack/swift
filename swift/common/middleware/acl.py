@@ -15,9 +15,7 @@
 
 import json
 import six
-from six.moves.urllib.parse import unquote
-
-from swift.common.utils import urlparse
+from six.moves.urllib.parse import unquote, urlparse
 
 
 def clean_acl(name, value):
