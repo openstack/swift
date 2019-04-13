@@ -142,10 +142,10 @@ class ListEndpointsMiddleware(object):
     def _parse_path(self, request):
         """
         Parse path parts of request into a tuple of version, account,
-        container, obj.  Unspecified path parts are filled in as None,
-        except version which is always returned as a float using the
-        configured default response version if not specified in the
-        request.
+        container, obj.  Unspecified container or obj is filled in as
+        None; account is required; version is always returned as a
+        float using the configured default response version if not
+        specified in the request.
 
         :param request: the swob request
 
@@ -208,8 +208,7 @@ class ListEndpointsMiddleware(object):
         except ValueError as err:
             return HTTPBadRequest(str(err))(env, start_response)
 
-        if account is not None:
-            account = unquote(account)
+        account = unquote(account)
         if container is not None:
             container = unquote(container)
         if obj is not None:
