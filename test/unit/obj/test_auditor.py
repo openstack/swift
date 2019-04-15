@@ -678,7 +678,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.audit_all_objects(device_dirs=['sda'])
         log_lines = self.logger.get_lines_for_level('info')
         self.assertGreater(len(log_lines), 0)
-        self.assertTrue(log_lines[0].index('ALL - parallel, sda'))
+        self.assertIn('ALL - parallel, sda', log_lines[0])
 
         self.logger.clear()
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
@@ -687,7 +687,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.audit_all_objects(device_dirs=['sda'])
         log_lines = self.logger.get_lines_for_level('info')
         self.assertGreater(len(log_lines), 0)
-        self.assertTrue(log_lines[0].index('ZBF - sda'))
+        self.assertIn('ZBF - sda', log_lines[0])
 
     def test_object_run_recon_cache(self):
         ts = Timestamp(time.time())
