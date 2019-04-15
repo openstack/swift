@@ -7496,6 +7496,8 @@ class TestObjectServer(unittest.TestCase):
             'devices': self.devices,
             'swift_dir': self.tempdir,
             'mount_check': 'false',
+            # hopefully 1s is long enough to improve gate reliability?
+            'client_timeout': 1,
         }
         self.logger = debug_logger('test-object-server')
         self.app = object_server.ObjectController(
@@ -8159,14 +8161,24 @@ class TestObjectServer(unittest.TestCase):
                 conn.sock.fd._sock.close()
             else:
                 conn.sock.fd._real_close()
-        # We've seen a bunch of failures here -- try waiting some non-zero
-        # amount of time.
-        sleep(0.01)
 
-        # and make sure it demonstrates the client disconnect
-        log_lines = self.logger.get_lines_for_level('info')
-        self.assertEqual(len(log_lines), 1)
-        self.assertIn(' 499 ', log_lines[0])
+        # the object server needs to recognize the socket is closed
+        # or at least timeout, we'll have to wait
+        timeout = time() + (self.conf['client_timeout'] + 1)
+        while True:
+            try:
+                # and make sure it demonstrates the client disconnect
+                log_lines = self.logger.get_lines_for_level('info')
+                self.assertEqual(len(log_lines), 1)
+            except AssertionError:
+                if time() < timeout:
+                    sleep(0.01)
+                else:
+                    raise
+            else:
+                break
+        status = log_lines[0].split()[7]
+        self.assertEqual(status, '499')
 
         # verify successful object data and durable state file write
         put_timestamp = context['put_timestamp']
