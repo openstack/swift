@@ -312,7 +312,7 @@ from six.moves.urllib.parse import urlencode
 from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
-    HTTPBadRequest
+    HTTPBadRequest, wsgi_to_str
 from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote, get_logger, \
     strict_b64decode
@@ -362,7 +362,8 @@ def get_tempurl_keys_from_metadata(meta):
       meta = get_account_info(...)['meta']
       keys = get_tempurl_keys_from_metadata(meta)
     """
-    return [get_valid_utf8_str(value) for key, value in meta.items()
+    return [(get_valid_utf8_str(value) if six.PY2 else value)
+            for key, value in meta.items()
             if key.lower() in ('temp-url-key', 'temp-url-key-2')]
 
 
@@ -385,7 +386,7 @@ def authorize_same_account(account_to_match):
         except ValueError:
             return HTTPUnauthorized(request=req)
 
-        if acc == account_to_match:
+        if wsgi_to_str(acc) == account_to_match:
             return None
         else:
             return HTTPUnauthorized(request=req)
@@ -401,7 +402,8 @@ def authorize_same_container(account_to_match, container_to_match):
         except ValueError:
             return HTTPUnauthorized(request=req)
 
-        if acc == account_to_match and con == container_to_match:
+        if wsgi_to_str(acc) == account_to_match and \
+           wsgi_to_str(con) == container_to_match:
             return None
         else:
             return HTTPUnauthorized(request=req)
@@ -511,6 +513,8 @@ class TempURL(object):
             try:
                 temp_url_sig = binascii.hexlify(strict_b64decode(
                     temp_url_sig + '=='))
+                if not six.PY2:
+                    temp_url_sig = temp_url_sig.decode('ascii')
             except ValueError:
                 return self._invalid(env, start_response)
         elif len(temp_url_sig) == 40:
@@ -620,7 +624,7 @@ class TempURL(object):
                 elif existing_disposition:
                     disposition_value = existing_disposition
                 else:
-                    name = basename(env['PATH_INFO'].rstrip('/'))
+                    name = basename(wsgi_to_str(env['PATH_INFO']).rstrip('/'))
                     disposition_value = disposition_format('attachment',
                                                            name)
                 # this is probably just paranoia, I couldn't actually get a
@@ -653,7 +657,7 @@ class TempURL(object):
             except ValueError:
                 return (None, None, None)
             if ver == 'v1' and obj.strip('/'):
-                return (acc, cont, obj)
+                return (wsgi_to_str(acc), wsgi_to_str(cont), wsgi_to_str(obj))
         return (None, None, None)
 
     def _get_temp_url_info(self, env):
@@ -793,7 +797,7 @@ class TempURL(object):
 
         :param env: The WSGI environment for the request.
         """
-        for h in env.keys():
+        for h in list(env.keys()):
             if h in self.incoming_allow_headers:
                 continue
             for p in self.incoming_allow_headers_startswith:
@@ -821,7 +825,7 @@ class TempURL(object):
                   outgoing responses.
         """
         headers = HeaderKeyDict(headers)
-        for h in headers.keys():
+        for h in list(headers.keys()):
             if h in self.outgoing_allow_headers:
                 continue
             for p in self.outgoing_allow_headers_startswith:
