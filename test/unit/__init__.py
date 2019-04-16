@@ -39,6 +39,7 @@ import random
 import errno
 import xattr
 
+import six
 import six.moves.cPickle as pickle
 from six import BytesIO
 from six.moves import range
@@ -1083,6 +1084,8 @@ def mocked_http_conn(*args, **kwargs):
     requests = []
 
     def capture_requests(ip, port, method, path, headers, qs, ssl):
+        if six.PY2 and not isinstance(ip, bytes):
+            ip = ip.encode('ascii')
         req = {
             'ip': ip,
             'port': port,
