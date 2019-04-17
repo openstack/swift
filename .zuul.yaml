@@ -327,6 +327,7 @@
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
+            voting: false
         - swift-tox-py36:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -336,7 +337,6 @@
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
-            voting: false
         - swift-tox-func:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -408,7 +408,7 @@
         # long-running jobs, like probetests or (once they move to
         # in-tree definitions) dsvm jobs.
         - swift-tox-py27
-        - swift-tox-py35
+        - swift-tox-py37
         - swift-tox-func
         - swift-tox-func-encryption
         - swift-tox-func-domain-remap-staticweb
