@@ -473,7 +473,7 @@ use = egg:swift#recon
 # to 86400 (1 day).
 # rsync_tempfile_timeout = auto
 
-# [object-expirer]
+[object-expirer]
 # If this true, this expirer will execute tasks from legacy expirer task queue,
 # at least one object server should run with dequeue_from_legacy = true
 # dequeue_from_legacy = false
