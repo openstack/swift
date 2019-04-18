@@ -23,8 +23,6 @@ from textwrap import dedent
 import time
 import unittest
 
-import six
-
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import dlo
@@ -36,7 +34,7 @@ LIMIT = 'swift.common.constraints.CONTAINER_LISTING_LIMIT'
 
 
 def md5hex(s):
-    if isinstance(s, six.text_type):
+    if not isinstance(s, bytes):
         s = s.encode('utf-8')
     return hashlib.md5(s).hexdigest()
 
@@ -586,10 +584,7 @@ class TestDloGetManifest(DloTestCase):
 
         self.assertEqual(status, "200 OK")
         # first segment made it out
-        if six.PY2:
-            self.assertEqual(''.join(body), "aaaaa")
-        else:
-            self.assertEqual(body, b'aaaaa')
+        self.assertEqual(body, b'aaaaa')
         self.assertEqual(self.dlo.logger.get_lines_for_level('error'), [
             'While processing manifest /v1/AUTH_test/mancon/manifest, '
             'got 403 while retrieving /v1/AUTH_test/c/seg_02',
@@ -647,11 +642,8 @@ class TestDloGetManifest(DloTestCase):
         headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, "200 OK")
-        if six.PY2:
-            # stop after error
-            self.assertEqual(''.join(body), "aaaaabbWRONGbb")
-        else:
-            self.assertEqual(body, b"aaaaabbWRONGbb")
+        # stop after error
+        self.assertEqual(body, b"aaaaabbWRONGbb")
 
     def test_etag_comparison_ignores_quotes(self):
         # a little future-proofing here in case we ever fix this in swob
@@ -689,10 +681,8 @@ class TestDloGetManifest(DloTestCase):
             swob.HTTPOk, {'Content-Type': 'application/json'},
             json.dumps(segs).encode('ascii'))
 
-        if six.PY2:
-            path = b'/v1/AUTH_test/c/\xC3\xa9'
-        else:
-            path = u'/v1/AUTH_test/c/\xc3\xa9'
+        # NB: wsgi string
+        path = '/v1/AUTH_test/c/\xC3\xa9'
         self.app.register(
             'GET', path + '1',
             swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("AAAAA")},
