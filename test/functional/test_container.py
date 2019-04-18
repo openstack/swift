@@ -885,7 +885,7 @@ class TestContainer(unittest2.TestCase):
         new_container_name = str(uuid4())
         resp = retry(put, new_container_name, use_account=3)
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEqual(resp.status, 200)
@@ -894,7 +894,7 @@ class TestContainer(unittest2.TestCase):
         # can also delete them
         resp = retry(delete, new_container_name, use_account=3)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEqual(resp.status, 200)
@@ -904,10 +904,10 @@ class TestContainer(unittest2.TestCase):
         empty_container_name = str(uuid4())
         resp = retry(put, empty_container_name, use_account=1)
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
         resp = retry(delete, empty_container_name, use_account=3)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
     @requires_acls
     def test_read_write_acl_metadata(self):
