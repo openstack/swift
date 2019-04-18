@@ -1217,7 +1217,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
             quarantine_renamer.assert_called_once_with(
                 '/srv/dev/',
-                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
+                ('/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/' +
+                 'made-up-filename'))
 
     def test_get_diskfile_from_hash_no_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -7707,7 +7708,6 @@ class TestSuffixHashes(unittest.TestCase):
             quarantine_path = os.path.join(
                 quarantine_base,  # quarantine root
                 diskfile.get_data_dir(policy),  # per-policy data dir
-                suffix,  # first dir from which quarantined file was removed
                 os.path.basename(df._datadir)  # name of quarantined file
             )
             self.assertTrue(os.path.exists(quarantine_path))
