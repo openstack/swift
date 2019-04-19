@@ -5,7 +5,7 @@
     post-run: tools/playbooks/swift-dsvm-functional/post.yaml
     timeout: 6000
     required-projects:
-      - openstack-infra/devstack-gate
+      - openstack/devstack-gate
       - openstack/swift
 
 - job:
@@ -15,7 +15,7 @@
     post-run: tools/playbooks/swift-dsvm-functional-identity-v3-only/post.yaml
     timeout: 6000
     required-projects:
-      - openstack-infra/devstack-gate
+      - openstack/devstack-gate
       - openstack/swift
 
 - project:
