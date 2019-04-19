@@ -116,12 +116,12 @@
     description: |
       Setup a Swift/Keystone environment and run Swift's func tests
     required-projects:
-      - git.openstack.org/openstack/requirements
-      - git.openstack.org/openstack/swift
-      - git.openstack.org/openstack/keystone
+      - opendev.org/openstack/requirements
+      - opendev.org/openstack/swift
+      - opendev.org/openstack/keystone
     timeout: 2700
     vars:
-      tox_constraints_file: '{{ ansible_user_dir }}/src/git.openstack.org/openstack/requirements/upper-constraints.txt'
+      tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
       # This tox env get run twice; once for Keystone and once for tempauth
       tox_envlist: func
       devstack_localrc:
@@ -138,7 +138,7 @@
       devstack_services:
         keystone: true
         swift: true
-      zuul_work_dir: src/git.openstack.org/openstack/swift
+      zuul_work_dir: src/opendev.org/openstack/swift
     pre-run: tools/playbooks/dsvm/pre.yaml
     run: tools/playbooks/dsvm/run.yaml
     post-run: tools/playbooks/dsvm/post.yaml
@@ -149,12 +149,12 @@
     description: |
       Setup a Swift/Keystone environment and run Swift's func tests
     required-projects:
-      - git.openstack.org/openstack/requirements
-      - git.openstack.org/openstack/swift
-      - git.openstack.org/openstack/keystone
+      - opendev.org/openstack/requirements
+      - opendev.org/openstack/swift
+      - opendev.org/openstack/keystone
     timeout: 2700
     vars:
-      tox_constraints_file: '{{ ansible_user_dir }}/src/git.openstack.org/openstack/requirements/upper-constraints.txt'
+      tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
       # This tox env get run twice; once for Keystone and once for tempauth
       tox_envlist: func
       devstack_localrc:
@@ -171,7 +171,7 @@
       devstack_services:
         keystone: true
         swift: true
-      zuul_work_dir: src/git.openstack.org/openstack/swift
+      zuul_work_dir: src/opendev.org/openstack/swift
     pre-run: tools/playbooks/dsvm/pre.yaml
     run: tools/playbooks/dsvm/run.yaml
     post-run: tools/playbooks/dsvm/post.yaml
