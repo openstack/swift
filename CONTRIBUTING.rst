@@ -52,7 +52,7 @@ Reviewing Someone Else's Code
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 All code reviews in OpenStack projects are done on
-https://review.openstack.org/. Reviewing patches is one of the most effective
+https://review.opendev.org/. Reviewing patches is one of the most effective
 ways you can contribute to the community.
 
 We've written REVIEW_GUIDELINES.rst (found in this source tree) to help you

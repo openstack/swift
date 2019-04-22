@@ -2264,7 +2264,7 @@ def get_hub():
 
     Note about epoll:
 
-    Review: https://review.openstack.org/#/c/18806/
+    Review: https://review.opendev.org/#/c/18806/
 
     There was a problem where once out of every 30 quadrillion
     connections, a coroutine wouldn't wake up when the client

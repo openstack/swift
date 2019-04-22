@@ -1888,7 +1888,7 @@ swift (1.13.1, OpenStack Icehouse)
       A new proxy config variable (strict_cors_mode, default to True)
       has been added. Setting it to False keeps the old behavior. For
       an overview of old versus new behavior, please see
-      https://review.openstack.org/#/c/69419/
+      https://review.opendev.org/#/c/69419/
 
     * Invert the responsibility of the two instances of proxy-logging in
       the proxy pipeline
