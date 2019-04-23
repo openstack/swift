@@ -158,16 +158,16 @@ configuration steps are required:
 import json
 import os
 from cgi import parse_header
-from six.moves.urllib.parse import unquote
 
 from swift.common.utils import get_logger, register_swift_info, split_path, \
-    MD5_OF_EMPTY_STRING, closing_if_possible, quote
+    MD5_OF_EMPTY_STRING, closing_if_possible
 from swift.common.constraints import check_account_format
 from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.request_helpers import get_sys_meta_prefix, \
     check_path_header
 from swift.common.swob import Request, HTTPBadRequest, HTTPTemporaryRedirect, \
-    HTTPException, HTTPConflict, HTTPPreconditionFailed
+    HTTPException, HTTPConflict, HTTPPreconditionFailed, wsgi_quote, \
+    wsgi_unquote
 from swift.common.http import is_success
 from swift.common.exceptions import LinkIterError
 from swift.common.header_key_dict import HeaderKeyDict
@@ -197,29 +197,39 @@ def _check_symlink_header(req):
     # copy middleware may accept the format. In the symlink, API
     # says apparently to use "container/object" format so add the
     # validation first, here.
-    if unquote(req.headers[TGT_OBJ_SYMLINK_HDR]).startswith('/'):
+    error_body = 'X-Symlink-Target header must be of the form ' \
+                 '<container name>/<object name>'
+    try:
+        if wsgi_unquote(req.headers[TGT_OBJ_SYMLINK_HDR]).startswith('/'):
+            raise HTTPPreconditionFailed(
+                body=error_body,
+                request=req, content_type='text/plain')
+    except TypeError:
         raise HTTPPreconditionFailed(
-            body='X-Symlink-Target header must be of the '
-                 'form <container name>/<object name>',
+            body=error_body,
             request=req, content_type='text/plain')
 
     # check container and object format
     container, obj = check_path_header(
         req, TGT_OBJ_SYMLINK_HDR, 2,
-        'X-Symlink-Target header must be of the '
-        'form <container name>/<object name>')
-    req.headers[TGT_OBJ_SYMLINK_HDR] = quote('%s/%s' % (container, obj))
+        error_body)
+    req.headers[TGT_OBJ_SYMLINK_HDR] = wsgi_quote('%s/%s' % (container, obj))
 
     # Check account format if it exists
-    account = check_account_format(
-        req, unquote(req.headers[TGT_ACCT_SYMLINK_HDR])) \
-        if TGT_ACCT_SYMLINK_HDR in req.headers else None
+    try:
+        account = check_account_format(
+            req, wsgi_unquote(req.headers[TGT_ACCT_SYMLINK_HDR])) \
+            if TGT_ACCT_SYMLINK_HDR in req.headers else None
+    except TypeError:
+        raise HTTPPreconditionFailed(
+            body='Account name cannot contain slashes',
+            request=req, content_type='text/plain')
 
     # Extract request path
     _junk, req_acc, req_cont, req_obj = req.split_path(4, 4, True)
 
     if account:
-        req.headers[TGT_ACCT_SYMLINK_HDR] = quote(account)
+        req.headers[TGT_ACCT_SYMLINK_HDR] = wsgi_quote(account)
     else:
         account = req_acc
 
@@ -383,7 +393,7 @@ class SymlinkObjectContext(WSGIContext):
             """
             version, account, _junk = req.split_path(2, 3, True)
             account = self._response_header_value(
-                TGT_ACCT_SYSMETA_SYMLINK_HDR) or quote(account)
+                TGT_ACCT_SYSMETA_SYMLINK_HDR) or wsgi_quote(account)
             target_path = os.path.join(
                 '/', version, account,
                 symlink_target.lstrip('/'))
@@ -488,7 +498,7 @@ class SymlinkObjectContext(WSGIContext):
         if tgt_co:
             version, account, _junk = req.split_path(2, 3, True)
             target_acc = self._response_header_value(
-                TGT_ACCT_SYSMETA_SYMLINK_HDR) or quote(account)
+                TGT_ACCT_SYSMETA_SYMLINK_HDR) or wsgi_quote(account)
             location_hdr = os.path.join(
                 '/', version, target_acc, tgt_co)
             req.environ['swift.leave_relative_location'] = True
