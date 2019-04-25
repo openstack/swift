@@ -25,6 +25,6 @@ function is_rhel7 {
 if is_rhel7; then
     # Install CentOS OpenStack repos so that we have access to some extra
     # packages.
-    sudo yum install -y centos-release-openstack-queens
+    sudo yum install -y centos-release-openstack-rocky
     sudo yum install -y liberasurecode-devel
 fi

@@ -536,8 +536,26 @@ class TestObjectReplicator(unittest.TestCase):
             self._write_disk_data('sdd', with_json=True)
         _create_test_rings(self.testdir, devs)
 
-        self.replicator.collect_jobs()
+        self.replicator.collect_jobs(override_partitions=[1])
         self.assertEqual(self.replicator.total_stats.failure, 0)
+
+    def test_collect_jobs_with_override_parts_and_unexpected_part_dir(self):
+        self.replicator.collect_jobs(override_partitions=[0, 2])
+        self.assertEqual(self.replicator.total_stats.failure, 0)
+        os.mkdir(os.path.join(self.objects_1, 'foo'))
+        jobs = self.replicator.collect_jobs(override_partitions=[0, 2])
+        found_jobs = set()
+        for j in jobs:
+            found_jobs.add((int(j['policy']), int(j['partition'])))
+        self.assertEqual(found_jobs, {
+            (0, 0),
+            (0, 2),
+            (1, 0),
+            (1, 2),
+        })
+        num_disks = len(POLICIES[1].object_ring.devs)
+        # N.B. it's not clear why the UUT increments failure per device
+        self.assertEqual(self.replicator.total_stats.failure, num_disks)
 
     @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
     def test_collect_jobs_multi_disk(self, mock_shuffle):
@@ -1401,10 +1419,10 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertTrue(os.access(part_path, os.F_OK))
         self.replicator.replicate(override_devices=['sdb'])
         self.assertTrue(os.access(part_path, os.F_OK))
-        self.replicator.replicate(override_partitions=['9'])
+        self.replicator.replicate(override_partitions=[9])
         self.assertTrue(os.access(part_path, os.F_OK))
         self.replicator.replicate(override_devices=['sda'],
-                                  override_partitions=['1'])
+                                  override_partitions=[1])
         self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_delete_policy_override_params(self):

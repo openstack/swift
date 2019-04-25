@@ -125,14 +125,17 @@ Example usage of this middleware via ``swift``:
 
 import cgi
 import json
+import six
 import time
 
+from six.moves.urllib.parse import urlparse
+
 from swift.common.utils import human_readable, split_path, config_true_value, \
-    quote, register_swift_info, get_logger, urlparse
+    quote, register_swift_info, get_logger
 from swift.common.wsgi import make_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound, \
-    Request
+    Request, wsgi_quote, wsgi_to_str
 from swift.proxy.controllers.base import get_container_info
 
 
@@ -145,6 +148,12 @@ class _StaticWebContext(WSGIContext):
     that might need to be handled to make keeping contextual
     information about the request a bit simpler than storing it in
     the WSGI env.
+
+    :param staticweb: The staticweb middleware object in use.
+    :param version: A WSGI string representation of the swift api version.
+    :param account: A WSGI string representation of the account name.
+    :param container: A WSGI string representation of the container name.
+    :param obj: A WSGI string representation of the object name.
     """
 
     def __init__(self, staticweb, version, account, container, obj):
@@ -223,9 +232,9 @@ class _StaticWebContext(WSGIContext):
         :param start_response: The original WSGI start_response hook.
         :param prefix: Any prefix desired for the container listing.
         """
-        label = env['PATH_INFO']
+        label = wsgi_to_str(env['PATH_INFO'])
         if self._listings_label:
-            groups = env['PATH_INFO'].split('/')
+            groups = wsgi_to_str(env['PATH_INFO']).split('/')
             label = '{0}/{1}'.format(self._listings_label,
                                      '/'.join(groups[4:]))
 
@@ -262,14 +271,14 @@ class _StaticWebContext(WSGIContext):
             self.agent, swift_source='SW')
         tmp_env['QUERY_STRING'] = 'delimiter=/'
         if prefix:
-            tmp_env['QUERY_STRING'] += '&prefix=%s' % quote(prefix)
+            tmp_env['QUERY_STRING'] += '&prefix=%s' % wsgi_quote(prefix)
         else:
             prefix = ''
         resp = self._app_call(tmp_env)
         if not is_success(self._get_status_int()):
             return self._error_response(resp, env, start_response)
         listing = None
-        body = ''.join(resp)
+        body = b''.join(resp)
         if body:
             listing = json.loads(body)
         if not listing:
@@ -280,7 +289,8 @@ class _StaticWebContext(WSGIContext):
                'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
                '<html>\n' \
                ' <head>\n' \
-               '  <title>Listing of %s</title>\n' % cgi.escape(label)
+               '  <title>Listing of %s</title>\n' % \
+               cgi.escape(label)
         if self._listings_css:
             body += '  <link rel="stylesheet" type="text/css" ' \
                     'href="%s" />\n' % (self._build_css_path(prefix))
@@ -308,7 +318,8 @@ class _StaticWebContext(WSGIContext):
                     '   </tr>\n'
         for item in listing:
             if 'subdir' in item:
-                subdir = item['subdir'].encode("utf-8")
+                subdir = item['subdir'] if six.PY3 else  \
+                    item['subdir'].encode('utf-8')
                 if prefix:
                     subdir = subdir[len(prefix):]
                 body += '   <tr class="item subdir">\n' \
@@ -319,13 +330,16 @@ class _StaticWebContext(WSGIContext):
                         (quote(subdir), cgi.escape(subdir))
         for item in listing:
             if 'name' in item:
-                name = item['name'].encode("utf-8")
+                name = item['name'] if six.PY3 else  \
+                    item['name'].encode('utf-8')
                 if prefix:
                     name = name[len(prefix):]
-                content_type = item['content_type'].encode("utf-8")
+                content_type = item['content_type'] if six.PY3 else  \
+                    item['content_type'].encode('utf-8')
                 bytes = human_readable(item['bytes'])
                 last_modified = (
-                    cgi.escape(item['last_modified'].encode("utf-8")).
+                    cgi.escape(item['last_modified'] if six.PY3 else
+                               item['last_modified'].encode('utf-8')).
                     split('.')[0].replace('T', ' '))
                 body += '   <tr class="item %s">\n' \
                         '    <td class="colname"><a href="%s">%s</a></td>\n' \
@@ -362,7 +376,8 @@ class _StaticWebContext(WSGIContext):
             env['wsgi.url_scheme'] = self.url_scheme
         if self.url_host:
             env['HTTP_HOST'] = self.url_host
-        resp = HTTPMovedPermanently(location=(env['PATH_INFO'] + '/'))
+        resp = HTTPMovedPermanently(
+            location=wsgi_quote(env['PATH_INFO'] + '/'))
         return resp(env, start_response)
 
     def handle_container(self, env, start_response):
@@ -466,9 +481,9 @@ class _StaticWebContext(WSGIContext):
                         self.version, self.account, self.container),
                     self.agent, swift_source='SW')
                 tmp_env['QUERY_STRING'] = 'limit=1&delimiter=/&prefix=%s' % (
-                    quote(self.obj + '/'), )
+                    quote(wsgi_to_str(self.obj) + '/'), )
                 resp = self._app_call(tmp_env)
-                body = ''.join(resp)
+                body = b''.join(resp)
                 if not is_success(self._get_status_int()) or not body or \
                         not json.loads(body):
                     resp = HTTPNotFound()(env, self._start_response)

@@ -80,7 +80,7 @@ class S3Response(S3ResponseBase, swob.Response):
     def __init__(self, *args, **kwargs):
         swob.Response.__init__(self, *args, **kwargs)
 
-        sw_sysmeta_headers = swob.HeaderKeyDict()
+        s3_sysmeta_headers = swob.HeaderKeyDict()
         sw_headers = swob.HeaderKeyDict()
         headers = HeaderKeyDict()
         self.is_slo = False
@@ -103,12 +103,14 @@ class S3Response(S3ResponseBase, swob.Response):
                     key = sysmeta_prefix(_server_type) + \
                         key[len('x-%s-sysmeta-swift3-' % _server_type):]
 
-                    if key not in sw_sysmeta_headers:
+                    if key not in s3_sysmeta_headers:
                         # To avoid overwrite s3api sysmeta by older swift3
                         # sysmeta set the key only when the key does not exist
-                        sw_sysmeta_headers[key] = val
+                        s3_sysmeta_headers[key] = val
                 elif is_s3api_sysmeta(key, _server_type):
-                    sw_sysmeta_headers[key] = val
+                    s3_sysmeta_headers[key] = val
+                else:
+                    sw_headers[key] = val
             else:
                 sw_headers[key] = val
 
@@ -132,7 +134,7 @@ class S3Response(S3ResponseBase, swob.Response):
                 self.is_slo = config_true_value(val)
 
         # Check whether we stored the AWS-style etag on upload
-        override_etag = sw_sysmeta_headers.get(
+        override_etag = s3_sysmeta_headers.get(
             sysmeta_header('object', 'etag'))
         if override_etag is not None:
             # Multipart uploads in AWS have ETags like
@@ -153,7 +155,7 @@ class S3Response(S3ResponseBase, swob.Response):
 
         # Used for pure swift header handling at the request layer
         self.sw_headers = sw_headers
-        self.sysmeta_headers = sw_sysmeta_headers
+        self.sysmeta_headers = s3_sysmeta_headers
 
     @classmethod
     def from_swift_resp(cls, sw_resp):

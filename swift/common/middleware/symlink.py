@@ -161,7 +161,7 @@ from cgi import parse_header
 from six.moves.urllib.parse import unquote
 
 from swift.common.utils import get_logger, register_swift_info, split_path, \
-    MD5_OF_EMPTY_STRING, closing_if_possible
+    MD5_OF_EMPTY_STRING, closing_if_possible, quote
 from swift.common.constraints import check_account_format
 from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.request_helpers import get_sys_meta_prefix, \
@@ -208,6 +208,7 @@ def _check_symlink_header(req):
         req, TGT_OBJ_SYMLINK_HDR, 2,
         'X-Symlink-Target header must be of the '
         'form <container name>/<object name>')
+    req.headers[TGT_OBJ_SYMLINK_HDR] = quote('%s/%s' % (container, obj))
 
     # Check account format if it exists
     account = check_account_format(
@@ -217,7 +218,9 @@ def _check_symlink_header(req):
     # Extract request path
     _junk, req_acc, req_cont, req_obj = req.split_path(4, 4, True)
 
-    if not account:
+    if account:
+        req.headers[TGT_ACCT_SYMLINK_HDR] = quote(account)
+    else:
         account = req_acc
 
     # Check if symlink targets the symlink itself or not
@@ -378,9 +381,9 @@ class SymlinkObjectContext(WSGIContext):
             :returns: new request for target path if it's symlink otherwise
                       None
             """
-            version, account, _junk = split_path(req.path, 2, 3, True)
+            version, account, _junk = req.split_path(2, 3, True)
             account = self._response_header_value(
-                TGT_ACCT_SYSMETA_SYMLINK_HDR) or account
+                TGT_ACCT_SYSMETA_SYMLINK_HDR) or quote(account)
             target_path = os.path.join(
                 '/', version, account,
                 symlink_target.lstrip('/'))
@@ -485,7 +488,7 @@ class SymlinkObjectContext(WSGIContext):
         if tgt_co:
             version, account, _junk = req.split_path(2, 3, True)
             target_acc = self._response_header_value(
-                TGT_ACCT_SYSMETA_SYMLINK_HDR) or account
+                TGT_ACCT_SYSMETA_SYMLINK_HDR) or quote(account)
             location_hdr = os.path.join(
                 '/', version, target_acc, tgt_co)
             req.environ['swift.leave_relative_location'] = True

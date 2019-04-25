@@ -23,6 +23,7 @@ from random import choice, random
 from struct import unpack_from
 
 from eventlet import sleep, Timeout
+from six.moves.urllib.parse import urlparse
 
 import swift.common.db
 from swift.common.db import DatabaseConnectionError
@@ -37,7 +38,7 @@ from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import (
     clean_content_type, config_true_value,
-    FileLikeIter, get_logger, hash_path, quote, urlparse, validate_sync_to,
+    FileLikeIter, get_logger, hash_path, quote, validate_sync_to,
     whataremyips, Timestamp, decode_timestamps)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
@@ -238,8 +239,9 @@ class ContainerSync(Daemon):
         try:
             self.swift = InternalClient(
                 internal_client_conf, 'Swift Container Sync', request_tries)
-        except IOError as err:
-            if err.errno != errno.ENOENT:
+        except (OSError, IOError) as err:
+            if err.errno != errno.ENOENT and \
+                    not str(err).endswith(' not found'):
                 raise
             raise SystemExit(
                 _('Unable to load internal client from config: '

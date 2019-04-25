@@ -365,8 +365,9 @@ class ContainerSharder(ContainerReplicator):
                 'Swift Container Sharder',
                 request_tries,
                 allow_modify_pipeline=False)
-        except IOError as err:
-            if err.errno != errno.ENOENT:
+        except (OSError, IOError) as err:
+            if err.errno != errno.ENOENT and \
+                    not str(err).endswith(' not found'):
                 raise
             raise SystemExit(
                 'Unable to load internal client from config: %r (%s)' %

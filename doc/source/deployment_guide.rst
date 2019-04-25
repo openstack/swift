@@ -2252,7 +2252,7 @@ For distros with more recent kernels (for example Ubuntu 12.04 Precise),
 we recommend using the default settings (including the default inode size
 of 256 bytes) when creating the file system::
 
-    mkfs.xfs /dev/sda1
+    mkfs.xfs -L D1 /dev/sda1
 
 In the last couple of years, XFS has made great improvements in how inodes
 are allocated and used.  Using the default inode size no longer has an
@@ -2262,7 +2262,7 @@ For distros with older kernels (for example Ubuntu 10.04 Lucid),
 some settings can dramatically impact performance. We recommend the
 following when creating the file system::
 
-    mkfs.xfs -i size=1024 /dev/sda1
+    mkfs.xfs -i size=1024 -L D1 /dev/sda1
 
 Setting the inode size is important, as XFS stores xattr data in the inode.
 If the metadata is too large to fit in the inode, a new extent is created,
@@ -2272,15 +2272,15 @@ headroom.
 
 The following example mount options are recommended when using XFS::
 
-    mount -t xfs -o noatime,nodiratime,nobarrier,logbufs=8 /dev/sda1 /srv/node/sda
+    mount -t xfs -o noatime,nodiratime,nobarrier,logbufs=8 -L D1 /srv/node/d1
 
 We do not recommend running Swift on RAID, but if you are using
 RAID it is also important to make sure that the proper sunit and swidth
 settings get set so that XFS can make most efficient use of the RAID array.
 
 For a standard Swift install, all data drives are mounted directly under
-``/srv/node`` (as can be seen in the above example of mounting ``/dev/sda1`` as
-``/srv/node/sda``). If you choose to mount the drives in another directory,
+``/srv/node`` (as can be seen in the above example of mounting label ``D1``
+as ``/srv/node/d1``). If you choose to mount the drives in another directory,
 be sure to set the `devices` config option in all of the server configs to
 point to the correct directory.
 
@@ -2322,7 +2322,7 @@ The following settings should be in `/etc/sysctl.conf`::
     # double amount of allowed conntrack
     net.ipv4.netfilter.ip_conntrack_max = 262144
 
-To load the updated sysctl settings, run ``sudo sysctl -p``
+To load the updated sysctl settings, run ``sudo sysctl -p``.
 
 A note about changing the TIME_WAIT values.  By default the OS will hold
 a port open for 60 seconds to ensure that any remaining packets can be

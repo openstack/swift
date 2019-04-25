@@ -372,6 +372,15 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         middleware = s3token.filter_factory(config)(self.app)
         self.assertIs('false_ind', middleware._verify)
 
+    def test_reseller_prefix(self):
+        def do_test(conf, expected):
+            conf.update(self.conf)
+            middleware = s3token.filter_factory(conf)(self.app)
+            self.assertEqual(expected, middleware._reseller_prefix)
+        do_test({}, 'AUTH_')
+        do_test({'reseller_prefix': 'KEY_'}, 'KEY_')
+        do_test({'reseller_prefix': 'KEY'}, 'KEY_')
+
     def test_auth_uris(self):
         for conf, expected in [
                 ({'auth_uri': 'https://example.com/v2.0'},
@@ -456,12 +465,12 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             with self.assertRaises(ConfigFileError) as cm:
                 s3token.filter_factory({'auth_uri': auth_uri})(self.app)
             self.assertEqual('Invalid auth_uri; must include scheme and host',
-                             cm.exception.message)
+                             cm.exception.args[0])
         with self.assertRaises(ConfigFileError) as cm:
             s3token.filter_factory({
                 'auth_uri': 'nonhttp://example.com'})(self.app)
         self.assertEqual('Invalid auth_uri; scheme must be http or https',
-                         cm.exception.message)
+                         cm.exception.args[0])
         for auth_uri in [
                 'http://user@example.com/',
                 'http://example.com/?with=query',
@@ -469,7 +478,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             with self.assertRaises(ConfigFileError) as cm:
                 s3token.filter_factory({'auth_uri': auth_uri})(self.app)
             self.assertEqual('Invalid auth_uri; must not include username, '
-                             'query, or fragment', cm.exception.message)
+                             'query, or fragment', cm.exception.args[0])
 
     def test_unicode_path(self):
         url = u'/v1/AUTH_cfa/c/euro\u20ac'.encode('utf8')
@@ -568,7 +577,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
 
         MOCK_REQUEST.return_value = TestResponse({
             'status_code': 201,
-            'text': json.dumps(GOOD_RESPONSE_V2)})
+            'text': json.dumps(GOOD_RESPONSE_V2).encode('ascii')})
 
         req = Request.blank('/v1/AUTH_cfa/c/o')
         req.environ['s3api.auth_details'] = {

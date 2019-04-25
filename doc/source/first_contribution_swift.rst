@@ -117,7 +117,7 @@ Tracking your changes
 ---------------------
 
 After proposing changes to Swift, you can track them at
-https://review.openstack.org. After logging in, you will see a dashboard of
+https://review.opendev.org. After logging in, you will see a dashboard of
 "Outgoing reviews" for changes you have proposed, "Incoming reviews" for
 changes you are reviewing, and "Recently closed" changes for which you were
 either a reviewer or owner.
