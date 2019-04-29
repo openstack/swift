@@ -1,0 +1,59 @@
+# Copyright (c) 2018 OpenStack Foundation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This might be just a temporal, we may want to remove this and take
+# another approach for some items but this is needed to test the make
+# file and dependency installation
+- hosts: all
+  tasks:
+    # install cmake 3.14, cmake must be > 3.9 for losf build but xenial
+    # is too stale. Perhaps we could skip this section after we change
+    # the env to bionic
+    - name: download cmake
+      unarchive:
+        src: https://github.com/Kitware/CMake/releases/download/v3.14.3/cmake-3.14.3-Linux-x86_64.tar.gz
+        dest: "{{ ansible_env.HOME }}"
+        remote_src: yes
+
+    # setup golang
+    # To use specific version by the feature of go module we need at least >=1.11.
+    # and more, 1.12 is better because we don't have to consider extra environment
+    # setting.
+    - name: download golang package and unarchive
+      unarchive:
+        src: https://dl.google.com/go/go1.12.4.linux-amd64.tar.gz
+        dest: /usr/local
+        remote_src: yes
+      become: true
+
+    # install protoc (protobuf-compiler)
+    # TODO: what version we want. at least, 2.6.1 in xenial doesn't work well
+    - name: install unzip to extract the pre-compiled binary
+      apt:
+        name: unzip
+        state: present
+      become: true
+
+    - name: create protoc dir to extract the binary
+      file:
+        path: "{{ ansible_env.HOME }}/protoc"
+        state: directory
+        mode: 0755
+
+    - name: download protoc
+      unarchive:
+        src: https://github.com/protocolbuffers/protobuf/releases/download/v3.7.1/protoc-3.7.1-linux-x86_64.zip
+        dest: "{{ ansible_env.HOME }}/protoc"
+        remote_src: yes

@@ -1,0 +1,37 @@
+# Copyright (c) 2018 OpenStack Foundation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This might be just a temporal, we may want to remove this and take
+# another approach for some items but this is needed to test the make
+# file and dependency installation
+- hosts: all
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/go/bin:{{ ansible_env.HOME }}/protoc/bin:{{ ansible_env.HOME }}/go/bin:{{ ansible_env.HOME }}/cmake-3.14.3-Linux-x86_64/bin"
+  tasks:
+    # losf golang package installation
+    - name: build losf golang package
+      make:
+        chdir: "{{ zuul.project.src_dir }}/go/swift-rpc-losf"
+
+    # sanity check the swift-rpc-losf exists in the go binary path
+    - name: check if swift-rpc-losf exists
+      stat:
+        path: "{{ ansible_env.HOME }}/go/bin/swift-rpc-losf"
+      register: stat_result
+
+    - name: Fail if swift-rpc-losf doesn't exist
+      fail:
+        msg: "swift-rpc-losf was not found"
+      when: stat_result.stat.exists == False

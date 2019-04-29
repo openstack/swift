@@ -135,6 +135,23 @@
       tox_envlist: func-ec
 
 - job:
+    name: swift-tox-func-losf
+    parent: swift-tox-base
+    voting: false
+    description: |
+      Run functional tests for swift under cPython version 2.7.
+
+      Uses tox with the ``func-post-ec`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    branches: feature/losf
+    vars:
+      tox_envlist: func-ec
+    pre-run:
+      - tools/playbooks/common/install_losf_dependencies.yaml
+      - tools/playbooks/losf_setup/pre.yaml
+
+- job:
     name: swift-tox-func-ec-centos-7
     parent: swift-tox-func-ec
     nodeset: centos-7
@@ -362,6 +379,11 @@
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-tox-func-s3api:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-losf:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
