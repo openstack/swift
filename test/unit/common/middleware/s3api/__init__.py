@@ -25,6 +25,7 @@ from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import Config
 
 from test.unit.common.middleware.s3api.helpers import FakeSwift
+from test.unit import debug_logger
 
 
 class FakeApp(object):
@@ -79,6 +80,7 @@ class S3ApiTestCase(unittest.TestCase):
         self.app = FakeApp()
         self.swift = self.app.swift
         self.s3api = filter_factory({}, **self.conf)(self.app)
+        self.s3api.logger = debug_logger()
 
         self.swift.register('HEAD', '/v1/AUTH_test',
                             swob.HTTPOk, {}, None)
