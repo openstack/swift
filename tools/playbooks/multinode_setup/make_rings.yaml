@@ -53,6 +53,7 @@
         cmd: |
           crudini --set /etc/swift/proxy-server.conf DEFAULT bind_ip {{ hostvars['proxy1'].nodepool.public_ipv4 }}
           crudini --set /etc/swift/proxy-server.conf DEFAULT user {{ ansible_user_id }}
+          crudini --set /etc/swift/proxy-server.conf app:proxy-server node_timeout 20
         executable: /bin/bash
 
 - hosts: account
