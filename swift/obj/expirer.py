@@ -268,9 +268,11 @@ class ObjectExpirer(Daemon):
         # This if-clause will be removed when general task queue feature is
         # implemented.
         if not self.dequeue_from_legacy:
-            self.logger.info('Until general task queue has been released '
-                             '`dequeue_from_legacy == False` means an '
-                             'object-expirer run is a no-op.')
+            self.logger.info('This node is not configured to dequeue tasks '
+                             'from the legacy queue.  This node will '
+                             'not process any expiration tasks.  At least '
+                             'one node in your cluster must be configured '
+                             'with dequeue_from_legacy == true.')
             return
 
         self.get_process_values(kwargs)

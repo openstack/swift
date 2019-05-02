@@ -474,10 +474,34 @@ use = egg:swift#recon
 # rsync_tempfile_timeout = auto
 
 # [object-expirer]
+# If this true, this expirer will execute tasks from legacy expirer task queue,
+# at least one object server should run with dequeue_from_legacy = true
+# dequeue_from_legacy = false
+#
 # Note: Be careful not to enable ``dequeue_from_legacy`` on too many expirers
 # as all legacy tasks are stored in a single hidden account and the same hidden
 # containers. On a large cluster one may inadvertently make the
-# acccount/container server for the hidden ones busy.
+# acccount/container server for the hidden too busy.
+#
+# Note: the processes and process options can only be used in conjunction with
+# notes using `dequeue_from_legacy = true`.  These options are ignored on nodes
+# with `dequeue_from_legacy = false`.
+#
+# processes is how many parts to divide the legacy work into, one part per
+# process that will be doing the work
+# processes set 0 means that a single legacy process will be doing all the work
+# processes can also be specified on the command line and will override the
+# config value
+# processes = 0
+#
+# process is which of the parts a particular legacy process will work on
+# process can also be specified on the command line and will override the config
+# value
+# process is "zero based", if you want to use 3 processes, you should run
+# processes with process set to 0, 1, and 2
+# process = 0
+#
+# internal_client_conf_path = /etc/swift/internal-client.conf
 #
 # You can override the default log routing for this app here (don't use set!):
 # log_name = object-expirer
@@ -486,29 +510,6 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # interval = 300
-#
-# If this true, expirer execute tasks in legacy expirer task queue
-# dequeue_from_legacy = false
-#
-# internal_client_conf_path = /etc/swift/internal-client.conf
-#
-# processes can only be used in conjunction with `dequeue_from_legacy`.
-# So this option is ignored if dequeue_from_legacy=false.
-# processes is how many parts to divide the legacy work into, one part per
-# process that will be doing the work
-# processes set 0 means that a single legacy process will be doing all the work
-# processes can also be specified on the command line and will override the
-# config value
-# processes = 0
-#
-# process can only be used in conjunction with `dequeue_from_legacy`.
-# So this option is ignored if dequeue_from_legacy=false.
-# process is which of the parts a particular legacy process will work on
-# process can also be specified on the command line and will override the config
-# value
-# process is "zero based", if you want to use 3 processes, you should run
-# processes with process set to 0, 1, and 2
-# process = 0
 #
 # report_interval = 300
 #
