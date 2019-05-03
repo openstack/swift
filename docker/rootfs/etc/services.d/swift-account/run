@@ -1,0 +1,5 @@
+#!/bin/sh
+source /etc/profile
+
+# swift-account-server /etc/swift/account-server.conf
+exec s6-setuidgid swift swift-init account restart --no-daemon

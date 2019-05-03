@@ -1,0 +1,36 @@
+#!/usr/bin/with-contenv sh
+
+POLICIES="object container account"
+
+for p in $POLICIES; do
+  echo "swift-ring-builder $p.builder create 10 1 1" > /etc/swift/remakerings.$p;
+  echo "started /etc/swift/remakerings.$p with 'swift-ring-build create'"
+done
+
+
+for drive in `ls /srv/node/ | grep 'swift-d'`; do
+  echo "swift-ring-builder object.builder add r1z1-127.0.0.1:6000/$drive 1" >> /etc/swift/remakerings.object
+  echo "pushed command to add r1z1-127.0.0.1:6000/$drive to /etc/swift/remakerings.object"
+  echo "swift-ring-builder container.builder add r1z1-127.0.0.1:6001/$drive 1" >> /etc/swift/remakerings.container
+  echo "pushed command to add r1z1-127.0.0.1:6001/$drive to /etc/swift/remakerings.container"
+  echo "swift-ring-builder account.builder add r1z1-127.0.0.1:6002/$drive 1" >> /etc/swift/remakerings.account
+  echo "pushed command to add r1z1-127.0.0.1:6002/$drive to /etc/swift/remakerings.account"
+done
+
+for p in $POLICIES; do
+  echo "swift-ring-builder $p.builder rebalance" >> /etc/swift/remakerings.$p;
+  echo "pushed command to rebalance ring into /etc/swift/remakerings.$p"
+done
+
+echo "rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz" > /etc/swift/remakerings
+echo "created umbrella /etc/swift/remakerings, with deleting all ring files"
+
+for p in $POLICIES; do
+  cat /etc/swift/remakerings.$p >> /etc/swift/remakerings;
+  echo "pushed /etc/swift/remakerings.$p to /etc/swift/remakerings"
+  rm -f /etc/swift/remakerings.$p;
+  echo "deleted /etc/swift/remakerings.$p"
+done
+
+chmod +x /etc/swift/remakerings
+echo "made remaketings executable (+x)"

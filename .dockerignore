@@ -1,0 +1,11 @@
+.tox
+api-ref
+cover
+doc/manpages
+doc/s3api
+doc/source
+examples
+releasenotes
+.stestr
+test
+tools

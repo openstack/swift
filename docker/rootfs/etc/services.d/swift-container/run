@@ -1,0 +1,5 @@
+#!/bin/sh
+source /etc/profile
+
+# swift-container-server /etc/swift/container-server.conf
+exec s6-setuidgid swift swift-init container restart --no-daemon

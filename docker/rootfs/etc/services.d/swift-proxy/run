@@ -1,0 +1,5 @@
+#!/bin/sh
+source /etc/profile
+
+# swift-proxy-server /etc/swift/proxy-server.conf
+exec s6-setuidgid swift swift-init proxy restart --no-daemon

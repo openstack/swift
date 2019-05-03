@@ -1,0 +1,3 @@
+#!/usr/bin/execlineb -P
+
+memcached -u root -l 127.0.0.1
