@@ -6688,8 +6688,11 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         commit_confirmation = \
             'swift.proxy.controllers.obj.MIMEPutter.send_commit_confirmation'
+        diskfile_md5 = 'swift.obj.diskfile.md5'
+        mem_diskfile_md5 = 'swift.obj.mem_diskfile.hashlib.md5'
 
-        with mock.patch('swift.obj.server.md5', busted_md5_constructor), \
+        with mock.patch(diskfile_md5, busted_md5_constructor), \
+                mock.patch(mem_diskfile_md5, busted_md5_constructor), \
                 mock.patch(commit_confirmation, mock_committer):
             fd = sock.makefile('rwb')
             fd.write(('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
