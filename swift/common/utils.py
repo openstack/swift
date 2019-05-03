@@ -187,6 +187,13 @@ IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
 
 MD5_OF_EMPTY_STRING = 'd41d8cd98f00b204e9800998ecf8427e'
 
+LOG_LINE_DEFAULT_FORMAT = '{remote_addr} - - [{time.d}/{time.b}/{time.Y}' \
+                          ':{time.H}:{time.M}:{time.S} +0000] ' \
+                          '"{method} {path}" {status} {content_length} ' \
+                          '"{referer}" "{txn_id}" "{user_agent}" ' \
+                          '{trans_time:.4f} "{additional_info}" {pid} ' \
+                          '{policy_index}'
+
 
 class InvalidHashPathConfigError(ValueError):
 
@@ -603,7 +610,117 @@ def get_policy_index(req_headers, res_headers):
     return str(policy_index) if policy_index is not None else None
 
 
-def get_log_line(req, res, trans_time, additional_info):
+class _UTC(datetime.tzinfo):
+    """
+    A tzinfo class for datetime objects that returns a 0 timedelta (UTC time)
+    """
+    def dst(self, dt):
+        return datetime.timedelta(0)
+    utcoffset = dst
+
+    def tzname(self, dt):
+        return 'UTC'
+
+
+UTC = _UTC()
+
+
+class LogStringFormatter(string.Formatter):
+    def __init__(self, default='', quote=False):
+        super(LogStringFormatter, self).__init__()
+        self.default = default
+        self.quote = quote
+
+    def format_field(self, value, spec):
+        if not value:
+            return self.default
+        else:
+            log = super(LogStringFormatter, self).format_field(value, spec)
+            if self.quote:
+                return quote(log, ':/{}')
+            else:
+                return log
+
+
+class StrAnonymizer(str):
+    """
+    Class that permits to get a string anonymized or simply quoted.
+    """
+
+    def __new__(cls, data, method, salt):
+        method = method.lower()
+        if method not in hashlib.algorithms_guaranteed:
+            raise ValueError('Unsupported hashing method: %r' % method)
+        s = str.__new__(cls, data or '')
+        s.method = method
+        s.salt = salt
+        return s
+
+    @property
+    def anonymized(self):
+        if not self:
+            return self
+        else:
+            h = getattr(hashlib, self.method)()
+            if self.salt:
+                h.update(six.b(self.salt))
+            h.update(six.b(self))
+            return '{%s%s}%s' % ('S' if self.salt else '', self.method.upper(),
+                                 h.hexdigest())
+
+
+class StrFormatTime(object):
+    """
+    Class that permits to get formats or parts of a time.
+    """
+
+    def __init__(self, ts):
+        self.time = ts
+        self.time_struct = time.gmtime(ts)
+
+    def __str__(self):
+        return "%.9f" % self.time
+
+    def __getattr__(self, attr):
+        if attr not in ['a', 'A', 'b', 'B', 'c', 'd', 'H',
+                        'I', 'j', 'm', 'M', 'p', 'S', 'U',
+                        'w', 'W', 'x', 'X', 'y', 'Y', 'Z']:
+            raise ValueError(("The attribute %s is not a correct directive "
+                              "for time.strftime formater.") % attr)
+        return datetime.datetime(*self.time_struct[:-2],
+                                 tzinfo=UTC).strftime('%' + attr)
+
+    @property
+    def asctime(self):
+        return time.asctime(self.time_struct)
+
+    @property
+    def datetime(self):
+        return time.strftime('%d/%b/%Y/%H/%M/%S', self.time_struct)
+
+    @property
+    def iso8601(self):
+        return time.strftime('%Y-%m-%dT%H:%M:%S', self.time_struct)
+
+    @property
+    def ms(self):
+        return self.__str__().split('.')[1][:3]
+
+    @property
+    def us(self):
+        return self.__str__().split('.')[1][:6]
+
+    @property
+    def ns(self):
+        return self.__str__().split('.')[1]
+
+    @property
+    def s(self):
+        return self.__str__().split('.')[0]
+
+
+def get_log_line(req, res, trans_time, additional_info, fmt,
+                 anonymization_method, anonymization_salt):
     """
     Make a line for logging that matches the documented log line format
     for backend servers.
@@ -617,14 +734,39 @@ def get_log_line(req, res, trans_time, additional_info):
     """
 
     policy_index = get_policy_index(req.headers, res.headers)
-    return '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f "%s" %d %s' % (
-        req.remote_addr,
-        time.strftime('%d/%b/%Y:%H:%M:%S +0000', time.gmtime()),
-        req.method, req.path, res.status.split()[0],
-        res.content_length or '-', req.referer or '-',
-        req.headers.get('x-trans-id', '-'),
-        req.user_agent or '-', trans_time, additional_info or '-',
-        os.getpid(), policy_index or '-')
+    if req.path.startswith('/'):
+        disk, partition, account, container, obj = split_path(req.path, 0, 5,
+                                                              True)
+    else:
+        disk, partition, account, container, obj = (None, ) * 5
+    replacements = {
+        'remote_addr': StrAnonymizer(req.remote_addr, anonymization_method,
+                                     anonymization_salt),
+        'time': StrFormatTime(time.time()),
+        'method': req.method,
+        'path': StrAnonymizer(req.path, anonymization_method,
+                              anonymization_salt),
+        'disk': disk,
+        'partition': partition,
+        'account': StrAnonymizer(account, anonymization_method,
+                                 anonymization_salt),
+        'container': StrAnonymizer(container, anonymization_method,
+                                   anonymization_salt),
+        'object': StrAnonymizer(obj, anonymization_method,
+                                anonymization_salt),
+        'status': res.status.split()[0],
+        'content_length': res.content_length,
+        'referer': StrAnonymizer(req.referer, anonymization_method,
+                                 anonymization_salt),
+        'txn_id': req.headers.get('x-trans-id'),
+        'user_agent': StrAnonymizer(req.user_agent, anonymization_method,
+                                    anonymization_salt),
+        'trans_time': trans_time,
+        'additional_info': additional_info,
+        'pid': os.getpid(),
+        'policy_index': policy_index,
+    }
+    return LogStringFormatter(default='-').format(fmt, **replacements)
 
 
 def get_trans_id_time(trans_id):

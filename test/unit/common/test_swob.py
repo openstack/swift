@@ -1626,11 +1626,6 @@ class TestResponse(unittest.TestCase):
         self.assertEqual(resp.body, b'')
 
 
-class TestUTC(unittest.TestCase):
-    def test_tzname(self):
-        self.assertEqual(swift.common.swob.UTC.tzname(None), 'UTC')
-
-
 class TestConditionalIfNoneMatch(unittest.TestCase):
     def fake_app(self, environ, start_response):
         start_response('200 OK', [('Etag', 'the-etag')])

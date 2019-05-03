@@ -26,47 +26,71 @@ Proxy Logs
 
 The proxy logs contain the record of all external API requests made to the
 proxy server. Swift's proxy servers log requests using a custom format
-designed to provide robust information and simple processing. The log format
-is::
+designed to provide robust information and simple processing. It is possible
+to change this format with  the ``log_msg_template`` config parameter.
+The default log format is::
 
-    client_ip remote_addr datetime request_method request_path protocol
-        status_int referer user_agent auth_token bytes_recvd bytes_sent
-        client_etag transaction_id headers request_time source log_info
-        request_start_time request_end_time policy_index
+    {client_ip} {remote_addr} {end_time.datetime} {method} {path} {protocol}
+        {status_int} {referer} {user_agent} {auth_token} {bytes_recvd}
+        {bytes_sent} {client_etag} {transaction_id} {headers} {request_time}
+        {source} {log_info} {start_time} {end_time} {policy_index}
+
+Some keywords, signaled by the (anonymizable) flag, can be anonymized by
+using the transformer 'anonymized'. The data are applied the hashing method of
+`log_anonymization_method` and an optional salt `log_anonymization_salt`.
+
+Some keywords, signaled by the (timestamp) flag, can be converted to standard
+dates formats using the matching transformers: 'datetime', 'asctime' or
+'iso8601'. Other transformers for timestamps are 's', 'ms', 'us' and 'ns' for
+seconds, milliseconds, microseconds and nanoseconds. Python's strftime
+directives can also be used as tranformers (a, A, b, B, c, d, H, I, j, m, M, p,
+S, U, w, W, x, X, y, Y, Z).
+
+Example {client_ip.anonymized} {remote_addr.anonymized} {start_time.iso8601}
+            {end_time.H}:{end_time.M} {method} acc:{account} cnt:{container}
+            obj:{object.anonymized}
 
 =================== ==========================================================
 **Log Field**       **Value**
 ------------------- ----------------------------------------------------------
 client_ip           Swift's guess at the end-client IP, taken from various
-                    headers in the request.
+                    headers in the request. (anonymizable)
 remote_addr         The IP address of the other end of the TCP connection.
-datetime            Timestamp of the request, in
-                    day/month/year/hour/minute/second format.
-request_method      The HTTP verb in the request.
-request_path        The path portion of the request.
+                    (anonymizable)
+end_time            Timestamp of the request. (timestamp)
+method              The HTTP verb in the request.
+path                The path portion of the request. (anonymizable)
 protocol            The transport protocol used (currently one of http or
                     https).
 status_int          The response code for the request.
-referer             The value of the HTTP Referer header.
-user_agent          The value of the HTTP User-Agent header.
+referer             The value of the HTTP Referer header. (anonymizable)
+user_agent          The value of the HTTP User-Agent header. (anonymizable)
 auth_token          The value of the auth token. This may be truncated or
                     otherwise obscured.
 bytes_recvd         The number of bytes read from the client for this request.
 bytes_sent          The number of bytes sent to the client in the body of the
                     response. This is how many bytes were yielded to the WSGI
                     server.
-client_etag         The etag header value given by the client.
+client_etag         The etag header value given by the client. (anonymizable)
 transaction_id      The transaction id of the request.
-headers             The headers given in the request.
+headers             The headers given in the request. (anonymizable)
 request_time        The duration of the request.
 source              The "source" of the request. This may be set for requests
                     that are generated in order to fulfill client requests,
                     e.g. bulk uploads.
 log_info            Various info that may be useful for diagnostics, e.g. the
                     value of any x-delete-at header.
-request_start_time  High-resolution timestamp from the start of the request.
-request_end_time    High-resolution timestamp from the end of the request.
+start_time          High-resolution timestamp from the start of the request.
+                    (timestamp)
+end_time            High-resolution timestamp from the end of the request.
+                    (timestamp)
 policy_index        The value of the storage policy index.
+account             The account part extracted from the path of the request.
+                    (anonymizable)
+container           The container part extracted from the path of the request.
+                    (anonymizable)
+object              The object part extracted from the path of the request.
+                    (anonymizable)
 =================== ==========================================================
 
 In one log line, all of the above fields are space-separated and url-encoded.

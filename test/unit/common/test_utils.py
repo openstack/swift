@@ -184,6 +184,11 @@ def reset_logger_state(f):
     return wrapper
 
 
+class TestUTC(unittest.TestCase):
+    def test_tzname(self):
+        self.assertEqual(utils.UTC.tzname(None), 'UTC')
+
+
 class TestTimestamp(unittest.TestCase):
     """Tests for swift.common.utils.Timestamp"""
 
@@ -3503,6 +3508,96 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual('2', utils.get_policy_index(req.headers,
                                                      res.headers))
 
+    def test_log_string_formatter(self):
+        # Plain ASCII
+        lf = utils.LogStringFormatter()
+        self.assertEqual(lf.format('{a} {b}', a='Swift is', b='great'),
+                         'Swift is great')
+
+        lf = utils.LogStringFormatter()
+        self.assertEqual(lf.format('{a} {b}', a='', b='great'),
+                         ' great')
+
+        lf = utils.LogStringFormatter(default='-')
+        self.assertEqual(lf.format('{a} {b}', a='', b='great'),
+                         '- great')
+
+        lf = utils.LogStringFormatter(default='-', quote=True)
+        self.assertEqual(lf.format('{a} {b}', a='', b='great'),
+                         '- great')
+
+        lf = utils.LogStringFormatter(quote=True)
+        self.assertEqual(lf.format('{a} {b}', a='Swift is', b='great'),
+                         'Swift%20is great')
+
+        # Unicode & co
+        lf = utils.LogStringFormatter()
+        self.assertEqual(lf.format('{a} {b}', a='Swift est',
+                                   b=u'g\u00e9nial ^^'),
+                         u'Swift est g\u00e9nial ^^')
+
+        lf = utils.LogStringFormatter(quote=True)
+        self.assertEqual(lf.format('{a} {b}', a='Swift est',
+                                   b=u'g\u00e9nial ^^'),
+                         'Swift%20est g%C3%A9nial%20%5E%5E')
+
+    def test_str_anonymizer(self):
+        anon = utils.StrAnonymizer('Swift is great!', 'md5', '')
+        self.assertEqual(anon, 'Swift is great!')
+        self.assertEqual(anon.anonymized,
+                         '{MD5}45e6f00d48fdcf86213602a87df18772')
+
+        anon = utils.StrAnonymizer('Swift is great!', 'sha1', '')
+        self.assertEqual(anon, 'Swift is great!')
+        self.assertEqual(anon.anonymized,
+                         '{SHA1}0010a3df215495d8bfa0ae4b66acc2afcc8f4c5c')
+
+        anon = utils.StrAnonymizer('Swift is great!', 'md5', 'salty_secret')
+        self.assertEqual(anon, 'Swift is great!')
+        self.assertEqual(anon.anonymized,
+                         '{SMD5}ef4ce28fe3bdd10b6659458ceb1f3f0c')
+
+        anon = utils.StrAnonymizer('Swift is great!', 'sha1', 'salty_secret')
+        self.assertEqual(anon, 'Swift is great!')
+        self.assertEqual(anon.anonymized,
+                         '{SSHA1}a4968f76acaddff0eb4069ebe8805d9cab44c9fe')
+
+        self.assertRaises(ValueError, utils.StrAnonymizer,
+                          'Swift is great!', 'sha257', '')
+
+    def test_str_format_time(self):
+        dt = utils.StrFormatTime(10000.123456789)
+        self.assertEqual(str(dt), '10000.123456789')
+        self.assertEqual(dt.datetime, '01/Jan/1970/02/46/40')
+        self.assertEqual(dt.iso8601, '1970-01-01T02:46:40')
+        self.assertEqual(dt.asctime, 'Thu Jan  1 02:46:40 1970')
+        self.assertEqual(dt.s, '10000')
+        self.assertEqual(dt.ms, '123')
+        self.assertEqual(dt.us, '123456')
+        self.assertEqual(dt.ns, '123456789')
+        self.assertEqual(dt.a, 'Thu')
+        self.assertEqual(dt.A, 'Thursday')
+        self.assertEqual(dt.b, 'Jan')
+        self.assertEqual(dt.B, 'January')
+        self.assertEqual(dt.c, 'Thu Jan  1 02:46:40 1970')
+        self.assertEqual(dt.d, '01')
+        self.assertEqual(dt.H, '02')
+        self.assertEqual(dt.I, '02')
+        self.assertEqual(dt.j, '001')
+        self.assertEqual(dt.m, '01')
+        self.assertEqual(dt.M, '46')
+        self.assertEqual(dt.p, 'AM')
+        self.assertEqual(dt.S, '40')
+        self.assertEqual(dt.U, '00')
+        self.assertEqual(dt.w, '4')
+        self.assertEqual(dt.W, '00')
+        self.assertEqual(dt.x, '01/01/70')
+        self.assertEqual(dt.X, '02:46:40')
+        self.assertEqual(dt.y, '70')
+        self.assertEqual(dt.Y, '1970')
+        self.assertIn(dt.Z, ('GMT', 'UTC'))  # It depends of Python 2/3
+        self.assertRaises(ValueError, getattr, dt, 'z')
+
     def test_get_log_line(self):
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -3513,14 +3608,14 @@ cluster_dfw1 = http://dfw1.host/v1/
         server_pid = 1234
         exp_line = '1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD ' \
             '/sda1/p/a/c/o" 200 - "-" "-" "-" 1.2000 "some information" 1234 -'
-        with mock.patch(
-                'time.gmtime',
-                mock.MagicMock(side_effect=[time.gmtime(10001.0)])):
+        with mock.patch('time.time', mock.MagicMock(side_effect=[10001.0])):
             with mock.patch(
                     'os.getpid', mock.MagicMock(return_value=server_pid)):
                 self.assertEqual(
                     exp_line,
-                    utils.get_log_line(req, res, trans_time, additional_info))
+                    utils.get_log_line(req, res, trans_time, additional_info,
+                                       utils.LOG_LINE_DEFAULT_FORMAT,
+                                       'md5', '54LT'))
 
     def test_cache_from_env(self):
         # should never get logging when swift.cache is found

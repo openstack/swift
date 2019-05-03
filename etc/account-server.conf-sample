@@ -26,6 +26,17 @@ bind_port = 6202
 # set to 0, the default.
 # log_max_line_length = 0
 #
+# Hashing algorithm for log anonymization. Must be one of algorithms supported
+# by Python's hashlib.
+# log_anonymization_method = MD5
+#
+# Salt added during log anonymization
+# log_anonymization_salt =
+#
+# Template used to format logs. All words surrounded by curly brackets
+# will be substituted with the appropriate values
+# log_format = {remote_addr} - - [{time.d}/{time.b}/{time.Y}:{time.H}:{time.M}:{time.S} +0000] "{method} {path}" {status} {content_length} "{referer}" "{txn_id}" "{user_agent}" {trans_time:.4f} "{additional_info}" {pid} {policy_index}
+#
 # comma separated list of functions to call to setup custom log handlers.
 # functions get passed: conf, name, log_to_console, log_route, fmt, logger,
 # adapted_logger

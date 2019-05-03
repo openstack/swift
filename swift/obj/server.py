@@ -1292,7 +1292,9 @@ class ObjectController(BaseStorageServer):
         trans_time = time.time() - start_time
         res.fix_conditional_response()
         if self.log_requests:
-            log_line = get_log_line(req, res, trans_time, '')
+            log_line = get_log_line(req, res, trans_time, '', self.log_format,
+                                    self.anonymization_method,
+                                    self.anonymization_salt)
             if req.method in ('REPLICATE', 'SSYNC') or \
                     'X-Backend-Replication' in req.headers:
                 self.logger.debug(log_line)
