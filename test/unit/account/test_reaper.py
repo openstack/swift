@@ -20,7 +20,6 @@ import shutil
 import tempfile
 import unittest
 
-from logging import DEBUG
 from mock import patch, call, DEFAULT
 import eventlet
 
@@ -33,39 +32,6 @@ from test import unit
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
-class FakeLogger(object):
-    def __init__(self, *args, **kwargs):
-        self.inc = {'return_codes.4': 0,
-                    'return_codes.2': 0,
-                    'objects_failures': 0,
-                    'objects_deleted': 0,
-                    'objects_remaining': 0,
-                    'objects_possibly_remaining': 0,
-                    'containers_failures': 0,
-                    'containers_deleted': 0,
-                    'containers_remaining': 0,
-                    'containers_possibly_remaining': 0}
-        self.exp = []
-
-    def info(self, msg, *args):
-        self.msg = msg
-
-    def error(self, msg, *args):
-        self.msg = msg
-
-    def timing_since(*args, **kwargs):
-        pass
-
-    def getEffectiveLevel(self):
-        return DEBUG
-
-    def exception(self, *args):
-        self.exp.append(args)
-
-    def increment(self, key):
-        self.inc[key] += 1
-
-
 class FakeBroker(object):
     def __init__(self):
         self.info = {}
@@ -75,7 +41,7 @@ class FakeBroker(object):
 
 
 class FakeAccountBroker(object):
-    def __init__(self, containers, logger=None):
+    def __init__(self, containers, logger):
         self.containers = containers
         self.containers_yielded = []
 
@@ -593,7 +559,7 @@ class TestReaper(unittest.TestCase):
 
     def test_reap_account(self):
         containers = ('c1', 'c2', 'c3', 'c4')
-        broker = FakeAccountBroker(containers)
+        broker = FakeAccountBroker(containers, unit.FakeLogger())
         self.called_amount = 0
         self.r = r = self.init_reaper({}, fakelogger=True)
         r.start_time = time.time()
@@ -629,7 +595,7 @@ class TestReaper(unittest.TestCase):
         self.assertEqual(len(self.r.account_ring.devs), 3)
 
     def test_reap_account_no_container(self):
-        broker = FakeAccountBroker(tuple())
+        broker = FakeAccountBroker(tuple(), unit.FakeLogger())
         self.r = r = self.init_reaper({}, fakelogger=True)
         self.called_amount = 0
         r.start_time = time.time()
@@ -761,6 +727,7 @@ class TestReaper(unittest.TestCase):
             container_reaped[0] += 1
 
         fake_ring = FakeRing()
+        fake_logger = unit.FakeLogger()
         with patch('swift.account.reaper.AccountBroker',
                    FakeAccountBroker), \
                 patch(
@@ -769,27 +736,32 @@ class TestReaper(unittest.TestCase):
                 patch('swift.account.reaper.AccountReaper.reap_container',
                       fake_reap_container):
 
-            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'],
+                                            fake_logger)
             r.reap_account(fake_broker, 10, fake_ring.nodes, 0)
             self.assertEqual(container_reaped[0], 0)
 
-            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'],
+                                            fake_logger)
             container_reaped[0] = 0
             r.reap_account(fake_broker, 10, fake_ring.nodes, 1)
             self.assertEqual(container_reaped[0], 1)
 
             container_reaped[0] = 0
-            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'],
+                                            fake_logger)
             r.reap_account(fake_broker, 10, fake_ring.nodes, 2)
             self.assertEqual(container_reaped[0], 0)
 
             container_reaped[0] = 0
-            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'],
+                                            fake_logger)
             r.reap_account(fake_broker, 10, fake_ring.nodes, 3)
             self.assertEqual(container_reaped[0], 3)
 
             container_reaped[0] = 0
-            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'],
+                                            fake_logger)
             r.reap_account(fake_broker, 10, fake_ring.nodes, 4)
             self.assertEqual(container_reaped[0], 1)
 
