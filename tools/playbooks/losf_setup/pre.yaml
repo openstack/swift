@@ -35,3 +35,13 @@
       fail:
         msg: "swift-rpc-losf was not found"
       when: stat_result.stat.exists == False
+
+    # TBD: hopefully, we don't need this trick with either
+    # - dump the binary to /usr/local/bin directry
+    # - garantee to call the makefile even if needn't
+    - name: create symbolic link to the built binary
+      file:
+        state: link
+        src: "{{ ansible_env.HOME }}/go/bin/swift-rpc-losf"
+        path: /usr/local/bin/swift-rpc-losf
+      become: true

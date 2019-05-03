@@ -16,7 +16,7 @@
   become: true
   tasks:
     - name: installing dependencies
-      yum: name={{ item }} state=present
+      package: name={{ item }} state=present
       with_items:
         - python-pyeclib
         - python-pip

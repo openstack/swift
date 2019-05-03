@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"github.com/alecuyer/statsd"
+	"github.com/alecuyer/statsd/v2"
 	"io"
 	"io/ioutil"
 	"net"

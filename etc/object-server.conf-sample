@@ -475,6 +475,14 @@ use = egg:swift#recon
 
 # Note: Put it at the beginning of the pipleline to profile all middleware. But
 # it is safer to put this after healthcheck.
+
+# TODO: think of the daemon name, perhaps we may want to make it as
+# index-server?
+[object-rpcmanager]
+# TODO: check if we could configure kinds of log things (e.g. log_name)
+volcheck = /usr/local/bin/swift-losf-volume-check
+losf_bin = /usr/local/bin/swift-rpc-losf
+
 [filter:xprofile]
 use = egg:swift#xprofile
 # This option enable you to switch profilers which should inherit from python

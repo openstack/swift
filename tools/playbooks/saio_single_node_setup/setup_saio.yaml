@@ -92,26 +92,52 @@
         - 3
         - 4
 
-    - name: create rc.local from template
-      template: src=rc.local.j2 dest=/etc/rc.d/rc.local owner=root group=root mode=0755
+    - name: setup rsync for centos
+      block:
+        - name: create rc.local from template
+          template: src=rc.local.j2 dest=/etc/rc.d/rc.local owner=root group=root mode=0755
 
-    - name: create /etc/rsyncd.conf
-      command: cp {{ zuul.project.src_dir }}/doc/saio/rsyncd.conf /etc/
+        - name: create /etc/rsyncd.conf
+          command: cp {{ zuul.project.src_dir }}/doc/saio/rsyncd.conf /etc/
 
-    - name: update rsyncd.conf with correct username
-      replace: dest=/etc/rsyncd.conf regexp=<your-user-name> replace={{ ansible_user_id }}
+        - name: update rsyncd.conf with correct username
+          replace: dest=/etc/rsyncd.conf regexp=<your-user-name> replace={{ ansible_user_id }}
 
-    - name: enable rsync
-      lineinfile: dest=/etc/xinetd.d/rsync line="disable = no" create=yes
+        - name: enable rsync
+          lineinfile: dest=/etc/xinetd.d/rsync line="disable = no" create=yes
 
-    - name: set selinux to permissive
-      selinux: policy=targeted state=disabled
+        - name: set selinux to permissive
+          selinux: policy=targeted state=disabled
 
-    - name: restart rsync
-      service: name=rsyncd state=restarted enabled=yes
+        - name: restart rsync
+          systemd: name=rsyncd state=restarted enabled=yes
+
+      when: ansible_os_family == 'RedHat'
+
+    - name: setup rsync for ubuntu
+      block:
+      # TODO: check if it's still safe but basically it doesn't exist ubuntu xenial/bionic
+      #       in default
+        - name: create rc.local from template
+          template: src=rc.local.j2 dest=/etc/rc.local owner=root group=root mode=0755
+
+        - name: create /etc/rsyncd.conf
+          command: cp {{ zuul.project.src_dir }}/doc/saio/rsyncd.conf /etc/
+
+        - name: update rsyncd.conf with correct username
+          replace: dest=/etc/rsyncd.conf regexp=<your-user-name> replace={{ ansible_user_id }}
+
+        - name: enable rsync
+          systemd:
+            name: rsync
+            state: restarted
+            daemon_reload: yes
+            enabled: true
+
+      when: ansible_os_family == 'Debian'
 
     - name: start memcache
-      service: name=memcached state=started enabled=yes
+      systemd: name=memcached state=started enabled=yes
 
     - name: configure rsyslog
       command: cp {{ zuul.project.src_dir }}/doc/saio/rsyslog.d/10-swift.conf /etc/rsyslog.d/
@@ -130,7 +156,7 @@
             mode="g+w"
 
     - name: restart rsyslog
-      service: name=rsyslog state=restarted enabled=yes
+      systemd: name=rsyslog state=restarted enabled=yes
 
     - name: clean up /etc/swift directory
       file: path=/etc/swift state=absent

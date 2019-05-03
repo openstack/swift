@@ -14,6 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 - hosts: all
+  environment:
+    PATH: "{{ ansible_env.PATH }}:{{ ansible_env.HOME }}/bin"
+    SAIO_BLOCK_DEVICE: "/srv/swift-disk"
   tasks:
     - name: install swift
       become: true

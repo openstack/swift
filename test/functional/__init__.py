@@ -459,6 +459,39 @@ def _load_s3api(proxy_conf_file, swift_conf_file, **kwargs):
     return test_conf_file, swift_conf_file
 
 
+def _load_losf_as_default_policy(proxy_conf_file, swift_conf_file, **kwargs):
+    """
+    Override swift.conf [storage-policy:0] section to use REPL LOSF policy.
+
+    :param proxy_conf_file: Source proxy conf filename
+    :param swift_conf_file: Source swift conf filename
+    :returns: Tuple of paths to the proxy conf file and swift conf file to use
+    """
+    _debug('Setting configuration for default LOSF policy')
+
+    conf = ConfigParser()
+    conf.read(swift_conf_file)
+    # remove existing policy sections that came with swift.conf-sample
+    for section in list(conf.sections()):
+        if section.startswith('storage-policy'):
+            conf.remove_section(section)
+    # add new policy 0 section for an EC policy
+    conf.add_section('storage-policy:0')
+    ec_policy_spec = {
+        'name': 'losf-test',
+        'policy_type': 'replication',
+        'diskfile_module': 'egg:swift#replication.kv',
+        'default': True
+    }
+
+    for k, v in ec_policy_spec.items():
+        conf.set('storage-policy:0', k, str(v))
+
+    with open(swift_conf_file, 'w') as fp:
+        conf.write(fp)
+    return proxy_conf_file, swift_conf_file
+
+
 # Mapping from possible values of the variable
 # SWIFT_TEST_IN_PROCESS_CONF_LOADER
 # to the method to call for loading the associated configuration
@@ -469,6 +502,7 @@ conf_loaders = {
     'ec': _load_ec_as_default_policy,
     'domain_remap_staticweb': _load_domain_remap_staticweb,
     's3api': _load_s3api,
+    'losf': _load_losf_as_default_policy,
 }
 
 

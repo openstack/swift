@@ -9,6 +9,8 @@ netifaces>=0.8,!=0.10.0,!=0.10.1
 PasteDeploy>=1.3.3
 lxml>=3.4.1
 requests>=2.14.2                        # Apache-2.0
+# urllib3 >= 1.25 has issue so bound the upper version, see https://github.com/streamlink/streamlink/issues/2448
+urllib3>=1.21.1,<1.25
 six>=1.9.0
 xattr>=0.4;sys_platform!='win32'        # MIT
 PyECLib>=1.3.1                          # BSD
@@ -19,3 +21,4 @@ ipaddress>=1.0.16;python_version<'3.3'  # PSF
 # don't use eventlet for the object-server ?
 grpcio>=1.10.0
 fusepy>=2.0.4
+protobuf

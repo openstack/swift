@@ -41,7 +41,7 @@
     # install protoc (protobuf-compiler)
     # TODO: what version we want. at least, 2.6.1 in xenial doesn't work well
     - name: install unzip to extract the pre-compiled binary
-      apt:
+      package:
         name: unzip
         state: present
       become: true

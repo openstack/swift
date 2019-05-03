@@ -1,0 +1,11 @@
+[swift-hash]
+swift_hash_path_suffix = changeme
+swift_hash_path_prefix = changeme
+
+[storage-policy:0]
+name = losf-test
+default = yes
+policy_type = replication
+diskfile_module = egg:swift#replication.kv
+
+[swift-constraints]
