@@ -32,8 +32,7 @@ from swift import gettext_ as _
 from swift.common.constraints import check_drive
 from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import fdatasync, \
-    config_true_value, listdir, split_path, \
-    o_tmpfile_supported
+    config_true_value, listdir, split_path
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileError, PathNotDir, \
@@ -732,8 +731,6 @@ class BaseKVFileManager(BaseDiskFileManager):
 
         self.use_splice = False
         self.pipe_size = None
-
-        self.use_linkat = o_tmpfile_supported()
 
     # This should not be duplicated (see todo below). except for cached_..
     def cleanup_ondisk_files(self, hsh_path, **kwargs):
