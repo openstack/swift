@@ -35,7 +35,8 @@ from six import StringIO
 
 from swift.common import utils, constraints
 from swift.common.storage_policy import BindPortsCache
-from swift.common.swob import Request, wsgi_unquote
+from swift.common.swob import Request, wsgi_quote, wsgi_unquote, \
+    wsgi_quote_plus, wsgi_unquote_plus, wsgi_to_bytes, bytes_to_wsgi
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
@@ -432,6 +433,36 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
         def get_default_type(self):
             '''If the client didn't provide a content type, leave it blank.'''
             return ''
+
+    def parse_request(self):
+        if not six.PY2:
+            # request lines *should* be ascii per the RFC, but historically
+            # we've allowed (and even have func tests that use) arbitrary
+            # bytes. This breaks on py3 (see https://bugs.python.org/issue33973
+            # ) but the work-around is simple: munge the request line to be
+            # properly quoted. py2 will do the right thing without this, but it
+            # doesn't hurt to re-write the request line like this and it
+            # simplifies testing.
+            if self.raw_requestline.count(b' ') >= 2:
+                parts = self.raw_requestline.split(b' ', 2)
+                path, q, query = parts[1].partition(b'?')
+                # unquote first, so we don't over-quote something
+                # that was *correctly* quoted
+                path = wsgi_to_bytes(wsgi_quote(wsgi_unquote(
+                    bytes_to_wsgi(path))))
+                query = b'&'.join(
+                    sep.join([
+                        wsgi_to_bytes(wsgi_quote_plus(wsgi_unquote_plus(
+                            bytes_to_wsgi(key)))),
+                        wsgi_to_bytes(wsgi_quote_plus(wsgi_unquote_plus(
+                            bytes_to_wsgi(val))))
+                    ])
+                    for part in query.split(b'&')
+                    for key, sep, val in (part.partition(b'='), ))
+                parts[1] = path + q + query
+                self.raw_requestline = b' '.join(parts)
+            # else, mangled protocol, most likely; let base class deal with it
+        return wsgi.HttpProtocol.parse_request(self)
 
 
 class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
