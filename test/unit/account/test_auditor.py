@@ -33,10 +33,11 @@ from test.unit.account.test_backend import (
 
 
 class FakeAccountBroker(object):
-    def __init__(self, path):
+    def __init__(self, path, logger):
         self.path = path
         self.db_file = path
         self.file = os.path.basename(path)
+        self.logger = logger
 
     def is_deleted(self):
         return False

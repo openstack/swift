@@ -75,7 +75,7 @@ class FakeBroker(object):
 
 
 class FakeAccountBroker(object):
-    def __init__(self, containers):
+    def __init__(self, containers, logger=None):
         self.containers = containers
         self.containers_yielded = []
 
