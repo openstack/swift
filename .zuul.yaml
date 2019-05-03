@@ -33,24 +33,6 @@
     nodeset: centos-7
 
 - job:
-    name: swift-tox-py35
-    parent: swift-tox-base
-    nodeset: ubuntu-xenial
-    description: |
-      Run unit-tests for swift under cPython version 3.5.
-
-      Uses tox with the ``py35`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: py35
-      bindep_profile: test py35
-      tox_environment:
-        NOSE_COVER_HTML: 1
-        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
-    post-run: tools/playbooks/common/cover-post.yaml
-
-- job:
     name: swift-tox-py36
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -323,11 +305,6 @@
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
-        - swift-tox-py35:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
-            voting: false
         - swift-tox-py36:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
