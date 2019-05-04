@@ -259,18 +259,16 @@ class VersionedWritesContext(WSGIContext):
     def _listing_iter(self, account_name, lcontainer, lprefix, req):
         try:
             for page in self._listing_pages_iter(account_name, lcontainer,
-                                                 lprefix, req.environ):
+                                                 lprefix, req):
                 for item in page:
                     yield item
         except ListingIterNotFound:
             pass
-        except HTTPPreconditionFailed:
-            raise HTTPPreconditionFailed(request=req)
         except ListingIterError:
             raise HTTPServerError(request=req)
 
     def _in_proxy_reverse_listing(self, account_name, lcontainer, lprefix,
-                                  env, failed_marker, failed_listing):
+                                  req, failed_marker, failed_listing):
         '''Get the complete prefix listing and reverse it on the proxy.
 
         This is only necessary if we encounter a response from a
@@ -301,7 +299,7 @@ class VersionedWritesContext(WSGIContext):
         try:
             for page in self._listing_pages_iter(
                     account_name, lcontainer, lprefix,
-                    env, marker, end_marker=failed_marker, reverse=False):
+                    req, marker, end_marker=failed_marker, reverse=False):
                 complete_listing.extend(page)
         except ListingIterNotFound:
             pass
@@ -311,7 +309,7 @@ class VersionedWritesContext(WSGIContext):
         return reversed(complete_listing)
 
     def _listing_pages_iter(self, account_name, lcontainer, lprefix,
-                            env, marker='', end_marker='', reverse=True):
+                            req, marker='', end_marker='', reverse=True):
         '''Get "pages" worth of objects that start with a prefix.
 
         The optional keyword arguments ``marker``, ``end_marker``, and
@@ -327,7 +325,7 @@ class VersionedWritesContext(WSGIContext):
         '''
         while True:
             lreq = make_pre_authed_request(
-                env, method='GET', swift_source='VW',
+                req.environ, method='GET', swift_source='VW',
                 path=quote('/v1/%s/%s' % (account_name, lcontainer)))
             lreq.environ['QUERY_STRING'] = \
                 'prefix=%s&marker=%s' % (quote(lprefix), quote(marker))
@@ -342,7 +340,7 @@ class VersionedWritesContext(WSGIContext):
                 if lresp.status_int == HTTP_NOT_FOUND:
                     raise ListingIterNotFound()
                 elif is_client_error(lresp.status_int):
-                    raise HTTPPreconditionFailed()
+                    raise HTTPPreconditionFailed(request=req)
                 else:
                     raise ListingIterError()
 
@@ -362,7 +360,7 @@ class VersionedWritesContext(WSGIContext):
                 # Apparently there's at least one pre-2.6.0 container server
                 yield self._in_proxy_reverse_listing(
                     account_name, lcontainer, lprefix,
-                    env, marker, sublisting)
+                    req, marker, sublisting)
                 return
 
             marker = last_item
