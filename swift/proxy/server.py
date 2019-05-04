@@ -115,7 +115,7 @@ class ProxyOverrideOptions(object):
         except ValueError as err:
             # make the message a little more useful
             raise ValueError("Invalid read_affinity value: %r (%s)" %
-                             (self.read_affinity, err.message))
+                             (self.read_affinity, err.args[0]))
 
         self.write_affinity = get('write_affinity', '')
         try:
@@ -124,7 +124,7 @@ class ProxyOverrideOptions(object):
         except ValueError as err:
             # make the message a little more useful
             raise ValueError("Invalid write_affinity value: %r (%s)" %
-                             (self.write_affinity, err.message))
+                             (self.write_affinity, err.args[0]))
         self.write_affinity_node_count = get(
             'write_affinity_node_count', '2 * replicas').lower()
         value = self.write_affinity_node_count.split()
@@ -309,7 +309,7 @@ class Application(object):
                               (label_for_policy, override))
             return override
         except ValueError as err:
-            raise ValueError(err.message + ' for %s' % label_for_policy)
+            raise ValueError('%s for %s' % (err, label_for_policy))
 
     def _load_per_policy_config(self, conf):
         """

@@ -47,7 +47,6 @@ import mock
 from eventlet import sleep, spawn, wsgi, Timeout, debug
 from eventlet.green import httplib
 from six import BytesIO
-from six import StringIO
 from six.moves import range
 from six.moves.urllib.parse import quote, parse_qsl
 
@@ -140,9 +139,9 @@ def sortHeaderNames(headerNames):
 
 def parse_headers_string(headers_str):
     headers_dict = HeaderKeyDict()
-    for line in headers_str.split('\r\n'):
-        if ': ' in line:
-            header, value = line.split(': ', 1)
+    for line in headers_str.split(b'\r\n'):
+        if b': ' in line:
+            header, value = line.split(b': ', 1)
             headers_dict[header] = value
     return headers_dict
 
@@ -198,6 +197,9 @@ def save_globals():
 
 
 def set_http_connect(*args, **kwargs):
+    if kwargs.get('body') is not None and not isinstance(
+            kwargs['body'], bytes):
+        kwargs['body'] = kwargs['body'].encode('ascii')
     new_connect = fake_http_connect(*args, **kwargs)
     swift.proxy.controllers.base.http_connect = new_connect
     swift.proxy.controllers.obj.http_connect = new_connect
@@ -702,11 +704,11 @@ class TestProxyServer(unittest.TestCase):
             resp = baseapp.handle_request(
                 Request.blank('/', environ={'CONTENT_LENGTH': '-1'}))
             self.assertEqual(resp.status, '400 Bad Request')
-            self.assertEqual(resp.body, 'Invalid Content-Length')
+            self.assertEqual(resp.body, b'Invalid Content-Length')
             resp = baseapp.handle_request(
                 Request.blank('/', environ={'CONTENT_LENGTH': '-123'}))
             self.assertEqual(resp.status, '400 Bad Request')
-            self.assertEqual(resp.body, 'Invalid Content-Length')
+            self.assertEqual(resp.body, b'Invalid Content-Length')
         finally:
             rmtree(swift_dir, ignore_errors=True)
 
@@ -972,7 +974,7 @@ class TestProxyServer(unittest.TestCase):
                         return 1
 
                 resp = mock.Mock()
-                resp.read.side_effect = [body, '']
+                resp.read.side_effect = [body.encode('ascii'), b'']
                 resp.getheader = mygetheader
                 resp.getheaders.return_value = {}
                 resp.reason = ''
@@ -1000,7 +1002,7 @@ class TestProxyServer(unittest.TestCase):
                 resp = baseapp.handle_request(req)
 
                 # Should get 127.0.0.3 as this has a wait of 0 seconds.
-                self.assertEqual(resp.body, 'Response from 127.0.0.3')
+                self.assertEqual(resp.body, b'Response from 127.0.0.3')
 
                 # lets try again, with 127.0.0.1 with 0 timing but returns an
                 # error.
@@ -1011,7 +1013,7 @@ class TestProxyServer(unittest.TestCase):
                 # and a success
                 baseapp.update_request(req)
                 resp = baseapp.handle_request(req)
-                self.assertEqual(resp.body, 'Response from 127.0.0.3')
+                self.assertEqual(resp.body, b'Response from 127.0.0.3')
 
                 # Now lets set the concurrency_timeout
                 app_conf['concurrency_timeout'] = 2
@@ -1024,7 +1026,7 @@ class TestProxyServer(unittest.TestCase):
                 resp = baseapp.handle_request(req)
 
                 # Should get 127.0.0.2 as this has a wait of 1 seconds.
-                self.assertEqual(resp.body, 'Response from 127.0.0.2')
+                self.assertEqual(resp.body, b'Response from 127.0.0.2')
 
     def test_info_defaults(self):
         app = proxy_server.Application({}, FakeMemcache(),
@@ -1122,22 +1124,25 @@ class TestProxyServer(unittest.TestCase):
         self.assertEqual(1, node_error_count(app, node))
 
         # exception occurred
+        expected_err = None
         try:
             raise Exception('kaboom1!')
         except Exception as e1:
+            expected_err = e1
             app.exception_occurred(node, 'test1', 'test1 msg')
         line = logger.get_lines_for_level('error')[-1]
         self.assertIn('test1 server', line)
         self.assertIn('test1 msg', line)
         log_args, log_kwargs = logger.log_dict['error'][-1]
         self.assertTrue(log_kwargs['exc_info'])
-        self.assertEqual(log_kwargs['exc_info'][1], e1)
+        self.assertIs(log_kwargs['exc_info'][1], expected_err)
         self.assertEqual(2, node_error_count(app, node))
 
         # warning exception occurred
         try:
             raise Exception('kaboom2!')
         except Exception as e2:
+            expected_err = e2
             app.exception_occurred(node, 'test2', 'test2 msg',
                                    level=logging.WARNING)
         line = logger.get_lines_for_level('warning')[-1]
@@ -1145,13 +1150,14 @@ class TestProxyServer(unittest.TestCase):
         self.assertIn('test2 msg', line)
         log_args, log_kwargs = logger.log_dict['warning'][-1]
         self.assertTrue(log_kwargs['exc_info'])
-        self.assertEqual(log_kwargs['exc_info'][1], e2)
+        self.assertIs(log_kwargs['exc_info'][1], expected_err)
         self.assertEqual(3, node_error_count(app, node))
 
         # custom exception occurred
         try:
             raise Exception('kaboom3!')
         except Exception as e3:
+            expected_err = e3
             e3_info = sys.exc_info()
             try:
                 raise Exception('kaboom4!')
@@ -1164,7 +1170,7 @@ class TestProxyServer(unittest.TestCase):
         self.assertIn('test3 msg', line)
         log_args, log_kwargs = logger.log_dict['warning'][-1]
         self.assertTrue(log_kwargs['exc_info'])
-        self.assertEqual(log_kwargs['exc_info'][1], e3)
+        self.assertIs(log_kwargs['exc_info'][1], expected_err)
         self.assertEqual(4, node_error_count(app, node))
 
     def test_valid_api_version(self):
@@ -1196,7 +1202,7 @@ class TestProxyServer(unittest.TestCase):
         # Ensure settings valid API version constraint works
         for version in ["42", 42]:
             try:
-                with NamedTemporaryFile() as f:
+                with NamedTemporaryFile('w+t') as f:
                     f.write('[swift-constraints]\n')
                     f.write('valid_api_versions = %s\n' % version)
                     f.flush()
@@ -1721,7 +1727,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             self._write_conf_and_load_app(conf_sections)
         self.assertIn('No policy found for override config, index: 999',
-                      cm.exception.message)
+                      cm.exception.args[0])
 
     def test_per_policy_conf_sets_timing_sorting_method(self):
         conf_sections = """
@@ -1751,7 +1757,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             self.assertEqual(
                 'Invalid sorting_method value; must be one of shuffle, '
                 "timing, affinity, not 'broken' for %s" % scope,
-                cm.exception.message)
+                cm.exception.args[0])
 
         conf_sections = """
         [app:proxy-server]
@@ -1777,10 +1783,10 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         def do_test(conf_sections, label):
             with self.assertRaises(ValueError) as cm:
                 self._write_conf_and_load_app(conf_sections)
-            self.assertIn('broken', cm.exception.message)
+            self.assertIn('broken', cm.exception.args[0])
             self.assertIn(
-                'Invalid read_affinity value:', cm.exception.message)
-            self.assertIn(label, cm.exception.message)
+                'Invalid read_affinity value:', cm.exception.args[0])
+            self.assertIn(label, cm.exception.args[0])
 
         conf_sections = """
         [app:proxy-server]
@@ -1810,10 +1816,10 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         def do_test(conf_sections, label):
             with self.assertRaises(ValueError) as cm:
                 self._write_conf_and_load_app(conf_sections)
-            self.assertIn('broken', cm.exception.message)
+            self.assertIn('broken', cm.exception.args[0])
             self.assertIn(
-                'Invalid write_affinity value:', cm.exception.message)
-            self.assertIn(label, cm.exception.message)
+                'Invalid write_affinity value:', cm.exception.args[0])
+            self.assertIn(label, cm.exception.args[0])
 
         conf_sections = """
         [app:proxy-server]
@@ -1840,10 +1846,10 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         def do_test(conf_sections, label):
             with self.assertRaises(ValueError) as cm:
                 self._write_conf_and_load_app(conf_sections)
-            self.assertIn('2* replicas', cm.exception.message)
+            self.assertIn('2* replicas', cm.exception.args[0])
             self.assertIn('Invalid write_affinity_node_count value:',
-                          cm.exception.message)
-            self.assertIn(label, cm.exception.message)
+                          cm.exception.args[0])
+            self.assertIn(label, cm.exception.args[0])
 
         conf_sections = """
         [app:proxy-server]
@@ -1878,7 +1884,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
                 self._write_conf_and_load_app(conf_sections)
             self.assertEqual(
                 "Override config must refer to policy index: %r" % policy,
-                cm.exception.message)
+                cm.exception.args[0])
 
         do_test('')
         do_test('uno')
@@ -1944,17 +1950,17 @@ class BaseTestObjectController(object):
         # Note: only works if called with unpatched policies
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Content-Length: 0\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'X-Storage-Policy: %s\r\n'
-                 '\r\n' % (container_name, policy_name))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Content-Length: 0\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'X-Storage-Policy: %s\r\n'
+                  '\r\n' % (container_name, policy_name)).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 2'
+        exp = b'HTTP/1.1 2'
         self.assertEqual(headers[:len(exp)], exp)
 
     def _test_conditional_GET(self, policy):
@@ -1962,27 +1968,28 @@ class BaseTestObjectController(object):
         object_path = '/v1/a/%s/conditionals' % container_name
         self.put_container(policy.name, container_name)
 
-        obj = 'this object has an etag and is otherwise unimportant'
+        obj = b'this object has an etag and is otherwise unimportant'
         etag = md5(obj).hexdigest()
-        not_etag = md5(obj + "blahblah").hexdigest()
+        not_etag = md5(obj + b"blahblah").hexdigest()
 
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (object_path, len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (object_path, len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        for verb, body in (('GET', obj), ('HEAD', '')):
+        for verb, body in (('GET', obj), ('HEAD', b'')):
             # If-Match
             req = Request.blank(
                 object_path,
@@ -2087,19 +2094,20 @@ class TestReplicatedObjectController(
 
         # check policy 0: put file on c, read it back, check loc on disk
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        obj = 'test_object0'
+        fd = sock.makefile('rwb')
+        obj = b'test_object0'
         path = '/v1/a/c/o'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: text/plain\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: text/plain\r\n'
+                  '\r\n' % (path, str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         req = Request.blank(path,
                             environ={'REQUEST_METHOD': 'GET'},
@@ -2114,16 +2122,17 @@ class TestReplicatedObjectController(
 
         # check policy 1: put file on c1, read it back, check loc on disk
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         path = '/v1/a/c1/o'
-        obj = 'test_object1'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: text/plain\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
+        obj = b'test_object1'
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: text/plain\r\n'
+                  '\r\n' % (path, str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
         self.assertEqual(headers[:len(exp)], exp)
@@ -2140,16 +2149,17 @@ class TestReplicatedObjectController(
 
         # check policy 2: put file on c2, read it back, check loc on disk
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         path = '/v1/a/c2/o'
-        obj = 'test_object2'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: text/plain\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
+        obj = b'test_object2'
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: text/plain\r\n'
+                  '\r\n' % (path, str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
         self.assertEqual(headers[:len(exp)], exp)
@@ -2199,8 +2209,8 @@ class TestReplicatedObjectController(
         df = df_mgr.get_diskfile(node['device'], partition, 'a',
                                  'c1', 'wrong-o', policy=POLICIES[2])
         with df.open():
-            contents = ''.join(df.reader())
-            self.assertEqual(contents, "hello")
+            contents = b''.join(df.reader())
+            self.assertEqual(contents, b"hello")
 
         # can't get it from the normal place
         req = Request.blank('/v1/a/c1/wrong-o',
@@ -2217,7 +2227,7 @@ class TestReplicatedObjectController(
 
         res = req.get_response(prosrv)
         self.assertEqual(res.status_int, 200)
-        self.assertEqual(res.body, 'hello')
+        self.assertEqual(res.body, b'hello')
 
         # and we can delete it the same way
         req = Request.blank('/v1/a/c1/wrong-o',
@@ -2242,19 +2252,20 @@ class TestReplicatedObjectController(
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        obj = 'a' * (1024 * 1024)
+        fd = sock.makefile('rwb')
+        obj = b'a' * (1024 * 1024)
         path = '/v1/a/c/o.large'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (path, str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         req = Request.blank(path,
                             environ={'REQUEST_METHOD': 'GET'},
@@ -2270,22 +2281,23 @@ class TestReplicatedObjectController(
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        obj = (''.join(
+        fd = sock.makefile('rwb')
+        obj = ''.join(
             ('beans lots of beans lots of beans lots of beans yeah %04d ' % i)
-            for i in range(100)))
+            for i in range(100)).encode('ascii')
 
         path = '/v1/a/c/o.beans'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (path, str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         # one byte range
@@ -2313,7 +2325,7 @@ class TestReplicatedObjectController(
         self.assertIsNotNone(boundary)
 
         got_mime_docs = []
-        for mime_doc_fh in iter_multipart_mime_documents(StringIO(res.body),
+        for mime_doc_fh in iter_multipart_mime_documents(BytesIO(res.body),
                                                          boundary):
             headers = parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
@@ -2343,19 +2355,19 @@ class TestReplicatedObjectController(
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
 
         path = '/v1/a/c/o.zerobyte'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n' % (path,))
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: 0\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (path,)).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         # bad byte-range
@@ -2366,7 +2378,7 @@ class TestReplicatedObjectController(
                      'Range': 'bytes=spaghetti-carbonara'})
         res = req.get_response(prosrv)
         self.assertEqual(res.status_int, 200)
-        self.assertEqual(res.body, '')
+        self.assertEqual(res.body, b'')
 
         # not a byte-range
         req = Request.blank(
@@ -2376,16 +2388,16 @@ class TestReplicatedObjectController(
                      'Range': 'Kotta'})
         res = req.get_response(prosrv)
         self.assertEqual(res.status_int, 200)
-        self.assertEqual(res.body, '')
+        self.assertEqual(res.body, b'')
 
     @unpatch_policies
     def test_GET_short_read(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        obj = (''.join(
-            ('%d bottles of beer on the wall\n' % i)
+        fd = sock.makefile('rwb')
+        obj = (b''.join(
+            (b'%d bottles of beer on the wall\n' % i)
             for i in reversed(range(1, 200))))
 
         # if the object is too short, then we don't have a mid-stream
@@ -2394,16 +2406,17 @@ class TestReplicatedObjectController(
         self.assertGreater(len(obj), wsgi.MINIMUM_CHUNK_SIZE)
 
         path = '/v1/a/c/o.bottles'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Connection: keep-alive\r\n'
-                 'Host: localhost\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/beer-stream\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Connection: keep-alive\r\n'
+                  'Host: localhost\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: application/beer-stream\r\n'
+                  '\r\n' % (path, str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         # go shorten that object by a few bytes
@@ -2434,14 +2447,14 @@ class TestReplicatedObjectController(
         with mock.patch('os.fstat', lying_fstat), \
                 mock.patch.object(prosrv, 'client_chunk_size', 32), \
                 mock.patch.object(prosrv, 'object_chunk_size', 32):
-            fd.write('GET %s HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: keep-alive\r\n'
-                     'X-Storage-Token: t\r\n'
-                     '\r\n' % (path,))
+            fd.write(('GET %s HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: keep-alive\r\n'
+                      'X-Storage-Token: t\r\n'
+                      '\r\n' % (path,)).encode('ascii'))
             fd.flush()
             headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
 
         obj_parts = []
@@ -2450,7 +2463,7 @@ class TestReplicatedObjectController(
             if not buf:
                 break
             obj_parts.append(buf)
-        got_obj = ''.join(obj_parts)
+        got_obj = b''.join(obj_parts)
         self.assertLessEqual(len(got_obj), len(obj) - shrinkage)
 
         # Make sure the server closed the connection
@@ -2459,19 +2472,19 @@ class TestReplicatedObjectController(
             # that the peer has closed exactly once without error, then the
             # kernel discovers that the connection is not open and
             # subsequent send attempts fail.
-            sock.sendall('GET /info HTTP/1.1\r\n')
-            sock.sendall('Host: localhost\r\n'
-                         'X-Storage-Token: t\r\n'
-                         '\r\n')
+            sock.sendall(b'GET /info HTTP/1.1\r\n')
+            sock.sendall(b'Host: localhost\r\n'
+                         b'X-Storage-Token: t\r\n'
+                         b'\r\n')
 
     @unpatch_policies
     def test_GET_short_read_resuming(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        obj = (''.join(
-            ('%d bottles of beer on the wall\n' % i)
+        fd = sock.makefile('rwb')
+        obj = (b''.join(
+            (b'%d bottles of beer on the wall\n' % i)
             for i in reversed(range(1, 200))))
 
         # if the object is too short, then we don't have a mid-stream
@@ -2480,16 +2493,17 @@ class TestReplicatedObjectController(
         self.assertGreater(len(obj), wsgi.MINIMUM_CHUNK_SIZE)
 
         path = '/v1/a/c/o.bottles'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Connection: keep-alive\r\n'
-                 'Host: localhost\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/beer-stream\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Connection: keep-alive\r\n'
+                  'Host: localhost\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: application/beer-stream\r\n'
+                  '\r\n' % (path, str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         # we shorten the first replica of the object by 200 bytes and leave
@@ -2527,14 +2541,14 @@ class TestReplicatedObjectController(
                 mock.patch.object(prosrv, 'object_chunk_size', 32), \
                 mock.patch.object(prosrv, 'sort_nodes',
                                   lambda nodes, **kw: nodes):
-            fd.write('GET %s HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n'
-                     '\r\n' % (path,))
+            fd.write(('GET %s HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: close\r\n'
+                      'X-Storage-Token: t\r\n'
+                      '\r\n' % (path,)).encode('ascii'))
             fd.flush()
             headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
 
         obj_parts = []
@@ -2543,7 +2557,7 @@ class TestReplicatedObjectController(
             if not buf:
                 break
             obj_parts.append(buf)
-        got_obj = ''.join(obj_parts)
+        got_obj = b''.join(obj_parts)
 
         # technically this is a redundant test, but it saves us from screens
         # full of error message when got_obj is shorter than obj
@@ -2555,22 +2569,23 @@ class TestReplicatedObjectController(
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        obj = (''.join(
-            ('Smurf! The smurfing smurf is completely smurfed. %03d ' % i)
+        fd = sock.makefile('rwb')
+        obj = (b''.join(
+            (b'Smurf! The smurfing smurf is completely smurfed. %03d ' % i)
             for i in range(1000)))
 
         path = '/v1/a/c/o.smurfs'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/smurftet-stream\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: application/smurftet-stream\r\n'
+                  '\r\n' % (path, str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         kaboomed = [0]
@@ -2670,7 +2685,7 @@ class TestReplicatedObjectController(
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'Range': 'bytes=0-500,1000-1500,2000-2500'})
             res = req.get_response(prosrv)
-            body = ''
+            body = b''
             try:
                 for chunk in res.app_iter:
                     body += chunk
@@ -2685,7 +2700,7 @@ class TestReplicatedObjectController(
         boundary = dict(params).get('boundary')
         self.assertIsNotNone(boundary)  # sanity check
         got_byteranges = []
-        for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
+        for mime_doc_fh in iter_multipart_mime_documents(BytesIO(body),
                                                          boundary):
             parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
@@ -2708,7 +2723,7 @@ class TestReplicatedObjectController(
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'Range': 'bytes=0-500,1000-1500,2000-2500'})
             res = req.get_response(prosrv)
-            body = ''.join(res.app_iter)
+            body = b''.join(res.app_iter)
 
         self.assertEqual(res.status_int, 206)
         self.assertEqual(kaboomed[0], 1)  # sanity check
@@ -2718,7 +2733,7 @@ class TestReplicatedObjectController(
         boundary = dict(params).get('boundary')
         self.assertTrue(boundary is not None)  # sanity check
         got_byteranges = []
-        for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
+        for mime_doc_fh in iter_multipart_mime_documents(BytesIO(body),
                                                          boundary):
             parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
@@ -2746,7 +2761,7 @@ class TestReplicatedObjectController(
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'Range': 'bytes=0-500,1000-1500,2000-2500'})
             res = req.get_response(prosrv)
-            body = ''.join(res.app_iter)
+            body = b''.join(res.app_iter)
 
         self.assertEqual(res.status_int, 206)
         self.assertGreaterEqual(kaboomed[0], 1)  # sanity check
@@ -2756,7 +2771,7 @@ class TestReplicatedObjectController(
         boundary = dict(params).get('boundary')
         self.assertIsNotNone(boundary)  # sanity check
         got_byteranges = []
-        for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
+        for mime_doc_fh in iter_multipart_mime_documents(BytesIO(body),
                                                          boundary):
             parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
@@ -2784,7 +2799,7 @@ class TestReplicatedObjectController(
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'Range': 'bytes=0-500,1000-1500,2000-2500'})
             res = req.get_response(prosrv)
-            body = ''.join(res.app_iter)
+            body = b''.join(res.app_iter)
 
         self.assertEqual(res.status_int, 206)
         self.assertGreaterEqual(kaboomed[0], 1)  # sanity check
@@ -2794,7 +2809,7 @@ class TestReplicatedObjectController(
         boundary = dict(params).get('boundary')
         self.assertIsNotNone(boundary)  # sanity check
         got_byteranges = []
-        for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
+        for mime_doc_fh in iter_multipart_mime_documents(BytesIO(body),
                                                          boundary):
             parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
@@ -2997,18 +3012,19 @@ class TestReplicatedObjectController(
         with mock.patch('swift.obj.diskfile.fallocate') as mock_fallocate:
             prolis = _test_sockets[0]
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            obj = 'hemoleucocytic-surfactant'
-            fd.write('PUT /v1/a/c/o HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'Content-Length: %d\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Type: application/octet-stream\r\n'
-                     '\r\n%s' % (len(obj), obj))
+            fd = sock.makefile('rwb')
+            obj = b'hemoleucocytic-surfactant'
+            fd.write(('PUT /v1/a/c/o HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: close\r\n'
+                      'Content-Length: %d\r\n'
+                      'X-Storage-Token: t\r\n'
+                      'Content-Type: application/octet-stream\r\n'
+                      '\r\n' % (len(obj))).encode('ascii'))
+            fd.write(obj)
             fd.flush()
             headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         # one for each obj server; this test has 2
         self.assertEqual(len(mock_fallocate.mock_calls), 2)
@@ -3017,153 +3033,154 @@ class TestReplicatedObjectController(
     def test_PUT_message_length_using_content_length(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        obj = 'j' * 20
-        fd.write('PUT /v1/a/c/o.content-length HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (str(len(obj)), obj))
+        fd = sock.makefile('rwb')
+        obj = b'j' * 20
+        fd.write(('PUT /v1/a/c/o.content-length HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (str(len(obj)))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
     def test_PUT_message_length_using_transfer_encoding(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 'Transfer-Encoding: chunked\r\n\r\n'
-                 '2\r\n'
-                 'oh\r\n'
-                 '4\r\n'
-                 ' say\r\n'
-                 '4\r\n'
-                 ' can\r\n'
-                 '4\r\n'
-                 ' you\r\n'
-                 '4\r\n'
-                 ' see\r\n'
-                 '3\r\n'
-                 ' by\r\n'
-                 '4\r\n'
-                 ' the\r\n'
-                 '8\r\n'
-                 ' dawns\'\n\r\n'
-                 '0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'Content-Type: application/octet-stream\r\n'
+                 b'Transfer-Encoding: chunked\r\n\r\n'
+                 b'2\r\n'
+                 b'oh\r\n'
+                 b'4\r\n'
+                 b' say\r\n'
+                 b'4\r\n'
+                 b' can\r\n'
+                 b'4\r\n'
+                 b' you\r\n'
+                 b'4\r\n'
+                 b' see\r\n'
+                 b'3\r\n'
+                 b' by\r\n'
+                 b'4\r\n'
+                 b' the\r\n'
+                 b'8\r\n'
+                 b' dawns\'\n\r\n'
+                 b'0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
     def test_PUT_message_length_using_both(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 'Content-Length: 33\r\n'
-                 'Transfer-Encoding: chunked\r\n\r\n'
-                 '2\r\n'
-                 'oh\r\n'
-                 '4\r\n'
-                 ' say\r\n'
-                 '4\r\n'
-                 ' can\r\n'
-                 '4\r\n'
-                 ' you\r\n'
-                 '4\r\n'
-                 ' see\r\n'
-                 '3\r\n'
-                 ' by\r\n'
-                 '4\r\n'
-                 ' the\r\n'
-                 '8\r\n'
-                 ' dawns\'\n\r\n'
-                 '0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'Content-Type: application/octet-stream\r\n'
+                 b'Content-Length: 33\r\n'
+                 b'Transfer-Encoding: chunked\r\n\r\n'
+                 b'2\r\n'
+                 b'oh\r\n'
+                 b'4\r\n'
+                 b' say\r\n'
+                 b'4\r\n'
+                 b' can\r\n'
+                 b'4\r\n'
+                 b' you\r\n'
+                 b'4\r\n'
+                 b' see\r\n'
+                 b'3\r\n'
+                 b' by\r\n'
+                 b'4\r\n'
+                 b' the\r\n'
+                 b'8\r\n'
+                 b' dawns\'\n\r\n'
+                 b'0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
     def test_PUT_bad_message_length(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 'Content-Length: 33\r\n'
-                 'Transfer-Encoding: gzip\r\n\r\n'
-                 '2\r\n'
-                 'oh\r\n'
-                 '4\r\n'
-                 ' say\r\n'
-                 '4\r\n'
-                 ' can\r\n'
-                 '4\r\n'
-                 ' you\r\n'
-                 '4\r\n'
-                 ' see\r\n'
-                 '3\r\n'
-                 ' by\r\n'
-                 '4\r\n'
-                 ' the\r\n'
-                 '8\r\n'
-                 ' dawns\'\n\r\n'
-                 '0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'Content-Type: application/octet-stream\r\n'
+                 b'Content-Length: 33\r\n'
+                 b'Transfer-Encoding: gzip\r\n\r\n'
+                 b'2\r\n'
+                 b'oh\r\n'
+                 b'4\r\n'
+                 b' say\r\n'
+                 b'4\r\n'
+                 b' can\r\n'
+                 b'4\r\n'
+                 b' you\r\n'
+                 b'4\r\n'
+                 b' see\r\n'
+                 b'3\r\n'
+                 b' by\r\n'
+                 b'4\r\n'
+                 b' the\r\n'
+                 b'8\r\n'
+                 b' dawns\'\n\r\n'
+                 b'0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 400'
+        exp = b'HTTP/1.1 400'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
     def test_PUT_message_length_unsup_xfr_encoding(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 'Content-Length: 33\r\n'
-                 'Transfer-Encoding: gzip,chunked\r\n\r\n'
-                 '2\r\n'
-                 'oh\r\n'
-                 '4\r\n'
-                 ' say\r\n'
-                 '4\r\n'
-                 ' can\r\n'
-                 '4\r\n'
-                 ' you\r\n'
-                 '4\r\n'
-                 ' see\r\n'
-                 '3\r\n'
-                 ' by\r\n'
-                 '4\r\n'
-                 ' the\r\n'
-                 '8\r\n'
-                 ' dawns\'\n\r\n'
-                 '0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'Content-Type: application/octet-stream\r\n'
+                 b'Content-Length: 33\r\n'
+                 b'Transfer-Encoding: gzip,chunked\r\n\r\n'
+                 b'2\r\n'
+                 b'oh\r\n'
+                 b'4\r\n'
+                 b' say\r\n'
+                 b'4\r\n'
+                 b' can\r\n'
+                 b'4\r\n'
+                 b' you\r\n'
+                 b'4\r\n'
+                 b' see\r\n'
+                 b'3\r\n'
+                 b' by\r\n'
+                 b'4\r\n'
+                 b' the\r\n'
+                 b'8\r\n'
+                 b' dawns\'\n\r\n'
+                 b'0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 501'
+        exp = b'HTTP/1.1 501'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
@@ -3171,17 +3188,17 @@ class TestReplicatedObjectController(
         with mock.patch('swift.common.constraints.MAX_FILE_SIZE', 10):
             prolis = _test_sockets[0]
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Type: application/octet-stream\r\n'
-                     'Content-Length: 33\r\n\r\n'
-                     'oh say can you see by the dawns\'\n')
+            fd = sock.makefile('rwb')
+            fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                     b'Host: localhost\r\n'
+                     b'Connection: close\r\n'
+                     b'X-Storage-Token: t\r\n'
+                     b'Content-Type: application/octet-stream\r\n'
+                     b'Content-Length: 33\r\n\r\n'
+                     b'oh say can you see by the dawns\'\n')
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 413'
+            exp = b'HTTP/1.1 413'
             self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
@@ -3191,55 +3208,55 @@ class TestReplicatedObjectController(
         def _do_HEAD():
             # do a HEAD to get reported last modified time
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('HEAD /v1/a/c/o.last_modified HTTP/1.1\r\n'
-                     'Host: localhost\r\nConnection: close\r\n'
-                     'X-Storage-Token: t\r\n\r\n')
+            fd = sock.makefile('rwb')
+            fd.write(b'HEAD /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                     b'Host: localhost\r\nConnection: close\r\n'
+                     b'X-Storage-Token: t\r\n\r\n')
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 200'
+            exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
-            last_modified_head = [line for line in headers.split('\r\n')
+            last_modified_head = [line for line in headers.split(b'\r\n')
                                   if lm_hdr in line][0][len(lm_hdr):]
             return last_modified_head
 
         def _do_conditional_GET_checks(last_modified_time):
             # check If-(Un)Modified-Since GETs
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
-                     'Host: localhost\r\nConnection: close\r\n'
-                     'If-Modified-Since: %s\r\n'
-                     'X-Storage-Token: t\r\n\r\n' % last_modified_time)
+            fd = sock.makefile('rwb')
+            fd.write(b'GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                     b'Host: localhost\r\nConnection: close\r\n'
+                     b'If-Modified-Since: %s\r\n'
+                     b'X-Storage-Token: t\r\n\r\n' % last_modified_time)
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 304'
+            exp = b'HTTP/1.1 304'
             self.assertEqual(headers[:len(exp)], exp)
 
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
-                     'Host: localhost\r\nConnection: close\r\n'
-                     'If-Unmodified-Since: %s\r\n'
-                     'X-Storage-Token: t\r\n\r\n' % last_modified_time)
+            fd = sock.makefile('rwb')
+            fd.write(b'GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                     b'Host: localhost\r\nConnection: close\r\n'
+                     b'If-Unmodified-Since: %s\r\n'
+                     b'X-Storage-Token: t\r\n\r\n' % last_modified_time)
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 200'
+            exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
 
         # PUT the object
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/o.last_modified HTTP/1.1\r\n'
-                 'Host: localhost\r\nConnection: close\r\n'
-                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 b'Host: localhost\r\nConnection: close\r\n'
+                 b'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        lm_hdr = 'Last-Modified: '
+        exp = b'HTTP/1.1 201'
+        lm_hdr = b'Last-Modified: '
         self.assertEqual(headers[:len(exp)], exp)
 
-        last_modified_put = [line for line in headers.split('\r\n')
+        last_modified_put = [line for line in headers.split(b'\r\n')
                              if lm_hdr in line][0][len(lm_hdr):]
 
         last_modified_head = _do_HEAD()
@@ -3252,15 +3269,15 @@ class TestReplicatedObjectController(
         sleep(1)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('POST /v1/a/c/o.last_modified HTTP/1.1\r\n'
-                 'Host: localhost\r\nConnection: close\r\n'
-                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'POST /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 b'Host: localhost\r\nConnection: close\r\n'
+                 b'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 202'
+        exp = b'HTTP/1.1 202'
         self.assertEqual(headers[:len(exp)], exp)
-        for line in headers.split('\r\n'):
+        for line in headers.split(b'\r\n'):
             self.assertFalse(line.startswith(lm_hdr))
 
         # last modified time will have changed due to POST
@@ -3478,7 +3495,8 @@ class TestReplicatedObjectController(
                     headers=resp_headers, give_connect=capture_requests
             ) as fake_conn:
                 resp = req.get_response(self.app)
-                self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            with self.assertRaises(StopIteration):
+                next(fake_conn.code_iter)
 
             self.assertEqual(resp.status_int, 202)
             self.assertEqual(len(backend_requests), 5)
@@ -3539,7 +3557,8 @@ class TestReplicatedObjectController(
                     headers=resp_headers, give_connect=capture_requests
             ) as fake_conn:
                 resp = req.get_response(self.app)
-                self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            with self.assertRaises(StopIteration):
+                next(fake_conn.code_iter)
             self.assertEqual(resp.status_int, 202)
             self.assertEqual(len(backend_requests), 5)
             for request in backend_requests[2:]:
@@ -3583,7 +3602,7 @@ class TestReplicatedObjectController(
                             'X-Backend-Record-Type': 'shard'}
             shard_range = utils.ShardRange(
                 '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u')
-            body = json.dumps([dict(shard_range)])
+            body = json.dumps([dict(shard_range)]).encode('ascii')
             with mocked_http_conn(*status_codes, headers=resp_headers,
                                   body=body) as fake_conn:
                 resp = req.get_response(self.app)
@@ -3851,7 +3870,7 @@ class TestReplicatedObjectController(
     def test_POST_meta_size(self):
         with save_globals():
             limit = constraints.MAX_META_OVERALL_SIZE
-            count = limit / 256  # enough to cause the limit to be reached
+            count = limit // 256  # enough to cause the limit to be reached
             headers = dict(
                 (('X-Object-Meta-' + str(i), 'a' * 256)
                     for i in range(count + 1)))
@@ -3931,8 +3950,8 @@ class TestReplicatedObjectController(
                     if self.sent < 4:
                         sleep(0.1)
                         self.sent += 1
-                        return ' '
-                    return ''
+                        return b' '
+                    return b''
 
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT',
@@ -3978,7 +3997,7 @@ class TestReplicatedObjectController(
                     self.sent = 0
 
                 def read(self, size=-1):
-                    return ''
+                    return b''
 
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT',
@@ -4047,23 +4066,23 @@ class TestReplicatedObjectController(
             with self.assertRaises(ChunkReadTimeout):
                 resp.body
 
-            set_http_connect(200, 200, 200, body='lalala',
+            set_http_connect(200, 200, 200, body=b'lalala',
                              slow=[1.0, 1.0])
             resp = req.get_response(self.app)
-            self.assertEqual(resp.body, 'lalala')
+            self.assertEqual(resp.body, b'lalala')
 
-            set_http_connect(200, 200, 200, body='lalala',
+            set_http_connect(200, 200, 200, body=b'lalala',
                              slow=[1.0, 1.0], etags=['a', 'a', 'a'])
             resp = req.get_response(self.app)
-            self.assertEqual(resp.body, 'lalala')
+            self.assertEqual(resp.body, b'lalala')
 
-            set_http_connect(200, 200, 200, body='lalala',
+            set_http_connect(200, 200, 200, body=b'lalala',
                              slow=[1.0, 1.0], etags=['a', 'b', 'a'])
             resp = req.get_response(self.app)
-            self.assertEqual(resp.body, 'lalala')
+            self.assertEqual(resp.body, b'lalala')
 
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-            set_http_connect(200, 200, 200, body='lalala',
+            set_http_connect(200, 200, 200, body=b'lalala',
                              slow=[1.0, 1.0], etags=['a', 'b', 'b'])
             resp = req.get_response(self.app)
             with self.assertRaises(ChunkReadTimeout):
@@ -4276,7 +4295,7 @@ class TestReplicatedObjectController(
         controller = ReplicatedObjectController(
             self.app, 'account', 'container', 'object')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [''] * 3,
+        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
                                         'Object', headers=[{'X-Test': '1'},
                                                            {'X-Test': '2'},
                                                            {'X-Test': '3'}])
@@ -4286,10 +4305,10 @@ class TestReplicatedObjectController(
         controller = ReplicatedObjectController(
             self.app, 'account', 'container', 'object')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [''] * 3,
+        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
                                         'Object')
         self.assertIsNone(resp.etag)
-        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [''] * 3,
+        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
                                         'Object',
                                         etag='68b329da9893e34099c7d8ad5cb9c940'
                                         )
@@ -4676,12 +4695,12 @@ class TestReplicatedObjectController(
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v0 HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nContent-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v0 HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nContent-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 412'
+        exp = b'HTTP/1.1 412'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
@@ -4690,12 +4709,12 @@ class TestReplicatedObjectController(
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET invalid HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nContent-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET invalid HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nContent-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 404'
+        exp = b'HTTP/1.1 404'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
@@ -4704,13 +4723,13 @@ class TestReplicatedObjectController(
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a%80 HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Auth-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a%80 HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Auth-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 412'
+        exp = b'HTTP/1.1 412'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
@@ -4719,13 +4738,13 @@ class TestReplicatedObjectController(
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1 HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Auth-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1 HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Auth-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 412'
+        exp = b'HTTP/1.1 412'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
@@ -4734,13 +4753,13 @@ class TestReplicatedObjectController(
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('LICK /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Auth-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'LICK /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Auth-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 405'
+        exp = b'HTTP/1.1 405'
         self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
@@ -4757,13 +4776,13 @@ class TestReplicatedObjectController(
 
         prosrv.update_request = broken_update_request
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Auth-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Auth-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 500'
+        exp = b'HTTP/1.1 500'
         self.assertEqual(headers[:len(exp)], exp)
         prosrv.update_request = orig_update_request
 
@@ -4775,135 +4794,137 @@ class TestReplicatedObjectController(
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Auth-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Auth-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 204'
+        exp = b'HTTP/1.1 204'
         self.assertEqual(headers[:len(exp)], exp)
-        self.assertIn('\r\nContent-Length: 0\r\n', headers)
+        self.assertIn(b'\r\nContent-Length: 0\r\n', headers)
 
     @unpatch_policies
     def test_chunked_put_utf8_all_the_way_down(self):
         # Test UTF-8 Unicode all the way through the system
-        ustr = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xba \xe1\xbc\xb0\xce' \
-               '\xbf\xe1\xbd\xbb\xce\x87 \xcf\x84\xe1\xbd\xb0 \xcf' \
-               '\x80\xe1\xbd\xb1\xce\xbd\xcf\x84\xca\xbc \xe1\xbc' \
-               '\x82\xce\xbd \xe1\xbc\x90\xce\xbe\xe1\xbd\xb5\xce' \
-               '\xba\xce\xbf\xce\xb9 \xcf\x83\xce\xb1\xcf\x86\xe1' \
-               '\xbf\x86.Test'
-        ustr_short = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xbatest'
+        ustr = b'\xe1\xbc\xb8\xce\xbf\xe1\xbd\xba \xe1\xbc\xb0\xce' \
+               b'\xbf\xe1\xbd\xbb\xce\x87 \xcf\x84\xe1\xbd\xb0 \xcf' \
+               b'\x80\xe1\xbd\xb1\xce\xbd\xcf\x84\xca\xbc \xe1\xbc' \
+               b'\x82\xce\xbd \xe1\xbc\x90\xce\xbe\xe1\xbd\xb5\xce' \
+               b'\xba\xce\xbf\xce\xb9 \xcf\x83\xce\xb1\xcf\x86\xe1' \
+               b'\xbf\x86.Test'
+        ustr_short = b'\xe1\xbc\xb8\xce\xbf\xe1\xbd\xbatest'
         # Create ustr container
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n' % quote(ustr))
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n' % quote(ustr).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         # List account with ustr container (test plain)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        containers = fd.read().split('\n')
+        containers = fd.read().split(b'\n')
         self.assertIn(ustr, containers)
         # List account with ustr container (test json)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a?format=json HTTP/1.1\r\n'
-                 'Host: localhost\r\nConnection: close\r\n'
-                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a?format=json HTTP/1.1\r\n'
+                 b'Host: localhost\r\nConnection: close\r\n'
+                 b'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
         listing = json.loads(fd.read())
         self.assertIn(ustr.decode('utf8'), [l['name'] for l in listing])
         # List account with ustr container (test xml)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a?format=xml HTTP/1.1\r\n'
-                 'Host: localhost\r\nConnection: close\r\n'
-                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a?format=xml HTTP/1.1\r\n'
+                 b'Host: localhost\r\nConnection: close\r\n'
+                 b'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        self.assertIn('<name>%s</name>' % ustr, fd.read())
+        self.assertIn(b'<name>%s</name>' % ustr, fd.read())
         # Create ustr object with ustr metadata in ustr container
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'X-Object-Meta-%s: %s\r\nContent-Length: 0\r\n\r\n' %
-                 (quote(ustr), quote(ustr), quote(ustr_short),
-                  quote(ustr)))
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n'
+                 b'X-Object-Meta-%s: %s\r\nContent-Length: 0\r\n\r\n' %
+                 (quote(ustr).encode('ascii'), quote(ustr).encode('ascii'),
+                  quote(ustr_short).encode('ascii'),
+                  quote(ustr).encode('ascii')))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         # List ustr container with ustr object (test plain)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n' % quote(ustr))
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n' % quote(ustr).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        objects = fd.read().split('\n')
+        objects = fd.read().split(b'\n')
         self.assertIn(ustr, objects)
         # List ustr container with ustr object (test json)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/%s?format=json HTTP/1.1\r\n'
-                 'Host: localhost\r\nConnection: close\r\n'
-                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
-                 quote(ustr))
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a/%s?format=json HTTP/1.1\r\n'
+                 b'Host: localhost\r\nConnection: close\r\n'
+                 b'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
+                 quote(ustr).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
         listing = json.loads(fd.read())
         self.assertEqual(listing[0]['name'], ustr.decode('utf8'))
         # List ustr container with ustr object (test xml)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/%s?format=xml HTTP/1.1\r\n'
-                 'Host: localhost\r\nConnection: close\r\n'
-                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
-                 quote(ustr))
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a/%s?format=xml HTTP/1.1\r\n'
+                 b'Host: localhost\r\nConnection: close\r\n'
+                 b'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
+                 quote(ustr).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        self.assertIn('<name>%s</name>' % ustr, fd.read())
+        self.assertIn(b'<name>%s</name>' % ustr, fd.read())
         # Retrieve ustr object with ustr metadata
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n' %
-                 (quote(ustr), quote(ustr)))
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n' %
+                 (quote(ustr).encode('ascii'), quote(ustr).encode('ascii')))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        self.assertIn('\r\nX-Object-Meta-%s: %s\r\n' %
-                      (quote(ustr_short).lower(), quote(ustr)), headers)
+        self.assertIn(b'\r\nX-Object-Meta-%s: %s\r\n' %
+                      (quote(ustr_short).lower().encode('ascii'),
+                       quote(ustr).encode('ascii')), headers)
 
     @unpatch_policies
     def test_chunked_put_chunked_put(self):
@@ -4911,29 +4932,29 @@ class TestReplicatedObjectController(
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         # Also happens to assert that x-storage-token is taken as a
         # replacement for x-auth-token.
-        fd.write('PUT /v1/a/c/o/chunky HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Transfer-Encoding: chunked\r\n\r\n'
-                 '2\r\noh\r\n4\r\n hai\r\nf\r\n123456789abcdef\r\n'
-                 '0\r\n\r\n')
+        fd.write(b'PUT /v1/a/c/o/chunky HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n'
+                 b'Transfer-Encoding: chunked\r\n\r\n'
+                 b'2\r\noh\r\n4\r\n hai\r\nf\r\n123456789abcdef\r\n'
+                 b'0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         # Ensure we get what we put
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/c/o/chunky HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Auth-Token: t\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a/c/o/chunky HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Auth-Token: t\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
         body = fd.read()
-        self.assertEqual(body, 'oh hai123456789abcdef')
+        self.assertEqual(body, b'oh hai123456789abcdef')
 
     @unpatch_policies
     def test_conditional_range_get(self):
@@ -4942,44 +4963,44 @@ class TestReplicatedObjectController(
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
 
         # make a container
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/con HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/con HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n'
+                 b'Content-Length: 0\r\n\r\n')
         fd.flush()
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         headers = readuntil2crlfs(fd)
         self.assertEqual(headers[:len(exp)], exp)
 
         # put an object in it
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/con/o HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 10\r\n'
-                 'Content-Type: text/plain\r\n'
-                 '\r\n'
-                 'abcdefghij\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/con/o HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'Content-Length: 10\r\n'
+                 b'Content-Type: text/plain\r\n'
+                 b'\r\n'
+                 b'abcdefghij\r\n')
         fd.flush()
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         headers = readuntil2crlfs(fd)
         self.assertEqual(headers[:len(exp)], exp)
 
         # request with both If-None-Match and Range
-        etag = md5("abcdefghij").hexdigest()
+        etag = md5(b"abcdefghij").hexdigest().encode('ascii')
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/con/o HTTP/1.1\r\n' +
-                 'Host: localhost\r\n' +
-                 'Connection: close\r\n' +
-                 'X-Storage-Token: t\r\n' +
-                 'If-None-Match: "' + etag + '"\r\n' +
-                 'Range: bytes=3-8\r\n' +
-                 '\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(b'GET /v1/a/con/o HTTP/1.1\r\n' +
+                 b'Host: localhost\r\n' +
+                 b'Connection: close\r\n' +
+                 b'X-Storage-Token: t\r\n' +
+                 b'If-None-Match: "' + etag + b'"\r\n' +
+                 b'Range: bytes=3-8\r\n' +
+                 b'\r\n')
         fd.flush()
-        exp = 'HTTP/1.1 304'
+        exp = b'HTTP/1.1 304'
         headers = readuntil2crlfs(fd)
         self.assertEqual(headers[:len(exp)], exp)
 
@@ -5211,17 +5232,17 @@ class TestReplicatedObjectController(
             obj_len = prosrv.client_chunk_size * 2
             # PUT test file
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('PUT /v1/a/c/test_leak_1 HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Auth-Token: t\r\n'
-                     'Content-Length: %s\r\n'
-                     'Content-Type: application/octet-stream\r\n'
-                     '\r\n%s' % (obj_len, 'a' * obj_len))
+            fd = sock.makefile('rwb')
+            fd.write(b'PUT /v1/a/c/test_leak_1 HTTP/1.1\r\n'
+                     b'Host: localhost\r\n'
+                     b'Connection: close\r\n'
+                     b'X-Auth-Token: t\r\n'
+                     b'Content-Length: %d\r\n'
+                     b'Content-Type: application/octet-stream\r\n'
+                     b'\r\n%s' % (obj_len, b'a' * obj_len))
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 201'
+            exp = b'HTTP/1.1 201'
             self.assertEqual(headers[:len(exp)], exp)
             # Remember Request instance count, make sure the GC is run for
             # pythons without reference counting.
@@ -5233,15 +5254,15 @@ class TestReplicatedObjectController(
             before_request_instances = len(_request_instances)
             # GET test file, but disconnect early
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('GET /v1/a/c/test_leak_1 HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Auth-Token: t\r\n'
-                     '\r\n')
+            fd = sock.makefile('rwb')
+            fd.write(b'GET /v1/a/c/test_leak_1 HTTP/1.1\r\n'
+                     b'Host: localhost\r\n'
+                     b'Connection: close\r\n'
+                     b'X-Auth-Token: t\r\n'
+                     b'\r\n')
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 200'
+            exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
             fd.read(1)
             sock.fd._sock.close()
@@ -5852,22 +5873,23 @@ class BaseTestECObjectController(BaseTestObjectController):
     def test_PUT_ec(self):
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
-        obj = 'abCD' * 10  # small, so we don't get multiple EC stripes
+        obj = b'abCD' * 10  # small, so we don't get multiple EC stripes
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/o1 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Etag: "%s"\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name, md5(obj).hexdigest(),
-                             len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/o1 HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Etag: "%s"\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name, md5(obj).hexdigest(),
+                            len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         ecd = self.ec_policy.pyeclib_driver
@@ -5888,7 +5910,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                                      policy=self.ec_policy)
             with df.open():
                 meta = df.get_metadata()
-                contents = ''.join(df.reader())
+                contents = b''.join(df.reader())
                 got_pieces.add(contents)
 
                 lmeta = dict((k.lower(), v) for k, v in meta.items())
@@ -5935,32 +5957,33 @@ class BaseTestECObjectController(BaseTestObjectController):
     def test_PUT_ec_multiple_segments(self):
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
-        pyeclib_header_size = len(self.ec_policy.pyeclib_driver.encode("")[0])
+        pyeclib_header_size = len(self.ec_policy.pyeclib_driver.encode(b"")[0])
         segment_size = self.ec_policy.ec_segment_size
 
         # Big enough to have multiple segments. Also a multiple of the
         # segment size to get coverage of that path too.
-        obj = 'ABC' * segment_size
+        obj = b'ABC' * segment_size
 
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/o2 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/o2 HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name, len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         # it's a 2+1 erasure code, so each fragment archive should be half
         # the length of the object, plus three inline pyeclib metadata
         # things (one per segment)
-        expected_length = (len(obj) / 2 + pyeclib_header_size * 3)
+        expected_length = (len(obj) // 2 + pyeclib_header_size * 3)
 
         partition, nodes = self.ec_policy.object_ring.get_nodes(
             'a', self.ec_policy.name, 'o2')
@@ -5976,7 +5999,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                 self.ec_policy.name, 'o2', policy=self.ec_policy)
             with df.open():
                 meta = df.get_metadata()
-                contents = ''.join(df.reader())
+                contents = b''.join(df.reader())
                 fragment_archives.append(contents)
                 self.assertEqual(len(contents), expected_length)
 
@@ -6024,24 +6047,25 @@ class BaseTestECObjectController(BaseTestObjectController):
     def test_PUT_ec_object_etag_mismatch(self):
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
-        obj = '90:6A:02:60:B1:08-96da3e706025537fc42464916427727e'
+        obj = b'90:6A:02:60:B1:08-96da3e706025537fc42464916427727e'
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/o3 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Etag: %s\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name,
-                             md5('something else').hexdigest(),
-                             len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/o3 HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Etag: %s\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name,
+                            md5(b'something else').hexdigest(),
+                            len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 422'
+        exp = b'HTTP/1.1 422'
         self.assertEqual(headers[:len(exp)], exp)
 
         # nothing should have made it to disk on the object servers
@@ -6067,32 +6091,33 @@ class BaseTestECObjectController(BaseTestObjectController):
             self.ec_policy.object_ring.replica_count - self.ec_policy.ec_ndata)
         countdown = [count]
 
-        def busted_md5_constructor(initial_str=""):
+        def busted_md5_constructor(initial_str=b""):
             hasher = md5(initial_str)
             if countdown[0] > 0:
-                hasher.update('wrong')
+                hasher.update(b'wrong')
             countdown[0] -= 1
             return hasher
 
-        obj = 'uvarovite-esurience-cerated-symphysic'
+        obj = b'uvarovite-esurience-cerated-symphysic'
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         with mock.patch('swift.obj.diskfile.md5',
                         busted_md5_constructor):
-            fd = sock.makefile()
-            fd.write('PUT /v1/a/%s/pimento HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'Etag: %s\r\n'
-                     'Content-Length: %d\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Type: application/octet-stream\r\n'
-                     '\r\n%s' % (self.ec_policy.name, md5(obj).hexdigest(),
-                                 len(obj), obj))
+            fd = sock.makefile('rwb')
+            fd.write(('PUT /v1/a/%s/pimento HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: close\r\n'
+                      'Etag: %s\r\n'
+                      'Content-Length: %d\r\n'
+                      'X-Storage-Token: t\r\n'
+                      'Content-Type: application/octet-stream\r\n'
+                      '\r\n' % (self.ec_policy.name, md5(obj).hexdigest(),
+                                len(obj))).encode('ascii'))
+            fd.write(obj)
             fd.flush()
             headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 503'  # no quorum
+        exp = b'HTTP/1.1 503'  # no quorum
         self.assertEqual(headers[:len(exp)], exp)
 
         # replica count - 1 of the fragment archives should have
@@ -6132,7 +6157,7 @@ class BaseTestECObjectController(BaseTestObjectController):
             hasher.update('wrong')
             return hasher
 
-        obj = 'uvarovite-esurience-cerated-symphysic'
+        obj = b'uvarovite-esurience-cerated-symphysic'
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -6147,18 +6172,20 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         with mock.patch('swift.obj.server.md5', busted_md5_constructor), \
                 mock.patch(commit_confirmation, mock_committer):
-            fd = sock.makefile()
-            fd.write('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'Etag: %s\r\n'
-                     'Content-Length: %d\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Type: application/octet-stream\r\n'
-                     '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+            fd = sock.makefile('rwb')
+            fd.write(('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: close\r\n'
+                      'Etag: %s\r\n'
+                      'Content-Length: %d\r\n'
+                      'X-Storage-Token: t\r\n'
+                      'Content-Type: application/octet-stream\r\n'
+                      '\r\n' % (md5(obj).hexdigest(),
+                                len(obj))).encode('ascii'))
+            fd.write(obj)
             fd.flush()
             headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 503'  # no quorum
+        exp = b'HTTP/1.1 503'  # no quorum
         self.assertEqual(headers[:len(exp)], exp)
         # Don't send commit to object-server if quorum responses consist of 4xx
         self.assertEqual(0, call_count[0])
@@ -6180,7 +6207,7 @@ class BaseTestECObjectController(BaseTestObjectController):
     def test_PUT_ec_fragment_quorum_bad_request(self):
         self.put_container("ec", "ec-con")
 
-        obj = 'uvarovite-esurience-cerated-symphysic'
+        obj = b'uvarovite-esurience-cerated-symphysic'
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -6201,21 +6228,23 @@ class BaseTestECObjectController(BaseTestObjectController):
             read_footer_call.side_effect = HTTPBadRequest(
                 body="couldn't find footer MIME doc")
 
-            fd = sock.makefile()
-            fd.write('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'Etag: %s\r\n'
-                     'Content-Length: %d\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Type: application/octet-stream\r\n'
-                     '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+            fd = sock.makefile('rwb')
+            fd.write(('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: close\r\n'
+                      'Etag: %s\r\n'
+                      'Content-Length: %d\r\n'
+                      'X-Storage-Token: t\r\n'
+                      'Content-Type: application/octet-stream\r\n'
+                      '\r\n' % (md5(obj).hexdigest(),
+                                len(obj))).encode('ascii'))
+            fd.write(obj)
             fd.flush()
             headers = readuntil2crlfs(fd)
 
         # Don't show a result of the bad conversation between proxy-server
         # and object-server
-        exp = 'HTTP/1.1 503'
+        exp = b'HTTP/1.1 503'
         self.assertEqual(headers[:len(exp)], exp)
         # Don't send commit to object-server if quorum responses consist of 4xx
         self.assertEqual(0, call_count[0])
@@ -6237,39 +6266,41 @@ class BaseTestECObjectController(BaseTestObjectController):
     def test_PUT_ec_if_none_match(self):
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
-        obj = 'ananepionic-lepidophyllous-ropewalker-neglectful'
+        obj = b'ananepionic-lepidophyllous-ropewalker-neglectful'
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/inm HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Etag: "%s"\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name, md5(obj).hexdigest(),
-                             len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/inm HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Etag: "%s"\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name, md5(obj).hexdigest(),
+                            len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/inm HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'If-None-Match: *\r\n'
-                 'Etag: "%s"\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name, md5(obj).hexdigest(),
-                             len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/inm HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'If-None-Match: *\r\n'
+                  'Etag: "%s"\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name, md5(obj).hexdigest(),
+                            len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 412'
+        exp = b'HTTP/1.1 412'
         self.assertEqual(headers[:len(exp)], exp)
 
     def test_GET_ec(self):
@@ -6278,33 +6309,34 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
-        obj = '0123456' * 11 * 17
+        obj = b'0123456' * 11 * 17
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/go-get-it HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'X-Object-Meta-Color: chartreuse\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/go-get-it HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'X-Object-Meta-Color: chartreuse\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name, len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/%s/go-get-it HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 '\r\n' % self.ec_policy.name)
+        fd = sock.makefile('rwb')
+        fd.write(('GET /v1/a/%s/go-get-it HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  '\r\n' % self.ec_policy.name).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
 
         headers = parse_headers_string(headers)
@@ -6312,7 +6344,7 @@ class BaseTestECObjectController(BaseTestObjectController):
         self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
         self.assertEqual('chartreuse', headers['X-Object-Meta-Color'])
 
-        gotten_obj = ''
+        gotten_obj = b''
         while True:
             buf = fd.read(64)
             if not buf:
@@ -6337,42 +6369,43 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         # our EC segment size is 4 KiB, so this is multiple (3) segments;
         # we'll verify that with a sanity check
-        obj = 'a moose once bit my sister' * 400
+        obj = b'a moose once bit my sister' * 400
         self.assertGreater(
             len(obj), self.ec_policy.ec_segment_size * 2,
             "object is too small for proper testing")
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/big-obj-get HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/big-obj-get HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name, len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/%s/big-obj-get HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 '\r\n' % self.ec_policy.name)
+        fd = sock.makefile('rwb')
+        fd.write(('GET /v1/a/%s/big-obj-get HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  '\r\n' % self.ec_policy.name).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
 
         headers = parse_headers_string(headers)
         self.assertEqual(str(len(obj)), headers['Content-Length'])
         self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
 
-        gotten_obj = ''
+        gotten_obj = b''
         while True:
             buf = fd.read(64)
             if not buf:
@@ -6391,20 +6424,21 @@ class BaseTestECObjectController(BaseTestObjectController):
     def test_GET_ec_failure_handling(self):
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
-        obj = 'look at this object; it is simply amazing ' * 500
+        obj = b'look at this object; it is simply amazing ' * 500
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/crash-test-dummy HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/crash-test-dummy HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name, len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         def explodey_iter(inner_iter):
@@ -6437,22 +6471,22 @@ class BaseTestECObjectController(BaseTestObjectController):
         with mock.patch("swift.proxy.controllers.obj.ECAppIter",
                         explodey_ec_app_iter):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('GET /v1/a/%s/crash-test-dummy HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n'
-                     '\r\n' % self.ec_policy.name)
+            fd = sock.makefile('rwb')
+            fd.write(('GET /v1/a/%s/crash-test-dummy HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: close\r\n'
+                      'X-Storage-Token: t\r\n'
+                      '\r\n' % self.ec_policy.name).encode('ascii'))
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 200'
+            exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
 
             headers = parse_headers_string(headers)
             self.assertEqual(str(len(obj)), headers['Content-Length'])
             self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
 
-            gotten_obj = ''
+            gotten_obj = b''
             try:
                 # don't hang the test run when this fails
                 with Timeout(300):
@@ -6474,33 +6508,34 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
-        obj = '0123456' * 11 * 17
+        obj = b'0123456' * 11 * 17
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/go-head-it HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'X-Object-Meta-Color: chartreuse\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s/go-head-it HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'X-Object-Meta-Color: chartreuse\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.ec_policy.name, len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('HEAD /v1/a/%s/go-head-it HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 '\r\n' % self.ec_policy.name)
+        fd = sock.makefile('rwb')
+        fd.write(('HEAD /v1/a/%s/go-head-it HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  '\r\n' % self.ec_policy.name).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
 
         headers = parse_headers_string(headers)
@@ -6520,15 +6555,15 @@ class BaseTestECObjectController(BaseTestObjectController):
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/%s/yes-we-have-no-bananas HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 '\r\n' % self.ec_policy.name)
+        fd = sock.makefile('rwb')
+        fd.write(('GET /v1/a/%s/yes-we-have-no-bananas HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  '\r\n' % self.ec_policy.name).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 404'
+        exp = b'HTTP/1.1 404'
         self.assertEqual(headers[:len(exp)], exp)
 
         error_lines = prosrv.logger.get_lines_for_level('error')
@@ -6543,15 +6578,15 @@ class BaseTestECObjectController(BaseTestObjectController):
         self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('HEAD /v1/a/%s/yes-we-have-no-bananas HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 '\r\n' % self.ec_policy.name)
+        fd = sock.makefile('rwb')
+        fd.write(('HEAD /v1/a/%s/yes-we-have-no-bananas HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  '\r\n' % self.ec_policy.name).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 404'
+        exp = b'HTTP/1.1 404'
         self.assertEqual(headers[:len(exp)], exp)
 
         error_lines = prosrv.logger.get_lines_for_level('error')
@@ -6591,13 +6626,13 @@ class BaseTestECObjectController(BaseTestObjectController):
 
                 if method == 'PUT':
                     # small, so we don't get multiple EC stripes
-                    obj = 'abCD' * 10
+                    obj = b'abCD' * 10
 
                     extra_trans_data = [
                         'Etag: "%s"\r\n' % md5(obj).hexdigest(),
                         'Content-Length: %d\r\n' % len(obj),
                         'Content-Type: application/octet-stream\r\n',
-                        '\r\n%s' % obj
+                        '\r\n%s' % obj.decode('ascii')
                     ]
                     trans_data.extend(extra_trans_data)
                 else:
@@ -6605,8 +6640,8 @@ class BaseTestECObjectController(BaseTestObjectController):
 
                 prolis = _test_sockets[0]
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write(''.join(trans_data))
+                fd = sock.makefile('rwb')
+                fd.write(''.join(trans_data).encode('ascii'))
                 fd.flush()
                 headers = readuntil2crlfs(fd)
 
@@ -6615,7 +6650,7 @@ class BaseTestECObjectController(BaseTestObjectController):
 
             for method in ('PUT', 'HEAD', 'GET', 'POST', 'DELETE'):
                 headers = get_ring_reloaded_response(method)
-                exp = 'HTTP/1.1 20'
+                exp = b'HTTP/1.1 20'
                 self.assertEqual(headers[:len(exp)], exp)
 
                 # proxy didn't load newest ring, use older one
@@ -6625,7 +6660,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                 if method == 'POST':
                     headers = get_ring_reloaded_response(method)
 
-                    exp = 'HTTP/1.1 20'
+                    exp = b'HTTP/1.1 20'
                     self.assertEqual(headers[:len(exp)], exp)
                     # sanity
                     self.assertEqual(orig_replica_count,
@@ -6641,31 +6676,33 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         # create connection
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
 
         # create container
-        fd.write('PUT /v1/a/%s-discon HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Content-Length: 0\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'X-Storage-Policy: %s\r\n'
-                 '\r\n' % (self.ec_policy.name, self.ec_policy.name))
+        fd.write(('PUT /v1/a/%s-discon HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Content-Length: 0\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'X-Storage-Policy: %s\r\n'
+                  '\r\n' % (self.ec_policy.name,
+                            self.ec_policy.name)).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 2'
+        exp = b'HTTP/1.1 2'
         self.assertEqual(headers[:len(exp)], exp)
 
         # create object
-        obj = 'a' * 4 * 64 * 2 ** 10
-        fd.write('PUT /v1/a/%s-discon/test HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: donuts\r\n'
-                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
+        obj = b'a' * 4 * 64 * 2 ** 10
+        fd.write(('PUT /v1/a/%s-discon/test HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: donuts\r\n'
+                  '\r\n' % (self.ec_policy.name, len(obj))).encode('ascii'))
+        fd.write(obj)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         class WrappedTimeout(ChunkWriteTimeout):
@@ -6682,14 +6719,14 @@ class BaseTestECObjectController(BaseTestObjectController):
                         WrappedTimeout):
             with mock.patch.object(_test_servers[0], 'client_timeout', new=5):
                 # get object
-                fd.write('GET /v1/a/%s-discon/test HTTP/1.1\r\n'
-                         'Host: localhost\r\n'
-                         'Connection: close\r\n'
-                         'X-Storage-Token: t\r\n'
-                         '\r\n' % self.ec_policy.name)
+                fd.write(('GET /v1/a/%s-discon/test HTTP/1.1\r\n'
+                          'Host: localhost\r\n'
+                          'Connection: close\r\n'
+                          'X-Storage-Token: t\r\n'
+                          '\r\n' % self.ec_policy.name).encode('ascii'))
                 fd.flush()
                 headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
+                exp = b'HTTP/1.1 200'
                 self.assertEqual(headers[:len(exp)], exp)
 
                 # read most of the object, and disconnect
@@ -6720,28 +6757,30 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         # create connection
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
 
         # create container
-        fd.write('PUT /v1/a/%s-discon HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Content-Length: 0\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'X-Storage-Policy: %s\r\n'
-                 '\r\n' % (self.ec_policy.name, self.ec_policy.name))
+        fd.write(('PUT /v1/a/%s-discon HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Content-Length: 0\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'X-Storage-Policy: %s\r\n'
+                  '\r\n' % (self.ec_policy.name,
+                            self.ec_policy.name)).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 2'
+        exp = b'HTTP/1.1 2'
         self.assertEqual(headers[:len(exp)], exp)
 
         # create object
-        obj = 'a' * 4 * 64 * 2 ** 10
-        fd.write('PUT /v1/a/%s-discon/test HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Content-Length: %d\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Type: donuts\r\n'
-                 '\r\n%s' % (self.ec_policy.name, len(obj), obj[:-10]))
+        obj = b'a' * 4 * 64 * 2 ** 10
+        fd.write(('PUT /v1/a/%s-discon/test HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Content-Length: %d\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: donuts\r\n'
+                  '\r\n' % (self.ec_policy.name, len(obj))).encode('ascii'))
+        fd.write(obj[:-10])
         fd.flush()
         fd.close()
         sock.close()
@@ -7068,7 +7107,7 @@ class TestECGets(unittest.TestCase):
     def test_GET_with_missing_durables(self):
         # verify object GET behavior when durable files are missing
         ts_iter = make_timestamp_iter()
-        objs = {'obj1': dict(timestamp=next(ts_iter), body='body')}
+        objs = {'obj1': dict(timestamp=next(ts_iter), body=b'body')}
 
         # durable missing from 2/3 nodes
         node_state = {
@@ -7106,7 +7145,7 @@ class TestECGets(unittest.TestCase):
     def test_GET_with_multiple_frags_per_node(self):
         # verify object GET behavior when multiple fragments are on same node
         ts_iter = make_timestamp_iter()
-        objs = {'obj1': dict(timestamp=next(ts_iter), body='body')}
+        objs = {'obj1': dict(timestamp=next(ts_iter), body=b'body')}
 
         # scenario: only two frags, both on same node
         node_state = {
@@ -7137,9 +7176,9 @@ class TestECGets(unittest.TestCase):
         ts_iter = make_timestamp_iter()
 
         ts_1, ts_2, ts_3 = [next(ts_iter) for _ in range(3)]
-        objs = {'obj1': dict(timestamp=ts_1, body='body1'),
-                'obj2': dict(timestamp=ts_2, body='body2'),
-                'obj3': dict(timestamp=ts_3, body='body3')}
+        objs = {'obj1': dict(timestamp=ts_1, body=b'body1'),
+                'obj2': dict(timestamp=ts_2, body=b'body2'),
+                'obj3': dict(timestamp=ts_3, body=b'body3')}
 
         # newer non-durable frags do not prevent proxy getting the durable obj1
         node_state = {
@@ -7182,9 +7221,9 @@ class TestECGets(unittest.TestCase):
         # multiple nodes: since we cannot *copy* frags, we generate three sets
         # of identical frags at same timestamp so we have enough to *move*
         ts_1 = next(ts_iter)
-        objs = {'obj1a': dict(timestamp=ts_1, body='body'),
-                'obj1b': dict(timestamp=ts_1, body='body'),
-                'obj1c': dict(timestamp=ts_1, body='body')}
+        objs = {'obj1a': dict(timestamp=ts_1, body=b'body'),
+                'obj1b': dict(timestamp=ts_1, body=b'body'),
+                'obj1c': dict(timestamp=ts_1, body=b'body')}
 
         # arrange for duplicate frag indexes across nodes: because the object
         # server prefers the highest available frag index, proxy will first get
@@ -7252,10 +7291,10 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
                 for k, v in (headers or {}).items():
                     conn.putheader(k, v)
                 conn.endheaders()
-                body = body or ['']
+                body = body or [b'']
                 for chunk in body:
                     if is_chunked:
-                        chunk = '%x\r\n%s\r\n' % (len(chunk), chunk)
+                        chunk = b'%x\r\n%s\r\n' % (len(chunk), chunk)
                     conn.send(chunk)
                 resp = conn.getresponse()
                 body = resp.read()
@@ -7276,7 +7315,7 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
 
         def exploding_body():
             for i in range(3):
-                yield '\x00' * (64 * 2 ** 10)
+                yield b'\x00' * (64 * 2 ** 10)
             raise Exception('kaboom!')
 
         headers = {}
@@ -7351,17 +7390,17 @@ class TestObjectECRangedGET(unittest.TestCase):
         # Note: only works if called with unpatched policies
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/ec-con HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'Content-Length: 0\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'X-Storage-Policy: ec\r\n'
-                 '\r\n')
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/ec-con HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'Content-Length: 0\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'X-Storage-Policy: ec\r\n'
+                  '\r\n').encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 2'
+        exp = b'HTTP/1.1 2'
         assert headers[:len(exp)] == exp, "container PUT failed"
 
         seg_size = POLICIES.get_by_name("ec").ec_segment_size
@@ -7369,15 +7408,15 @@ class TestObjectECRangedGET(unittest.TestCase):
         # EC segment size is 4 KiB, hence this gives 4 segments, which we
         # then verify with a quick sanity check
         cls.obj = ' my hovercraft is full of eels '.join(
-            str(s) for s in range(431))
+            str(s) for s in range(431)).encode('ascii')
         assert seg_size * 4 > len(cls.obj) > seg_size * 3, \
             "object is wrong number of segments"
         cls.obj_etag = md5(cls.obj).hexdigest()
-        cls.tiny_obj = 'tiny, tiny object'
+        cls.tiny_obj = b'tiny, tiny object'
         assert len(cls.tiny_obj) < seg_size, "tiny_obj too large"
 
         cls.aligned_obj = "".join(
-            "abcdEFGHijkl%04d" % x for x in range(512))
+            "abcdEFGHijkl%04d" % x for x in range(512)).encode('ascii')
         assert len(cls.aligned_obj) % seg_size == 0, "aligned obj not aligned"
 
         for obj_name, obj in ((cls.obj_name, cls.obj),
@@ -7385,17 +7424,18 @@ class TestObjectECRangedGET(unittest.TestCase):
                               (cls.aligned_obj_name, cls.aligned_obj),
                               (cls.zero_byte_obj_name, b"")):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('PUT /v1/a/ec-con/%s HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'Content-Length: %d\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Type: donuts\r\n'
-                     '\r\n%s' % (obj_name, len(obj), obj))
+            fd = sock.makefile('rwb')
+            fd.write(('PUT /v1/a/ec-con/%s HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: close\r\n'
+                      'Content-Length: %d\r\n'
+                      'X-Storage-Token: t\r\n'
+                      'Content-Type: donuts\r\n'
+                      '\r\n' % (obj_name, len(obj))).encode('ascii'))
+            fd.write(obj)
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 201'
+            exp = b'HTTP/1.1 201'
             assert headers[:len(exp)] == exp, \
                 "object PUT failed %s" % obj_name
 
@@ -7405,20 +7445,20 @@ class TestObjectECRangedGET(unittest.TestCase):
 
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/ec-con/%s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Range: %s\r\n'
-                 '\r\n' % (obj_name, range_value))
+        fd = sock.makefile('rwb')
+        fd.write(('GET /v1/a/ec-con/%s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Range: %s\r\n'
+                  '\r\n' % (obj_name, range_value)).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
         # e.g. "HTTP/1.1 206 Partial Content\r\n..."
         status_code = int(headers[9:12])
         headers = parse_headers_string(headers)
 
-        gotten_obj = ''
+        gotten_obj = b''
         while True:
             buf = fd.read(64)
             if not buf:
@@ -7434,12 +7474,12 @@ class TestObjectECRangedGET(unittest.TestCase):
         # likewise, if we say MIME and don't send MIME or vice versa,
         # clients will be horribly confused
         if headers.get('Content-Type', '').startswith('multipart/byteranges'):
-            self.assertEqual(gotten_obj[:2], "--")
+            self.assertEqual(gotten_obj[:2], b"--")
         else:
             # In general, this isn't true, as you can start an object with
             # "--". However, in this test, we don't start any objects with
             # "--", or even include "--" in their contents anywhere.
-            self.assertNotEqual(gotten_obj[:2], "--")
+            self.assertNotEqual(gotten_obj[:2], b"--")
 
         return (status_code, headers, gotten_obj)
 
@@ -7516,7 +7556,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(status, 206)
         self.assertEqual(headers['Content-Length'], "1")
         self.assertEqual(headers['Content-Range'], "bytes 0-0/14513")
-        self.assertEqual(gotten_obj, self.obj[0])
+        self.assertEqual(gotten_obj, self.obj[0:1])
 
     def test_unsatisfiable(self):
         # Goes just one byte too far off the end of the object, so it's
@@ -7591,7 +7631,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(status, 206)
         self.assertEqual(headers['Content-Length'], '1')
         self.assertEqual(headers['Content-Range'], 'bytes 14512-14512/14513')
-        self.assertEqual(gotten_obj, self.obj[-1])
+        self.assertEqual(gotten_obj, self.obj[-1:])
 
     def test_aligned_off_end(self):
         # Ranged GET that starts on a segment boundary but asks for a whole lot
@@ -7611,7 +7651,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(status, 206)
         self.assertEqual(headers['Content-Length'], '1')
         self.assertEqual(headers['Content-Range'], 'bytes 14512-14512/14513')
-        self.assertEqual(gotten_obj, self.obj[-1])
+        self.assertEqual(gotten_obj, self.obj[-1:])
 
     def test_boundaries(self):
         # Wants the last byte of segment 1 + the first byte of segment 2
@@ -7925,7 +7965,8 @@ class TestContainerController(unittest.TestCase):
                 headers={'X-Backend-Storage-Policy-Index': int(policy)},
         ) as fake_conn:
             resp = req.get_response(self.app)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with self.assertRaises(StopIteration):
+            next(fake_conn.code_iter)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['X-Storage-Policy'], policy.name)
 
@@ -7937,7 +7978,8 @@ class TestContainerController(unittest.TestCase):
                 headers={'X-Backend-Storage-Policy-Index':
                          int(policy)}) as fake_conn:
             resp = req.get_response(self.app)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with self.assertRaises(StopIteration):
+            next(fake_conn.code_iter)
         self.assertEqual(resp.status_int, 404)
         self.assertIsNone(resp.headers['X-Storage-Policy'])
 
@@ -7947,7 +7989,8 @@ class TestContainerController(unittest.TestCase):
                 200, 200,
                 headers={'X-Backend-Storage-Policy-Index': '-1'}) as fake_conn:
             resp = req.get_response(self.app)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with self.assertRaises(StopIteration):
+            next(fake_conn.code_iter)
         self.assertEqual(resp.status_int, 200)
         self.assertIsNone(resp.headers['X-Storage-Policy'])
         error_lines = self.app.logger.get_lines_for_level('error')
@@ -8097,7 +8140,7 @@ class TestContainerController(unittest.TestCase):
                 if expected_policy.is_deprecated:
                     self.assertEqual(res.status_int, 400)
                     self.assertEqual(0, len(backend_requests))
-                    expected = 'is deprecated'
+                    expected = b'is deprecated'
                     self.assertIn(expected, res.body,
                                   '%r did not include %r' % (
                                       res.body, expected))
@@ -8122,7 +8165,8 @@ class TestContainerController(unittest.TestCase):
                                          ['X-Backend-Storage-Policy-Index']),
                                          int(policy))
                 # make sure all mocked responses are consumed
-                self.assertRaises(StopIteration, mock_conn.code_iter.next)
+                with self.assertRaises(StopIteration):
+                    next(mock_conn.code_iter)
 
         test_policy(None)  # no policy header
         for policy in POLICIES:
@@ -9129,7 +9173,8 @@ class TestContainerController(unittest.TestCase):
             resp = self.app.handle_request(req)
 
         # sanity
-        self.assertRaises(StopIteration, new_connect.code_iter.next)
+        with self.assertRaises(StopIteration):
+            next(new_connect.code_iter)
         self.assertEqual(2, resp.status_int // 100)
 
         timestamps.pop(0)  # account existence check
@@ -9154,7 +9199,8 @@ class TestContainerController(unittest.TestCase):
             resp = self.app.handle_request(req)
 
         # sanity
-        self.assertRaises(StopIteration, new_connect.code_iter.next)
+        with self.assertRaises(StopIteration):
+            next(new_connect.code_iter)
         self.assertEqual(2, resp.status_int // 100)
 
         timestamps.pop(0)  # account existence check
@@ -9482,7 +9528,7 @@ class TestAccountController(unittest.TestCase):
         self.assert_status_map(controller.PUT, (), 400)
 
         self.app.auto_create_account_prefix = 'FOO_'
-        limit /= 2
+        limit //= 2
         controller = proxy_server.AccountController(
             self.app, '.' + '5' * (limit - 1))
         self.assert_status_map(controller.PUT, (201, 201, 201), 201)
@@ -9716,7 +9762,7 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
             self.assertEqual(200, resp.status_int)
             self.assertEqual('application/json; charset=utf-8',
                              resp.headers['Content-Type'])
-            self.assertEqual("[]", resp.body)
+            self.assertEqual(b"[]", resp.body)
 
     def test_GET_autocreate_format_json(self):
         with save_globals():
@@ -9729,7 +9775,7 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
             self.assertEqual(200, resp.status_int)
             self.assertEqual('application/json; charset=utf-8',
                              resp.headers['Content-Type'])
-            self.assertEqual("[]", resp.body)
+            self.assertEqual(b"[]", resp.body)
 
     def test_GET_autocreate_accept_xml(self):
         with save_globals():
@@ -9743,8 +9789,8 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
 
             self.assertEqual('text/xml; charset=utf-8',
                              resp.headers['Content-Type'])
-            empty_xml_listing = ('<?xml version="1.0" encoding="UTF-8"?>\n'
-                                 '<account name="a">\n</account>')
+            empty_xml_listing = (b'<?xml version="1.0" encoding="UTF-8"?>\n'
+                                 b'<account name="a">\n</account>')
             self.assertEqual(empty_xml_listing, resp.body)
 
     def test_GET_autocreate_format_xml(self):
@@ -9758,8 +9804,8 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
             self.assertEqual(200, resp.status_int)
             self.assertEqual('application/xml; charset=utf-8',
                              resp.headers['Content-Type'])
-            empty_xml_listing = ('<?xml version="1.0" encoding="UTF-8"?>\n'
-                                 '<account name="a">\n</account>')
+            empty_xml_listing = (b'<?xml version="1.0" encoding="UTF-8"?>\n'
+                                 b'<account name="a">\n</account>')
             self.assertEqual(empty_xml_listing, resp.body)
 
     def test_GET_autocreate_accept_unknown(self):
@@ -9779,7 +9825,7 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
                                          'PATH_INFO': '/v1/a'})
             resp = req.get_response(self.app)
             self.assertEqual(400, resp.status_int)
-            self.assertEqual('Invalid Accept header', resp.body)
+            self.assertEqual(b'Invalid Accept header', resp.body)
 
             set_http_connect(*([404] * 100))  # nonexistent: all backends 404
             req = Request.blank('/v1/a', headers={"Accept": "a/b;q=0.5;q=1"},
@@ -9787,7 +9833,7 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
                                          'PATH_INFO': '/v1/a'})
             resp = req.get_response(self.app)
             self.assertEqual(400, resp.status_int)
-            self.assertEqual('Invalid Accept header', resp.body)
+            self.assertEqual(b'Invalid Accept header', resp.body)
 
     def test_GET_autocreate_format_invalid_utf8(self):
         with save_globals():
@@ -9992,23 +10038,23 @@ class TestProxyObjectPerformance(unittest.TestCase):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         # Client is transmitting in 2 MB chunks
-        fd = sock.makefile('wb', 2 * 1024 * 1024)
+        fd = sock.makefile('rwb', 2 * 1024 * 1024)
         # Small, fast for testing
         obj_len = 2 * 64 * 1024
         # Use 1 GB or more for measurements
         # obj_len = 2 * 512 * 1024 * 1024
         self.path = '/v1/a/c/o.large'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n' % (self.path, str(obj_len)))
-        fd.write('a' * obj_len)
+        fd.write(('PUT %s HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Connection: close\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Length: %s\r\n'
+                  'Content-Type: application/octet-stream\r\n'
+                  '\r\n' % (self.path, str(obj_len))).encode('ascii'))
+        fd.write(b'a' * obj_len)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         self.obj_len = obj_len
 
@@ -10019,15 +10065,15 @@ class TestProxyObjectPerformance(unittest.TestCase):
             prolis = _test_sockets[0]
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             # Client is reading in 2 MB chunks
-            fd = sock.makefile('wb', 2 * 1024 * 1024)
-            fd.write('GET %s HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n'
-                     '\r\n' % self.path)
+            fd = sock.makefile('rwb', 2 * 1024 * 1024)
+            fd.write(('GET %s HTTP/1.1\r\n'
+                      'Host: localhost\r\n'
+                      'Connection: close\r\n'
+                      'X-Storage-Token: t\r\n'
+                      '\r\n' % self.path).encode('ascii'))
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 200'
+            exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
 
             total = 0
@@ -10151,7 +10197,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def put_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
                      'Connection: close\r\nX-Storage-Token: t\r\n'
                      'Content-Length: 0\r\nX-Versions-Location: %s\r\n\r\n'
@@ -10167,7 +10213,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def get_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
                      'Connection: close\r\n'
                      'X-Storage-Token: t\r\n\r\n\r\n' % oc)
@@ -10184,7 +10230,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def put_version_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
                      'Connection: close\r\nX-Storage-Token: t\r\n'
                      'Content-Length: 0\r\n\r\n' % vc)
@@ -10200,7 +10246,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def put(version):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
                      'localhost\r\nConnection: close\r\nX-Storage-Token: '
                      't\r\nContent-Length: 5\r\nContent-Type: text/jibberish%s'
@@ -10212,7 +10258,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def get(container=oc, obj=o):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('GET /v1/a/%s/%s HTTP/1.1\r\nHost: '
                      'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n'
                      '\r\n' % (container, obj))
@@ -10243,7 +10289,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def get_version_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
                      'Connection: close\r\n'
                      'X-Storage-Token: t\r\n\r\n' % vc)
@@ -10261,7 +10307,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def delete():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r'
                      '\nConnection: close\r\nX-Storage-Token: t\r\n\r\n'
                      % (oc, o))
@@ -10272,7 +10318,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def copy():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('COPY /v1/a/%s/%s HTTP/1.1\r\nHost: '
                      'localhost\r\nConnection: close\r\nX-Auth-Token: '
                      't\r\nDestination: %s/copied_name\r\n'
@@ -10289,7 +10335,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def get_copy():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('GET /v1/a/%s/copied_name HTTP/1.1\r\nHost: '
                      'localhost\r\nConnection: close\r\n'
                      'X-Auth-Token: t\r\n\r\n' % oc)
@@ -10305,7 +10351,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         def post():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('POST /v1/a/%s/%s HTTP/1.1\r\nHost: '
                      'localhost\r\nConnection: close\r\nX-Auth-Token: '
                      't\r\nContent-Type: foo/bar\r\nContent-Length: 0\r\n'
@@ -10346,7 +10392,7 @@ class TestSocketObjectVersions(unittest.TestCase):
             self.assertEqual(body, '%05d' % (segment - 1))
             # Ensure we have the right number of versions saved
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
                      'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r'
                      '\n' % (vc, pre, o))
@@ -10361,7 +10407,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         # there is now one version left (in the manifest)
         # Ensure we have no saved versions
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
                  % (vc, pre, o))
@@ -10372,7 +10418,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # delete the last version
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
                  'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % (oc, o))
         fd.flush()
@@ -10382,7 +10428,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # Ensure it's all gone
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('GET /v1/a/%s/%s HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
                  % (oc, o))
@@ -10395,7 +10441,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         for _junk in range(0, versions_to_create):
             sleep(.01)  # guarantee that the timestamp changes
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
+            fd = sock.makefile('rwb')
             fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
                      'localhost\r\nConnection: close\r\nX-Storage-Token: '
                      't\r\nContent-Length: 0\r\n'
@@ -10408,7 +10454,7 @@ class TestSocketObjectVersions(unittest.TestCase):
             self.assertEqual(headers[:len(exp)], exp)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nhost: '
                  'localhost\r\nconnection: close\r\nx-auth-token: t\r\n\r\n'
                  % (vc, pre, o))
@@ -10422,7 +10468,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # DELETE v1/a/c/obj shouldn't delete v1/a/c/obj/sub versions
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Storage-Token: '
                  't\r\nContent-Length: 5\r\nContent-Type: text/jibberish0\r\n'
@@ -10432,7 +10478,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Storage-Token: '
                  't\r\nContent-Length: 5\r\nContent-Type: text/jibberish0\r\n'
@@ -10442,7 +10488,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Storage-Token: '
                  't\r\nContent-Length: 4\r\nContent-Type: text/jibberish0\r\n'
@@ -10452,7 +10498,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Storage-Token: '
                  't\r\nContent-Length: 4\r\nContent-Type: text/jibberish0\r\n'
@@ -10462,7 +10508,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
                  'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % (oc, o))
         fd.flush()
@@ -10470,7 +10516,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         exp = 'HTTP/1.1 2'  # 2xx series response
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
                  % (vc, presub, osub))
@@ -10484,7 +10530,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # Check for when the versions target container doesn't exist
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('PUT /v1/a/%swhoops HTTP/1.1\r\nHost: localhost\r\n'
                  'Connection: close\r\nX-Storage-Token: t\r\n'
                  'Content-Length: 0\r\nX-Versions-Location: none\r\n\r\n' % oc)
@@ -10494,7 +10540,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         # Create the versioned file
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('PUT /v1/a/%swhoops/foo HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Storage-Token: '
                  't\r\nContent-Length: 5\r\n\r\n00000\r\n' % oc)
@@ -10504,7 +10550,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         # Create another version
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('PUT /v1/a/%swhoops/foo HTTP/1.1\r\nHost: '
                  'localhost\r\nConnection: close\r\nX-Storage-Token: '
                  't\r\nContent-Length: 5\r\n\r\n00001\r\n' % oc)
@@ -10514,7 +10560,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         # Delete the object
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
+        fd = sock.makefile('rwb')
         fd.write('DELETE /v1/a/%swhoops/foo HTTP/1.1\r\nHost: localhost\r\n'
                  'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % oc)
         fd.flush()
