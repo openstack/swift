@@ -22,4 +22,5 @@ from optparse import OptionParser
 if __name__ == '__main__':
     parser = OptionParser("%prog CONFIG [options]")
     conf_file, options = parse_options(parser=parser, once=True)
-    run_daemon(ObjectRpcManager, conf_file, **options)
+    run_daemon(ObjectRpcManager, conf_file, section_name='object-rpcmanager',
+               **options)
