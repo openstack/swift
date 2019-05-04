@@ -670,7 +670,7 @@ class TestRequest(unittest.TestCase):
 
         def test_app(environ, start_response):
             start_response('401 Unauthorized', [])
-            return ['hi']
+            return [b'hi']
 
         # Request environment contains valid account in path
         req = swift.common.swob.Request.blank('/v1/account-name')
@@ -692,7 +692,7 @@ class TestRequest(unittest.TestCase):
 
         def test_app(environ, start_response):
             start_response('401 Unauthorized', [])
-            return ['hi']
+            return [b'hi']
 
         # Request environment contains bad path
         req = swift.common.swob.Request.blank('/random')
@@ -706,7 +706,7 @@ class TestRequest(unittest.TestCase):
 
         def test_app(environ, start_response):
             start_response('401 Unauthorized', [])
-            return ['no creds in request']
+            return [b'no creds in request']
 
         # Request to get token
         req = swift.common.swob.Request.blank('/v1.0/auth')
@@ -729,7 +729,7 @@ class TestRequest(unittest.TestCase):
         def test_app(environ, start_response):
             start_response('401 Unauthorized', {
                            'Www-Authenticate': 'Me realm="whatever"'})
-            return ['no creds in request']
+            return [b'no creds in request']
 
         # Auth middleware sets own Www-Authenticate
         req = swift.common.swob.Request.blank('/auth/v1.0')
@@ -743,7 +743,7 @@ class TestRequest(unittest.TestCase):
 
         def test_app(environ, start_response):
             start_response('401 Unauthorized', [])
-            return ['hi']
+            return [b'hi']
 
         hacker = 'account-name\n\n<b>foo<br>'  # url injection test
         quoted_hacker = quote(hacker)
@@ -766,7 +766,7 @@ class TestRequest(unittest.TestCase):
         # Other status codes should not have WWW-Authenticate in response
         def test_app(environ, start_response):
             start_response('200 OK', [])
-            return ['hi']
+            return [b'hi']
 
         req = swift.common.swob.Request.blank('/')
         resp = req.get_response(test_app)
@@ -1758,7 +1758,7 @@ class TestConditionalIfMatch(unittest.TestCase):
 
         def fake_app_404(environ, start_response):
             start_response('404 Not Found', [])
-            return ['hi']
+            return [b'hi']
 
         req = swift.common.swob.Request.blank(
             '/', headers={'If-Match': '*'})

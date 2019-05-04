@@ -167,7 +167,7 @@ class ListingEtagMiddleware(object):
                            ctx._response_exc_info)
             return [body]
 
-        body = json.dumps(listing)
+        body = json.dumps(listing).encode('ascii')
         ctx._response_headers[cl_index] = (
             ctx._response_headers[cl_index][0],
             str(len(body)),
@@ -237,7 +237,7 @@ class S3ApiMiddleware(object):
             resp = err_resp
         except Exception as e:
             self.logger.exception(e)
-            resp = InternalError(reason=e)
+            resp = InternalError(reason=str(e))
 
         if isinstance(resp, S3ResponseBase) and 'swift.trans_id' in env:
             resp.headers['x-amz-id-2'] = env['swift.trans_id']
