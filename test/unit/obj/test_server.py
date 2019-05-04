@@ -7073,21 +7073,19 @@ class TestObjectController(unittest.TestCase):
         with mock.patch.object(self.object_controller, method,
                                new=mock_method):
             mock_method.replication = True
-            with mock.patch('time.gmtime',
-                            mock.MagicMock(side_effect=[gmtime(10001.0)])):
-                with mock.patch('time.time',
-                                mock.MagicMock(side_effect=[10000.0,
-                                                            10001.0])):
-                    with mock.patch('os.getpid',
-                                    mock.MagicMock(return_value=1234)):
-                        response = self.object_controller.__call__(
-                            env, start_response)
-                        self.assertEqual(response, answer)
-                        self.assertEqual(
-                            self.logger.get_lines_for_level('info'),
-                            ['None - - [01/Jan/1970:02:46:41 +0000] "PUT'
-                             ' /sda1/p/a/c/o" 405 91 "-" "-" "-" 1.0000 "-"'
-                             ' 1234 -'])
+            with mock.patch('time.time',
+                            mock.MagicMock(side_effect=[10000.0,
+                                                        10001.0, 10001.0])):
+                with mock.patch('os.getpid',
+                                mock.MagicMock(return_value=1234)):
+                    response = self.object_controller.__call__(
+                        env, start_response)
+                    self.assertEqual(response, answer)
+                    self.assertEqual(
+                        self.logger.get_lines_for_level('info'),
+                        ['- - - [01/Jan/1970:02:46:41 +0000] "PUT'
+                         ' /sda1/p/a/c/o" 405 91 "-" "-" "-" 1.0000 "-"'
+                         ' 1234 -'])
 
     def test_call_incorrect_replication_method(self):
         inbuf = StringIO()
@@ -7254,15 +7252,14 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
         self.object_controller.logger = self.logger
-        with mock.patch('time.gmtime', side_effect=[gmtime(10001.0)]), \
-                mock.patch(
-                    'time.time',
-                    side_effect=[10000.0, 10000.0, 10001.0, 10002.0]), \
+        with mock.patch('time.time',
+                        side_effect=[10000.0, 10000.0, 10001.0, 10002.0,
+                                     10002.0]), \
                 mock.patch('os.getpid', return_value=1234):
             req.get_response(self.object_controller)
         self.assertEqual(
             self.logger.get_lines_for_level('info'),
-            ['1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
+            ['1.2.3.4 - - [01/Jan/1970:02:46:42 +0000] "HEAD /sda1/p/a/c/o" '
              '404 - "-" "-" "-" 2.0000 "-" 1234 -'])
 
     @patch_policies([StoragePolicy(0, 'zero', True),

@@ -135,7 +135,7 @@ class AccountAuditor(Daemon):
         """
         start_time = time.time()
         try:
-            broker = AccountBroker(path)
+            broker = AccountBroker(path, logger=self.logger)
             if not broker.is_deleted():
                 self.validate_per_policy_counts(broker)
                 self.logger.increment('passes')

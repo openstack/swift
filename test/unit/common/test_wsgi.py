@@ -27,6 +27,7 @@ import types
 
 import eventlet.wsgi
 
+import six
 from six import BytesIO
 from six.moves.urllib.parse import quote
 
@@ -984,11 +985,6 @@ class TestWSGI(unittest.TestCase):
 
 
 class TestSwiftHttpProtocol(unittest.TestCase):
-    def setUp(self):
-        patcher = mock.patch('swift.common.wsgi.wsgi.HttpProtocol')
-        self.mock_super = patcher.start()
-        self.addCleanup(patcher.stop)
-
     def _proto_obj(self):
         # Make an object we can exercise... note the base class's __init__()
         # does a bunch of work, so we just new up an object like eventlet.wsgi
@@ -1041,11 +1037,37 @@ class TestSwiftHttpProtocol(unittest.TestCase):
 
         self.assertEqual(False, proto_obj.parse_request())
 
-        self.assertEqual([], self.mock_super.mock_calls)
         self.assertEqual([
             mock.call(400, "Bad HTTP/0.9 request type ('jimmy')"),
         ], proto_obj.send_error.mock_calls)
         self.assertEqual(('a', '123'), proto_obj.client_address)
+
+    def test_request_line_cleanup(self):
+        def do_test(line_from_socket, expected_line=None):
+            if expected_line is None:
+                expected_line = line_from_socket
+
+            proto_obj = self._proto_obj()
+            proto_obj.raw_requestline = line_from_socket
+            with mock.patch('swift.common.wsgi.wsgi.HttpProtocol') \
+                    as mock_super:
+                proto_obj.parse_request()
+
+            self.assertEqual([mock.call.parse_request(proto_obj)],
+                             mock_super.mock_calls)
+            self.assertEqual(proto_obj.raw_requestline, expected_line)
+
+        do_test(b'GET / HTTP/1.1')
+        do_test(b'GET /%FF HTTP/1.1')
+
+        if not six.PY2:
+            do_test(b'GET /\xff HTTP/1.1', b'GET /%FF HTTP/1.1')
+            do_test(b'PUT /Here%20Is%20A%20SnowMan:\xe2\x98\x83 HTTP/1.0',
+                    b'PUT /Here%20Is%20A%20SnowMan%3A%E2%98%83 HTTP/1.0')
+            do_test(
+                b'POST /?and%20it=fixes+params&'
+                b'PALMTREE=\xf0%9f\x8c%b4 HTTP/1.1',
+                b'POST /?and+it=fixes+params&PALMTREE=%F0%9F%8C%B4 HTTP/1.1')
 
 
 class TestProxyProtocol(unittest.TestCase):

@@ -35,7 +35,7 @@ from swift.common.middleware.s3api.utils import sysmeta_header, mktime, \
     S3Timestamp
 from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
 
-xml = '<CompleteMultipartUpload>' \
+XML = '<CompleteMultipartUpload>' \
     '<Part>' \
     '<PartNumber>1</PartNumber>' \
     '<ETag>0123456789abcdef0123456789abcdef</ETag>' \
@@ -46,11 +46,11 @@ xml = '<CompleteMultipartUpload>' \
     '</Part>' \
     '</CompleteMultipartUpload>'
 
-objects_template = \
+OBJECTS_TEMPLATE = \
     (('object/X/1', '2014-05-07T19:47:51.592270', '0123456789abcdef', 100),
      ('object/X/2', '2014-05-07T19:47:52.592270', 'fedcba9876543210', 200))
 
-multiparts_template = \
+MULTIPARTS_TEMPLATE = \
     (('object/X', '2014-05-07T19:47:50.592270', 'HASH', 1),
      ('object/X/1', '2014-05-07T19:47:51.592270', '0123456789abcdef', 11),
      ('object/X/2', '2014-05-07T19:47:52.592270', 'fedcba9876543210', 21),
@@ -66,7 +66,7 @@ multiparts_template = \
      ('subdir/object/Z/2', '2014-05-07T19:47:58.592270', 'fedcba9876543210',
       41))
 
-s3_etag = '"%s-2"' % hashlib.md5((
+S3_ETAG = '"%s-2"' % hashlib.md5((
     '0123456789abcdef0123456789abcdef'
     'fedcba9876543210fedcba9876543210').decode('hex')).hexdigest()
 
@@ -85,7 +85,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
         objects = map(lambda item: {'name': item[0], 'last_modified': item[1],
                                     'hash': item[2], 'bytes': item[3]},
-                      objects_template)
+                      OBJECTS_TEMPLATE)
         object_list = json.dumps(objects)
 
         self.swift.register('PUT', segment_bucket,
@@ -171,7 +171,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def _test_bucket_multipart_uploads_GET(self, query=None,
                                            multiparts=None):
         segment_bucket = '/v1/AUTH_test/bucket+segments'
-        objects = multiparts or multiparts_template
+        objects = multiparts or MULTIPARTS_TEMPLATE
         objects = map(lambda item: {'name': item[0], 'last_modified': item[1],
                                     'hash': item[2], 'bytes': item[3]},
                       objects)
@@ -197,7 +197,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(elem.find('MaxUploads').text, '1000')
         self.assertEqual(elem.find('IsTruncated').text, 'false')
         self.assertEqual(len(elem.findall('Upload')), 4)
-        objects = [(o[0], o[1][:-3] + 'Z') for o in multiparts_template]
+        objects = [(o[0], o[1][:-3] + 'Z') for o in MULTIPARTS_TEMPLATE]
         for u in elem.findall('Upload'):
             name = u.find('Key').text + '/' + u.find('UploadId').text
             initiated = u.find('Initiated').text
@@ -657,7 +657,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
-                            body=xml)
+                            body=XML)
         with patch(
                 'swift.common.middleware.s3api.s3request.get_container_info',
                 lambda x, y: {'status': 404}):
@@ -667,15 +667,17 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'NoSuchBucket')
 
     def test_object_multipart_upload_complete(self):
+        content_md5 = base64.b64encode(hashlib.md5(XML).digest())
         req = Request.blank('/bucket/object?uploadId=X',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header(), },
-                            body=xml)
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5, },
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
         self.assertNotIn('Etag', headers)
-        self.assertEqual(elem.find('ETag').text, s3_etag)
+        self.assertEqual(elem.find('ETag').text, S3_ETAG)
         self.assertEqual(status.split()[0], '200')
 
         self.assertEqual(self.swift.calls, [
@@ -694,9 +696,21 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(headers.get('X-Object-Meta-Foo'), 'bar')
         self.assertEqual(headers.get('Content-Type'), 'baz/quux')
         # SLO will provide a base value
-        override_etag = '; s3_etag=%s' % s3_etag.strip('"')
+        override_etag = '; s3_etag=%s' % S3_ETAG.strip('"')
         h = 'X-Object-Sysmeta-Container-Update-Override-Etag'
         self.assertEqual(headers.get(h), override_etag)
+
+    def test_object_multipart_upload_invalid_md5(self):
+        bad_md5 = base64.b64encode(hashlib.md5(XML + 'some junk').digest())
+        req = Request.blank('/bucket/object?uploadId=X',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': bad_md5, },
+                            body=XML)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual('400 Bad Request', status)
+        self.assertEqual(self._get_error_code(body), 'BadDigest')
 
     @patch('swift.common.middleware.s3api.controllers.multi_upload.time')
     def test_object_multipart_upload_complete_with_heartbeat(self, mock_time):
@@ -708,7 +722,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             json.dumps([
                 {'name': item[0].replace('object', 'heartbeat-ok'),
                  'last_modified': item[1], 'hash': item[2], 'bytes': item[3]}
-                for item in objects_template
+                for item in OBJECTS_TEMPLATE
             ]))
         self.swift.register(
             'PUT', '/v1/AUTH_test/bucket/heartbeat-ok',
@@ -732,7 +746,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
-                            body=xml)
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         lines = body.split('\n')
         self.assertTrue(lines[0].startswith('<?xml '))
@@ -740,8 +754,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertFalse(lines[1].strip())
         fromstring(body, 'CompleteMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
-        # NB: s3_etag includes quotes
-        self.assertIn('<ETag>%s</ETag>' % s3_etag, body)
+        # NB: S3_ETAG includes quotes
+        self.assertIn('<ETag>%s</ETag>' % S3_ETAG, body)
         self.assertEqual(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/heartbeat-ok/X'),
@@ -761,7 +775,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             json.dumps([
                 {'name': item[0].replace('object', 'heartbeat-fail'),
                  'last_modified': item[1], 'hash': item[2], 'bytes': item[3]}
-                for item in objects_template
+                for item in OBJECTS_TEMPLATE
             ]))
         self.swift.register(
             'PUT', '/v1/AUTH_test/bucket/heartbeat-fail',
@@ -781,7 +795,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
-                            body=xml)
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         lines = body.split('\n')
         self.assertTrue(lines[0].startswith('<?xml '), (status, lines))
@@ -810,7 +824,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             json.dumps([
                 {'name': item[0].replace('object', 'heartbeat-fail'),
                  'last_modified': item[1], 'hash': item[2], 'bytes': item[3]}
-                for item in objects_template
+                for item in OBJECTS_TEMPLATE
             ]))
         self.swift.register(
             'PUT', '/v1/AUTH_test/bucket/heartbeat-fail',
@@ -830,7 +844,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
-                            body=xml)
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         lines = body.split('\n')
         self.assertTrue(lines[0].startswith('<?xml '))
@@ -856,7 +870,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
-                            body=xml)
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
         fromstring(body, 'CompleteMultipartUploadResult')
@@ -874,7 +888,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
-                            body=xml)
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         fromstring(body, 'CompleteMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
@@ -892,7 +906,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
-                            body=xml)
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         fromstring(body, 'CompleteMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
@@ -907,7 +921,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                                      'HTTP_HOST': 'localhost:8080:8080'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header(), },
-                            body=xml)
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         fromstring(body, 'CompleteMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
@@ -925,7 +939,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             environ={'REQUEST_METHOD': 'POST'},
             headers={'Authorization': 'AWS test:tester:hmac',
                      'Date': self.get_date_header(), },
-            body=xml)
+            body=XML)
 
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
@@ -946,7 +960,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             environ={'REQUEST_METHOD': 'POST'},
             headers={'Authorization': 'AWS test:tester:hmac',
                      'Date': self.get_date_header(), },
-            body=xml)
+            body=XML)
 
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
@@ -1135,7 +1149,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()},
-                            body=xml)
+                            body=XML)
         status, headers, body = self.call_s3api(req)
         fromstring(body, 'CompleteMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
@@ -1289,11 +1303,11 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         for p in elem.findall('Part'):
             partnum = int(p.find('PartNumber').text)
             self.assertEqual(p.find('LastModified').text,
-                             objects_template[partnum - 1][1][:-3] + 'Z')
+                             OBJECTS_TEMPLATE[partnum - 1][1][:-3] + 'Z')
             self.assertEqual(p.find('ETag').text.strip(),
-                             '"%s"' % objects_template[partnum - 1][2])
+                             '"%s"' % OBJECTS_TEMPLATE[partnum - 1][2])
             self.assertEqual(p.find('Size').text,
-                             str(objects_template[partnum - 1][3]))
+                             str(OBJECTS_TEMPLATE[partnum - 1][3]))
         self.assertEqual(status.split()[0], '200')
 
     def test_object_list_parts_encoding_type(self):
@@ -1378,11 +1392,11 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         for p in elem.findall('Part'):
             partnum = int(p.find('PartNumber').text)
             self.assertEqual(p.find('LastModified').text,
-                             objects_template[partnum - 1][1][:-3] + 'Z')
+                             OBJECTS_TEMPLATE[partnum - 1][1][:-3] + 'Z')
             self.assertEqual(p.find('ETag').text,
-                             '"%s"' % objects_template[partnum - 1][2])
+                             '"%s"' % OBJECTS_TEMPLATE[partnum - 1][2])
             self.assertEqual(p.find('Size').text,
-                             str(objects_template[partnum - 1][3]))
+                             str(OBJECTS_TEMPLATE[partnum - 1][3]))
         self.assertEqual(status.split()[0], '200')
 
     def test_object_list_parts_over_max_32bit_int(self):
@@ -1573,21 +1587,21 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_complete_multipart_upload_acl_without_permission(self):
         status, headers, body = \
             self._test_for_s3acl('POST', '?uploadId=X', 'test:other',
-                                 body=xml)
+                                 body=XML)
         self.assertEqual(status.split()[0], '403')
 
     @s3acl(s3acl_only=True)
     def test_complete_multipart_upload_acl_with_write_permission(self):
         status, headers, body = \
             self._test_for_s3acl('POST', '?uploadId=X', 'test:write',
-                                 body=xml)
+                                 body=XML)
         self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_complete_multipart_upload_acl_with_fullcontrol_permission(self):
         status, headers, body = \
             self._test_for_s3acl('POST', '?uploadId=X', 'test:full_control',
-                                 body=xml)
+                                 body=XML)
         self.assertEqual(status.split()[0], '200')
 
     def _test_copy_for_s3acl(self, account, src_permission=None,

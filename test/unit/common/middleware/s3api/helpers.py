@@ -114,6 +114,9 @@ class FakeSwift(object):
         if method == 'PUT' and obj:
             input = env['wsgi.input'].read()
             etag = md5(input).hexdigest()
+            if env.get('HTTP_ETAG', etag) != etag:
+                raise Exception('Client sent a bad ETag! Got %r, but '
+                                'md5(body) = %r' % (env['HTTP_ETAG'], etag))
             headers.setdefault('Etag', etag)
             headers.setdefault('Content-Length', len(input))
 

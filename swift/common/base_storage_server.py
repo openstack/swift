@@ -15,7 +15,8 @@
 
 import inspect
 from swift import __version__ as swift_version
-from swift.common.utils import public, timing_stats, config_true_value
+from swift.common.utils import public, timing_stats, config_true_value, \
+    LOG_LINE_DEFAULT_FORMAT
 from swift.common.swob import Response
 
 
@@ -30,6 +31,9 @@ class BaseStorageServer(object):
         if replication_server is not None:
             replication_server = config_true_value(replication_server)
         self.replication_server = replication_server
+        self.log_format = conf.get('log_format', LOG_LINE_DEFAULT_FORMAT)
+        self.anonymization_method = conf.get('log_anonymization_method', 'md5')
+        self.anonymization_salt = conf.get('log_anonymization_salt', '')
 
     @property
     def server_type(self):

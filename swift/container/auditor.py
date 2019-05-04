@@ -111,7 +111,7 @@ class ContainerAuditor(Daemon):
         """
         start_time = time.time()
         try:
-            broker = ContainerBroker(path)
+            broker = ContainerBroker(path, logger=self.logger)
             if not broker.is_deleted():
                 broker.get_info()
                 self.logger.increment('passes')

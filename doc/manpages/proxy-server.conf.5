@@ -730,6 +730,52 @@ Note: reveal_sensitive_prefix will not affect the value logged with access_log_h
 What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
 Default is "GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS".
+.IP \fBlog_anonymization_method\fR
+Hashing algorithm for anonymization. Must be one of algorithms supported by Python's hashlib. Default is MD5.
+.IP \fBlog_anonymization_salt\fR
+Salt added as prefix before hashing the value to anonymize. Default is empty (no salt).
+.IP "\fBlog_msg_template\fR"
+Template used to format access logs. All words surrounded by curly brackets will be substituted with the appropriate values.
+
+.RE
+.PD 0
+.RS 10
+.IP "Some keywords map to timestamps and can be converted to standard dates formats using the matching transformers: 'datetime', 'asctime' or 'iso8601'."
+.IP "Other transformers for timestamps are 's', 'ms', 'us' and 'ns' for seconds, milliseconds, microseconds and nanoseconds."
+.IP "Python's strftime directives can also be used as tranformers (a, A, b, B, c, d, H, I, j, m, M, p, S, U, w, W, x, X, y, Y, Z)."
+.IP "Some keywords map to user data that could be anonymized by using the transformer 'anonymized'."
+.IP "Keywords availables are:"
+.PD 0
+.RS 7
+.IP "client_ip              (anonymizable)"
+.IP "remote_addr            (anonymizable)"
+.IP "method                 (request method)"
+.IP "path                   (anonymizable)"
+.IP "protocol"
+.IP "status_int"
+.IP "referer                (anonymizable)"
+.IP "user_agent             (anonymizable)"
+.IP "auth_token"
+.IP "bytes_recvd            (number of bytes received)"
+.IP "bytes_sent             (number of bytes sent)"
+.IP "client_etag            (anonymizable)"
+.IP "transaction_id"
+.IP "headers                (anonymizable)"
+.IP "request_time           (difference between start and end timestamps)
+.IP "source"
+.IP "log_info"
+.IP "start_time             (timestamp at the receiving, timestamp)"
+.IP "end_time               (timestamp at the end of the treatment, timestamp)"
+.IP "policy_index"
+.IP "account                (account name, anonymizable)"
+.IP "container              (container name, anonymizable)"
+.IP "object                 (object name, anonymizable)"
+.PD
+.RE
+
+.IP "Example: '{client_ip.anonymized} {remote_addr.anonymized} {start_time.iso8601} {end_time.H}:{end_time.M} {method} acc:{account} cnt:{container} obj:{object.anonymized}'"
+.IP "Default: '{client_ip} {remote_addr} {end_time.datetime} {method} {path} {protocol} {status_int} {referer} {user_agent} {auth_token} {bytes_recvd} {bytes_sent} {client_etag} {transaction_id} {headers} {request_time} {source} {log_info} {start_time} {end_time} {policy_index}'"
+.IP "Warning: A bad log message template will raise an error in initialization."
 .RE
 .PD
 

@@ -193,7 +193,8 @@ class AccountReaper(Daemon):
                         elif fname.endswith('.db'):
                             self.start_time = time()
                             broker = \
-                                AccountBroker(os.path.join(hsh_path, fname))
+                                AccountBroker(os.path.join(hsh_path, fname),
+                                              logger=self.logger)
                             if broker.is_status_deleted() and \
                                     not broker.empty():
                                 self.reap_account(

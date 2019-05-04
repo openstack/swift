@@ -21,10 +21,10 @@ to plug in your own logging format/method.
 
 The logging format implemented below is as follows:
 
-client_ip remote_addr datetime request_method request_path protocol
+client_ip remote_addr end_time.datetime method path protocol
     status_int referer user_agent auth_token bytes_recvd bytes_sent
     client_etag transaction_id headers request_time source log_info
-    request_start_time request_end_time
+    start_time end_time policy_index
 
 These values are space-separated, and each is url-encoded, so that they can
 be separated with a simple .split()
@@ -73,15 +73,14 @@ bandwidth usage will want to only sum up logs with no swift.source.
 
 import time
 
-from six.moves.urllib.parse import quote
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 config_true_value,
-                                InputProxy, list_from_csv, get_policy_index)
+                                InputProxy, list_from_csv, get_policy_index,
+                                split_path, StrAnonymizer, StrFormatTime,
+                                LogStringFormatter)
 
 from swift.common.storage_policy import POLICIES
-
-QUOTE_SAFE = '/:'
 
 
 class ProxyLoggingMiddleware(object):
@@ -91,6 +90,18 @@ class ProxyLoggingMiddleware(object):
 
     def __init__(self, app, conf, logger=None):
         self.app = app
+        self.log_formatter = LogStringFormatter(default='-', quote=True)
+        self.log_msg_template = conf.get(
+            'log_msg_template', (
+                '{client_ip} {remote_addr} {end_time.datetime} {method} '
+                '{path} {protocol} {status_int} {referer} {user_agent} '
+                '{auth_token} {bytes_recvd} {bytes_sent} {client_etag} '
+                '{transaction_id} {headers} {request_time} {source} '
+                '{log_info} {start_time} {end_time} {policy_index}'))
+        # The salt is only used in StrAnonymizer. This class requires bytes,
+        # convert it now to prevent useless convertion later.
+        self.anonymization_method = conf.get('log_anonymization_method', 'md5')
+        self.anonymization_salt = conf.get('log_anonymization_salt', '')
         self.log_hdrs = config_true_value(conf.get(
             'access_log_headers',
             conf.get('log_headers', 'no')))
@@ -121,6 +132,51 @@ class ProxyLoggingMiddleware(object):
         self.access_logger.set_statsd_prefix('proxy-server')
         self.reveal_sensitive_prefix = int(
             conf.get('reveal_sensitive_prefix', 16))
+        self.check_log_msg_template_validity()
+
+    def check_log_msg_template_validity(self):
+        replacements = {
+            # Time information
+            'end_time': StrFormatTime(1000001),
+            'start_time': StrFormatTime(1000000),
+            # Information worth to anonymize
+            'client_ip': StrAnonymizer('1.2.3.4', self.anonymization_method,
+                                       self.anonymization_salt),
+            'remote_addr': StrAnonymizer('4.3.2.1', self.anonymization_method,
+                                         self.anonymization_salt),
+            'path': StrAnonymizer('/', self.anonymization_method,
+                                  self.anonymization_salt),
+            'referer': StrAnonymizer('ref', self.anonymization_method,
+                                     self.anonymization_salt),
+            'user_agent': StrAnonymizer('swift', self.anonymization_method,
+                                        self.anonymization_salt),
+            'headers': StrAnonymizer('header', self.anonymization_method,
+                                     self.anonymization_salt),
+            'client_etag': StrAnonymizer('etag', self.anonymization_method,
+                                         self.anonymization_salt),
+            'account': StrAnonymizer('a', self.anonymization_method,
+                                     self.anonymization_salt),
+            'container': StrAnonymizer('c', self.anonymization_method,
+                                       self.anonymization_salt),
+            'object': StrAnonymizer('', self.anonymization_method,
+                                    self.anonymization_salt),
+            # Others information
+            'method': 'GET',
+            'protocol': '',
+            'status_int': '0',
+            'auth_token': '1234...',
+            'bytes_recvd': '1',
+            'bytes_sent': '0',
+            'transaction_id': 'tx1234',
+            'request_time': '0.05',
+            'source': '',
+            'log_info': '',
+            'policy_index': ''
+        }
+        try:
+            self.log_formatter.format(self.log_msg_template, **replacements)
+        except Exception as e:
+            raise ValueError('Cannot interpolate log_msg_template: %s' % e)
 
     def method_from_req(self, req):
         return req.environ.get('swift.orig_req_method', req.method)
@@ -161,37 +217,62 @@ class ProxyLoggingMiddleware(object):
                                            for k, v in req.headers.items())
 
         method = self.method_from_req(req)
-        end_gmtime_str = time.strftime('%d/%b/%Y/%H/%M/%S',
-                                       time.gmtime(end_time))
         duration_time_str = "%.4f" % (end_time - start_time)
-        start_time_str = "%.9f" % start_time
-        end_time_str = "%.9f" % end_time
         policy_index = get_policy_index(req.headers, resp_headers)
-        self.access_logger.info(' '.join(
-            quote(str(x) if x else '-', QUOTE_SAFE)
-            for x in (
-                get_remote_client(req),
-                req.remote_addr,
-                end_gmtime_str,
-                method,
-                req.path_qs,
+
+        acc, cont, obj = None, None, None
+        if req.path.startswith('/v1/'):
+            _, acc, cont, obj = split_path(req.path, 1, 4, True)
+
+        replacements = {
+            # Time information
+            'end_time': StrFormatTime(end_time),
+            'start_time': StrFormatTime(start_time),
+            # Information worth to anonymize
+            'client_ip': StrAnonymizer(get_remote_client(req),
+                                       self.anonymization_method,
+                                       self.anonymization_salt),
+            'remote_addr': StrAnonymizer(req.remote_addr,
+                                         self.anonymization_method,
+                                         self.anonymization_salt),
+            'path': StrAnonymizer(req.path_qs, self.anonymization_method,
+                                  self.anonymization_salt),
+            'referer': StrAnonymizer(req.referer, self.anonymization_method,
+                                     self.anonymization_salt),
+            'user_agent': StrAnonymizer(req.user_agent,
+                                        self.anonymization_method,
+                                        self.anonymization_salt),
+            'headers': StrAnonymizer(logged_headers, self.anonymization_method,
+                                     self.anonymization_salt),
+            'client_etag': StrAnonymizer(req.headers.get('etag'),
+                                         self.anonymization_method,
+                                         self.anonymization_salt),
+            'account': StrAnonymizer(acc, self.anonymization_method,
+                                     self.anonymization_salt),
+            'container': StrAnonymizer(cont, self.anonymization_method,
+                                       self.anonymization_salt),
+            'object': StrAnonymizer(obj, self.anonymization_method,
+                                    self.anonymization_salt),
+            # Others information
+            'method': method,
+            'protocol':
                 req.environ.get('SERVER_PROTOCOL'),
-                status_int,
-                req.referer,
-                req.user_agent,
-                self.obscure_sensitive(req.headers.get('x-auth-token')),
-                bytes_received,
-                bytes_sent,
-                req.headers.get('etag', None),
-                req.environ.get('swift.trans_id'),
-                logged_headers,
-                duration_time_str,
-                req.environ.get('swift.source'),
-                ','.join(req.environ.get('swift.log_info') or ''),
-                start_time_str,
-                end_time_str,
-                policy_index
-            )))
+            'status_int': status_int,
+            'auth_token':
+                self.obscure_sensitive(
+                    req.headers.get('x-auth-token')),
+            'bytes_recvd': bytes_received,
+            'bytes_sent': bytes_sent,
+            'transaction_id': req.environ.get('swift.trans_id'),
+            'request_time': duration_time_str,
+            'source': req.environ.get('swift.source'),
+            'log_info':
+                ','.join(req.environ.get('swift.log_info', '')),
+            'policy_index': policy_index,
+        }
+        self.access_logger.info(
+            self.log_formatter.format(self.log_msg_template,
+                                      **replacements))
 
         # Log timing and bytes-transferred data to StatsD
         metric_name = self.statsd_metric_name(req, status_int, method)
