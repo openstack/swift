@@ -15,6 +15,8 @@
 
 import os
 import test.functional as tf
+import boto3
+from botocore.exceptions import ClientError
 from boto.s3.connection import S3Connection, OrdinaryCallingFormat, \
     S3ResponseError
 import six
@@ -133,6 +135,53 @@ class Connection(object):
             return url, {'Host': '%(host)s:%(port)d:%(port)d' % {
                 'host': self.host, 'port': self.port}}
         return url, {}
+
+
+def get_boto3_conn(aws_access_key='test:tester', aws_secret_key='testing'):
+    host = tf.config['auth_host']
+    port = int(tf.config['auth_port'])
+    config = boto3.session.Config(s3={'addressing_style': 'path'})
+    return boto3.client(
+        's3', aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
+        config=config, region_name='us-east-1', use_ssl=False,
+        endpoint_url='http://{}:{}'.format(host, port))
+
+
+def tear_down_s3(conn):
+    """
+    Reset all swift environment to keep clean. As a result by calling this
+    method, we can assume the backend swift keeps no containers and no
+    objects on this connection's account.
+    """
+    exceptions = []
+    for i in range(RETRY_COUNT):
+        try:
+            resp = conn.list_buckets()
+            buckets = [bucket['Name'] for bucket in resp.get('Buckets', [])]
+            for bucket in buckets:
+                try:
+                    resp = conn.list_multipart_uploads(Bucket=bucket)
+                    for upload in resp.get('Uploads', []):
+                        conn.abort_multipart_upload(
+                            Bucket=bucket,
+                            Key=upload['Key'],
+                            UploadId=upload['UploadId'])
+
+                    resp = conn.list_objects(Bucket=bucket)
+                    for obj in resp.get('Contents', []):
+                        conn.delete_object(Bucket=bucket, Key=obj['Key'])
+                    conn.delete_bucket(Bucket=bucket)
+                except ClientError as e:
+                    # 404 means NoSuchBucket, NoSuchKey, or NoSuchUpload
+                    if e.response['ResponseMetadata']['HTTPStatusCode'] != 404:
+                        raise
+        except Exception as e:
+            exceptions.append(''.join(
+                traceback.format_exception(*sys.exc_info())))
+    if exceptions:
+        exceptions.insert(0, 'Too many errors to continue:')
+        raise Exception('\n========\n'.join(exceptions))
 
 
 # TODO: make sure where this function is used
