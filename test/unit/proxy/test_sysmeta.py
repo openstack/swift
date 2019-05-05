@@ -37,17 +37,16 @@ class FakeServerConnection(WSGIContext):
     '''Fakes an HTTPConnection to a server instance.'''
     def __init__(self, app):
         super(FakeServerConnection, self).__init__(app)
-        self.data = ''
+        self.data = b''
 
     def getheaders(self):
         return self._response_headers
 
     def read(self, amt=None):
         try:
-            result = next(self.resp_iter)
-            return result
+            return next(self.resp_iter)
         except StopIteration:
-            return ''
+            return b''
 
     def getheader(self, name, default=None):
         result = self._response_header_value(name)
@@ -57,7 +56,7 @@ class FakeServerConnection(WSGIContext):
         environ = {'REQUEST_METHOD': self.method}
         req = Request.blank(self.path, environ, headers=self.req_headers,
                             body=self.data)
-        self.data = ''
+        self.data = b''
         self.resp = self._app_call(req.environ)
         self.resp_iter = iter(self.resp)
         if self._response_headers is None:
@@ -193,7 +192,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.bad_headers)
         hdrs.update(self.original_transient_sysmeta_headers_1)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
 
@@ -213,7 +212,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.bad_headers)
         hdrs.update(self.original_transient_sysmeta_headers_1)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
 
@@ -234,7 +233,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.original_sysmeta_headers_2)
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.original_meta_headers_2)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
 
@@ -244,7 +243,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.changed_meta_headers)
         hdrs.update(self.new_meta_headers)
         hdrs.update(self.bad_headers)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
 
@@ -265,7 +264,7 @@ class TestObjectSysmeta(unittest.TestCase):
         env = {'REQUEST_METHOD': 'PUT'}
         hdrs = dict(self.original_sysmeta_headers_1)
         hdrs.update(self.original_meta_headers_1)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(app)
         self._assertStatus(resp, 201)
 
@@ -292,7 +291,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs = dict(self.changed_sysmeta_headers)
         hdrs.update(self.new_sysmeta_headers)
         hdrs.update(self.bad_headers)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(app)
         self._assertStatus(resp, 201)
 
@@ -319,7 +318,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.original_meta_headers_2)
         hdrs.update(self.original_transient_sysmeta_headers_1)
         hdrs.update(self.original_transient_sysmeta_headers_2)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(self.copy_app)
         self._assertStatus(resp, 201)
 
@@ -369,7 +368,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.original_sysmeta_headers_2)
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.original_meta_headers_2)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(self.copy_app)
         self._assertStatus(resp, 201)
 
@@ -380,7 +379,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.new_meta_headers)
         hdrs.update(self.bad_headers)
         hdrs.update({'X-Copy-From': '/c/o'})
-        req = Request.blank('/v1/a/c/o2', environ=env, headers=hdrs, body='')
+        req = Request.blank('/v1/a/c/o2', environ=env, headers=hdrs, body=b'')
         resp = req.get_response(self.copy_app)
         self._assertStatus(resp, 201)
         self._assertInHeaders(resp, self.changed_sysmeta_headers)
@@ -410,7 +409,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs = dict(self.original_transient_sysmeta_headers_1)
         hdrs.update(self.original_transient_sysmeta_headers_2)
         hdrs.update(self.original_meta_headers_1)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(app)
         self._assertStatus(resp, 201)
 
@@ -452,7 +451,7 @@ class TestObjectSysmeta(unittest.TestCase):
         env = {'REQUEST_METHOD': 'PUT'}
         hdrs = dict(self.new_transient_sysmeta_headers_2)
         hdrs.update(self.original_meta_headers_2)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
+        req = Request.blank(path, environ=env, headers=hdrs, body=b'x')
         resp = req.get_response(app)
         self._assertStatus(resp, 201)
 
