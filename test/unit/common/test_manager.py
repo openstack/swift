@@ -503,6 +503,123 @@ class TestServer(unittest.TestCase):
             conf = self.join_swift_dir(server_name + '.conf')
             self.assertEqual(conf_file, conf)
 
+    def _test_expirer_conf_files(self, files_and_contents, expected_files):
+        files, contents = zip(*files_and_contents)
+        with temptree(files, contents) as t:
+            manager.SWIFT_DIR = t
+            expected_files = [self.join_swift_dir(f) for f in expected_files]
+
+            def assert_results(quiet, verbose):
+                original_stdout = sys.stdout
+                try:
+                    with open(os.path.join(t, 'output'), 'w+') as stdout:
+                        sys.stdout = stdout
+                        server = manager.Server('object-expirer')
+                        conf_files = server.conf_files(verbose=verbose,
+                                                       quiet=quiet)
+                        messages = pop_stream(stdout)
+                finally:
+                    sys.stdout = original_stdout
+
+                self.assertEqual(conf_files, expected_files)
+
+                if any(["expirer" in f for f in expected_files]) and not quiet:
+                    self.assertIn(
+                        "object-expirer.conf is deprecated.", messages)
+                    if verbose:
+                        for f in expected_files:
+                            self.assertIn(f, messages)
+                elif not expected_files and not quiet:
+                    self.assertIn("Unable to locate config", messages)
+                else:
+                    self.assertEqual(messages, "")
+
+            assert_results(quiet=True, verbose=False)
+            assert_results(quiet=False, verbose=False)
+            assert_results(quiet=False, verbose=True)
+
+    def test_expirer_conf_files(self):
+        self._test_expirer_conf_files(
+            [('object-expirer.conf', '')], ['object-expirer.conf'])
+
+        self._test_expirer_conf_files(
+            [('object-server.conf', '')], [])
+        self._test_expirer_conf_files(
+            [('object-server.conf', '[object-expirer]')],
+            ['object-server.conf'])
+
+        self._test_expirer_conf_files([
+            ('object-server/1.conf', ''),
+            ('object-server/2.conf', ''),
+            ('object-server/3.conf', ''),
+            ('object-server/4.conf', ''),
+        ], [])
+        self._test_expirer_conf_files([
+            ('object-server/1.conf', '[object-expirer]'),
+            ('object-server/2.conf', ''),
+            ('object-server/3.conf', ''),
+            ('object-server/4.conf', ''),
+        ], ['object-server/1.conf'])
+        self._test_expirer_conf_files([
+            ('object-server/1.conf', '[object-expirer]'),
+            ('object-server/2.conf', '[object-expirer]'),
+            ('object-server/3.conf', '[object-expirer]'),
+            ('object-server/4.conf', '[object-expirer]'),
+        ], [
+            'object-server/1.conf',
+            'object-server/2.conf',
+            'object-server/3.conf',
+            'object-server/4.conf',
+        ])
+
+        self._test_expirer_conf_files([
+            ('object-server.conf', ''),
+            ('object-expirer.conf', ''),
+        ], ['object-expirer.conf'])
+        self._test_expirer_conf_files([
+            ('object-server.conf', '[object-expirer]'),
+            ('object-expirer.conf', ''),
+        ], ['object-server.conf'])
+
+        self._test_expirer_conf_files([
+            ('object-server/1.conf', ''),
+            ('object-server/2.conf', ''),
+            ('object-server/3.conf', ''),
+            ('object-server/4.conf', ''),
+            ('object-expirer.conf', ''),
+        ], ['object-expirer.conf'])
+        self._test_expirer_conf_files([
+            ('object-server/1.conf', '[object-expirer]'),
+            ('object-server/2.conf', ''),
+            ('object-server/3.conf', ''),
+            ('object-server/4.conf', ''),
+            ('object-expirer.conf', ''),
+        ], ['object-server/1.conf'])
+        self._test_expirer_conf_files([
+            ('object-server/1.conf', '[object-expirer]'),
+            ('object-server/2.conf', '[object-expirer]'),
+            ('object-server/3.conf', '[object-expirer]'),
+            ('object-server/4.conf', '[object-expirer]'),
+            ('object-expirer.conf', ''),
+        ], [
+            'object-server/1.conf',
+            'object-server/2.conf',
+            'object-server/3.conf',
+            'object-server/4.conf',
+        ])
+
+        self._test_expirer_conf_files([
+            ('object-server/1.conf.d/20_setting.conf', '[object-expirer]'),
+            ('object-server/2.conf.d/20_setting.conf', '[object-expirer]'),
+            ('object-server/3.conf.d/20_setting.conf', '[object-expirer]'),
+            ('object-server/4.conf.d/20_setting.conf', '[object-expirer]'),
+        ], [
+            'object-server/1.conf.d',
+            'object-server/2.conf.d',
+            'object-server/3.conf.d',
+            'object-server/4.conf.d',
+        ])
+
     def test_proxy_conf_dir(self):
         conf_files = (
             'proxy-server.conf.d/00.conf',

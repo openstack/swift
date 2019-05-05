@@ -25,7 +25,7 @@ import re
 from swift import gettext_ as _
 import tempfile
 
-from swift.common.utils import search_tree, remove_file, write_file
+from swift.common.utils import search_tree, remove_file, write_file, readconf
 from swift.common.exceptions import InvalidPidFileException
 
 SWIFT_DIR = '/etc/swift'
@@ -48,7 +48,7 @@ GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS
 START_ONCE_SERVERS = REST_SERVERS
 # These are servers that match a type (account-*, container-*, object-*) but
 # don't use that type-server.conf file and instead use their own.
-STANDALONE_SERVERS = ['object-expirer', 'container-reconciler']
+STANDALONE_SERVERS = ['container-reconciler']
 
 KILL_WAIT = 15  # seconds to wait for servers to die (by default)
 WARNING_WAIT = 3  # seconds to wait after message that may just be a warning
@@ -475,6 +475,14 @@ class Server(object):
                     self.server, '%s-server' % self.type, 1).replace(
                         '.pid', '.conf', 1)
 
+    def _find_conf_files(self, server_search):
+        if self.conf is not None:
+            return search_tree(SWIFT_DIR, server_search, self.conf + '.conf',
+                               dir_ext=self.conf + '.conf.d')
+        else:
+            return search_tree(SWIFT_DIR, server_search + '*', '.conf',
+                               dir_ext='.conf.d')
+
     def conf_files(self, **kwargs):
         """Get conf files for this server
 
@@ -482,17 +490,27 @@ class Server(object):
 
         :returns: list of conf files
         """
-        if self.server in STANDALONE_SERVERS:
-            server_search = self.server
+        if self.server == 'object-expirer':
+            def has_expirer_section(conf_path):
+                try:
+                    readconf(conf_path, section_name="object-expirer")
+                except ValueError:
+                    return False
+                else:
+                    return True
+
+            # config of expirer is preferentially read from object-server
+            # section. If all object-server.conf doesn't have object-expirer
+            # section, object-expirer.conf is used.
+            found_conf_files = [
+                conf for conf in self._find_conf_files("object-server")
+                if has_expirer_section(conf)
+            ] or self._find_conf_files("object-expirer")
+        elif self.server in STANDALONE_SERVERS:
+            found_conf_files = self._find_conf_files(self.server)
         else:
-            server_search = "%s-server" % self.type
-        if self.conf is not None:
-            found_conf_files = search_tree(SWIFT_DIR, server_search,
-                                           self.conf + '.conf',
-                                           dir_ext=self.conf + '.conf.d')
-        else:
-            found_conf_files = search_tree(SWIFT_DIR, server_search + '*',
-                                           '.conf', dir_ext='.conf.d')
+            found_conf_files = self._find_conf_files("%s-server" % self.type)
+
         number = kwargs.get('number')
         if number:
             try:
@@ -501,6 +519,13 @@ class Server(object):
                 conf_files = []
         else:
             conf_files = found_conf_files
+
+        def dump_found_configs():
+            if found_conf_files:
+                print(_('Found configs:'))
+            for i, conf_file in enumerate(found_conf_files):
+                print('  %d) %s' % (i + 1, conf_file))
+
         if not conf_files:
             # maybe there's a config file(s) out there, but I couldn't find it!
             if not kwargs.get('quiet'):
@@ -511,10 +536,14 @@ class Server(object):
                 else:
                     print(_('Unable to locate config for %s') % self.server)
             if kwargs.get('verbose') and not kwargs.get('quiet'):
-                if found_conf_files:
-                    print(_('Found configs:'))
-                for i, conf_file in enumerate(found_conf_files):
-                    print('  %d) %s' % (i + 1, conf_file))
+                dump_found_configs()
+        elif any(["object-expirer" in name for name in conf_files]) and \
+                not kwargs.get('quiet'):
+            print(_("WARNING: object-expirer.conf is deprecated. "
+                    "Move object-expirers' configuration into "
+                    "object-server.conf."))
+            if kwargs.get('verbose'):
+                dump_found_configs()
 
         return conf_files
 
