@@ -191,7 +191,7 @@ payload sent to the proxy (the list of objects/containers to be deleted).
 """
 
 import json
-from six.moves.urllib.parse import quote, unquote
+import six
 import tarfile
 from xml.sax import saxutils
 from time import time
@@ -200,7 +200,8 @@ import zlib
 from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
-    HTTPLengthRequired, HTTPException, HTTPServerError, wsgify
+    HTTPLengthRequired, HTTPException, HTTPServerError, wsgify, \
+    bytes_to_wsgi, str_to_wsgi, wsgi_unquote, wsgi_quote, wsgi_to_str
 from swift.common.utils import get_logger, register_swift_info, \
     StreamingPile
 from swift.common import constraints
@@ -234,7 +235,7 @@ def get_response_body(data_format, data_dict, error_list, root_tag):
     """
     if data_format == 'application/json':
         data_dict['Errors'] = error_list
-        return json.dumps(data_dict)
+        return json.dumps(data_dict).encode('ascii')
     if data_format and data_format.endswith('/xml'):
         output = ['<', root_tag, '>\n']
         for key in sorted(data_dict):
@@ -251,7 +252,9 @@ def get_response_body(data_format, data_dict, error_list, root_tag):
                 saxutils.escape(status), '</status></object>\n',
             ])
         output.extend(['</errors>\n</', root_tag, '>\n'])
-        return ''.join(output)
+        if six.PY2:
+            return ''.join(output)
+        return ''.join(output).encode('utf-8')
 
     output = []
     for key in sorted(data_dict):
@@ -260,7 +263,9 @@ def get_response_body(data_format, data_dict, error_list, root_tag):
     output.extend(
         '%s, %s\n' % (name, status)
         for name, status in error_list)
-    return ''.join(output)
+    if six.PY2:
+        return ''.join(output)
+    return ''.join(output).encode('utf-8')
 
 
 def pax_key_to_swift_header(pax_key):
@@ -269,10 +274,14 @@ def pax_key_to_swift_header(pax_key):
         return "Content-Type"
     elif pax_key.startswith(u"SCHILY.xattr.user.meta."):
         useful_part = pax_key[len(u"SCHILY.xattr.user.meta."):]
-        return "X-Object-Meta-" + useful_part.encode("utf-8")
+        if six.PY2:
+            return "X-Object-Meta-" + useful_part.encode("utf-8")
+        return str_to_wsgi("X-Object-Meta-" + useful_part)
     elif pax_key.startswith(u"LIBARCHIVE.xattr.user.meta."):
         useful_part = pax_key[len(u"LIBARCHIVE.xattr.user.meta."):]
-        return "X-Object-Meta-" + useful_part.encode("utf-8")
+        if six.PY2:
+            return "X-Object-Meta-" + useful_part.encode("utf-8")
+        return str_to_wsgi("X-Object-Meta-" + useful_part)
     else:
         # You can get things like atime/mtime/ctime or filesystem ACLs in
         # pax headers; those aren't really user metadata. The same goes for
@@ -308,7 +317,7 @@ class Bulk(object):
         :raises CreateContainerError: when unable to create container
         """
         head_cont_req = make_subrequest(
-            req.environ, method='HEAD', path=quote(container_path),
+            req.environ, method='HEAD', path=wsgi_quote(container_path),
             headers={'X-Auth-Token': req.headers.get('X-Auth-Token')},
             swift_source='EA')
         resp = head_cont_req.get_response(self.app)
@@ -316,7 +325,7 @@ class Bulk(object):
             return False
         if resp.status_int == HTTP_NOT_FOUND:
             create_cont_req = make_subrequest(
-                req.environ, method='PUT', path=quote(container_path),
+                req.environ, method='PUT', path=wsgi_quote(container_path),
                 headers={'X-Auth-Token': req.headers.get('X-Auth-Token')},
                 swift_source='EA')
             resp = create_cont_req.get_response(self.app)
@@ -333,7 +342,7 @@ class Bulk(object):
         :returns: a list of the contents of req.body when separated by newline.
         :raises HTTPException: on failures
         """
-        line = ''
+        line = b''
         data_remaining = True
         objs_to_delete = []
         if req.content_length is None and \
@@ -341,21 +350,31 @@ class Bulk(object):
             raise HTTPLengthRequired(request=req)
 
         while data_remaining:
-            if '\n' in line:
-                obj_to_delete, line = line.split('\n', 1)
-                obj_to_delete = obj_to_delete.strip()
-                objs_to_delete.append(
-                    {'name': unquote(obj_to_delete)})
+            if b'\n' in line:
+                obj_to_delete, line = line.split(b'\n', 1)
+                if six.PY2:
+                    obj_to_delete = wsgi_unquote(obj_to_delete.strip())
+                else:
+                    # yeah, all this chaining is pretty terrible...
+                    # but it gets even worse trying to use UTF-8 and
+                    # errors='surrogateescape' when dealing with terrible
+                    # input like b'\xe2%98\x83'
+                    obj_to_delete = wsgi_to_str(wsgi_unquote(
+                        bytes_to_wsgi(obj_to_delete.strip())))
+                objs_to_delete.append({'name': obj_to_delete})
             else:
                 data = req.body_file.read(self.max_path_length)
                 if data:
                     line += data
                 else:
                     data_remaining = False
-                    obj_to_delete = line.strip()
+                    if six.PY2:
+                        obj_to_delete = wsgi_unquote(line.strip())
+                    else:
+                        obj_to_delete = wsgi_to_str(wsgi_unquote(
+                            bytes_to_wsgi(line.strip())))
                     if obj_to_delete:
-                        objs_to_delete.append(
-                            {'name': unquote(obj_to_delete)})
+                        objs_to_delete.append({'name': obj_to_delete})
             if len(objs_to_delete) > self.max_deletes_per_request:
                 raise HTTPRequestEntityTooLarge(
                     'Maximum Bulk Deletes: %d per request' %
@@ -376,15 +395,15 @@ class Bulk(object):
 
         :params req: a swob Request
         :params objs_to_delete: a list of dictionaries that specifies the
-            objects to be deleted. If None, uses self.get_objs_to_delete to
-            query request.
+            (native string) objects to be deleted. If None, uses
+            self.get_objs_to_delete to query request.
         """
         last_yield = time()
         if out_content_type and out_content_type.endswith('/xml'):
-            to_yield = '<?xml version="1.0" encoding="UTF-8"?>\n'
+            to_yield = b'<?xml version="1.0" encoding="UTF-8"?>\n'
         else:
-            to_yield = ' '
-        separator = ''
+            to_yield = b' '
+        separator = b''
         failed_files = []
         resp_dict = {'Response Status': HTTPOk().status,
                      'Response Body': '',
@@ -399,6 +418,8 @@ class Bulk(object):
                 vrs, account, _junk = req.split_path(2, 3, True)
             except ValueError:
                 raise HTTPNotFound(request=req)
+            vrs = wsgi_to_str(vrs)
+            account = wsgi_to_str(account)
 
             incoming_format = req.headers.get('Content-Type')
             if incoming_format and \
@@ -422,13 +443,13 @@ class Bulk(object):
                             resp_dict['Number Not Found'] += 1
                         else:
                             failed_files.append([
-                                quote(obj_name),
+                                wsgi_quote(str_to_wsgi(obj_name)),
                                 obj_to_delete['error']['message']])
                         continue
                     delete_path = '/'.join(['', vrs, account,
                                             obj_name.lstrip('/')])
                     if not constraints.check_utf8(delete_path):
-                        failed_files.append([quote(obj_name),
+                        failed_files.append([wsgi_quote(str_to_wsgi(obj_name)),
                                              HTTPPreconditionFailed().status])
                         continue
                     yield (obj_name, delete_path)
@@ -443,7 +464,8 @@ class Bulk(object):
 
             def do_delete(obj_name, delete_path):
                 delete_obj_req = make_subrequest(
-                    req.environ, method='DELETE', path=quote(delete_path),
+                    req.environ, method='DELETE',
+                    path=wsgi_quote(str_to_wsgi(delete_path)),
                     headers={'X-Auth-Token': req.headers.get('X-Auth-Token')},
                     body='', agent='%(orig)s ' + user_agent,
                     swift_source=swift_source)
@@ -456,7 +478,7 @@ class Bulk(object):
                         if last_yield + self.yield_frequency < time():
                             last_yield = time()
                             yield to_yield
-                            to_yield, separator = ' ', '\r\n\r\n'
+                            to_yield, separator = b' ', b'\r\n\r\n'
                         self._process_delete(resp, pile, obj_name,
                                              resp_dict, failed_files,
                                              failed_file_response, retry)
@@ -466,7 +488,7 @@ class Bulk(object):
                                 if last_yield + self.yield_frequency < time():
                                     last_yield = time()
                                     yield to_yield
-                                    to_yield, separator = ' ', '\r\n\r\n'
+                                    to_yield, separator = b' ', b'\r\n\r\n'
                                 # Don't pass in the pile, as we shouldn't retry
                                 self._process_delete(
                                     resp, None, obj_name, resp_dict,
@@ -484,7 +506,7 @@ class Bulk(object):
 
         except HTTPException as err:
             resp_dict['Response Status'] = err.status
-            resp_dict['Response Body'] = err.body
+            resp_dict['Response Body'] = err.body.decode('utf-8')
         except Exception:
             self.logger.exception('Error in bulk delete.')
             resp_dict['Response Status'] = HTTPServerError().status
@@ -511,10 +533,10 @@ class Bulk(object):
         failed_files = []
         last_yield = time()
         if out_content_type and out_content_type.endswith('/xml'):
-            to_yield = '<?xml version="1.0" encoding="UTF-8"?>\n'
+            to_yield = b'<?xml version="1.0" encoding="UTF-8"?>\n'
         else:
-            to_yield = ' '
-        separator = ''
+            to_yield = b' '
+        separator = b''
         containers_accessed = set()
         req.environ['eventlet.minimum_write_chunk_size'] = 0
         try:
@@ -539,13 +561,16 @@ class Bulk(object):
                 if last_yield + self.yield_frequency < time():
                     last_yield = time()
                     yield to_yield
-                    to_yield, separator = ' ', '\r\n\r\n'
-                tar_info = next(tar)
+                    to_yield, separator = b' ', b'\r\n\r\n'
+                tar_info = tar.next()
                 if tar_info is None or \
                         len(failed_files) >= self.max_failed_extractions:
                     break
                 if tar_info.isfile():
                     obj_path = tar_info.name
+                    if not six.PY2:
+                        obj_path = obj_path.encode('utf-8', 'surrogateescape')
+                    obj_path = bytes_to_wsgi(obj_path)
                     if obj_path.startswith('./'):
                         obj_path = obj_path[2:]
                     obj_path = obj_path.lstrip('/')
@@ -557,14 +582,14 @@ class Bulk(object):
                     destination = '/'.join(
                         ['', vrs, account, obj_path])
                     container = obj_path.split('/', 1)[0]
-                    if not constraints.check_utf8(destination):
+                    if not constraints.check_utf8(wsgi_to_str(destination)):
                         failed_files.append(
-                            [quote(obj_path[:self.max_path_length]),
+                            [wsgi_quote(obj_path[:self.max_path_length]),
                              HTTPPreconditionFailed().status])
                         continue
                     if tar_info.size > constraints.MAX_FILE_SIZE:
                         failed_files.append([
-                            quote(obj_path[:self.max_path_length]),
+                            wsgi_quote(obj_path[:self.max_path_length]),
                             HTTPRequestEntityTooLarge().status])
                         continue
                     container_failure = None
@@ -581,13 +606,13 @@ class Bulk(object):
                             # the object PUT to this container still may
                             # succeed if acls are set
                             container_failure = [
-                                quote(cont_path[:self.max_path_length]),
+                                wsgi_quote(cont_path[:self.max_path_length]),
                                 err.status]
                             if err.status_int == HTTP_UNAUTHORIZED:
                                 raise HTTPUnauthorized(request=req)
                         except ValueError:
                             failed_files.append([
-                                quote(obj_path[:self.max_path_length]),
+                                wsgi_quote(obj_path[:self.max_path_length]),
                                 HTTPBadRequest().status])
                             continue
 
@@ -598,7 +623,8 @@ class Bulk(object):
                     }
 
                     create_obj_req = make_subrequest(
-                        req.environ, method='PUT', path=quote(destination),
+                        req.environ, method='PUT',
+                        path=wsgi_quote(destination),
                         headers=create_headers,
                         agent='%(orig)s BulkExpand', swift_source='EA')
                     create_obj_req.environ['wsgi.input'] = tar_file
@@ -621,13 +647,13 @@ class Bulk(object):
                             failed_files.append(container_failure)
                         if resp.status_int == HTTP_UNAUTHORIZED:
                             failed_files.append([
-                                quote(obj_path[:self.max_path_length]),
+                                wsgi_quote(obj_path[:self.max_path_length]),
                                 HTTPUnauthorized().status])
                             raise HTTPUnauthorized(request=req)
                         if resp.status_int // 100 == 5:
                             failed_response_type = HTTPBadGateway
                         failed_files.append([
-                            quote(obj_path[:self.max_path_length]),
+                            wsgi_quote(obj_path[:self.max_path_length]),
                             resp.status])
 
             if failed_files:
@@ -638,7 +664,7 @@ class Bulk(object):
 
         except HTTPException as err:
             resp_dict['Response Status'] = err.status
-            resp_dict['Response Body'] = err.body
+            resp_dict['Response Body'] = err.body.decode('utf-8')
         except (tarfile.TarError, zlib.error) as tar_error:
             resp_dict['Response Status'] = HTTPBadRequest().status
             resp_dict['Response Body'] = 'Invalid Tar File: %s' % tar_error
@@ -656,7 +682,7 @@ class Bulk(object):
         elif resp.status_int == HTTP_NOT_FOUND:
             resp_dict['Number Not Found'] += 1
         elif resp.status_int == HTTP_UNAUTHORIZED:
-            failed_files.append([quote(obj_name),
+            failed_files.append([wsgi_quote(str_to_wsgi(obj_name)),
                                  HTTPUnauthorized().status])
         elif resp.status_int == HTTP_CONFLICT and pile and \
                 self.retry_count > 0 and self.retry_count > retry:
@@ -671,7 +697,8 @@ class Bulk(object):
         else:
             if resp.status_int // 100 == 5:
                 failed_file_response['type'] = HTTPBadGateway
-            failed_files.append([quote(obj_name), resp.status])
+            failed_files.append([wsgi_quote(str_to_wsgi(obj_name)),
+                                 resp.status])
 
     @wsgify
     def __call__(self, req):
