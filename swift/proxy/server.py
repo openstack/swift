@@ -246,8 +246,7 @@ class Application(object):
             conf.get('strict_cors_mode', 't'))
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
-        self.concurrent_gets = \
-            config_true_value(conf.get('concurrent_gets'))
+        self.concurrent_gets = config_true_value(conf.get('concurrent_gets'))
         self.concurrency_timeout = float(conf.get('concurrency_timeout',
                                                   self.conn_timeout))
         value = conf.get('request_node_count', '2 * replicas').lower().split()

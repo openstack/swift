@@ -226,8 +226,7 @@ class UploadsController(Controller):
             :return (non_delimited_uploads, common_prefixes)
             """
             if six.PY2:
-                (prefix, delimiter) = \
-                    utf8encode(prefix, delimiter)
+                (prefix, delimiter) = utf8encode(prefix, delimiter)
             non_delimited_uploads = []
             common_prefixes = set()
             for upload in uploads:
@@ -288,8 +287,7 @@ class UploadsController(Controller):
         if 'delimiter' in req.params:
             prefix = req.params.get('prefix', '')
             delimiter = req.params['delimiter']
-            uploads, prefixes = \
-                separate_uploads(uploads, prefix, delimiter)
+            uploads, prefixes = separate_uploads(uploads, prefix, delimiter)
 
         if len(uploads) > maxuploads:
             uploads = uploads[:maxuploads]
@@ -310,8 +308,7 @@ class UploadsController(Controller):
         SubElement(result_elem, 'NextKeyMarker').text = nextkeymarker
         SubElement(result_elem, 'NextUploadIdMarker').text = nextuploadmarker
         if 'delimiter' in req.params:
-            SubElement(result_elem, 'Delimiter').text = \
-                req.params['delimiter']
+            SubElement(result_elem, 'Delimiter').text = req.params['delimiter']
         if 'prefix' in req.params:
             SubElement(result_elem, 'Prefix').text = req.params['prefix']
         SubElement(result_elem, 'MaxUploads').text = str(maxuploads)
