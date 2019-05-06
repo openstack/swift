@@ -1085,6 +1085,20 @@ class TestStoragePolicies(unittest.TestCase):
         p503 = test_policies[503]
         self.assertTrue(501 < p503 < 507)
 
+    def test_storage_policies_as_dict_keys(self):
+        # We have tests that expect to be able to map policies
+        # to expected values in a dict; check that we can use
+        # policies as keys.
+        test_policies = [StoragePolicy(0, 'aay', True),
+                         StoragePolicy(1, 'bee', False),
+                         StoragePolicy(2, 'cee', False)]
+        policy_to_name_map = {p: p.name for p in test_policies}
+        self.assertEqual(sorted(policy_to_name_map.keys()), test_policies)
+        self.assertIs(test_policies[0], next(
+            p for p in policy_to_name_map.keys() if p.is_default))
+        for p in test_policies:
+            self.assertEqual(policy_to_name_map[p], p.name)
+
     def test_get_object_ring(self):
         test_policies = [StoragePolicy(0, 'aay', True),
                          StoragePolicy(1, 'bee', False),

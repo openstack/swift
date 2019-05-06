@@ -206,6 +206,9 @@ class BaseStoragePolicy(object):
     def __int__(self):
         return self.idx
 
+    def __hash__(self):
+        return hash(self.idx)
+
     def __eq__(self, other):
         return self.idx == int(other)
 
