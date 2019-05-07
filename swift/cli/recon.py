@@ -169,8 +169,7 @@ class SwiftRecon(object):
             ret_dict = {'low': min(cstats), 'high': max(cstats),
                         'total': sum(cstats), 'reported': len(cstats),
                         'number_none': len(stats) - len(cstats), 'name': name}
-            ret_dict['average'] = \
-                ret_dict['total'] / float(len(cstats))
+            ret_dict['average'] = ret_dict['total'] / float(len(cstats))
             ret_dict['perc_none'] = \
                 ret_dict['number_none'] * 100.0 / len(stats)
         else:

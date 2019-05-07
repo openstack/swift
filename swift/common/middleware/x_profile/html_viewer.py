@@ -323,8 +323,7 @@ class HTMLViewer(object):
         if not fulldirs:
             stats.strip_dirs()
         stats.sort_stats(sort)
-        nfl_filter_esc =\
-            nfl_filter.replace('(', '\(').replace(')', '\)')
+        nfl_filter_esc = nfl_filter.replace('(', '\(').replace(')', '\)')
         amount = [nfl_filter_esc, limit] if nfl_filter_esc else [limit]
         profile_html = self.generate_stats_html(stats, self.app_path,
                                                 profile_id, *amount)

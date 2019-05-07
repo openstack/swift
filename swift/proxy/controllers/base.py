@@ -395,8 +395,7 @@ def get_account_info(env, app, swift_source=None):
 
     :raises ValueError: when path doesn't contain an account
     """
-    (version, account, _junk, _junk) = \
-        split_path(env['PATH_INFO'], 2, 4, True)
+    (version, account, _junk, _junk) = split_path(env['PATH_INFO'], 2, 4, True)
 
     # Check in environment cache and in memcache (in that order)
     info = _get_info_from_caches(app, env, account)
@@ -1376,8 +1375,7 @@ class GetOrHeadHandler(ResumingGetter):
                 res.swift_conn = source.swift_conn
             if not res.environ:
                 res.environ = {}
-            res.environ['swift_x_timestamp'] = \
-                source.getheader('x-timestamp')
+            res.environ['swift_x_timestamp'] = source.getheader('x-timestamp')
             res.accept_ranges = 'bytes'
             res.content_length = source.getheader('Content-Length')
             if source.getheader('Content-Type'):

@@ -1036,8 +1036,7 @@ def fallocate(fd, size, offset=0):
         st = os.fstatvfs(fd)
         free = st.f_frsize * st.f_bavail - size
         if FALLOCATE_IS_PERCENT:
-            free = \
-                (float(free) / float(st.f_frsize * st.f_blocks)) * 100
+            free = (float(free) / float(st.f_frsize * st.f_blocks)) * 100
         if float(free) <= float(FALLOCATE_RESERVE):
             raise OSError(
                 errno.ENOSPC,

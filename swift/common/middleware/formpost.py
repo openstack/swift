@@ -383,8 +383,7 @@ class FormPost(object):
             subenv['CONTENT_TYPE'] = \
                 attributes['content-type'] or 'application/octet-stream'
         if 'content-encoding' in attributes:
-            subenv['HTTP_CONTENT_ENCODING'] = \
-                attributes['content-encoding']
+            subenv['HTTP_CONTENT_ENCODING'] = attributes['content-encoding']
         try:
             if int(attributes.get('expires') or 0) < time():
                 raise FormUnauthorized('form expired')
