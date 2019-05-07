@@ -246,31 +246,26 @@ class TestReaper(unittest.TestCase):
         self.assertRaises(ValueError, reaper.AccountReaper,
                           {'reap_warn_after': 'abc'})
 
-    def test_reap_delay(self):
-        time_value = [100]
+    @patch.object(reaper, 'time', return_value=100)
+    def test_reap_delay(self, mock_time):
+        r = reaper.AccountReaper({'delay_reaping': '10'})
+        b = FakeBroker()
+        # Deleted in the future
+        b.info['delete_timestamp'] = Timestamp(110).internal
+        self.assertFalse(r.reap_account(b, 0, None))
+        # Deleted, but not enough time has passed
+        b.info['delete_timestamp'] = Timestamp(100).internal
+        self.assertFalse(r.reap_account(b, 0, None))
+        b.info['delete_timestamp'] = Timestamp(90).internal
+        self.assertFalse(r.reap_account(b, 0, None))
 
-        def _time():
-            return time_value[0]
-
-        time_orig = reaper.time
-        try:
-            reaper.time = _time
-            r = reaper.AccountReaper({'delay_reaping': '10'})
-            b = FakeBroker()
-            b.info['delete_timestamp'] = Timestamp(110).internal
-            self.assertFalse(r.reap_account(b, 0, None))
-            b.info['delete_timestamp'] = Timestamp(100).internal
-            self.assertFalse(r.reap_account(b, 0, None))
-            b.info['delete_timestamp'] = Timestamp(90).internal
-            self.assertFalse(r.reap_account(b, 0, None))
-            # KeyError raised immediately as reap_account tries to get the
-            # account's name to do the reaping.
-            b.info['delete_timestamp'] = Timestamp(89).internal
-            self.assertRaises(KeyError, r.reap_account, b, 0, None)
-            b.info['delete_timestamp'] = Timestamp(1).internal
-            self.assertRaises(KeyError, r.reap_account, b, 0, None)
-        finally:
-            reaper.time = time_orig
+        # Deleted and enough time has passed. Expect a KeyError
+        # to be raised immediately as reap_account tries to get the
+        # account's name to do the reaping.
+        b.info['delete_timestamp'] = Timestamp(89).internal
+        self.assertRaises(KeyError, r.reap_account, b, 0, None)
+        b.info['delete_timestamp'] = Timestamp(1).internal
+        self.assertRaises(KeyError, r.reap_account, b, 0, None)
 
     def test_reset_stats(self):
         conf = {}
