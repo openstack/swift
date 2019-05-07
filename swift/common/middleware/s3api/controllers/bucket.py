@@ -177,16 +177,16 @@ class BucketController(Controller):
                     else:
                         name = objects[-1]['subdir']
                     if encoding_type == 'url':
-                        name = quote(name)
+                        name = quote(name.encode('utf-8'))
                     SubElement(elem, 'NextMarker').text = name
             elif listing_type == 'version-2':
                 if is_truncated:
                     if 'name' in objects[-1]:
                         SubElement(elem, 'NextContinuationToken').text = \
-                            b64encode(objects[-1]['name'].encode('utf8'))
+                            b64encode(objects[-1]['name'].encode('utf-8'))
                     if 'subdir' in objects[-1]:
                         SubElement(elem, 'NextContinuationToken').text = \
-                            b64encode(objects[-1]['subdir'].encode('utf8'))
+                            b64encode(objects[-1]['subdir'].encode('utf-8'))
                 if 'continuation-token' in req.params:
                     SubElement(elem, 'ContinuationToken').text = \
                         req.params['continuation-token']
