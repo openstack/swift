@@ -46,6 +46,7 @@ import uuid
 import mock
 from eventlet import sleep, spawn, wsgi, Timeout, debug
 from eventlet.green import httplib
+import six
 from six import BytesIO
 from six.moves import range
 from six.moves.urllib.parse import quote, parse_qsl
@@ -78,7 +79,7 @@ import swift.proxy.controllers
 import swift.proxy.controllers.obj
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
-    HTTPException, HTTPBadRequest
+    HTTPException, HTTPBadRequest, wsgi_to_str
 from swift.common.storage_policy import StoragePolicy, POLICIES
 import swift.common.request_helpers
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -142,7 +143,10 @@ def parse_headers_string(headers_str):
     for line in headers_str.split(b'\r\n'):
         if b': ' in line:
             header, value = line.split(b': ', 1)
-            headers_dict[header] = value
+            if six.PY2:
+                headers_dict[header] = value
+            else:
+                headers_dict[header.decode('utf8')] = value.decode('utf8')
     return headers_dict
 
 
@@ -519,17 +523,17 @@ class TestController(unittest.TestCase):
         ai = get_account_info(env, app)
 
         # Test info is returned as strings
-        self.assertEqual(ai.get('foo'), '\xe2\x98\x83')
+        self.assertEqual(ai.get('foo'), wsgi_to_str('\xe2\x98\x83'))
         self.assertIsInstance(ai.get('foo'), str)
 
         # Test info['meta'] is returned as strings
         m = ai.get('meta', {})
-        self.assertEqual(m.get('bar'), '\xe2\x98\x83')
+        self.assertEqual(m.get('bar'), wsgi_to_str('\xe2\x98\x83'))
         self.assertIsInstance(m.get('bar'), str)
 
         # Test info['sysmeta'] is returned as strings
         m = ai.get('sysmeta', {})
-        self.assertEqual(m.get('baz'), '\xe2\x98\x83')
+        self.assertEqual(m.get('baz'), wsgi_to_str('\xe2\x98\x83'))
         self.assertIsInstance(m.get('baz'), str)
 
     def test_get_container_info_returns_values_as_strings(self):
@@ -545,22 +549,22 @@ class TestController(unittest.TestCase):
         ci = get_container_info(env, app)
 
         # Test info is returned as strings
-        self.assertEqual(ci.get('foo'), '\xe2\x98\x83')
+        self.assertEqual(ci.get('foo'), wsgi_to_str('\xe2\x98\x83'))
         self.assertIsInstance(ci.get('foo'), str)
 
         # Test info['meta'] is returned as strings
         m = ci.get('meta', {})
-        self.assertEqual(m.get('bar'), '\xe2\x98\x83')
+        self.assertEqual(m.get('bar'), wsgi_to_str('\xe2\x98\x83'))
         self.assertIsInstance(m.get('bar'), str)
 
         # Test info['sysmeta'] is returned as strings
         m = ci.get('sysmeta', {})
-        self.assertEqual(m.get('baz'), '\xe2\x98\x83')
+        self.assertEqual(m.get('baz'), wsgi_to_str('\xe2\x98\x83'))
         self.assertIsInstance(m.get('baz'), str)
 
         # Test info['cors'] is returned as strings
         m = ci.get('cors', {})
-        self.assertEqual(m.get('expose_headers'), '\xe2\x98\x83')
+        self.assertEqual(m.get('expose_headers'), wsgi_to_str('\xe2\x98\x83'))
         self.assertIsInstance(m.get('expose_headers'), str)
 
 
@@ -1069,18 +1073,22 @@ class TestProxyServer(unittest.TestCase):
             try:
                 raise Exception('kaboom1!')
             except Exception as err:
+                caught_exc = err
                 app.exception_occurred(node, 'server-type', additional_info)
 
             self.assertEqual(1, app._error_limiting[node_key]['errors'])
             line = logger.get_lines_for_level('error')[-1]
             self.assertIn('server-type server', line)
-            self.assertIn(additional_info.decode('utf8'), line)
+            if six.PY2:
+                self.assertIn(additional_info.decode('utf8'), line)
+            else:
+                self.assertIn(additional_info, line)
             self.assertIn(node['ip'], line)
             self.assertIn(str(node['port']), line)
             self.assertIn(node['device'], line)
             log_args, log_kwargs = logger.log_dict['error'][-1]
             self.assertTrue(log_kwargs['exc_info'])
-            self.assertEqual(err, log_kwargs['exc_info'][1])
+            self.assertIs(caught_exc, log_kwargs['exc_info'][1])
 
         do_test('success')
         do_test('succès')
@@ -1101,7 +1109,10 @@ class TestProxyServer(unittest.TestCase):
 
             self.assertEqual(1, app._error_limiting[node_key]['errors'])
             line = logger.get_lines_for_level('error')[-1]
-            self.assertIn(msg.decode('utf8'), line)
+            if six.PY2:
+                self.assertIn(msg.decode('utf8'), line)
+            else:
+                self.assertIn(msg, line)
             self.assertIn(node['ip'], line)
             self.assertIn(str(node['port']), line)
             self.assertIn(node['device'], line)
@@ -2323,6 +2334,8 @@ class TestReplicatedObjectController(
 
         boundary = dict(params).get('boundary')
         self.assertIsNotNone(boundary)
+        if not isinstance(boundary, bytes):
+            boundary = boundary.encode('ascii')
 
         got_mime_docs = []
         for mime_doc_fh in iter_multipart_mime_documents(BytesIO(res.body),
@@ -2699,6 +2712,8 @@ class TestReplicatedObjectController(
         self.assertEqual(ct, 'multipart/byteranges')  # sanity check
         boundary = dict(params).get('boundary')
         self.assertIsNotNone(boundary)  # sanity check
+        if not isinstance(boundary, bytes):
+            boundary = boundary.encode('ascii')
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(BytesIO(body),
                                                          boundary):
@@ -2731,7 +2746,9 @@ class TestReplicatedObjectController(
         ct, params = parse_content_type(res.headers['Content-Type'])
         self.assertEqual(ct, 'multipart/byteranges')  # sanity check
         boundary = dict(params).get('boundary')
-        self.assertTrue(boundary is not None)  # sanity check
+        self.assertIsNotNone(boundary)  # sanity check
+        if not isinstance(boundary, bytes):
+            boundary = boundary.encode('ascii')
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(BytesIO(body),
                                                          boundary):
@@ -2770,6 +2787,8 @@ class TestReplicatedObjectController(
         self.assertEqual(ct, 'multipart/byteranges')  # sanity check
         boundary = dict(params).get('boundary')
         self.assertIsNotNone(boundary)  # sanity check
+        if not isinstance(boundary, bytes):
+            boundary = boundary.encode('ascii')
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(BytesIO(body),
                                                          boundary):
@@ -2808,6 +2827,8 @@ class TestReplicatedObjectController(
         self.assertEqual(ct, 'multipart/byteranges')  # sanity check
         boundary = dict(params).get('boundary')
         self.assertIsNotNone(boundary)  # sanity check
+        if not isinstance(boundary, bytes):
+            boundary = boundary.encode('ascii')
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(BytesIO(body),
                                                          boundary):
@@ -5265,7 +5286,10 @@ class TestReplicatedObjectController(
             exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
             fd.read(1)
-            sock.fd._sock.close()
+            if six.PY2:
+                sock.fd._sock.close()
+            else:
+                sock.fd._real_close()
             # Make sure the GC is run again for pythons without reference
             # counting
             for i in range(4):
@@ -5690,41 +5714,20 @@ class TestReplicatedObjectController(
             200, 200, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201)
 
         self.assertEqual(
-            sorted(seen_headers), sorted([
-                {'X-Container-Host': '10.0.0.0:1000',
-                 'X-Container-Partition': '0',
-                 'X-Container-Device': 'sda'},
-                {'X-Container-Host': '10.0.0.0:1000',
-                 'X-Container-Partition': '0',
-                 'X-Container-Device': 'sda'},
-                {'X-Container-Host': '10.0.0.0:1000',
-                 'X-Container-Partition': '0',
-                 'X-Container-Device': 'sda'},
-                {'X-Container-Host': '10.0.0.1:1001',
-                 'X-Container-Partition': '0',
-                 'X-Container-Device': 'sdb'},
-                {'X-Container-Host': '10.0.0.1:1001',
-                 'X-Container-Partition': '0',
-                 'X-Container-Device': 'sdb'},
-                {'X-Container-Host': '10.0.0.2:1002',
-                 'X-Container-Partition': '0',
-                 'X-Container-Device': 'sdc'},
-                {'X-Container-Host': '10.0.0.2:1002',
-                 'X-Container-Partition': '0',
-                 'X-Container-Device': 'sdc'},
-                {'X-Container-Host': None,
-                 'X-Container-Partition': None,
-                 'X-Container-Device': None},
-                {'X-Container-Host': None,
-                 'X-Container-Partition': None,
-                 'X-Container-Device': None},
-                {'X-Container-Host': None,
-                 'X-Container-Partition': None,
-                 'X-Container-Device': None},
-                {'X-Container-Host': None,
-                 'X-Container-Partition': None,
-                 'X-Container-Device': None},
-            ]))
+            dict(collections.Counter(tuple(sorted(h.items()))
+                                     for h in seen_headers)),
+            {(('X-Container-Device', 'sda'),
+              ('X-Container-Host', '10.0.0.0:1000'),
+              ('X-Container-Partition', '0')): 3,
+             (('X-Container-Device', 'sdb'),
+              ('X-Container-Host', '10.0.0.1:1001'),
+              ('X-Container-Partition', '0')): 2,
+             (('X-Container-Device', 'sdc'),
+              ('X-Container-Host', '10.0.0.2:1002'),
+              ('X-Container-Partition', '0')): 2,
+             (('X-Container-Device', None),
+              ('X-Container-Host', None),
+              ('X-Container-Partition', None)): 4})
 
     def test_PUT_x_container_headers_with_more_container_replicas(self):
         self.app.container_ring.set_replicas(4)
@@ -6731,7 +6734,10 @@ class BaseTestECObjectController(BaseTestObjectController):
 
                 # read most of the object, and disconnect
                 fd.read(10)
-                sock.fd._sock.close()
+                if six.PY2:
+                    sock.fd._sock.close()
+                else:
+                    sock.fd._real_close()
                 self._sleep_enough(
                     lambda:
                     _test_servers[0].logger.get_lines_for_level('warning'))
@@ -7301,7 +7307,10 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
             finally:
                 # seriously - shut this mother down
                 if conn.sock:
-                    conn.sock.fd._sock.close()
+                    if six.PY2:
+                        conn.sock.fd._sock.close()
+                    else:
+                        conn.sock.fd._real_close()
             return resp, body
 
         # ensure container
@@ -7470,10 +7479,14 @@ class TestObjectECRangedGET(unittest.TestCase):
         # being asserted for every test case
         if 'Content-Length' in headers:
             self.assertEqual(int(headers['Content-Length']), len(gotten_obj))
+        else:
+            self.assertIn('Transfer-Encoding', headers)
+            self.assertEqual(headers['Transfer-Encoding'], 'chunked')
 
         # likewise, if we say MIME and don't send MIME or vice versa,
         # clients will be horribly confused
-        if headers.get('Content-Type', '').startswith('multipart/byteranges'):
+        if headers.get('Content-Type', '').startswith(
+                'multipart/byteranges'):
             self.assertEqual(gotten_obj[:2], b"--")
         else:
             # In general, this isn't true, as you can start an object with
@@ -7484,8 +7497,13 @@ class TestObjectECRangedGET(unittest.TestCase):
         return (status_code, headers, gotten_obj)
 
     def _parse_multipart(self, content_type, body):
-        parser = email.parser.FeedParser()
-        parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+        if six.PY2:
+            parser = email.parser.FeedParser()
+        else:
+            parser = email.parser.BytesFeedParser()
+        if not isinstance(content_type, bytes):
+            content_type = content_type.encode('utf8')
+        parser.feed(b"Content-Type: %s\r\n\r\n" % content_type)
         parser.feed(body)
         root_message = parser.close()
         self.assertTrue(root_message.is_multipart())
@@ -7768,11 +7786,13 @@ class TestObjectECRangedGET(unittest.TestCase):
 
         self.assertEqual(first_byterange['Content-Range'],
                          'bytes 0-100/14513')
-        self.assertEqual(first_byterange.get_payload(), self.obj[:101])
+        self.assertEqual(first_byterange.get_payload(decode=True),
+                         self.obj[:101])
 
         self.assertEqual(second_byterange['Content-Range'],
                          'bytes 4490-5010/14513')
-        self.assertEqual(second_byterange.get_payload(), self.obj[4490:5011])
+        self.assertEqual(second_byterange.get_payload(decode=True),
+                         self.obj[4490:5011])
 
     def test_multiple_ranges_overlapping_in_segment(self):
         status, headers, gotten_obj = self._get_obj(
@@ -7822,10 +7842,12 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(len(got_byteranges), 2)
         self.assertEqual(got_byteranges[0]['Content-Range'],
                          "bytes 0-10/14513")
-        self.assertEqual(got_byteranges[0].get_payload(), self.obj[0:11])
+        self.assertEqual(got_byteranges[0].get_payload(decode=True),
+                         self.obj[0:11])
         self.assertEqual(got_byteranges[1]['Content-Range'],
                          "bytes 40-50/14513")
-        self.assertEqual(got_byteranges[1].get_payload(), self.obj[40:51])
+        self.assertEqual(got_byteranges[1].get_payload(decode=True),
+                         self.obj[40:51])
 
     def test_multiple_ranges_some_unsatisfiable(self):
         status, headers, gotten_obj = self._get_obj(
@@ -7847,11 +7869,13 @@ class TestObjectECRangedGET(unittest.TestCase):
 
         self.assertEqual(first_byterange['Content-Range'],
                          'bytes 0-100/14513')
-        self.assertEqual(first_byterange.get_payload(), self.obj[:101])
+        self.assertEqual(first_byterange.get_payload(decode=True),
+                         self.obj[:101])
 
         self.assertEqual(second_byterange['Content-Range'],
                          'bytes 4090-5010/14513')
-        self.assertEqual(second_byterange.get_payload(), self.obj[4090:5011])
+        self.assertEqual(second_byterange.get_payload(decode=True),
+                         self.obj[4090:5011])
 
     def test_two_ranges_one_unsatisfiable(self):
         status, headers, gotten_obj = self._get_obj(
@@ -7903,11 +7927,13 @@ class TestObjectECRangedGET(unittest.TestCase):
 
         self.assertEqual(first_byterange['Content-Range'],
                          'bytes 0-100/14513')
-        self.assertEqual(first_byterange.get_payload(), self.obj[:101])
+        self.assertEqual(first_byterange.get_payload(decode=True),
+                         self.obj[:101])
 
         self.assertEqual(second_byterange['Content-Range'],
                          'bytes 4090-5010/14513')
-        self.assertEqual(second_byterange.get_payload(), self.obj[4090:5011])
+        self.assertEqual(second_byterange.get_payload(decode=True),
+                         self.obj[4090:5011])
 
 
 @patch_policies([
