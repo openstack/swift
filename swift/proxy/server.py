@@ -393,7 +393,8 @@ class Application(object):
                      admin_key=self.admin_key)
             return InfoController, d
 
-        version, account, container, obj = split_path(req.path, 1, 4, True)
+        version, account, container, obj = split_path(
+            wsgi_to_str(req.path), 1, 4, True)
         d = dict(version=version,
                  account_name=account,
                  container_name=container,

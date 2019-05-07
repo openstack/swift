@@ -71,7 +71,7 @@ from swift.common import utils, constraints
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
     iter_multipart_mime_documents, public, mkdirs, NullLogger
-from swift.common.wsgi import loadapp, ConfigString
+from swift.common.wsgi import loadapp, ConfigString, SwiftHttpProtocol
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_cache_key, cors_validation, \
     get_account_info, get_container_info
@@ -4298,14 +4298,16 @@ class TestReplicatedObjectController(
         object_ring = self.app.get_object_ring(None)
         node_list = [dict(id=n, ip='1.2.3.4', port=n, device='D')
                      for n in range(10)]
-        with mock.patch.object(self.app, 'sort_nodes', lambda n, *args, **kwargs: n), \
+        with mock.patch.object(self.app, 'sort_nodes',
+                               lambda n, *args, **kwargs: n), \
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 3):
             got_nodes = list(self.app.iter_nodes(object_ring, 0,
                                                  node_iter=iter(node_list)))
         self.assertEqual(node_list[:3], got_nodes)
 
-        with mock.patch.object(self.app, 'sort_nodes', lambda n, *args, **kwargs: n), \
+        with mock.patch.object(self.app, 'sort_nodes',
+                               lambda n, *args, **kwargs: n), \
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 1000000):
             got_nodes = list(self.app.iter_nodes(object_ring, 0,
@@ -5568,10 +5570,10 @@ class TestReplicatedObjectController(
             'x-openstack-request-id'])
 
         def objectGET(controller, req):
-                return Response(headers={
-                    'X-Custom-Operator': 'hush',
-                    'X-Custom-User': 'hush',
-                })
+            return Response(headers={
+                'X-Custom-Operator': 'hush',
+                'X-Custom-User': 'hush',
+            })
 
         # test default expose_headers
         self.app.cors_expose_headers = []
@@ -10194,7 +10196,8 @@ class TestSocketObjectVersions(unittest.TestCase):
                 {}
             )
         )
-        self.coro = spawn(wsgi.server, prolis, prosrv, NullLogger())
+        self.coro = spawn(wsgi.server, prolis, prosrv, NullLogger(),
+                          protocol=SwiftHttpProtocol)
         # replace global prosrv with one that's filtered with version
         # middleware
         self.sockets = list(_test_sockets)
@@ -10208,25 +10211,25 @@ class TestSocketObjectVersions(unittest.TestCase):
         self.sockets[0] = self._orig_prolis
         _test_sockets = tuple(self.sockets)
 
-    def test_version_manifest(self, oc='versions', vc='vers', o='name'):
+    def test_version_manifest(self, oc=b'versions', vc=b'vers', o=b'name'):
         versions_to_create = 3
         # Create a container for our versioned object testing
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
          obj2lis, obj3lis, obj4lis, obj5lis, obj6lis) = _test_sockets
-        pre = quote('%03x' % len(o))
-        osub = '%s/sub' % o
-        presub = quote('%03x' % len(osub))
-        osub = quote(osub)
-        presub = quote(presub)
-        oc = quote(oc)
-        vc = quote(vc)
+        pre = quote('%03x' % len(o)).encode('ascii')
+        osub = b'%s/sub' % o
+        presub = quote('%03x' % len(osub)).encode('ascii')
+        osub = quote(osub).encode('ascii')
+        presub = quote(presub).encode('ascii')
+        oc = quote(oc).encode('ascii')
+        vc = quote(vc).encode('ascii')
 
         def put_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
-                     'Connection: close\r\nX-Storage-Token: t\r\n'
-                     'Content-Length: 0\r\nX-Versions-Location: %s\r\n\r\n'
+            fd.write(b'PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
+                     b'Connection: close\r\nX-Storage-Token: t\r\n'
+                     b'Content-Length: 0\r\nX-Versions-Location: %s\r\n\r\n'
                      % (oc, vc))
             fd.flush()
             headers = readuntil2crlfs(fd)
@@ -10234,15 +10237,15 @@ class TestSocketObjectVersions(unittest.TestCase):
             return headers
 
         headers = put_container()
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         def get_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n\r\n\r\n' % oc)
+            fd.write(b'GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
+                     b'Connection: close\r\n'
+                     b'X-Storage-Token: t\r\n\r\n\r\n' % oc)
             fd.flush()
             headers = readuntil2crlfs(fd)
             body = fd.read()
@@ -10250,16 +10253,16 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # check that the header was set
         headers, body = get_container()
-        exp = 'HTTP/1.1 2'  # 2xx series response
+        exp = b'HTTP/1.1 2'  # 2xx series response
         self.assertEqual(headers[:len(exp)], exp)
-        self.assertIn('X-Versions-Location: %s' % vc, headers)
+        self.assertIn(b'X-Versions-Location: %s' % vc, headers)
 
         def put_version_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
-                     'Connection: close\r\nX-Storage-Token: t\r\n'
-                     'Content-Length: 0\r\n\r\n' % vc)
+            fd.write(b'PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
+                     b'Connection: close\r\nX-Storage-Token: t\r\n'
+                     b'Content-Length: 0\r\n\r\n' % vc)
             fd.flush()
             headers = readuntil2crlfs(fd)
             fd.read()
@@ -10267,16 +10270,16 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # make the container for the object versions
         headers = put_version_container()
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         def put(version):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                     'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                     't\r\nContent-Length: 5\r\nContent-Type: text/jibberish%s'
-                     '\r\n\r\n%05d\r\n' % (oc, o, version, version))
+            fd.write(b'PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                     b'localhost\r\nConnection: close\r\nX-Storage-Token: t'
+                     b'\r\nContent-Length: 5\r\nContent-Type: text/jibberish%d'
+                     b'\r\n\r\n%05d\r\n' % (oc, o, version, version))
             fd.flush()
             headers = readuntil2crlfs(fd)
             fd.read()
@@ -10285,9 +10288,9 @@ class TestSocketObjectVersions(unittest.TestCase):
         def get(container=oc, obj=o):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('GET /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                     'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n'
-                     '\r\n' % (container, obj))
+            fd.write(b'GET /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                     b'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n'
+                     b'\r\n' % (container, obj))
             fd.flush()
             headers = readuntil2crlfs(fd)
             body = fd.read()
@@ -10295,30 +10298,30 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # Create the versioned file
         headers = put(0)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
         # Create the object versions
         for version in range(1, versions_to_create):
             sleep(.01)  # guarantee that the timestamp changes
             headers = put(version)
-            exp = 'HTTP/1.1 201'
+            exp = b'HTTP/1.1 201'
             self.assertEqual(headers[:len(exp)], exp)
 
             # Ensure retrieving the manifest file gets the latest version
             headers, body = get()
-            exp = 'HTTP/1.1 200'
+            exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
-            self.assertIn('Content-Type: text/jibberish%s' % version, headers)
-            self.assertNotIn('X-Object-Meta-Foo: barbaz', headers)
-            self.assertEqual(body, '%05d' % version)
+            self.assertIn(b'Content-Type: text/jibberish%d' % version, headers)
+            self.assertNotIn(b'X-Object-Meta-Foo: barbaz', headers)
+            self.assertEqual(body, b'%05d' % version)
 
         def get_version_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n\r\n' % vc)
+            fd.write(b'GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
+                     b'Connection: close\r\n'
+                     b'X-Storage-Token: t\r\n\r\n' % vc)
             fd.flush()
             headers = readuntil2crlfs(fd)
             body = fd.read()
@@ -10326,16 +10329,16 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # Ensure we have the right number of versions saved
         headers, body = get_version_container()
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        versions = [x for x in body.split('\n') if x]
+        versions = [x for x in body.split(b'\n') if x]
         self.assertEqual(len(versions), versions_to_create - 1)
 
         def delete():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r'
-                     '\nConnection: close\r\nX-Storage-Token: t\r\n\r\n'
+            fd.write(b'DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r'
+                     b'\nConnection: close\r\nX-Storage-Token: t\r\n\r\n'
                      % (oc, o))
             fd.flush()
             headers = readuntil2crlfs(fd)
@@ -10345,10 +10348,10 @@ class TestSocketObjectVersions(unittest.TestCase):
         def copy():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('COPY /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                     'localhost\r\nConnection: close\r\nX-Auth-Token: '
-                     't\r\nDestination: %s/copied_name\r\n'
-                     'Content-Length: 0\r\n\r\n' % (oc, o, oc))
+            fd.write(b'COPY /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                     b'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                     b't\r\nDestination: %s/copied_name\r\n'
+                     b'Content-Length: 0\r\n\r\n' % (oc, o, oc))
             fd.flush()
             headers = readuntil2crlfs(fd)
             fd.read()
@@ -10356,32 +10359,32 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # copy a version and make sure the version info is stripped
         headers = copy()
-        exp = 'HTTP/1.1 2'  # 2xx series response to the COPY
+        exp = b'HTTP/1.1 2'  # 2xx series response to the COPY
         self.assertEqual(headers[:len(exp)], exp)
 
         def get_copy():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('GET /v1/a/%s/copied_name HTTP/1.1\r\nHost: '
-                     'localhost\r\nConnection: close\r\n'
-                     'X-Auth-Token: t\r\n\r\n' % oc)
+            fd.write(b'GET /v1/a/%s/copied_name HTTP/1.1\r\nHost: '
+                     b'localhost\r\nConnection: close\r\n'
+                     b'X-Auth-Token: t\r\n\r\n' % oc)
             fd.flush()
             headers = readuntil2crlfs(fd)
             body = fd.read()
             return headers, body
 
         headers, body = get_copy()
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        self.assertEqual(body, '%05d' % version)
+        self.assertEqual(body, b'%05d' % version)
 
         def post():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('POST /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                     'localhost\r\nConnection: close\r\nX-Auth-Token: '
-                     't\r\nContent-Type: foo/bar\r\nContent-Length: 0\r\n'
-                     'X-Object-Meta-Bar: foo\r\n\r\n' % (oc, o))
+            fd.write(b'POST /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                     b'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                     b't\r\nContent-Type: foo/bar\r\nContent-Length: 0\r\n'
+                     b'X-Object-Meta-Bar: foo\r\n\r\n' % (oc, o))
             fd.flush()
             headers = readuntil2crlfs(fd)
             fd.read()
@@ -10389,78 +10392,78 @@ class TestSocketObjectVersions(unittest.TestCase):
 
         # post and make sure it's updated
         headers = post()
-        exp = 'HTTP/1.1 2'  # 2xx series response to the POST
+        exp = b'HTTP/1.1 2'  # 2xx series response to the POST
         self.assertEqual(headers[:len(exp)], exp)
 
         headers, body = get()
-        self.assertIn('Content-Type: foo/bar', headers)
-        self.assertIn('X-Object-Meta-Bar: foo', headers)
-        self.assertEqual(body, '%05d' % version)
+        self.assertIn(b'Content-Type: foo/bar', headers)
+        self.assertIn(b'X-Object-Meta-Bar: foo', headers)
+        self.assertEqual(body, b'%05d' % version)
 
         # check container listing
         headers, body = get_container()
-        exp = 'HTTP/1.1 200'
+        exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
 
         # Delete the object versions
         for segment in range(versions_to_create - 1, 0, -1):
 
             headers = delete()
-            exp = 'HTTP/1.1 2'  # 2xx series response
+            exp = b'HTTP/1.1 2'  # 2xx series response
             self.assertEqual(headers[:len(exp)], exp)
 
             # Ensure retrieving the manifest file gets the latest version
             headers, body = get()
-            exp = 'HTTP/1.1 200'
+            exp = b'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
-            self.assertIn('Content-Type: text/jibberish%s' % (segment - 1),
+            self.assertIn(b'Content-Type: text/jibberish%d' % (segment - 1),
                           headers)
-            self.assertEqual(body, '%05d' % (segment - 1))
+            self.assertEqual(body, b'%05d' % (segment - 1))
             # Ensure we have the right number of versions saved
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
-                     'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r'
-                     '\n' % (vc, pre, o))
+            fd.write(b'GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
+                     b'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r'
+                     b'\n' % (vc, pre, o))
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 2'  # 2xx series response
+            exp = b'HTTP/1.1 2'  # 2xx series response
             self.assertEqual(headers[:len(exp)], exp)
             body = fd.read()
-            versions = [x for x in body.split('\n') if x]
+            versions = [x for x in body.split(b'\n') if x]
             self.assertEqual(len(versions), segment - 1)
 
         # there is now one version left (in the manifest)
         # Ensure we have no saved versions
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
+        fd.write(b'GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
                  % (vc, pre, o))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 204 No Content'
+        exp = b'HTTP/1.1 204 No Content'
         self.assertEqual(headers[:len(exp)], exp)
 
         # delete the last version
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % (oc, o))
+        fd.write(b'DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % (oc, o))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 2'  # 2xx series response
+        exp = b'HTTP/1.1 2'  # 2xx series response
         self.assertEqual(headers[:len(exp)], exp)
 
         # Ensure it's all gone
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('GET /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
+        fd.write(b'GET /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
                  % (oc, o))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 404'
+        exp = b'HTTP/1.1 404'
         self.assertEqual(headers[:len(exp)], exp)
 
         # make sure manifest files are also versioned
@@ -10468,172 +10471,173 @@ class TestSocketObjectVersions(unittest.TestCase):
             sleep(.01)  # guarantee that the timestamp changes
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile('rwb')
-            fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                     'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                     't\r\nContent-Length: 0\r\n'
-                     'Content-Type: text/jibberish0\r\n'
-                     'Foo: barbaz\r\nX-Object-Manifest: %s/%s/\r\n\r\n'
+            fd.write(b'PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                     b'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                     b't\r\nContent-Length: 0\r\n'
+                     b'Content-Type: text/jibberish0\r\n'
+                     b'Foo: barbaz\r\nX-Object-Manifest: %s/%s/\r\n\r\n'
                      % (oc, o, oc, o))
             fd.flush()
             headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 201'
+            exp = b'HTTP/1.1 201'
             self.assertEqual(headers[:len(exp)], exp)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nhost: '
-                 'localhost\r\nconnection: close\r\nx-auth-token: t\r\n\r\n'
+        fd.write(b'GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nhost: '
+                 b'localhost\r\nconnection: close\r\nx-auth-token: t\r\n\r\n'
                  % (vc, pre, o))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200 OK'
+        exp = b'HTTP/1.1 200 OK'
         self.assertEqual(headers[:len(exp)], exp)
         body = fd.read()
-        versions = [x for x in body.split('\n') if x]
+        versions = [x for x in body.split(b'\n') if x]
         self.assertEqual(versions_to_create - 1, len(versions))
 
         # DELETE v1/a/c/obj shouldn't delete v1/a/c/obj/sub versions
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 5\r\nContent-Type: text/jibberish0\r\n'
-                 'Foo: barbaz\r\n\r\n00000\r\n' % (oc, o))
+        fd.write(b'PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                 b't\r\nContent-Length: 5\r\nContent-Type: text/jibberish0\r\n'
+                 b'Foo: barbaz\r\n\r\n00000\r\n' % (oc, o))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 5\r\nContent-Type: text/jibberish0\r\n'
-                 'Foo: barbaz\r\n\r\n00001\r\n' % (oc, o))
+        fd.write(b'PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                 b't\r\nContent-Length: 5\r\nContent-Type: text/jibberish0\r\n'
+                 b'Foo: barbaz\r\n\r\n00001\r\n' % (oc, o))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 4\r\nContent-Type: text/jibberish0\r\n'
-                 'Foo: barbaz\r\n\r\nsub1\r\n' % (oc, osub))
+        fd.write(b'PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                 b't\r\nContent-Length: 4\r\nContent-Type: text/jibberish0\r\n'
+                 b'Foo: barbaz\r\n\r\nsub1\r\n' % (oc, osub))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 4\r\nContent-Type: text/jibberish0\r\n'
-                 'Foo: barbaz\r\n\r\nsub2\r\n' % (oc, osub))
+        fd.write(b'PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                 b't\r\nContent-Length: 4\r\nContent-Type: text/jibberish0\r\n'
+                 b'Foo: barbaz\r\n\r\nsub2\r\n' % (oc, osub))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % (oc, o))
+        fd.write(b'DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % (oc, o))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 2'  # 2xx series response
+        exp = b'HTTP/1.1 2'  # 2xx series response
         self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
+        fd.write(b'GET /v1/a/%s?prefix=%s%s/ HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n\r\n'
                  % (vc, presub, osub))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 2'  # 2xx series response
+        exp = b'HTTP/1.1 2'  # 2xx series response
         self.assertEqual(headers[:len(exp)], exp)
         body = fd.read()
-        versions = [x for x in body.split('\n') if x]
+        versions = [x for x in body.split(b'\n') if x]
         self.assertEqual(len(versions), 1)
 
         # Check for when the versions target container doesn't exist
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('PUT /v1/a/%swhoops HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\nX-Versions-Location: none\r\n\r\n' % oc)
+        fd.write(b'PUT /v1/a/%swhoops HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n'
+                 b'Content-Length: 0\r\n'
+                 b'X-Versions-Location: none\r\n\r\n' % oc)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         # Create the versioned file
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('PUT /v1/a/%swhoops/foo HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 5\r\n\r\n00000\r\n' % oc)
+        fd.write(b'PUT /v1/a/%swhoops/foo HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                 b't\r\nContent-Length: 5\r\n\r\n00000\r\n' % oc)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
+        exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
         # Create another version
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('PUT /v1/a/%swhoops/foo HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 5\r\n\r\n00001\r\n' % oc)
+        fd.write(b'PUT /v1/a/%swhoops/foo HTTP/1.1\r\nHost: '
+                 b'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                 b't\r\nContent-Length: 5\r\n\r\n00001\r\n' % oc)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 412'
+        exp = b'HTTP/1.1 412'
         self.assertEqual(headers[:len(exp)], exp)
         # Delete the object
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write('DELETE /v1/a/%swhoops/foo HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % oc)
+        fd.write(b'DELETE /v1/a/%swhoops/foo HTTP/1.1\r\nHost: localhost\r\n'
+                 b'Connection: close\r\nX-Storage-Token: t\r\n\r\n' % oc)
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 2'  # 2xx response
+        exp = b'HTTP/1.1 2'  # 2xx response
         self.assertEqual(headers[:len(exp)], exp)
 
     def test_version_manifest_utf8(self):
-        oc = '0_oc_non_ascii\xc2\xa3'
-        vc = '0_vc_non_ascii\xc2\xa3'
-        o = '0_o_non_ascii\xc2\xa3'
+        oc = b'0_oc_non_ascii\xc2\xa3'
+        vc = b'0_vc_non_ascii\xc2\xa3'
+        o = b'0_o_non_ascii\xc2\xa3'
         self.test_version_manifest(oc, vc, o)
 
     def test_version_manifest_utf8_container(self):
-        oc = '1_oc_non_ascii\xc2\xa3'
-        vc = '1_vc_ascii'
-        o = '1_o_ascii'
+        oc = b'1_oc_non_ascii\xc2\xa3'
+        vc = b'1_vc_ascii'
+        o = b'1_o_ascii'
         self.test_version_manifest(oc, vc, o)
 
     def test_version_manifest_utf8_version_container(self):
-        oc = '2_oc_ascii'
-        vc = '2_vc_non_ascii\xc2\xa3'
-        o = '2_o_ascii'
+        oc = b'2_oc_ascii'
+        vc = b'2_vc_non_ascii\xc2\xa3'
+        o = b'2_o_ascii'
         self.test_version_manifest(oc, vc, o)
 
     def test_version_manifest_utf8_containers(self):
-        oc = '3_oc_non_ascii\xc2\xa3'
-        vc = '3_vc_non_ascii\xc2\xa3'
-        o = '3_o_ascii'
+        oc = b'3_oc_non_ascii\xc2\xa3'
+        vc = b'3_vc_non_ascii\xc2\xa3'
+        o = b'3_o_ascii'
         self.test_version_manifest(oc, vc, o)
 
     def test_version_manifest_utf8_object(self):
-        oc = '4_oc_ascii'
-        vc = '4_vc_ascii'
-        o = '4_o_non_ascii\xc2\xa3'
+        oc = b'4_oc_ascii'
+        vc = b'4_vc_ascii'
+        o = b'4_o_non_ascii\xc2\xa3'
         self.test_version_manifest(oc, vc, o)
 
     def test_version_manifest_utf8_version_container_utf_object(self):
-        oc = '5_oc_ascii'
-        vc = '5_vc_non_ascii\xc2\xa3'
-        o = '5_o_non_ascii\xc2\xa3'
+        oc = b'5_oc_ascii'
+        vc = b'5_vc_non_ascii\xc2\xa3'
+        o = b'5_o_non_ascii\xc2\xa3'
         self.test_version_manifest(oc, vc, o)
 
     def test_version_manifest_utf8_container_utf_object(self):
-        oc = '6_oc_non_ascii\xc2\xa3'
-        vc = '6_vc_ascii'
-        o = '6_o_non_ascii\xc2\xa3'
+        oc = b'6_oc_non_ascii\xc2\xa3'
+        vc = b'6_vc_ascii'
+        o = b'6_o_non_ascii\xc2\xa3'
         self.test_version_manifest(oc, vc, o)
 
 
