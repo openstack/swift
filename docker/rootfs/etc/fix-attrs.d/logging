@@ -1,0 +1,2 @@
+/var/log/swift true swift 0755 0755
+/var/spool/rsyslog true syslog 0700 0700

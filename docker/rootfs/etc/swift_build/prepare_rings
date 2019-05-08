@@ -1,0 +1,6 @@
+#!/usr/bin/with-contenv sh
+
+/etc/swift_build/build_devices
+/etc/swift_build/build_remakerings
+cd /etc/swift
+/etc/swift/remakerings
