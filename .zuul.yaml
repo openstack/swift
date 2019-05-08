@@ -299,16 +299,16 @@
     data:
       username: screamingfrenzy
       password: !encrypted/pkcs1-oaep
-        - NvKH8qHFlB4sPvQHMQprl+tHb/0SxjdWnMMdzPV8ch2nwle5INlkRcZHg7tB2GEhU6iMN
-          x7QHeKbkb7Vt0ZqOLpXGyjZ/OIiXD+v47Ef+a+k+7nu8xXuIXWNKQGK0moYUz8A6DKn8e
-          4ft67I39hoCXifSsMTUvtrz5P3wc2FleyzngOnNxbUD/UxNnbe6RdweRjZpfM4V/mWfqX
-          B0fdDuyFf2ws+Y7Tfic7/wnqlTshHOdEaAO2Afzie441kpJ/r3ZysAsE7QZrmU2GNQhT2
-          rEmtViXu++1nun+D4nbpKUsq5RBpymK7jkffn0kNLaDNbxTWaAdiQMwUMq1Vn2dzpSGuA
-          TtZAmO05SOvsEkakM58328vpXvz95DUKGyZVeVVt4GNTZ3hfGDZ4nxz76VgtEPCrG3YOz
-          jkYiDaKBPDvRzuy71xXUaYdf7W8Ts3rJXq6KZDHl80GnlArwvyVX+KglQ5mX1EMMU+6Q3
-          LYMKWB/DXKcSYwJkumQe1woZzQqgbqNRZaaxUPQv99MRvk9BZksaAFrnCPH7IAJNDI3sO
-          LCRmFX5Z0WqmzScAubH3+eRleKNDwBVp1VlHI+jtHRT6xtg32klPzo0FoX+iw0OFY1qpF
-          7A6aHgjsCVRuKMjt0kA8QV278A+bm5ZdyWAG9CWZ1+GEl3/9IPYiXbEyW1bPFw=
+        - ruMizg1iVvKm4ABLQ8GshZMwt3EzxOyjPZsInL20+ZS+TQxhEwRbLFGzSxnrChIOdioyl
+          7TMW1PxQeJ5T/mPIsV7TBsSsnIMKYRcDSbKjnC0hjILpKfQXLFw4/rV/d3jeB6oLDSTW1
+          fIt4NmJqhsjlvst+VwT1JnFHLdrRaGMWYkjRU8rEmH82jDM7Wk7J+selykvTrlRQ7RpQR
+          6huzniL6PJPOZ7I5VsQcCmEWYKwd/u9Ifhe50yjgxmKR7Fi+wl0nBSOzt38f9ZEXTB6So
+          /ks0+RX2sTlgulNgJnnR8FG3p2AHxTJ75fcBnY1KkYlG0+KsdRTzNjxNXs2/Ao0pyJJTs
+          JWniEHWVAq6T5agwD1SsmWAzFctBjGKDstxmTyHaSNNN5c6yoVZewRBrFDfYXMJUikyS+
+          52bel/uihhiq60MnUCzKCiBg/TM1uonwRKA2KkDXWRh80oxBMIxw5nVZCMaHFpx7NW/ls
+          k6aI8jio+/N0cLZlglWqGOsE3EC08Ddd+cqe668/LQVY97UgMjIu6aZRwX9Iwa2NXNDRE
+          zPKQ3UDWYFgl8Za90PmrRD4qYuN/1lqCrLKp5cSJbche+EqdrGolCj701zUWcCdwjHMwz
+          YA5zG1SbWFyC9BidZYTwMNbo/RRz4TtFmW35A4CRE5HYB5Uh5ccpGlBvI9Yv8A=
 
 - job:
     name: swift-build-image
