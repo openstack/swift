@@ -14,8 +14,8 @@
 # limitations under the License.
 import os
 import subprocess
-import time
 import six
+from eventlet import sleep
 
 from swift.common.daemon import Daemon
 from swift.common.ring.utils import is_local_device
@@ -137,7 +137,7 @@ class ObjectRpcManager(Daemon):
                              '--keepuser', '--repair']
             # sleep a bit to let the RPC server start. Otherwise it will
             # timeout and take longer to get the checks started.
-            time.sleep(2)
+            sleep(2)
             while True:
                 try:
                     state = rpc.get_kv_state(socket_path)
@@ -145,7 +145,7 @@ class ObjectRpcManager(Daemon):
                         subprocess.call(volcheck_args)
                 except Exception:
                     self.logger.exception("state check failed, continue")
-                time.sleep(10)
+                sleep(10)
         else:
             losf_args = ['swift-losf-rpc', '-diskPath', str(disk_path),
                          '-policyIdx', str(policy_idx),
