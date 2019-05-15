@@ -313,6 +313,7 @@
 - job:
     name: swift-build-image
     parent: opendev-build-docker-image
+    voting: false
     description: Build SAIO docker images.
     vars: &swift_image_vars
       docker_images:
@@ -322,6 +323,7 @@
 - job:
     name: swift-upload-image
     parent: opendev-upload-docker-image
+    voting: false
     description: Build SAIO docker images and upload to Docker Hub.
     secrets:
       name: docker_credentials
@@ -332,6 +334,7 @@
 - job:
     name: swift-promote-image
     parent: opendev-promote-docker-image
+    voting: false
     description: Promote previously uploaded Docker images.
     secrets:
       name: docker_credentials
