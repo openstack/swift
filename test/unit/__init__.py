@@ -906,7 +906,7 @@ def fake_http_connect(*code_iter, **kwargs):
             # if we're going to be slow, we need a body to send slowly
             am_slow, _junk = self.get_slow()
             if am_slow and len(self.body) < self.SLOW_READS:
-                self.body += " " * (self.SLOW_READS - len(self.body))
+                self.body += b" " * (self.SLOW_READS - len(self.body))
 
             # be nice to trixy bits with node_iter's
             eventlet.sleep()
@@ -983,7 +983,7 @@ def fake_http_connect(*code_iter, **kwargs):
             am_slow, value = self.get_slow()
             if am_slow:
                 if self.sent < self.SLOW_READS:
-                    slowly_read_byte = self.body[self.sent]
+                    slowly_read_byte = self.body[self.sent:self.sent + 1]
                     self.sent += 1
                     eventlet.sleep(value)
                     return slowly_read_byte

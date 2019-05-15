@@ -975,12 +975,12 @@ class BaseDiskFileManager(object):
                 # ctype_timestamp...
                 exts['.meta'][1:] = sorted(
                     exts['.meta'][1:],
-                    key=lambda info: info['ctype_timestamp'],
+                    key=lambda info: info['ctype_timestamp'] or 0,
                     reverse=True)
                 # ...and retain this IFF its ctype_timestamp is greater than
                 # newest meta file
-                if (exts['.meta'][1]['ctype_timestamp'] >
-                        exts['.meta'][0]['ctype_timestamp']):
+                if ((exts['.meta'][1]['ctype_timestamp'] or 0) >
+                        (exts['.meta'][0]['ctype_timestamp'] or 0)):
                     if (exts['.meta'][1]['timestamp'] ==
                             exts['.meta'][0]['timestamp']):
                         # both at same timestamp so retain only the one with

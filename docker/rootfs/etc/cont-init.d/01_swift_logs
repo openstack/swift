@@ -1,0 +1,4 @@
+#!/bin/sh
+
+s6-setuidgid swift ln -s /var/log/socklog/swift/swift_all/current /var/log/swift/all.log
+s6-setuidgid swift ln -s /var/log/socklog/swift/proxy_server/current /var/log/swift/proxy_access.log

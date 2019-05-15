@@ -1,0 +1,4 @@
+#!/bin/sh
+source /etc/profile
+
+exec s6-setuidgid swift swift-init object restart --no-daemon

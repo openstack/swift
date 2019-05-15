@@ -33,7 +33,8 @@
 .SH DESCRIPTION
 .PP
 This is the configuration file used by the object server and other object
-background services, such as; replicator, reconstructor, updater and auditor.
+background services, such as; replicator, reconstructor, updater, auditor, and
+expirer.
 
 The configuration file follows the python-pastedeploy syntax. The file is divided
 into sections, which are enclosed by square brackets. Each section will contain a
@@ -88,6 +89,7 @@ Disable pre-allocate disk space for a file. The default is false.
 .IP \fBexpiring_objects_container_divisor\fR
 The default is 86400.
 .IP \fBexpiring_objects_account_name\fR
+Account name used for legacy style expirer task queue.
 The default is 'expiring_objects'.
 .IP \fBservers_per_port\fR
 Make object-server run this many worker processes per unique port of "local"
@@ -579,6 +581,64 @@ is a number which goes from 0 to 7. The higher the value, the lower
 the I/O priority of the process. Work only with ionice_class.
 Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
+
+
+.RS 0
+.IP "\fB[object-expirer]\fR"
+.RE
+.RS 3
+.IP \fBlog_name\fR
+Label used when logging. The default is object-expirer.
+.IP \fBlog_facility\fR
+Syslog log facility. The default is LOG_LOCAL0.
+.IP \fBlog_level\fR
+Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
+.IP \fBinterval\fR
+Minimum time for a pass to take. The default is 300 seconds.
+.IP \fBreport_interval\fR
+Minimum time for a pass to report. The default is 300 seconds.
+.IP \fBrequest_tries\fR
+The number of times the expirer's internal client will
+attempt any given request in the event of failure. The default is 3.
+.IP \fBconcurrency\fR
+Number of expirer workers to spawn. The default is 1.
+.IP \fBdequeue_from_legacy\fR
+The flag to execute legacy style expirer tasks. The default is false.
+.IP \fBprocesses\fR
+Processes can only be used in conjunction with `dequeue_from_legacy`.
+Processes is how many parts to divide the legacy work into, one part per process that will be doing the work.
+Processes set 0 means that a single process will be doing all the legacy work.
+Processes can also be specified on the command line and will override the config value.
+The default is 0.
+.IP \fBprocess\fR
+Process can only be used in conjunction with `dequeue_from_legacy`.
+Process is which of the parts a particular legacy process will work on process can also be specified
+on the command line and will override the config value process is "zero based", if you want
+to use 3 processes, you should run processes with process set to 0, 1, and 2. The default is 0.
+.IP \fBreclaim_age\fR
+The expirer will re-attempt expiring if the source object is not available up
+to reclaim_age seconds before it gives up and deletes the task in the queue.
+The default is 604800 seconds (= 1 week).
+.IP \fBrecon_cache_path\fR
+Path to recon cache directory. The default is /var/cache/swift
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
+.RE
+.PD
 
 
 

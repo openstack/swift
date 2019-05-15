@@ -1289,7 +1289,7 @@ class TestInternalClient(unittest.TestCase):
 
             def fake_app(self, env, start_response):
                 start_response('404 Not Found', [])
-                return ['one\ntwo\nthree']
+                return [b'one\ntwo\nthree']
 
         client = InternalClient()
         lines = []

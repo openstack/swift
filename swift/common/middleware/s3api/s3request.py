@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import base64
+import binascii
 from collections import defaultdict, OrderedDict
 from email.header import Header
 from hashlib import sha1, sha256, md5
@@ -127,7 +128,8 @@ class HashingInput(object):
         chunk = self._input.read(size)
         self._hasher.update(chunk)
         self._to_read -= len(chunk)
-        if self._to_read < 0 or (size > len(chunk) and self._to_read) or (
+        short_read = bool(chunk) if size is None else (len(chunk) < size)
+        if self._to_read < 0 or (short_read and self._to_read) or (
                 self._to_read == 0 and
                 self._hasher.hexdigest() != self._expected):
             self.close()
@@ -149,10 +151,10 @@ class SigV4Mixin(object):
     def check_signature(self, secret):
         secret = utf8encode(secret)
         user_signature = self.signature
-        derived_secret = 'AWS4' + secret
+        derived_secret = b'AWS4' + secret
         for scope_piece in self.scope.values():
             derived_secret = hmac.new(
-                derived_secret, scope_piece, sha256).digest()
+                derived_secret, scope_piece.encode('utf8'), sha256).digest()
         valid_signature = hmac.new(
             derived_secret, self.string_to_sign, sha256).hexdigest()
         return user_signature == valid_signature
@@ -331,10 +333,10 @@ class SigV4Mixin(object):
 
     def _canonical_query_string(self):
         return '&'.join(
-            '%s=%s' % (quote(key, safe='-_.~'),
-                       quote(value, safe='-_.~'))
+            '%s=%s' % (swob.wsgi_quote(key, safe='-_.~'),
+                       swob.wsgi_quote(value, safe='-_.~'))
             for key, value in sorted(self.params.items())
-            if key not in ('Signature', 'X-Amz-Signature'))
+            if key not in ('Signature', 'X-Amz-Signature')).encode('ascii')
 
     def _headers_to_sign(self):
         """
@@ -383,7 +385,7 @@ class SigV4Mixin(object):
         """
         It won't require bucket name in canonical_uri for v4.
         """
-        return self.environ.get('RAW_PATH_INFO', self.path)
+        return swob.wsgi_to_bytes(self.environ.get('RAW_PATH_INFO', self.path))
 
     def _canonical_request(self):
         # prepare 'canonical_request'
@@ -401,7 +403,7 @@ class SigV4Mixin(object):
         #
 
         # 1. Add verb like: GET
-        cr = [self.method.upper()]
+        cr = [swob.wsgi_to_bytes(self.method.upper())]
 
         # 2. Add path like: /
         path = self._canonical_uri()
@@ -415,12 +417,12 @@ class SigV4Mixin(object):
         # host:iam.amazonaws.com
         # x-amz-date:20150830T123600Z
         headers_to_sign = self._headers_to_sign()
-        cr.append(''.join('%s:%s\n' % (key, value)
-                          for key, value in headers_to_sign))
+        cr.append(b''.join(swob.wsgi_to_bytes('%s:%s\n' % (key, value))
+                           for key, value in headers_to_sign))
 
         # 5. Add signed headers into canonical request like
         # content-type;host;x-amz-date
-        cr.append(';'.join(k for k, v in headers_to_sign))
+        cr.append(b';'.join(swob.wsgi_to_bytes(k) for k, v in headers_to_sign))
 
         # 6. Add payload string at the tail
         if 'X-Amz-Credential' in self.params:
@@ -446,8 +448,8 @@ class SigV4Mixin(object):
             # else, not provided -- Swift will kick out a 411 Length Required
             # which will get translated back to a S3-style response in
             # S3Request._swift_error_codes
-        cr.append(hashed_payload)
-        return '\n'.join(cr).encode('utf-8')
+        cr.append(swob.wsgi_to_bytes(hashed_payload))
+        return b'\n'.join(cr)
 
     @property
     def scope(self):
@@ -462,10 +464,11 @@ class SigV4Mixin(object):
         """
         Create 'StringToSign' value in Amazon terminology for v4.
         """
-        return '\n'.join(['AWS4-HMAC-SHA256',
-                          self.timestamp.amz_date_format,
-                          '/'.join(self.scope.values()),
-                          sha256(self._canonical_request()).hexdigest()])
+        return b'\n'.join([
+            b'AWS4-HMAC-SHA256',
+            self.timestamp.amz_date_format.encode('ascii'),
+            '/'.join(self.scope.values()).encode('utf8'),
+            sha256(self._canonical_request()).hexdigest().encode('ascii')])
 
     def signature_does_not_match_kwargs(self):
         kwargs = super(SigV4Mixin, self).signature_does_not_match_kwargs()
@@ -473,7 +476,7 @@ class SigV4Mixin(object):
         kwargs.update({
             'canonical_request': cr,
             'canonical_request_bytes': ' '.join(
-                format(ord(c), '02x') for c in cr),
+                format(ord(c), '02x') for c in cr.decode('latin1')),
         })
         return kwargs
 
@@ -545,6 +548,8 @@ class S3Request(swob.Request):
         user_signature = self.signature
         valid_signature = base64.b64encode(hmac.new(
             secret, self.string_to_sign, sha1).digest()).strip()
+        if not six.PY2:
+            valid_signature = valid_signature.decode('ascii')
         return user_signature == valid_signature
 
     @property
@@ -613,7 +618,7 @@ class S3Request(swob.Request):
         return None
 
     def _parse_uri(self):
-        if not check_utf8(self.environ['PATH_INFO']):
+        if not check_utf8(swob.wsgi_to_str(self.environ['PATH_INFO'])):
             raise InvalidURI(self.path)
 
         if self.bucket_in_host:
@@ -739,8 +744,10 @@ class S3Request(swob.Request):
                 # Non-base64-alphabet characters in value.
                 raise InvalidDigest(content_md5=value)
             try:
-                self.headers['ETag'] = value.decode('base64').encode('hex')
-            except Exception:
+                self.headers['ETag'] = binascii.b2a_hex(
+                    binascii.a2b_base64(value))
+            except binascii.error:
+                # incorrect padding, most likely
                 raise InvalidDigest(content_md5=value)
 
             if len(self.headers['ETag']) != 32:
@@ -825,10 +832,11 @@ class S3Request(swob.Request):
                                    'functionality that is not implemented',
                                    header='Transfer-Encoding')
 
-        if self.message_length() > max_length:
+        ml = self.message_length()
+        if ml and ml > max_length:
             raise MalformedXML()
 
-        if te or self.message_length():
+        if te or ml:
             # Limit the read similar to how SLO handles manifests
             body = self.body_file.read(max_length)
         else:
@@ -843,7 +851,7 @@ class S3Request(swob.Request):
             raise InvalidRequest('Missing required header for this request: '
                                  'Content-MD5')
 
-        digest = md5(body).digest().encode('base64').strip()
+        digest = base64.b64encode(md5(body).digest()).strip().decode('ascii')
         if self.environ['HTTP_CONTENT_MD5'] != digest:
             raise BadDigest(content_md5=self.environ['HTTP_CONTENT_MD5'])
 
@@ -927,9 +935,10 @@ class S3Request(swob.Request):
         """
         amz_headers = {}
 
-        buf = [self.method,
-               _header_strip(self.headers.get('Content-MD5')) or '',
-               _header_strip(self.headers.get('Content-Type')) or '']
+        buf = [swob.wsgi_to_bytes(wsgi_str) for wsgi_str in [
+            self.method,
+            _header_strip(self.headers.get('Content-MD5')) or '',
+            _header_strip(self.headers.get('Content-Type')) or '']]
 
         if 'headers_raw' in self.environ:  # eventlet >= 0.19.0
             # See https://github.com/eventlet/eventlet/commit/67ec999
@@ -948,18 +957,18 @@ class S3Request(swob.Request):
 
         if self._is_header_auth:
             if 'x-amz-date' in amz_headers:
-                buf.append('')
+                buf.append(b'')
             elif 'Date' in self.headers:
-                buf.append(self.headers['Date'])
+                buf.append(swob.wsgi_to_bytes(self.headers['Date']))
         elif self._is_query_auth:
-            buf.append(self.params['Expires'])
+            buf.append(swob.wsgi_to_bytes(self.params['Expires']))
         else:
             # Should have already raised NotS3Request in _parse_auth_info,
             # but as a sanity check...
             raise AccessDenied()
 
         for key, value in sorted(amz_headers.items()):
-            buf.append("%s:%s" % (key, value))
+            buf.append(swob.wsgi_to_bytes("%s:%s" % (key, value)))
 
         path = self._canonical_uri()
         if self.query_string:
@@ -971,10 +980,10 @@ class S3Request(swob.Request):
                 if key in ALLOWED_SUB_RESOURCES:
                     params.append('%s=%s' % (key, value) if value else key)
         if params:
-            buf.append('%s?%s' % (path, '&'.join(params)))
+            buf.append(swob.wsgi_to_bytes('%s?%s' % (path, '&'.join(params))))
         else:
-            buf.append(path)
-        return '\n'.join(buf)
+            buf.append(swob.wsgi_to_bytes(path))
+        return b'\n'.join(buf)
 
     def signature_does_not_match_kwargs(self):
         return {
@@ -982,7 +991,8 @@ class S3Request(swob.Request):
             'string_to_sign': self.string_to_sign,
             'signature_provided': self.signature,
             'string_to_sign_bytes': ' '.join(
-                format(ord(c), '02x') for c in self.string_to_sign),
+                format(ord(c), '02x')
+                for c in self.string_to_sign.decode('latin1')),
         }
 
     @property
@@ -1320,7 +1330,6 @@ class S3Request(swob.Request):
             # reuse account and tokens
             _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],
                                             2, 3, True)
-            self.account = utf8encode(self.account)
 
         resp = S3Response.from_swift_resp(sw_resp)
         status = resp.status_int  # pylint: disable-msg=E1101
@@ -1354,7 +1363,7 @@ class S3Request(swob.Request):
                 raise err_resp()
 
         if status == HTTP_BAD_REQUEST:
-            raise BadSwiftRequest(err_msg)
+            raise BadSwiftRequest(err_msg.decode('utf8'))
         if status == HTTP_UNAUTHORIZED:
             raise SignatureDoesNotMatch(
                 **self.signature_does_not_match_kwargs())
@@ -1487,7 +1496,6 @@ class S3AclRequest(S3Request):
 
         _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],
                                         2, 3, True)
-        self.account = utf8encode(self.account)
 
         if 'HTTP_X_USER_NAME' in sw_resp.environ:
             # keystone

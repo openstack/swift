@@ -14,12 +14,13 @@
 # limitations under the License.
 
 import base64
+import binascii
 import hashlib
 from mock import patch
 import os
 import time
 import unittest
-from urllib import quote
+from six.moves.urllib.parse import quote
 
 from swift.common import swob
 from swift.common.swob import Request
@@ -66,9 +67,9 @@ MULTIPARTS_TEMPLATE = \
      ('subdir/object/Z/2', '2014-05-07T19:47:58.592270', 'fedcba9876543210',
       41))
 
-S3_ETAG = '"%s-2"' % hashlib.md5((
+S3_ETAG = '"%s-2"' % hashlib.md5(binascii.a2b_hex(
     '0123456789abcdef0123456789abcdef'
-    'fedcba9876543210fedcba9876543210').decode('hex')).hexdigest()
+    'fedcba9876543210fedcba9876543210')).hexdigest()
 
 
 class TestS3ApiMultiUpload(S3ApiTestCase):
@@ -83,9 +84,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
         self.s3api.conf.min_segment_size = 1
 
-        objects = map(lambda item: {'name': item[0], 'last_modified': item[1],
-                                    'hash': item[2], 'bytes': item[3]},
-                      OBJECTS_TEMPLATE)
+        objects = [{'name': item[0], 'last_modified': item[1],
+                    'hash': item[2], 'bytes': item[3]}
+                   for item in OBJECTS_TEMPLATE]
         object_list = json.dumps(objects)
 
         self.swift.register('PUT', segment_bucket,
@@ -172,10 +173,10 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                                            multiparts=None):
         segment_bucket = '/v1/AUTH_test/bucket+segments'
         objects = multiparts or MULTIPARTS_TEMPLATE
-        objects = map(lambda item: {'name': item[0], 'last_modified': item[1],
-                                    'hash': item[2], 'bytes': item[3]},
-                      objects)
-        object_list = json.dumps(objects)
+        objects = [{'name': item[0], 'last_modified': item[1],
+                    'hash': item[2], 'bytes': item[3]}
+                   for item in objects]
+        object_list = json.dumps(objects).encode('ascii')
         self.swift.register('GET', segment_bucket, swob.HTTPOk, {},
                             object_list)
 
@@ -568,7 +569,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self._test_object_multipart_upload_initiate({})
         self._test_object_multipart_upload_initiate({'Etag': 'blahblahblah'})
         self._test_object_multipart_upload_initiate({
-            'Content-MD5': base64.b64encode('blahblahblahblah').strip()})
+            'Content-MD5': base64.b64encode(b'blahblahblahblah').strip()})
 
     @s3acl(s3acl_only=True)
     @patch('swift.common.middleware.s3api.controllers.multi_upload.'
@@ -667,7 +668,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'NoSuchBucket')
 
     def test_object_multipart_upload_complete(self):
-        content_md5 = base64.b64encode(hashlib.md5(XML).digest())
+        content_md5 = base64.b64encode(hashlib.md5(
+            XML.encode('ascii')).digest())
         req = Request.blank('/bucket/object?uploadId=X',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -701,7 +703,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(headers.get(h), override_etag)
 
     def test_object_multipart_upload_invalid_md5(self):
-        bad_md5 = base64.b64encode(hashlib.md5(XML + 'some junk').digest())
+        bad_md5 = base64.b64encode(hashlib.md5(
+            XML.encode('ascii') + b'some junk').digest())
         req = Request.blank('/bucket/object?uploadId=X',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -726,11 +729,11 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             ]))
         self.swift.register(
             'PUT', '/v1/AUTH_test/bucket/heartbeat-ok',
-            swob.HTTPAccepted, {}, [' ', ' ', ' ', json.dumps({
+            swob.HTTPAccepted, {}, [b' ', b' ', b' ', json.dumps({
                 'Etag': '"slo-etag"',
                 'Response Status': '201 Created',
                 'Errors': [],
-            })])
+            }).encode('ascii')])
         mock_time.time.side_effect = (
             1,  # start_time
             12,  # first whitespace
@@ -748,14 +751,14 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                                      'Date': self.get_date_header(), },
                             body=XML)
         status, headers, body = self.call_s3api(req)
-        lines = body.split('\n')
-        self.assertTrue(lines[0].startswith('<?xml '))
+        lines = body.split(b'\n')
+        self.assertTrue(lines[0].startswith(b'<?xml '))
         self.assertTrue(lines[1])
         self.assertFalse(lines[1].strip())
         fromstring(body, 'CompleteMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
         # NB: S3_ETAG includes quotes
-        self.assertIn('<ETag>%s</ETag>' % S3_ETAG, body)
+        self.assertIn(('<ETag>%s</ETag>' % S3_ETAG).encode('ascii'), body)
         self.assertEqual(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/heartbeat-ok/X'),
@@ -779,10 +782,10 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             ]))
         self.swift.register(
             'PUT', '/v1/AUTH_test/bucket/heartbeat-fail',
-            swob.HTTPAccepted, {}, [' ', ' ', ' ', json.dumps({
+            swob.HTTPAccepted, {}, [b' ', b' ', b' ', json.dumps({
                 'Response Status': '400 Bad Request',
                 'Errors': [['some/object', '403 Forbidden']],
-            })])
+            }).encode('ascii')])
         mock_time.time.side_effect = (
             1,  # start_time
             12,  # first whitespace
@@ -797,8 +800,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                                      'Date': self.get_date_header(), },
                             body=XML)
         status, headers, body = self.call_s3api(req)
-        lines = body.split('\n')
-        self.assertTrue(lines[0].startswith('<?xml '), (status, lines))
+        lines = body.split(b'\n')
+        self.assertTrue(lines[0].startswith(b'<?xml '), (status, lines))
         self.assertTrue(lines[1])
         self.assertFalse(lines[1].strip())
         fromstring(body, 'Error')
@@ -828,10 +831,10 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             ]))
         self.swift.register(
             'PUT', '/v1/AUTH_test/bucket/heartbeat-fail',
-            swob.HTTPAccepted, {}, [' ', ' ', ' ', json.dumps({
+            swob.HTTPAccepted, {}, [b' ', b' ', b' ', json.dumps({
                 'Response Status': '400 Bad Request',
                 'Errors': [['some/object', '404 Not Found']],
-            })])
+            }).encode('ascii')])
         mock_time.time.side_effect = (
             1,  # start_time
             12,  # first whitespace
@@ -846,8 +849,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                                      'Date': self.get_date_header(), },
                             body=XML)
         status, headers, body = self.call_s3api(req)
-        lines = body.split('\n')
-        self.assertTrue(lines[0].startswith('<?xml '))
+        lines = body.split(b'\n')
+        self.assertTrue(lines[0].startswith(b'<?xml '))
         self.assertTrue(lines[1])
         self.assertFalse(lines[1].strip())
         fromstring(body, 'Error')
@@ -1116,8 +1119,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
         elem = fromstring(body, 'CompleteMultipartUploadResult')
         self.assertNotIn('Etag', headers)
-        expected_etag = '"%s-3"' % hashlib.md5(''.join(
-            x['hash'] for x in object_list).decode('hex')).hexdigest()
+        expected_etag = '"%s-3"' % hashlib.md5(binascii.unhexlify(''.join(
+            x['hash'] for x in object_list))).hexdigest()
         self.assertEqual(elem.find('ETag').text, expected_etag)
 
         self.assertEqual(self.swift.calls, [
@@ -1843,8 +1846,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             account, src_headers={'Content-Length': '10'}, put_header=header)
 
         self.assertEqual(status.split()[0], '400')
-        self.assertIn('Range specified is not valid for '
-                      'source object of size: 10', body)
+        self.assertIn(b'Range specified is not valid for '
+                      b'source object of size: 10', body)
 
         self.assertEqual([
             ('HEAD', '/v1/AUTH_test/bucket'),
@@ -1887,9 +1890,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual('/src_bucket/src_obj', put_headers['X-Copy-From'])
 
     def _test_no_body(self, use_content_length=False,
-                      use_transfer_encoding=False, string_to_md5=''):
+                      use_transfer_encoding=False, string_to_md5=b''):
         raw_md5 = hashlib.md5(string_to_md5).digest()
-        content_md5 = raw_md5.encode('base64').strip()
+        content_md5 = base64.b64encode(raw_md5).strip()
         with UnreadableInput(self) as fake_input:
             req = Request.blank(
                 '/bucket/object?uploadId=X',
@@ -1914,11 +1917,11 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     @s3acl
     def test_object_multi_upload_empty_body(self):
         self._test_no_body()
-        self._test_no_body(string_to_md5='test')
+        self._test_no_body(string_to_md5=b'test')
         self._test_no_body(use_content_length=True)
-        self._test_no_body(use_content_length=True, string_to_md5='test')
+        self._test_no_body(use_content_length=True, string_to_md5=b'test')
         self._test_no_body(use_transfer_encoding=True)
-        self._test_no_body(use_transfer_encoding=True, string_to_md5='test')
+        self._test_no_body(use_transfer_encoding=True, string_to_md5=b'test')
 
 
 class TestS3ApiMultiUploadNonUTC(TestS3ApiMultiUpload):

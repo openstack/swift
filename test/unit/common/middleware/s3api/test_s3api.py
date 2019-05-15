@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import unittest
 from mock import patch, MagicMock
 import calendar
@@ -22,7 +23,8 @@ import mock
 import requests
 import json
 import copy
-from urllib import unquote, quote
+import six
+from six.moves.urllib.parse import unquote, quote
 
 import swift.common.middleware.s3api
 from swift.common.middleware.keystoneauth import KeystoneAuth
@@ -100,7 +102,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_non_s3_request_passthrough(self):
         req = Request.blank('/something')
         status, headers, body = self.call_s3api(req)
-        self.assertEqual(body, 'FAKE APP')
+        self.assertEqual(body, b'FAKE APP')
 
     def test_bad_format_authorization(self):
         req = Request.blank('/something',
@@ -336,7 +338,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.assertIsNone(headers['X-Auth-Token'])
 
     def test_signed_urls_v4_bad_credential(self):
-        def test(credential, message, extra=''):
+        def test(credential, message, extra=b''):
             req = Request.blank(
                 '/bucket/object'
                 '?X-Amz-Algorithm=AWS4-HMAC-SHA256'
@@ -364,7 +366,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         test('test:tester/%s/us-west-1/s3/aws4_request' % dt,
              "Error parsing the X-Amz-Credential parameter; the region "
              "'us-west-1' is wrong; expecting 'us-east-1'",
-             '<Region>us-east-1</Region>')
+             b'<Region>us-east-1</Region>')
         test('test:tester/%s/us-east-1/not-s3/aws4_request' % dt,
              'Error parsing the X-Amz-Credential parameter; incorrect service '
              '"not-s3". This endpoint belongs to "s3".')
@@ -483,9 +485,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(req.environ['s3api.auth_details'], {
             'access_key': 'test:tester',
             'signature': 'hmac',
-            'string_to_sign': '\n'.join([
-                'PUT', '', '', date_header,
-                '/bucket/object?partNumber=1&uploadId=123456789abcdef']),
+            'string_to_sign': b'\n'.join([
+                b'PUT', b'', b'', date_header.encode('ascii'),
+                b'/bucket/object?partNumber=1&uploadId=123456789abcdef']),
             'check_signature': mock_cs})
 
     def test_invalid_uri(self):
@@ -506,8 +508,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'InvalidDigest')
 
     def test_object_create_bad_md5_too_short(self):
-        too_short_digest = hashlib.md5('hey').hexdigest()[:-1]
-        md5_str = too_short_digest.encode('base64').strip()
+        too_short_digest = hashlib.md5(b'hey').digest()[:-1]
+        md5_str = base64.b64encode(too_short_digest).strip()
+        if not six.PY2:
+            md5_str = md5_str.decode('ascii')
         req = Request.blank(
             '/bucket/object',
             environ={'REQUEST_METHOD': 'PUT',
@@ -518,8 +522,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'InvalidDigest')
 
     def test_object_create_bad_md5_too_long(self):
-        too_long_digest = hashlib.md5('hey').hexdigest() + 'suffix'
-        md5_str = too_long_digest.encode('base64').strip()
+        too_long_digest = hashlib.md5(b'hey').digest() + b'suffix'
+        md5_str = base64.b64encode(too_long_digest).strip()
+        if not six.PY2:
+            md5_str = md5_str.decode('ascii')
         req = Request.blank(
             '/bucket/object',
             environ={'REQUEST_METHOD': 'PUT',
@@ -705,13 +711,13 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             with self.assertRaises(ValueError) as cm:
                 self.s3api.check_pipeline(self.conf)
             self.assertIn('expected auth between s3api and proxy-server',
-                          cm.exception.message)
+                          cm.exception.args[0])
 
             pipeline.return_value = 'proxy-server'
             with self.assertRaises(ValueError) as cm:
                 self.s3api.check_pipeline(self.conf)
             self.assertIn("missing filters ['s3api']",
-                          cm.exception.message)
+                          cm.exception.args[0])
 
     def test_s3api_initialization_with_disabled_pipeline_check(self):
         with patch("swift.common.middleware.s3api.s3api.loadcontext"), \
@@ -799,7 +805,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'Missing required header for this request: x-amz-content-sha256')
 
     def test_signature_v4_bad_authorization_string(self):
-        def test(auth_str, error, msg, extra=''):
+        def test(auth_str, error, msg, extra=b''):
             environ = {
                 'REQUEST_METHOD': 'GET'}
             headers = {
@@ -835,7 +841,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         test(auth_str, 'AuthorizationHeaderMalformed',
              "The authorization header is malformed; "
              "the region 'us-west-2' is wrong; expecting 'us-east-1'",
-             '<Region>us-east-1</Region>')
+             b'<Region>us-east-1</Region>')
 
         auth_str = ('AWS4-HMAC-SHA256 '
                     'Credential=test:tester/%s/us-east-1/not-s3/aws4_request, '
@@ -901,8 +907,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     patch.object(swift.common.middleware.s3api.s3request,
                                  'SERVICE', 'host'):
                 req = _get_req(path, environ)
-                hash_in_sts = req._string_to_sign().split('\n')[3]
-                self.assertEqual(hash_val, hash_in_sts)
+                hash_in_sts = req._string_to_sign().split(b'\n')[3]
+                self.assertEqual(hash_val, hash_in_sts.decode('ascii'))
                 self.assertTrue(req.check_signature(
                     'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY'))
 
@@ -963,7 +969,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                    'validate_bucket_name'):
             verify('27ba31df5dbc6e063d8f87d62eb07143'
                    'f7f271c5330a917840586ac1c85b6f6b',
-                   unquote('/%E1%88%B4'), env)
+                   swob.wsgi_unquote('/%E1%88%B4'), env)
 
         # get-vanilla-query-order-key
         env = {
@@ -1101,12 +1107,12 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                             swob.HTTPOk, {}, None)
         with patch.object(self.s3_token, '_json_request') as mock_req:
             mock_resp = requests.Response()
-            mock_resp._content = json.dumps(GOOD_RESPONSE_V2)
+            mock_resp._content = json.dumps(GOOD_RESPONSE_V2).encode('ascii')
             mock_resp.status_code = 201
             mock_req.return_value = mock_resp
 
             status, headers, body = self.call_s3api(req)
-            self.assertEqual(body, '')
+            self.assertEqual(body, b'')
             self.assertEqual(1, mock_req.call_count)
 
     def test_s3api_with_only_s3_token_v3(self):
@@ -1127,12 +1133,12 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                             swob.HTTPOk, {}, None)
         with patch.object(self.s3_token, '_json_request') as mock_req:
             mock_resp = requests.Response()
-            mock_resp._content = json.dumps(GOOD_RESPONSE_V3)
+            mock_resp._content = json.dumps(GOOD_RESPONSE_V3).encode('ascii')
             mock_resp.status_code = 200
             mock_req.return_value = mock_resp
 
             status, headers, body = self.call_s3api(req)
-            self.assertEqual(body, '')
+            self.assertEqual(body, b'')
             self.assertEqual(1, mock_req.call_count)
 
     def test_s3api_with_s3_token_and_auth_token(self):
@@ -1157,7 +1163,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             with patch.object(self.auth_token,
                               '_do_fetch_token') as mock_fetch:
                 mock_resp = requests.Response()
-                mock_resp._content = json.dumps(GOOD_RESPONSE_V2)
+                mock_resp._content = json.dumps(
+                    GOOD_RESPONSE_V2).encode('ascii')
                 mock_resp.status_code = 201
                 mock_req.return_value = mock_resp
 
@@ -1167,7 +1174,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                 mock_fetch.return_value = (MagicMock(), mock_access_info)
 
                 status, headers, body = self.call_s3api(req)
-                self.assertEqual(body, '')
+                self.assertEqual(body, b'')
                 self.assertEqual(1, mock_req.call_count)
                 # With X-Auth-Token, auth_token will call _do_fetch_token to
                 # connect to keystone in auth_token, again
@@ -1198,7 +1205,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                 no_token_id_good_resp = copy.deepcopy(GOOD_RESPONSE_V2)
                 # delete token id
                 del no_token_id_good_resp['access']['token']['id']
-                mock_resp._content = json.dumps(no_token_id_good_resp)
+                mock_resp._content = json.dumps(
+                    no_token_id_good_resp).encode('ascii')
                 mock_resp.status_code = 201
                 mock_req.return_value = mock_resp
 

@@ -143,7 +143,7 @@ class TestRequest(S3ApiTestCase):
     def test_get_response_without_match_ACL_MAP(self):
         with self.assertRaises(Exception) as e:
             self._test_get_response('POST', req_klass=S3AclRequest)
-        self.assertEqual(e.exception.message,
+        self.assertEqual(e.exception.args[0],
                          'No permission to be checked exists')
 
     def test_get_response_without_duplication_HEAD_request(self):
@@ -215,8 +215,8 @@ class TestRequest(S3ApiTestCase):
         s3req = create_s3request_with_param('max-keys', '1' * 30)
         with self.assertRaises(InvalidArgument) as result:
             s3req.get_validated_param('max-keys', 1)
-        self.assertTrue(
-            'not an integer or within integer range' in result.exception.body)
+        self.assertIn(
+            b'not an integer or within integer range', result.exception.body)
         self.assertEqual(
             result.exception.headers['content-type'], 'application/xml')
 
@@ -224,8 +224,8 @@ class TestRequest(S3ApiTestCase):
         s3req = create_s3request_with_param('max-keys', '-1')
         with self.assertRaises(InvalidArgument) as result:
             s3req.get_validated_param('max-keys', 1)
-        self.assertTrue(
-            'must be an integer between 0 and' in result.exception.body)
+        self.assertIn(
+            b'must be an integer between 0 and', result.exception.body)
         self.assertEqual(
             result.exception.headers['content-type'], 'application/xml')
 
@@ -233,8 +233,8 @@ class TestRequest(S3ApiTestCase):
         s3req = create_s3request_with_param('max-keys', 'invalid')
         with self.assertRaises(InvalidArgument) as result:
             s3req.get_validated_param('max-keys', 1)
-        self.assertTrue(
-            'not an integer or within integer range' in result.exception.body)
+        self.assertIn(
+            b'not an integer or within integer range', result.exception.body)
         self.assertEqual(
             result.exception.headers['content-type'], 'application/xml')
 
@@ -351,7 +351,7 @@ class TestRequest(S3ApiTestCase):
                             headers={'Authorization': 'AWS test:tester:hmac'})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '403')
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
 
     def test_date_header_expired(self):
         self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
@@ -363,7 +363,7 @@ class TestRequest(S3ApiTestCase):
 
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '403')
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
 
     def test_date_header_with_x_amz_date_valid(self):
         self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
@@ -376,7 +376,7 @@ class TestRequest(S3ApiTestCase):
 
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '404')
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
 
     def test_date_header_with_x_amz_date_expired(self):
         self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
@@ -390,7 +390,7 @@ class TestRequest(S3ApiTestCase):
 
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '403')
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
 
     def _test_request_timestamp_sigv4(self, date_header):
         # signature v4 here
@@ -428,7 +428,7 @@ class TestRequest(S3ApiTestCase):
 
     def test_request_timestamp_sigv4(self):
         access_denied_message = \
-            'AWS authentication requires a valid Date or x-amz-date header'
+            b'AWS authentication requires a valid Date or x-amz-date header'
 
         # normal X-Amz-Date header
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header()}
@@ -443,7 +443,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(AccessDenied) as cm:
             self._test_request_timestamp_sigv4(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
         # mangled Date header
@@ -451,7 +451,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(AccessDenied) as cm:
             self._test_request_timestamp_sigv4(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
         # Negative timestamp
@@ -459,7 +459,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(AccessDenied) as cm:
             self._test_request_timestamp_sigv4(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
         # far-past Date header
@@ -467,7 +467,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(AccessDenied) as cm:
             self._test_request_timestamp_sigv4(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
         # near-future X-Amz-Date header
@@ -481,9 +481,9 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(RequestTimeTooSkewed) as cm:
             self._test_request_timestamp_sigv4(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
-        self.assertIn('The difference between the request time and the '
-                      'current time is too large.', cm.exception.body)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
+        self.assertIn(b'The difference between the request time and the '
+                      b'current time is too large.', cm.exception.body)
 
     def _test_request_timestamp_sigv2(self, date_header):
         # signature v4 here
@@ -505,7 +505,7 @@ class TestRequest(S3ApiTestCase):
 
     def test_request_timestamp_sigv2(self):
         access_denied_message = \
-            'AWS authentication requires a valid Date or x-amz-date header'
+            b'AWS authentication requires a valid Date or x-amz-date header'
 
         # In v2 format, normal X-Amz-Date header is same
         date_header = {'X-Amz-Date': self.get_date_header()}
@@ -520,7 +520,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(AccessDenied) as cm:
             self._test_request_timestamp_sigv2(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
         # mangled Date header
@@ -528,7 +528,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(AccessDenied) as cm:
             self._test_request_timestamp_sigv2(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
         # Negative timestamp
@@ -536,7 +536,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(AccessDenied) as cm:
             self._test_request_timestamp_sigv2(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
         # far-past Date header
@@ -544,7 +544,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(AccessDenied) as cm:
             self._test_request_timestamp_sigv2(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
         # far-future Date header
@@ -552,9 +552,9 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(RequestTimeTooSkewed) as cm:
             self._test_request_timestamp_sigv2(date_header)
 
-        self.assertEqual('403 Forbidden', cm.exception.message)
-        self.assertIn('The difference between the request time and the '
-                      'current time is too large.', cm.exception.body)
+        self.assertEqual('403 Forbidden', cm.exception.args[0])
+        self.assertIn(b'The difference between the request time and the '
+                      b'current time is too large.', cm.exception.body)
 
     def test_headers_to_sign_sigv4(self):
         environ = {
@@ -681,14 +681,14 @@ class TestRequest(S3ApiTestCase):
         sigv4_req = SigV4Request(req.environ)
         uri = sigv4_req._canonical_uri()
 
-        self.assertEqual(uri, '/')
+        self.assertEqual(uri, b'/')
         self.assertEqual(req.environ['PATH_INFO'], '/')
 
         req = Request.blank('/obj1', environ=environ, headers=headers)
         sigv4_req = SigV4Request(req.environ)
         uri = sigv4_req._canonical_uri()
 
-        self.assertEqual(uri, '/obj1')
+        self.assertEqual(uri, b'/obj1')
         self.assertEqual(req.environ['PATH_INFO'], '/obj1')
 
         environ = {
@@ -701,7 +701,7 @@ class TestRequest(S3ApiTestCase):
         sigv4_req = SigV4Request(req.environ)
         uri = sigv4_req._canonical_uri()
 
-        self.assertEqual(uri, '/')
+        self.assertEqual(uri, b'/')
         self.assertEqual(req.environ['PATH_INFO'], '/')
 
         req = Request.blank('/bucket/obj1',
@@ -710,7 +710,7 @@ class TestRequest(S3ApiTestCase):
         sigv4_req = SigV4Request(req.environ)
         uri = sigv4_req._canonical_uri()
 
-        self.assertEqual(uri, '/bucket/obj1')
+        self.assertEqual(uri, b'/bucket/obj1')
         self.assertEqual(req.environ['PATH_INFO'], '/bucket/obj1')
 
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
@@ -724,12 +724,12 @@ class TestRequest(S3ApiTestCase):
                               'bWq2s1WEIj+Ydj0vQ697zp+IXMU='),
         })
         sigv2_req = S3Request(req.environ, storage_domain='s3.amazonaws.com')
-        expected_sts = '\n'.join([
-            'GET',
-            '',
-            '',
-            'Tue, 27 Mar 2007 19:36:42 +0000',
-            '/johnsmith/photos/puppy.jpg',
+        expected_sts = b'\n'.join([
+            b'GET',
+            b'',
+            b'',
+            b'Tue, 27 Mar 2007 19:36:42 +0000',
+            b'/johnsmith/photos/puppy.jpg',
         ])
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
         self.assertTrue(sigv2_req.check_signature(secret))
@@ -743,12 +743,12 @@ class TestRequest(S3ApiTestCase):
                               'MyyxeRY7whkBe+bq8fHCL/2kKUg='),
         })
         sigv2_req = S3Request(req.environ, storage_domain='s3.amazonaws.com')
-        expected_sts = '\n'.join([
-            'PUT',
-            '',
-            'image/jpeg',
-            'Tue, 27 Mar 2007 21:15:45 +0000',
-            '/johnsmith/photos/puppy.jpg',
+        expected_sts = b'\n'.join([
+            b'PUT',
+            b'',
+            b'image/jpeg',
+            b'Tue, 27 Mar 2007 21:15:45 +0000',
+            b'/johnsmith/photos/puppy.jpg',
         ])
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
         self.assertTrue(sigv2_req.check_signature(secret))
@@ -763,12 +763,12 @@ class TestRequest(S3ApiTestCase):
                                   'htDYFYduRNen8P9ZfE/s9SuKy0U='),
             })
         sigv2_req = S3Request(req.environ, storage_domain='s3.amazonaws.com')
-        expected_sts = '\n'.join([
-            'GET',
-            '',
-            '',
-            'Tue, 27 Mar 2007 19:42:41 +0000',
-            '/johnsmith/',
+        expected_sts = b'\n'.join([
+            b'GET',
+            b'',
+            b'',
+            b'Tue, 27 Mar 2007 19:42:41 +0000',
+            b'/johnsmith/',
         ])
         self.assertEqual(expected_sts, sigv2_req._string_to_sign())
         self.assertTrue(sigv2_req.check_signature(secret))
@@ -846,7 +846,7 @@ class TestHashingInput(S3ApiTestCase):
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # even though the hash matches, there was more data than we expected
-        with self.assertRaises(swob.Response) as raised:
+        with self.assertRaises(swob.HTTPException) as raised:
             wrapped.read(3)
         self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
         # the error causes us to close the input
@@ -859,7 +859,7 @@ class TestHashingInput(S3ApiTestCase):
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # even though the hash matches, there was more data than we expected
-        with self.assertRaises(swob.Response) as raised:
+        with self.assertRaises(swob.HTTPException) as raised:
             wrapped.read(4)
         self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
         self.assertTrue(wrapped._input.closed)
@@ -870,14 +870,14 @@ class TestHashingInput(S3ApiTestCase):
                                hashlib.md5(raw).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'5678', wrapped.read(4))
-        with self.assertRaises(swob.Response) as raised:
+        with self.assertRaises(swob.HTTPException) as raised:
             wrapped.read(4)
         self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
         self.assertTrue(wrapped._input.closed)
 
     def test_empty_bad_hash(self):
         wrapped = HashingInput(BytesIO(b''), 0, hashlib.sha256, 'nope')
-        with self.assertRaises(swob.Response) as raised:
+        with self.assertRaises(swob.HTTPException) as raised:
             wrapped.read(3)
         self.assertEqual(raised.exception.status, '422 Unprocessable Entity')
         # the error causes us to close the input

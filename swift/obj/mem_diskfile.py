@@ -15,12 +15,12 @@
 
 """ In-Memory Disk File Interface for Swift Object Server"""
 
+import io
 import time
 import hashlib
 from contextlib import contextmanager
 
 from eventlet import Timeout
-from six import moves
 
 from swift.common.utils import Timestamp
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
@@ -35,7 +35,7 @@ class InMemoryFileSystem(object):
     A very simplistic in-memory file system scheme.
 
     There is one dictionary mapping a given object name to a tuple. The first
-    entry in the tuple is the cStringIO buffer representing the file contents,
+    entry in the tuple is the BytesIO buffer representing the file contents,
     the second entry is the metadata dictionary.
     """
 
@@ -47,7 +47,7 @@ class InMemoryFileSystem(object):
         Return back an file-like object and its metadata
 
         :param name: standard object name
-        :return: (fp, metadata) fp is `StringIO` in-memory representation
+        :return: (fp, metadata) fp is ``BytesIO`` in-memory representation
                                 object (or None). metadata is a dictionary
                                 of metadata (or None)
         """
@@ -63,7 +63,7 @@ class InMemoryFileSystem(object):
         Store object into memory
 
         :param name: standard object name
-        :param fp: `StringIO` in-memory representation object
+        :param fp: ``BytesIO`` in-memory representation object
         :param metadata: dictionary of metadata to be written
         """
         self._filesystem[name] = (fp, metadata)
@@ -109,10 +109,10 @@ class DiskFileWriter(object):
         """
         Prepare to accept writes.
 
-        Create a new ``StringIO`` object for a started-but-not-yet-finished
+        Create a new ``BytesIO`` object for a started-but-not-yet-finished
         PUT.
         """
-        self._fp = moves.cStringIO()
+        self._fp = io.BytesIO()
         return self
 
     def close(self):
@@ -125,7 +125,7 @@ class DiskFileWriter(object):
 
     def write(self, chunk):
         """
-        Write a chunk of data into the `StringIO` object.
+        Write a chunk of data into the ``BytesIO`` object.
 
         :param chunk: the chunk of data to write as a string object
         """
@@ -144,7 +144,7 @@ class DiskFileWriter(object):
     def put(self, metadata):
         """
         Make the final association in the in-memory file system for this name
-        with the `StringIO` object.
+        with the ``BytesIO`` object.
 
         :param metadata: dictionary of metadata to be written
         """

@@ -324,8 +324,7 @@ def filter_factory(global_conf, **local_conf):
     conf.update(local_conf)
 
     account_ratelimit = float(conf.get('account_ratelimit', 0))
-    max_sleep_time_seconds = \
-        float(conf.get('max_sleep_time_seconds', 60))
+    max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds', 60))
     container_ratelimits, cont_limit_info = interpret_conf_limits(
         conf, 'container_ratelimit_', info=1)
     container_listing_ratelimits, cont_list_limit_info = \

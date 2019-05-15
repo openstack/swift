@@ -270,9 +270,9 @@ class ContainerController(Controller):
                 str(config_true_value(req.headers['X-Container-Sharding']))
         length_limit = self.get_name_length_limit()
         if len(self.container_name) > length_limit:
-            resp = HTTPBadRequest(request=req)
-            resp.body = 'Container name length of %d longer than %d' % \
-                        (len(self.container_name), length_limit)
+            body = 'Container name length of %d longer than %d' % (
+                len(self.container_name), length_limit)
+            resp = HTTPBadRequest(request=req, body=body)
             return resp
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)
@@ -289,9 +289,9 @@ class ContainerController(Controller):
                 self.container_info(self.account_name, self.container_name,
                                     req)
             if not is_success(container_info.get('status')):
-                resp = HTTPForbidden(request=req)
-                resp.body = 'Reached container limit of %s' % \
-                    self.app.max_containers_per_account
+                body = 'Reached container limit of %s' % (
+                    self.app.max_containers_per_account, )
+                resp = HTTPForbidden(request=req, body=body)
                 return resp
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
