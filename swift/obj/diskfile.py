@@ -153,10 +153,16 @@ def _encode_metadata(metadata):
 
     :param metadata: a dict
     """
-    def encode_str(item):
-        if isinstance(item, six.text_type):
-            return item.encode('utf8')
-        return item
+    if six.PY2:
+        def encode_str(item):
+            if isinstance(item, six.text_type):
+                return item.encode('utf8')
+            return item
+    else:
+        def encode_str(item):
+            if isinstance(item, six.text_type):
+                return item.encode('utf8', 'surrogateescape')
+            return item
 
     return dict(((encode_str(k), encode_str(v)) for k, v in metadata.items()))
 
