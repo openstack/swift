@@ -500,10 +500,7 @@ def parse_and_validate_input(req_body, req_path):
                               % (seg_index,))
                 continue
             # re-encode to normalize padding
-            if six.PY2:
-                seg_dict['data'] = base64.b64encode(data)
-            else:
-                seg_dict['data'] = base64.b64encode(data).decode('ascii')
+            seg_dict['data'] = base64.b64encode(data).decode('ascii')
 
     if parsed_data and all('data' in d for d in parsed_data):
         errors.append(b"Inline data segments require at least one "
@@ -926,7 +923,7 @@ class SloGetContext(WSGIContext):
                     r = '%s:%s;' % (seg_dict['hash'], seg_dict['range'])
                 else:
                     r = seg_dict['hash']
-                calculated_etag.update(r.encode('ascii') if six.PY3 else r)
+                calculated_etag.update(r.encode('ascii'))
 
             if content_length is None:
                 if config_true_value(seg_dict.get('sub_slo')):
@@ -1264,9 +1261,7 @@ class StaticLargeObject(object):
                 resp_dict = {}
                 if heartbeat:
                     resp_dict['Response Status'] = err.status
-                    err_body = err.body
-                    if six.PY3:
-                        err_body = err_body.decode('utf-8', errors='replace')
+                    err_body = err.body.decode('utf-8')
                     resp_dict['Response Body'] = err_body or '\n'.join(
                         RESPONSE_REASONS.get(err.status_int, ['']))
                 else:
