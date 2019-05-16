@@ -1256,7 +1256,8 @@ class ObjectController(BaseStorageServer):
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:
-            resp = Response(body=pickle.dumps(hashes))
+            # force pickle protocol for compatibility with py2 nodes
+            resp = Response(body=pickle.dumps(hashes, protocol=2))
         return resp
 
     @public
