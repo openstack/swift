@@ -23,7 +23,6 @@ ceph_s3:
   s3tests.functional.test_s3.test_logging_toggle: {status: KNOWN}
   s3tests.functional.test_s3.test_multipart_resend_first_finishes_last: {status: KNOWN}
   s3tests.functional.test_s3.test_object_copy_canned_acl: {status: KNOWN}
-  s3tests.functional.test_s3.test_object_copy_replacing_metadata: {status: KNOWN}
   s3tests.functional.test_s3.test_object_header_acl_grants: {status: KNOWN}
   s3tests.functional.test_s3.test_object_raw_get: {status: KNOWN}
   s3tests.functional.test_s3.test_object_raw_get_bucket_acl: {status: KNOWN}
