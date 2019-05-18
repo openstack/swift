@@ -1946,7 +1946,8 @@ class TestFile(Base):
 
                 if len(key) > j:
                     key = key[:j]
-                    if isinstance(val, bytes):
+                    # NB: we'll likely write object metadata that's *not* UTF-8
+                    if six.PY2:
                         val = val[:j]
                     else:
                         val = val.encode('utf8')[:j].decode(
