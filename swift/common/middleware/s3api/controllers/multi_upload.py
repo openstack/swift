@@ -67,7 +67,7 @@ import time
 
 import six
 
-from swift.common.swob import Range
+from swift.common.swob import Range, bytes_to_wsgi
 from swift.common.utils import json, public, reiterate
 from swift.common.db import utf8encode
 
@@ -529,7 +529,8 @@ class UploadController(Controller):
         objects = json.loads(resp.body)
         for o in objects:
             container = req.container_name + MULTIUPLOAD_SUFFIX
-            req.get_response(self.app, container=container, obj=o['name'])
+            obj = bytes_to_wsgi(o['name'].encode('utf-8'))
+            req.get_response(self.app, container=container, obj=obj)
 
         return HTTPNoContent()
 

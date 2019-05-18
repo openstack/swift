@@ -942,16 +942,11 @@ class Request(object):
                            'https': 443}.get(parsed_path.scheme, 80)
         if parsed_path.scheme and parsed_path.scheme not in ['http', 'https']:
             raise TypeError('Invalid scheme: %s' % parsed_path.scheme)
-        if six.PY2:
-            path_info = urllib.parse.unquote(parsed_path.path)
-        else:
-            path_info = urllib.parse.unquote(parsed_path.path,
-                                             encoding='latin-1')
         env = {
             'REQUEST_METHOD': 'GET',
             'SCRIPT_NAME': '',
             'QUERY_STRING': parsed_path.query,
-            'PATH_INFO': path_info,
+            'PATH_INFO': wsgi_unquote(parsed_path.path),
             'SERVER_NAME': server_name,
             'SERVER_PORT': str(server_port),
             'HTTP_HOST': '%s:%d' % (server_name, server_port),
@@ -1038,13 +1033,8 @@ class Request(object):
     @property
     def path(self):
         "Provides the full path of the request, excluding the QUERY_STRING"
-        if six.PY2:
-            return urllib.parse.quote(self.environ.get('SCRIPT_NAME', '') +
-                                      self.environ['PATH_INFO'])
-        else:
-            return urllib.parse.quote(self.environ.get('SCRIPT_NAME', '') +
-                                      self.environ['PATH_INFO'],
-                                      encoding='latin-1')
+        return wsgi_quote(self.environ.get('SCRIPT_NAME', '') +
+                          self.environ['PATH_INFO'])
 
     @property
     def swift_entity_path(self):
@@ -1482,7 +1472,7 @@ class Response(object):
                 realm = 'unknown'
         except (AttributeError, ValueError):
             realm = 'unknown'
-        return 'Swift realm="%s"' % urllib.parse.quote(realm)
+        return 'Swift realm="%s"' % wsgi_quote(realm)
 
     @property
     def is_success(self):

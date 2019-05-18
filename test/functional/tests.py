@@ -15,7 +15,6 @@
 # limitations under the License.
 
 from datetime import datetime
-import email.parser
 import hashlib
 import locale
 import random
@@ -28,6 +27,11 @@ from copy import deepcopy
 import eventlet
 from swift.common.http import is_success, is_client_error
 from email.utils import parsedate
+
+if six.PY2:
+    from email.parser import FeedParser
+else:
+    from email.parser import BytesFeedParser as FeedParser
 
 import mock
 
@@ -244,7 +248,8 @@ class TestAccount(Base):
                 self.assertGreaterEqual(a['count'], 0)
                 self.assertGreaterEqual(a['bytes'], 0)
 
-            headers = dict(self.env.conn.response.getheaders())
+            headers = dict((k.lower(), v)
+                           for k, v in self.env.conn.response.getheaders())
             if format_type == 'json':
                 self.assertEqual(headers['content-type'],
                                  'application/json; charset=utf-8')
@@ -402,7 +407,7 @@ class TestAccount(Base):
         quoted_hax = urllib.parse.quote(hax)
         conn.connection.request('GET', '/v1/' + quoted_hax, None, {})
         resp = conn.connection.getresponse()
-        resp_headers = dict(resp.getheaders())
+        resp_headers = dict((h.lower(), v) for h, v in resp.getheaders())
         self.assertIn('www-authenticate', resp_headers)
         actual = resp_headers['www-authenticate']
         expected = 'Swift realm="%s"' % quoted_hax
@@ -1271,7 +1276,7 @@ class TestFile(Base):
                 if k.lower() in unexpected_hdrs:
                     errors.append('Found unexpected header %s: %s' % (k, v))
             for k, v in expected_hdrs.items():
-                matches = [hdr for hdr in resp_headers if hdr[0] == k]
+                matches = [hdr for hdr in resp_headers if hdr[0].lower() == k]
                 if not matches:
                     errors.append('Missing expected header %s' % k)
                 for (got_k, got_v) in matches:
@@ -1941,7 +1946,11 @@ class TestFile(Base):
 
                 if len(key) > j:
                     key = key[:j]
-                    val = val[:j]
+                    if isinstance(val, bytes):
+                        val = val[:j]
+                    else:
+                        val = val.encode('utf8')[:j].decode(
+                            'utf8', 'surrogateescape')
 
                 metadata[key] = val
 
@@ -2071,8 +2080,8 @@ class TestFile(Base):
             # HTTP response bodies don't). We fake it out by constructing a
             # one-header preamble containing just the Content-Type, then
             # feeding in the response body.
-            parser = email.parser.FeedParser()
-            parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+            parser = FeedParser()
+            parser.feed(b"Content-Type: %s\r\n\r\n" % content_type.encode())
             parser.feed(fetched)
             root_message = parser.close()
             self.assertTrue(root_message.is_multipart())
@@ -2086,7 +2095,7 @@ class TestFile(Base):
                 byteranges[0]['Content-Range'],
                 "bytes %d-%d/%d" % (i, i + subrange_size - 1, file_length))
             self.assertEqual(
-                byteranges[0].get_payload(),
+                byteranges[0].get_payload(decode=True),
                 data[i:(i + subrange_size)])
 
             self.assertEqual(byteranges[1]['Content-Type'],
@@ -2096,7 +2105,7 @@ class TestFile(Base):
                 "bytes %d-%d/%d" % (i + 2 * subrange_size,
                                     i + 3 * subrange_size - 1, file_length))
             self.assertEqual(
-                byteranges[1].get_payload(),
+                byteranges[1].get_payload(decode=True),
                 data[(i + 2 * subrange_size):(i + 3 * subrange_size)])
 
             self.assertEqual(byteranges[2]['Content-Type'],
@@ -2106,7 +2115,7 @@ class TestFile(Base):
                 "bytes %d-%d/%d" % (i + 4 * subrange_size,
                                     i + 5 * subrange_size - 1, file_length))
             self.assertEqual(
-                byteranges[2].get_payload(),
+                byteranges[2].get_payload(decode=True),
                 data[(i + 4 * subrange_size):(i + 5 * subrange_size)])
 
         # The first two ranges are satisfiable but the third is not; the
@@ -2123,8 +2132,8 @@ class TestFile(Base):
         self.assertTrue(content_type.startswith("multipart/byteranges"))
         self.assertIsNone(file_item.content_range)
 
-        parser = email.parser.FeedParser()
-        parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+        parser = FeedParser()
+        parser.feed(b"Content-Type: %s\r\n\r\n" % content_type.encode())
         parser.feed(fetched)
         root_message = parser.close()
 
@@ -2137,7 +2146,8 @@ class TestFile(Base):
         self.assertEqual(
             byteranges[0]['Content-Range'],
             "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
-        self.assertEqual(byteranges[0].get_payload(), data[:subrange_size])
+        self.assertEqual(byteranges[0].get_payload(decode=True),
+                         data[:subrange_size])
 
         self.assertEqual(byteranges[1]['Content-Type'],
                          "lovecraft/rugose; squamous=true")
@@ -2146,7 +2156,7 @@ class TestFile(Base):
             "bytes %d-%d/%d" % (2 * subrange_size, 3 * subrange_size - 1,
                                 file_length))
         self.assertEqual(
-            byteranges[1].get_payload(),
+            byteranges[1].get_payload(decode=True),
             data[(2 * subrange_size):(3 * subrange_size)])
 
         # The first range is satisfiable but the second is not; the
@@ -2161,8 +2171,8 @@ class TestFile(Base):
         content_type = file_item.content_type
         if content_type.startswith("multipart/byteranges"):
             self.assertIsNone(file_item.content_range)
-            parser = email.parser.FeedParser()
-            parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+            parser = FeedParser()
+            parser.feed(b"Content-Type: %s\r\n\r\n" % content_type.encode())
             parser.feed(fetched)
             root_message = parser.close()
 
@@ -2175,7 +2185,8 @@ class TestFile(Base):
             self.assertEqual(
                 byteranges[0]['Content-Range'],
                 "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
-            self.assertEqual(byteranges[0].get_payload(), data[:subrange_size])
+            self.assertEqual(byteranges[0].get_payload(decode=True),
+                             data[:subrange_size])
         else:
             self.assertEqual(
                 file_item.content_range,
@@ -2494,7 +2505,8 @@ class TestFile(Base):
                     found, 'Unexpected file %s found in '
                     '%s listing' % (file_item['name'], format_type))
 
-            headers = dict(self.env.conn.response.getheaders())
+            headers = dict((h.lower(), v)
+                           for h, v in self.env.conn.response.getheaders())
             if format_type == 'json':
                 self.assertEqual(headers['content-type'],
                                  'application/json; charset=utf-8')
@@ -2536,7 +2548,8 @@ class TestFile(Base):
         data = six.BytesIO(file_item.write_random(512))
         etag = File.compute_md5sum(data)
 
-        headers = dict(self.env.conn.response.getheaders())
+        headers = dict((h.lower(), v)
+                       for h, v in self.env.conn.response.getheaders())
         self.assertIn('etag', headers.keys())
 
         header_etag = headers['etag'].strip('"')
