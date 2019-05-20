@@ -231,10 +231,15 @@ class BucketController(Controller):
                     # SLOs may be in something *close* to the MU format
                     etag = '"%s-N"' % o['slo_etag'].strip('"')
                 else:
-                    # Normal objects just use the MD5
-                    etag = '"%s"' % o['hash']
-                    # This also catches sufficiently-old SLOs, but we have
-                    # no way to identify those from container listings
+                    etag = o['hash']
+                    if len(etag) < 2 or etag[::len(etag) - 1] != '""':
+                        # Normal objects just use the MD5
+                        etag = '"%s"' % o['hash']
+                        # This also catches sufficiently-old SLOs, but we have
+                        # no way to identify those from container listings
+                    # Otherwise, somebody somewhere (proxyfs, maybe?) made this
+                    # look like an RFC-compliant ETag; we don't need to
+                    # quote-wrap.
                 SubElement(contents, 'ETag').text = etag
                 SubElement(contents, 'Size').text = str(o['bytes'])
                 if fetch_owner or listing_type != 'version-2':
