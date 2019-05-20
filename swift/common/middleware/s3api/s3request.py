@@ -434,20 +434,21 @@ class SigV4Mixin(object):
             raise InvalidRequest(msg)
         else:
             hashed_payload = self.headers['X-Amz-Content-SHA256']
-            if self.content_length == 0:
-                if hashed_payload != sha256().hexdigest():
-                    raise BadDigest(
-                        'The X-Amz-Content-SHA56 you specified did not match '
-                        'what we received.')
-            elif self.content_length:
-                self.environ['wsgi.input'] = HashingInput(
-                    self.environ['wsgi.input'],
-                    self.content_length,
-                    sha256,
-                    hashed_payload)
-            # else, not provided -- Swift will kick out a 411 Length Required
-            # which will get translated back to a S3-style response in
-            # S3Request._swift_error_codes
+            if hashed_payload != 'UNSIGNED-PAYLOAD':
+                if self.content_length == 0:
+                    if hashed_payload != sha256().hexdigest():
+                        raise BadDigest(
+                            'The X-Amz-Content-SHA56 you specified did not '
+                            'match what we received.')
+                elif self.content_length:
+                    self.environ['wsgi.input'] = HashingInput(
+                        self.environ['wsgi.input'],
+                        self.content_length,
+                        sha256,
+                        hashed_payload)
+                # else, length not provided -- Swift will kick out a
+                # 411 Length Required which will get translated back
+                # to a S3-style response in S3Request._swift_error_codes
         cr.append(swob.wsgi_to_bytes(hashed_payload))
         return b'\n'.join(cr)
 
