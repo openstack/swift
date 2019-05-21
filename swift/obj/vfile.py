@@ -41,7 +41,7 @@ from swift.obj.meta_pb2 import Metadata
 from swift.obj.diskfile import _encode_metadata
 from swift.common import utils
 from vfile_utils import SwiftPathInfo, get_volume_index, get_volume_type, \
-    next_aligned_offset, punch_hole, SwiftQuarantinedPathInfo
+    next_aligned_offset, SwiftQuarantinedPathInfo
 
 vcreation_lock_name = "volume_creation.lock"
 
@@ -1071,7 +1071,7 @@ def delete_vfile_from_path(filepath):
                 raise VFileException(
                     "Wrong header name. Header: {} Expected: {}".format(
                         header_fullname, full_name))
-        punch_hole(fp.fileno(), obj.offset, header.total_size)
+        utils.punch_hole(fp.fileno(), obj.offset, header.total_size)
 
     _unregister_object(si.socket_path, full_name, obj.volume_index,
                        obj.offset, header.total_size)

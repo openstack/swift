@@ -13,23 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ctypes
 import os
 import os.path
 import pwd
 import re
 
 from swift.common.storage_policy import split_policy_string
-from swift.common.utils import load_libc_function
 from swift.obj.fmgr_pb2 import VOLUME_DEFAULT, VOLUME_TOMBSTONE
-
-
-fallocate_sys = load_libc_function('fallocate', fail_if_missing=True,
-                                   errcheck=True)
 
 # regex to extract policy from path (one KV per policy)
 # TODO: use split_policy_string or similar, not re
-policy_re = re.compile(r'^objects(-\d)?$')
+policy_re = re.compile(r"^objects(-\d+)?$")
+volume_name_re = re.compile(r"^v\d{7}$")
+losf_name_re = re.compile(r"^losf(-\d+)?$")
 
 
 class VFileUtilException(Exception):
@@ -37,30 +33,52 @@ class VFileUtilException(Exception):
 
 
 def get_volume_type(extension):
-    map = {
+    ext_map = {
         ".ts": VOLUME_TOMBSTONE
     }
 
-    return map.get(extension, VOLUME_DEFAULT)
+    return ext_map.get(extension, VOLUME_DEFAULT)
+
+
+def valid_volume_name(name):
+    """Returns True if name is a valid volume name, False otherwise"""
+    if volume_name_re.match(name):
+        return True
+    else:
+        return False
+
+
+def valid_losf_name(name):
+    """Returns True if name is a valid losf dir name, False otherwise"""
+    if losf_name_re.match(name):
+        return True
+    else:
+        return False
 
 
 # used by "fsck" to get the socket path from the volume path
 def get_socket_path_from_volume_path(volume_path):
     volume_path = os.path.normpath(volume_path)
-    dirname = os.path.dirname
-    # the socket is two levels up from the volume :
-    # /srv/1/node/sdb1/sofs/volumes/v0001 -> /srv/1/node/sdb1/sofs/rpc.socket
-    socket_dir = dirname(dirname(volume_path))
-    socket_path = os.path.join(socket_dir, "rpc.socket")
+    volume_dir_path, volume_name = os.path.split(volume_path)
+    losf_path, volume_dir = os.path.split(volume_dir_path)
+    mount_path, losf_dir = os.path.split(losf_path)
+    if volume_dir != "volumes" or not valid_volume_name(volume_name) or \
+            not valid_losf_name(losf_dir):
+        raise ValueError("Invalid volume path")
+
+    socket_path = os.path.join(losf_path, "rpc.socket")
     return socket_path
 
 
 def get_mountpoint_from_volume_path(volume_path):
     volume_path = os.path.normpath(volume_path)
-    dirname = os.path.dirname
-    # /srv/1/node/sdb1/sofs/volumes/v0001 -> /srv/1/node/sdb1
-    mountpoint = dirname(dirname(dirname(volume_path)))
-    return mountpoint
+    volume_dir_path, volume_name = os.path.split(volume_path)
+    losf_path, volume_dir = os.path.split(volume_dir_path)
+    mount_path, losf_dir = os.path.split(losf_path)
+    if volume_dir != "volumes" or not valid_volume_name(volume_name) or \
+            not valid_losf_name(losf_dir):
+        raise ValueError("Invalid volume path")
+    return mount_path
 
 
 class SwiftPathInfo(object):
@@ -80,11 +98,11 @@ class SwiftPathInfo(object):
     @classmethod
     def from_path(cls, path):
         count_to_type = {
-            4: 'file',
-            3: 'ohash',
-            2: 'suffix',
-            1: 'partition',
-            0: 'partitions'  # "objects" directory
+            4: "file",
+            3: "ohash",
+            2: "suffix",
+            1: "partition",
+            0: "partitions"  # "objects" directory
         }
 
         clean_path = os.path.normpath(path)
@@ -92,9 +110,9 @@ class SwiftPathInfo(object):
 
         try:
             obj_idx = [i for i, elem in enumerate(ldir)
-                       if elem.startswith('objects')][0]
+                       if elem.startswith("objects")][0]
         except IndexError:
-            raise VFileUtilException('cannot parse object directory')
+            raise VFileUtilException("cannot parse object directory")
 
         elements = ldir[(obj_idx + 1):]
         count = len(elements)
@@ -102,16 +120,14 @@ class SwiftPathInfo(object):
         if count > 4:
             raise VFileUtilException("cannot parse swift file path")
 
-        try:
-            policy_idx = int(ldir[obj_idx].split('-')[1])
-        except IndexError:
-            policy_idx = 0
+        _, policy = split_policy_string(ldir[obj_idx])
+        policy_idx = policy.idx
 
-        prefix = os.path.join('/', *ldir[0:obj_idx])
+        prefix = os.path.join("/", *ldir[0:obj_idx])
         m = policy_re.match(ldir[obj_idx])
         if not m:
             raise VFileUtilException(
-                'cannot parse object element of directory')
+                "cannot parse object element of directory")
         if m.group(1):
             sofsdir = "losf{}".format(m.group(1))
         else:
@@ -138,30 +154,32 @@ class SwiftQuarantinedPathInfo(object):
     @classmethod
     def from_path(cls, path):
         count_to_type = {
-            3: 'file',
-            2: 'ohash',
-            1: 'ohashes',
+            3: "file",
+            2: "ohash",
+            1: "ohashes",
         }
 
         clean_path = os.path.normpath(path)
         ldir = clean_path.split(os.sep)
 
         try:
-            quar_idx = ldir.index('quarantined')
+            quar_idx = ldir.index("quarantined")
         except ValueError:
-            raise VFileUtilException('cannot parse quarantined path')
+            raise VFileUtilException("cannot parse quarantined path %s" %
+                                     path)
 
         elements = ldir[(quar_idx + 1):]
         count = len(elements)
 
-        if count < 1 or count > 3 or 'objects' not in elements[0]:
-            raise VFileUtilException("cannot parse quarantined path")
+        if count < 1 or count > 3 or "objects" not in elements[0]:
+            raise VFileUtilException("cannot parse quarantined path %s" %
+                                     path)
 
-        base, policy = split_policy_string(elements[0])
+        _, policy = split_policy_string(elements[0])
         policy_idx = policy.idx
 
-        prefix = os.path.join('/', *ldir[:quar_idx])
-        prefix = os.path.join(prefix, elements[0].replace('objects', 'losf'))
+        prefix = os.path.join("/", *ldir[:quar_idx])
+        prefix = os.path.join(prefix, elements[0].replace("objects", "losf"))
         socket_path = os.path.join(prefix, "rpc.socket")
         volume_dir = os.path.join(prefix, "volumes")
 
@@ -174,6 +192,10 @@ def get_volume_index(volume_path):
     returns the volume index, either from its basename, or full path
     """
     name = os.path.split(volume_path)[1]
+
+    if not valid_volume_name(name):
+        raise ValueError("Invalid volume name")
+
     index = int(name[1:8])
     return index
 
@@ -184,17 +206,6 @@ def next_aligned_offset(offset, alignment):
         return (offset + (alignment - offset % alignment))
     else:
         return offset
-
-
-def punch_hole(fd, offset, size):
-    """
-    Punches a hole in the underlying file, freeing space on the filesystem.
-    :param fd: file descriptor
-    :param offset: offset at which to punch hole
-    :param size: length of hole
-    """
-    # 3 is FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE
-    fallocate_sys(fd, 3, ctypes.c_uint64(offset), ctypes.c_uint64(size))
 
 
 def change_user(username):
