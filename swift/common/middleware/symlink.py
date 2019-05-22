@@ -447,7 +447,7 @@ class SymlinkObjectContext(WSGIContext):
         if TGT_ACCT_SYSMETA_SYMLINK_HDR in req.headers:
             etag_override.append(
                 'symlink_target_account=%s' %
-                req.headers[TGT_OBJ_SYSMETA_SYMLINK_HDR])
+                req.headers[TGT_ACCT_SYSMETA_SYMLINK_HDR])
         req.headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
             '; '.join(etag_override)
 
