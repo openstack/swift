@@ -15,7 +15,8 @@
 
 from time import time
 from unittest import main, TestCase
-from test.unit import FakeRing, mocked_http_conn, debug_logger
+from test.unit import FakeRing, mocked_http_conn, debug_logger, \
+    make_timestamp_iter
 from tempfile import mkdtemp
 from shutil import rmtree
 from collections import defaultdict
@@ -49,14 +50,17 @@ class FakeInternalClient(object):
         """
         :param aco_dict: A dict of account ,container, object that
             FakeInternalClient can return when each method called. Each account
-            has container name dict, and each container dict has object name
-            list in the container.
+            has container name dict, and each container dict has a list of
+            objects in the container.
             e.g. {'account1': {
-                      'container1: ['obj1', 'obj2', 'obj3'],
+                      'container1: ['obj1', 'obj2', {'name': 'obj3'}],
                       'container2: [],
                       },
                   'account2': {},
                  }
+            N.B. the objects entries should be the container-server JSON style
+            db rows, but this fake will dynamically detect when names are given
+            and wrap them for convenience.
         """
         self.aco_dict = defaultdict(dict)
         self.aco_dict.update(aco_dict)
@@ -79,7 +83,12 @@ class FakeInternalClient(object):
     def iter_objects(self, account, container):
         acc_dict = self.aco_dict[account]
         obj_iter = acc_dict.get(container, [])
-        return [{'name': six.text_type(obj)} for obj in obj_iter]
+        resp = []
+        for obj in obj_iter:
+            if not isinstance(obj, dict):
+                obj = {'name': six.text_type(obj)}
+            resp.append(obj)
+        return resp
 
     def make_request(*a, **kw):
         pass
@@ -102,6 +111,7 @@ class TestObjectExpirer(TestCase):
         self.conf = {'recon_cache_path': self.rcache}
         self.logger = debug_logger('test-expirer')
 
+        self.ts = make_timestamp_iter()
         self.past_time = str(int(time() - 86400))
         self.future_time = str(int(time() + 86400))
         # Dummy task queue for test
@@ -594,6 +604,50 @@ class TestObjectExpirer(TestCase):
                 task_account_container_list, my_index, divisor)),
             expected)
 
+        # test some of that async delete
+        async_delete_aco_dict = {
+            '.expiring_objects': {
+                # this task container will be checked
+                self.past_time: [
+                    # tasks ready for execution
+                    {'name': self.past_time + '-a0/c0/o0',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a1/c1/o1',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a2/c2/o2',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a3/c3/o3',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a4/c4/o4',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a5/c5/o5',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a6/c6/o6',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + '-a7/c7/o7',
+                     'content_type': 'application/async-deleted'},
+                    # task objects for unicode test
+                    {'name': self.past_time + u'-a8/c8/o8\u2661',
+                     'content_type': 'application/async-deleted'},
+                    {'name': self.past_time + u'-a9/c9/o9\xf8',
+                     'content_type': 'application/async-deleted'},
+                ]
+            }
+        }
+        async_delete_fake_swift = FakeInternalClient(async_delete_aco_dict)
+        x = expirer.ObjectExpirer(self.conf, logger=self.logger,
+                                  swift=async_delete_fake_swift)
+
+        expected = [
+            self.make_task(self.past_time, target_path,
+                           is_async_delete=True)
+            for target_path in self.expired_target_path_list]
+
+        self.assertEqual(
+            list(x.iter_task_to_expire(
+                task_account_container_list, my_index, divisor)),
+            expected)
+
     def test_run_once_unicode_problem(self):
         requests = []
 
@@ -930,6 +984,15 @@ class TestObjectExpirer(TestCase):
             self.assertEqual(account, 'a')
             self.assertEqual(container, 'c')
             self.assertEqual(obj, 'o')
+
+    def test_build_task_obj_round_trip(self):
+        ts = next(self.ts)
+        a = 'a1'
+        c = 'c2'
+        o = 'obj1'
+        args = (ts, a, c, o)
+        self.assertEqual(args, expirer.parse_task_obj(
+            expirer.build_task_obj(ts, a, c, o)))
 
 
 if __name__ == '__main__':
