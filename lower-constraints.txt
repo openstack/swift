@@ -3,6 +3,8 @@ asn1crypto==0.24.0
 Babel==2.5.3
 bandit==1.1.0
 boto==2.32.1
+boto3==1.9
+botocore==1.12
 castellan==0.13.0
 certifi==2018.1.18
 cffi==1.11.5
