@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from six.moves import urllib
+import six
 
 from random import random
 from time import time
@@ -31,6 +31,7 @@ from swift.common.utils import get_logger, dump_recon_cache, split_path, \
     Timestamp, config_true_value
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
+from swift.common.swob import wsgi_quote, str_to_wsgi
 
 from swift.container.reconciler import direct_delete_container_entry
 
@@ -182,6 +183,8 @@ class ObjectExpirer(Daemon):
         :param divisor: a divisor number
         :return: an integer to decide which expirer is assigned to the task
         """
+        if not isinstance(name, bytes):
+            name = name.encode('utf8')
         # md5 is only used for shuffling mod
         return int(hashlib.md5(name).hexdigest(), 16) % divisor
 
@@ -229,7 +232,10 @@ class ObjectExpirer(Daemon):
         """
         for task_account, task_container in task_account_container_list:
             for o in self.swift.iter_objects(task_account, task_container):
-                task_object = o['name'].encode('utf8')
+                if six.PY2:
+                    task_object = o['name'].encode('utf8')
+                else:
+                    task_object = o['name']
                 try:
                     delete_timestamp, target_account, target_container, \
                         target_object = self.parse_task_obj(task_object)
@@ -439,7 +445,7 @@ class ObjectExpirer(Daemon):
         :raises UnexpectedResponse: if the delete was unsuccessful and
                                     should be retried later
         """
-        path = '/v1/' + urllib.parse.quote(actual_obj.lstrip('/'))
+        path = '/v1/' + wsgi_quote(str_to_wsgi(actual_obj.lstrip('/')))
         self.swift.make_request(
             'DELETE', path,
             {'X-If-Delete-At': timestamp.normal,
