@@ -90,7 +90,7 @@ class TestContainerDeleter(unittest.TestCase):
         uacct = acct = u'acct-\U0001f334'
         ucont = cont = u'cont-\N{SNOWMAN}'
         uobj1 = obj1 = u'obj-\N{GREEK CAPITAL LETTER ALPHA}'
-        uobj2 = obj2 = u'obj-\N{GREEK CAPITAL LETTER OMEGA}'
+        uobj2 = obj2 = u'/obj-\N{GREEK CAPITAL LETTER OMEGA}'
         if six.PY2:
             acct = acct.encode('utf8')
             cont = cont.encode('utf8')
@@ -184,7 +184,7 @@ class TestContainerDeleter(unittest.TestCase):
         ts = '1558463777.42739'
         with FakeInternalClient([
             swob.Response(json.dumps([
-                {'name': 'obj1'},
+                {'name': '/obj1'},
                 {'name': 'obj2'},
                 {'name': 'obj3'},
             ])),
@@ -208,14 +208,14 @@ class TestContainerDeleter(unittest.TestCase):
                 ('GET', '/v1/account/container',
                  'format=json&marker=obj3&end_marker=&prefix=', {}, None),
                 ('UPDATE', '/v1/.expiring_objects/' + ts.split('.')[0], '', {
-                    'X-Backend-Allow-Method': 'UPDATE',
+                    'X-Backend-Allow-Private-Methods': 'True',
                     'X-Backend-Storage-Policy-Index': '0',
                     'X-Timestamp': ts}, mock.ANY),
             ])
             self.assertEqual(
                 json.loads(swift.calls[-1].body),
                 container_deleter.make_delete_jobs(
-                    'account', 'container', ['obj1', 'obj2', 'obj3'],
+                    'account', 'container', ['/obj1', 'obj2', 'obj3'],
                     utils.Timestamp(ts)
                 )
             )
@@ -241,22 +241,23 @@ class TestContainerDeleter(unittest.TestCase):
                 'account',
                 'container',
                 '',
-                '',
-                '',
+                'end',
+                'pre',
                 timestamp=utils.Timestamp(ts),
                 yield_time=0,
             )), [(5, 'obj5'), (6, 'obj6'), (6, None)])
             self.assertEqual(swift.calls, [
                 ('GET', '/v1/account/container',
-                 'format=json&marker=&end_marker=&prefix=', {}, None),
+                 'format=json&marker=&end_marker=end&prefix=pre', {}, None),
                 ('UPDATE', '/v1/.expiring_objects/' + ts.split('.')[0], '', {
-                    'X-Backend-Allow-Method': 'UPDATE',
+                    'X-Backend-Allow-Private-Methods': 'True',
                     'X-Backend-Storage-Policy-Index': '0',
                     'X-Timestamp': ts}, mock.ANY),
                 ('GET', '/v1/account/container',
-                 'format=json&marker=obj6&end_marker=&prefix=', {}, None),
+                 'format=json&marker=obj6&end_marker=end&prefix=pre',
+                 {}, None),
                 ('UPDATE', '/v1/.expiring_objects/' + ts.split('.')[0], '', {
-                    'X-Backend-Allow-Method': 'UPDATE',
+                    'X-Backend-Allow-Private-Methods': 'True',
                     'X-Backend-Storage-Policy-Index': '0',
                     'X-Timestamp': ts}, mock.ANY),
             ])

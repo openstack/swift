@@ -18,7 +18,7 @@ import json
 
 from six.moves.urllib.parse import unquote
 
-from swift.common.utils import public, csv_append, Timestamp, \
+from swift.common.utils import public, private, csv_append, Timestamp, \
     config_true_value, ShardRange
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common.http import HTTP_ACCEPTED, is_success
@@ -356,6 +356,7 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         return resp
 
+    @private
     def UPDATE(self, req):
         """HTTP UPDATE request handler.
 

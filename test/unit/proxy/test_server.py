@@ -684,10 +684,18 @@ class TestProxyServer(unittest.TestCase):
         # But with appropriate (internal-only) overrides, you can still use it
         resp = baseapp.handle_request(
             Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'UPDATE'},
-                          headers={'X-Backend-Allow-Method': 'UPDATE',
+                          headers={'X-Backend-Allow-Private-Methods': 'True',
                                    'X-Backend-Storage-Policy-Index': '0'}))
         # Now we actually make the requests, but there aren't any nodes
         self.assertEqual(resp.status, '503 Service Unavailable')
+
+        # Bad method with overrides advertises private methods
+        resp = baseapp.handle_request(
+            Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'BOGUS'},
+                          headers={'X-Backend-Allow-Private-Methods': '1'}))
+        self.assertEqual(resp.status, '405 Method Not Allowed')
+        self.assertEqual(sorted(resp.headers['Allow'].split(', ')), [
+            'DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'UPDATE'])
 
     def test_calls_authorize_allow(self):
         called = [False]

@@ -1517,6 +1517,7 @@ class Controller(object):
         self.app = app
         self.trans_id = '-'
         self._allowed_methods = None
+        self._private_methods = None
 
     @property
     def allowed_methods(self):
@@ -1527,6 +1528,16 @@ class Controller(object):
                 if getattr(m, 'publicly_accessible', False):
                     self._allowed_methods.add(name)
         return self._allowed_methods
+
+    @property
+    def private_methods(self):
+        if self._private_methods is None:
+            self._private_methods = set()
+            all_methods = inspect.getmembers(self, predicate=inspect.ismethod)
+            for name, m in all_methods:
+                if getattr(m, 'privately_accessible', False):
+                    self._private_methods.add(name)
+        return self._private_methods
 
     def _x_remove_headers(self):
         """
