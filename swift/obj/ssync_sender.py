@@ -40,7 +40,7 @@ def encode_missing(object_hash, ts_data, ts_meta=None, ts_ctype=None):
         if ts_ctype and ts_ctype != ts_data:
             delta = ts_ctype.raw - ts_data.raw
             msg = '%s,t:%x' % (msg, delta)
-    return msg
+    return msg.encode('ascii')
 
 
 def decode_wanted(parts):
@@ -52,7 +52,7 @@ def decode_wanted(parts):
     :py:func:`~swift.obj.ssync_receiver.encode_wanted`
     """
     wanted = {}
-    key_map = dict(d='data', m='meta')
+    key_map = {'d': 'data', 'm': 'meta'}
     if parts:
         # receiver specified data and/or meta wanted, so use those as
         # conditions for sending PUT and/or POST subrequests
@@ -72,7 +72,7 @@ def decode_wanted(parts):
 class SsyncBufferedHTTPResponse(bufferedhttp.BufferedHTTPResponse, object):
     def __init__(self, *args, **kwargs):
         super(SsyncBufferedHTTPResponse, self).__init__(*args, **kwargs)
-        self.ssync_response_buffer = ''
+        self.ssync_response_buffer = b''
         self.ssync_response_chunk_left = 0
 
     def readline(self, size=1024):
@@ -84,13 +84,13 @@ class SsyncBufferedHTTPResponse(bufferedhttp.BufferedHTTPResponse, object):
         taken from Python's httplib itself.
         """
         data = self.ssync_response_buffer
-        self.ssync_response_buffer = ''
-        while '\n' not in data and len(data) < size:
+        self.ssync_response_buffer = b''
+        while b'\n' not in data and len(data) < size:
             if self.ssync_response_chunk_left == -1:  # EOF-already indicator
                 break
             if self.ssync_response_chunk_left == 0:
                 line = self.fp.readline()
-                i = line.find(';')
+                i = line.find(b';')
                 if i >= 0:
                     line = line[:i]  # strip chunk-extensions
                 try:
@@ -114,9 +114,9 @@ class SsyncBufferedHTTPResponse(bufferedhttp.BufferedHTTPResponse, object):
             if self.ssync_response_chunk_left == 0:
                 self.fp.read(2)  # discard the trailing \r\n
             data += chunk
-        if '\n' in data:
-            data, self.ssync_response_buffer = data.split('\n', 1)
-            data += '\n'
+        if b'\n' in data:
+            data, self.ssync_response_buffer = data.split(b'\n', 1)
+            data += b'\n'
         return data
 
 
@@ -263,8 +263,8 @@ class Sender(object):
         # First, send our list.
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check start'):
-            msg = ':MISSING_CHECK: START\r\n'
-            connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+            msg = b':MISSING_CHECK: START\r\n'
+            connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         hash_gen = self.df_mgr.yield_hashes(
             self.job['device'], self.job['partition'],
             self.job['policy'], self.suffixes,
@@ -279,12 +279,12 @@ class Sender(object):
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
                     'missing_check send line'):
-                msg = '%s\r\n' % encode_missing(object_hash, **timestamps)
-                connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+                msg = b'%s\r\n' % encode_missing(object_hash, **timestamps)
+                connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check end'):
-            msg = ':MISSING_CHECK: END\r\n'
-            connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+            msg = b':MISSING_CHECK: END\r\n'
+            connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         # Now, retrieve the list of what they want.
         while True:
             with exceptions.MessageTimeout(
@@ -293,9 +293,14 @@ class Sender(object):
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
             line = line.strip()
-            if line == ':MISSING_CHECK: START':
+            if line == b':MISSING_CHECK: START':
                 break
             elif line:
+                if not six.PY2:
+                    try:
+                        line = line.decode('ascii')
+                    except UnicodeDecodeError:
+                        pass
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % line[:1024])
         while True:
@@ -305,9 +310,9 @@ class Sender(object):
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
             line = line.strip()
-            if line == ':MISSING_CHECK: END':
+            if line == b':MISSING_CHECK: END':
                 break
-            parts = line.split()
+            parts = line.decode('ascii').split()
             if parts:
                 send_map[parts[0]] = decode_wanted(parts[1:])
         return available_map, send_map
@@ -323,8 +328,8 @@ class Sender(object):
         # First, send all our subrequests based on the send_map.
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'updates start'):
-            msg = ':UPDATES: START\r\n'
-            connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+            msg = b':UPDATES: START\r\n'
+            connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         for object_hash, want in send_map.items():
             object_hash = urllib.parse.unquote(object_hash)
             try:
@@ -360,8 +365,8 @@ class Sender(object):
                 pass
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'updates end'):
-            msg = ':UPDATES: END\r\n'
-            connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+            msg = b':UPDATES: END\r\n'
+            connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
         # Now, read their response for any issues.
         while True:
             with exceptions.MessageTimeout(
@@ -370,9 +375,14 @@ class Sender(object):
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
             line = line.strip()
-            if line == ':UPDATES: START':
+            if line == b':UPDATES: START':
                 break
             elif line:
+                if not six.PY2:
+                    try:
+                        line = line.decode('ascii')
+                    except UnicodeDecodeError:
+                        pass
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % line[:1024])
         while True:
@@ -382,20 +392,30 @@ class Sender(object):
             if not line:
                 raise exceptions.ReplicationException('Early disconnect')
             line = line.strip()
-            if line == ':UPDATES: END':
+            if line == b':UPDATES: END':
                 break
             elif line:
+                if not six.PY2:
+                    try:
+                        line = line.decode('ascii')
+                    except UnicodeDecodeError:
+                        pass
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % line[:1024])
 
     def send_subrequest(self, connection, method, url_path, headers, df):
-        msg = ['%s %s' % (method, url_path)]
+        msg = [b'%s %s' % (method.encode('ascii'), url_path.encode('utf8'))]
         for key, value in sorted(headers.items()):
-            msg.append('%s: %s' % (key, value))
-        msg = '\r\n'.join(msg) + '\r\n\r\n'
+            if six.PY2:
+                msg.append(b'%s: %s' % (key, value))
+            else:
+                msg.append(b'%s: %s' % (
+                    key.encode('utf8', 'surrogateescape'),
+                    str(value).encode('utf8', 'surrogateescape')))
+        msg = b'\r\n'.join(msg) + b'\r\n\r\n'
         with exceptions.MessageTimeout(self.daemon.node_timeout,
                                        'send_%s' % method.lower()):
-            connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+            connection.send(b'%x\r\n%s\r\n' % (len(msg), msg))
 
         if df:
             bytes_read = 0
@@ -404,7 +424,7 @@ class Sender(object):
                 with exceptions.MessageTimeout(self.daemon.node_timeout,
                                                'send_%s chunk' %
                                                method.lower()):
-                    connection.send('%x\r\n%s\r\n' % (len(chunk), chunk))
+                    connection.send(b'%x\r\n%s\r\n' % (len(chunk), chunk))
             if bytes_read != df.content_length:
                 # Since we may now have partial state on the receiver we have
                 # to prevent the receiver finalising what may well be a bad or
@@ -450,7 +470,7 @@ class Sender(object):
         try:
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout, 'disconnect'):
-                connection.send('0\r\n\r\n')
+                connection.send(b'0\r\n\r\n')
         except (Exception, exceptions.Timeout):
             pass  # We're okay with the above failing.
         connection.close()
