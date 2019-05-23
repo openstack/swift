@@ -1643,7 +1643,7 @@ class Controller(object):
         return info
 
     def _make_request(self, nodes, part, method, path, headers, query,
-                      logger_thread_locals):
+                      body, logger_thread_locals):
         """
         Iterates over the given node iterator, sending an HTTP request to one
         node at a time.  The first non-informational, non-server-error
@@ -1657,12 +1657,18 @@ class Controller(object):
                      (full path ends up being /<$device>/<$part>/<$path>)
         :param headers: dictionary of headers
         :param query: query string to send to the backend.
+        :param body: byte string to use as the request body.
+                     Try to keep it small.
         :param logger_thread_locals: The thread local values to be set on the
                                      self.app.logger to retain transaction
                                      logging information.
         :returns: a swob.Response object, or None if no responses were received
         """
         self.app.logger.thread_locals = logger_thread_locals
+        if body:
+            if not isinstance(body, bytes):
+                raise TypeError('body must be bytes, not %s' % type(body))
+            headers['Content-Length'] = str(len(body))
         for node in nodes:
             try:
                 start_node_timing = time.time()
@@ -1672,6 +1678,9 @@ class Controller(object):
                                         headers=headers, query_string=query)
                     conn.node = node
                 self.app.set_node_timing(node, time.time() - start_node_timing)
+                if body:
+                    with Timeout(self.app.node_timeout):
+                        conn.send(body)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     if not is_informational(resp.status) and \
@@ -1698,7 +1707,7 @@ class Controller(object):
 
     def make_requests(self, req, ring, part, method, path, headers,
                       query_string='', overrides=None, node_count=None,
-                      node_iterator=None):
+                      node_iterator=None, body=None):
         """
         Sends an HTTP request to multiple nodes and aggregates the results.
         It attempts the primary nodes concurrently, then iterates over the
@@ -1727,7 +1736,7 @@ class Controller(object):
 
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
-                       head, query_string, self.app.logger.thread_locals)
+                       head, query_string, body, self.app.logger.thread_locals)
         response = []
         statuses = []
         for resp in pile:

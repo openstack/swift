@@ -28,7 +28,7 @@ from eventlet.greenpool import GreenPool
 from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
-    Timestamp, config_true_value
+    Timestamp, config_true_value, normalize_delete_at_timestamp
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 from swift.common.swob import wsgi_quote, str_to_wsgi
@@ -36,6 +36,34 @@ from swift.common.swob import wsgi_quote, str_to_wsgi
 from swift.container.reconciler import direct_delete_container_entry
 
 MAX_OBJECTS_TO_CACHE = 100000
+ASYNC_DELETE_TYPE = 'application/async-deleted'
+
+
+def build_task_obj(timestamp, target_account, target_container,
+                   target_obj):
+    """
+    :return: a task object name in format of
+             "<timestamp>-<target_account>/<target_container>/<target_obj>"
+    """
+    timestamp = Timestamp(timestamp)
+    return '%s-%s/%s/%s' % (
+        normalize_delete_at_timestamp(timestamp),
+        target_account, target_container, target_obj)
+
+
+def parse_task_obj(task_obj):
+    """
+    :param task_obj: a task object name in format of
+                     "<timestamp>-<target_account>/<target_container>" +
+                     "/<target_obj>"
+    :return: 4-tuples of (delete_at_time, target_account, target_container,
+             target_obj)
+    """
+    timestamp, target_path = task_obj.split('-', 1)
+    timestamp = Timestamp(timestamp)
+    target_account, target_container, target_obj = \
+        split_path('/' + target_path, 3, 3, True)
+    return timestamp, target_account, target_container, target_obj
 
 
 class ObjectExpirer(Daemon):
@@ -123,18 +151,7 @@ class ObjectExpirer(Daemon):
             self.report_last_time = time()
 
     def parse_task_obj(self, task_obj):
-        """
-        :param task_obj: a task object name in format of
-                         "<timestamp>-<target_account>/<target_container>" +
-                         "/<target_obj>"
-        :return: 4-tuples of (delete_at_time, target_account, target_container,
-                 target_obj)
-        """
-        timestamp, target_path = task_obj.split('-', 1)
-        timestamp = Timestamp(timestamp)
-        target_account, target_container, target_obj = \
-            split_path('/' + target_path, 3, 3, True)
-        return timestamp, target_account, target_container, target_obj
+        return parse_task_obj(task_obj)
 
     def round_robin_order(self, task_iter):
         """
@@ -238,7 +255,7 @@ class ObjectExpirer(Daemon):
                     task_object = o['name']
                 try:
                     delete_timestamp, target_account, target_container, \
-                        target_object = self.parse_task_obj(task_object)
+                        target_object = parse_task_obj(task_object)
                 except ValueError:
                     self.logger.exception('Unexcepted error handling task %r' %
                                           task_object)
@@ -253,12 +270,14 @@ class ObjectExpirer(Daemon):
                                  divisor) != my_index:
                     continue
 
+                is_async = o.get('content_type') == ASYNC_DELETE_TYPE
                 yield {'task_account': task_account,
                        'task_container': task_container,
                        'task_object': task_object,
                        'target_path': '/'.join([
                            target_account, target_container, target_object]),
-                       'delete_timestamp': delete_timestamp}
+                       'delete_timestamp': delete_timestamp,
+                       'is_async_delete': is_async}
 
     def run_once(self, *args, **kwargs):
         """
@@ -390,11 +409,13 @@ class ObjectExpirer(Daemon):
                 'process must be less than processes')
 
     def delete_object(self, target_path, delete_timestamp,
-                      task_account, task_container, task_object):
+                      task_account, task_container, task_object,
+                      is_async_delete):
         start_time = time()
         try:
             try:
-                self.delete_actual_object(target_path, delete_timestamp)
+                self.delete_actual_object(target_path, delete_timestamp,
+                                          is_async_delete)
             except UnexpectedResponse as err:
                 if err.resp.status_int not in {HTTP_NOT_FOUND,
                                                HTTP_PRECONDITION_FAILED}:
@@ -431,7 +452,7 @@ class ObjectExpirer(Daemon):
         direct_delete_container_entry(self.swift.container_ring, task_account,
                                       task_container, task_object)
 
-    def delete_actual_object(self, actual_obj, timestamp):
+    def delete_actual_object(self, actual_obj, timestamp, is_async_delete):
         """
         Deletes the end-user object indicated by the actual object name given
         '<account>/<container>/<object>' if and only if the X-Delete-At value
@@ -442,13 +463,19 @@ class ObjectExpirer(Daemon):
         :param timestamp: The swift.common.utils.Timestamp instance the
                           X-Delete-At value must match to perform the actual
                           delete.
+        :param is_async_delete: False if the object should be deleted because
+                                of "normal" expiration, or True if it should
+                                be async-deleted.
         :raises UnexpectedResponse: if the delete was unsuccessful and
                                     should be retried later
         """
         path = '/v1/' + wsgi_quote(str_to_wsgi(actual_obj.lstrip('/')))
-        self.swift.make_request(
-            'DELETE', path,
-            {'X-If-Delete-At': timestamp.normal,
-             'X-Timestamp': timestamp.normal,
-             'X-Backend-Clean-Expiring-Object-Queue': 'no'},
-            (2, HTTP_CONFLICT))
+        if is_async_delete:
+            headers = {'X-Timestamp': timestamp.normal}
+            acceptable_statuses = (2, HTTP_CONFLICT, HTTP_NOT_FOUND)
+        else:
+            headers = {'X-Timestamp': timestamp.normal,
+                       'X-If-Delete-At': timestamp.normal,
+                       'X-Backend-Clean-Expiring-Object-Queue': 'no'}
+            acceptable_statuses = (2, HTTP_CONFLICT)
+        self.swift.make_request('DELETE', path, headers, acceptable_statuses)

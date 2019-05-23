@@ -507,8 +507,12 @@ class Application(object):
             controller.trans_id = req.environ['swift.trans_id']
             self.logger.client_ip = get_remote_client(req)
 
-            if req.method not in controller.allowed_methods:
+            allowed_methods = set(controller.allowed_methods)
+            if 'X-Backend-Allow-Method' in req.headers:
+                allowed_methods.add(req.headers['X-Backend-Allow-Method'])
+            if req.method not in allowed_methods:
                 return HTTPMethodNotAllowed(request=req, headers={
+                    # Only advertise the *controller's* allowed_methods
                     'Allow': ', '.join(controller.allowed_methods)})
             handler = getattr(controller, req.method)
 
