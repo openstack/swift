@@ -298,49 +298,63 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                     u'X-Object-Meta-Strange': u'should be bytes',
                     b'X-Object-Meta-x\xff': b'not utf8 \xff',
                     u'X-Object-Meta-y\xe8': u'not ascii \xe8'}
-        expected = {b'name': b'/a/c/o',
+        as_bytes = {b'name': b'/a/c/o',
                     b'Content-Length': 99,
                     b'X-Object-Sysmeta-Ec-Frag-Index': 4,
                     b'X-Object-Meta-Strange': b'should be bytes',
                     b'X-Object-Meta-x\xff': b'not utf8 \xff',
                     b'X-Object-Meta-y\xc3\xa8': b'not ascii \xc3\xa8'}
+        if six.PY2:
+            as_native = as_bytes
+        else:
+            as_native = dict((k.decode('utf-8', 'surrogateescape'),
+                              v if isinstance(v, int) else
+                              v.decode('utf-8', 'surrogateescape'))
+                             for k, v in as_bytes.items())
 
-        def check_metadata():
+        def check_metadata(expected, typ):
             with open(path, 'rb') as fd:
                 actual = diskfile.read_metadata(fd)
             self.assertEqual(expected, actual)
-            for k in actual.keys():
-                self.assertIsInstance(k, six.binary_type)
-            for k in (b'name',
-                      b'X-Object-Meta-Strange',
-                      b'X-Object-Meta-x\xff',
-                      b'X-Object-Meta-y\xc3\xa8'):
-                self.assertIsInstance(actual[k], six.binary_type)
+            for k, v in actual.items():
+                self.assertIsInstance(k, typ)
+                self.assertIsInstance(v, (typ, int))
 
+        # Check can write raw bytes
+        with open(path, 'wb') as fd:
+            diskfile.write_metadata(fd, as_bytes)
+        check_metadata(as_native, str)
+        # Check can write native (with surrogates on py3)
+        with open(path, 'wb') as fd:
+            diskfile.write_metadata(fd, as_native)
+        check_metadata(as_native, str)
+        # Check can write some crazy mix
         with open(path, 'wb') as fd:
             diskfile.write_metadata(fd, metadata)
-        check_metadata()
+        check_metadata(as_native, str)
 
         # mock the read path to check the write path encoded persisted metadata
-        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
-            check_metadata()
-
-        # simulate a legacy diskfile that might have persisted unicode metadata
         with mock.patch.object(diskfile, '_decode_metadata', lambda x: x):
+            check_metadata(as_bytes, bytes)
+
+        # simulate a legacy diskfile that might have persisted
+        # (some) unicode metadata
+        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
             with open(path, 'wb') as fd:
                 diskfile.write_metadata(fd, metadata)
-            # sanity check, while still mocked, that we did persist unicode
+        # sanity check: mock read path again to see that we did persist unicode
+        with mock.patch.object(diskfile, '_decode_metadata', lambda x: x):
             with open(path, 'rb') as fd:
                 actual = diskfile.read_metadata(fd)
                 for k, v in actual.items():
-                    if k == u'X-Object-Meta-Strange':
-                        self.assertIsInstance(k, str)
-                        self.assertIsInstance(v, str)
+                    if isinstance(k, six.text_type) and \
+                            k == u'X-Object-Meta-Strange':
+                        self.assertIsInstance(v, six.text_type)
                         break
                 else:
                     self.fail('Did not find X-Object-Meta-Strange')
         # check that read_metadata converts binary_type
-        check_metadata()
+        check_metadata(as_native, str)
 
 
 @patch_policies
