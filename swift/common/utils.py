@@ -3740,6 +3740,17 @@ def public(func):
     return func
 
 
+def private(func):
+    """
+    Decorator to declare which methods are privately accessible as HTTP
+    requests with an ``X-Backend-Allow-Private-Methods: True`` override
+
+    :param func: function to make private
+    """
+    func.privately_accessible = True
+    return func
+
+
 def majority_size(n):
     return (n // 2) + 1
 

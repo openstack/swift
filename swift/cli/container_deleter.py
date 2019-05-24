@@ -113,7 +113,7 @@ def mark_for_deletion(swift, account, container, marker, end_marker,
             swift.make_request(
                 'UPDATE',
                 swift.make_path('.expiring_objects', str(int(timestamp))),
-                headers={'X-Backend-Allow-Method': 'UPDATE',
+                headers={'X-Backend-Allow-Private-Methods': 'True',
                          'X-Backend-Storage-Policy-Index': '0',
                          'X-Timestamp': timestamp.internal},
                 acceptable_statuses=(2,),
