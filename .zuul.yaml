@@ -33,24 +33,6 @@
     nodeset: centos-7
 
 - job:
-    name: swift-tox-py35
-    parent: swift-tox-base
-    nodeset: ubuntu-xenial
-    description: |
-      Run unit-tests for swift under cPython version 3.5.
-
-      Uses tox with the ``py35`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: py35
-      bindep_profile: test py35
-      tox_environment:
-        NOSE_COVER_HTML: 1
-        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
-    post-run: tools/playbooks/common/cover-post.yaml
-
-- job:
     name: swift-tox-py36
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -127,7 +109,7 @@
     description: |
       Run functional tests for swift under cPython version 2.7.
 
-      Uses tox with the ``func-post-ec`` environment.
+      Uses tox with the ``func-ec`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
     branches: ^(?!stable/ocata).*$
@@ -332,6 +314,52 @@
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
+# Image building jobs
+- secret:
+    name: swift-dockerhub
+    data:
+      username: screamingfrenzy
+      password: !encrypted/pkcs1-oaep
+        - ruMizg1iVvKm4ABLQ8GshZMwt3EzxOyjPZsInL20+ZS+TQxhEwRbLFGzSxnrChIOdioyl
+          7TMW1PxQeJ5T/mPIsV7TBsSsnIMKYRcDSbKjnC0hjILpKfQXLFw4/rV/d3jeB6oLDSTW1
+          fIt4NmJqhsjlvst+VwT1JnFHLdrRaGMWYkjRU8rEmH82jDM7Wk7J+selykvTrlRQ7RpQR
+          6huzniL6PJPOZ7I5VsQcCmEWYKwd/u9Ifhe50yjgxmKR7Fi+wl0nBSOzt38f9ZEXTB6So
+          /ks0+RX2sTlgulNgJnnR8FG3p2AHxTJ75fcBnY1KkYlG0+KsdRTzNjxNXs2/Ao0pyJJTs
+          JWniEHWVAq6T5agwD1SsmWAzFctBjGKDstxmTyHaSNNN5c6yoVZewRBrFDfYXMJUikyS+
+          52bel/uihhiq60MnUCzKCiBg/TM1uonwRKA2KkDXWRh80oxBMIxw5nVZCMaHFpx7NW/ls
+          k6aI8jio+/N0cLZlglWqGOsE3EC08Ddd+cqe668/LQVY97UgMjIu6aZRwX9Iwa2NXNDRE
+          zPKQ3UDWYFgl8Za90PmrRD4qYuN/1lqCrLKp5cSJbche+EqdrGolCj701zUWcCdwjHMwz
+          YA5zG1SbWFyC9BidZYTwMNbo/RRz4TtFmW35A4CRE5HYB5Uh5ccpGlBvI9Yv8A=
+
+- job:
+    name: swift-build-image
+    parent: opendev-build-docker-image
+    description: Build SAIO docker images.
+    vars: &swift_image_vars
+      docker_images:
+        - context: .
+          repository: openstackswift/saio
+
+- job:
+    name: swift-upload-image
+    parent: opendev-upload-docker-image
+    description: Build SAIO docker images and upload to Docker Hub.
+    secrets:
+      name: docker_credentials
+      secret: swift-dockerhub
+      pass-to-parent: true
+    vars: *swift_image_vars
+
+- job:
+    name: swift-promote-image
+    parent: opendev-promote-docker-image
+    description: Promote previously uploaded Docker images.
+    secrets:
+      name: docker_credentials
+      secret: swift-dockerhub
+      pass-to-parent: true
+    vars: *swift_image_vars
+
 - project:
     templates:
       - publish-openstack-docs-pti
@@ -340,15 +368,14 @@
       - release-notes-jobs-python3
     check:
       jobs:
+        - swift-build-image:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
         - swift-tox-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
-        - swift-tox-py35:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
-            voting: false
         - swift-tox-py36:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -434,6 +461,7 @@
         # using irrelevant-files). Exceptions should mainly be made for
         # long-running jobs, like probetests or (once they move to
         # in-tree definitions) dsvm jobs.
+        - swift-upload-image
         - swift-tox-py27
         - swift-tox-py37
         - swift-tox-func
@@ -479,3 +507,6 @@
     post:
       jobs:
         - publish-openstack-python-branch-tarball
+    promote:
+      jobs:
+        - swift-promote-image

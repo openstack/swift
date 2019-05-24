@@ -42,7 +42,8 @@ from swift.proxy.controllers.base import get_container_info, NodeIter, \
     DEFAULT_RECHECK_CONTAINER_EXISTENCE, DEFAULT_RECHECK_ACCOUNT_EXISTENCE
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
-    HTTPServerError, HTTPException, Request, HTTPServiceUnavailable
+    HTTPServerError, HTTPException, Request, HTTPServiceUnavailable, \
+    wsgi_to_str
 from swift.common.exceptions import APIVersionError
 
 
@@ -115,7 +116,7 @@ class ProxyOverrideOptions(object):
         except ValueError as err:
             # make the message a little more useful
             raise ValueError("Invalid read_affinity value: %r (%s)" %
-                             (self.read_affinity, err.message))
+                             (self.read_affinity, err.args[0]))
 
         self.write_affinity = get('write_affinity', '')
         try:
@@ -124,7 +125,7 @@ class ProxyOverrideOptions(object):
         except ValueError as err:
             # make the message a little more useful
             raise ValueError("Invalid write_affinity value: %r (%s)" %
-                             (self.write_affinity, err.message))
+                             (self.write_affinity, err.args[0]))
         self.write_affinity_node_count = get(
             'write_affinity_node_count', '2 * replicas').lower()
         value = self.write_affinity_node_count.split()
@@ -246,8 +247,7 @@ class Application(object):
             conf.get('strict_cors_mode', 't'))
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
-        self.concurrent_gets = \
-            config_true_value(conf.get('concurrent_gets'))
+        self.concurrent_gets = config_true_value(conf.get('concurrent_gets'))
         self.concurrency_timeout = float(conf.get('concurrency_timeout',
                                                   self.conn_timeout))
         value = conf.get('request_node_count', '2 * replicas').lower().split()
@@ -309,7 +309,7 @@ class Application(object):
                               (label_for_policy, override))
             return override
         except ValueError as err:
-            raise ValueError(err.message + ' for %s' % label_for_policy)
+            raise ValueError('%s for %s' % (err, label_for_policy))
 
     def _load_per_policy_config(self, conf):
         """
@@ -393,7 +393,8 @@ class Application(object):
                      admin_key=self.admin_key)
             return InfoController, d
 
-        version, account, container, obj = split_path(req.path, 1, 4, True)
+        version, account, container, obj = split_path(
+            wsgi_to_str(req.path), 1, 4, True)
         d = dict(version=version,
                  account_name=account,
                  container_name=container,
@@ -466,7 +467,7 @@ class Application(object):
                                       body='Invalid Content-Length')
 
             try:
-                if not check_utf8(req.path_info):
+                if not check_utf8(wsgi_to_str(req.path_info)):
                     self.logger.increment('errors')
                     return HTTPPreconditionFailed(
                         request=req, body='Invalid UTF8 or contains NULL')

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import json
 import unittest
 from datetime import datetime
@@ -43,7 +44,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         obj = SubElement(elem, 'Object')
         SubElement(obj, 'Key').text = 'object'
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket/object?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -80,7 +81,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -133,7 +134,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -180,7 +181,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -207,7 +208,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key')
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -232,7 +233,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             SubElement(obj, 'Key').text = key
             SubElement(obj, 'VersionId').text = 'not-supported'
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -286,7 +287,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = name
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -308,7 +309,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = 'x' * 1000 + str(i)
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -333,7 +334,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
-        content_md5 = md5(body).digest().encode('base64').strip()
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -374,8 +375,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self.assertEqual(len(elem.findall('Deleted')), len(self.keys))
 
     def _test_no_body(self, use_content_length=False,
-                      use_transfer_encoding=False, string_to_md5=''):
-        content_md5 = md5(string_to_md5).digest().encode('base64').strip()
+                      use_transfer_encoding=False, string_to_md5=b''):
+        content_md5 = base64.b64encode(md5(string_to_md5).digest()).strip()
         with UnreadableInput(self) as fake_input:
             req = Request.blank(
                 '/bucket?delete',
@@ -398,11 +399,11 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
     @s3acl
     def test_object_multi_DELETE_empty_body(self):
         self._test_no_body()
-        self._test_no_body(string_to_md5='test')
+        self._test_no_body(string_to_md5=b'test')
         self._test_no_body(use_content_length=True)
-        self._test_no_body(use_content_length=True, string_to_md5='test')
+        self._test_no_body(use_content_length=True, string_to_md5=b'test')
         self._test_no_body(use_transfer_encoding=True)
-        self._test_no_body(use_transfer_encoding=True, string_to_md5='test')
+        self._test_no_body(use_transfer_encoding=True, string_to_md5=b'test')
 
 if __name__ == '__main__':
     unittest.main()

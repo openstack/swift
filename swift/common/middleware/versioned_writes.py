@@ -222,8 +222,6 @@ Disable versioning from a container (x is any value except empty)::
 
 import calendar
 import json
-import six
-from six.moves.urllib.parse import quote, unquote
 import time
 
 from swift.common.utils import get_logger, Timestamp, \
@@ -238,7 +236,8 @@ from swift.proxy.controllers.base import get_container_info
 from swift.common.http import (
     is_success, is_client_error, HTTP_NOT_FOUND)
 from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
-    HTTPServerError, HTTPBadRequest
+    HTTPServerError, HTTPBadRequest, str_to_wsgi, bytes_to_wsgi, wsgi_quote, \
+    wsgi_unquote
 from swift.common.exceptions import (
     ListingIterNotFound, ListingIterError)
 
@@ -259,18 +258,16 @@ class VersionedWritesContext(WSGIContext):
     def _listing_iter(self, account_name, lcontainer, lprefix, req):
         try:
             for page in self._listing_pages_iter(account_name, lcontainer,
-                                                 lprefix, req.environ):
+                                                 lprefix, req):
                 for item in page:
                     yield item
         except ListingIterNotFound:
             pass
-        except HTTPPreconditionFailed:
-            raise HTTPPreconditionFailed(request=req)
         except ListingIterError:
             raise HTTPServerError(request=req)
 
     def _in_proxy_reverse_listing(self, account_name, lcontainer, lprefix,
-                                  env, failed_marker, failed_listing):
+                                  req, failed_marker, failed_listing):
         '''Get the complete prefix listing and reverse it on the proxy.
 
         This is only necessary if we encounter a response from a
@@ -291,7 +288,7 @@ class VersionedWritesContext(WSGIContext):
             # We've never gotten a reversed listing. So save a request and
             # use the failed listing.
             complete_listing.extend(failed_listing)
-            marker = complete_listing[-1]['name'].encode('utf8')
+            marker = bytes_to_wsgi(complete_listing[-1]['name'].encode('utf8'))
         else:
             # We've gotten at least one reversed listing. Have to start at
             # the beginning.
@@ -301,7 +298,7 @@ class VersionedWritesContext(WSGIContext):
         try:
             for page in self._listing_pages_iter(
                     account_name, lcontainer, lprefix,
-                    env, marker, end_marker=failed_marker, reverse=False):
+                    req, marker, end_marker=failed_marker, reverse=False):
                 complete_listing.extend(page)
         except ListingIterNotFound:
             pass
@@ -311,7 +308,7 @@ class VersionedWritesContext(WSGIContext):
         return reversed(complete_listing)
 
     def _listing_pages_iter(self, account_name, lcontainer, lprefix,
-                            env, marker='', end_marker='', reverse=True):
+                            req, marker='', end_marker='', reverse=True):
         '''Get "pages" worth of objects that start with a prefix.
 
         The optional keyword arguments ``marker``, ``end_marker``, and
@@ -327,13 +324,14 @@ class VersionedWritesContext(WSGIContext):
         '''
         while True:
             lreq = make_pre_authed_request(
-                env, method='GET', swift_source='VW',
-                path=quote('/v1/%s/%s' % (account_name, lcontainer)))
+                req.environ, method='GET', swift_source='VW',
+                path=wsgi_quote('/v1/%s/%s' % (account_name, lcontainer)))
             lreq.environ['QUERY_STRING'] = \
-                'prefix=%s&marker=%s' % (quote(lprefix), quote(marker))
+                'prefix=%s&marker=%s' % (wsgi_quote(lprefix),
+                                         wsgi_quote(marker))
             if end_marker:
                 lreq.environ['QUERY_STRING'] += '&end_marker=%s' % (
-                    quote(end_marker))
+                    wsgi_quote(end_marker))
             if reverse:
                 lreq.environ['QUERY_STRING'] += '&reverse=on'
             lresp = lreq.get_response(self.app)
@@ -342,7 +340,7 @@ class VersionedWritesContext(WSGIContext):
                 if lresp.status_int == HTTP_NOT_FOUND:
                     raise ListingIterNotFound()
                 elif is_client_error(lresp.status_int):
-                    raise HTTPPreconditionFailed()
+                    raise HTTPPreconditionFailed(request=req)
                 else:
                     raise ListingIterError()
 
@@ -355,14 +353,14 @@ class VersionedWritesContext(WSGIContext):
 
             # When using the ``reverse`` param, check that the listing is
             # actually reversed
-            first_item = sublisting[0]['name'].encode('utf-8')
-            last_item = sublisting[-1]['name'].encode('utf-8')
+            first_item = bytes_to_wsgi(sublisting[0]['name'].encode('utf-8'))
+            last_item = bytes_to_wsgi(sublisting[-1]['name'].encode('utf-8'))
             page_is_after_marker = marker and first_item > marker
             if reverse and (first_item < last_item or page_is_after_marker):
                 # Apparently there's at least one pre-2.6.0 container server
                 yield self._in_proxy_reverse_listing(
                     account_name, lcontainer, lprefix,
-                    env, marker, sublisting)
+                    req, marker, sublisting)
                 return
 
             marker = last_item
@@ -373,7 +371,7 @@ class VersionedWritesContext(WSGIContext):
         # to container, but not READ. This was allowed in previous version
         # (i.e., before middleware) so keeping the same behavior here
         get_req = make_pre_authed_request(
-            req.environ, path=quote(path_info),
+            req.environ, path=wsgi_quote(path_info),
             headers={'X-Newest': 'True'}, method='GET', swift_source='VW')
         source_resp = get_req.get_response(self.app)
 
@@ -388,7 +386,7 @@ class VersionedWritesContext(WSGIContext):
         # Create a new Request object to PUT to the versions container, copying
         # all headers from the source object apart from x-timestamp.
         put_req = make_pre_authed_request(
-            req.environ, path=quote(put_path_info), method='PUT',
+            req.environ, path=wsgi_quote(put_path_info), method='PUT',
             swift_source='VW')
         copy_header_subset(source_resp, put_req,
                            lambda k: k.lower() != 'x-timestamp')
@@ -507,7 +505,7 @@ class VersionedWritesContext(WSGIContext):
             'content-length': '0',
             'x-auth-token': req.headers.get('x-auth-token')}
         marker_req = make_pre_authed_request(
-            req.environ, path=quote(marker_path),
+            req.environ, path=wsgi_quote(marker_path),
             headers=marker_headers, method='PUT', swift_source='VW')
         marker_req.environ['swift.content_type_overridden'] = True
         marker_resp = marker_req.get_response(self.app)
@@ -580,7 +578,7 @@ class VersionedWritesContext(WSGIContext):
                 obj_head_headers = {'X-Newest': 'True'}
                 obj_head_headers.update(auth_token_header)
                 head_req = make_pre_authed_request(
-                    req.environ, path=quote(req.path_info), method='HEAD',
+                    req.environ, path=wsgi_quote(req.path_info), method='HEAD',
                     headers=obj_head_headers, swift_source='VW')
                 hresp = head_req.get_response(self.app)
                 close_if_possible(hresp.app_iter)
@@ -597,9 +595,8 @@ class VersionedWritesContext(WSGIContext):
                             DELETE_MARKER_CONTENT_TYPE:
                         # Nothing to restore
                         break
-                    obj_to_restore = version_to_restore['name']
-                    if six.PY2:
-                        obj_to_restore = obj_to_restore.encode('utf-8')
+                    obj_to_restore = bytes_to_wsgi(
+                        version_to_restore['name'].encode('utf-8'))
                     restored_path = self._restore_data(
                         req, versions_cont, api_version, account_name,
                         container_name, object_name, obj_to_restore)
@@ -607,7 +604,7 @@ class VersionedWritesContext(WSGIContext):
                         continue
 
                     old_del_req = make_pre_authed_request(
-                        req.environ, path=quote(restored_path),
+                        req.environ, path=wsgi_quote(restored_path),
                         method='DELETE', headers=auth_token_header,
                         swift_source='VW')
                     del_resp = old_del_req.get_response(self.app)
@@ -617,22 +614,20 @@ class VersionedWritesContext(WSGIContext):
                         # else, well, it existed long enough to do the
                         # copy; we won't worry too much
                     break
-                prev_obj_name = previous_version['name']
-                if six.PY2:
-                    prev_obj_name = prev_obj_name.encode('utf-8')
+                prev_obj_name = bytes_to_wsgi(
+                    previous_version['name'].encode('utf-8'))
                 marker_path = "/%s/%s/%s/%s" % (
                     api_version, account_name, versions_cont,
                     prev_obj_name)
                 # done restoring, redirect the delete to the marker
                 req = make_pre_authed_request(
-                    req.environ, path=quote(marker_path), method='DELETE',
+                    req.environ, path=wsgi_quote(marker_path), method='DELETE',
                     headers=auth_token_header, swift_source='VW')
             else:
                 # there are older versions so copy the previous version to the
                 # current object and delete the previous version
-                prev_obj_name = previous_version['name']
-                if six.PY2:
-                    prev_obj_name = prev_obj_name.encode('utf-8')
+                prev_obj_name = bytes_to_wsgi(
+                    previous_version['name'].encode('utf-8'))
                 restored_path = self._restore_data(
                     req, versions_cont, api_version, account_name,
                     container_name, object_name, prev_obj_name)
@@ -643,8 +638,9 @@ class VersionedWritesContext(WSGIContext):
                 # version object - we already auth'd original req so make a
                 # pre-authed request
                 req = make_pre_authed_request(
-                    req.environ, path=quote(restored_path), method='DELETE',
-                    headers=auth_token_header, swift_source='VW')
+                    req.environ, path=wsgi_quote(restored_path),
+                    method='DELETE', headers=auth_token_header,
+                    swift_source='VW')
 
             # remove 'X-If-Delete-At', since it is not for the older copy
             if 'X-If-Delete-At' in req.headers:
@@ -793,7 +789,8 @@ class VersionedWritesMiddleware(object):
                 is_enabled = True
 
         if is_enabled and versions_cont:
-            versions_cont = unquote(versions_cont).split('/')[0]
+            versions_cont = wsgi_unquote(str_to_wsgi(
+                versions_cont)).split('/')[0]
             vw_ctx = VersionedWritesContext(self.app, self.logger)
             if req.method == 'PUT':
                 resp = vw_ctx.handle_obj_versions_put(

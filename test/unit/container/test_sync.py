@@ -48,7 +48,7 @@ class FakeRing(object):
 class FakeContainerBroker(object):
 
     def __init__(self, path, metadata=None, info=None, deleted=False,
-                 items_since=None, logger=None):
+                 items_since=None):
         self.db_file = path
         self.db_dir = os.path.dirname(path)
         self.metadata = metadata if metadata else {}
@@ -191,7 +191,7 @@ class TestContainerSync(unittest.TestCase):
                 mock.patch('swift.container.sync.ContainerBroker',
                            lambda p, logger: FakeContainerBroker(p, info={
                                'account': 'a', 'container': 'c',
-                               'storage_policy_index': 0}, logger=logger)):
+                               'storage_policy_index': 0})):
             fake_generator.side_effect = [iter(['container.db']),
                                           iter(['container.db'])]
             cs = sync.ContainerSync({}, container_ring=FakeRing())
@@ -237,7 +237,7 @@ class TestContainerSync(unittest.TestCase):
                 mock.patch('swift.container.sync.ContainerBroker',
                            lambda p, logger: FakeContainerBroker(p, info={
                                'account': 'a', 'container': 'c',
-                               'storage_policy_index': 0}, logger=logger)):
+                               'storage_policy_index': 0})):
             fake_generator.side_effect = [iter(['container.db']),
                                           iter(['container.db'])]
             cs = sync.ContainerSync({}, container_ring=FakeRing())
@@ -339,8 +339,7 @@ class TestContainerSync(unittest.TestCase):
         try:
             sync.ContainerBroker = lambda p, logger: FakeContainerBroker(
                 p, info={'account': 'a', 'container': 'c',
-                         'storage_policy_index': 0},
-                logger=logger)
+                         'storage_policy_index': 0})
             cs._myips = ['127.0.0.1']   # No match
             cs._myport = 1              # No match
             cs.container_sync('isa.db')
@@ -373,8 +372,7 @@ class TestContainerSync(unittest.TestCase):
         try:
             sync.ContainerBroker = lambda p, logger: FakeContainerBroker(
                 p, info={'account': 'a', 'container': 'c',
-                         'storage_policy_index': 0}, deleted=False,
-                logger=logger)
+                         'storage_policy_index': 0}, deleted=False)
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             # This complete match will cause the 1 container failure since the
@@ -384,8 +382,7 @@ class TestContainerSync(unittest.TestCase):
 
             sync.ContainerBroker = lambda p, logger: FakeContainerBroker(
                 p, info={'account': 'a', 'container': 'c',
-                         'storage_policy_index': 0}, deleted=True,
-                logger=logger)
+                         'storage_policy_index': 0}, deleted=True)
             # This complete match will not cause any more container failures
             # since the broker indicates deletion
             cs.container_sync('isa.db')
@@ -403,8 +400,7 @@ class TestContainerSync(unittest.TestCase):
                 p, info={'account': 'a', 'container': 'c',
                          'storage_policy_index': 0,
                          'x_container_sync_point1': -1,
-                         'x_container_sync_point2': -1},
-                logger=logger)
+                         'x_container_sync_point2': -1})
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             # This complete match will be skipped since the broker's metadata
@@ -418,8 +414,7 @@ class TestContainerSync(unittest.TestCase):
                          'storage_policy_index': 0,
                          'x_container_sync_point1': -1,
                          'x_container_sync_point2': -1},
-                metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1)},
-                logger=logger)
+                metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1)})
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             # This complete match will be skipped since the broker's metadata
@@ -433,8 +428,7 @@ class TestContainerSync(unittest.TestCase):
                          'storage_policy_index': 0,
                          'x_container_sync_point1': -1,
                          'x_container_sync_point2': -1},
-                metadata={'x-container-sync-key': ('key', 1)},
-                logger=logger)
+                metadata={'x-container-sync-key': ('key', 1)})
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             # This complete match will be skipped since the broker's metadata
@@ -449,8 +443,7 @@ class TestContainerSync(unittest.TestCase):
                          'x_container_sync_point1': -1,
                          'x_container_sync_point2': -1},
                 metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
-                          'x-container-sync-key': ('key', 1)},
-                logger=logger)
+                          'x-container-sync-key': ('key', 1)})
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = []
@@ -466,8 +459,7 @@ class TestContainerSync(unittest.TestCase):
                          'x_container_sync_point1': -1,
                          'x_container_sync_point2': -1},
                 metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
-                          'x-container-sync-key': ('key', 1)},
-                logger=logger)
+                          'x-container-sync-key': ('key', 1)})
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -493,8 +485,7 @@ class TestContainerSync(unittest.TestCase):
                          'x_container_sync_point2': -1},
                 metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
                           'x-container-sync-key': ('key', 1)},
-                items_since=['erroneous data'],
-                logger=logger)
+                items_since=['erroneous data'])
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']

@@ -135,7 +135,7 @@ class TestS3ApiService(S3ApiTestCase):
 
         self.assertEqual(len(names), len(expected))
         for i in expected:
-            self.assertTrue(i[0] in names)
+            self.assertIn(i[0], names)
 
     def _test_service_GET_for_check_bucket_owner(self, buckets):
         self.s3api.conf.check_bucket_owner = True

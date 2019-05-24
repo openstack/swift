@@ -120,7 +120,9 @@ class _Element(lxml.etree.ElementBase):
         """
         utf-8 wrapper property of lxml.etree.Element.text
         """
-        return utf8encode(lxml.etree.ElementBase.text.__get__(self))
+        if six.PY2:
+            return utf8encode(lxml.etree.ElementBase.text.__get__(self))
+        return lxml.etree.ElementBase.text.__get__(self)
 
     @text.setter
     def text(self, value):

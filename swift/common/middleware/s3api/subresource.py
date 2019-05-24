@@ -43,6 +43,8 @@ http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html
 """
 from functools import partial
 
+import six
+
 from swift.common.utils import json
 
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
@@ -217,6 +219,11 @@ class User(Grantee):
 
     def __str__(self):
         return self.display_name
+
+    def __lt__(self, other):
+        if not isinstance(other, User):
+            return NotImplemented
+        return self.id < other.id
 
 
 class Owner(object):
@@ -415,8 +422,13 @@ class ACL(object):
         self.s3_acl = s3_acl
         self.allow_no_owner = allow_no_owner
 
-    def __repr__(self):
+    def __bytes__(self):
         return tostring(self.elem())
+
+    def __repr__(self):
+        if six.PY2:
+            return self.__bytes__()
+        return self.__bytes__().decode('utf8')
 
     @classmethod
     def from_elem(cls, elem, s3_acl=False, allow_no_owner=False):

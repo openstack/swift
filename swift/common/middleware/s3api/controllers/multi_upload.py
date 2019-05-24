@@ -59,10 +59,13 @@ Static Large Object when the multipart upload is completed.
 
 """
 
+import binascii
 from hashlib import md5
 import os
 import re
 import time
+
+import six
 
 from swift.common.swob import Range
 from swift.common.utils import json, public, reiterate
@@ -222,8 +225,8 @@ class UploadsController(Controller):
 
             :return (non_delimited_uploads, common_prefixes)
             """
-            (prefix, delimiter) = \
-                utf8encode(prefix, delimiter)
+            if six.PY2:
+                (prefix, delimiter) = utf8encode(prefix, delimiter)
             non_delimited_uploads = []
             common_prefixes = set()
             for upload in uploads:
@@ -284,8 +287,7 @@ class UploadsController(Controller):
         if 'delimiter' in req.params:
             prefix = req.params.get('prefix', '')
             delimiter = req.params['delimiter']
-            uploads, prefixes = \
-                separate_uploads(uploads, prefix, delimiter)
+            uploads, prefixes = separate_uploads(uploads, prefix, delimiter)
 
         if len(uploads) > maxuploads:
             uploads = uploads[:maxuploads]
@@ -306,8 +308,7 @@ class UploadsController(Controller):
         SubElement(result_elem, 'NextKeyMarker').text = nextkeymarker
         SubElement(result_elem, 'NextUploadIdMarker').text = nextuploadmarker
         if 'delimiter' in req.params:
-            SubElement(result_elem, 'Delimiter').text = \
-                req.params['delimiter']
+            SubElement(result_elem, 'Delimiter').text = req.params['delimiter']
         if 'prefix' in req.params:
             SubElement(result_elem, 'Prefix').text = req.params['prefix']
         SubElement(result_elem, 'MaxUploads').text = str(maxuploads)
@@ -440,7 +441,7 @@ class UploadController(Controller):
 
         # If the caller requested a list starting at a specific part number,
         # construct a sub-set of the object list.
-        objList = filter(filter_part_num_marker, objects)
+        objList = [obj for obj in objects if filter_part_num_marker(obj)]
 
         # pylint: disable-msg=E1103
         objList.sort(key=lambda o: int(o['name'].split('/')[-1]))
@@ -603,7 +604,7 @@ class UploadController(Controller):
                     'path': '/%s/%s/%s/%d' % (
                         container, req.object_name, upload_id, part_number),
                     'etag': etag})
-                s3_etag_hasher.update(etag.decode('hex'))
+                s3_etag_hasher.update(binascii.a2b_hex(etag))
         except (XMLSyntaxError, DocumentInvalid):
             # NB: our schema definitions catch uploads with no parts here
             raise MalformedXML()
@@ -661,8 +662,8 @@ class UploadController(Controller):
                                     # ceph-s3tests happy
                                     continue
                                 if not yielded_anything:
-                                    yield ('<?xml version="1.0" '
-                                           'encoding="UTF-8"?>\n')
+                                    yield (b'<?xml version="1.0" '
+                                           b'encoding="UTF-8"?>\n')
                                 yielded_anything = True
                                 yield chunk
                                 continue
@@ -708,8 +709,13 @@ class UploadController(Controller):
                 # in detail, https://github.com/boto/boto/pull/3513
                 parsed_url = urlparse(req.host_url)
                 host_url = '%s://%s' % (parsed_url.scheme, parsed_url.hostname)
-                if parsed_url.port:
-                    host_url += ':%s' % parsed_url.port
+                # Why are we doing our own port parsing? Because py3 decided
+                # to start raising ValueErrors on access after parsing such
+                # an invalid port
+                netloc = parsed_url.netloc.split('@')[-1].split(']')[-1]
+                if ':' in netloc:
+                    port = netloc.split(':', 2)[1]
+                    host_url += ':%s' % port
 
                 SubElement(result_elem, 'Location').text = host_url + req.path
                 SubElement(result_elem, 'Bucket').text = req.container_name
@@ -717,13 +723,13 @@ class UploadController(Controller):
                 SubElement(result_elem, 'ETag').text = '"%s"' % s3_etag
                 resp.headers.pop('ETag', None)
                 if yielded_anything:
-                    yield '\n'
+                    yield b'\n'
                 yield tostring(result_elem,
                                xml_declaration=not yielded_anything)
             except ErrorResponse as err_resp:
                 if yielded_anything:
                     err_resp.xml_declaration = False
-                    yield '\n'
+                    yield b'\n'
                 else:
                     # Oh good, we can still change HTTP status code, too!
                     resp.status = err_resp.status

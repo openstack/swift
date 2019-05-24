@@ -538,8 +538,8 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
 
         return SwiftHttpProtocol.handle(self)
 
-    def get_environ(self):
-        environ = SwiftHttpProtocol.get_environ(self)
+    def get_environ(self, *args, **kwargs):
+        environ = SwiftHttpProtocol.get_environ(self, *args, **kwargs)
         if self.proxy_address:
             environ['SERVER_ADDR'] = self.proxy_address[0]
             environ['SERVER_PORT'] = self.proxy_address[1]

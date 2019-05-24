@@ -198,16 +198,13 @@ def putrequest(self, method, url, skip_host=False, skip_accept_encoding=False):
 
 class Connection(object):
     def __init__(self, config):
-        for key in 'auth_host auth_port auth_ssl username password'.split():
+        for key in 'auth_uri username password'.split():
             if key not in config:
                 raise SkipTest(
                     "Missing required configuration parameter: %s" % key)
 
-        self.auth_host = config['auth_host']
-        self.auth_port = int(config['auth_port'])
-        self.auth_ssl = config['auth_ssl'] in ('on', 'true', 'yes', '1')
+        self.auth_url = config['auth_uri']
         self.insecure = config_true_value(config.get('insecure', 'false'))
-        self.auth_prefix = config.get('auth_prefix', '/')
         self.auth_version = str(config.get('auth_version', '1'))
 
         self.account = config.get('account')
@@ -256,18 +253,10 @@ class Connection(object):
         return Account(self, self.account)
 
     def authenticate(self):
-        if self.auth_version == "1":
-            auth_path = '%sv1.0' % (self.auth_prefix)
-            if self.account:
-                auth_user = '%s:%s' % (self.account, self.username)
-            else:
-                auth_user = self.username
+        if self.auth_version == "1" and self.account:
+            auth_user = '%s:%s' % (self.account, self.username)
         else:
             auth_user = self.username
-            auth_path = self.auth_prefix
-        auth_scheme = 'https://' if self.auth_ssl else 'http://'
-        auth_netloc = "%s:%d" % (self.auth_host, self.auth_port)
-        auth_url = auth_scheme + auth_netloc + auth_path
 
         if self.insecure:
             try:
@@ -283,7 +272,7 @@ class Connection(object):
                         auth_version=self.auth_version, os_options={},
                         insecure=self.insecure)
         (storage_url, storage_token) = get_auth(
-            auth_url, auth_user, self.password, **authargs)
+            self.auth_url, auth_user, self.password, **authargs)
 
         if not (storage_url and storage_token):
             raise AuthenticationFailed()

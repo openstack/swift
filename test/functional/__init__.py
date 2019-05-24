@@ -16,7 +16,7 @@
 from __future__ import print_function
 import mock
 import os
-from six.moves.urllib.parse import urlparse
+from six.moves.urllib.parse import urlparse, urlsplit, urlunsplit
 import sys
 import pickle
 import socket
@@ -608,10 +608,7 @@ def in_process_setup(the_object_server=object_server):
             "Content-Language, Expires, X-Robots-Tag",
         # Below are values used by the functional test framework, as well as
         # by the various in-process swift servers
-        'auth_host': '127.0.0.1',
-        'auth_port': str(prolis.getsockname()[1]),
-        'auth_ssl': 'no',
-        'auth_prefix': '/auth/',
+        'auth_uri': 'http://127.0.0.1:%d/auth/v1.0' % prolis.getsockname()[1],
         # Primary functional test account (needs admin access to the
         # account)
         'account': 'test',
@@ -878,23 +875,39 @@ def setup_package():
     if config:
         swift_test_auth_version = str(config.get('auth_version', '1'))
 
-        swift_test_auth = 'http'
-        if config_true_value(config.get('auth_ssl', 'no')):
-            swift_test_auth = 'https'
-        if 'auth_prefix' not in config:
-            config['auth_prefix'] = '/'
-        try:
-            suffix = '://%(auth_host)s:%(auth_port)s%(auth_prefix)s' % config
-            swift_test_auth += suffix
-        except KeyError:
-            pass  # skip
+        if 'auth_uri' in config:
+            swift_test_auth = config['auth_uri']
+            # Back-fill the individual parts -- really, we should just need
+            # host and port for s3_test_client, and that's only until we
+            # improve it to take a s3_storage_url option
+            parsed = urlsplit(config['auth_uri'])
+            config.update({
+                'auth_ssl': parsed.scheme == 'https',
+                'auth_host': parsed.hostname,
+                'auth_port': (parsed.port if parsed.port is not None else
+                              443 if parsed.scheme == 'https' else 80),
+                'auth_prefix': parsed.path,
+            })
+        elif 'auth_host' in config:
+            scheme = 'http'
+            if config_true_value(config.get('auth_ssl', 'no')):
+                scheme = 'https'
+            netloc = config['auth_host']
+            if 'auth_port' in config:
+                netloc += ':' + config['auth_port']
+            auth_prefix = config.get('auth_prefix', '/')
+            if swift_test_auth_version == "1":
+                auth_prefix += 'v1.0'
+            config['auth_uri'] = swift_test_auth = urlunsplit(
+                (scheme, netloc, auth_prefix, None, None))
+        # else, neither auth_uri nor auth_host; swift_test_auth will be unset
+        # and we'll skip everything later
 
         if 'service_prefix' in config:
                 swift_test_service_prefix = utils.append_underscore(
                     config['service_prefix'])
 
         if swift_test_auth_version == "1":
-            swift_test_auth += 'v1.0'
 
             try:
                 if 'account' in config:

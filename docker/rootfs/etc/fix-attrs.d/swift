@@ -1,0 +1,4 @@
+/etc/swift true swift 0700 0700
+/etc/swift/mime.types true swift 0700 0700
+/var/run/swift true swift 0755 0755
+/var/cache/swift true swift 0755 0755

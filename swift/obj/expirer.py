@@ -28,7 +28,7 @@ from eventlet.greenpool import GreenPool
 from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
-    Timestamp
+    Timestamp, config_true_value
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 
@@ -49,6 +49,22 @@ class ObjectExpirer(Daemon):
         self.conf = conf
         self.logger = logger or get_logger(conf, log_route='object-expirer')
         self.interval = int(conf.get('interval') or 300)
+
+        self.conf_path = \
+            self.conf.get('__file__') or '/etc/swift/object-expirer.conf'
+        # True, if the conf file is 'object-expirer.conf'.
+        is_legacy_conf = 'expirer' in self.conf_path
+        # object-expirer.conf supports only legacy queue
+        self.dequeue_from_legacy = \
+            True if is_legacy_conf else \
+            config_true_value(conf.get('dequeue_from_legacy', 'false'))
+
+        if is_legacy_conf:
+            self.ic_conf_path = self.conf_path
+        else:
+            self.ic_conf_path = \
+                self.conf.get('internal_client_conf_path') or \
+                '/etc/swift/internal-client.conf'
 
         self.read_conf_for_queue_access(swift)
 
@@ -75,8 +91,6 @@ class ObjectExpirer(Daemon):
         # This is for common parameter with general task queue in future
         self.task_container_prefix = ''
 
-        self.ic_conf_path = \
-            self.conf.get('__file__') or '/etc/swift/object-expirer.conf'
         request_tries = int(self.conf.get('request_tries') or 3)
         self.swift = swift or InternalClient(
             self.ic_conf_path, 'Swift Object Expirer', request_tries)
@@ -251,6 +265,16 @@ class ObjectExpirer(Daemon):
                        These will override the values from the config file if
                        provided.
         """
+        # This if-clause will be removed when general task queue feature is
+        # implemented.
+        if not self.dequeue_from_legacy:
+            self.logger.info('This node is not configured to dequeue tasks '
+                             'from the legacy queue.  This node will '
+                             'not process any expiration tasks.  At least '
+                             'one node in your cluster must be configured '
+                             'with dequeue_from_legacy == true.')
+            return
+
         self.get_process_values(kwargs)
         pool = GreenPool(self.concurrency)
         self.report_first_time = self.report_last_time = time()

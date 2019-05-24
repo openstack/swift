@@ -15,6 +15,8 @@
 
 import unittest
 
+import six
+
 from swift.common.middleware.s3api import etree
 
 
@@ -58,15 +60,18 @@ class TestS3ApiEtree(unittest.TestCase):
         sub.text = '\xef\xbc\xa1'
         self.assertTrue(isinstance(sub.text, str))
         xml_string = etree.tostring(elem)
-        self.assertTrue(isinstance(xml_string, str))
+        self.assertIsInstance(xml_string, bytes)
 
     def test_fromstring_with_nonascii_text(self):
-        input_str = '<?xml version="1.0" encoding="UTF-8"?>\n' \
-                    '<Test><FOO>\xef\xbc\xa1</FOO></Test>'
+        input_str = b'<?xml version="1.0" encoding="UTF-8"?>\n' \
+                    b'<Test><FOO>\xef\xbc\xa1</FOO></Test>'
         elem = etree.fromstring(input_str)
         text = elem.find('FOO').text
-        self.assertEqual(text, '\xef\xbc\xa1')
-        self.assertTrue(isinstance(text, str))
+        if six.PY2:
+            self.assertEqual(text, b'\xef\xbc\xa1')
+        else:
+            self.assertEqual(text, b'\xef\xbc\xa1'.decode('utf8'))
+        self.assertIsInstance(text, str)
 
 
 if __name__ == '__main__':
