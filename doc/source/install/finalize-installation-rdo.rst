@@ -19,7 +19,7 @@ This section applies to Red Hat Enterprise Linux 7 and CentOS 7.
    .. code-block:: console
 
       # curl -o /etc/swift/swift.conf \
-        https://opendev.org/openstack/swift/raw/branch/stable/queens/etc/swift.conf-sample
+        https://opendev.org/openstack/swift/raw/branch/master/etc/swift.conf-sample
 
 #. Edit the ``/etc/swift/swift.conf`` file and complete the following
    actions:
