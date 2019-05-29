@@ -354,6 +354,12 @@ def read_hashes(partition_dir):
             # given invalid input depending on the way in which the
             # input is invalid.
             pass
+
+    # Check for corrupted data that could break os.listdir()
+    for suffix in hashes.keys():
+        if not suffix.isalnum():
+            return {'valid': False}
+
     # hashes.pkl w/o valid updated key is "valid" but "forever old"
     hashes.setdefault('valid', True)
     hashes.setdefault('updated', -1)

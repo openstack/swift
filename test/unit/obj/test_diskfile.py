@@ -8337,6 +8337,11 @@ class TestHashesHelpers(unittest.TestCase):
         # with the exactly the same value mutation from write_hashes
         self.assertEqual(hashes, result)
 
+    def test_ignore_corrupted_hashes(self):
+        corrupted_hashes = {u'\x00\x00\x00': False, 'valid': True}
+        diskfile.write_hashes(self.testdir, corrupted_hashes)
+        result = diskfile.read_hashes(self.testdir)
+        self.assertFalse(result['valid'])
 
 if __name__ == '__main__':
     unittest.main()
