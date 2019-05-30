@@ -25,7 +25,8 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_cache_key, get_account_info, get_info, get_object_info, \
     Controller, GetOrHeadHandler, bytes_to_skip
-from swift.common.swob import Request, HTTPException, RESPONSE_REASONS
+from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
+    bytes_to_wsgi
 from swift.common import exceptions
 from swift.common.utils import split_path, ShardRange, Timestamp
 from swift.common.header_key_dict import HeaderKeyDict
@@ -73,6 +74,8 @@ class ContainerResponse(FakeResponse):
     base_headers = {
         'x-container-object-count': 1000,
         'x-container-bytes-used': 6666,
+        'x-versions-location': bytes_to_wsgi(
+            u'\U0001F334'.encode('utf8')),
     }
 
 
@@ -353,6 +356,10 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['storage_policy'], 0)
         self.assertEqual(resp['bytes'], 6666)
         self.assertEqual(resp['object_count'], 1000)
+        expected = u'\U0001F334'
+        if six.PY2:
+            expected = expected.encode('utf8')
+        self.assertEqual(resp['versions'], expected)
 
     def test_get_container_info_no_account(self):
         app = FakeApp(statuses=[404, 200])
@@ -382,16 +389,36 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['bytes'], 3333)
         self.assertEqual(resp['object_count'], 10)
         self.assertEqual(resp['status'], 404)
-        if six.PY3:
-            self.assertEqual(resp['versions'], u'\U0001f4a9')
-        else:
-            self.assertEqual(resp['versions'], "\xf0\x9f\x92\xa9")
+        expected = u'\U0001F4A9'
+        if six.PY2:
+            expected = expected.encode('utf8')
+        self.assertEqual(resp['versions'], expected)
+
         for subdict in resp.values():
             if isinstance(subdict, dict):
                 self.assertEqual([(k, type(k), v, type(v))
                                   for k, v in subdict.items()],
                                  [(k, str, v, str)
                                   for k, v in subdict.items()])
+
+    def test_get_cache_key(self):
+        self.assertEqual(get_cache_key("account", "cont"),
+                         'container/account/cont')
+        self.assertEqual(get_cache_key(b"account", b"cont", b'obj'),
+                         'object/account/cont/obj')
+        self.assertEqual(get_cache_key(u"account", u"cont", b'obj'),
+                         'object/account/cont/obj')
+
+        # Expected result should always be native string
+        expected = u'container/\N{SNOWMAN}/\U0001F334'
+        if six.PY2:
+            expected = expected.encode('utf8')
+
+        self.assertEqual(get_cache_key(u"\N{SNOWMAN}", u"\U0001F334"),
+                         expected)
+        self.assertEqual(get_cache_key(u"\N{SNOWMAN}".encode('utf8'),
+                                       u"\U0001F334".encode('utf8')),
+                         expected)
 
     def test_get_container_info_env(self):
         cache_key = get_cache_key("account", "cont")

@@ -19,6 +19,7 @@
 from collections import defaultdict
 import errno
 from hashlib import md5
+import io
 import six
 import socket
 import time
@@ -206,6 +207,9 @@ class TestMemcached(unittest.TestCase):
             while one or two:  # Run until we match hosts one and two
                 key = uuid4().hex.encode('ascii')
                 for conn in memcache_client._get_conns(key):
+                    if 'b' not in getattr(conn[1], 'mode', ''):
+                        self.assertIsInstance(conn[1], (
+                            io.RawIOBase, io.BufferedIOBase))
                     peeripport = '%s:%s' % conn[2].getpeername()
                     self.assertTrue(peeripport in (sock1ipport, sock2ipport))
                     if peeripport == sock1ipport:

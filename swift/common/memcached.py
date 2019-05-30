@@ -138,7 +138,7 @@ class MemcacheConnPool(Pool):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         with Timeout(self._connect_timeout):
             sock.connect(sockaddr)
-        return (sock.makefile(), sock)
+        return (sock.makefile('rwb'), sock)
 
     def get(self):
         fp, sock = super(MemcacheConnPool, self).get()

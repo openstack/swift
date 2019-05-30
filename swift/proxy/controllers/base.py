@@ -123,7 +123,8 @@ def _prep_headers_to_info(headers, server_type):
     sysmeta = {}
     other = {}
     for key, val in dict(headers).items():
-        lkey = key.lower()
+        lkey = wsgi_to_str(key).lower()
+        val = wsgi_to_str(val) if isinstance(val, str) else val
         if is_user_meta(server_type, lkey):
             meta[strip_user_meta_prefix(server_type, lkey)] = val
         elif is_sys_meta(server_type, lkey):
@@ -450,8 +451,22 @@ def get_cache_key(account, container=None, obj=None):
     :param account: The name of the account
     :param container: The name of the container (or None if account)
     :param obj: The name of the object (or None if account or container)
-    :returns: a string cache_key
+    :returns: a (native) string cache_key
     """
+    if six.PY2:
+        def to_native(s):
+            if s is None or isinstance(s, str):
+                return s
+            return s.encode('utf8')
+    else:
+        def to_native(s):
+            if s is None or isinstance(s, str):
+                return s
+            return s.decode('utf8', 'surrogateescape')
+
+    account = to_native(account)
+    container = to_native(container)
+    obj = to_native(obj)
 
     if obj:
         if not (account and container):
