@@ -1424,3 +1424,13 @@ def attach_fake_replication_rpc(rpc, replicate_hook=None, errors=None):
             return resp
 
     return FakeReplConnection
+
+
+def group_by_byte(contents):
+    # This looks a little funny, but iterating through a byte string on py3
+    # yields a sequence of ints, not a sequence of single-byte byte strings
+    # as it did on py2.
+    byte_iter = (contents[i:i + 1] for i in range(len(contents)))
+    return [
+        (char, sum(1 for _ in grp))
+        for char, grp in itertools.groupby(byte_iter)]

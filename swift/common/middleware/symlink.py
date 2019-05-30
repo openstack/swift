@@ -199,12 +199,7 @@ def _check_symlink_header(req):
     # validation first, here.
     error_body = 'X-Symlink-Target header must be of the form ' \
                  '<container name>/<object name>'
-    try:
-        if wsgi_unquote(req.headers[TGT_OBJ_SYMLINK_HDR]).startswith('/'):
-            raise HTTPPreconditionFailed(
-                body=error_body,
-                request=req, content_type='text/plain')
-    except TypeError:
+    if wsgi_unquote(req.headers[TGT_OBJ_SYMLINK_HDR]).startswith('/'):
         raise HTTPPreconditionFailed(
             body=error_body,
             request=req, content_type='text/plain')
@@ -216,14 +211,9 @@ def _check_symlink_header(req):
     req.headers[TGT_OBJ_SYMLINK_HDR] = wsgi_quote('%s/%s' % (container, obj))
 
     # Check account format if it exists
-    try:
-        account = check_account_format(
-            req, wsgi_unquote(req.headers[TGT_ACCT_SYMLINK_HDR])) \
-            if TGT_ACCT_SYMLINK_HDR in req.headers else None
-    except TypeError:
-        raise HTTPPreconditionFailed(
-            body='Account name cannot contain slashes',
-            request=req, content_type='text/plain')
+    account = check_account_format(
+        req, wsgi_unquote(req.headers[TGT_ACCT_SYMLINK_HDR])) \
+        if TGT_ACCT_SYMLINK_HDR in req.headers else None
 
     # Extract request path
     _junk, req_acc, req_cont, req_obj = req.split_path(4, 4, True)

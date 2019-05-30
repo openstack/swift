@@ -82,9 +82,9 @@ class TestTempurlEnv(TestTempurlBaseEnv):
             raise ResponseError(cls.conn.response)
 
         cls.obj = cls.container.file(Utils.create_name())
-        cls.obj.write("obj contents")
+        cls.obj.write(b"obj contents")
         cls.other_obj = cls.container.file(Utils.create_name())
-        cls.other_obj.write("other obj contents")
+        cls.other_obj.write(b"other obj contents")
 
 
 class TestTempurl(Base):
@@ -437,9 +437,9 @@ class TestContainerTempurlEnv(BaseEnv):
                 raise ResponseError(cls.conn.response)
 
         cls.obj = cls.container.file(Utils.create_name())
-        cls.obj.write("obj contents")
+        cls.obj.write(b"obj contents")
         cls.other_obj = cls.container.file(Utils.create_name())
-        cls.other_obj.write("other obj contents")
+        cls.other_obj.write(b"other obj contents")
 
 
 class TestContainerTempurl(Base):
