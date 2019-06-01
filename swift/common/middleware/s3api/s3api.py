@@ -119,7 +119,11 @@ class ListingEtagMiddleware(object):
             if not valid_api_version(v):
                 raise ValueError
         except ValueError:
-            # not a container request; pass through
+            is_container_req = False
+        else:
+            is_container_req = True
+        if not is_container_req:
+            # pass through
             return self.app(env, start_response)
 
         ctx = WSGIContext(self.app)

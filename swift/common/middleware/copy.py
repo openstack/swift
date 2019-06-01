@@ -225,7 +225,10 @@ class ServerSideCopyMiddleware(object):
         req = Request(env)
         try:
             (version, account, container, obj) = req.split_path(4, 4, True)
+            is_obj_req = True
         except ValueError:
+            is_obj_req = False
+        if not is_obj_req:
             # If obj component is not present in req, do not proceed further.
             return self.app(env, start_response)
 

@@ -814,7 +814,10 @@ class VersionedWritesMiddleware(object):
         req = Request(env)
         try:
             (api_version, account, container, obj) = req.split_path(3, 4, True)
+            is_cont_or_obj_req = True
         except ValueError:
+            is_cont_or_obj_req = False
+        if not is_cont_or_obj_req:
             return self.app(env, start_response)
 
         # In case allow_versioned_writes is set in the filter configuration,
