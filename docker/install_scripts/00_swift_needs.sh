@@ -1,9 +1,9 @@
 #!/bin/sh
+set -e
 
 # adduser -D -H syslog && \
 for user in "swift"; do
-  id -u $user > /dev/null 2>&1
-  if [ ! $? == '0' ]; then
+  if ! id -u $user > /dev/null 2>&1 ; then
     adduser -D $user
     printf "created user $user\n"
   fi

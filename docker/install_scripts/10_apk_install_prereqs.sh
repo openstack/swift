@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 apk add --update \
   linux-headers \

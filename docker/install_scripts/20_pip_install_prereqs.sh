@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 echo "+ + + + + + + + + + upgrading pip" && \
 pip install -U pip && \
