@@ -850,7 +850,8 @@ class ObjectReconstructor(Daemon):
             success, _ = ssync_sender(
                 self, node, job, suffixes)()
             # let remote end know to rehash it's suffixes
-            self.rehash_remote(node, job, suffixes)
+            if success:
+                self.rehash_remote(node, job, suffixes)
             # update stats for this attempt
             self.suffix_sync += len(suffixes)
             self.logger.update_stats('suffix.syncs', len(suffixes))
