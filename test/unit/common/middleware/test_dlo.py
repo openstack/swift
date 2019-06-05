@@ -476,14 +476,14 @@ class TestDloGetManifest(DloTestCase):
     def test_get_multi_range(self):
         # DLO doesn't support multi-range GETs. The way that you express that
         # in HTTP is to return a 200 response containing the whole entity.
-        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest-many-segments',
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
                                  environ={'REQUEST_METHOD': 'GET'},
                                  headers={'Range': 'bytes=5-9,15-19'})
-        with mock.patch(LIMIT, 3):
+        with mock.patch(LIMIT, 30):
             status, headers, body = self.call_dlo(req)
         headers = HeaderKeyDict(headers)
         self.assertEqual(status, "200 OK")
-        self.assertIsNone(headers.get("Content-Length"))
+        self.assertEqual(headers.get("Content-Length"), '25')
         self.assertIsNone(headers.get("Content-Range"))
         self.assertEqual(body, "aaaaabbbbbcccccdddddeeeee")
 
