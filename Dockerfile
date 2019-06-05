@@ -35,11 +35,6 @@ RUN         mkdir /etc/swift && \
             echo && \
             echo && \
             echo && \
-            echo "================   compiling liberasurecode  ===================" && \
-            /opt/swift/docker/install_scripts/17_compile_liberasurecode.sh && \
-            echo && \
-            echo && \
-            echo && \
             echo "================   starting swift_install  ===================" && \
             /opt/swift/docker/install_scripts/50_swift_install.sh && \
             echo && \
