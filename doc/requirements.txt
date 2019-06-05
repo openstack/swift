@@ -2,7 +2,8 @@
 # of appearance. Changing the order has an impact on the overall integration
 # process, which may cause wedges in the gate later.
 # this is required for the docs build jobs
-sphinx>=1.6.2 # BSD
+sphinx>=1.6.2,<2.0.0;python_version=='2.7' # BSD
+sphinx>=1.6.2;python_version>='3.4' # BSD
 openstackdocstheme>=1.11.0 # Apache-2.0
 reno>=1.8.0  # Apache-2.0
 os-api-ref>=1.0.0 # Apache-2.0

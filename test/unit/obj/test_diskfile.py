@@ -34,7 +34,7 @@ from random import shuffle, randint
 from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
-from hashlib import md5
+from hashlib import md5 as _md5
 from contextlib import closing, contextmanager
 from gzip import GzipFile
 import pyeclib.ec_iface
@@ -68,6 +68,26 @@ test_policies = [
                     ec_type=DEFAULT_TEST_EC_TYPE,
                     ec_ndata=10, ec_nparity=4),
 ]
+
+
+class md5(object):
+    def __init__(self, s=b''):
+        if not isinstance(s, bytes):
+            s = s.encode('ascii')
+        self.md = _md5(s)
+
+    def update(self, s=b''):
+        if not isinstance(s, bytes):
+            s = s.encode('ascii')
+        return self.md.update(s)
+
+    @property
+    def hexdigest(self):
+        return self.md.hexdigest
+
+    @property
+    def digest(self):
+        return self.md.digest
 
 
 def find_paths_with_matching_suffixes(needed_matches=2, needed_suffixes=3):
@@ -298,49 +318,63 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                     u'X-Object-Meta-Strange': u'should be bytes',
                     b'X-Object-Meta-x\xff': b'not utf8 \xff',
                     u'X-Object-Meta-y\xe8': u'not ascii \xe8'}
-        expected = {b'name': b'/a/c/o',
+        as_bytes = {b'name': b'/a/c/o',
                     b'Content-Length': 99,
                     b'X-Object-Sysmeta-Ec-Frag-Index': 4,
                     b'X-Object-Meta-Strange': b'should be bytes',
                     b'X-Object-Meta-x\xff': b'not utf8 \xff',
                     b'X-Object-Meta-y\xc3\xa8': b'not ascii \xc3\xa8'}
+        if six.PY2:
+            as_native = as_bytes
+        else:
+            as_native = dict((k.decode('utf-8', 'surrogateescape'),
+                              v if isinstance(v, int) else
+                              v.decode('utf-8', 'surrogateescape'))
+                             for k, v in as_bytes.items())
 
-        def check_metadata():
+        def check_metadata(expected, typ):
             with open(path, 'rb') as fd:
                 actual = diskfile.read_metadata(fd)
             self.assertEqual(expected, actual)
-            for k in actual.keys():
-                self.assertIsInstance(k, six.binary_type)
-            for k in (b'name',
-                      b'X-Object-Meta-Strange',
-                      b'X-Object-Meta-x\xff',
-                      b'X-Object-Meta-y\xc3\xa8'):
-                self.assertIsInstance(actual[k], six.binary_type)
+            for k, v in actual.items():
+                self.assertIsInstance(k, typ)
+                self.assertIsInstance(v, (typ, int))
 
+        # Check can write raw bytes
+        with open(path, 'wb') as fd:
+            diskfile.write_metadata(fd, as_bytes)
+        check_metadata(as_native, str)
+        # Check can write native (with surrogates on py3)
+        with open(path, 'wb') as fd:
+            diskfile.write_metadata(fd, as_native)
+        check_metadata(as_native, str)
+        # Check can write some crazy mix
         with open(path, 'wb') as fd:
             diskfile.write_metadata(fd, metadata)
-        check_metadata()
+        check_metadata(as_native, str)
 
         # mock the read path to check the write path encoded persisted metadata
-        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
-            check_metadata()
-
-        # simulate a legacy diskfile that might have persisted unicode metadata
         with mock.patch.object(diskfile, '_decode_metadata', lambda x: x):
+            check_metadata(as_bytes, bytes)
+
+        # simulate a legacy diskfile that might have persisted
+        # (some) unicode metadata
+        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
             with open(path, 'wb') as fd:
                 diskfile.write_metadata(fd, metadata)
-            # sanity check, while still mocked, that we did persist unicode
+        # sanity check: mock read path again to see that we did persist unicode
+        with mock.patch.object(diskfile, '_decode_metadata', lambda x: x):
             with open(path, 'rb') as fd:
                 actual = diskfile.read_metadata(fd)
                 for k, v in actual.items():
-                    if k == u'X-Object-Meta-Strange':
-                        self.assertIsInstance(k, str)
-                        self.assertIsInstance(v, str)
+                    if isinstance(k, six.text_type) and \
+                            k == u'X-Object-Meta-Strange':
+                        self.assertIsInstance(v, six.text_type)
                         break
                 else:
                     self.fail('Did not find X-Object-Meta-Strange')
         # check that read_metadata converts binary_type
-        check_metadata()
+        check_metadata(as_native, str)
 
 
 @patch_policies
@@ -485,8 +519,8 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, "sdp", "objects",
                                      "2607", "df3",
                                      "ec2871fe724411f91787462f97d30df3"))
-            with open(os.path.join(tmpdir, "garbage"), "wb") as fh:
-                fh.write('')
+            with open(os.path.join(tmpdir, "garbage"), "wb"):
+                pass
 
             locations = [
                 (loc.path, loc.device, loc.partition, loc.policy)
@@ -571,8 +605,8 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                 gen = diskfile.object_audit_location_generator(tmpdir,
                                                                datadir,
                                                                False)
-                gen.next()
-                gen.next()
+                next(gen)
+                next(gen)
 
             # Auditor stopped for some reason without raising StopIterator in
             # the generator and restarts There is now only one remaining
@@ -580,17 +614,17 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             gen = diskfile.object_audit_location_generator(tmpdir, datadir,
                                                            False)
             with mock_check_drive(isdir=True):
-                gen.next()
+                next(gen)
 
                 # There are no more remaining partitions
-                self.assertRaises(StopIteration, gen.next)
+                self.assertRaises(StopIteration, next, gen)
 
             # There are no partitions to check if the auditor restarts another
             # time and the status files have not been cleared
             gen = diskfile.object_audit_location_generator(tmpdir, datadir,
                                                            False)
             with mock_check_drive(isdir=True):
-                self.assertRaises(StopIteration, gen.next)
+                self.assertRaises(StopIteration, next, gen)
 
             # Reset status file
             diskfile.clear_auditor_status(tmpdir, datadir)
@@ -601,8 +635,8 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             gen = diskfile.object_audit_location_generator(tmpdir, datadir,
                                                            False)
             with mock_check_drive(isdir=True):
-                gen.next()
-                gen.next()
+                next(gen)
+                next(gen)
 
     def test_update_auditor_status_throttle(self):
         # If there are a lot of nearly empty partitions, the
@@ -611,7 +645,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
         # status file is only written once a minute.
         with temptree([]) as tmpdir:
             os.makedirs(os.path.join(tmpdir, "sdf", "objects", "1", "a", "b"))
-            with mock.patch('__builtin__.open') as mock_open:
+            with mock.patch('swift.obj.diskfile.open') as mock_open:
                 # File does not exist yet - write expected
                 update_auditor_status(tmpdir, None, ['42'], "ALL")
                 self.assertEqual(1, mock_open.call_count)
@@ -1217,7 +1251,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
             quarantine_renamer.assert_called_once_with(
                 '/srv/dev/',
-                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
+                ('/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/' +
+                 'made-up-filename'))
 
     def test_get_diskfile_from_hash_no_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -2663,11 +2698,11 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         # verify .meta filename encodes content-type timestamp
         mgr = self.df_router[POLICIES.default]
         time_ = 1234567890.00001
-        for delta in (0.0, .00001, 1.11111):
+        for delta in (0, 1, 111111):
             t_meta = Timestamp(time_)
-            t_type = Timestamp(time_ - delta)
+            t_type = Timestamp(time_ - delta / 100000.)
             sign = '-' if delta else '+'
-            expected = '%s%s%x.meta' % (t_meta.short, sign, 100000 * delta)
+            expected = '%s%s%x.meta' % (t_meta.short, sign, delta)
             actual = mgr.make_on_disk_filename(
                 t_meta, '.meta', ctype_timestamp=t_type)
             self.assertEqual(expected, actual)
@@ -3240,6 +3275,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def _create_test_file(self, data, timestamp=None, metadata=None,
                           account='a', container='c', obj='o', **kwargs):
+        if not isinstance(data, bytes):
+            raise ValueError('data must be bytes')
         if metadata is None:
             metadata = {}
         metadata.setdefault('name', '/%s/%s/%s' % (account, container, obj))
@@ -3310,10 +3347,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_open_expired(self):
         self.assertRaises(DiskFileExpired,
                           self._create_test_file,
-                          '1234567890', metadata={'X-Delete-At': '0'})
+                          b'1234567890', metadata={'X-Delete-At': '0'})
 
         try:
-            self._create_test_file('1234567890', open_expired=True,
+            self._create_test_file(b'1234567890', open_expired=True,
                                    metadata={'X-Delete-At': '0',
                                              'X-Object-Meta-Foo': 'bar'})
             df = self._simple_get_diskfile(open_expired=True)
@@ -3325,20 +3362,20 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_open_not_expired(self):
         try:
             self._create_test_file(
-                '1234567890', metadata={'X-Delete-At': str(2 * int(time()))})
+                b'1234567890', metadata={'X-Delete-At': str(2 * int(time()))})
         except SwiftException as err:
             self.fail("Unexpected swift exception raised: %r" % err)
 
     def test_get_metadata(self):
         timestamp = self.ts().internal
-        df, df_data = self._create_test_file('1234567890',
+        df, df_data = self._create_test_file(b'1234567890',
                                              timestamp=timestamp)
         md = df.get_metadata()
         self.assertEqual(md['X-Timestamp'], timestamp)
 
     def test_read_metadata(self):
         timestamp = self.ts().internal
-        self._create_test_file('1234567890', timestamp=timestamp)
+        self._create_test_file(b'1234567890', timestamp=timestamp)
         df = self._simple_get_diskfile()
         md = df.read_metadata()
         self.assertEqual(md['X-Timestamp'], timestamp)
@@ -3361,7 +3398,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_get_datafile_metadata(self):
         ts_iter = make_timestamp_iter()
-        body = '1234567890'
+        body = b'1234567890'
         ts_data = next(ts_iter)
         metadata = {'X-Object-Meta-Test': 'test1',
                     'X-Object-Sysmeta-Test': 'test1'}
@@ -3385,7 +3422,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_get_metafile_metadata(self):
         ts_iter = make_timestamp_iter()
-        body = '1234567890'
+        body = b'1234567890'
         ts_data = next(ts_iter)
         metadata = {'X-Object-Meta-Test': 'test1',
                     'X-Object-Sysmeta-Test': 'test1'}
@@ -3496,67 +3533,67 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertEqual('True', df._metadata['X-Static-Large-Object'])
 
     def test_disk_file_reader_iter(self):
-        df, df_data = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file(b'1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
-        self.assertEqual(''.join(reader), df_data)
+        self.assertEqual(b''.join(reader), df_data)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_reader_iter_w_quarantine(self):
-        df, df_data = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file(b'1234567890')
 
         def raise_dfq(m):
             raise DiskFileQuarantined(m)
 
         reader = df.reader(_quarantine_hook=raise_dfq)
         reader._obj_size += 1
-        self.assertRaises(DiskFileQuarantined, ''.join, reader)
+        self.assertRaises(DiskFileQuarantined, b''.join, reader)
 
     def test_disk_file_app_iter_corners(self):
-        df, df_data = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file(b'1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
-        self.assertEqual(''.join(reader.app_iter_range(0, None)),
+        self.assertEqual(b''.join(reader.app_iter_range(0, None)),
                          df_data)
         self.assertEqual(quarantine_msgs, [])
         df = self._simple_get_diskfile()
         with df.open():
             reader = df.reader()
-            self.assertEqual(''.join(reader.app_iter_range(5, None)),
+            self.assertEqual(b''.join(reader.app_iter_range(5, None)),
                              df_data[5:])
 
     def test_disk_file_app_iter_range_w_none(self):
-        df, df_data = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file(b'1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
-        self.assertEqual(''.join(reader.app_iter_range(None, None)),
+        self.assertEqual(b''.join(reader.app_iter_range(None, None)),
                          df_data)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_partial_closes(self):
-        df, df_data = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file(b'1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_range(0, 5)
-        self.assertEqual(''.join(it), df_data[:5])
+        self.assertEqual(b''.join(it), df_data[:5])
         self.assertEqual(quarantine_msgs, [])
         self.assertTrue(reader._fp is None)
 
     def test_disk_file_app_iter_ranges(self):
-        df, df_data = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file(b'012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(0, 10), (10, 20), (20, 30)],
                                     'plain/text',
                                     '\r\n--someheader\r\n', len(df_data))
-        value = ''.join(it)
+        value = b''.join(it)
         self.assertIn(df_data[:10], value)
         self.assertIn(df_data[10:20], value)
         self.assertIn(df_data[20:30], value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_ranges_w_quarantine(self):
-        df, df_data = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file(b'012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         self.assertEqual(len(df_data), reader._obj_size)  # sanity check
@@ -3564,30 +3601,30 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         it = reader.app_iter_ranges([(0, len(df_data))],
                                     'plain/text',
                                     '\r\n--someheader\r\n', len(df_data))
-        value = ''.join(it)
+        value = b''.join(it)
         self.assertIn(df_data, value)
         self.assertEqual(quarantine_msgs,
                          ["Bytes read: %s, does not match metadata: %s" %
                           (len(df_data), len(df_data) + 1)])
 
     def test_disk_file_app_iter_ranges_w_no_etag_quarantine(self):
-        df, df_data = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file(b'012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(0, 10)],
                                     'plain/text',
                                     '\r\n--someheader\r\n', len(df_data))
-        value = ''.join(it)
+        value = b''.join(it)
         self.assertIn(df_data[:10], value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_ranges_edges(self):
-        df, df_data = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file(b'012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(3, 10), (0, 2)], 'application/whatever',
                                     '\r\n--someheader\r\n', len(df_data))
-        value = ''.join(it)
+        value = b''.join(it)
         self.assertIn(df_data[3:10], value)
         self.assertIn(df_data[:2], value)
         self.assertEqual(quarantine_msgs, [])
@@ -3595,7 +3632,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_disk_file_large_app_iter_ranges(self):
         # This test case is to make sure that the disk file app_iter_ranges
         # method all the paths being tested.
-        long_str = '01234567890' * 65536
+        long_str = b'01234567890' * 65536
         df, df_data = self._create_test_file(long_str)
         target_strs = [df_data[3:10], df_data[0:65590]]
         quarantine_msgs = []
@@ -3608,34 +3645,37 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # need to add these headers to make it as real MIME message.
         # The body of the message is produced by method app_iter_ranges
         # off of DiskFile object.
-        header = ''.join(['Content-Type: multipart/byteranges;',
-                          'boundary=',
-                          '5e816ff8b8b8e9a5d355497e5d9e0301\r\n'])
+        header = b''.join([b'Content-Type: multipart/byteranges;',
+                           b'boundary=',
+                           b'5e816ff8b8b8e9a5d355497e5d9e0301\r\n'])
 
-        value = header + ''.join(it)
+        value = header + b''.join(it)
         self.assertEqual(quarantine_msgs, [])
 
-        parts = map(lambda p: p.get_payload(decode=True),
-                    email.message_from_string(value).walk())[1:3]
+        if six.PY2:
+            message = email.message_from_string(value)
+        else:
+            message = email.message_from_bytes(value)
+        parts = [p.get_payload(decode=True) for p in message.walk()][1:3]
         self.assertEqual(parts, target_strs)
 
     def test_disk_file_app_iter_ranges_empty(self):
         # This test case tests when empty value passed into app_iter_ranges
         # When ranges passed into the method is either empty array or None,
         # this method will yield empty string
-        df, df_data = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file(b'012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([], 'application/whatever',
                                     '\r\n--someheader\r\n', len(df_data))
-        self.assertEqual(''.join(it), '')
+        self.assertEqual(b''.join(it), b'')
 
         df = self._simple_get_diskfile()
         with df.open():
             reader = df.reader()
             it = reader.app_iter_ranges(None, 'app/something',
                                         '\r\n--someheader\r\n', 150)
-            self.assertEqual(''.join(it), '')
+            self.assertEqual(b''.join(it), b'')
             self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_mkstemp_creates_dir(self):
@@ -3674,7 +3714,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         policy = policy or POLICIES.legacy
         df = self._simple_get_diskfile(obj=obj_name, policy=policy,
                                        frag_index=frag_index)
-        data = data or '0' * fsize
+        data = data or b'0' * fsize
+        if not isinstance(data, bytes):
+            raise ValueError('data must be bytes')
         if policy.policy_type == EC_POLICY:
             archives = encode_frag_archive_bodies(policy, data)
             try:
@@ -3733,16 +3775,16 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # We have to go below read_metadata/write_metadata to get proper
             # corruption.
             meta_xattr = xattr.getxattr(data_files[0], "user.swift.metadata")
-            wrong_byte = 'X' if meta_xattr[0] != 'X' else 'Y'
+            wrong_byte = b'X' if meta_xattr[:1] != b'X' else b'Y'
             xattr.setxattr(data_files[0], "user.swift.metadata",
                            wrong_byte + meta_xattr[1:])
         elif invalid_type == 'Subtly-Corrupt-Xattrs':
             # We have to go below read_metadata/write_metadata to get proper
             # corruption.
             meta_xattr = xattr.getxattr(data_files[0], "user.swift.metadata")
-            wrong_checksum = md5(meta_xattr + "some extra stuff").hexdigest()
+            wrong_checksum = md5(meta_xattr + b"some extra stuff").hexdigest()
             xattr.setxattr(data_files[0], "user.swift.metadata_checksum",
-                           wrong_checksum)
+                           wrong_checksum.encode())
         elif invalid_type == 'Truncated-Xattrs':
             meta_xattr = xattr.getxattr(data_files[0], "user.swift.metadata")
             xattr.setxattr(data_files[0], "user.swift.metadata",
@@ -3974,7 +4016,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 self._get_open_disk_file)
 
     def test_quarantine_hashdir_not_a_directory(self):
-        df, df_data = self._create_test_file('1234567890', account="abc",
+        df, df_data = self._create_test_file(b'1234567890', account="abc",
                                              container='123', obj='xyz')
         hashdir = df._datadir
         rmtree(hashdir)
@@ -4062,7 +4104,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     pass
 
     def test_write_metadata(self):
-        df, df_data = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file(b'1234567890')
         file_count = len(os.listdir(df._datadir))
         timestamp = Timestamp.now().internal
         metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
@@ -4074,7 +4116,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_write_metadata_with_content_type(self):
         # if metadata has content-type then its time should be in file name
-        df, df_data = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file(b'1234567890')
         file_count = len(os.listdir(df._datadir))
         timestamp = Timestamp.now()
         metadata = {'X-Timestamp': timestamp.internal,
@@ -4091,11 +4133,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_write_metadata_with_older_content_type(self):
         # if metadata has content-type then its time should be in file name
         ts_iter = make_timestamp_iter()
-        df, df_data = self._create_test_file('1234567890',
-                                             timestamp=ts_iter.next())
+        df, df_data = self._create_test_file(b'1234567890',
+                                             timestamp=next(ts_iter))
         file_count = len(os.listdir(df._datadir))
-        timestamp = ts_iter.next()
-        timestamp2 = ts_iter.next()
+        timestamp = next(ts_iter)
+        timestamp2 = next(ts_iter)
         metadata = {'X-Timestamp': timestamp2.internal,
                     'X-Object-Meta-test': 'data',
                     'Content-Type': 'foo',
@@ -4112,11 +4154,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # a meta file without content-type should be cleaned up in favour of
         # a meta file at same time with content-type
         ts_iter = make_timestamp_iter()
-        df, df_data = self._create_test_file('1234567890',
-                                             timestamp=ts_iter.next())
+        df, df_data = self._create_test_file(b'1234567890',
+                                             timestamp=next(ts_iter))
         file_count = len(os.listdir(df._datadir))
-        timestamp = ts_iter.next()
-        timestamp2 = ts_iter.next()
+        timestamp = next(ts_iter)
+        timestamp2 = next(ts_iter)
         metadata = {'X-Timestamp': timestamp2.internal,
                     'X-Object-Meta-test': 'data'}
         df.write_metadata(metadata)
@@ -4138,11 +4180,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # file with content-type should be cleaned up in favour of a meta file
         # at newer time with content-type
         ts_iter = make_timestamp_iter()
-        df, df_data = self._create_test_file('1234567890',
-                                             timestamp=ts_iter.next())
+        df, df_data = self._create_test_file(b'1234567890',
+                                             timestamp=next(ts_iter))
         file_count = len(os.listdir(df._datadir))
-        timestamp = ts_iter.next()
-        timestamp2 = ts_iter.next()
+        timestamp = next(ts_iter)
+        timestamp2 = next(ts_iter)
         metadata = {'X-Timestamp': timestamp2.internal,
                     'X-Object-Meta-test': 'data'}
         df.write_metadata(metadata)
@@ -4498,7 +4540,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_from_audit_location(self):
         df, df_data = self._create_test_file(
-            'blah blah',
+            b'blah blah',
             account='three', container='blind', obj='mice')
         hashdir = df._datadir
         df = self.df_mgr.get_diskfile_from_audit_location(
@@ -4509,7 +4551,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_from_audit_location_with_mismatched_hash(self):
         df, df_data = self._create_test_file(
-            'blah blah',
+            b'blah blah',
             account='this', container='is', obj='right')
         hashdir = df._datadir
         datafilename = [f for f in os.listdir(hashdir)
@@ -4554,12 +4596,12 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_ondisk_search_loop_ts_meta_data(self):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=10)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=9)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=8)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=7)
-        self._create_ondisk_file(df, 'B', ext='.data', timestamp=6)
-        self._create_ondisk_file(df, 'A', ext='.data', timestamp=5)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=10)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=9)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=8)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=7)
+        self._create_ondisk_file(df, b'B', ext='.data', timestamp=6)
+        self._create_ondisk_file(df, b'A', ext='.data', timestamp=5)
         df = self._simple_get_diskfile()
         with self.assertRaises(DiskFileDeleted) as raised:
             df.open()
@@ -4567,12 +4609,12 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_ondisk_search_loop_meta_ts_data(self):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=10)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=9)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
-        self._create_ondisk_file(df, 'B', ext='.data', timestamp=6)
-        self._create_ondisk_file(df, 'A', ext='.data', timestamp=5)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=10)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=9)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=8)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=7)
+        self._create_ondisk_file(df, b'B', ext='.data', timestamp=6)
+        self._create_ondisk_file(df, b'A', ext='.data', timestamp=5)
         df = self._simple_get_diskfile()
         with self.assertRaises(DiskFileDeleted) as raised:
             df.open()
@@ -4580,14 +4622,14 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def _test_ondisk_search_loop_meta_data_ts(self, legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=10)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=9)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=10)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=9)
         self._create_ondisk_file(
-            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=8)
+            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=8)
         self._create_ondisk_file(
-            df, 'A', ext='.data', legacy_durable=legacy_durable, timestamp=7)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=6)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=5)
+            df, b'A', ext='.data', legacy_durable=legacy_durable, timestamp=7)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=6)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
             self.assertIn('X-Timestamp', df._metadata)
@@ -4604,17 +4646,17 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def _test_ondisk_search_loop_multiple_meta_data(self,
                                                     legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=10,
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=10,
                                  metadata={'X-Object-Meta-User': 'user-meta'})
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=9,
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=9,
                                  ctype_timestamp=9,
                                  metadata={'Content-Type': 'newest',
                                            'X-Object-Meta-User': 'blah'})
         self._create_ondisk_file(
-            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=8,
+            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=8,
             metadata={'Content-Type': 'newer'})
         self._create_ondisk_file(
-            df, 'A', ext='.data', legacy_durable=legacy_durable, timestamp=7,
+            df, b'A', ext='.data', legacy_durable=legacy_durable, timestamp=7,
             metadata={'Content-Type': 'oldest'})
         df = self._simple_get_diskfile()
         with df.open():
@@ -4634,14 +4676,14 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def _test_ondisk_search_loop_stale_meta_data(self, legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=10,
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=10,
                                  metadata={'X-Object-Meta-User': 'user-meta'})
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=9,
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=9,
                                  ctype_timestamp=7,
                                  metadata={'Content-Type': 'older',
                                            'X-Object-Meta-User': 'blah'})
         self._create_ondisk_file(
-            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=8,
+            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=8,
             metadata={'Content-Type': 'newer'})
         df = self._simple_get_diskfile()
         with df.open():
@@ -4662,13 +4704,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def _test_ondisk_search_loop_data_ts_meta(self, legacy_durable=False):
         df = self._simple_get_diskfile()
         self._create_ondisk_file(
-            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=10)
+            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=10)
         self._create_ondisk_file(
-            df, 'A', ext='.data', legacy_durable=legacy_durable, timestamp=9)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
+            df, b'A', ext='.data', legacy_durable=legacy_durable, timestamp=9)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=8)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=7)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=6)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
             self.assertIn('X-Timestamp', df._metadata)
@@ -4685,15 +4727,15 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def _test_ondisk_search_loop_wayward_files_ignored(self,
                                                        legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, 'X', ext='.bar', timestamp=11)
+        self._create_ondisk_file(df, b'X', ext='.bar', timestamp=11)
         self._create_ondisk_file(
-            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=10)
+            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=10)
         self._create_ondisk_file(
-            df, 'A', ext='.data', legacy_durable=legacy_durable, timestamp=9)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
+            df, b'A', ext='.data', legacy_durable=legacy_durable, timestamp=9)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=8)
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=7)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=6)
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
             self.assertIn('X-Timestamp', df._metadata)
@@ -4715,15 +4757,15 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             raise OSError(errno.EACCES, os.strerror(errno.EACCES))
 
         with mock.patch("os.listdir", mock_listdir_exp):
-            self._create_ondisk_file(df, 'X', ext='.bar', timestamp=11)
-            self._create_ondisk_file(df, 'B', ext='.data', timestamp=10,
+            self._create_ondisk_file(df, b'X', ext='.bar', timestamp=11)
+            self._create_ondisk_file(df, b'B', ext='.data', timestamp=10,
                                      legacy_durable=legacy_durable)
-            self._create_ondisk_file(df, 'A', ext='.data', timestamp=9,
+            self._create_ondisk_file(df, b'A', ext='.data', timestamp=9,
                                      legacy_durable=legacy_durable)
-            self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
-            self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
-            self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
-            self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
+            self._create_ondisk_file(df, b'', ext='.ts', timestamp=8)
+            self._create_ondisk_file(df, b'', ext='.ts', timestamp=7)
+            self._create_ondisk_file(df, b'', ext='.meta', timestamp=6)
+            self._create_ondisk_file(df, b'', ext='.meta', timestamp=5)
             df = self._simple_get_diskfile()
             self.assertRaises(DiskFileError, df.open)
 
@@ -5088,7 +5130,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         _m_unlink = mock.Mock()
         df = self._simple_get_diskfile()
         df.manager.use_linkat = False
-        data = '0' * 100
+        data = b'0' * 100
         metadata = {
             'ETag': md5(data).hexdigest(),
             'X-Timestamp': Timestamp.now().internal,
@@ -5203,7 +5245,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     @requires_o_tmpfile_support_in_tmp
     def test_create_use_linkat_renamer_not_called(self):
         df = self._simple_get_diskfile()
-        data = '0' * 100
+        data = b'0' * 100
         metadata = {
             'ETag': md5(data).hexdigest(),
             'X-Timestamp': Timestamp.now().internal,
@@ -5803,7 +5845,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         df = df_mgr.get_diskfile(self.existing_device, '0',
                                  'a', 'c', 'o', policy=policy)
         frag_2_metadata = write_diskfile(df, ts_3, frag_index=2, commit=False,
-                                         data='new test data',
+                                         data=b'new test data',
                                          legacy_durable=legacy_durable)
         # sanity check: should have 2* .data, possibly .durable, .meta, .data
         self.assertEqual(5 if legacy_durable else 4,
@@ -5974,7 +6016,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         policy = POLICIES.default
         frag_size = policy.fragment_size
         # make sure there are two fragment size worth of data on disk
-        data = 'ab' * policy.ec_segment_size
+        data = b'ab' * policy.ec_segment_size
         df, df_data = self._create_test_file(data)
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
@@ -5990,7 +6032,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                 [(0, 10), (10, 20),
                  (frag_size + 20, frag_size + 30)],
                 'plain/text', '\r\n--someheader\r\n', len(df_data))
-            value = ''.join(it)
+            value = b''.join(it)
         # check that only first range which starts at 0 triggers a frag check
         self.assertEqual(1, mock_get_metadata.call_count)
         self.assertIn(df_data[:10], value)
@@ -6003,7 +6045,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         # TestAuditor.test_object_audit_checks_EC_fragments just making
         # sure that checks happen in DiskFileReader layer.
         policy = POLICIES.default
-        df, df_data = self._create_test_file('x' * policy.ec_segment_size,
+        df, df_data = self._create_test_file(b'x' * policy.ec_segment_size,
                                              timestamp=self.ts())
 
         def do_test(corrupted_frag_body, expected_offset, expected_read):
@@ -6028,7 +6070,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
 
             self.assertEqual(expected_read, bytes_read)
             self.assertEqual('Invalid EC metadata at offset 0x%x' %
-                             expected_offset, cm.exception.message)
+                             expected_offset, cm.exception.args[0])
 
         # TODO with liberasurecode < 1.2.0 the EC metadata verification checks
         # only the magic number at offset 59 bytes into the frag so we'll
@@ -6036,18 +6078,18 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         # required we should be able to reduce the corruption length.
         corruption_length = 64
         # corrupted first frag can be detected
-        corrupted_frag_body = (' ' * corruption_length +
+        corrupted_frag_body = (b' ' * corruption_length +
                                df_data[corruption_length:])
         do_test(corrupted_frag_body, 0, 0)
 
         # corrupted the second frag can be also detected
-        corrupted_frag_body = (df_data + ' ' * corruption_length +
+        corrupted_frag_body = (df_data + b' ' * corruption_length +
                                df_data[corruption_length:])
         do_test(corrupted_frag_body, len(df_data), len(df_data))
 
         # if the second frag is shorter than frag size then corruption is
         # detected when the reader is closed
-        corrupted_frag_body = (df_data + ' ' * corruption_length +
+        corrupted_frag_body = (df_data + b' ' * corruption_length +
                                df_data[corruption_length:-10])
         do_test(corrupted_frag_body, len(df_data), len(corrupted_frag_body))
 
@@ -6055,7 +6097,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         policy = POLICIES.default
 
         def do_test(exception):
-            df, df_data = self._create_test_file('x' * policy.ec_segment_size,
+            df, df_data = self._create_test_file(b'x' * policy.ec_segment_size,
                                                  timestamp=self.ts())
             df.manager.logger.clear()
 
@@ -6070,7 +6112,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                 df.open()
 
             self.assertEqual('Invalid EC metadata at offset 0x0',
-                             cm.exception.message)
+                             cm.exception.args[0])
             log_lines = df.manager.logger.get_lines_for_level('warning')
             self.assertIn('Quarantined object', log_lines[0])
             self.assertIn('Invalid EC metadata at offset 0x0', log_lines[0])
@@ -6083,14 +6125,14 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         # ECDriverError should not cause quarantine, only certain subclasses
         policy = POLICIES.default
 
-        df, df_data = self._create_test_file('x' * policy.ec_segment_size,
+        df, df_data = self._create_test_file(b'x' * policy.ec_segment_size,
                                              timestamp=self.ts())
 
         with mock.patch.object(
                 df.policy.pyeclib_driver, 'get_metadata',
                 side_effect=pyeclib.ec_iface.ECDriverError('testing')):
             df.open()
-            read_data = ''.join([d for d in df.reader()])
+            read_data = b''.join([d for d in df.reader()])
         self.assertEqual(df_data, read_data)
         log_lines = df.manager.logger.get_lines_for_level('warning')
         self.assertIn('Problem checking EC fragment', log_lines[0])
@@ -6103,7 +6145,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         # type chunk incomming (that would occurre only from coding bug)
         policy = POLICIES.default
 
-        df, df_data = self._create_test_file('x' * policy.ec_segment_size,
+        df, df_data = self._create_test_file(b'x' * policy.ec_segment_size,
                                              timestamp=self.ts())
         df.open()
         for invalid_type_chunk in (None, [], [[]], 1):
@@ -6572,7 +6614,7 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertIn(suffix, hashes)
             self.assertTrue(os.path.exists(hashes_file))
             self.assertIn(os.path.basename(suffix_dir), hashes)
-            with open(hashes_file) as f:
+            with open(hashes_file, 'rb') as f:
                 found_hashes = pickle.load(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
@@ -6632,7 +6674,7 @@ class TestSuffixHashes(unittest.TestCase):
             # each file is opened once to read
             expected = {
                 'hashes.pkl': ['rb'],
-                'hashes.invalid': ['rb'],
+                'hashes.invalid': ['r'],
             }
             self.assertEqual(open_log, expected)
 
@@ -6782,7 +6824,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertRaises(
                     Exception, df_mgr.get_hashes, 'sda1', '0', [], policy)
             # sanity on-disk state is invalid
-            with open(hashes_file) as f:
+            with open(hashes_file, 'rb') as f:
                 found_hashes = pickle.load(f)
                 found_hashes.pop('updated')
                 self.assertEqual(False, found_hashes.pop('valid'))
@@ -6810,7 +6852,7 @@ class TestSuffixHashes(unittest.TestCase):
                 found_hashes = pickle.load(f)
                 self.assertTrue(hashes['valid'])
                 self.assertEqual(hashes, found_hashes)
-            with open(invalidations_file, 'rb') as f:
+            with open(invalidations_file, 'r') as f:
                 self.assertEqual("", f.read())
             return hashes
 
@@ -6843,7 +6885,7 @@ class TestSuffixHashes(unittest.TestCase):
                 df_mgr.invalidate_hash(suffix_dir)
             self.assertTrue(mock_lock.called)
             # suffix should be in invalidations file
-            with open(invalidations_file, 'rb') as f:
+            with open(invalidations_file, 'r') as f:
                 self.assertEqual(suffix + "\n", f.read())
             # hashes file is unchanged
             with open(hashes_file, 'rb') as f:
@@ -6862,7 +6904,7 @@ class TestSuffixHashes(unittest.TestCase):
             suffix_dir2 = os.path.dirname(df2._datadir)
             suffix2 = os.path.basename(suffix_dir2)
             # suffix2 should be in invalidations file
-            with open(invalidations_file, 'rb') as f:
+            with open(invalidations_file, 'r') as f:
                 self.assertEqual(suffix2 + "\n", f.read())
             # hashes file is not yet changed
             with open(hashes_file, 'rb') as f:
@@ -6877,7 +6919,7 @@ class TestSuffixHashes(unittest.TestCase):
             df2.delete(self.ts())
             df2.delete(self.ts())
             # suffix2 should be in invalidations file
-            with open(invalidations_file, 'rb') as f:
+            with open(invalidations_file, 'r') as f:
                 self.assertEqual("%s\n%s\n" % (suffix2, suffix2), f.read())
             # hashes file is not yet changed
             with open(hashes_file, 'rb') as f:
@@ -7245,7 +7287,7 @@ class TestSuffixHashes(unittest.TestCase):
             # write a datafile
             timestamp = self.ts()
             with df.create() as writer:
-                test_data = 'test file'
+                test_data = b'test file'
                 writer.write(test_data)
                 metadata = {
                     'X-Timestamp': timestamp.internal,
@@ -7707,7 +7749,6 @@ class TestSuffixHashes(unittest.TestCase):
             quarantine_path = os.path.join(
                 quarantine_base,  # quarantine root
                 diskfile.get_data_dir(policy),  # per-policy data dir
-                suffix,  # first dir from which quarantined file was removed
                 os.path.basename(df._datadir)  # name of quarantined file
             )
             self.assertTrue(os.path.exists(quarantine_path))
@@ -7721,7 +7762,7 @@ class TestSuffixHashes(unittest.TestCase):
                                      frag_index=7)
             suffix = os.path.basename(os.path.dirname(df._datadir))
             with df.create() as writer:
-                test_data = 'test_data'
+                test_data = b'test_data'
                 writer.write(test_data)
                 metadata = {
                     'X-Timestamp': timestamp.internal,
@@ -7988,7 +8029,7 @@ class TestSuffixHashes(unittest.TestCase):
                                      frag_index=5)
             timestamp = self.ts()
             with df.create() as writer:
-                test_data = 'test_file'
+                test_data = b'test_file'
                 writer.write(test_data)
                 metadata = {
                     'X-Timestamp': timestamp.internal,
@@ -8008,7 +8049,7 @@ class TestSuffixHashes(unittest.TestCase):
             matching_suffix = os.path.basename(os.path.dirname(df._datadir))
             timestamp = self.ts()
             with df.create() as writer:
-                test_data = 'test_file'
+                test_data = b'test_file'
                 writer.write(test_data)
                 metadata = {
                     'X-Timestamp': timestamp.internal,
@@ -8030,7 +8071,7 @@ class TestSuffixHashes(unittest.TestCase):
                              matching_suffix)  # sanity
             timestamp = self.ts()
             with df.create() as writer:
-                test_data = 'test_file'
+                test_data = b'test_file'
                 writer.write(test_data)
                 metadata = {
                     'X-Timestamp': timestamp.internal,
@@ -8261,7 +8302,7 @@ class TestHashesHelpers(unittest.TestCase):
     def test_read_legacy_hashes(self):
         hashes = {'stub': 'fake'}
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
-        with open(hashes_file, 'w') as f:
+        with open(hashes_file, 'wb') as f:
             pickle.dump(hashes, f)
         expected = {
             'stub': 'fake',
@@ -8276,7 +8317,7 @@ class TestHashesHelpers(unittest.TestCase):
         with mock.patch('swift.obj.diskfile.time.time', return_value=now):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
-        with open(hashes_file) as f:
+        with open(hashes_file, 'rb') as f:
             data = pickle.load(f)
         expected = {
             'stub': 'fake',
@@ -8291,7 +8332,7 @@ class TestHashesHelpers(unittest.TestCase):
         with mock.patch('swift.obj.diskfile.time.time', return_value=now):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
-        with open(hashes_file) as f:
+        with open(hashes_file, 'rb') as f:
             data = pickle.load(f)
         expected = {
             'updated': now,
@@ -8305,7 +8346,7 @@ class TestHashesHelpers(unittest.TestCase):
         with mock.patch('swift.obj.diskfile.time.time', return_value=now):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
-        with open(hashes_file) as f:
+        with open(hashes_file, 'rb') as f:
             data = pickle.load(f)
         expected = {
             'updated': now,

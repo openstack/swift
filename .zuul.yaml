@@ -82,6 +82,21 @@
       tox_envlist: func
 
 - job:
+    name: swift-tox-func-py37
+    parent: swift-tox-base
+    nodeset: ubuntu-bionic
+    description: |
+      Run functional tests for swift under cPython version 3.7.
+
+      Uses tox with the ``func-py3`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-py3
+      bindep_profile: test py37
+      python_version: 3.7
+
+- job:
     name: swift-tox-func-centos-7
     parent: swift-tox-func
     nodeset: centos-7
@@ -334,6 +349,7 @@
 - job:
     name: swift-build-image
     parent: opendev-build-docker-image
+    voting: false
     description: Build SAIO docker images.
     vars: &swift_image_vars
       docker_images:
@@ -343,6 +359,7 @@
 - job:
     name: swift-upload-image
     parent: opendev-upload-docker-image
+    voting: false
     description: Build SAIO docker images and upload to Docker Hub.
     secrets:
       name: docker_credentials
@@ -353,6 +370,7 @@
 - job:
     name: swift-promote-image
     parent: opendev-promote-docker-image
+    voting: false
     description: Promote previously uploaded Docker images.
     secrets:
       name: docker_credentials
@@ -386,6 +404,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
         - swift-tox-func:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-py37:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
@@ -465,6 +488,7 @@
         - swift-tox-py27
         - swift-tox-py37
         - swift-tox-func
+        - swift-tox-func-py37
         - swift-tox-func-encryption
         - swift-tox-func-domain-remap-staticweb
         - swift-tox-func-ec

@@ -18,7 +18,7 @@ import unittest
 import json
 import mock
 
-from six.moves.urllib.parse import quote, parse_qs
+from six.moves.urllib.parse import parse_qs
 from swift.common import swob
 from swift.common.middleware import symlink, copy, versioned_writes, \
     listing_formats
@@ -56,7 +56,7 @@ class TestSymlinkMiddlewareBase(unittest.TestCase):
             headers[0] = h
 
         body_iter = app(req.environ, start_response)
-        body = ''
+        body = b''
         caught_exc = None
         try:
             for chunk in body_iter:
@@ -112,15 +112,15 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             body='')
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '412 Precondition Failed')
-        self.assertEqual(body, "X-Symlink-Target header must be of "
-                               "the form <container name>/<object name>")
+        self.assertEqual(body, b"X-Symlink-Target header must be of "
+                               b"the form <container name>/<object name>")
 
     def test_symlink_put_non_zero_length(self):
         req = Request.blank('/v1/a/c/symlink', method='PUT', body='req_body',
                             headers={'X-Symlink-Target': 'c1/o'})
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '400 Bad Request')
-        self.assertEqual(body, 'Symlink requests require a zero byte body')
+        self.assertEqual(body, b'Symlink requests require a zero byte body')
 
     def test_symlink_put_bad_object_header(self):
         req = Request.blank('/v1/a/c/symlink', method='PUT',
@@ -128,8 +128,8 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             body='')
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, "412 Precondition Failed")
-        self.assertEqual(body, "X-Symlink-Target header must be of "
-                               "the form <container name>/<object name>")
+        self.assertEqual(body, b"X-Symlink-Target header must be of "
+                               b"the form <container name>/<object name>")
 
     def test_symlink_put_bad_account_header(self):
         req = Request.blank('/v1/a/c/symlink', method='PUT',
@@ -138,7 +138,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             body='')
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, "412 Precondition Failed")
-        self.assertEqual(body, "Account name cannot contain slashes")
+        self.assertEqual(body, b"Account name cannot contain slashes")
 
     def test_get_symlink(self):
         self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
@@ -176,7 +176,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             headers=req_headers)
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '200 OK')
-        self.assertEqual(body, 'resp_body')
+        self.assertEqual(body, b'resp_body')
         self.assertNotIn('X-Symlink-Target', dict(headers))
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
@@ -195,7 +195,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         req = Request.blank('/v1/a/c/symlink', method='GET')
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '404 Not Found')
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
         self.assertNotIn('X-Symlink-Target', dict(headers))
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
@@ -211,8 +211,8 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '416 Requested Range Not Satisfiable')
         self.assertEqual(
-            body, '<html><h1>Requested Range Not Satisfiable</h1>'
-                  '<p>The Range requested is not available.</p></html>')
+            body, b'<html><h1>Requested Range Not Satisfiable</h1>'
+                  b'<p>The Range requested is not available.</p></html>')
         self.assertNotIn('X-Symlink-Target', dict(headers))
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
@@ -228,7 +228,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             headers={'Range': 'bytes=1-2'})
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '200 OK')
-        self.assertEqual(body, 'es')
+        self.assertEqual(body, b'es')
         self.assertNotIn('X-Symlink-Target', dict(headers))
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
@@ -241,7 +241,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
 
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '200 OK')
-        self.assertEqual(body, 'resp_body')
+        self.assertEqual(body, b'resp_body')
 
         # Assert special headers for symlink are not in response
         self.assertNotIn('X-Symlink-Target', dict(headers))
@@ -359,9 +359,10 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             headers={'X-Object-Meta-Color': 'Red'})
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '307 Temporary Redirect')
-        self.assertEqual(body,
-                         'The requested POST was applied to a symlink. POST '
-                         'directly to the target to apply requested metadata.')
+        self.assertEqual(
+            body,
+            b'The requested POST was applied to a symlink. POST '
+            b'directly to the target to apply requested metadata.')
         method, path, hdrs = self.app.calls_with_headers[0]
         val = hdrs.get('X-Object-Meta-Color')
         self.assertEqual(val, 'Red')
@@ -379,8 +380,8 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             headers={'X-Symlink-Target': 'c1/regular_obj'})
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '400 Bad Request')
-        self.assertEqual(body, "A PUT request is required to set a symlink "
-                         "target")
+        self.assertEqual(body, b"A PUT request is required to set a symlink "
+                         b"target")
 
     def test_symlink_post_but_fail_at_server(self):
         self.app.register('POST', '/v1/a/c/o', swob.HTTPNotFound, {})
@@ -405,16 +406,15 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         # URL encoded is safe
         do_test({'X-Symlink-Target': 'c1%2Fo1'})
         # URL encoded + multibytes is also safe
-        do_test(
-            {'X-Symlink-Target':
-             u'\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'})
         target = u'\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'
-        encoded_target = quote(target.encode('utf-8'), '')
-        do_test({'X-Symlink-Target': encoded_target})
+        target = swob.bytes_to_wsgi(target.encode('utf8'))
+        do_test({'X-Symlink-Target': target})
+        do_test({'X-Symlink-Target': swob.wsgi_quote(target)})
 
+        target = swob.bytes_to_wsgi(u'\u30b0\u30e9\u30d6\u30eb'.encode('utf8'))
         do_test(
             {'X-Symlink-Target': 'cont/obj',
-             'X-Symlink-Target-Account': u'\u30b0\u30e9\u30d6\u30eb'})
+             'X-Symlink-Target-Account': target})
 
     def test_check_symlink_header_invalid_format(self):
         def do_test(headers, status, err_msg):
@@ -428,54 +428,59 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
 
         do_test({'X-Symlink-Target': '/c1/o1'},
                 '412 Precondition Failed',
-                'X-Symlink-Target header must be of the '
-                'form <container name>/<object name>')
+                b'X-Symlink-Target header must be of the '
+                b'form <container name>/<object name>')
         do_test({'X-Symlink-Target': 'c1o1'},
                 '412 Precondition Failed',
-                'X-Symlink-Target header must be of the '
-                'form <container name>/<object name>')
+                b'X-Symlink-Target header must be of the '
+                b'form <container name>/<object name>')
         do_test({'X-Symlink-Target': 'c1/o1',
                  'X-Symlink-Target-Account': '/another'},
                 '412 Precondition Failed',
-                'Account name cannot contain slashes')
+                b'Account name cannot contain slashes')
         do_test({'X-Symlink-Target': 'c1/o1',
                  'X-Symlink-Target-Account': 'an/other'},
                 '412 Precondition Failed',
-                'Account name cannot contain slashes')
+                b'Account name cannot contain slashes')
         # url encoded case
         do_test({'X-Symlink-Target': '%2Fc1%2Fo1'},
                 '412 Precondition Failed',
-                'X-Symlink-Target header must be of the '
-                'form <container name>/<object name>')
+                b'X-Symlink-Target header must be of the '
+                b'form <container name>/<object name>')
         do_test({'X-Symlink-Target': 'c1/o1',
                  'X-Symlink-Target-Account': '%2Fanother'},
                 '412 Precondition Failed',
-                'Account name cannot contain slashes')
+                b'Account name cannot contain slashes')
         do_test({'X-Symlink-Target': 'c1/o1',
                  'X-Symlink-Target-Account': 'an%2Fother'},
                 '412 Precondition Failed',
-                'Account name cannot contain slashes')
+                b'Account name cannot contain slashes')
         # with multi-bytes
         do_test(
             {'X-Symlink-Target':
              u'/\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'},
             '412 Precondition Failed',
-            'X-Symlink-Target header must be of the '
-            'form <container name>/<object name>')
+            b'X-Symlink-Target header must be of the '
+            b'form <container name>/<object name>')
         target = u'/\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'
-        encoded_target = quote(target.encode('utf-8'), '')
+        target = swob.bytes_to_wsgi(target.encode('utf8'))
         do_test(
-            {'X-Symlink-Target': encoded_target},
+            {'X-Symlink-Target': swob.wsgi_quote(target)},
             '412 Precondition Failed',
-            'X-Symlink-Target header must be of the '
-            'form <container name>/<object name>')
+            b'X-Symlink-Target header must be of the '
+            b'form <container name>/<object name>')
         account = u'\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'
-        encoded_account = quote(account.encode('utf-8'), '')
         do_test(
             {'X-Symlink-Target': 'c/o',
-             'X-Symlink-Target-Account': encoded_account},
+             'X-Symlink-Target-Account': account},
             '412 Precondition Failed',
-            'Account name cannot contain slashes')
+            b'Account name cannot contain slashes')
+        account = swob.bytes_to_wsgi(account.encode('utf8'))
+        do_test(
+            {'X-Symlink-Target': 'c/o',
+             'X-Symlink-Target-Account': swob.wsgi_quote(account)},
+            '412 Precondition Failed',
+            b'Account name cannot contain slashes')
 
     def test_check_symlink_header_points_to_itself(self):
         req = Request.blank('/v1/a/c/o', method='PUT',
@@ -483,7 +488,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         with self.assertRaises(swob.HTTPException) as cm:
             symlink._check_symlink_header(req)
         self.assertEqual(cm.exception.status, '400 Bad Request')
-        self.assertEqual(cm.exception.body, 'Symlink cannot target itself')
+        self.assertEqual(cm.exception.body, b'Symlink cannot target itself')
 
         # Even if set account to itself, it will fail as well
         req = Request.blank('/v1/a/c/o', method='PUT',
@@ -492,7 +497,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         with self.assertRaises(swob.HTTPException) as cm:
             symlink._check_symlink_header(req)
         self.assertEqual(cm.exception.status, '400 Bad Request')
-        self.assertEqual(cm.exception.body, 'Symlink cannot target itself')
+        self.assertEqual(cm.exception.body, b'Symlink cannot target itself')
 
         # sanity, the case to another account is safe
         req = Request.blank('/v1/a/c/o', method='PUT',
@@ -866,10 +871,10 @@ class TestSymlinkContainerContext(TestSymlinkMiddlewareBase):
 
     def test_no_affect_for_account_request(self):
         with mock.patch.object(self.sym, 'app') as mock_app:
-            mock_app.return_value = 'ok'
+            mock_app.return_value = (b'ok',)
             req = Request.blank(path='/v1/a')
             status, headers, body = self.call_sym(req)
-            self.assertEqual(body, 'ok')
+            self.assertEqual(body, b'ok')
 
     def test_get_container_simple_with_listing_format(self):
         self.app.register(
@@ -916,14 +921,14 @@ class TestSymlinkContainerContext(TestSymlinkMiddlewareBase):
         req = Request.blank(path='/v1/a/c?format=xml')
         status, headers, body = self.call_app(req, app=self.lf)
         self.assertEqual(status, '200 OK')
-        self.assertEqual(body.split('\n'), [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<container name="c"><object><name>sym_obj</name>'
-            '<hash>etag</hash><bytes>0</bytes>'
-            '<content_type>text/plain</content_type>'
-            '<last_modified>2014-11-21T14:23:02.206740</last_modified>'
-            '</object>'
-            '<object><name>normal_obj</name><hash>etag2</hash>'
-            '<bytes>32</bytes><content_type>text/plain</content_type>'
-            '<last_modified>2014-11-21T14:14:27.409100</last_modified>'
-            '</object></container>'])
+        self.assertEqual(body.split(b'\n'), [
+            b'<?xml version="1.0" encoding="UTF-8"?>',
+            b'<container name="c"><object><name>sym_obj</name>'
+            b'<hash>etag</hash><bytes>0</bytes>'
+            b'<content_type>text/plain</content_type>'
+            b'<last_modified>2014-11-21T14:23:02.206740</last_modified>'
+            b'</object>'
+            b'<object><name>normal_obj</name><hash>etag2</hash>'
+            b'<bytes>32</bytes><content_type>text/plain</content_type>'
+            b'<last_modified>2014-11-21T14:14:27.409100</last_modified>'
+            b'</object></container>'])

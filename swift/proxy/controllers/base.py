@@ -57,7 +57,7 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
-    status_map
+    status_map, wsgi_to_str, str_to_wsgi, wsgi_quote
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
@@ -327,8 +327,10 @@ def get_container_info(env, app, swift_source=None):
         This call bypasses auth. Success does not imply that the request has
         authorization to the container.
     """
-    (version, account, container, unused) = \
+    (version, wsgi_account, wsgi_container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
+    account = wsgi_to_str(wsgi_account)
+    container = wsgi_to_str(wsgi_container)
 
     # Check in environment cache and in memcache (in that order)
     info = _get_info_from_caches(app, env, account, container)
@@ -350,7 +352,7 @@ def get_container_info(env, app, swift_source=None):
                 return headers_to_container_info({}, 0)
 
         req = _prepare_pre_auth_info_request(
-            env, ("/%s/%s/%s" % (version, account, container)),
+            env, ("/%s/%s/%s" % (version, wsgi_account, wsgi_container)),
             (swift_source or 'GET_CONTAINER_INFO'))
         resp = req.get_response(app)
         # Check in infocache to see if the proxy (or anyone else) already
@@ -395,7 +397,8 @@ def get_account_info(env, app, swift_source=None):
 
     :raises ValueError: when path doesn't contain an account
     """
-    (version, account, _junk, _junk) = split_path(env['PATH_INFO'], 2, 4, True)
+    (version, wsgi_account, _junk) = split_path(env['PATH_INFO'], 2, 3, True)
+    account = wsgi_to_str(wsgi_account)
 
     # Check in environment cache and in memcache (in that order)
     info = _get_info_from_caches(app, env, account)
@@ -404,7 +407,7 @@ def get_account_info(env, app, swift_source=None):
     if not info:
         env.setdefault('swift.infocache', {})
         req = _prepare_pre_auth_info_request(
-            env, "/%s/%s" % (version, account),
+            env, "/%s/%s" % (version, wsgi_account),
             (swift_source or 'GET_ACCOUNT_INFO'))
         resp = req.get_response(app)
         # Check in infocache to see if the proxy (or anyone else) already
@@ -625,7 +628,7 @@ def _prepare_pre_auth_info_request(env, path, swift_source):
     Prepares a pre authed request to obtain info using a HEAD.
 
     :param env: the environment used by the current request
-    :param path: The unquoted request path
+    :param path: The unquoted, WSGI-str request path
     :param swift_source: value for swift.source in WSGI environment
     :returns: the pre authed request
     """
@@ -641,7 +644,7 @@ def _prepare_pre_auth_info_request(env, path, swift_source):
     newenv['swift_owner'] = True
 
     # Note that Request.blank expects quoted path
-    return Request.blank(quote(path), environ=newenv)
+    return Request.blank(wsgi_quote(path), environ=newenv)
 
 
 def get_info(app, env, account, container=None, swift_source=None):
@@ -685,9 +688,9 @@ def _get_object_info(app, env, account, container, obj, swift_source=None):
 
     :param app: the application object
     :param env: the environment used by the current request
-    :param account: The unquoted name of the account
-    :param container: The unquoted name of the container
-    :param obj: The unquoted name of the object
+    :param account: The unquoted, WSGI-str name of the account
+    :param container: The unquoted, WSGI-str name of the container
+    :param obj: The unquoted, WSGI-str name of the object
     :returns: the cached info or None if cannot be retrieved
     """
     cache_key = get_cache_key(account, container, obj)
@@ -1514,6 +1517,7 @@ class Controller(object):
         self.app = app
         self.trans_id = '-'
         self._allowed_methods = None
+        self._private_methods = None
 
     @property
     def allowed_methods(self):
@@ -1524,6 +1528,16 @@ class Controller(object):
                 if getattr(m, 'publicly_accessible', False):
                     self._allowed_methods.add(name)
         return self._allowed_methods
+
+    @property
+    def private_methods(self):
+        if self._private_methods is None:
+            self._private_methods = set()
+            all_methods = inspect.getmembers(self, predicate=inspect.ismethod)
+            for name, m in all_methods:
+                if getattr(m, 'privately_accessible', False):
+                    self._private_methods.add(name)
+        return self._private_methods
 
     def _x_remove_headers(self):
         """
@@ -1584,7 +1598,7 @@ class Controller(object):
         """
         Get account information, and also verify that the account exists.
 
-        :param account: name of the account to get the info for
+        :param account: native str name of the account to get the info for
         :param req: caller's HTTP request context object (optional)
         :returns: tuple of (account partition, account nodes, container_count)
                   or (None, None, None) if it does not exist
@@ -1596,7 +1610,7 @@ class Controller(object):
             env = {}
         env.setdefault('swift.infocache', {})
         path_env = env.copy()
-        path_env['PATH_INFO'] = "/v1/%s" % (account,)
+        path_env['PATH_INFO'] = "/v1/%s" % (str_to_wsgi(account),)
 
         info = get_account_info(path_env, self.app)
         if (not info
@@ -1611,8 +1625,8 @@ class Controller(object):
         Get container information and thusly verify container existence.
         This will also verify account existence.
 
-        :param account: account name for the container
-        :param container: container name to look up
+        :param account: native-str account name for the container
+        :param container: native-str container name to look up
         :param req: caller's HTTP request context object (optional)
         :returns: dict containing at least container partition ('partition'),
                   container nodes ('containers'), container read
@@ -1627,7 +1641,8 @@ class Controller(object):
             env = {}
         env.setdefault('swift.infocache', {})
         path_env = env.copy()
-        path_env['PATH_INFO'] = "/v1/%s/%s" % (account, container)
+        path_env['PATH_INFO'] = "/v1/%s/%s" % (
+            str_to_wsgi(account), str_to_wsgi(container))
         info = get_container_info(path_env, self.app)
         if not info or not is_success(info.get('status')):
             info = headers_to_container_info({}, 0)
@@ -1639,7 +1654,7 @@ class Controller(object):
         return info
 
     def _make_request(self, nodes, part, method, path, headers, query,
-                      logger_thread_locals):
+                      body, logger_thread_locals):
         """
         Iterates over the given node iterator, sending an HTTP request to one
         node at a time.  The first non-informational, non-server-error
@@ -1653,12 +1668,18 @@ class Controller(object):
                      (full path ends up being /<$device>/<$part>/<$path>)
         :param headers: dictionary of headers
         :param query: query string to send to the backend.
+        :param body: byte string to use as the request body.
+                     Try to keep it small.
         :param logger_thread_locals: The thread local values to be set on the
                                      self.app.logger to retain transaction
                                      logging information.
         :returns: a swob.Response object, or None if no responses were received
         """
         self.app.logger.thread_locals = logger_thread_locals
+        if body:
+            if not isinstance(body, bytes):
+                raise TypeError('body must be bytes, not %s' % type(body))
+            headers['Content-Length'] = str(len(body))
         for node in nodes:
             try:
                 start_node_timing = time.time()
@@ -1668,6 +1689,9 @@ class Controller(object):
                                         headers=headers, query_string=query)
                     conn.node = node
                 self.app.set_node_timing(node, time.time() - start_node_timing)
+                if body:
+                    with Timeout(self.app.node_timeout):
+                        conn.send(body)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     if not is_informational(resp.status) and \
@@ -1694,7 +1718,7 @@ class Controller(object):
 
     def make_requests(self, req, ring, part, method, path, headers,
                       query_string='', overrides=None, node_count=None,
-                      node_iterator=None):
+                      node_iterator=None, body=None):
         """
         Sends an HTTP request to multiple nodes and aggregates the results.
         It attempts the primary nodes concurrently, then iterates over the
@@ -1723,7 +1747,7 @@ class Controller(object):
 
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
-                       head, query_string, self.app.logger.thread_locals)
+                       head, query_string, body, self.app.logger.thread_locals)
         response = []
         statuses = []
         for resp in pile:

@@ -153,10 +153,16 @@ def _encode_metadata(metadata):
 
     :param metadata: a dict
     """
-    def encode_str(item):
-        if isinstance(item, six.text_type):
-            return item.encode('utf8')
-        return item
+    if six.PY2:
+        def encode_str(item):
+            if isinstance(item, six.text_type):
+                return item.encode('utf8')
+            return item
+    else:
+        def encode_str(item):
+            if isinstance(item, six.text_type):
+                return item.encode('utf8', 'surrogateescape')
+            return item
 
     return dict(((encode_str(k), encode_str(v)) for k, v in metadata.items()))
 
@@ -392,7 +398,7 @@ def consolidate_hashes(partition_dir):
 
         found_invalidation_entry = False
         try:
-            with open(invalidations_file, 'rb') as inv_fh:
+            with open(invalidations_file, 'r') as inv_fh:
                 for line in inv_fh:
                     found_invalidation_entry = True
                     suffix = line.strip()
@@ -1133,7 +1139,14 @@ class BaseDiskFileManager(object):
                     partition_path = os.path.dirname(path)
                     objects_path = os.path.dirname(partition_path)
                     device_path = os.path.dirname(objects_path)
-                    quar_path = quarantine_renamer(device_path, hsh_path)
+                    # The made-up filename is so that the eventual dirpath()
+                    # will result in this object directory that we care about.
+                    # Some failures will result in an object directory
+                    # becoming a file, thus causing the parent directory to
+                    # be qarantined.
+                    quar_path = quarantine_renamer(
+                        device_path, os.path.join(
+                            hsh_path, "made-up-filename"))
                     logging.exception(
                         _('Quarantined %(hsh_path)s to %(quar_path)s because '
                           'it is not a directory'), {'hsh_path': hsh_path,
@@ -1448,7 +1461,14 @@ class BaseDiskFileManager(object):
             filenames = self.cleanup_ondisk_files(object_path)['files']
         except OSError as err:
             if err.errno == errno.ENOTDIR:
-                quar_path = self.quarantine_renamer(dev_path, object_path)
+                # The made-up filename is so that the eventual dirpath()
+                # will result in this object directory that we care about.
+                # Some failures will result in an object directory
+                # becoming a file, thus causing the parent directory to
+                # be qarantined.
+                quar_path = self.quarantine_renamer(
+                    dev_path, os.path.join(
+                        object_path, "made-up-filename"))
                 logging.exception(
                     _('Quarantined %(object_path)s to %(quar_path)s because '
                       'it is not a directory'), {'object_path': object_path,
@@ -2184,8 +2204,12 @@ class BaseDiskFileReader(object):
 
         """
         if not ranges:
-            yield ''
+            yield b''
         else:
+            if not isinstance(content_type, bytes):
+                content_type = content_type.encode('utf8')
+            if not isinstance(boundary, bytes):
+                boundary = boundary.encode('ascii')
             try:
                 self._suppress_file_closing = True
                 for chunk in multi_range_iterator(
@@ -2668,9 +2692,9 @@ class BaseDiskFile(object):
         ctypefile_metadata = self._failsafe_read_metadata(
             ctype_file, ctype_file)
         if ('Content-Type' in ctypefile_metadata
-            and (ctypefile_metadata.get('Content-Type-Timestamp') >
-                 self._metafile_metadata.get('Content-Type-Timestamp'))
-            and (ctypefile_metadata.get('Content-Type-Timestamp') >
+            and (ctypefile_metadata.get('Content-Type-Timestamp', '') >
+                 self._metafile_metadata.get('Content-Type-Timestamp', ''))
+            and (ctypefile_metadata.get('Content-Type-Timestamp', '') >
                  self.data_timestamp)):
             self._metafile_metadata['Content-Type'] = \
                 ctypefile_metadata['Content-Type']

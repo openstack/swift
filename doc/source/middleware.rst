@@ -37,7 +37,7 @@ AWS S3 Api
     :show-inheritance:
 
 .. automodule:: swift.common.middleware.s3api.etree
-    :members:
+    :members: _Element
     :show-inheritance:
 
 .. automodule:: swift.common.middleware.s3api.utils

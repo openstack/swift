@@ -3740,6 +3740,17 @@ def public(func):
     return func
 
 
+def private(func):
+    """
+    Decorator to declare which methods are privately accessible as HTTP
+    requests with an ``X-Backend-Allow-Private-Methods: True`` override
+
+    :param func: function to make private
+    """
+    func.privately_accessible = True
+    return func
+
+
 def majority_size(n):
     return (n // 2) + 1
 
@@ -4450,6 +4461,10 @@ def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
         (e.g. "divider", not "--divider")
     :param read_chunk_size: size of strings read via input_file.read()
     """
+    if six.PY3 and isinstance(boundary, str):
+        # Since the boundary is in client-supplied headers, it can contain
+        # garbage that trips us and we don't like client-induced 500.
+        boundary = boundary.encode('latin-1', errors='replace')
     doc_files = iter_multipart_mime_documents(input_file, boundary,
                                               read_chunk_size)
     for i, doc_file in enumerate(doc_files):

@@ -6812,6 +6812,34 @@ class TestObjectController(unittest.TestCase):
             tpool.execute = was_tpool_exe
             diskfile.DiskFileManager._get_hashes = was_get_hashes
 
+    def test_REPLICATE_pickle_protocol(self):
+
+        def fake_get_hashes(*args, **kwargs):
+            return 0, {1: 2}
+
+        def my_tpool_execute(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        was_get_hashes = diskfile.DiskFileManager._get_hashes
+        was_tpool_exe = tpool.execute
+        try:
+            diskfile.DiskFileManager._get_hashes = fake_get_hashes
+            tpool.execute = my_tpool_execute
+            req = Request.blank('/sda1/p/suff',
+                                environ={'REQUEST_METHOD': 'REPLICATE'},
+                                headers={})
+            with mock.patch('swift.obj.server.pickle.dumps') as fake_pickle:
+                fake_pickle.return_value = b''
+                req.get_response(self.object_controller)
+                # This is the key assertion: starting in Python 3.0, the
+                # default protocol version is 3, but such pickles can't be read
+                # on Python 2. As long as we may need to talk to a Python 2
+                # process, we need to cap our protocol version.
+                fake_pickle.assert_called_once_with({1: 2}, protocol=2)
+        finally:
+            tpool.execute = was_tpool_exe
+            diskfile.DiskFileManager._get_hashes = was_get_hashes
+
     def test_REPLICATE_timeout(self):
 
         def fake_get_hashes(*args, **kwargs):
@@ -7493,6 +7521,8 @@ class TestObjectServer(unittest.TestCase):
             'devices': self.devices,
             'swift_dir': self.tempdir,
             'mount_check': 'false',
+            # hopefully 1s is long enough to improve gate reliability?
+            'client_timeout': 1,
         }
         self.logger = debug_logger('test-object-server')
         self.app = object_server.ObjectController(
@@ -8156,14 +8186,24 @@ class TestObjectServer(unittest.TestCase):
                 conn.sock.fd._sock.close()
             else:
                 conn.sock.fd._real_close()
-        # We've seen a bunch of failures here -- try waiting some non-zero
-        # amount of time.
-        sleep(0.01)
 
-        # and make sure it demonstrates the client disconnect
-        log_lines = self.logger.get_lines_for_level('info')
-        self.assertEqual(len(log_lines), 1)
-        self.assertIn(' 499 ', log_lines[0])
+        # the object server needs to recognize the socket is closed
+        # or at least timeout, we'll have to wait
+        timeout = time() + (self.conf['client_timeout'] + 1)
+        while True:
+            try:
+                # and make sure it demonstrates the client disconnect
+                log_lines = self.logger.get_lines_for_level('info')
+                self.assertEqual(len(log_lines), 1)
+            except AssertionError:
+                if time() < timeout:
+                    sleep(0.01)
+                else:
+                    raise
+            else:
+                break
+        status = log_lines[0].split()[7]
+        self.assertEqual(status, '499')
 
         # verify successful object data and durable state file write
         put_timestamp = context['put_timestamp']

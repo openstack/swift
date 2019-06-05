@@ -359,7 +359,8 @@ can't get perfect balance due to too many partitions recently moved).
 ---------------
 Composite Rings
 ---------------
-.. automodule:: swift.common.ring.composite_builder
+
+See :ref:`composite_builder`.
 
 **********************************
 swift-ring-composer (Experimental)

@@ -47,4 +47,6 @@ Install and configure components
 
       .. code-block:: console
 
-         # curl -o /etc/swift/proxy-server.conf https://opendev.org/openstack/swift/raw/branch/stable/queens/etc/proxy-server.conf-sample
+         # curl -o /etc/swift/proxy-server.conf https://opendev.org/openstack/swift/raw/branch/master/etc/proxy-server.conf-sample
+
+   4. .. include:: controller-include.txt

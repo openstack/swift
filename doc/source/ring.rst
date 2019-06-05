@@ -24,6 +24,8 @@ Ring Builder
     :undoc-members:
     :show-inheritance:
 
+.. _composite_builder:
+
 Composite Ring Builder
 ======================
 

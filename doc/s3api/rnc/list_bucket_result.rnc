@@ -16,8 +16,8 @@ start =
       )
     ),
     element MaxKeys { xsd:int },
-    element EncodingType { xsd:string }?,
     element Delimiter { xsd:string }?,
+    element EncodingType { xsd:string }?,
     element IsTruncated { xsd:boolean },
     element Contents {
       element Key { xsd:string },

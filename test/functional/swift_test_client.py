@@ -32,6 +32,7 @@ from swiftclient import get_auth
 
 from swift.common import constraints
 from swift.common.http import is_success
+from swift.common.swob import str_to_wsgi, wsgi_to_str
 from swift.common.utils import config_true_value
 
 from test import safe_repr
@@ -324,7 +325,7 @@ class Connection(object):
         if path:
             quote = urllib.parse.quote
             if cfg.get('no_quote') or cfg.get('no_path_quote'):
-                quote = lambda x: x
+                quote = str_to_wsgi
             return '%s/%s' % (self.storage_path,
                               '/'.join([quote(i) for i in path]))
         else:
@@ -342,7 +343,8 @@ class Connection(object):
             headers['X-Auth-Token'] = cfg.get('use_token')
 
         if isinstance(hdrs, dict):
-            headers.update(hdrs)
+            headers.update((str_to_wsgi(h), str_to_wsgi(v))
+                           for h, v in hdrs.items())
         return headers
 
     def make_request(self, method, path=None, data=b'', hdrs=None, parms=None,
@@ -489,7 +491,10 @@ class Base(object):
                 'x-container-bytes-used',
             )
 
-        headers = dict(self.conn.response.getheaders())
+        # NB: on py2, headers are always lower; on py3, they match the bytes
+        # on the wire
+        headers = dict((wsgi_to_str(h).lower(), wsgi_to_str(v))
+                       for h, v in self.conn.response.getheaders())
         ret = {}
 
         for return_key, header in required_fields:
@@ -954,17 +959,19 @@ class File(Base):
             raise ResponseError(self.conn.response, 'HEAD',
                                 self.conn.make_path(self.path))
 
-        for hdr in self.conn.response.getheaders():
-            if hdr[0].lower() == 'content-type':
-                self.content_type = hdr[1]
-            if hdr[0].lower().startswith('x-object-meta-'):
-                self.metadata[hdr[0][14:]] = hdr[1]
-            if hdr[0].lower() == 'etag':
-                self.etag = hdr[1]
-            if hdr[0].lower() == 'content-length':
-                self.size = int(hdr[1])
-            if hdr[0].lower() == 'last-modified':
-                self.last_modified = hdr[1]
+        for hdr, val in self.conn.response.getheaders():
+            hdr = wsgi_to_str(hdr).lower()
+            val = wsgi_to_str(val)
+            if hdr == 'content-type':
+                self.content_type = val
+            if hdr.startswith('x-object-meta-'):
+                self.metadata[hdr[14:]] = val
+            if hdr == 'etag':
+                self.etag = val
+            if hdr == 'content-length':
+                self.size = int(val)
+            if hdr == 'last-modified':
+                self.last_modified = val
 
         return True
 
@@ -1007,11 +1014,11 @@ class File(Base):
             raise ResponseError(self.conn.response, 'GET',
                                 self.conn.make_path(self.path))
 
-        for hdr in self.conn.response.getheaders():
-            if hdr[0].lower() == 'content-type':
-                self.content_type = hdr[1]
-            if hdr[0].lower() == 'content-range':
-                self.content_range = hdr[1]
+        for hdr, val in self.conn.response.getheaders():
+            if hdr.lower() == 'content-type':
+                self.content_type = wsgi_to_str(val)
+            if hdr.lower() == 'content-range':
+                self.content_range = val
 
         if hasattr(buffer, 'write'):
             scratch = self.conn.response.read(8192)
