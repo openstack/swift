@@ -48,7 +48,7 @@ class TestSloEnv(BaseEnv):
                              ('e', 1)):
             seg_name = "seg_%s" % letter
             file_item = container.file(seg_name)
-            file_item.write(letter * size)
+            file_item.write(letter.encode('ascii') * size)
             seg_info[seg_name] = {
                 'size_bytes': size,
                 'etag': file_item.md5,
@@ -93,24 +93,26 @@ class TestSloEnv(BaseEnv):
         file_item.write(
             json.dumps([seg_info['seg_a'], seg_info['seg_b'],
                         seg_info['seg_c'], seg_info['seg_d'],
-                        seg_info['seg_e']]),
+                        seg_info['seg_e']]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
 
-        cls.container.file('seg_with_%ff_funky_name').write('z' * 10)
+        cls.container.file('seg_with_%ff_funky_name').write(b'z' * 10)
 
         # Put the same manifest in the container2
         file_item = cls.container2.file("manifest-abcde")
         file_item.write(
             json.dumps([seg_info['seg_a'], seg_info['seg_b'],
                         seg_info['seg_c'], seg_info['seg_d'],
-                        seg_info['seg_e']]),
+                        seg_info['seg_e']]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
 
         file_item = cls.container.file('manifest-cd')
-        cd_json = json.dumps([seg_info['seg_c'], seg_info['seg_d']])
+        cd_json = json.dumps([
+            seg_info['seg_c'], seg_info['seg_d']]).encode('ascii')
         file_item.write(cd_json, parms={'multipart-manifest': 'put'})
-        cd_etag = hashlib.md5(seg_info['seg_c']['etag'] +
-                              seg_info['seg_d']['etag']).hexdigest()
+        cd_etag = hashlib.md5((
+            seg_info['seg_c']['etag'] + seg_info['seg_d']['etag']
+        ).encode('ascii')).hexdigest()
 
         file_item = cls.container.file("manifest-bcd-submanifest")
         file_item.write(
@@ -119,10 +121,10 @@ class TestSloEnv(BaseEnv):
                          'size_bytes': (seg_info['seg_c']['size_bytes'] +
                                         seg_info['seg_d']['size_bytes']),
                          'path': '/%s/%s' % (cls.container.name,
-                                             'manifest-cd')}]),
+                                             'manifest-cd')}]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
-        bcd_submanifest_etag = hashlib.md5(
-            seg_info['seg_b']['etag'] + cd_etag).hexdigest()
+        bcd_submanifest_etag = hashlib.md5((
+            seg_info['seg_b']['etag'] + cd_etag).encode('ascii')).hexdigest()
 
         file_item = cls.container.file("manifest-abcde-submanifest")
         file_item.write(
@@ -134,11 +136,11 @@ class TestSloEnv(BaseEnv):
                                 seg_info['seg_d']['size_bytes']),
                  'path': '/%s/%s' % (cls.container.name,
                                      'manifest-bcd-submanifest')},
-                seg_info['seg_e']]),
+                seg_info['seg_e']]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
-        abcde_submanifest_etag = hashlib.md5(
+        abcde_submanifest_etag = hashlib.md5((
             seg_info['seg_a']['etag'] + bcd_submanifest_etag +
-            seg_info['seg_e']['etag']).hexdigest()
+            seg_info['seg_e']['etag']).encode('ascii')).hexdigest()
         abcde_submanifest_size = (seg_info['seg_a']['size_bytes'] +
                                   seg_info['seg_b']['size_bytes'] +
                                   seg_info['seg_c']['size_bytes'] +
@@ -162,12 +164,13 @@ class TestSloEnv(BaseEnv):
                  'size_bytes': abcde_submanifest_size,
                  'path': '/%s/%s' % (cls.container.name,
                                      'manifest-abcde-submanifest'),
-                 'range': '3145727-3145728'}]),  # 'cd'
+                 'range': '3145727-3145728'}]).encode('ascii'),  # 'cd'
             parms={'multipart-manifest': 'put'})
-        ranged_manifest_etag = hashlib.md5(
+        ranged_manifest_etag = hashlib.md5((
             abcde_submanifest_etag + ':3145727-4194304;' +
             abcde_submanifest_etag + ':524288-1572863;' +
-            abcde_submanifest_etag + ':3145727-3145728;').hexdigest()
+            abcde_submanifest_etag + ':3145727-3145728;'
+        ).encode('ascii')).hexdigest()
         ranged_manifest_size = 2 * 1024 * 1024 + 4
 
         file_item = cls.container.file("ranged-submanifest")
@@ -187,7 +190,7 @@ class TestSloEnv(BaseEnv):
                  'size_bytes': ranged_manifest_size,
                  'path': '/%s/%s' % (cls.container.name,
                                      'ranged-manifest'),
-                 'range': '-3'}]),
+                 'range': '-3'}]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
 
         file_item = cls.container.file("manifest-db")
@@ -197,7 +200,7 @@ class TestSloEnv(BaseEnv):
                  'size_bytes': None},
                 {'path': seg_info['seg_b']['path'], 'etag': None,
                  'size_bytes': None},
-            ]), parms={'multipart-manifest': 'put'})
+            ]).encode('ascii'), parms={'multipart-manifest': 'put'})
 
         file_item = cls.container.file("ranged-manifest-repeated-segment")
         file_item.write(
@@ -208,20 +211,20 @@ class TestSloEnv(BaseEnv):
                  'size_bytes': None},
                 {'path': seg_info['seg_b']['path'], 'etag': None,
                  'size_bytes': None, 'range': '-1048578'},
-            ]), parms={'multipart-manifest': 'put'})
+            ]).encode('ascii'), parms={'multipart-manifest': 'put'})
 
         file_item = cls.container.file("mixed-object-data-manifest")
         file_item.write(
             json.dumps([
-                {'data': base64.b64encode('APRE' * 8)},
+                {'data': base64.b64encode(b'APRE' * 8).decode('ascii')},
                 {'path': seg_info['seg_a']['path']},
-                {'data': base64.b64encode('APOS' * 16)},
+                {'data': base64.b64encode(b'APOS' * 16).decode('ascii')},
                 {'path': seg_info['seg_b']['path']},
-                {'data': base64.b64encode('BPOS' * 32)},
-                {'data': base64.b64encode('CPRE' * 64)},
+                {'data': base64.b64encode(b'BPOS' * 32).decode('ascii')},
+                {'data': base64.b64encode(b'CPRE' * 64).decode('ascii')},
                 {'path': seg_info['seg_c']['path']},
-                {'data': base64.b64encode('CPOS' * 8)},
-            ]), parms={'multipart-manifest': 'put'}
+                {'data': base64.b64encode(b'CPOS' * 8).decode('ascii')},
+            ]).encode('ascii'), parms={'multipart-manifest': 'put'}
         )
 
         file_item = cls.container.file("nested-data-manifest")
@@ -229,7 +232,7 @@ class TestSloEnv(BaseEnv):
             json.dumps([
                 {'path': '%s/%s' % (cls.container.name,
                                     "mixed-object-data-manifest")}
-            ]), parms={'multipart-manifest': 'put'}
+            ]).encode('ascii'), parms={'multipart-manifest': 'put'}
         )
 
 

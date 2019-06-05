@@ -415,6 +415,9 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         do_test(
             {'X-Symlink-Target': 'cont/obj',
              'X-Symlink-Target-Account': target})
+        do_test(
+            {'X-Symlink-Target': 'cont/obj',
+             'X-Symlink-Target-Account': swob.wsgi_quote(target)})
 
     def test_check_symlink_header_invalid_format(self):
         def do_test(headers, status, err_msg):
@@ -456,26 +459,25 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                 '412 Precondition Failed',
                 b'Account name cannot contain slashes')
         # with multi-bytes
+        target = u'/\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'
+        target = swob.bytes_to_wsgi(target.encode('utf8'))
         do_test(
-            {'X-Symlink-Target':
-             u'/\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'},
+            {'X-Symlink-Target': target},
             '412 Precondition Failed',
             b'X-Symlink-Target header must be of the '
             b'form <container name>/<object name>')
-        target = u'/\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'
-        target = swob.bytes_to_wsgi(target.encode('utf8'))
         do_test(
             {'X-Symlink-Target': swob.wsgi_quote(target)},
             '412 Precondition Failed',
             b'X-Symlink-Target header must be of the '
             b'form <container name>/<object name>')
         account = u'\u30b0\u30e9\u30d6\u30eb/\u30a2\u30ba\u30ec\u30f3'
+        account = swob.bytes_to_wsgi(account.encode('utf8'))
         do_test(
             {'X-Symlink-Target': 'c/o',
              'X-Symlink-Target-Account': account},
             '412 Precondition Failed',
             b'Account name cannot contain slashes')
-        account = swob.bytes_to_wsgi(account.encode('utf8'))
         do_test(
             {'X-Symlink-Target': 'c/o',
              'X-Symlink-Target-Account': swob.wsgi_quote(account)},
