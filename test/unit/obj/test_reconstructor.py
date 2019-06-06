@@ -4113,6 +4113,11 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                 (node['replication_ip'], '/%s/0' % node['device']),
                 (node['replication_ip'], '/%s/0/123-abc' % node['device']),
             ])
+        # the first (primary sync_to) node's rehash_remote will be skipped
+        first_node = part_nodes[0]
+        expected_suffix_calls.remove(
+            (first_node['replication_ip'], '/%s/0/123-abc'
+             % first_node['device']))
 
         ssync_calls = []
         with mock_ssync_sender(ssync_calls,
