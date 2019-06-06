@@ -3565,6 +3565,22 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertRaises(ValueError, utils.StrAnonymizer,
                           'Swift is great!', 'sha257', '')
 
+    def test_str_anonymizer_python_maddness(self):
+        with mock.patch('swift.common.utils.hashlib') as mocklib:
+            if six.PY2:
+                # python <2.7.9 doesn't have this algorithms_guaranteed, but
+                # our if block short-circuts before we explode
+                mocklib.algorithms = hashlib.algorithms
+                mocklib.algorithms_guaranteed.sideEffect = AttributeError()
+            else:
+                # python 3 doesn't have this algorithms but our if block
+                # short-circuts before we explode
+                mocklib.algorithms.sideEffect.sideEffect = AttributeError()
+                mocklib.algorithms_guaranteed = hashlib.algorithms_guaranteed
+            utils.StrAnonymizer('Swift is great!', 'sha1', '')
+            self.assertRaises(ValueError, utils.StrAnonymizer,
+                              'Swift is great!', 'sha257', '')
+
     def test_str_format_time(self):
         dt = utils.StrFormatTime(10000.123456789)
         self.assertEqual(str(dt), '10000.123456789')

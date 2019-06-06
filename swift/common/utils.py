@@ -649,7 +649,8 @@ class StrAnonymizer(str):
 
     def __new__(cls, data, method, salt):
         method = method.lower()
-        if method not in hashlib.algorithms_guaranteed:
+        if method not in (hashlib.algorithms if six.PY2 else
+                          hashlib.algorithms_guaranteed):
             raise ValueError('Unsupported hashing method: %r' % method)
         s = str.__new__(cls, data or '')
         s.method = method
