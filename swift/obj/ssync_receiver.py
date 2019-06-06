@@ -15,6 +15,7 @@
 
 
 import eventlet.greenio
+import eventlet.wsgi
 from six.moves import urllib
 
 from swift.common import exceptions
@@ -35,7 +36,7 @@ def decode_missing(line):
     :py:func:`~swift.obj.ssync_sender.encode_missing`
     """
     result = {}
-    parts = line.split()
+    parts = line.decode('ascii').split()
     result['object_hash'] = urllib.parse.unquote(parts[0])
     t_data = urllib.parse.unquote(parts[1])
     result['ts_data'] = Timestamp(t_data)
@@ -129,7 +130,17 @@ class Receiver(object):
         # raised during processing because otherwise the sender could send for
         # quite some time before realizing it was all in vain.
         self.disconnect = True
-        self.initialize_request()
+        try:
+            self.initialize_request()
+        except swob.HTTPException:
+            # Old (pre-0.18.0) eventlet would try to drain the request body
+            # in a way that's prone to blowing up when the client has
+            # disconnected. Trick it into skipping that so we don't trip
+            #   ValueError: invalid literal for int() with base 16
+            # in tests. Note we disconnect shortly after receiving a non-200
+            # response in the sender code, so this is not *so* crazy to do.
+            request.environ['wsgi.input'].chunked_input = False
+            raise
 
     def __call__(self):
         """
@@ -151,7 +162,7 @@ class Receiver(object):
             try:
                 # Need to send something to trigger wsgi to return response
                 # headers and kick off the ssync exchange.
-                yield '\r\n'
+                yield b'\r\n'
                 # If semaphore is in use, try to acquire it, non-blocking, and
                 # return a 503 if it fails.
                 if self.app.replication_semaphore:
@@ -176,21 +187,22 @@ class Receiver(object):
                     '%s/%s/%s SSYNC LOCK TIMEOUT: %s' % (
                         self.request.remote_addr, self.device, self.partition,
                         err))
-                yield ':ERROR: %d %r\n' % (0, str(err))
+                yield (':ERROR: %d %r\n' % (0, str(err))).encode('utf8')
             except exceptions.MessageTimeout as err:
                 self.app.logger.error(
                     '%s/%s/%s TIMEOUT in ssync.Receiver: %s' % (
                         self.request.remote_addr, self.device, self.partition,
                         err))
-                yield ':ERROR: %d %r\n' % (408, str(err))
+                yield (':ERROR: %d %r\n' % (408, str(err))).encode('utf8')
             except swob.HTTPException as err:
-                body = ''.join(err({}, lambda *args: None))
-                yield ':ERROR: %d %r\n' % (err.status_int, body)
+                body = b''.join(err({}, lambda *args: None))
+                yield (':ERROR: %d %r\n' % (
+                    err.status_int, body)).encode('utf8')
             except Exception as err:
                 self.app.logger.exception(
                     '%s/%s/%s EXCEPTION in ssync.Receiver' %
                     (self.request.remote_addr, self.device, self.partition))
-                yield ':ERROR: %d %r\n' % (0, str(err))
+                yield (':ERROR: %d %r\n' % (0, str(err))).encode('utf8')
         except Exception:
             self.app.logger.exception('EXCEPTION in ssync.Receiver')
         if self.disconnect:
@@ -335,7 +347,7 @@ class Receiver(object):
         with exceptions.MessageTimeout(
                 self.app.client_timeout, 'missing_check start'):
             line = self.fp.readline(self.app.network_chunk_size)
-        if line.strip() != ':MISSING_CHECK: START':
+        if line.strip() != b':MISSING_CHECK: START':
             raise Exception(
                 'Looking for :MISSING_CHECK: START got %r' % line[:1024])
         object_hashes = []
@@ -343,16 +355,16 @@ class Receiver(object):
             with exceptions.MessageTimeout(
                     self.app.client_timeout, 'missing_check line'):
                 line = self.fp.readline(self.app.network_chunk_size)
-            if not line or line.strip() == ':MISSING_CHECK: END':
+            if not line or line.strip() == b':MISSING_CHECK: END':
                 break
             want = self._check_missing(line)
             if want:
                 object_hashes.append(want)
-        yield ':MISSING_CHECK: START\r\n'
+        yield b':MISSING_CHECK: START\r\n'
         if object_hashes:
-            yield '\r\n'.join(object_hashes)
-        yield '\r\n'
-        yield ':MISSING_CHECK: END\r\n'
+            yield b'\r\n'.join(hsh.encode('ascii') for hsh in object_hashes)
+        yield b'\r\n'
+        yield b':MISSING_CHECK: END\r\n'
 
     def updates(self):
         """
@@ -395,7 +407,7 @@ class Receiver(object):
         with exceptions.MessageTimeout(
                 self.app.client_timeout, 'updates start'):
             line = self.fp.readline(self.app.network_chunk_size)
-        if line.strip() != ':UPDATES: START':
+        if line.strip() != b':UPDATES: START':
             raise Exception('Looking for :UPDATES: START got %r' % line[:1024])
         successes = 0
         failures = 0
@@ -403,10 +415,10 @@ class Receiver(object):
             with exceptions.MessageTimeout(
                     self.app.client_timeout, 'updates line'):
                 line = self.fp.readline(self.app.network_chunk_size)
-            if not line or line.strip() == ':UPDATES: END':
+            if not line or line.strip() == b':UPDATES: END':
                 break
             # Read first line METHOD PATH of subrequest.
-            method, path = line.strip().split(' ', 1)
+            method, path = swob.bytes_to_wsgi(line.strip()).split(' ', 1)
             subreq = swob.Request.blank(
                 '/%s/%s%s' % (self.device, self.partition, path),
                 environ={'REQUEST_METHOD': method})
@@ -422,7 +434,7 @@ class Receiver(object):
                 line = line.strip()
                 if not line:
                     break
-                header, value = line.split(':', 1)
+                header, value = swob.bytes_to_wsgi(line).split(':', 1)
                 header = header.strip().lower()
                 value = value.strip()
                 subreq.headers[header] = value
@@ -495,5 +507,5 @@ class Receiver(object):
             raise swob.HTTPInternalServerError(
                 'ERROR: With :UPDATES: %d failures to %d successes' %
                 (failures, successes))
-        yield ':UPDATES: START\r\n'
-        yield ':UPDATES: END\r\n'
+        yield b':UPDATES: START\r\n'
+        yield b':UPDATES: END\r\n'

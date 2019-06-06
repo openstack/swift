@@ -25,6 +25,7 @@ from six.moves import urllib
 
 from swift.common.exceptions import DiskFileNotExist, DiskFileError, \
     DiskFileDeleted, DiskFileExpired
+from swift.common import swob
 from swift.common import utils
 from swift.common.storage_policy import POLICIES, EC_POLICY
 from swift.common.utils import Timestamp
@@ -92,8 +93,8 @@ class TestBaseSsync(BaseTest):
 
         def make_send_wrapper(send):
             def wrapped_send(msg):
-                _msg = msg.split('\r\n', 1)[1]
-                _msg = _msg.rsplit('\r\n', 1)[0]
+                _msg = msg.split(b'\r\n', 1)[1]
+                _msg = _msg.rsplit(b'\r\n', 1)[0]
                 add_trace('tx', _msg)
                 send(msg)
             return wrapped_send
@@ -118,7 +119,7 @@ class TestBaseSsync(BaseTest):
     def _get_object_data(self, path, **kwargs):
         # return data for given path
         if path not in self.obj_data:
-            self.obj_data[path] = '%s___data' % path
+            self.obj_data[path] = b'%s___data' % path.encode('ascii')
         return self.obj_data[path]
 
     def _create_ondisk_files(self, df_mgr, obj_name, policy, timestamp,
@@ -162,7 +163,7 @@ class TestBaseSsync(BaseTest):
         for k, v in tx_df.get_metadata().items():
             if k == 'X-Object-Sysmeta-Ec-Frag-Index':
                 # if tx_df had a frag_index then rx_df should also have one
-                self.assertTrue(k in rx_metadata)
+                self.assertIn(k, rx_metadata)
                 self.assertEqual(frag_index, int(rx_metadata.pop(k)))
             elif k == 'ETag' and not same_etag:
                 self.assertNotEqual(v, rx_metadata.pop(k, None))
@@ -174,7 +175,7 @@ class TestBaseSsync(BaseTest):
         self.assertFalse(rx_metadata)
         expected_body = self._get_object_data(tx_df._name,
                                               frag_index=frag_index)
-        actual_body = ''.join([chunk for chunk in rx_df.reader()])
+        actual_body = b''.join([chunk for chunk in rx_df.reader()])
         self.assertEqual(expected_body, actual_body)
 
     def _analyze_trace(self, trace):
@@ -194,22 +195,22 @@ class TestBaseSsync(BaseTest):
 
         def rx_missing(results, line):
             self.assertEqual('rx', line[0])
-            parts = line[1].split('\r\n')
+            parts = line[1].split(b'\r\n')
             for part in parts:
                 results['rx_missing'].append(part)
 
         def tx_updates(results, line):
             self.assertEqual('tx', line[0])
             subrequests = results['tx_updates']
-            if line[1].startswith(('PUT', 'DELETE', 'POST')):
-                parts = line[1].split('\r\n')
+            if line[1].startswith((b'PUT', b'DELETE', b'POST')):
+                parts = [swob.bytes_to_wsgi(l) for l in line[1].split(b'\r\n')]
                 method, path = parts[0].split()
                 subreq = {'method': method, 'path': path, 'req': line[1],
                           'headers': parts[1:]}
                 subrequests.append(subreq)
             else:
                 self.assertTrue(subrequests)
-                body = (subrequests[-1]).setdefault('body', '')
+                body = (subrequests[-1]).setdefault('body', b'')
                 body += line[1]
                 subrequests[-1]['body'] = body
 
@@ -221,14 +222,14 @@ class TestBaseSsync(BaseTest):
             results.setdefault('unexpected', []).append(line)
 
         # each trace line is a tuple of ([tx|rx], msg)
-        handshakes = iter([(('tx', ':MISSING_CHECK: START'), tx_missing),
-                           (('tx', ':MISSING_CHECK: END'), unexpected),
-                           (('rx', ':MISSING_CHECK: START'), rx_missing),
-                           (('rx', ':MISSING_CHECK: END'), unexpected),
-                           (('tx', ':UPDATES: START'), tx_updates),
-                           (('tx', ':UPDATES: END'), unexpected),
-                           (('rx', ':UPDATES: START'), rx_updates),
-                           (('rx', ':UPDATES: END'), unexpected)])
+        handshakes = iter([(('tx', b':MISSING_CHECK: START'), tx_missing),
+                           (('tx', b':MISSING_CHECK: END'), unexpected),
+                           (('rx', b':MISSING_CHECK: START'), rx_missing),
+                           (('rx', b':MISSING_CHECK: END'), unexpected),
+                           (('tx', b':UPDATES: START'), tx_updates),
+                           (('tx', b':UPDATES: END'), unexpected),
+                           (('rx', b':UPDATES: START'), rx_updates),
+                           (('rx', b':UPDATES: END'), unexpected)])
         expect_handshake = next(handshakes)
         phases = ('tx_missing', 'rx_missing', 'tx_updates', 'rx_updates')
         results = dict((k, []) for k in phases)
@@ -319,7 +320,8 @@ class TestBaseSsyncEC(TestBaseSsync):
         # for EC policies obj_data maps obj path -> list of frag archives
         if path not in self.obj_data:
             # make unique frag archives for each object name
-            data = path * 2 * (self.policy.ec_ndata + self.policy.ec_nparity)
+            data = path.encode('ascii') * 2 * (
+                self.policy.ec_ndata + self.policy.ec_nparity)
             self.obj_data[path] = encode_frag_archive_bodies(
                 self.policy, data)
         return self.obj_data[path][frag_index]
@@ -740,7 +742,7 @@ class TestSsyncEC(TestBaseSsyncEC):
             self.device, self.partition, suffixes, policy)
         rx_hashes = rx_df_mgr.get_hashes(
             self.device, self.partition, suffixes, policy)
-        self.assertEqual(suffixes, tx_hashes.keys())  # sanity
+        self.assertEqual(suffixes, list(tx_hashes.keys()))  # sanity
         self.assertEqual(tx_hashes, rx_hashes)
 
         # sanity check - run ssync again and expect no sync activity
@@ -763,7 +765,7 @@ class FakeResponse(object):
         }
         self.frag_index = frag_index
         self.obj_data = obj_data
-        self.data = ''
+        self.data = b''
         self.length = length
 
     def init(self, path):
@@ -779,7 +781,7 @@ class FakeResponse(object):
         if isinstance(self.data, Exception):
             raise self.data
         val = self.data
-        self.data = ''
+        self.data = b''
         return val if self.length is None else val[:self.length]
 
 
@@ -1011,7 +1013,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
             self.assertEqual(
                 self._get_object_data(synced_obj_path,
                                       frag_index=self.rx_node_index),
-                ''.join([d for d in df.reader()]))
+                b''.join([d for d in df.reader()]))
         except DiskFileNotExist:
             msgs.append('Missing rx diskfile for %r' % obj_name)
 
@@ -1057,7 +1059,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
                 self.assertEqual(
                     self._get_object_data(df._name,
                                           frag_index=self.rx_node_index),
-                    ''.join([d for d in df.reader()]))
+                    b''.join([d for d in df.reader()]))
             except DiskFileNotExist:
                 msgs.append('Missing rx diskfile for %r' % obj_name)
         if msgs:
@@ -1499,7 +1501,7 @@ class TestSsyncReplication(TestBaseSsync):
 
         def _legacy_check_missing(self, line):
             # reproduces behavior of 'legacy' ssync receiver missing_checks()
-            parts = line.split()
+            parts = line.decode('ascii').split()
             object_hash = urllib.parse.unquote(parts[0])
             timestamp = urllib.parse.unquote(parts[1])
             want = False
@@ -1562,14 +1564,14 @@ class TestSsyncReplication(TestBaseSsync):
 
         # o1 on tx only with two meta files
         name = 'o1'
-        t1 = self.ts_iter.next()
+        t1 = next(self.ts_iter)
         tx_objs[name] = self._create_ondisk_files(tx_df_mgr, name, policy, t1)
-        t1_type = self.ts_iter.next()
+        t1_type = next(self.ts_iter)
         metadata_1 = {'X-Timestamp': t1_type.internal,
                       'Content-Type': 'text/test',
                       'Content-Type-Timestamp': t1_type.internal}
         tx_objs[name][0].write_metadata(metadata_1)
-        t1_meta = self.ts_iter.next()
+        t1_meta = next(self.ts_iter)
         metadata_2 = {'X-Timestamp': t1_meta.internal,
                       'X-Object-Meta-Test': name}
         tx_objs[name][0].write_metadata(metadata_2)
@@ -1579,14 +1581,14 @@ class TestSsyncReplication(TestBaseSsync):
         # o2 on tx with two meta files, rx has .data and newest .meta but is
         # missing latest content-type
         name = 'o2'
-        t2 = self.ts_iter.next()
+        t2 = next(self.ts_iter)
         tx_objs[name] = self._create_ondisk_files(tx_df_mgr, name, policy, t2)
-        t2_type = self.ts_iter.next()
+        t2_type = next(self.ts_iter)
         metadata_1 = {'X-Timestamp': t2_type.internal,
                       'Content-Type': 'text/test',
                       'Content-Type-Timestamp': t2_type.internal}
         tx_objs[name][0].write_metadata(metadata_1)
-        t2_meta = self.ts_iter.next()
+        t2_meta = next(self.ts_iter)
         metadata_2 = {'X-Timestamp': t2_meta.internal,
                       'X-Object-Meta-Test': name}
         tx_objs[name][0].write_metadata(metadata_2)
@@ -1597,14 +1599,14 @@ class TestSsyncReplication(TestBaseSsync):
         # o3 on tx with two meta files, rx has .data and one .meta but does
         # have latest content-type so nothing to sync
         name = 'o3'
-        t3 = self.ts_iter.next()
+        t3 = next(self.ts_iter)
         tx_objs[name] = self._create_ondisk_files(tx_df_mgr, name, policy, t3)
-        t3_type = self.ts_iter.next()
+        t3_type = next(self.ts_iter)
         metadata_1 = {'X-Timestamp': t3_type.internal,
                       'Content-Type': 'text/test',
                       'Content-Type-Timestamp': t3_type.internal}
         tx_objs[name][0].write_metadata(metadata_1)
-        t3_meta = self.ts_iter.next()
+        t3_meta = next(self.ts_iter)
         metadata_2 = {'X-Timestamp': t3_meta.internal,
                       'X-Object-Meta-Test': name}
         tx_objs[name][0].write_metadata(metadata_2)
@@ -1619,10 +1621,10 @@ class TestSsyncReplication(TestBaseSsync):
         # .data and two .meta having latest content-type so nothing to sync
         # i.e. o4 is the reverse of o3 scenario
         name = 'o4'
-        t4 = self.ts_iter.next()
+        t4 = next(self.ts_iter)
         tx_objs[name] = self._create_ondisk_files(tx_df_mgr, name, policy, t4)
-        t4_type = self.ts_iter.next()
-        t4_meta = self.ts_iter.next()
+        t4_type = next(self.ts_iter)
+        t4_meta = next(self.ts_iter)
         metadata_2b = {'X-Timestamp': t4_meta.internal,
                        'X-Object-Meta-Test': name,
                        'Content-Type': 'text/test',
@@ -1640,10 +1642,10 @@ class TestSsyncReplication(TestBaseSsync):
         # o5 on tx with one meta file having latest content-type, rx has
         # .data and no .meta
         name = 'o5'
-        t5 = self.ts_iter.next()
+        t5 = next(self.ts_iter)
         tx_objs[name] = self._create_ondisk_files(tx_df_mgr, name, policy, t5)
-        t5_type = self.ts_iter.next()
-        t5_meta = self.ts_iter.next()
+        t5_type = next(self.ts_iter)
+        t5_meta = next(self.ts_iter)
         metadata = {'X-Timestamp': t5_meta.internal,
                     'X-Object-Meta-Test': name,
                     'Content-Type': 'text/test',
