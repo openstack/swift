@@ -209,8 +209,12 @@ def header_to_environ_key(header_name):
     # Why the to/from wsgi dance? Headers that include something like b'\xff'
     # on the wire get translated to u'\u00ff' on py3, which gets upper()ed to
     # u'\u0178', which is nonsense in a WSGI string.
-    real_header = wsgi_to_str(header_name)
-    header_name = 'HTTP_' + str_to_wsgi(real_header.upper()).replace('-', '_')
+    # Note that we have to only get as far as bytes because something like
+    # b'\xc3\x9f' on the wire would be u'\u00df' as a native string on py3,
+    # which would upper() to 'SS'.
+    real_header = wsgi_to_bytes(header_name)
+    header_name = 'HTTP_' + bytes_to_wsgi(
+        real_header.upper()).replace('-', '_')
     if header_name == 'HTTP_CONTENT_LENGTH':
         return 'CONTENT_LENGTH'
     if header_name == 'HTTP_CONTENT_TYPE':
@@ -257,8 +261,9 @@ class HeaderEnvironProxy(MutableMapping):
 
     def keys(self):
         # See the to/from WSGI comment in header_to_environ_key
-        keys = [str_to_wsgi(wsgi_to_str(key[5:]).replace('_', '-').title())
-                for key in self.environ if key.startswith('HTTP_')]
+        keys = [
+            bytes_to_wsgi(wsgi_to_bytes(key[5:]).replace(b'_', b'-').title())
+            for key in self.environ if key.startswith('HTTP_')]
         if 'CONTENT_LENGTH' in self.environ:
             keys.append('Content-Length')
         if 'CONTENT_TYPE' in self.environ:
