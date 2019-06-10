@@ -23,24 +23,24 @@ import errno
 import fcntl
 import hashlib
 import re
-import rpc_grpc as rpc
 from collections import defaultdict
 from eventlet.green import os
 from grpc import RpcError, StatusCode
-from header import ObjectHeader, VolumeHeader, ALIGNMENT, read_volume_header, \
-    HeaderException, STATE_OBJ_QUARANTINED, STATE_OBJ_FILE, \
-    write_object_header, \
+from swift.obj.header import ObjectHeader, VolumeHeader, ALIGNMENT, \
+    read_volume_header, HeaderException, STATE_OBJ_QUARANTINED, \
+    STATE_OBJ_FILE, write_object_header, \
     read_object_header, OBJECT_HEADER_VERSION, write_volume_header
 from swift.common.exceptions import DiskFileNoSpace, \
     DiskFileBadMetadataChecksum
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import fsync, fdatasync, fsync_dir, \
     fallocate
+from swift.obj import rpc_grpc as rpc
 from swift.obj.fmgr_pb2 import STATE_RW
 from swift.obj.meta_pb2 import Metadata
 from swift.obj.diskfile import _encode_metadata
 from swift.common import utils
-from vfile_utils import SwiftPathInfo, get_volume_index, get_volume_type, \
+from swift.obj.vfile_utils import SwiftPathInfo, get_volume_index, get_volume_type, \
     next_aligned_offset, SwiftQuarantinedPathInfo
 
 vcreation_lock_name = "volume_creation.lock"
