@@ -18,6 +18,7 @@ import hmac
 import unittest2
 import itertools
 import hashlib
+import six
 import time
 
 from six.moves import urllib
@@ -35,8 +36,9 @@ from test.functional.test_tempurl import TestContainerTempurlEnv, \
     TestTempurlEnv
 from test.functional.swift_test_client import ResponseError
 import test.functional as tf
+from test.unit import group_by_byte
 
-TARGET_BODY = 'target body'
+TARGET_BODY = b'target body'
 
 
 def setUpModule():
@@ -76,7 +78,7 @@ class TestSymlinkEnv(BaseEnv):
 
     @classmethod
     def _make_request(cls, url, token, parsed, conn, method,
-                      container, obj='', headers=None, body='',
+                      container, obj='', headers=None, body=b'',
                       query_args=None):
         headers = headers or {}
         headers.update({'X-Auth-Token': token})
@@ -179,7 +181,7 @@ class TestSymlink(Base):
         self.env.tearDown()
 
     def _make_request(self, url, token, parsed, conn, method,
-                      container, obj='', headers=None, body='',
+                      container, obj='', headers=None, body=b'',
                       query_args=None, allow_redirects=True):
         headers = headers or {}
         headers.update({'X-Auth-Token': token})
@@ -195,7 +197,7 @@ class TestSymlink(Base):
         return resp
 
     def _make_request_with_symlink_get(self, url, token, parsed, conn, method,
-                                       container, obj, headers=None, body=''):
+                                       container, obj, headers=None, body=b''):
         resp = self._make_request(
             url, token, parsed, conn, method, container, obj, headers, body,
             query_args='symlink=get')
@@ -245,7 +247,7 @@ class TestSymlink(Base):
             self._make_request_with_symlink_get, method='GET',
             container=link_cont, obj=link_obj, use_account=use_account)
         self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.content, '')
+        self.assertEqual(resp.content, b'')
         self.assertEqual(resp.getheader('content-length'), str(0))
         self.assertTrue(resp.getheader('x-symlink-target'))
 
@@ -333,7 +335,7 @@ class TestSymlink(Base):
                      container=self.env.link_cont, obj=link_obj,
                      headers=headers)
         self.assertEqual(resp.status, 206)
-        self.assertEqual(resp.content, 'body')
+        self.assertEqual(resp.content, b'body')
 
     def test_create_symlink_before_target(self):
         link_obj = uuid4().hex
@@ -431,7 +433,7 @@ class TestSymlink(Base):
                      container=container,
                      obj=too_many_chain_link)
         self.assertEqual(resp.status, 409)
-        self.assertEqual(resp.content, '')
+        self.assertEqual(resp.content, b'')
 
         # try to GET to target object via too_many_chain_link
         resp = retry(self._make_request, method='GET',
@@ -440,7 +442,7 @@ class TestSymlink(Base):
         self.assertEqual(resp.status, 409)
         self.assertEqual(
             resp.content,
-            'Too many levels of symbolic links, maximum allowed is %d' %
+            b'Too many levels of symbolic links, maximum allowed is %d' %
             symloop_max)
 
         # However, HEAD/GET to the (just) link is still ok
@@ -522,7 +524,7 @@ class TestSymlink(Base):
 
         resp = retry(self._make_request, method='PUT',
                      container=container, obj=too_many_recursion_manifest,
-                     body=manifest,
+                     body=manifest.encode('ascii'),
                      query_args='multipart-manifest=put')
         self.assertEqual(resp.status, 201)  # sanity
 
@@ -533,8 +535,8 @@ class TestSymlink(Base):
         # N.B. This error message is from slo middleware that uses default.
         self.assertEqual(
             resp.content,
-            '<html><h1>Conflict</h1><p>There was a conflict when trying to'
-            ' complete your request.</p></html>')
+            b'<html><h1>Conflict</h1><p>There was a conflict when trying to'
+            b' complete your request.</p></html>')
 
     def test_symlink_put_missing_target_container(self):
         link_obj = uuid4().hex
@@ -546,8 +548,8 @@ class TestSymlink(Base):
                      headers=headers)
         self.assertEqual(resp.status, 412)
         self.assertEqual(resp.content,
-                         'X-Symlink-Target header must be of the form'
-                         ' <container name>/<object name>')
+                         b'X-Symlink-Target header must be of the form'
+                         b' <container name>/<object name>')
 
     def test_symlink_put_non_zero_length(self):
         link_obj = uuid4().hex
@@ -559,7 +561,7 @@ class TestSymlink(Base):
 
         self.assertEqual(resp.status, 400)
         self.assertEqual(resp.content,
-                         'Symlink requests require a zero byte body')
+                         b'Symlink requests require a zero byte body')
 
     def test_symlink_target_itself(self):
         link_obj = uuid4().hex
@@ -569,7 +571,7 @@ class TestSymlink(Base):
                      container=self.env.link_cont, obj=link_obj,
                      headers=headers)
         self.assertEqual(resp.status, 400)
-        self.assertEqual(resp.content, 'Symlink cannot target itself')
+        self.assertEqual(resp.content, b'Symlink cannot target itself')
 
     def test_symlink_target_each_other(self):
         symloop_max = cluster_info['symlink']['symloop_max']
@@ -599,7 +601,7 @@ class TestSymlink(Base):
             self.assertEqual(resp.status, 409)
             self.assertEqual(
                 resp.content,
-                'Too many levels of symbolic links, maximum allowed is %d' %
+                b'Too many levels of symbolic links, maximum allowed is %d' %
                 symloop_max)
 
     def test_symlink_put_copy_from(self):
@@ -828,7 +830,7 @@ class TestSymlink(Base):
             obj=self.env.tgt_obj, headers=headers, allow_redirects=False)
         self.assertEqual(resp.status, 400)
         self.assertEqual(resp.content,
-                         'A PUT request is required to set a symlink target')
+                         b'A PUT request is required to set a symlink target')
 
     def test_overwrite_symlink(self):
         link_obj = uuid4().hex
@@ -1010,41 +1012,39 @@ class TestSymlinkSlo(Base):
         self.file_symlink.write(hdrs={'X-Symlink-Target':
                                 '%s/%s' % (self.env.container.name,
                                            'manifest-abcde')})
-        file_contents = self.file_symlink.read()
-        self.assertEqual(4 * 1024 * 1024 + 1, len(file_contents))
-        self.assertEqual('a', file_contents[0])
-        self.assertEqual('a', file_contents[1024 * 1024 - 1])
-        self.assertEqual('b', file_contents[1024 * 1024])
-        self.assertEqual('d', file_contents[-2])
-        self.assertEqual('e', file_contents[-1])
+        self.assertEqual([
+            (b'a', 1024 * 1024),
+            (b'b', 1024 * 1024),
+            (b'c', 1024 * 1024),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+        ], group_by_byte(self.file_symlink.read()))
 
     def test_symlink_target_slo_nested_manifest(self):
         self.file_symlink.write(hdrs={'X-Symlink-Target':
                                 '%s/%s' % (self.env.container.name,
                                            'manifest-abcde-submanifest')})
-        file_contents = self.file_symlink.read()
-        self.assertEqual(4 * 1024 * 1024 + 1, len(file_contents))
-        self.assertEqual('a', file_contents[0])
-        self.assertEqual('a', file_contents[1024 * 1024 - 1])
-        self.assertEqual('b', file_contents[1024 * 1024])
-        self.assertEqual('d', file_contents[-2])
-        self.assertEqual('e', file_contents[-1])
+        self.assertEqual([
+            (b'a', 1024 * 1024),
+            (b'b', 1024 * 1024),
+            (b'c', 1024 * 1024),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+        ], group_by_byte(self.file_symlink.read()))
 
     def test_slo_get_ranged_manifest(self):
         self.file_symlink.write(hdrs={'X-Symlink-Target':
                                 '%s/%s' % (self.env.container.name,
                                            'ranged-manifest')})
-        grouped_file_contents = [
-            (char, sum(1 for _char in grp))
-            for char, grp in itertools.groupby(self.file_symlink.read())]
         self.assertEqual([
-            ('c', 1),
-            ('d', 1024 * 1024),
-            ('e', 1),
-            ('a', 512 * 1024),
-            ('b', 512 * 1024),
-            ('c', 1),
-            ('d', 1)], grouped_file_contents)
+            (b'c', 1),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+            (b'a', 512 * 1024),
+            (b'b', 512 * 1024),
+            (b'c', 1),
+            (b'd', 1),
+        ], group_by_byte(self.file_symlink.read()))
 
     def test_slo_ranged_get(self):
         self.file_symlink.write(hdrs={'X-Symlink-Target':
@@ -1052,10 +1052,11 @@ class TestSymlinkSlo(Base):
                                            'manifest-abcde')})
         file_contents = self.file_symlink.read(size=1024 * 1024 + 2,
                                                offset=1024 * 1024 - 1)
-        self.assertEqual('a', file_contents[0])
-        self.assertEqual('b', file_contents[1])
-        self.assertEqual('b', file_contents[-2])
-        self.assertEqual('c', file_contents[-1])
+        self.assertEqual([
+            (b'a', 1),
+            (b'b', 1024 * 1024),
+            (b'c', 1),
+        ], group_by_byte(file_contents))
 
 
 class TestSymlinkSloEnv(TestSloEnv):
@@ -1081,7 +1082,7 @@ class TestSymlinkSloEnv(TestSloEnv):
         file_item = cls.container.file("manifest-linkto-ab")
         file_item.write(
             json.dumps([cls.link_seg_info['linkto_seg_a'],
-                        cls.link_seg_info['linkto_seg_b']]),
+                        cls.link_seg_info['linkto_seg_b']]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
 
 
@@ -1106,18 +1107,18 @@ class TestSymlinkToSloSegments(Base):
 
     def test_slo_get_simple_manifest_with_links(self):
         file_item = self.env.container.file("manifest-linkto-ab")
-        file_contents = file_item.read()
-        self.assertEqual(2 * 1024 * 1024, len(file_contents))
-        self.assertEqual('a', file_contents[0])
-        self.assertEqual('a', file_contents[1024 * 1024 - 1])
-        self.assertEqual('b', file_contents[1024 * 1024])
+        self.assertEqual([
+            (b'a', 1024 * 1024),
+            (b'b', 1024 * 1024),
+        ], group_by_byte(file_item.read()))
 
     def test_slo_container_listing(self):
         # the listing object size should equal the sum of the size of the
         # segments, not the size of the manifest body
         file_item = self.env.container.file(Utils.create_name())
         file_item.write(
-            json.dumps([self.env.link_seg_info['linkto_seg_a']]),
+            json.dumps([
+                self.env.link_seg_info['linkto_seg_a']]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
 
         # The container listing has the etag of the actual manifest object
@@ -1182,8 +1183,10 @@ class TestSymlinkToSloSegments(Base):
 
     def test_slo_etag_is_hash_of_etags(self):
         expected_hash = hashlib.md5()
-        expected_hash.update(hashlib.md5('a' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('b' * 1024 * 1024).hexdigest())
+        expected_hash.update(hashlib.md5(
+            b'a' * 1024 * 1024).hexdigest().encode('ascii'))
+        expected_hash.update(hashlib.md5(
+            b'b' * 1024 * 1024).hexdigest().encode('ascii'))
         expected_etag = expected_hash.hexdigest()
 
         file_item = self.env.container.file('manifest-linkto-ab')
@@ -1194,8 +1197,10 @@ class TestSymlinkToSloSegments(Base):
         file_item.copy(self.env.container.name, "copied-abcde")
 
         copied = self.env.container.file("copied-abcde")
-        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual(2 * 1024 * 1024, len(copied_contents))
+        self.assertEqual([
+            (b'a', 1024 * 1024),
+            (b'b', 1024 * 1024),
+        ], group_by_byte(copied.read(parms={'multipart-manifest': 'get'})))
 
     def test_slo_copy_the_manifest(self):
         # first just perform some tests of the contents of the manifest itself
@@ -1270,31 +1275,44 @@ class TestSymlinkDlo(Base):
                            '%s/%s' % (self.env.container.name,
                                       'man1')})
 
-        file_contents = file_symlink.read()
-        self.assertEqual(
-            file_contents,
-            "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
+        self.assertEqual([
+            (b'a', 10),
+            (b'b', 10),
+            (b'c', 10),
+            (b'd', 10),
+            (b'e', 10),
+        ], group_by_byte(file_symlink.read()))
 
         link_obj = uuid4().hex
         file_symlink = self.env.container.file(link_obj)
         file_symlink.write(hdrs={'X-Symlink-Target':
                            '%s/%s' % (self.env.container.name,
                                       'man2')})
-        file_contents = file_symlink.read()
-        self.assertEqual(
-            file_contents,
-            "AAAAAAAAAABBBBBBBBBBCCCCCCCCCCDDDDDDDDDDEEEEEEEEEE")
+        self.assertEqual([
+            (b'A', 10),
+            (b'B', 10),
+            (b'C', 10),
+            (b'D', 10),
+            (b'E', 10),
+        ], group_by_byte(file_symlink.read()))
 
         link_obj = uuid4().hex
         file_symlink = self.env.container.file(link_obj)
         file_symlink.write(hdrs={'X-Symlink-Target':
                            '%s/%s' % (self.env.container.name,
                                       'manall')})
-        file_contents = file_symlink.read()
-        self.assertEqual(
-            file_contents,
-            ("aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee" +
-             "AAAAAAAAAABBBBBBBBBBCCCCCCCCCCDDDDDDDDDDEEEEEEEEEE"))
+        self.assertEqual([
+            (b'a', 10),
+            (b'b', 10),
+            (b'c', 10),
+            (b'd', 10),
+            (b'e', 10),
+            (b'A', 10),
+            (b'B', 10),
+            (b'C', 10),
+            (b'D', 10),
+            (b'E', 10),
+        ], group_by_byte(file_symlink.read()))
 
     def test_get_manifest_document_itself(self):
         link_obj = uuid4().hex
@@ -1303,7 +1321,7 @@ class TestSymlinkDlo(Base):
                            '%s/%s' % (self.env.container.name,
                                       'man1')})
         file_contents = file_symlink.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual(file_contents, "man1-contents")
+        self.assertEqual(file_contents, b"man1-contents")
         self.assertEqual(file_symlink.info()['x_object_manifest'],
                          "%s/%s/seg_lower" %
                          (self.env.container.name, self.env.segment_prefix))
@@ -1314,11 +1332,15 @@ class TestSymlinkDlo(Base):
         file_symlink.write(hdrs={'X-Symlink-Target':
                            '%s/%s' % (self.env.container.name,
                                       'man1')})
-        file_contents = file_symlink.read(size=25, offset=8)
-        self.assertEqual(file_contents, "aabbbbbbbbbbccccccccccddd")
+        self.assertEqual([
+            (b'a', 2),
+            (b'b', 10),
+            (b'c', 10),
+            (b'd', 3),
+        ], group_by_byte(file_symlink.read(size=25, offset=8)))
 
         file_contents = file_symlink.read(size=1, offset=47)
-        self.assertEqual(file_contents, "e")
+        self.assertEqual(file_contents, b"e")
 
     def test_get_range_out_of_range(self):
         link_obj = uuid4().hex
@@ -1373,7 +1395,7 @@ class TestSymlinkTargetObjectComparison(Base):
             if self.env.expect_body:
                 self.assertTrue(body)
             else:
-                self.assertEqual('', body)
+                self.assertEqual(b'', body)
             self.assert_status(200)
             self.assert_header('etag', md5)
 
@@ -1395,7 +1417,7 @@ class TestSymlinkTargetObjectComparison(Base):
             if self.env.expect_body:
                 self.assertTrue(body)
             else:
-                self.assertEqual('', body)
+                self.assertEqual(b'', body)
             self.assert_status(200)
             self.assert_header('etag', md5)
 
@@ -1417,7 +1439,7 @@ class TestSymlinkTargetObjectComparison(Base):
             if self.env.expect_body:
                 self.assertTrue(body)
             else:
-                self.assertEqual('', body)
+                self.assertEqual(b'', body)
             self.assert_status(200)
             self.assert_header('etag', md5)
 
@@ -1440,7 +1462,7 @@ class TestSymlinkTargetObjectComparison(Base):
             if self.env.expect_body:
                 self.assertTrue(body)
             else:
-                self.assertEqual('', body)
+                self.assertEqual(b'', body)
             self.assert_status(200)
             self.assert_header('etag', md5)
 
@@ -1464,7 +1486,7 @@ class TestSymlinkTargetObjectComparison(Base):
             if self.env.expect_body:
                 self.assertTrue(body)
             else:
-                self.assertEqual('', body)
+                self.assertEqual(b'', body)
             self.assert_status(200)
             self.assert_header('etag', md5)
             self.assertTrue(file_symlink.info(hdrs=hdrs, parms=self.env.parms))
@@ -1493,7 +1515,7 @@ class TestSymlinkTargetObjectComparison(Base):
             if self.env.expect_body:
                 self.assertTrue(body)
             else:
-                self.assertEqual('', body)
+                self.assertEqual(b'', body)
             self.assert_status(200)
             self.assert_header('etag', md5)
             self.assertTrue(file_symlink.info(hdrs=hdrs, parms=self.env.parms))
@@ -1521,7 +1543,7 @@ class TestSymlinkTargetObjectComparison(Base):
             if self.env.expect_body:
                 self.assertTrue(body)
             else:
-                self.assertEqual('', body)
+                self.assertEqual(b'', body)
             self.assert_status(200)
             self.assert_header('etag', md5)
 
@@ -1600,7 +1622,7 @@ class TestSymlinkComparison(TestSymlinkTargetObjectComparison):
 
         hdrs = {'If-Modified-Since': put_target_last_modified}
         body = file_symlink.read(hdrs=hdrs, parms=self.env.parms)
-        self.assertEqual('', body)
+        self.assertEqual(b'', body)
         self.assert_status(200)
         self.assert_header('etag', md5)
 
@@ -1613,7 +1635,7 @@ class TestSymlinkComparison(TestSymlinkTargetObjectComparison):
 
         hdrs = {'If-Unmodified-Since': last_modified}
         body = file_symlink.read(hdrs=hdrs, parms=self.env.parms)
-        self.assertEqual('', body)
+        self.assertEqual(b'', body)
         self.assert_status(200)
         self.assert_header('etag', md5)
 
@@ -1644,9 +1666,14 @@ class TestSymlinkAccountTempurl(Base):
             self.env.tempurl_key)
 
     def tempurl_parms(self, method, expires, path, key):
+        path = urllib.parse.unquote(path)
+        if not six.PY2:
+            method = method.encode('utf8')
+            path = path.encode('utf8')
+            key = key.encode('utf8')
         sig = hmac.new(
             key,
-            '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
+            b'%s\n%d\n%s' % (method, expires, path),
             self.digest).hexdigest()
         return {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
 
@@ -1662,7 +1689,7 @@ class TestSymlinkAccountTempurl(Base):
         # try to create symlink object
         try:
             new_sym.write(
-                '', {'x-symlink-target': 'cont/foo'}, parms=put_parms,
+                b'', {'x-symlink-target': 'cont/foo'}, parms=put_parms,
                 cfg={'no_auth_token': True})
         except ResponseError as e:
             self.assertEqual(e.status, 400)
@@ -1672,9 +1699,9 @@ class TestSymlinkAccountTempurl(Base):
     def test_GET_symlink_inside_container(self):
         tgt_obj = self.env.container.file(Utils.create_name())
         sym = self.env.container.file(Utils.create_name())
-        tgt_obj.write("target object body")
+        tgt_obj.write(b"target object body")
         sym.write(
-            '',
+            b'',
             {'x-symlink-target': '%s/%s' % (self.env.container.name, tgt_obj)})
 
         expires = int(time.time()) + 86400
@@ -1684,18 +1711,18 @@ class TestSymlinkAccountTempurl(Base):
 
         contents = sym.read(parms=get_parms, cfg={'no_auth_token': True})
         self.assert_status([200])
-        self.assertEqual(contents, "target object body")
+        self.assertEqual(contents, b"target object body")
 
     def test_GET_symlink_outside_container(self):
         tgt_obj = self.env.container.file(Utils.create_name())
-        tgt_obj.write("target object body")
+        tgt_obj.write(b"target object body")
 
         container2 = self.env.account.container(Utils.create_name())
         container2.create()
 
         sym = container2.file(Utils.create_name())
         sym.write(
-            '',
+            b'',
             {'x-symlink-target': '%s/%s' % (self.env.container.name, tgt_obj)})
 
         expires = int(time.time()) + 86400
@@ -1706,7 +1733,7 @@ class TestSymlinkAccountTempurl(Base):
         # cross container tempurl works fine for account tempurl key
         contents = sym.read(parms=get_parms, cfg={'no_auth_token': True})
         self.assert_status([200])
-        self.assertEqual(contents, "target object body")
+        self.assertEqual(contents, b"target object body")
 
 
 class TestSymlinkContainerTempurl(Base):
@@ -1737,9 +1764,14 @@ class TestSymlinkContainerTempurl(Base):
                                   'temp_url_expires': str(expires)}
 
     def tempurl_sig(self, method, expires, path, key):
+        path = urllib.parse.unquote(path)
+        if not six.PY2:
+            method = method.encode('utf8')
+            path = path.encode('utf8')
+            key = key.encode('utf8')
         return hmac.new(
             key,
-            '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
+            b'%s\n%d\n%s' % (method, expires, path),
             self.digest).hexdigest()
 
     def test_PUT_symlink(self):
@@ -1756,7 +1788,7 @@ class TestSymlinkContainerTempurl(Base):
         # try to create symlink object, should fail
         try:
             new_sym.write(
-                '', {'x-symlink-target': 'cont/foo'}, parms=put_parms,
+                b'', {'x-symlink-target': 'cont/foo'}, parms=put_parms,
                 cfg={'no_auth_token': True})
         except ResponseError as e:
             self.assertEqual(e.status, 400)
@@ -1766,9 +1798,9 @@ class TestSymlinkContainerTempurl(Base):
     def test_GET_symlink_inside_container(self):
         tgt_obj = self.env.container.file(Utils.create_name())
         sym = self.env.container.file(Utils.create_name())
-        tgt_obj.write("target object body")
+        tgt_obj.write(b"target object body")
         sym.write(
-            '',
+            b'',
             {'x-symlink-target': '%s/%s' % (self.env.container.name, tgt_obj)})
 
         expires = int(time.time()) + 86400
@@ -1780,18 +1812,18 @@ class TestSymlinkContainerTempurl(Base):
 
         contents = sym.read(parms=parms, cfg={'no_auth_token': True})
         self.assert_status([200])
-        self.assertEqual(contents, "target object body")
+        self.assertEqual(contents, b"target object body")
 
     def test_GET_symlink_outside_container(self):
         tgt_obj = self.env.container.file(Utils.create_name())
-        tgt_obj.write("target object body")
+        tgt_obj.write(b"target object body")
 
         container2 = self.env.account.container(Utils.create_name())
         container2.create()
 
         sym = container2.file(Utils.create_name())
         sym.write(
-            '',
+            b'',
             {'x-symlink-target': '%s/%s' % (self.env.container.name, tgt_obj)})
 
         expires = int(time.time()) + 86400

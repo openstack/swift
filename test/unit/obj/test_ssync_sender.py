@@ -57,14 +57,16 @@ class FakeResponse(ssync_sender.SsyncBufferedHTTPResponse):
     def __init__(self, chunk_body=''):
         self.status = 200
         self.close_called = False
+        if not six.PY2:
+            chunk_body = chunk_body.encode('ascii')
         if chunk_body:
-            self.fp = six.StringIO(
-                '%x\r\n%s\r\n0\r\n\r\n' % (len(chunk_body), chunk_body))
-        self.ssync_response_buffer = ''
+            self.fp = six.BytesIO(
+                b'%x\r\n%s\r\n0\r\n\r\n' % (len(chunk_body), chunk_body))
+        self.ssync_response_buffer = b''
         self.ssync_response_chunk_left = 0
 
     def read(self, *args, **kwargs):
-        return ''
+        return b''
 
     def close(self):
         self.close_called = True
@@ -487,9 +489,9 @@ class TestSender(BaseTest):
         self.assertTrue(success)
         found_post = found_put = False
         for chunk in connection.sent:
-            if 'POST' in chunk:
+            if b'POST' in chunk:
                 found_post = True
-            if 'PUT' in chunk:
+            if b'PUT' in chunk:
                 found_put = True
         self.assertFalse(found_post)
         self.assertTrue(found_put)
@@ -677,56 +679,56 @@ class TestSender(BaseTest):
 
     def test_readline_newline_in_buffer(self):
         response = FakeResponse()
-        response.ssync_response_buffer = 'Has a newline already.\r\nOkay.'
-        self.assertEqual(response.readline(), 'Has a newline already.\r\n')
-        self.assertEqual(response.ssync_response_buffer, 'Okay.')
+        response.ssync_response_buffer = b'Has a newline already.\r\nOkay.'
+        self.assertEqual(response.readline(), b'Has a newline already.\r\n')
+        self.assertEqual(response.ssync_response_buffer, b'Okay.')
 
     def test_readline_buffer_exceeds_network_chunk_size_somehow(self):
         response = FakeResponse()
-        response.ssync_response_buffer = '1234567890'
-        self.assertEqual(response.readline(size=2), '1234567890')
-        self.assertEqual(response.ssync_response_buffer, '')
+        response.ssync_response_buffer = b'1234567890'
+        self.assertEqual(response.readline(size=2), b'1234567890')
+        self.assertEqual(response.ssync_response_buffer, b'')
 
     def test_readline_at_start_of_chunk(self):
         response = FakeResponse()
-        response.fp = six.StringIO('2\r\nx\n\r\n')
-        self.assertEqual(response.readline(), 'x\n')
+        response.fp = six.BytesIO(b'2\r\nx\n\r\n')
+        self.assertEqual(response.readline(), b'x\n')
 
     def test_readline_chunk_with_extension(self):
         response = FakeResponse()
-        response.fp = six.StringIO(
-            '2 ; chunk=extension\r\nx\n\r\n')
-        self.assertEqual(response.readline(), 'x\n')
+        response.fp = six.BytesIO(
+            b'2 ; chunk=extension\r\nx\n\r\n')
+        self.assertEqual(response.readline(), b'x\n')
 
     def test_readline_broken_chunk(self):
         response = FakeResponse()
-        response.fp = six.StringIO('q\r\nx\n\r\n')
+        response.fp = six.BytesIO(b'q\r\nx\n\r\n')
         self.assertRaises(
             exceptions.ReplicationException, response.readline)
         self.assertTrue(response.close_called)
 
     def test_readline_terminated_chunk(self):
         response = FakeResponse()
-        response.fp = six.StringIO('b\r\nnot enough')
+        response.fp = six.BytesIO(b'b\r\nnot enough')
         self.assertRaises(
             exceptions.ReplicationException, response.readline)
         self.assertTrue(response.close_called)
 
     def test_readline_all(self):
         response = FakeResponse()
-        response.fp = six.StringIO('2\r\nx\n\r\n0\r\n\r\n')
-        self.assertEqual(response.readline(), 'x\n')
-        self.assertEqual(response.readline(), '')
-        self.assertEqual(response.readline(), '')
+        response.fp = six.BytesIO(b'2\r\nx\n\r\n0\r\n\r\n')
+        self.assertEqual(response.readline(), b'x\n')
+        self.assertEqual(response.readline(), b'')
+        self.assertEqual(response.readline(), b'')
 
     def test_readline_all_trailing_not_newline_termed(self):
         response = FakeResponse()
-        response.fp = six.StringIO(
-            '2\r\nx\n\r\n3\r\n123\r\n0\r\n\r\n')
-        self.assertEqual(response.readline(), 'x\n')
-        self.assertEqual(response.readline(), '123')
-        self.assertEqual(response.readline(), '')
-        self.assertEqual(response.readline(), '')
+        response.fp = six.BytesIO(
+            b'2\r\nx\n\r\n3\r\n123\r\n0\r\n\r\n')
+        self.assertEqual(response.readline(), b'x\n')
+        self.assertEqual(response.readline(), b'123')
+        self.assertEqual(response.readline(), b'')
+        self.assertEqual(response.readline(), b'')
 
     def test_missing_check_timeout(self):
         connection = FakeConnection()
@@ -761,9 +763,9 @@ class TestSender(BaseTest):
         available_map, send_map = self.sender.missing_check(connection,
                                                             response)
         self.assertEqual(
-            ''.join(connection.sent),
-            '17\r\n:MISSING_CHECK: START\r\n\r\n'
-            '15\r\n:MISSING_CHECK: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(send_map, {})
         self.assertEqual(available_map, {})
 
@@ -804,14 +806,14 @@ class TestSender(BaseTest):
         available_map, send_map = self.sender.missing_check(connection,
                                                             response)
         self.assertEqual(
-            ''.join(connection.sent),
-            '17\r\n:MISSING_CHECK: START\r\n\r\n'
-            '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
-            '3b\r\n9d41d8cd98f00b204e9800998ecf0def 1380144472.22222 '
-            'm:186a0\r\n\r\n'
-            '3f\r\n9d41d8cd98f00b204e9800998ecf1def 1380144474.44444 '
-            'm:186a0,t:4\r\n\r\n'
-            '15\r\n:MISSING_CHECK: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
+            b'3b\r\n9d41d8cd98f00b204e9800998ecf0def 1380144472.22222 '
+            b'm:186a0\r\n\r\n'
+            b'3f\r\n9d41d8cd98f00b204e9800998ecf1def 1380144474.44444 '
+            b'm:186a0,t:4\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(send_map, {})
         candidates = [('9d41d8cd98f00b204e9800998ecf0abc',
                        dict(ts_data=Timestamp(1380144470.00000))),
@@ -853,10 +855,10 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), 'Early disconnect')
         self.assertEqual(
-            ''.join(connection.sent),
-            '17\r\n:MISSING_CHECK: START\r\n\r\n'
-            '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
-            '15\r\n:MISSING_CHECK: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n')
 
     def test_missing_check_far_end_disconnect2(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
@@ -888,10 +890,10 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), 'Early disconnect')
         self.assertEqual(
-            ''.join(connection.sent),
-            '17\r\n:MISSING_CHECK: START\r\n\r\n'
-            '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
-            '15\r\n:MISSING_CHECK: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n')
 
     def test_missing_check_far_end_unexpected(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
@@ -922,10 +924,10 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'OH HAI'")
         self.assertEqual(
-            ''.join(connection.sent),
-            '17\r\n:MISSING_CHECK: START\r\n\r\n'
-            '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
-            '15\r\n:MISSING_CHECK: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n')
 
     def test_missing_check_send_map(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
@@ -956,10 +958,10 @@ class TestSender(BaseTest):
         available_map, send_map = self.sender.missing_check(connection,
                                                             response)
         self.assertEqual(
-            ''.join(connection.sent),
-            '17\r\n:MISSING_CHECK: START\r\n\r\n'
-            '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
-            '15\r\n:MISSING_CHECK: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'17\r\n:MISSING_CHECK: START\r\n\r\n'
+            b'33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
+            b'15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(send_map, {'0123abc': {'data': True, 'meta': True}})
         self.assertEqual(available_map,
                          dict([('9d41d8cd98f00b204e9800998ecf0abc',
@@ -1016,9 +1018,9 @@ class TestSender(BaseTest):
                 ':UPDATES: END\r\n'))
         self.sender.updates(connection, response, {})
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_unexpected_response_lines1(self):
         connection = FakeConnection()
@@ -1034,9 +1036,9 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'abc'")
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_unexpected_response_lines2(self):
         connection = FakeConnection()
@@ -1052,9 +1054,9 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'abc'")
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_is_deleted(self):
         device = 'dev'
@@ -1086,9 +1088,9 @@ class TestSender(BaseTest):
         # note that the delete line isn't actually sent since we mock
         # send_delete; send_delete is tested separately.
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_update_send_delete(self):
         device = 'dev'
@@ -1113,13 +1115,13 @@ class TestSender(BaseTest):
                 ':UPDATES: END\r\n'))
         self.sender.updates(connection, response, send_map)
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            '30\r\n'
-            'DELETE /a/c/o\r\n'
-            'X-Timestamp: %s\r\n\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n'
-            % delete_timestamp
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'30\r\n'
+            b'DELETE /a/c/o\r\n'
+            b'X-Timestamp: %s\r\n\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n'
+            % delete_timestamp.encode('ascii')
         )
 
     def test_updates_put(self):
@@ -1166,9 +1168,9 @@ class TestSender(BaseTest):
         # note that the put line isn't actually sent since we mock send_put;
         # send_put is tested separately.
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_post(self):
         ts_iter = make_timestamp_iter()
@@ -1213,9 +1215,9 @@ class TestSender(BaseTest):
         # note that the post line isn't actually sent since we mock send_post;
         # send_post is tested separately.
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_put_and_post(self):
         ts_iter = make_timestamp_iter()
@@ -1265,9 +1267,9 @@ class TestSender(BaseTest):
         self.assertIsInstance(df, diskfile.DiskFile)
         self.assertEqual(expected, df.get_metadata())
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_storage_policy_index(self):
         device = 'dev'
@@ -1328,9 +1330,9 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), 'Early disconnect')
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_read_response_unexp_start(self):
         connection = FakeConnection()
@@ -1346,9 +1348,9 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'anything else'")
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_read_response_timeout_end(self):
         connection = FakeConnection()
@@ -1360,7 +1362,7 @@ class TestSender(BaseTest):
 
         def delayed_readline(*args, **kwargs):
             rv = orig_readline(*args, **kwargs)
-            if rv == ':UPDATES: END\r\n':
+            if rv == b':UPDATES: END\r\n':
                 eventlet.sleep(1)
             return rv
 
@@ -1382,9 +1384,9 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), 'Early disconnect')
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_updates_read_response_unexp_end(self):
         connection = FakeConnection()
@@ -1400,9 +1402,9 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), "Unexpected response: 'anything else'")
         self.assertEqual(
-            ''.join(connection.sent),
-            '11\r\n:UPDATES: START\r\n\r\n'
-            'f\r\n:UPDATES: END\r\n\r\n')
+            b''.join(connection.sent),
+            b'11\r\n:UPDATES: START\r\n\r\n'
+            b'f\r\n:UPDATES: END\r\n\r\n')
 
     def test_send_delete_timeout(self):
         connection = FakeConnection()
@@ -1421,11 +1423,11 @@ class TestSender(BaseTest):
         self.sender.send_delete(connection, '/a/c/o',
                                 utils.Timestamp('1381679759.90941'))
         self.assertEqual(
-            ''.join(connection.sent),
-            '30\r\n'
-            'DELETE /a/c/o\r\n'
-            'X-Timestamp: 1381679759.90941\r\n'
-            '\r\n\r\n')
+            b''.join(connection.sent),
+            b'30\r\n'
+            b'DELETE /a/c/o\r\n'
+            b'X-Timestamp: 1381679759.90941\r\n'
+            b'\r\n\r\n')
 
     def test_send_put_initial_timeout(self):
         df = self._make_open_diskfile()
@@ -1465,19 +1467,20 @@ class TestSender(BaseTest):
     def _check_send_put(self, obj_name, meta_value):
         ts_iter = make_timestamp_iter()
         t1 = next(ts_iter)
-        body = 'test'
+        body = b'test'
         extra_metadata = {'Some-Other-Header': 'value',
                           u'Unicode-Meta-Name': meta_value}
         df = self._make_open_diskfile(obj=obj_name, body=body,
                                       timestamp=t1,
                                       extra_metadata=extra_metadata)
         expected = dict(df.get_metadata())
-        expected['body'] = body
+        expected['body'] = body if six.PY2 else body.decode('ascii')
         expected['chunk_size'] = len(body)
         expected['meta'] = meta_value
+        wire_meta = meta_value if six.PY2 else meta_value.encode('utf8')
         path = six.moves.urllib.parse.quote(expected['name'])
         expected['path'] = path
-        expected['length'] = format(145 + len(path) + len(meta_value), 'x')
+        expected['length'] = format(145 + len(path) + len(wire_meta), 'x')
         # .meta file metadata is not included in expected for data only PUT
         t2 = next(ts_iter)
         metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
@@ -1485,8 +1488,7 @@ class TestSender(BaseTest):
         df.open()
         connection = FakeConnection()
         self.sender.send_put(connection, path, df)
-        self.assertEqual(
-            ''.join(connection.sent),
+        expected = (
             '%(length)s\r\n'
             'PUT %(path)s\r\n'
             'Content-Length: %(Content-Length)s\r\n'
@@ -1498,13 +1500,20 @@ class TestSender(BaseTest):
             '\r\n'
             '%(chunk_size)s\r\n'
             '%(body)s\r\n' % expected)
+        if not six.PY2:
+            expected = expected.encode('utf8')
+        self.assertEqual(b''.join(connection.sent), expected)
 
     def test_send_put(self):
         self._check_send_put('o', 'meta')
 
     def test_send_put_unicode(self):
-        self._check_send_put(
-            'o_with_caract\xc3\xa8res_like_in_french', 'm\xc3\xa8ta')
+        if six.PY2:
+            self._check_send_put(
+                'o_with_caract\xc3\xa8res_like_in_french', 'm\xc3\xa8ta')
+        else:
+            self._check_send_put(
+                'o_with_caract\u00e8res_like_in_french', 'm\u00e8ta')
 
     def _check_send_post(self, obj_name, meta_value):
         ts_iter = make_timestamp_iter()
@@ -1522,39 +1531,46 @@ class TestSender(BaseTest):
                           'X-Timestamp': ts_1.internal}
         df.write_metadata(newer_metadata)
         path = six.moves.urllib.parse.quote(df.read_metadata()['name'])
-        length = format(61 + len(path) + len(meta_value), 'x')
+        wire_meta = meta_value if six.PY2 else meta_value.encode('utf8')
+        length = format(61 + len(path) + len(wire_meta), 'x')
 
         connection = FakeConnection()
         with df.open():
             self.sender.send_post(connection, path, df)
         self.assertEqual(
-            ''.join(connection.sent),
-            '%s\r\n'
-            'POST %s\r\n'
-            'X-Object-Meta-Foo: %s\r\n'
-            'X-Timestamp: %s\r\n'
-            '\r\n'
-            '\r\n' % (length, path, meta_value, ts_1.internal))
+            b''.join(connection.sent),
+            b'%s\r\n'
+            b'POST %s\r\n'
+            b'X-Object-Meta-Foo: %s\r\n'
+            b'X-Timestamp: %s\r\n'
+            b'\r\n'
+            b'\r\n' % (length.encode('ascii'), path.encode('ascii'),
+                       wire_meta,
+                       ts_1.internal.encode('ascii')))
 
     def test_send_post(self):
         self._check_send_post('o', 'meta')
 
     def test_send_post_unicode(self):
-        self._check_send_post(
-            'o_with_caract\xc3\xa8res_like_in_french', 'm\xc3\xa8ta')
+        if six.PY2:
+            self._check_send_post(
+                'o_with_caract\xc3\xa8res_like_in_french', 'm\xc3\xa8ta')
+        else:
+            self._check_send_post(
+                'o_with_caract\u00e8res_like_in_french', 'm\u00e8ta')
 
     def test_disconnect_timeout(self):
         connection = FakeConnection()
         connection.send = lambda d: eventlet.sleep(1)
         self.sender.daemon.node_timeout = 0.01
         self.sender.disconnect(connection)
-        self.assertEqual(''.join(connection.sent), '')
+        self.assertEqual(b''.join(connection.sent), b'')
         self.assertTrue(connection.closed)
 
     def test_disconnect(self):
         connection = FakeConnection()
         self.sender.disconnect(connection)
-        self.assertEqual(''.join(connection.sent), '0\r\n\r\n')
+        self.assertEqual(b''.join(connection.sent), b'0\r\n\r\n')
         self.assertTrue(connection.closed)
 
 
@@ -1571,34 +1587,34 @@ class TestModuleMethods(unittest.TestCase):
         # equal data and meta timestamps -> legacy single timestamp string
         expected = '%s %s' % (object_hash, t_data.internal)
         self.assertEqual(
-            expected,
+            expected.encode('ascii'),
             ssync_sender.encode_missing(object_hash, t_data, ts_meta=t_data))
 
         # newer meta timestamp -> hex data delta encoded as extra message part
         expected = '%s %s m:%x' % (object_hash, t_data.internal, d_meta_data)
         self.assertEqual(
-            expected,
+            expected.encode('ascii'),
             ssync_sender.encode_missing(object_hash, t_data, ts_meta=t_meta))
 
         # newer meta timestamp -> hex data delta encoded as extra message part
         # content type timestamp equals data timestamp -> no delta
         expected = '%s %s m:%x' % (object_hash, t_data.internal, d_meta_data)
         self.assertEqual(
-            expected,
+            expected.encode('ascii'),
             ssync_sender.encode_missing(object_hash, t_data, t_meta, t_data))
 
         # content type timestamp newer data timestamp -> delta encoded
         expected = ('%s %s m:%x,t:%x'
                     % (object_hash, t_data.internal, d_meta_data, d_type_data))
         self.assertEqual(
-            expected,
+            expected.encode('ascii'),
             ssync_sender.encode_missing(object_hash, t_data, t_meta, t_type))
 
         # content type timestamp equal to meta timestamp -> delta encoded
         expected = ('%s %s m:%x,t:%x'
                     % (object_hash, t_data.internal, d_meta_data, d_type_data))
         self.assertEqual(
-            expected,
+            expected.encode('ascii'),
             ssync_sender.encode_missing(object_hash, t_data, t_meta, t_type))
 
         # test encode and decode functions invert

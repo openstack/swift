@@ -40,42 +40,40 @@ class TestDloEnv(BaseEnv):
             if not cont.create():
                 raise ResponseError(cls.conn.response)
 
-        # avoid getting a prefix that stops halfway through an encoded
-        # character
-        prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
+        prefix = Utils.create_name(10)
         cls.segment_prefix = prefix
 
         for letter in ('a', 'b', 'c', 'd', 'e'):
             file_item = cls.container.file("%s/seg_lower%s" % (prefix, letter))
-            file_item.write(letter * 10)
+            file_item.write(letter.encode('ascii') * 10)
 
             file_item = cls.container.file(
                 "%s/seg_upper_%%ff%s" % (prefix, letter))
-            file_item.write(letter.upper() * 10)
+            file_item.write(letter.upper().encode('ascii') * 10)
 
         for letter in ('f', 'g', 'h', 'i', 'j'):
             file_item = cls.container2.file("%s/seg_lower%s" %
                                             (prefix, letter))
-            file_item.write(letter * 10)
+            file_item.write(letter.encode('ascii') * 10)
 
         man1 = cls.container.file("man1")
-        man1.write('man1-contents',
+        man1.write(b'man1-contents',
                    hdrs={"X-Object-Manifest": "%s/%s/seg_lower" %
                          (cls.container.name, prefix)})
 
         man2 = cls.container.file("man2")
-        man2.write('man2-contents',
+        man2.write(b'man2-contents',
                    hdrs={"X-Object-Manifest": "%s/%s/seg_upper_%%25ff" %
                          (cls.container.name, prefix)})
 
         manall = cls.container.file("manall")
-        manall.write('manall-contents',
+        manall.write(b'manall-contents',
                      hdrs={"X-Object-Manifest": "%s/%s/seg" %
                            (cls.container.name, prefix)})
 
         mancont2 = cls.container.file("mancont2")
         mancont2.write(
-            'mancont2-contents',
+            b'mancont2-contents',
             hdrs={"X-Object-Manifest": "%s/%s/seg_lower" %
                                        (cls.container2.name, prefix)})
 

@@ -168,7 +168,8 @@ class FakeCache(FakeMemcache):
         super(FakeCache, self).__init__()
         if pre_cached:
             self.store.update(pre_cached)
-        self.stub = stub
+        # Fake a json roundtrip
+        self.stub = json.loads(json.dumps(stub))
 
     def get(self, key):
         return self.stub or self.store.get(key)
@@ -370,18 +371,27 @@ class TestFuncs(unittest.TestCase):
     def test_get_container_info_cache(self):
         cache_stub = {
             'status': 404, 'bytes': 3333, 'object_count': 10,
-            'versions': u"\u1F4A9"}
+            'versions': u"\U0001F4A9",
+            'meta': {u'some-\N{SNOWMAN}': u'non-ascii meta \U0001F334'}}
         req = Request.blank("/v1/account/cont",
                             environ={'swift.cache': FakeCache(cache_stub)})
         resp = get_container_info(req.environ, FakeApp())
+        self.assertEqual([(k, type(k)) for k in resp],
+                         [(k, str) for k in resp])
         self.assertEqual(resp['storage_policy'], 0)
         self.assertEqual(resp['bytes'], 3333)
         self.assertEqual(resp['object_count'], 10)
         self.assertEqual(resp['status'], 404)
         if six.PY3:
-            self.assertEqual(resp['versions'], u'\u1f4a9')
+            self.assertEqual(resp['versions'], u'\U0001f4a9')
         else:
-            self.assertEqual(resp['versions'], "\xe1\xbd\x8a\x39")
+            self.assertEqual(resp['versions'], "\xf0\x9f\x92\xa9")
+        for subdict in resp.values():
+            if isinstance(subdict, dict):
+                self.assertEqual([(k, type(k), v, type(v))
+                                  for k, v in subdict.items()],
+                                 [(k, str, v, str)
+                                  for k, v in subdict.items()])
 
     def test_get_container_info_env(self):
         cache_key = get_cache_key("account", "cont")

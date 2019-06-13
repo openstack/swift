@@ -462,7 +462,7 @@ class ObjectReconstructor(Daemon):
             if resp_frag_index not in buckets[timestamp]:
                 buckets[timestamp][resp_frag_index] = resp
                 if len(buckets[timestamp]) >= job['policy'].ec_ndata:
-                    responses = buckets[timestamp].values()
+                    responses = list(buckets[timestamp].values())
                     self.logger.debug(
                         'Reconstruct frag #%s with frag indexes %s'
                         % (fi_to_rebuild, list(buckets[timestamp])))
@@ -508,15 +508,15 @@ class ObjectReconstructor(Daemon):
         """
 
         def _get_one_fragment(resp):
-            buff = ''
+            buff = []
             remaining_bytes = policy.fragment_size
             while remaining_bytes:
                 chunk = resp.read(remaining_bytes)
                 if not chunk:
                     break
                 remaining_bytes -= len(chunk)
-                buff += chunk
-            return buff
+                buff.append(chunk)
+            return b''.join(buff)
 
         def fragment_payload_iter():
             # We need a fragment from each connections, so best to
@@ -849,7 +849,8 @@ class ObjectReconstructor(Daemon):
             success, _ = ssync_sender(
                 self, node, job, suffixes)()
             # let remote end know to rehash it's suffixes
-            self.rehash_remote(node, job, suffixes)
+            if success:
+                self.rehash_remote(node, job, suffixes)
             # update stats for this attempt
             self.suffix_sync += len(suffixes)
             self.logger.update_stats('suffix.syncs', len(suffixes))
