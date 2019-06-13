@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
 # Copyright (c) 2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,65 +14,32 @@
 # limitations under the License.
 
 from __future__ import print_function
-import eventlet
 import os
 import unittest
 import sys
 
-threading = eventlet.patcher.original('threading')
-
-try:
-    from subprocess import check_output
-except ImportError:
-    from subprocess import Popen, PIPE, CalledProcessError
-
-    def check_output(*popenargs, **kwargs):
-        """Lifted from python 2.7 stdlib."""
-        if 'stdout' in kwargs:
-            raise ValueError('stdout argument not allowed, it will be '
-                             'overridden.')
-        process = Popen(stdout=PIPE, *popenargs, **kwargs)
-        output, unused_err = process.communicate()
-        retcode = process.poll()
-        if retcode:
-            cmd = kwargs.get("args")
-            if cmd is None:
-                cmd = popenargs[0]
-            raise CalledProcessError(retcode, cmd, output=output)
-        return output
+from subprocess import check_output
 
 
 class TestTranslations(unittest.TestCase):
-
-    def setUp(self):
-        self.orig_env = {}
-        for var in 'LC_ALL', 'SWIFT_LOCALEDIR', 'LANGUAGE':
-            self.orig_env[var] = os.environ.get(var)
-        os.environ['LC_ALL'] = 'eo'
-        os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
-        os.environ['LANGUAGE'] = ''
-        self.orig_stop = threading._DummyThread._Thread__stop
-        # See http://stackoverflow.com/questions/13193278/\
-        #     understand-python-threading-bug
-        threading._DummyThread._Thread__stop = lambda x: 42
-
-    def tearDown(self):
-        for var, val in self.orig_env.items():
-            if val is not None:
-                os.environ[var] = val
-            else:
-                del os.environ[var]
-        threading._DummyThread._Thread__stop = self.orig_stop
-
     def test_translations(self):
-        path = ':'.join(sys.path)
-        translated_message = check_output(['python', __file__, path])
-        self.assertEqual(translated_message, 'prova mesaĝo\n')
+        translated_message = check_output([sys.executable, __file__], env={
+            # Need to set this so py36 can do UTF-8, but we override later
+            'LC_ALL': 'en_US.UTF-8',
+            # Nothing else should be in the env, so we won't taint our test
+        })
+        self.assertEqual(translated_message,
+                         u'prova mesa\u011do\n'.encode('utf-8'))
 
 
 if __name__ == "__main__":
+    path = os.path.realpath(__file__)
+    # Override the language and localedir *before* importing swift
+    # so we get translations
     os.environ['LC_ALL'] = 'eo'
-    os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
-    sys.path = sys.argv[1].split(':')
+    os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(path)
+    # Make sure we can find swift
+    sys.path.insert(0, os.path.sep.join(path.split(os.path.sep)[:-4]))
+
     from swift import gettext_ as _
     print(_('test message'))
