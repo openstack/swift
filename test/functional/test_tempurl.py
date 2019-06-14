@@ -20,6 +20,7 @@ import hmac
 import hashlib
 import json
 from copy import deepcopy
+import six
 from six.moves import urllib
 from time import time, strftime, gmtime
 
@@ -336,7 +337,10 @@ class TestTempURLPrefix(TestTempurl):
 
         if prefix is None:
             # Choose the first 4 chars of object name as prefix.
-            prefix = path_parts[4][0:4]
+            if six.PY2:
+                prefix = path_parts[4].decode('utf8')[:4].encode('utf8')
+            else:
+                prefix = path_parts[4][:4]
         sig = hmac.new(
             key,
             '%s\n%s\nprefix:%s' % (method, expires,
