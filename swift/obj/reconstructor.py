@@ -706,7 +706,7 @@ class ObjectReconstructor(Daemon):
         local suffix's hashes to decide which suffixes (if any) are out
         of sync.
 
-        :param: the job dict, with the keys defined in ``_get_part_jobs``
+        :param job: the job dict, with the keys defined in ``_get_part_jobs``
         :param node: the remote node dict
         :returns: a (possibly empty) list of strings, the suffixes to be
                   synced and the remote node.
@@ -821,7 +821,7 @@ class ObjectReconstructor(Daemon):
         because each job will define a separate list of node(s) to
         'sync_to'.
 
-        :param: the job dict, with the keys defined in ``_get_job_info``
+        :param job: the job dict, with the keys defined in ``_get_job_info``
         """
         begin = time.time()
         if job['job_type'] == REVERT:
