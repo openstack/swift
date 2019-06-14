@@ -730,7 +730,11 @@ class DatabaseBroker(object):
             for entry in fp.read().split(b':'):
                 if entry:
                     try:
-                        data = pickle.loads(base64.b64decode(entry))
+                        if six.PY2:
+                            data = pickle.loads(base64.b64decode(entry))
+                        else:
+                            data = pickle.loads(base64.b64decode(entry),
+                                                encoding='utf8')
                         self._commit_puts_load(item_list, data)
                     except Exception:
                         self.logger.exception(
