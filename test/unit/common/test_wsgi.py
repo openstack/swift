@@ -780,25 +780,34 @@ class TestWSGI(unittest.TestCase):
                 'logger',
                 'log_name')
 
+        loadapp_conf = []
+        to_inject = object()  # replication_timeout injects non-string data
+
         def _global_conf_callback(preloaded_app_conf, global_conf):
             calls['_global_conf_callback'] += 1
             self.assertEqual(
                 preloaded_app_conf, {'__file__': 'test', 'workers': 0})
             self.assertEqual(global_conf, {'log_name': 'log_name'})
-            global_conf['test1'] = 'one'
+            global_conf['test1'] = to_inject
 
         def _loadapp(uri, name=None, **kwargs):
             calls['_loadapp'] += 1
-            self.assertTrue('global_conf' in kwargs)
-            self.assertEqual(kwargs['global_conf'],
-                             {'log_name': 'log_name', 'test1': 'one'})
+            self.assertIn('global_conf', kwargs)
+            loadapp_conf.append(kwargs['global_conf'])
+            # global_conf_callback hasn't been called yet
+            self.assertNotIn('test1', kwargs['global_conf'])
+
+        def _run_server(*args, **kwargs):
+            # but by the time that we actually *run* the server, it has
+            self.assertEqual(loadapp_conf,
+                             [{'log_name': 'log_name', 'test1': to_inject}])
 
         with mock.patch.object(wsgi, '_initrp', _initrp), \
                 mock.patch.object(wsgi, 'get_socket'), \
                 mock.patch.object(wsgi, 'drop_privileges'), \
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
-                mock.patch.object(wsgi, 'run_server'), \
+                mock.patch.object(wsgi, 'run_server', _run_server), \
                 mock.patch('swift.common.utils.eventlet') as _utils_evt:
             wsgi.run_wsgi('conf_file', 'app_section',
                           global_conf_callback=_global_conf_callback)
