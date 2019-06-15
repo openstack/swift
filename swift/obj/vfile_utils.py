@@ -93,7 +93,7 @@ class SwiftPathInfo(object):
         try:
             obj_idx = [i for i, elem in enumerate(ldir)
                        if elem.startswith('objects')][0]
-        except ValueError:
+        except IndexError:
             raise VFileUtilException('cannot parse object directory')
 
         elements = ldir[(obj_idx + 1):]
