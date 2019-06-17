@@ -136,7 +136,7 @@ class S3Response(S3ResponseBase, swob.Response):
         # Check whether we stored the AWS-style etag on upload
         override_etag = s3_sysmeta_headers.get(
             sysmeta_header('object', 'etag'))
-        if override_etag is not None:
+        if override_etag not in (None, ''):
             # Multipart uploads in AWS have ETags like
             #   <MD5(part_etag1 || ... || part_etagN)>-<number of parts>
             headers['etag'] = override_etag
