@@ -130,17 +130,7 @@ class Receiver(object):
         # raised during processing because otherwise the sender could send for
         # quite some time before realizing it was all in vain.
         self.disconnect = True
-        try:
-            self.initialize_request()
-        except swob.HTTPException:
-            # Old (pre-0.18.0) eventlet would try to drain the request body
-            # in a way that's prone to blowing up when the client has
-            # disconnected. Trick it into skipping that so we don't trip
-            #   ValueError: invalid literal for int() with base 16
-            # in tests. Note we disconnect shortly after receiving a non-200
-            # response in the sender code, so this is not *so* crazy to do.
-            request.environ['wsgi.input'].chunked_input = False
-            raise
+        self.initialize_request()
 
     def __call__(self):
         """
