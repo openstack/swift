@@ -464,6 +464,32 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
             # else, mangled protocol, most likely; let base class deal with it
         return wsgi.HttpProtocol.parse_request(self)
 
+    if not six.PY2:
+        def get_environ(self, *args, **kwargs):
+            environ = wsgi.HttpProtocol.get_environ(self, *args, **kwargs)
+            header_payload = self.headers.get_payload()
+            if header_payload:
+                # This shouldn't be here. We must've bumped up against
+                # https://bugs.python.org/issue37093
+                headers_raw = list(environ['headers_raw'])
+                for line in header_payload.rstrip('\r\n').split('\n'):
+                    if ':' not in line or line[:1] in ' \t':
+                        # Well, we're no more broken than we were before...
+                        # Should we support line folding?
+                        # Should we 400 a bad header line?
+                        break
+                    header, value = line.split(':', 1)
+                    value = value.strip(' \t\n\r')
+                    headers_raw.append((header, value))
+                    wsgi_key = 'HTTP_' + header.replace('-', '_').encode(
+                        'latin1').upper().decode('latin1')
+                    if wsgi_key in ('HTTP_CONTENT_LENGTH',
+                                    'HTTP_CONTENT_TYPE'):
+                        wsgi_key = wsgi_key[5:]
+                    environ[wsgi_key] = value
+                environ['headers_raw'] = tuple(headers_raw)
+            return environ
+
 
 class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
     """
