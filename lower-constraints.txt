@@ -25,7 +25,7 @@ flake8==2.5.5
 future==0.16.0
 gitdb2==2.0.3
 GitPython==2.1.8
-greenlet==0.3.1
+greenlet==0.3.2
 hacking==0.11.0
 idna==2.6
 imagesize==1.0.0

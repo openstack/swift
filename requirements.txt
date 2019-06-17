@@ -4,7 +4,7 @@
 
 dnspython>=1.15.0;python_version=='2.7' # http://www.dnspython.org/LICENSE
 eventlet>=0.25.0                        # MIT
-greenlet>=0.3.1
+greenlet>=0.3.2
 netifaces>=0.8,!=0.10.0,!=0.10.1
 PasteDeploy>=1.3.3
 lxml>=3.4.1

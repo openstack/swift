@@ -38,7 +38,7 @@ from hashlib import md5
 from swift import gettext_ as _
 
 from greenlet import GreenletExit
-from eventlet import GreenPile
+from eventlet import GreenPile, sleep
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
@@ -1066,6 +1066,7 @@ class ECAppIter(object):
         # executing the internal_parts_iters.
         if self.stashed_iter:
             self.stashed_iter.close()
+        sleep()  # Give the per-frag threads a chance to clean up
         for it in self.internal_parts_iters:
             close_if_possible(it)
 
