@@ -486,7 +486,7 @@ class Server(object):
     def conf_files(self, **kwargs):
         """Get conf files for this server
 
-        :param: number, if supplied will only lookup the nth server
+        :param number: if supplied will only lookup the nth server
 
         :returns: list of conf files
         """
@@ -550,7 +550,7 @@ class Server(object):
     def pid_files(self, **kwargs):
         """Get pid files for this server
 
-        :param: number, if supplied will only lookup the nth server
+        :param number: if supplied will only lookup the nth server
 
         :returns: list of pid files
         """
@@ -641,8 +641,8 @@ class Server(object):
     def status(self, pids=None, **kwargs):
         """Display status of server
 
-        :param: pids, if not supplied pids will be populated automatically
-        :param: number, if supplied will only lookup the nth server
+        :param pids: if not supplied pids will be populated automatically
+        :param number: if supplied will only lookup the nth server
 
         :returns: 1 if server is not running, 0 otherwise
         """
