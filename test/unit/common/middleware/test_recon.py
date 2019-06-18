@@ -514,7 +514,7 @@ class TestReconSuccess(TestCase):
             'none /var/run tmpfs rw,nosuid,relatime,mode=755 0 0',
             'none /var/lock tmpfs rw,nosuid,nodev,noexec,relatime 0 0',
             'none /lib/init/rw tmpfs rw,nosuid,relatime,mode=755 0 0',
-            '/dev/loop0 /mnt/sdb1 xfs rw,noatime,nodiratime,attr2,nobarrier,'
+            '/dev/loop0 /mnt/sdb1 xfs rw,noatime,nodiratime,attr2,'
             'logbufs=8,noquota 0 0',
             'rpc_pipefs /var/lib/nfs/rpc_pipefs rpc_pipefs rw,relatime 0 0',
             'nfsd /proc/fs/nfsd nfsd rw,relatime 0 0',

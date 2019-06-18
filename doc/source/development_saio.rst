@@ -98,7 +98,7 @@ another device when creating the VM, and follow these instructions:
 
 #. Edit ``/etc/fstab`` and add::
 
-      /dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0
+      /dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,logbufs=8 0 0
 
 #. Create the mount point and the individualized links::
 
@@ -158,7 +158,7 @@ these instructions:
 
 #. Edit `/etc/fstab` and add::
 
-      /srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0
+      /srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,logbufs=8 0 0
 
 #. Create the mount point and the individualized links::
 
