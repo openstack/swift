@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 pip install -U pip && \
 cd /opt/swift && \

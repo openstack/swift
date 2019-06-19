@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 echo "@testing http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
 apk add --update \
