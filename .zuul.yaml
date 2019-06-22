@@ -198,10 +198,8 @@
     parent: swift-dsvm-functional
     description: |
       Setup a Swift/Keystone environment under py3 and run Swift's func tests
-      (also under py3).
+      (but under py2).
     vars:
-      # only run the subset expected to work on py3
-      tox_envlist: func-py3
       devstack_localrc:
         USE_PYTHON3: true
         # explicitly clear swift's default-disabled status
