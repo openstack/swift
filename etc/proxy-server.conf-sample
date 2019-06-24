@@ -129,6 +129,13 @@ use = egg:swift#proxy
 # log_handoffs = true
 # recheck_account_existence = 60
 # recheck_container_existence = 60
+#
+# How long the proxy should cache a set of shard ranges for a container.
+# Note that stale shard range info should be fine; updates will still
+# eventually make their way to the correct shard. As a result, you can
+# usually set this much higher than the existence checks above.
+# recheck_updating_shard_ranges = 3600
+#
 # object_chunk_size = 65536
 # client_chunk_size = 65536
 #

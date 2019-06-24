@@ -45,7 +45,7 @@ from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, \
-    document_iters_to_http_response_body, ShardRange
+    document_iters_to_http_response_body, ShardRange, find_shard_range
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
@@ -67,6 +67,7 @@ from swift.common.storage_policy import POLICIES
 
 DEFAULT_RECHECK_ACCOUNT_EXISTENCE = 60  # seconds
 DEFAULT_RECHECK_CONTAINER_EXISTENCE = 60  # seconds
+DEFAULT_RECHECK_UPDATING_SHARD_RANGES = 3600  # seconds
 
 
 def update_headers(response, headers):
@@ -443,7 +444,7 @@ def get_account_info(env, app, swift_source=None):
     return info
 
 
-def get_cache_key(account, container=None, obj=None):
+def get_cache_key(account, container=None, obj=None, shard=None):
     """
     Get the keys for both memcache and env['swift.infocache'] (cache_key)
     where info about accounts, containers, and objects is cached
@@ -451,6 +452,9 @@ def get_cache_key(account, container=None, obj=None):
     :param account: The name of the account
     :param container: The name of the container (or None if account)
     :param obj: The name of the object (or None if account or container)
+    :param shard: Sharding state for the container query; typically 'updating'
+                  or 'listing' (Requires account and container; cannot use
+                  with obj)
     :returns: a (native) string cache_key
     """
     if six.PY2:
@@ -468,7 +472,13 @@ def get_cache_key(account, container=None, obj=None):
     container = to_native(container)
     obj = to_native(obj)
 
-    if obj:
+    if shard:
+        if not (account and container):
+            raise ValueError('Shard cache key requires account and container')
+        if obj:
+            raise ValueError('Shard cache key cannot have obj')
+        cache_key = 'shard-%s/%s/%s' % (shard, account, container)
+    elif obj:
         if not (account and container):
             raise ValueError('Object cache key requires account and container')
         cache_key = 'object/%s/%s/%s' % (account, container, obj)
@@ -2191,3 +2201,55 @@ class Controller(object):
                 "Failed to get shard ranges from %s: invalid data: %r",
                 req.path_qs, err)
             return None
+
+    def _get_update_shard(self, req, account, container, obj):
+        """
+        Find the appropriate shard range for an object update.
+
+        Note that this fetches and caches (in both the per-request infocache
+        and memcache, if available) all shard ranges for the given root
+        container so we won't have to contact the container DB for every write.
+
+        :param req: original Request instance.
+        :param account: account from which shard ranges should be fetched.
+        :param container: container from which shard ranges should be fetched.
+        :param obj: object getting updated.
+        :return: an instance of :class:`swift.common.utils.ShardRange`,
+            or None if the update should go back to the root
+        """
+        if not self.app.recheck_updating_shard_ranges:
+            # caching is disabled; fall back to old behavior
+            shard_ranges = self._get_shard_ranges(
+                req, account, container, states='updating', includes=obj)
+            if not shard_ranges:
+                return None
+            return shard_ranges[0]
+
+        cache_key = get_cache_key(account, container, shard='updating')
+        infocache = req.environ.setdefault('swift.infocache', {})
+        memcache = getattr(self.app, 'memcache', None) or req.environ.get(
+            'swift.cache')
+
+        cached_ranges = infocache.get(cache_key)
+        if cached_ranges is None and memcache:
+            cached_ranges = memcache.get(cache_key)
+
+        if cached_ranges:
+            shard_ranges = [
+                ShardRange.from_dict(shard_range)
+                for shard_range in cached_ranges]
+        else:
+            shard_ranges = self._get_shard_ranges(
+                req, account, container, states='updating')
+            if shard_ranges:
+                cached_ranges = [dict(sr) for sr in shard_ranges]
+                # went to disk; cache it
+                if memcache:
+                    memcache.set(cache_key, cached_ranges,
+                                 time=self.app.recheck_updating_shard_ranges)
+
+        if not shard_ranges:
+            return None
+
+        infocache[cache_key] = tuple(cached_ranges)
+        return find_shard_range(obj, shard_ranges)
