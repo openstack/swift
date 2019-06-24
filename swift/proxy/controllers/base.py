@@ -367,7 +367,7 @@ def get_container_info(env, app, swift_source=None):
     if info:
         info = deepcopy(info)  # avoid mutating what's in swift.infocache
     else:
-        info = headers_to_container_info({}, 0)
+        info = headers_to_container_info({}, 503)
 
     # Old data format in memcache immediately after a Swift upgrade; clean
     # it up so consumers of get_container_info() aren't exposed to it.
@@ -432,7 +432,7 @@ def get_account_info(env, app, swift_source=None):
     if info:
         info = info.copy()  # avoid mutating what's in swift.infocache
     else:
-        info = headers_to_account_info({}, 0)
+        info = headers_to_account_info({}, 503)
 
     for field in ('container_count', 'bytes', 'total_object_count'):
         if info.get(field) is None:
