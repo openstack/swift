@@ -344,9 +344,10 @@ class TestContainerController(TestRingBase):
             ([200], 200),
             ([404, 200], 200),
             ([404] * nodes + [200], 200),
-            ([Timeout()] * nodes + [404] * handoffs, 404),
+            ([Timeout()] * nodes + [404] * handoffs, 503),
             ([Timeout()] * (nodes + handoffs), 503),
-            ([Timeout()] * (nodes + handoffs - 1) + [404], 404),
+            ([Timeout()] * (nodes + handoffs - 1) + [404], 503),
+            ([Timeout()] * (nodes - 1) + [404] * (handoffs + 1), 404),
             ([503, 200], 200),
             ([507, 200], 200),
         ]

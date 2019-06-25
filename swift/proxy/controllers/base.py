@@ -1233,6 +1233,10 @@ class ResumingGetter(object):
                 _('Trying to %(method)s %(path)s') %
                 {'method': self.req_method, 'path': self.req_path})
             return False
+
+        src_headers = dict(
+            (k.lower(), v) for k, v in
+            possible_source.getheaders())
         if self.is_good_source(possible_source):
             # 404 if we know we don't have a synced copy
             if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
@@ -1242,9 +1246,6 @@ class ResumingGetter(object):
                 self.source_headers.append([])
                 close_swift_conn(possible_source)
             else:
-                src_headers = dict(
-                    (k.lower(), v) for k, v in
-                    possible_source.getheaders())
                 if self.used_source_etag and \
                     self.used_source_etag != src_headers.get(
                         'x-object-sysmeta-ec-etag',
@@ -1271,7 +1272,12 @@ class ResumingGetter(object):
                     if not self.newest:  # one good source is enough
                         return True
         else:
-
+            if self.server_type != 'Object' and 'handoff_index' in node and \
+                    possible_source.status == HTTP_NOT_FOUND and \
+                    not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                # throw out 404s from handoff nodes unless the db is really
+                # on disk and had been DELETEd
+                return False
             self.statuses.append(possible_source.status)
             self.reasons.append(possible_source.reason)
             self.bodies.append(possible_source.read())

@@ -4733,6 +4733,33 @@ class TestReplicatedObjectController(
         # object is not created!
         self.assertEqual(resp.status_int, 503)
 
+    def test_PUT_object_to_primary_containers_timeout(self):
+        self.app.container_ring.max_more_nodes = 2  # 2 handoffs
+
+        req = Request.blank('/v1/a/c/o', method='PUT', content_length=0)
+        account_status = [200]
+        # primary timeout db lock & handoffs 404
+        container_status = [Timeout()] * 3 + [404] * 2
+        status = account_status + container_status
+        with mocked_http_conn(*status) as fake_conn:
+            resp = req.get_response(self.app)
+
+        account_requests = fake_conn.requests[:len(account_status)]
+        self.assertEqual(['HEAD'],
+                         [r['method'] for r in account_requests])
+        self.assertEqual(['/a'], [
+            r['path'][len('/sdX/0'):] for r in account_requests])
+
+        container_requests = fake_conn.requests[
+            len(account_status):len(account_status) + len(container_status)]
+        self.assertEqual(['HEAD'] * 5,
+                         [r['method'] for r in container_requests])
+        self.assertEqual(['/a/c'] * 5, [
+            r['path'][len('/sdX/0'):] for r in container_requests])
+
+        # object is not created!
+        self.assertEqual(resp.status_int, 503)
+
     def test_bad_metadata(self):
         with save_globals():
             controller = ReplicatedObjectController(
