@@ -1,0 +1,87 @@
+---
+features:
+  - |
+    Experimental support for Python 3.6 and 3.7 is now available.
+    Note that this requires ``eventlet>=0.25.0``. All unit tests pass,
+    and running functional tests under Python 2 will pass against
+    services running under Python 3. Expect full support in the
+    next minor release.
+
+  - |
+    Log formats are now more configurable and include support for
+    anonymization. See the ``log_msg_template`` option in ``proxy-server.conf``
+    and `the Swift documentation <https://docs.openstack.org/swift/latest/logs.html#proxy-logs>`__
+    for more information.
+
+  - |
+    Added an operator tool, ``swift-container-deleter``, to asynchronously
+    delete some or all objects in a container using the object expirers.
+
+  - |
+    Swift-all-in-one Docker images are now built and published to
+    https://hub.docker.com/r/openstackswift/saio. These are intended
+    for use as development targets, but will hopefully be useful as a
+    starting point for other work involving containerizing Swift.
+
+upgrade:
+  - |
+    The ``object-expirer`` may now be configured in ``object-server.conf``.
+    This is in anticipation of a future change to allow the ``object-expirer``
+    to be deployed on all nodes that run the ``object-server``.
+
+  - |
+    **Dependency updates**: we've increased our minimum supported version
+    of ``cryptography`` to 2.0.2 and ``netifaces`` to 0.8. This is largely due
+    to the difficulty of continuing to test with the old versions.
+
+    If running Swift under Python 3, ``eventlet`` must be at least 0.25.0.
+
+fixes:
+  - |
+    Correctness improvements
+
+    * The ``proxy-server`` now ignores 404 responses from handoffs without
+      databases when deciding on the correct response for account and
+      container requests.
+
+    * Object writes to a container whose existence cannot be verified
+      now 503 instead of 404.
+
+  - |
+    Sharding improvements
+
+    * The ``container-replicator`` now only attempts to fetch shard ranges if
+      the remote indicates that it has shard ranges. Further, it does so
+      with a timeout to prevent the process from hanging in certain cases.
+
+    * The ``proxy-server`` now caches 'updating' shards, improving write
+      performance for sharded containers. A new config option,
+      ``recheck_updating_shard_ranges``, controls the cache time; set it to
+      0 to disable caching.
+
+    * The ``container-replicator`` now correctly enqueues
+      ``container-reconciler`` work for sharded containers.
+
+  - |
+    S3 API improvements
+
+    * Unsigned payloads work with v4 signatures once more.
+
+    * Multipart upload parts may now be copied from other multipart uploads.
+
+    * CompleteMultipartUpload requests with a ``Content-MD5`` now work.
+
+    * ``Content-Type`` can now be updated when copying an object.
+
+    * Fixed v1 listings that end with a non-ASCII object name.
+
+  - |
+    Background corruption-detection improvements
+
+    * Detect and remove invalid entries from ``hashes.pkl``
+
+    * When object path is not a directory, just quarantine it,
+      rather than the whole suffix.
+
+  - |
+    Various other minor bug fixes and improvements.
