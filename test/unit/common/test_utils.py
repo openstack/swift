@@ -1414,7 +1414,7 @@ class TestUtils(unittest.TestCase):
                 # pdb is basically impossible. Sorry about that.
                 utils.capture_stdio(logger)
                 logger.info("I like ham")
-                self.assertTrue(crashy_calls[0], 1)
+                self.assertGreater(crashy_calls[0], 1)
 
     def test_parse_options(self):
         # Get a file that is definitely on disk
