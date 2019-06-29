@@ -1048,9 +1048,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
     # Ensure the configuration and application can be loaded before proceeding.
     global_conf = {'log_name': log_name}
+    loadapp(conf_path, global_conf=global_conf)
     if 'global_conf_callback' in kwargs:
         kwargs['global_conf_callback'](conf, global_conf)
-    loadapp(conf_path, global_conf=global_conf)
 
     # set utils.FALLOCATE_RESERVE if desired
     utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
