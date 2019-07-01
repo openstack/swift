@@ -762,7 +762,7 @@ class TestStoragePolicies(unittest.TestCase):
 
         policies = parse_storage_policies(good_conf)
         self.assertEqual(policies.default, policies[0])
-        self.assertTrue(policies[1].is_deprecated, True)
+        self.assertTrue(policies[1].is_deprecated)
 
     def test_parse_storage_policies(self):
         # ValueError when deprecating policy 0
