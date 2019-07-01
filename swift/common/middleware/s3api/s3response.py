@@ -361,6 +361,10 @@ class InternalError(ErrorResponse):
     _status = '500 Internal Server Error'
     _msg = 'We encountered an internal error. Please try again.'
 
+    def __str__(self):
+        return '%s: %s (%s)' % (
+            self.__class__.__name__, self.status, self._msg)
+
 
 class InvalidAccessKeyId(ErrorResponse):
     _status = '403 Forbidden'
