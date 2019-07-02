@@ -620,6 +620,9 @@ class TestS3ApiBucket(S3ApiTestCase):
         code = self._test_method_error('PUT', '/bucket', swob.HTTPServerError)
         self.assertEqual(code, 'InternalError')
         code = self._test_method_error(
+            'PUT', '/bucket', swob.HTTPServiceUnavailable)
+        self.assertEqual(code, 'InternalError')
+        code = self._test_method_error(
             'PUT', '/bucket+bucket', swob.HTTPCreated)
         self.assertEqual(code, 'InvalidBucketName')
         code = self._test_method_error(
@@ -645,6 +648,36 @@ class TestS3ApiBucket(S3ApiTestCase):
         code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted,
                                        env={'swift_owner': False})
         self.assertEqual(code, 'AccessDenied')
+
+    @s3acl
+    def test_bucket_PUT_bucket_already_owned_by_you(self):
+        self.swift.register(
+            'PUT', '/v1/AUTH_test/bucket', swob.HTTPAccepted,
+            {'X-Container-Object-Count': 0}, None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertIn(b'BucketAlreadyOwnedByYou', body)
+
+    @s3acl
+    def test_bucket_PUT_first_put_fail(self):
+        self.swift.register(
+            'PUT', '/v1/AUTH_test/bucket',
+            swob.HTTPServiceUnavailable,
+            {'X-Container-Object-Count': 0}, None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '500 Internal Server Error')
+        # The last call was PUT not POST for acl set
+        self.assertEqual(self.swift.calls, [
+            ('PUT', '/v1/AUTH_test/bucket'),
+        ])
 
     @s3acl
     def test_bucket_PUT(self):
