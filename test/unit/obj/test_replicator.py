@@ -469,7 +469,7 @@ class TestObjectReplicator(unittest.TestCase):
         for job in jobs:
             jobs_by_pol_part[str(int(job['policy'])) + job['partition']] = job
         self.assertEqual(len(jobs_to_delete), 2)
-        self.assertTrue('1', jobs_to_delete[0]['partition'])
+        self.assertEqual('1', jobs_to_delete[0]['partition'])
         self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['00']['nodes']], [1, 2])
         self.assertEqual(

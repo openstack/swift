@@ -793,11 +793,13 @@ class TestContainerSync(unittest.TestCase):
             # Succeeds because no rows match
             log_line = cs.logger.get_lines_for_level('info')[0]
             lines = log_line.split(',')
-            self.assertTrue('sync_point2: 5', lines.pop().strip())
-            self.assertTrue('sync_point1: 5', lines.pop().strip())
-            self.assertTrue('bytes: 1100', lines.pop().strip())
-            self.assertTrue('deletes: 2', lines.pop().strip())
-            self.assertTrue('puts: 3', lines.pop().strip())
+            self.assertEqual('total_rows: 1', lines.pop().strip())
+            self.assertEqual('sync_point2: None', lines.pop().strip())
+            self.assertEqual('sync_point1: 5', lines.pop().strip())
+            self.assertEqual('bytes: 0', lines.pop().strip())
+            self.assertEqual('deletes: 0', lines.pop().strip())
+            self.assertEqual('posts: 0', lines.pop().strip())
+            self.assertEqual('puts: 0', lines.pop().strip())
 
     def test_container_sync_row_delete(self):
         self._test_container_sync_row_delete(None, None)
