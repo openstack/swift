@@ -78,7 +78,7 @@ class ContainerReplicator(db_replicator.Replicator):
                 broker.merge_timestamps(*(remote_info[key] for key in
                                           sync_timestamps))
 
-            if 'shard_max_row' in remote_info:
+            if remote_info.get('shard_max_row', -1) >= 0:
                 # Grab remote's shard ranges, too
                 self._fetch_and_merge_shard_ranges(http, broker)
 
@@ -136,7 +136,8 @@ class ContainerReplicator(db_replicator.Replicator):
         return shard_range_success and success
 
     def _fetch_and_merge_shard_ranges(self, http, broker):
-        response = http.replicate('get_shard_ranges')
+        with Timeout(self.node_timeout):
+            response = http.replicate('get_shard_ranges')
         if is_success(response.status):
             broker.merge_shard_ranges(json.loads(
                 response.data.decode('ascii')))
