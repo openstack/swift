@@ -604,6 +604,20 @@ http_timeout = 10.0
 # You can override the default log routing for this filter here:
 # log_name = s3token
 
+# Secrets may be cached to reduce latency for the client and load on Keystone.
+# Set this to some number of seconds greater than zero to enable caching.
+# secret_cache_duration = 0
+
+# Secret caching requires Keystone credentials similar to the authtoken middleware;
+# these credentials require access to view all project credentials.
+# auth_url = http://keystonehost:35357
+# auth_plugin = password
+# project_domain_id = default
+# project_name = service
+# user_domain_id = default
+# username = swift
+# password = password
+
 [filter:healthcheck]
 use = egg:swift#healthcheck
 # An optional filesystem path, which if present, will cause the healthcheck
