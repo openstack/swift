@@ -611,7 +611,7 @@ http_timeout = 10.0
 # Secret caching requires Keystone credentials similar to the authtoken middleware;
 # these credentials require access to view all project credentials.
 # auth_url = http://keystonehost:35357
-# auth_plugin = password
+# auth_type = password
 # project_domain_id = default
 # project_name = service
 # user_domain_id = default
