@@ -563,7 +563,7 @@ class Replicator(Daemon):
 
         :param partition: partition to be replicated to
         :param object_file: DB file name to be replicated
-        :param node_id: node id of the node to be replicated to
+        :param node_id: node id of the node to be replicated from
         :returns: a tuple (success, responses). ``success`` is a boolean that
             is True if the method completed successfully, False otherwise.
             ``responses`` is a list of booleans each of which indicates the
