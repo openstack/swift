@@ -1441,6 +1441,23 @@ class TestDatabaseBroker(unittest.TestCase):
         mock_merge_items.assert_called_once_with([b'not', b'bad'])
         self.assertEqual(0, os.path.getsize(broker.pending_file))
 
+        # load a pending entry that's caused trouble in py2/py3 upgrade tests
+        # can't quite figure out how it got generated, though, so hard-code it
+        with open(broker.pending_file, 'wb') as fd:
+            fd.write(b':gAIoVS3olIngpILrjIvrjIvpkIngpIHlmIjlmIbjnIbgp'
+                     b'IPjnITimIPvhI/rjI3tiI5xAVUQMTU1OTI0MTg0Ni40NjY'
+                     b'wMXECVQEwVQEwVQEwSwBVATB0Lg==')
+        with patch.object(broker, 'merge_items') as mock_merge_items:
+            broker._commit_puts_load = lambda l, e: l.append(e)
+            broker._commit_puts([])
+        expected_name = (u'\u8509\u0902\ub30b\ub30b\u9409\u0901\u5608\u5606'
+                         u'\u3706\u0903\u3704\u2603\uf10f\ub30d\ud20e')
+        if six.PY2:
+            expected_name = expected_name.encode('utf8')
+        mock_merge_items.assert_called_once_with([
+            (expected_name, '1559241846.46601', '0', '0', '0', 0, '0')])
+        self.assertEqual(0, os.path.getsize(broker.pending_file))
+
         # skip_commits True - no merge
         db_file = os.path.join(self.testdir, '2.db')
         broker = DatabaseBroker(db_file, skip_commits=True)
