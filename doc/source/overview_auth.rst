@@ -139,7 +139,7 @@ add the configuration for the authtoken middleware::
   [filter:authtoken]
   paste.filter_factory = keystonemiddleware.auth_token:filter_factory
   www_authenticate_uri = http://keystonehost:5000/
-  auth_url = http://keystonehost:35357/
+  auth_url = http://keystonehost:5000/
   auth_plugin = password
   project_domain_id = default
   user_domain_id = default
