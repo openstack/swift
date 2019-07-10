@@ -75,7 +75,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(put, name, use_account=use_account)
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
 
         # With keystoneauth we need the accounts to have had the project
         # domain id persisted as sysmeta prior to testing ACLs. This may
