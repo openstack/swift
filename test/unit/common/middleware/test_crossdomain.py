@@ -33,7 +33,7 @@ def start_response(*args):
 class TestCrossDomain(unittest.TestCase):
 
     def setUp(self):
-        self.app = crossdomain.CrossDomainMiddleware(FakeApp(), {})
+        self.app = crossdomain.filter_factory({})(FakeApp())
 
     # GET of /crossdomain.xml (default)
     def test_crossdomain_default(self):
