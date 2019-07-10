@@ -207,7 +207,7 @@ class TestContainer(unittest2.TestCase):
         name = uuid4().hex
         resp = retry(put, name, 'Value')
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
         resp = retry(head, name)
         resp.read()
         self.assertIn(resp.status, (200, 204))
@@ -218,12 +218,12 @@ class TestContainer(unittest2.TestCase):
         self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
         resp = retry(delete, name)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
         name = uuid4().hex
         resp = retry(put, name, '')
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertIn(resp.status, (201, 202))
         resp = retry(head, name)
         resp.read()
         self.assertIn(resp.status, (200, 204))
@@ -234,7 +234,7 @@ class TestContainer(unittest2.TestCase):
         self.assertIsNone(resp.getheader('x-container-meta-test'))
         resp = retry(delete, name)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
     def test_POST_metadata(self):
         if tf.skip:
