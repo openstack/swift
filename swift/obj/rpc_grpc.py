@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import grpc
-import fmgr_pb2
+from swift.obj import fmgr_pb2
 import logging
 
 log = logging.getLogger(__name__)
@@ -162,7 +162,7 @@ def list_quarantined_ohashes(socket_path):
 @rpc
 def list_quarantined_ohash(socket_path, prefix, repair_tool=False):
     len_prefix = len(prefix)
-    print prefix
+    print(prefix)
     prefix = fmgr_pb2.ObjectPrefix(prefix=str(prefix), repair_tool=repair_tool)
     response = connections.connections[socket_path].stub.ListQuarantinedOHash(prefix)
 
