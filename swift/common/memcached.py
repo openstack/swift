@@ -44,6 +44,7 @@ version is at:
 http://github.com/memcached/memcached/blob/1.4.2/doc/protocol.txt
 """
 
+import six
 import six.moves.cPickle as pickle
 import json
 import logging
@@ -77,7 +78,10 @@ ERROR_LIMIT_DURATION = 60
 
 def md5hash(key):
     if not isinstance(key, bytes):
-        key = key.encode('utf-8')
+        if six.PY2:
+            key = key.encode('utf-8')
+        else:
+            key = key.encode('utf-8', errors='surrogateescape')
     return md5(key).hexdigest().encode('ascii')
 
 
@@ -138,7 +142,7 @@ class MemcacheConnPool(Pool):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         with Timeout(self._connect_timeout):
             sock.connect(sockaddr)
-        return (sock.makefile(), sock)
+        return (sock.makefile('rwb'), sock)
 
     def get(self):
         fp, sock = super(MemcacheConnPool, self).get()
@@ -269,6 +273,8 @@ class MemcacheRing(object):
             value = pickle.dumps(value, PICKLE_PROTOCOL)
             flags |= PICKLE_FLAG
         elif serialize:
+            if isinstance(value, bytes):
+                value = value.decode('utf8')
             value = json.dumps(value).encode('ascii')
             flags |= JSON_FLAG
         elif not isinstance(value, bytes):
@@ -438,6 +444,8 @@ class MemcacheRing(object):
                 value = pickle.dumps(value, PICKLE_PROTOCOL)
                 flags |= PICKLE_FLAG
             elif serialize:
+                if isinstance(value, bytes):
+                    value = value.decode('utf8')
                 value = json.dumps(value).encode('ascii')
                 flags |= JSON_FLAG
             msg.append(set_msg(key, flags, timeout, value))

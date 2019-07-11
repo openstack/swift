@@ -273,6 +273,14 @@ class TestModuleMethods(unittest.TestCase):
         expected = 'abc; swift_meta=%s' % self.serialized_meta_with_key
         self.assertEqual(actual, expected)
 
+        def check_bad_value(value):
+            with self.assertRaises(ValueError):
+                crypto_utils.append_crypto_meta(value, self.meta)
+
+        check_bad_value(None)
+        check_bad_value({})
+        check_bad_value(1)
+
     def test_extract_crypto_meta(self):
         val, meta = crypto_utils.extract_crypto_meta(
             'abc; swift_meta=%s' % self.serialized_meta)

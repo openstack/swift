@@ -34,6 +34,9 @@ from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
 
+# Example etag from ProxyFS; note that it is already quote-wrapped
+PFS_ETAG = '"pfsv2/AUTH_test/01234567/89abcdef-32"'
+
 
 class TestS3ApiBucket(S3ApiTestCase):
     def setup_objects(self):
@@ -43,6 +46,8 @@ class TestS3ApiBucket(S3ApiTestCase):
                         (u'lily-\u062a', '2011-01-05T02:19:14.275290', 0, 390),
                         ('mu', '2011-01-05T02:19:14.275290',
                          'md5-of-the-manifest; s3_etag=0', '3909'),
+                        ('pfs-obj', '2011-01-05T02:19:14.275290',
+                         PFS_ETAG, '3909'),
                         ('slo', '2011-01-05T02:19:14.275290',
                          'md5-of-the-manifest', '3909'),
                         ('with space', '2011-01-05T02:19:14.275290', 0, 390),
@@ -52,7 +57,7 @@ class TestS3ApiBucket(S3ApiTestCase):
             {'name': item[0], 'last_modified': str(item[1]),
              'hash': str(item[2]), 'bytes': str(item[3])}
             for item in self.objects]
-        objects[5]['slo_etag'] = '"0"'
+        objects[6]['slo_etag'] = '"0"'
         object_list = json.dumps(objects)
 
         self.prefixes = ['rose', 'viola', 'lily']
@@ -171,6 +176,7 @@ class TestS3ApiBucket(S3ApiTestCase):
                              o.find('./LastModified').text)
         self.assertEqual(items, [
             (i[0].encode('utf-8') if six.PY2 else i[0],
+             PFS_ETAG if i[0] == 'pfs-obj' else
              '"0-N"' if i[0] == 'slo' else '"0"')
             for i in self.objects])
 
@@ -196,7 +202,9 @@ class TestS3ApiBucket(S3ApiTestCase):
                              o.find('./LastModified').text)
 
         self.assertEqual(items, [
-            (quote(i[0].encode('utf-8')), '"0-N"' if i[0] == 'slo' else '"0"')
+            (quote(i[0].encode('utf-8')),
+             PFS_ETAG if i[0] == 'pfs-obj' else
+             '"0-N"' if i[0] == 'slo' else '"0"')
             for i in self.objects])
 
     def test_bucket_GET_subdir(self):
@@ -576,7 +584,8 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual([v.find('./LastModified').text for v in versions],
                          [v[1][:-3] + 'Z' for v in objects])
         self.assertEqual([v.find('./ETag').text for v in versions],
-                         ['"0-N"' if v[0] == 'slo' else '"0"'
+                         [PFS_ETAG if v[0] == 'pfs-obj' else
+                          '"0-N"' if v[0] == 'slo' else '"0"'
                           for v in objects])
         self.assertEqual([v.find('./Size').text for v in versions],
                          [str(v[3]) for v in objects])
@@ -611,6 +620,9 @@ class TestS3ApiBucket(S3ApiTestCase):
         code = self._test_method_error('PUT', '/bucket', swob.HTTPServerError)
         self.assertEqual(code, 'InternalError')
         code = self._test_method_error(
+            'PUT', '/bucket', swob.HTTPServiceUnavailable)
+        self.assertEqual(code, 'InternalError')
+        code = self._test_method_error(
             'PUT', '/bucket+bucket', swob.HTTPCreated)
         self.assertEqual(code, 'InvalidBucketName')
         code = self._test_method_error(
@@ -636,6 +648,36 @@ class TestS3ApiBucket(S3ApiTestCase):
         code = self._test_method_error('PUT', '/bucket', swob.HTTPAccepted,
                                        env={'swift_owner': False})
         self.assertEqual(code, 'AccessDenied')
+
+    @s3acl
+    def test_bucket_PUT_bucket_already_owned_by_you(self):
+        self.swift.register(
+            'PUT', '/v1/AUTH_test/bucket', swob.HTTPAccepted,
+            {'X-Container-Object-Count': 0}, None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertIn(b'BucketAlreadyOwnedByYou', body)
+
+    @s3acl
+    def test_bucket_PUT_first_put_fail(self):
+        self.swift.register(
+            'PUT', '/v1/AUTH_test/bucket',
+            swob.HTTPServiceUnavailable,
+            {'X-Container-Object-Count': 0}, None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '500 Internal Server Error')
+        # The last call was PUT not POST for acl set
+        self.assertEqual(self.swift.calls, [
+            ('PUT', '/v1/AUTH_test/bucket'),
+        ])
 
     @s3acl
     def test_bucket_PUT(self):

@@ -16,6 +16,7 @@
 from base64 import standard_b64encode as b64encode
 from base64 import standard_b64decode as b64decode
 
+import six
 from six.moves.urllib.parse import quote
 
 from swift.common import swob
@@ -135,6 +136,8 @@ class BucketController(Controller):
             # continuation-token overrides start-after
             if 'continuation-token' in req.params:
                 decoded = b64decode(req.params['continuation-token'])
+                if not six.PY2:
+                    decoded = decoded.decode('utf8')
                 query.update({'marker': decoded})
             if 'fetch-owner' in req.params:
                 fetch_owner = config_true_value(req.params['fetch-owner'])
@@ -231,10 +234,15 @@ class BucketController(Controller):
                     # SLOs may be in something *close* to the MU format
                     etag = '"%s-N"' % o['slo_etag'].strip('"')
                 else:
-                    # Normal objects just use the MD5
-                    etag = '"%s"' % o['hash']
-                    # This also catches sufficiently-old SLOs, but we have
-                    # no way to identify those from container listings
+                    etag = o['hash']
+                    if len(etag) < 2 or etag[::len(etag) - 1] != '""':
+                        # Normal objects just use the MD5
+                        etag = '"%s"' % o['hash']
+                        # This also catches sufficiently-old SLOs, but we have
+                        # no way to identify those from container listings
+                    # Otherwise, somebody somewhere (proxyfs, maybe?) made this
+                    # look like an RFC-compliant ETag; we don't need to
+                    # quote-wrap.
                 SubElement(contents, 'ETag').text = etag
                 SubElement(contents, 'Size').text = str(o['bytes'])
                 if fetch_owner or listing_type != 'version-2':

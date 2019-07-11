@@ -97,6 +97,18 @@
       python_version: 3.7
 
 - job:
+    name: swift-tox-func-domain-remap-staticweb-py37
+    parent: swift-tox-func-py37
+    description: |
+      Run functional tests for swift under cPython version 3.7.
+
+      Uses tox with the ``func-domain-remap-staticweb-py3`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-domain-remap-staticweb-py3
+
+- job:
     name: swift-tox-func-centos-7
     parent: swift-tox-func
     nodeset: centos-7
@@ -213,6 +225,18 @@
     pre-run: tools/playbooks/dsvm/pre.yaml
     run: tools/playbooks/dsvm/run.yaml
     post-run: tools/playbooks/dsvm/post.yaml
+
+- job:
+    name: swift-dsvm-functional-py3
+    parent: swift-dsvm-functional
+    description: |
+      Setup a Swift/Keystone environment under py3 and run Swift's func tests
+      (but under py2).
+    vars:
+      devstack_localrc:
+        USE_PYTHON3: true
+        # explicitly clear swift's default-disabled status
+        DISABLED_PYTHON3_PACKAGES: ''
 
 - job:
     name: swift-dsvm-functional-ipv6
@@ -438,6 +462,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-domain-remap-staticweb-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-tox-func-s3api-ceph-s3tests-tempauth:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
@@ -454,6 +483,11 @@
               - ^test/(unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-dsvm-functional:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-dsvm-functional-py3:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
@@ -493,6 +527,7 @@
         - swift-tox-func-domain-remap-staticweb
         - swift-tox-func-ec
         - swift-tox-func-s3api
+        - swift-tox-func-domain-remap-staticweb-py37
         - swift-probetests-centos-7:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
@@ -501,6 +536,11 @@
               - ^test/(unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-dsvm-functional:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-dsvm-functional-py3:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$

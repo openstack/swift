@@ -39,6 +39,7 @@ import random
 import errno
 import xattr
 
+import six
 import six.moves.cPickle as pickle
 from six import BytesIO
 from six.moves import range
@@ -877,7 +878,7 @@ def fake_http_connect(*code_iter, **kwargs):
         SLOW_READS = 4
         SLOW_WRITES = 4
 
-        def __init__(self, status, etag=None, body=b'', timestamp='1',
+        def __init__(self, status, etag=None, body=b'', timestamp=-1,
                      headers=None, expect_headers=None, connection_id=None,
                      give_send=None, give_expect=None):
             if not isinstance(status, FakeStatus):
@@ -892,7 +893,15 @@ def fake_http_connect(*code_iter, **kwargs):
             self.body = body
             self.headers = headers or {}
             self.expect_headers = expect_headers or {}
-            self.timestamp = timestamp
+            if timestamp == -1:
+                # -1 is reserved to mean "magic default"
+                if status.status != 404:
+                    self.timestamp = '1'
+                else:
+                    self.timestamp = '0'
+            else:
+                # tests may specify int, string, Timestamp or None
+                self.timestamp = timestamp
             self.connection_id = connection_id
             self.give_send = give_send
             self.give_expect = give_expect
@@ -1009,7 +1018,8 @@ def fake_http_connect(*code_iter, **kwargs):
         def close(self):
             self.closed = True
 
-    timestamps_iter = iter(kwargs.get('timestamps') or ['1'] * len(code_iter))
+    # unless tests provide timestamps we use the "magic default"
+    timestamps_iter = iter(kwargs.get('timestamps') or [-1] * len(code_iter))
     etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
     if isinstance(kwargs.get('headers'), (list, tuple)):
         headers_iter = iter(kwargs['headers'])
@@ -1083,6 +1093,8 @@ def mocked_http_conn(*args, **kwargs):
     requests = []
 
     def capture_requests(ip, port, method, path, headers, qs, ssl):
+        if six.PY2 and not isinstance(ip, bytes):
+            ip = ip.encode('ascii')
         req = {
             'ip': ip,
             'port': port,

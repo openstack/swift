@@ -1,7 +1,11 @@
 #!/bin/sh
+set -e
 
+echo "@testing http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
 apk add --update \
   linux-headers \
+  liberasurecode@testing \
+  liberasurecode-dev@testing \
   gnupg \
   git \
   curl \
@@ -13,10 +17,6 @@ apk add --update \
   sqlite-libs \
   sqlite-dev \
   xfsprogs \
-  autoconf \
-  automake \
-  libtool \
-  make \
   zlib-dev \
   g++ \
   libffi \

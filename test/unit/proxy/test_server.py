@@ -4625,6 +4625,141 @@ class TestReplicatedObjectController(
             resp = controller.POST(req)
             self.assertEqual(resp.status_int, 404)
 
+    def test_PUT_object_to_container_does_not_exist(self):
+        self.app.container_ring.max_more_nodes = 3  # that's 3 handoffs
+
+        # no container found anywhere!
+        req = Request.blank('/v1/a/c/o', method='PUT')
+        with mocked_http_conn(*([200] + [404] * 6)) as fake_conn:
+            resp = req.get_response(self.app)
+        # object create returns error
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(['HEAD'] * 7,
+                         [r['method'] for r in fake_conn.requests])
+        self.assertEqual(['/a'] + ['/a/c'] * 6, [
+            r['path'][len('/sdX/0'):] for r in fake_conn.requests])
+
+    def test_PUT_object_to_container_exist_on_handoff(self):
+        self.app.container_ring.max_more_nodes = 3  # that's 3 handoffs
+
+        # finally get info after three requests
+        req = Request.blank('/v1/a/c/o', method='PUT', content_length=0)
+        account_status = [200]
+        container_status = ([404] * 5) + [200]
+        object_status = [201, 201, 201]
+        status = account_status + container_status + object_status
+        with mocked_http_conn(*status) as fake_conn:
+            resp = req.get_response(self.app)
+        # object created
+        self.assertEqual(resp.status_int, 201)
+
+        account_requests = fake_conn.requests[:len(account_status)]
+        self.assertEqual(['HEAD'],
+                         [r['method'] for r in account_requests])
+        self.assertEqual(['/a'], [
+            r['path'][len('/sdX/0'):] for r in account_requests])
+
+        container_requests = fake_conn.requests[
+            len(account_status):len(account_status) + len(container_status)]
+        self.assertEqual(['HEAD'] * 6,
+                         [r['method'] for r in container_requests])
+        self.assertEqual(['/a/c'] * 6, [
+            r['path'][len('/sdX/0'):] for r in container_requests])
+
+        obj_requests = fake_conn.requests[
+            len(account_status) + len(container_status):]
+        self.assertEqual(['PUT'] * 3,
+                         [r['method'] for r in obj_requests])
+        self.assertEqual(['/a/c/o'] * 3, [
+            r['path'][len('/sdX/0'):] for r in obj_requests])
+
+    def test_PUT_object_to_primary_timeout_container_exist(self):
+        self.app.container_ring.max_more_nodes = 3  # that's 3 handoffs
+
+        req = Request.blank('/v1/a/c/o', method='PUT', content_length=0)
+        account_status = [200]
+        # no response from primaries but container exists on a handoff!
+        container_status = ([Timeout()] * 3) + [200]
+        object_status = [201, 201, 201]
+        status = account_status + container_status + object_status
+        with mocked_http_conn(*status) as fake_conn:
+            resp = req.get_response(self.app)
+        # object created
+        self.assertEqual(resp.status_int, 201)
+
+        account_requests = fake_conn.requests[:len(account_status)]
+        self.assertEqual(['HEAD'],
+                         [r['method'] for r in account_requests])
+        self.assertEqual(['/a'], [
+            r['path'][len('/sdX/0'):] for r in account_requests])
+
+        container_requests = fake_conn.requests[
+            len(account_status):len(account_status) + len(container_status)]
+        self.assertEqual(['HEAD'] * 4,
+                         [r['method'] for r in container_requests])
+        self.assertEqual(['/a/c'] * 4, [
+            r['path'][len('/sdX/0'):] for r in container_requests])
+
+        obj_requests = fake_conn.requests[
+            len(account_status) + len(container_status):]
+        self.assertEqual(['PUT'] * 3,
+                         [r['method'] for r in obj_requests])
+        self.assertEqual(['/a/c/o'] * 3, [
+            r['path'][len('/sdX/0'):] for r in obj_requests])
+
+    def test_PUT_object_to_all_containers_error(self):
+        self.app.container_ring.max_more_nodes = 2  # 2 handoffs
+
+        req = Request.blank('/v1/a/c/o', method='PUT', content_length=0)
+        account_status = [200]
+        container_status = [503] * 5  # 3 replicas + 2 handoffs
+        status = account_status + container_status
+        with mocked_http_conn(*status) as fake_conn:
+            resp = req.get_response(self.app)
+
+        account_requests = fake_conn.requests[:len(account_status)]
+        self.assertEqual(['HEAD'],
+                         [r['method'] for r in account_requests])
+        self.assertEqual(['/a'], [
+            r['path'][len('/sdX/0'):] for r in account_requests])
+
+        container_requests = fake_conn.requests[
+            len(account_status):len(account_status) + len(container_status)]
+        self.assertEqual(['HEAD'] * 5,
+                         [r['method'] for r in container_requests])
+        self.assertEqual(['/a/c'] * 5, [
+            r['path'][len('/sdX/0'):] for r in container_requests])
+
+        # object is not created!
+        self.assertEqual(resp.status_int, 503)
+
+    def test_PUT_object_to_primary_containers_timeout(self):
+        self.app.container_ring.max_more_nodes = 2  # 2 handoffs
+
+        req = Request.blank('/v1/a/c/o', method='PUT', content_length=0)
+        account_status = [200]
+        # primary timeout db lock & handoffs 404
+        container_status = [Timeout()] * 3 + [404] * 2
+        status = account_status + container_status
+        with mocked_http_conn(*status) as fake_conn:
+            resp = req.get_response(self.app)
+
+        account_requests = fake_conn.requests[:len(account_status)]
+        self.assertEqual(['HEAD'],
+                         [r['method'] for r in account_requests])
+        self.assertEqual(['/a'], [
+            r['path'][len('/sdX/0'):] for r in account_requests])
+
+        container_requests = fake_conn.requests[
+            len(account_status):len(account_status) + len(container_status)]
+        self.assertEqual(['HEAD'] * 5,
+                         [r['method'] for r in container_requests])
+        self.assertEqual(['/a/c'] * 5, [
+            r['path'][len('/sdX/0'):] for r in container_requests])
+
+        # object is not created!
+        self.assertEqual(resp.status_int, 503)
+
     def test_bad_metadata(self):
         with save_globals():
             controller = ReplicatedObjectController(

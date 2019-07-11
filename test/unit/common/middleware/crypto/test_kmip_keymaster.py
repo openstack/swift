@@ -26,7 +26,7 @@ sys.modules['kmip'] = mock.Mock()
 sys.modules['kmip.pie'] = mock.Mock()
 sys.modules['kmip.pie.client'] = mock.Mock()
 
-from swift.common.middleware.crypto.kmip_keymaster import KmipKeyMaster
+from swift.common.middleware.crypto import kmip_keymaster
 
 
 KMIP_CLIENT_CLASS = \
@@ -91,7 +91,7 @@ class TestKmipKeymaster(unittest.TestCase):
         secrets = {'1234': create_secret('AES', 256, b'x' * 32)}
         calls = []
         with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
-            km = KmipKeyMaster(None, conf)
+            km = kmip_keymaster.filter_factory(conf)(None)
 
         self.assertEqual({None: b'x' * 32}, km._root_secrets)
         self.assertEqual(None, km.active_secret_id)
@@ -113,7 +113,7 @@ class TestKmipKeymaster(unittest.TestCase):
                    'foobar': create_secret('AES', 256, b'y' * 32)}
         calls = []
         with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
-            km = KmipKeyMaster(None, conf)
+            km = kmip_keymaster.KmipKeyMaster(None, conf)
 
         self.assertEqual({None: b'x' * 32, 'xyzzy': b'y' * 32,
                           'alt_secret_id': b'y' * 32},
@@ -139,7 +139,7 @@ class TestKmipKeymaster(unittest.TestCase):
         with mock.patch(KMIP_CLIENT_CLASS,
                         create_mock_client(secrets, calls)), \
                 self.assertRaises(ValueError) as raised:
-            KmipKeyMaster(None, conf)
+            kmip_keymaster.KmipKeyMaster(None, conf)
         self.assertEqual('No secret loaded for active_root_secret_id unknown',
                          str(raised.exception))
 
@@ -158,7 +158,7 @@ class TestKmipKeymaster(unittest.TestCase):
         secrets = {'4321': create_secret('AES', 256, b'x' * 32)}
         calls = []
         with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
-            km = KmipKeyMaster(None, conf)
+            km = kmip_keymaster.KmipKeyMaster(None, conf)
         self.assertEqual({None: b'x' * 32}, km._root_secrets)
         self.assertEqual(None, km.active_secret_id)
         self.assertEqual(km_config_file, km.keymaster_config_path)
@@ -185,7 +185,7 @@ class TestKmipKeymaster(unittest.TestCase):
                    'another id': create_secret('AES', 256, b'y' * 32)}
         calls = []
         with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
-            km = KmipKeyMaster(None, conf)
+            km = kmip_keymaster.KmipKeyMaster(None, conf)
         self.assertEqual({None: b'x' * 32, 'secret_id': b'y' * 32},
                          km._root_secrets)
         self.assertEqual('secret_id', km.active_secret_id)
@@ -205,7 +205,7 @@ class TestKmipKeymaster(unittest.TestCase):
                 '__name__': 'kmip_keymaster',
                 'key_id': '789'}
         with self.assertRaises(ValueError) as cm:
-            KmipKeyMaster(None, conf)
+            kmip_keymaster.KmipKeyMaster(None, conf)
         self.assertIn('config cannot be read from conf dir', str(cm.exception))
 
         # ...but a conf file in a conf dir could point back to itself for the
@@ -228,7 +228,7 @@ class TestKmipKeymaster(unittest.TestCase):
         secrets = {'789': create_secret('AES', 256, b'x' * 32)}
         calls = []
         with mock.patch(KMIP_CLIENT_CLASS, create_mock_client(secrets, calls)):
-            km = KmipKeyMaster(None, conf)
+            km = kmip_keymaster.KmipKeyMaster(None, conf)
         self.assertEqual({None: b'x' * 32}, km._root_secrets)
         self.assertEqual(None, km.active_secret_id)
         self.assertEqual(km_config_file, km.keymaster_config_path)
@@ -247,7 +247,7 @@ class TestKmipKeymaster(unittest.TestCase):
         with mock.patch(KMIP_CLIENT_CLASS,
                         create_mock_client(secrets, calls)), \
                 self.assertRaises(ValueError) as cm:
-            KmipKeyMaster(None, conf)
+            kmip_keymaster.KmipKeyMaster(None, conf)
         self.assertIn('Expected key 1234 to be an AES-256 key',
                       str(cm.exception))
         self.assertEqual(calls, [
@@ -264,7 +264,7 @@ class TestKmipKeymaster(unittest.TestCase):
         with mock.patch(KMIP_CLIENT_CLASS,
                         create_mock_client(secrets, calls)), \
                 self.assertRaises(ValueError) as cm:
-            KmipKeyMaster(None, conf)
+            kmip_keymaster.KmipKeyMaster(None, conf)
         self.assertIn('Expected key 1234 to be an AES-256 key',
                       str(cm.exception))
         self.assertEqual(calls, [
@@ -280,7 +280,7 @@ class TestKmipKeymaster(unittest.TestCase):
         with mock.patch(KMIP_CLIENT_CLASS,
                         create_mock_client(secrets, calls)), \
                 self.assertRaises(ValueError) as cm:
-            KmipKeyMaster(None, conf)
+            kmip_keymaster.KmipKeyMaster(None, conf)
         self.assertEqual('No secret loaded for active_root_secret_id None',
                          str(cm.exception))
         # We make the client, but never use it
@@ -304,7 +304,7 @@ class TestKmipKeymaster(unittest.TestCase):
                             create_mock_client(secrets, calls)), \
                     self.assertRaises(ValueError):
                 # missing key_id, as above, but that's not the interesting bit
-                KmipKeyMaster(None, conf)
+                kmip_keymaster.KmipKeyMaster(None, conf)
 
             self.assertEqual(handler.messages, [])
 

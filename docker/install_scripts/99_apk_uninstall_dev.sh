@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 cd /
 rm -rf /build
@@ -7,10 +8,6 @@ apk del gnupg
 apk del git
 apk del openssl-dev
 apk del sqlite-dev
-apk del autoconf
-apk del automake
-apk del libtool
-apk del make
 apk del zlib-dev
 apk del g++
 apk del libffi-dev

@@ -175,6 +175,15 @@ class PartController(Controller):
 
             req.headers['Range'] = rng
             del req.headers['X-Amz-Copy-Source-Range']
+        if 'X-Amz-Copy-Source' in req.headers:
+            # Clear some problematic headers that might be on the source
+            req.headers.update({
+                sysmeta_header('object', 'etag'): '',
+                'X-Object-Sysmeta-Swift3-Etag': '',  # for legacy data
+                'X-Object-Sysmeta-Slo-Etag': '',
+                'X-Object-Sysmeta-Slo-Size': '',
+                'X-Object-Sysmeta-Container-Update-Override-Etag': '',
+            })
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:
@@ -351,11 +360,11 @@ class UploadsController(Controller):
         """
         Handles Initiate Multipart Upload.
         """
-
         # Create a unique S3 upload id from UUID to avoid duplicates.
         upload_id = unique_id()
 
-        container = req.container_name + MULTIUPLOAD_SUFFIX
+        orig_container = req.container_name
+        seg_container = orig_container + MULTIUPLOAD_SUFFIX
         content_type = req.headers.get('Content-Type')
         if content_type:
             req.headers[sysmeta_header('object', 'has-content-type')] = 'yes'
@@ -366,16 +375,22 @@ class UploadsController(Controller):
         req.headers['Content-Type'] = 'application/directory'
 
         try:
-            req.get_response(self.app, 'PUT', container, '')
-        except (BucketAlreadyExists, BucketAlreadyOwnedByYou):
-            pass
+            req.container_name = seg_container
+            req.get_container_info(self.app)
+        except NoSuchBucket:
+            try:
+                req.get_response(self.app, 'PUT', seg_container, '')
+            except (BucketAlreadyExists, BucketAlreadyOwnedByYou):
+                pass
+        finally:
+            req.container_name = orig_container
 
         obj = '%s/%s' % (req.object_name, upload_id)
 
         req.headers.pop('Etag', None)
         req.headers.pop('Content-Md5', None)
 
-        req.get_response(self.app, 'PUT', container, obj, body='')
+        req.get_response(self.app, 'PUT', seg_container, obj, body='')
 
         result_elem = Element('InitiateMultipartUploadResult')
         SubElement(result_elem, 'Bucket').text = req.container_name

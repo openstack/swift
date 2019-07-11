@@ -344,9 +344,11 @@ class TestContainerController(TestRingBase):
             ([200], 200),
             ([404, 200], 200),
             ([404] * nodes + [200], 200),
-            ([Timeout()] * nodes + [404] * handoffs, 404),
+            ([Timeout()] * nodes + [404] * handoffs, 503),
             ([Timeout()] * (nodes + handoffs), 503),
-            ([Timeout()] * (nodes + handoffs - 1) + [404], 404),
+            ([Timeout()] * (nodes + handoffs - 1) + [404], 503),
+            ([Timeout()] * (nodes - 1) + [404] * (handoffs + 1), 404),
+            ([500] * (nodes - 1) + [404] * (handoffs + 1), 503),
             ([503, 200], 200),
             ([507, 200], 200),
         ]
@@ -376,6 +378,16 @@ class TestContainerController(TestRingBase):
             req = Request.blank('/v1/a/c')
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 503)
+
+    def test_handoff_has_deleted_database(self):
+        nodes = self.app.container_ring.replicas
+        handoffs = self.app.request_node_count(nodes) - nodes
+        status = [Timeout()] * nodes + [404] * handoffs
+        timestamps = tuple([None] * nodes + ['1'] + [None] * (handoffs - 1))
+        with mocked_http_conn(*status, timestamps=timestamps):
+            req = Request.blank('/v1/a/c')
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 404)
 
     def test_response_code_for_PUT(self):
         PUT_TEST_CASES = [

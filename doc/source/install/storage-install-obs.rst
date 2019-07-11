@@ -53,8 +53,8 @@ storage nodes, you must prepare the storage devices.
 
    .. code-block:: none
 
-        /dev/sdb /srv/node/sdb xfs noatime,nodiratime,nobarrier,logbufs=8 0 2
-        /dev/sdc /srv/node/sdc xfs noatime,nodiratime,nobarrier,logbufs=8 0 2
+        /dev/sdb /srv/node/sdb xfs noatime,nodiratime,logbufs=8 0 2
+        /dev/sdc /srv/node/sdc xfs noatime,nodiratime,logbufs=8 0 2
 
 #. Mount the devices:
 

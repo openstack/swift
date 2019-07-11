@@ -156,24 +156,22 @@ class ContainerController(BaseStorageServer):
         :returns: policy index from request, or None if not present
         :raises HTTPBadRequest: if the supplied index is bogus
         """
-
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index', None)
+        header = 'X-Backend-Storage-Policy-Index'
+        policy_index = req.headers.get(header, None)
         if policy_index is None:
             return None
 
         try:
             policy_index = int(policy_index)
+            policy = POLICIES.get_by_index(policy_index)
+            if policy is None:
+                raise ValueError
         except ValueError:
             raise HTTPBadRequest(
                 request=req, content_type="text/plain",
-                body=("Invalid X-Storage-Policy-Index %r" % policy_index))
-
-        policy = POLICIES.get_by_index(policy_index)
-        if policy is None:
-            raise HTTPBadRequest(
-                request=req, content_type="text/plain",
-                body=("Invalid X-Storage-Policy-Index %r" % policy_index))
-        return int(policy)
+                body="Invalid %s %r" % (header, policy_index))
+        else:
+            return int(policy)
 
     def account_update(self, req, account, container, broker):
         """

@@ -135,7 +135,7 @@ from swift.common.utils import streq_const_time, register_swift_info, \
     parse_content_disposition, parse_mime_headers, \
     iter_multipart_mime_documents, reiterate, close_if_possible
 from swift.common.wsgi import make_pre_authed_env
-from swift.common.swob import HTTPUnauthorized
+from swift.common.swob import HTTPUnauthorized, wsgi_to_str
 from swift.proxy.controllers.base import get_account_info, get_container_info
 
 
@@ -390,7 +390,7 @@ class FormPost(object):
         except ValueError:
             raise FormInvalid('expired not an integer')
         hmac_body = '%s\n%s\n%s\n%s\n%s' % (
-            orig_env['PATH_INFO'],
+            wsgi_to_str(orig_env['PATH_INFO']),
             attributes.get('redirect') or '',
             attributes.get('max_file_size') or '0',
             attributes.get('max_file_count') or '0',
@@ -400,6 +400,9 @@ class FormPost(object):
 
         has_valid_sig = False
         for key in keys:
+            # Encode key like in swift.common.utls.get_hmac.
+            if not isinstance(key, six.binary_type):
+                key = key.encode('utf8')
             sig = hmac.new(key, hmac_body, sha1).hexdigest()
             if streq_const_time(sig, (attributes.get('signature') or
                                       'invalid')):

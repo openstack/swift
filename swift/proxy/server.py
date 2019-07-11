@@ -29,6 +29,7 @@ from eventlet import Timeout
 
 from swift import __canonical_version__ as swift_version
 from swift.common import constraints
+from swift.common.http import is_server_error
 from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
@@ -403,6 +404,8 @@ class Application(object):
             raise APIVersionError('Invalid path')
         if obj and container and account:
             info = get_container_info(req.environ, self)
+            if is_server_error(info.get('status')):
+                raise HTTPServiceUnavailable(request=req)
             policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                            info['storage_policy'])
             policy = POLICIES.get_by_index(policy_index)

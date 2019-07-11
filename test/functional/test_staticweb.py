@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import functools
+import six
 from unittest2 import SkipTest
 from six.moves.urllib.parse import unquote
 from swift.common.utils import quote
@@ -94,7 +95,7 @@ class TestStaticWebEnv(BaseEnv):
                     'Content-Type': 'application/directory'})
             else:
                 cls.objects[item] = cls.container.file(path)
-                cls.objects[item].write('%s contents' % item)
+                cls.objects[item].write(('%s contents' % item).encode('utf8'))
 
 
 class TestStaticWeb(Base):
@@ -155,11 +156,10 @@ class TestStaticWeb(Base):
 
     def _test_redirect_with_slash(self, host, path, anonymous=False):
         self._set_staticweb_headers(listings=True)
-        self.env.account.conn.make_request('GET', path,
-                                           hdrs={'X-Web-Mode': not anonymous,
-                                                 'Host': host},
-                                           cfg={'no_auth_token': anonymous,
-                                                'absolute_path': True})
+        self.env.account.conn.make_request(
+            'GET', path,
+            hdrs={'X-Web-Mode': str(not anonymous), 'Host': host},
+            cfg={'no_auth_token': anonymous, 'absolute_path': True})
 
         self.assert_status(301)
         expected = '%s://%s%s/' % (
@@ -214,13 +214,14 @@ class TestStaticWeb(Base):
 
     def _test_get_path(self, host, path, anonymous=False, expected_status=200,
                        expected_in=[], expected_not_in=[]):
-        self.env.account.conn.make_request('GET', path,
-                                           hdrs={'X-Web-Mode': not anonymous,
-                                                 'Host': host},
-                                           cfg={'no_auth_token': anonymous,
-                                                'absolute_path': True})
+        self.env.account.conn.make_request(
+            'GET', path,
+            hdrs={'X-Web-Mode': str(not anonymous), 'Host': host},
+            cfg={'no_auth_token': anonymous, 'absolute_path': True})
         self.assert_status(expected_status)
         body = self.env.account.conn.response.read()
+        if not six.PY2:
+            body = body.decode('utf8')
         for string in expected_in:
             self.assertIn(string, body)
         for string in expected_not_in:

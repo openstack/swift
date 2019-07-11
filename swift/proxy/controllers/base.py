@@ -123,7 +123,8 @@ def _prep_headers_to_info(headers, server_type):
     sysmeta = {}
     other = {}
     for key, val in dict(headers).items():
-        lkey = key.lower()
+        lkey = wsgi_to_str(key).lower()
+        val = wsgi_to_str(val) if isinstance(val, str) else val
         if is_user_meta(server_type, lkey):
             meta[strip_user_meta_prefix(server_type, lkey)] = val
         elif is_sys_meta(server_type, lkey):
@@ -366,7 +367,7 @@ def get_container_info(env, app, swift_source=None):
     if info:
         info = deepcopy(info)  # avoid mutating what's in swift.infocache
     else:
-        info = headers_to_container_info({}, 0)
+        info = headers_to_container_info({}, 503)
 
     # Old data format in memcache immediately after a Swift upgrade; clean
     # it up so consumers of get_container_info() aren't exposed to it.
@@ -431,7 +432,7 @@ def get_account_info(env, app, swift_source=None):
     if info:
         info = info.copy()  # avoid mutating what's in swift.infocache
     else:
-        info = headers_to_account_info({}, 0)
+        info = headers_to_account_info({}, 503)
 
     for field in ('container_count', 'bytes', 'total_object_count'):
         if info.get(field) is None:
@@ -450,8 +451,22 @@ def get_cache_key(account, container=None, obj=None):
     :param account: The name of the account
     :param container: The name of the container (or None if account)
     :param obj: The name of the object (or None if account or container)
-    :returns: a string cache_key
+    :returns: a (native) string cache_key
     """
+    if six.PY2:
+        def to_native(s):
+            if s is None or isinstance(s, str):
+                return s
+            return s.encode('utf8')
+    else:
+        def to_native(s):
+            if s is None or isinstance(s, str):
+                return s
+            return s.decode('utf8', 'surrogateescape')
+
+    account = to_native(account)
+    container = to_native(container)
+    obj = to_native(obj)
 
     if obj:
         if not (account and container):
@@ -1218,6 +1233,10 @@ class ResumingGetter(object):
                 _('Trying to %(method)s %(path)s') %
                 {'method': self.req_method, 'path': self.req_path})
             return False
+
+        src_headers = dict(
+            (k.lower(), v) for k, v in
+            possible_source.getheaders())
         if self.is_good_source(possible_source):
             # 404 if we know we don't have a synced copy
             if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
@@ -1227,9 +1246,6 @@ class ResumingGetter(object):
                 self.source_headers.append([])
                 close_swift_conn(possible_source)
             else:
-                src_headers = dict(
-                    (k.lower(), v) for k, v in
-                    possible_source.getheaders())
                 if self.used_source_etag and \
                     self.used_source_etag != src_headers.get(
                         'x-object-sysmeta-ec-etag',
@@ -1256,7 +1272,12 @@ class ResumingGetter(object):
                     if not self.newest:  # one good source is enough
                         return True
         else:
-
+            if self.server_type != 'Object' and 'handoff_index' in node and \
+                    possible_source.status == HTTP_NOT_FOUND and \
+                    not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                # throw out 404s from handoff nodes unless the db is really
+                # on disk and had been DELETEd
+                return False
             self.statuses.append(possible_source.status)
             self.reasons.append(possible_source.reason)
             self.bodies.append(possible_source.read())

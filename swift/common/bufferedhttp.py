@@ -39,13 +39,16 @@ import six
 
 if six.PY2:
     httplib = eventlet.import_patched('httplib')
+    from eventlet.green import httplib as green_httplib
 else:
     httplib = eventlet.import_patched('http.client')
+    from eventlet.green.http import client as green_httplib
 
 # Apparently http.server uses this to decide when/whether to send a 431.
 # Give it some slack, so the app is more likely to get the chance to reject
 # with a 400 instead.
 httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
+green_httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
 
 
 class BufferedHTTPResponse(HTTPResponse):
@@ -79,6 +82,23 @@ class BufferedHTTPResponse(HTTPResponse):
         self.length = _UNKNOWN          # number of bytes left in response
         self.will_close = _UNKNOWN      # conn will close at end of response
         self._readline_buffer = b''
+
+    if not six.PY2:
+        def begin(self):
+            HTTPResponse.begin(self)
+            header_payload = self.headers.get_payload()
+            if header_payload:
+                # This shouldn't be here. We must've bumped up against
+                # https://bugs.python.org/issue37093
+                for line in header_payload.rstrip('\r\n').split('\n'):
+                    if ':' not in line or line[:1] in ' \t':
+                        # Well, we're no more broken than we were before...
+                        # Should we support line folding?
+                        # How can/should we handle a bad header line?
+                        break
+                    header, value = line.split(':', 1)
+                    value = value.strip(' \t\n\r')
+                    self.headers.add_header(header, value)
 
     def expect_response(self):
         if self.fp:
@@ -194,6 +214,11 @@ class BufferedHTTPConnection(HTTPConnection):
         self._path = url
         return HTTPConnection.putrequest(self, method, url, skip_host,
                                          skip_accept_encoding)
+
+    def putheader(self, header, value):
+        if not isinstance(header, bytes):
+            header = header.encode('latin-1')
+        HTTPConnection.putheader(self, header, value)
 
     def getexpect(self):
         kwargs = {'method': self._method}
