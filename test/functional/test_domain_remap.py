@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from unittest2 import SkipTest
+import six
 
 import test.functional as tf
 from test.functional import cluster_info
@@ -53,10 +54,10 @@ class TestDomainRemapEnv(BaseEnv):
             raise ResponseError(cls.conn.response)
 
         cls.obj = cls.container.file(Utils.create_name())
-        cls.obj.write('obj contents')
+        cls.obj.write(b'obj contents')
 
         cls.obj_slash = cls.container.file('/v1')
-        cls.obj_slash.write('obj contents')
+        cls.obj_slash.write(b'obj contents')
 
 
 class TestDomainRemap(Base):
@@ -103,7 +104,9 @@ class TestDomainRemap(Base):
                                                cfg={'absolute_path': True})
             self.assert_status(200)
             body = self.env.account.conn.response.read()
-            self.assertIn(self.env.container.name, body)
+            if not six.PY2:
+                body = body.decode('utf8')
+            self.assertIn(self.env.container.name, body.split('\n'))
 
             path = '/'.join(['', self.env.container.name])
             self.env.account.conn.make_request('GET', path,
@@ -111,8 +114,10 @@ class TestDomainRemap(Base):
                                                cfg={'absolute_path': True})
             self.assert_status(200)
             body = self.env.account.conn.response.read()
-            self.assertIn(self.env.obj.name, body)
-            self.assertIn(self.env.obj_slash.name, body)
+            if not six.PY2:
+                body = body.decode('utf8')
+            self.assertIn(self.env.obj.name, body.split('\n'))
+            self.assertIn(self.env.obj_slash.name, body.split('\n'))
 
             for obj in (self.env.obj, self.env.obj_slash):
                 path = '/'.join(['', self.env.container.name, obj.name])
@@ -143,7 +148,7 @@ class TestDomainRemap(Base):
                                                cfg={'absolute_path': True})
             self.assert_status(201)
             new_obj = self.env.container.file(new_obj_name)
-            self.assertEqual(new_obj.read(), 'new obj contents')
+            self.assertEqual(new_obj.read(), b'new obj contents')
 
     def test_GET_remapped_container(self):
         for domain in (self.cont_domain_dash, self.cont_domain_underscore):
@@ -152,8 +157,10 @@ class TestDomainRemap(Base):
                                                cfg={'absolute_path': True})
             self.assert_status(200)
             body = self.env.account.conn.response.read()
-            self.assertIn(self.env.obj.name, body)
-            self.assertIn(self.env.obj_slash.name, body)
+            if not six.PY2:
+                body = body.decode('utf8')
+            self.assertIn(self.env.obj.name, body.split('\n'))
+            self.assertIn(self.env.obj_slash.name, body.split('\n'))
 
             for obj in (self.env.obj, self.env.obj_slash):
                 path = '/'.join(['', obj.name])
@@ -174,4 +181,4 @@ class TestDomainRemap(Base):
             self.assert_status(201)
 
             new_obj = self.env.container.file(new_obj_name)
-            self.assertEqual(new_obj.read(), 'new obj contents')
+            self.assertEqual(new_obj.read(), b'new obj contents')
