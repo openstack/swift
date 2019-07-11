@@ -407,7 +407,17 @@ class TestAccount(Base):
         quoted_hax = urllib.parse.quote(hax)
         conn.connection.request('GET', '/v1/' + quoted_hax, None, {})
         resp = conn.connection.getresponse()
-        resp_headers = dict((h.lower(), v) for h, v in resp.getheaders())
+
+        resp_headers = {}
+        for h, v in resp.getheaders():
+            h = h.lower()
+            if h in resp_headers:
+                # py2 would do this for us, but py3 apparently keeps them
+                # separate? Not sure which I like more...
+                resp_headers[h] += ',' + v
+            else:
+                resp_headers[h] = v
+
         self.assertIn('www-authenticate', resp_headers)
         actual = resp_headers['www-authenticate']
         expected = 'Swift realm="%s"' % quoted_hax
