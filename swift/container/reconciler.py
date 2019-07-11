@@ -159,8 +159,8 @@ def get_reconciler_content_type(op):
 
 
 def get_row_to_q_entry_translator(broker):
-    account = broker.account
-    container = broker.container
+    account = broker.root_account
+    container = broker.root_container
     op_type = {
         0: get_reconciler_content_type('put'),
         1: get_reconciler_content_type('delete'),
