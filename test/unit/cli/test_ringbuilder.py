@@ -2263,9 +2263,33 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
 
         # Note that we've picked up an extension
         builder = RingBuilder.load(self.tmpfile + '.builder')
+        # Version was recorded in the .ring.gz!
+        self.assertEqual(builder.version, 5)
         # Note that this is different from the original! But it more-closely
         # reflects the reality that we have an extra replica for 12 of 64 parts
         self.assertEqual(builder.replicas, 1.1875)
+
+    def test_write_builder_no_version(self):
+        self.create_sample_ring()
+        rb = RingBuilder.load(self.tmpfile)
+        rb.rebalance()
+
+        # Make sure we write down the ring in the old way, with no version
+        rd = rb.get_ring()
+        rd.version = None
+        rd.save(self.tmpfile + ".ring.gz")
+
+        ring_file = os.path.join(os.path.dirname(self.tmpfile),
+                                 os.path.basename(self.tmpfile) + ".ring.gz")
+        os.remove(self.tmpfile)  # loses file...
+
+        argv = ["", ring_file, "write_builder", "24"]
+        self.assertIsNone(ringbuilder.main(argv))
+
+        # Note that we've picked up an extension
+        builder = RingBuilder.load(self.tmpfile + '.builder')
+        # No version in the .ring.gz; default to 0
+        self.assertEqual(builder.version, 0)
 
     def test_write_builder_after_device_removal(self):
         # Test regenerating builder file after having removed a device
