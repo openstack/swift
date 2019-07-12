@@ -32,21 +32,26 @@ class TestHeaderEnvironProxy(unittest.TestCase):
     def test_proxy(self):
         environ = {}
         proxy = swift.common.swob.HeaderEnvironProxy(environ)
+        self.assertIs(environ, proxy.environ)
         proxy['Content-Length'] = 20
         proxy['Content-Type'] = 'text/plain'
         proxy['Something-Else'] = 'somevalue'
-        self.assertEqual(
-            proxy.environ, {'CONTENT_LENGTH': '20',
-                            'CONTENT_TYPE': 'text/plain',
-                            'HTTP_SOMETHING_ELSE': 'somevalue'})
+        # NB: WSGI strings
+        proxy['X-Object-Meta-Unicode-\xff-Bu\xc3\x9fe'] = '\xe2\x98\xb9'
+        self.assertEqual(proxy.environ, {
+            'CONTENT_LENGTH': '20',
+            'CONTENT_TYPE': 'text/plain',
+            'HTTP_SOMETHING_ELSE': 'somevalue',
+            'HTTP_X_OBJECT_META_UNICODE_\xff_BU\xc3\x9fE': '\xe2\x98\xb9'})
         self.assertEqual(proxy['content-length'], '20')
         self.assertEqual(proxy['content-type'], 'text/plain')
         self.assertEqual(proxy['something-else'], 'somevalue')
         self.assertEqual(set(['Something-Else',
+                              'X-Object-Meta-Unicode-\xff-Bu\xc3\x9fE',
                               'Content-Length', 'Content-Type']),
                          set(proxy.keys()))
         self.assertEqual(list(iter(proxy)), proxy.keys())
-        self.assertEqual(3, len(proxy))
+        self.assertEqual(4, len(proxy))
 
     def test_ignored_keys(self):
         # Constructor doesn't normalize keys
@@ -58,6 +63,8 @@ class TestHeaderEnvironProxy(unittest.TestCase):
         self.assertEqual(0, len(proxy))
         self.assertRaises(KeyError, proxy.__getitem__, key)
         self.assertNotIn(key, proxy)
+        self.assertIn(key, proxy.environ)
+        self.assertIs(environ, proxy.environ)
 
         proxy['Content-Type'] = 'text/plain'
         self.assertEqual(['Content-Type'], list(iter(proxy)))
@@ -77,6 +84,8 @@ class TestHeaderEnvironProxy(unittest.TestCase):
         del proxy['Something-Else']
         self.assertEqual(proxy.environ, {})
         self.assertEqual(0, len(proxy))
+        with self.assertRaises(KeyError):
+            del proxy['Content-Length']
 
     def test_contains(self):
         environ = {}
