@@ -420,7 +420,10 @@ class DynamicLargeObject(object):
         req = Request(env)
         try:
             vrs, account, container, obj = req.split_path(4, 4, True)
+            is_obj_req = True
         except ValueError:
+            is_obj_req = False
+        if not is_obj_req:
             return self.app(env, start_response)
 
         if ((req.method == 'GET' or req.method == 'HEAD') and

@@ -128,6 +128,10 @@ class ListingFilter(object):
             # account and container only
             version, acct, cont = req.split_path(2, 3)
         except ValueError:
+            is_container_req = False
+        else:
+            is_container_req = True
+        if not is_container_req:
             return self.app(env, start_response)
 
         if not valid_api_version(version) or req.method not in ('GET', 'HEAD'):
