@@ -20,15 +20,16 @@ import uuid
 
 from nose import SkipTest
 
-from swift.common import direct_client
+from swift.common import direct_client, utils
+from swift.common.manager import Manager
+from swift.common.memcached import MemcacheRing
 from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
     quorum_size, config_true_value, Timestamp
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
-from swift.common import utils
-from swift.common.manager import Manager
 from swiftclient import client, get_auth, ClientException
 
+from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.obj import num_container_updates
 from test import annotate_failure
 from test.probe.brain import BrainSplitter
@@ -116,6 +117,7 @@ class BaseTestContainerSharding(ReplProbeTest):
         self.brain.put_container(policy_index=int(self.policy))
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
+        self.memcache = MemcacheRing(['127.0.0.1:11211'])
 
     def stop_container_servers(self, node_numbers=None):
         if node_numbers:
@@ -835,6 +837,9 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_container_listing(more_obj_names + obj_names)
         self.assert_container_object_count(len(more_obj_names + obj_names))
 
+        # Before writing, kill the cache
+        self.memcache.delete(get_cache_key(
+            self.account, self.container_name, shard='updating'))
         # add another object that lands in the first of the new sub-shards
         self.put_objects(['alpha'])
 
@@ -1217,6 +1222,10 @@ class TestContainerSharding(BaseTestContainerSharding):
             # now look up the shard target for subsequent updates
             self.assert_container_listing(obj_names)
 
+            # Before writing, kill the cache
+            self.memcache.delete(get_cache_key(
+                self.account, self.container_name, shard='updating'))
+
             # delete objects from first shard range
             first_shard_objects = [obj_name for obj_name in obj_names
                                    if obj_name <= orig_shard_ranges[0].upper]
@@ -1243,6 +1252,11 @@ class TestContainerSharding(BaseTestContainerSharding):
             # to a GET for a redirect target, the object update will default to
             # being targeted at the root container
             self.stop_container_servers()
+
+            # Before writing, kill the cache
+            self.memcache.delete(get_cache_key(
+                self.account, self.container_name, shard='updating'))
+
             self.put_objects([beta])
             self.brain.servers.start()
             async_pendings = self.gather_async_pendings(
@@ -1746,6 +1760,9 @@ class TestContainerSharding(BaseTestContainerSharding):
         shard_part, shard_nodes = self.get_part_and_node_numbers(
             shard_ranges[1])
         self.brain.servers.stop(number=shard_nodes[2])
+        # Before writing, kill the cache
+        self.memcache.delete(get_cache_key(
+            self.account, self.container_name, shard='updating'))
         self.delete_objects(['alpha'])
         self.put_objects(['beta'])
         self.assert_container_listing(['beta'])
