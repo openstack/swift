@@ -619,7 +619,7 @@ def run_server(conf, logger, sock, global_conf=None):
     try:
         wsgi.server(sock, app, wsgi_logger, **server_kwargs)
     except socket.error as err:
-        if err[0] != errno.EINVAL:
+        if err.errno != errno.EINVAL:
             raise
     pool.waitall()
 
