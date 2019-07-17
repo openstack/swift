@@ -136,7 +136,7 @@ class TestDlo(Base):
             man1_item.copy(self.env.container.name, "copied-man1")
         finally:
             # try not to leave this around for other tests to stumble over
-            f_segment.delete()
+            f_segment.delete(tolerate_missing=True)
 
         file_item = self.env.container.file('copied-man1')
         file_contents = file_item.read()
@@ -162,7 +162,7 @@ class TestDlo(Base):
                                    "copied-man1")
         finally:
             # try not to leave this around for other tests to stumble over
-            f_segment.delete()
+            f_segment.delete(tolerate_missing=True)
 
         file_item = self.env.container.file('copied-man1')
         file_contents = file_item.read()
@@ -192,7 +192,8 @@ class TestDlo(Base):
                              copied.info()['x_object_manifest'])
         finally:
             # try not to leave this around for other tests to stumble over
-            self.env.container.file("copied-man1").delete()
+            self.env.container.file("copied-man1").delete(
+                tolerate_missing=True)
 
     def test_dlo_if_match_get(self):
         manifest = self.env.container.file("man1")

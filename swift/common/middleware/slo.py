@@ -1511,7 +1511,10 @@ class StaticLargeObject(object):
         req = Request(env)
         try:
             vrs, account, container, obj = req.split_path(3, 4, True)
+            is_cont_or_obj_req = True
         except ValueError:
+            is_cont_or_obj_req = False
+        if not is_cont_or_obj_req:
             return self.app(env, start_response)
 
         if not obj:
