@@ -485,7 +485,6 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-            voting: false
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
