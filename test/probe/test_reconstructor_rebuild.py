@@ -24,6 +24,7 @@ import shutil
 import random
 import os
 import time
+import six
 
 from swift.common.direct_client import DirectClientException
 from test.probe.common import ECProbeTest
@@ -38,10 +39,10 @@ from swiftclient import client, ClientException
 class Body(object):
 
     def __init__(self, total=3.5 * 2 ** 20):
-        self.total = total
+        self.total = int(total)
         self.hasher = md5()
         self.size = 0
-        self.chunk = 'test' * 16 * 2 ** 10
+        self.chunk = b'test' * 16 * 2 ** 10
 
     @property
     def etag(self):
@@ -50,21 +51,21 @@ class Body(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         if self.size > self.total:
             raise StopIteration()
         self.size += len(self.chunk)
         self.hasher.update(self.chunk)
         return self.chunk
 
-    def __next__(self):
-        return next(self)
+    # for py2 compat
+    next = __next__
 
 
 class TestReconstructorRebuild(ECProbeTest):
 
     def _make_name(self, prefix):
-        return '%s%s' % (prefix, uuid.uuid4())
+        return ('%s%s' % (prefix, uuid.uuid4())).encode()
 
     def setUp(self):
         super(TestReconstructorRebuild, self).setUp()
@@ -131,10 +132,13 @@ class TestReconstructorRebuild(ECProbeTest):
                 {'X-Backend-Fragment-Preferences': json.dumps([])})
         # node dict has unicode values so utf8 decode our path parts too in
         # case they have non-ascii characters
+        if six.PY2:
+            acc, con, obj = (s.decode('utf8') for s in (
+                self.account, self.container_name, self.object_name))
+        else:
+            acc, con, obj = self.account, self.container_name, self.object_name
         headers, data = direct_client.direct_get_object(
-            node, part, self.account.decode('utf8'),
-            self.container_name.decode('utf8'),
-            self.object_name.decode('utf8'), headers=req_headers,
+            node, part, acc, con, obj, headers=req_headers,
             resp_chunk_size=64 * 2 ** 20)
         hasher = md5()
         for chunk in data:
@@ -402,7 +406,7 @@ class TestReconstructorRebuild(ECProbeTest):
         opart, onodes = self.object_ring.get_nodes(
             self.account, self.container_name, self.object_name)
         delete_at = int(time.time() + 3)
-        contents = 'body-%s' % uuid.uuid4()
+        contents = ('body-%s' % uuid.uuid4()).encode()
         headers = {'x-delete-at': delete_at}
         client.put_object(self.url, self.token, self.container_name,
                           self.object_name, headers=headers, contents=contents)
@@ -418,15 +422,17 @@ class TestReconstructorRebuild(ECProbeTest):
         # wait for the delete_at to pass, and check that it thinks the object
         # is expired
         timeout = time.time() + 5
+        err = None
         while time.time() < timeout:
             try:
                 direct_client.direct_head_object(
                     post_fail_node, opart, self.account, self.container_name,
                     self.object_name, headers={
                         'X-Backend-Storage-Policy-Index': int(self.policy)})
-            except direct_client.ClientException as err:
-                if err.http_status != 404:
+            except direct_client.ClientException as client_err:
+                if client_err.http_status != 404:
                     raise
+                err = client_err
                 break
             else:
                 time.sleep(0.1)
@@ -454,7 +460,7 @@ class TestReconstructorRebuild(ECProbeTest):
 class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
 
     def _make_name(self, prefix):
-        return '%s\xc3\xa8-%s' % (prefix, uuid.uuid4())
+        return b'%s\xc3\xa8-%s' % (prefix.encode(), str(uuid.uuid4()).encode())
 
 
 if __name__ == "__main__":

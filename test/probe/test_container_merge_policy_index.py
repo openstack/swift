@@ -68,7 +68,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.brain.stop_handoff_half()
         self.brain.put_container()
         self.brain.put_object(headers={'x-object-meta-test': 'custom-meta'},
-                              contents='VERIFY')
+                              contents=b'VERIFY')
         self.brain.start_handoff_half()
         # make sure we have some manner of split brain
         container_part, container_nodes = self.container_ring.get_nodes(
@@ -78,9 +78,9 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account, self.container_name)
             head_responses.append((node, metadata))
-        found_policy_indexes = \
-            set(metadata['X-Backend-Storage-Policy-Index'] for
-                node, metadata in head_responses)
+        found_policy_indexes = {
+            metadata['X-Backend-Storage-Policy-Index']
+            for node, metadata in head_responses}
         self.assertGreater(
             len(found_policy_indexes), 1,
             'primary nodes did not disagree about policy index %r' %
@@ -116,9 +116,9 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account, self.container_name)
             head_responses.append((node, metadata))
-        found_policy_indexes = \
-            set(metadata['X-Backend-Storage-Policy-Index'] for
-                node, metadata in head_responses)
+        found_policy_indexes = {
+            metadata['X-Backend-Storage-Policy-Index']
+            for node, metadata in head_responses}
         self.assertEqual(len(found_policy_indexes), 1,
                          'primary nodes disagree about policy index %r' %
                          head_responses)
@@ -144,7 +144,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                     orig_policy_index))
         # verify that the object data read by external client is correct
         headers, data = self._get_object_patiently(expected_policy_index)
-        self.assertEqual('VERIFY', data)
+        self.assertEqual(b'VERIFY', data)
         self.assertEqual('custom-meta', headers['x-object-meta-test'])
 
     def test_reconcile_delete(self):
@@ -165,9 +165,9 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account, self.container_name)
             head_responses.append((node, metadata))
-        found_policy_indexes = \
-            set(metadata['X-Backend-Storage-Policy-Index'] for
-                node, metadata in head_responses)
+        found_policy_indexes = {
+            metadata['X-Backend-Storage-Policy-Index']
+            for node, metadata in head_responses}
         self.assertGreater(
             len(found_policy_indexes), 1,
             'primary nodes did not disagree about policy index %r' %
@@ -208,15 +208,14 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account, self.container_name)
             head_responses.append((node, metadata))
-        new_found_policy_indexes = \
-            set(metadata['X-Backend-Storage-Policy-Index'] for node,
-                metadata in head_responses)
-        self.assertEqual(len(new_found_policy_indexes), 1,
+        node_to_policy = {
+            node['port']: metadata['X-Backend-Storage-Policy-Index']
+            for node, metadata in head_responses}
+        policies = set(node_to_policy.values())
+        self.assertEqual(len(policies), 1,
                          'primary nodes disagree about policy index %r' %
-                         dict((node['port'],
-                               metadata['X-Backend-Storage-Policy-Index'])
-                              for node, metadata in head_responses))
-        expected_policy_index = new_found_policy_indexes.pop()
+                         node_to_policy)
+        expected_policy_index = policies.pop()
         self.assertEqual(orig_policy_index, expected_policy_index)
         # validate object fully deleted
         for policy_index in found_policy_indexes:
@@ -257,7 +256,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         manifest_data = []
 
         def write_part(i):
-            body = 'VERIFY%0.2d' % i + '\x00' * 1048576
+            body = b'VERIFY%0.2d' % i + b'\x00' * 1048576
             part_name = 'manifest_part_%0.2d' % i
             manifest_entry = {
                 "path": "/%s/%s" % (self.container_name, part_name),
@@ -310,7 +309,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                 'bytes': data['size_bytes'],
                 'name': data['path'],
             }
-        direct_manifest_data = map(translate_direct, manifest_data)
+        direct_manifest_data = [translate_direct(item)
+                                for item in manifest_data]
         headers = {
             'x-container-host': ','.join('%s:%s' % (n['ip'], n['port']) for n
                                          in self.container_ring.devs),
@@ -320,11 +320,12 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
             'X-Backend-Storage-Policy-Index': wrong_policy.idx,
             'X-Static-Large-Object': 'True',
         }
+        body = utils.json.dumps(direct_manifest_data).encode('ascii')
         for node in nodes:
             direct_client.direct_put_object(
                 node, part, self.account, self.container_name,
                 direct_manifest_name,
-                contents=utils.json.dumps(direct_manifest_data),
+                contents=body,
                 headers=headers)
             break  # one should do it...
 
@@ -347,8 +348,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.assertEqual(metadata['x-static-large-object'].lower(), 'true')
         self.assertEqual(int(metadata['content-length']),
                          sum(part['size_bytes'] for part in manifest_data))
-        self.assertEqual(body, ''.join('VERIFY%0.2d' % i + '\x00' * 1048576
-                                       for i in range(20)))
+        self.assertEqual(body, b''.join(b'VERIFY%0.2d' % i + b'\x00' * 1048576
+                                        for i in range(20)))
 
         # and regular upload should work now too
         client.put_object(self.url, self.token, self.container_name,
@@ -375,7 +376,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.brain.start_primary_half()
         # write some target data
         client.put_object(self.url, self.token, self.container_name, 'target',
-                          contents='this is the target data')
+                          contents=b'this is the target data')
 
         # write the symlink
         self.brain.stop_handoff_half()
@@ -401,7 +402,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.assertEqual(metadata['x-symlink-target'],
                          '%s/target' % self.container_name)
         self.assertEqual(metadata['content-type'], 'application/symlink')
-        self.assertEqual(body, '')
+        self.assertEqual(body, b'')
         # ... although in the wrong policy
         object_ring = POLICIES.get_object_ring(int(wrong_policy), '/etc/swift')
         part, nodes = object_ring.get_nodes(
@@ -423,7 +424,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         # now the symlink works
         metadata, body = client.get_object(self.url, self.token,
                                            self.container_name, 'symlink')
-        self.assertEqual(body, 'this is the target data')
+        self.assertEqual(body, b'this is the target data')
         # and it's in the correct policy
         object_ring = POLICIES.get_object_ring(int(policy), '/etc/swift')
         part, nodes = object_ring.get_nodes(
@@ -469,7 +470,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
 
         # hopefully memcache still has the new policy cached
         self.brain.put_object(headers={'x-object-meta-test': 'custom-meta'},
-                              contents='VERIFY')
+                              contents=b'VERIFY')
         # double-check object correctly written to new policy
         conf_files = []
         for server in Manager(['container-reconciler']).servers:
@@ -546,7 +547,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
 
         # verify that the object data read by external client is correct
         headers, data = self._get_object_patiently(int(new_policy))
-        self.assertEqual('VERIFY', data)
+        self.assertEqual(b'VERIFY', data)
         self.assertEqual('custom-meta', headers['x-object-meta-test'])
 
 

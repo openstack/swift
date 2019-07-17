@@ -78,7 +78,7 @@ class TestObjectFailures(ReplProbeTest):
         container = 'container-%s' % uuid4()
         obj = 'object-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj,
-                                                        'VERIFY')
+                                                        b'VERIFY')
         # Stash the on disk data for future comparison - this may not equal
         # 'VERIFY' if for example the proxy has crypto enabled
         backend_data = direct_client.direct_get_object(
@@ -105,7 +105,7 @@ class TestObjectFailures(ReplProbeTest):
         container = 'container-range-%s' % uuid4()
         obj = 'object-range-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj,
-                                                        'RANGE')
+                                                        b'RANGE')
         # Stash the on disk data for future comparison - this may not equal
         # 'VERIFY' if for example the proxy has crypto enabled
         backend_data = direct_client.direct_get_object(
@@ -137,7 +137,8 @@ class TestObjectFailures(ReplProbeTest):
     def run_quarantine_zero_byte_get(self):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
-        onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
+        onode, opart, data_file = self._setup_data_file(
+            container, obj, b'DATA')
         metadata = read_metadata(data_file)
         unlink(data_file)
 
@@ -155,7 +156,8 @@ class TestObjectFailures(ReplProbeTest):
     def run_quarantine_zero_byte_head(self):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
-        onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
+        onode, opart, data_file = self._setup_data_file(
+            container, obj, b'DATA')
         metadata = read_metadata(data_file)
         unlink(data_file)
 
@@ -173,7 +175,8 @@ class TestObjectFailures(ReplProbeTest):
     def run_quarantine_zero_byte_post(self):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
-        onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
+        onode, opart, data_file = self._setup_data_file(
+            container, obj, b'DATA')
         metadata = read_metadata(data_file)
         unlink(data_file)
 
@@ -217,7 +220,7 @@ class TestECObjectFailures(ECProbeTest):
 
         # PUT object, should go to primary nodes
         client.put_object(self.url, self.token, container_name,
-                          object_name, contents='object contents')
+                          object_name, contents=b'object contents')
 
         # get our node lists
         opart, onodes = self.object_ring.get_nodes(
@@ -226,7 +229,7 @@ class TestECObjectFailures(ECProbeTest):
         # sanity test
         odata = client.get_object(self.url, self.token, container_name,
                                   object_name)[-1]
-        self.assertEqual('object contents', odata)
+        self.assertEqual(b'object contents', odata)
 
         # make all fragments non-durable
         for node in onodes:
