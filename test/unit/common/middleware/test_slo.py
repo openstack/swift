@@ -2387,6 +2387,164 @@ class TestSloGetManifest(SloTestCase):
                 ('GET',
                  '/v1/AUTH_test/gettest/big_seg?multipart-manifest=get')])
 
+    def test_range_get_beyond_manifest_refetch_fails(self):
+        big = 'e' * 1024 * 1024
+        big_etag = md5hex(big)
+        big_manifest = json.dumps(
+            [{'name': '/gettest/big_seg', 'hash': big_etag,
+              'bytes': 1024 * 1024, 'content_type': 'application/foo'}])
+        self.app.register_responses(
+            'GET', '/v1/AUTH_test/gettest/big_manifest',
+            [(swob.HTTPOk, {'Content-Type': 'application/octet-stream',
+                            'X-Static-Large-Object': 'true',
+                            'X-Backend-Timestamp': '1234',
+                            'Etag': md5hex(big_manifest)},
+              big_manifest),
+             (swob.HTTPNotFound, {}, None)])
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/big_manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=100000-199999'})
+        status, headers, body = self.call_slo(req)
+        headers = HeaderKeyDict(headers)
+
+        self.assertEqual(status, '503 Service Unavailable')
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertEqual(self.app.calls, [
+            # has Range header, gets 416
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+            # retry the first one
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+        ])
+
+    def test_range_get_beyond_manifest_refetch_finds_old(self):
+        big = 'e' * 1024 * 1024
+        big_etag = md5hex(big)
+        big_manifest = json.dumps(
+            [{'name': '/gettest/big_seg', 'hash': big_etag,
+              'bytes': 1024 * 1024, 'content_type': 'application/foo'}])
+        self.app.register_responses(
+            'GET', '/v1/AUTH_test/gettest/big_manifest',
+            [(swob.HTTPOk, {'Content-Type': 'application/octet-stream',
+                            'X-Static-Large-Object': 'true',
+                            'X-Backend-Timestamp': '1234',
+                            'Etag': md5hex(big_manifest)},
+              big_manifest),
+             (swob.HTTPOk, {'X-Backend-Timestamp': '1233'}, [b'small body'])])
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/big_manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=100000-199999'})
+        status, headers, body = self.call_slo(req)
+        headers = HeaderKeyDict(headers)
+
+        self.assertEqual(status, '503 Service Unavailable')
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertEqual(self.app.calls, [
+            # has Range header, gets 416
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+            # retry the first one
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+        ])
+
+    def test_range_get_beyond_manifest_refetch_small_non_slo(self):
+        big = 'e' * 1024 * 1024
+        big_etag = md5hex(big)
+        big_manifest = json.dumps(
+            [{'name': '/gettest/big_seg', 'hash': big_etag,
+              'bytes': 1024 * 1024, 'content_type': 'application/foo'}])
+        self.app.register_responses(
+            'GET', '/v1/AUTH_test/gettest/big_manifest',
+            [(swob.HTTPOk, {'Content-Type': 'application/octet-stream',
+                            'X-Static-Large-Object': 'true',
+                            'X-Backend-Timestamp': '1234',
+                            'Etag': md5hex(big_manifest)},
+              big_manifest),
+             (swob.HTTPOk, {'X-Backend-Timestamp': '1235'}, [b'small body'])])
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/big_manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=100000-199999'})
+        status, headers, body = self.call_slo(req)
+        headers = HeaderKeyDict(headers)
+
+        self.assertEqual(status, '416 Requested Range Not Satisfiable')
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertEqual(self.app.calls, [
+            # has Range header, gets 416
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+            # retry the first one
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+        ])
+
+    def test_range_get_beyond_manifest_refetch_big_non_slo(self):
+        big = 'e' * 1024 * 1024
+        big_etag = md5hex(big)
+        big_manifest = json.dumps(
+            [{'name': '/gettest/big_seg', 'hash': big_etag,
+              'bytes': 1024 * 1024, 'content_type': 'application/foo'}])
+        self.app.register_responses(
+            'GET', '/v1/AUTH_test/gettest/big_manifest',
+            [(swob.HTTPOk, {'Content-Type': 'application/octet-stream',
+                            'X-Static-Large-Object': 'true',
+                            'X-Backend-Timestamp': '1234',
+                            'Etag': md5hex(big_manifest)},
+              big_manifest),
+             (swob.HTTPOk, {'X-Backend-Timestamp': '1235'},
+              [b'x' * 1024 * 1024])])
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/big_manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=100000-199999'})
+        status, headers, body = self.call_slo(req)
+        headers = HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')  # NOT 416 or 206!
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertEqual(len(body), 1024 * 1024)
+        self.assertEqual(body, b'x' * 1024 * 1024)
+        self.assertEqual(self.app.calls, [
+            # has Range header, gets 416
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+            # retry the first one
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+        ])
+
+    def test_range_get_beyond_manifest_refetch_tombstone(self):
+        big = 'e' * 1024 * 1024
+        big_etag = md5hex(big)
+        big_manifest = json.dumps(
+            [{'name': '/gettest/big_seg', 'hash': big_etag,
+              'bytes': 1024 * 1024, 'content_type': 'application/foo'}])
+        self.app.register_responses(
+            'GET', '/v1/AUTH_test/gettest/big_manifest',
+            [(swob.HTTPOk, {'Content-Type': 'application/octet-stream',
+                            'X-Static-Large-Object': 'true',
+                            'X-Backend-Timestamp': '1234',
+                            'Etag': md5hex(big_manifest)},
+              big_manifest),
+             (swob.HTTPNotFound, {'X-Backend-Timestamp': '1345'}, None)])
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/big_manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=100000-199999'})
+        status, headers, body = self.call_slo(req)
+        headers = HeaderKeyDict(headers)
+
+        self.assertEqual(status, '404 Not Found')
+        self.assertNotIn('X-Static-Large-Object', headers)
+        self.assertEqual(self.app.calls, [
+            # has Range header, gets 416
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+            # retry the first one
+            ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+        ])
+
     def test_range_get_bogus_content_range(self):
         # Just a little paranoia; Swift currently sends back valid
         # Content-Range headers, but if somehow someone sneaks an invalid one
