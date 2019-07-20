@@ -328,12 +328,14 @@ from swift.common.middleware.listing_formats import \
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
-    HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, Response, Range, \
+    HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, \
+    HTTPServiceUnavailable, Response, Range, \
     RESPONSE_REASONS
 from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
-    closing_if_possible, LRUCache, StreamingPile, strict_b64decode
+    closing_if_possible, LRUCache, StreamingPile, strict_b64decode, \
+    Timestamp
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
@@ -717,7 +719,7 @@ class SloGetContext(WSGIContext):
                     content_range = value
                     break
             # e.g. Content-Range: bytes 0-14289/14290
-            match = re.match('bytes (\d+)-(\d+)/(\d+)$', content_range)
+            match = re.match(r'bytes (\d+)-(\d+)/(\d+)$', content_range)
             if not match:
                 # Malformed or missing, so we don't know what we got.
                 return True
@@ -750,7 +752,7 @@ class SloGetContext(WSGIContext):
         resp_iter = self._app_call(req.environ)
 
         # make sure this response is for a static large object manifest
-        slo_marker = slo_etag = slo_size = None
+        slo_marker = slo_etag = slo_size = slo_timestamp = None
         for header, value in self._response_headers:
             header = header.lower()
             if header == SYSMETA_SLO_ETAG:
@@ -760,8 +762,10 @@ class SloGetContext(WSGIContext):
             elif (header == 'x-static-large-object' and
                   config_true_value(value)):
                 slo_marker = value
+            elif header == 'x-backend-timestamp':
+                slo_timestamp = value
 
-            if slo_marker and slo_etag and slo_size:
+            if slo_marker and slo_etag and slo_size and slo_timestamp:
                 break
 
         if not slo_marker:
@@ -819,6 +823,35 @@ class SloGetContext(WSGIContext):
                 headers={'x-auth-token': req.headers.get('x-auth-token')},
                 agent='%(orig)s SLO MultipartGET', swift_source='SLO')
             resp_iter = self._app_call(get_req.environ)
+            slo_marker = config_true_value(self._response_header_value(
+                'x-static-large-object'))
+            if not slo_marker:  # will also catch non-2xx responses
+                got_timestamp = self._response_header_value(
+                    'x-backend-timestamp') or '0'
+                if Timestamp(got_timestamp) >= Timestamp(slo_timestamp):
+                    # We've got a newer response available, so serve that.
+                    # Note that if there's data, it's going to be a 200 now,
+                    # not a 206, and we're not going to drop bytes in the
+                    # proxy on the client's behalf. Fortunately, the RFC is
+                    # pretty forgiving for a server; there's no guarantee that
+                    # a Range header will be respected.
+                    resp = Response(
+                        status=self._response_status,
+                        headers=self._response_headers,
+                        app_iter=resp_iter,
+                        request=req,
+                        conditional_etag=resolve_etag_is_at_header(
+                            req, self._response_headers),
+                        conditional_response=is_success(
+                            int(self._response_status[:3])))
+                    return resp(req.environ, start_response)
+                else:
+                    # We saw newer data that indicated it's an SLO, but
+                    # couldn't fetch the whole thing; 503 seems reasonable?
+                    close_if_possible(resp_iter)
+                    raise HTTPServiceUnavailable(request=req)
+            # NB: we might have gotten an out-of-date manifest -- that's OK;
+            # we'll just try to serve the old data
 
         # Any Content-Range from a manifest is almost certainly wrong for the
         # full large object.
