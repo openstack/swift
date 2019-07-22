@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import os
 import time
 from os import listdir, unlink
 from os.path import join as path_join
@@ -26,7 +28,7 @@ from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.utils import hash_path, readconf
 from swift.obj.diskfile import write_metadata, read_metadata, get_data_dir
-from test.probe.common import ReplProbeTest
+from test.probe.common import ReplProbeTest, ECProbeTest
 
 
 RETRIES = 5
@@ -196,6 +198,62 @@ class TestObjectFailures(ReplProbeTest):
         self.run_quarantine_zero_byte_get()
         self.run_quarantine_zero_byte_head()
         self.run_quarantine_zero_byte_post()
+
+
+class TestECObjectFailures(ECProbeTest):
+
+    def test_ec_missing_all_durable_fragments(self):
+        # This tests helps assert the behavior that when
+        # the proxy has enough fragments to reconstruct the object
+        # but none are marked as durable, the proxy should return a 404.
+
+        container_name = 'container-%s' % uuid4()
+        object_name = 'object-%s' % uuid4()
+
+        # create EC container
+        headers = {'X-Storage-Policy': self.policy.name}
+        client.put_container(self.url, self.token, container_name,
+                             headers=headers)
+
+        # PUT object, should go to primary nodes
+        client.put_object(self.url, self.token, container_name,
+                          object_name, contents='object contents')
+
+        # get our node lists
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, container_name, object_name)
+
+        # sanity test
+        odata = client.get_object(self.url, self.token, container_name,
+                                  object_name)[-1]
+        self.assertEqual('object contents', odata)
+
+        # make all fragments non-durable
+        for node in onodes:
+            part_dir = self.storage_dir('object', node, part=opart)
+            for dirs, subdirs, files in os.walk(part_dir):
+                for fname in files:
+                    if fname.endswith('.data'):
+                        non_durable_fname = fname.replace('#d', '')
+                        os.rename(os.path.join(dirs, fname),
+                                  os.path.join(dirs, non_durable_fname))
+                        break
+            headers = direct_client.direct_head_object(
+                node, opart, self.account, container_name, object_name,
+                headers={
+                    'X-Backend-Storage-Policy-Index': self.policy.idx,
+                    'X-Backend-Fragment-Preferences': json.dumps([])})
+            self.assertNotIn('X-Backend-Durable-Timestamp', headers)
+
+        # Now a new GET should return *404* because all fragments
+        # are non-durable, even if they are reconstructable
+        try:
+            client.get_object(self.url, self.token, container_name,
+                              object_name)
+        except client.ClientException as err:
+            self.assertEqual(err.http_status, 404)
+        else:
+            self.fail("Expected ClientException but didn't get it")
 
 
 if __name__ == '__main__':

@@ -3975,6 +3975,13 @@ class TestReplicatedObjectController(
             test_status_map((200, 200, 404, 404, 500), 404)
             test_status_map((200, 200, 500, 500, 500), 503)
 
+            POLICIES.default.object_ring.max_more_nodes = 3
+            test_status_map(
+                (200, 200,
+                 Timeout(), Timeout(), Timeout(),  # Can't reach primaries
+                 404, 404, 404),  # No surprise: handoffs know nothing
+                503)
+
     def test_HEAD_newest(self):
         with save_globals():
             def test_status_map(statuses, expected, timestamps,
@@ -7527,7 +7534,7 @@ class TestECGets(unittest.TestCase):
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
-        self.assertEqual(resp.status_int, 503)
+        self.assertEqual(resp.status_int, 404)
 
     def test_GET_with_multiple_frags_per_node(self):
         # verify object GET behavior when multiple fragments are on same node
@@ -7632,12 +7639,25 @@ class TestECGets(unittest.TestCase):
         # will be sent frag prefs that exclude frag_index 1)
         node_state = {
             0: [dict(ref='obj1a', frag_index=1, durable=False)],
-            1: [dict(ref='obj1b', frag_index=1, durable=True)],
+            1: [dict(ref='obj1b', frag_index=1, durable=False)],
             2: [dict(ref='obj1c', frag_index=1, durable=False)]
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
         self.assertEqual(resp.status_int, 404)
+
+        # if we know it should be durable, we can be more specific.
+        # note that we need to set *both* of those first ones durable
+        # to avoid a flaky test -- in the future we can be smarter and
+        # let the durability bubble up, even from a duplicate frag
+        node_state = {
+            0: [dict(ref='obj1a', frag_index=1, durable=True)],
+            1: [dict(ref='obj1b', frag_index=1, durable=True)],
+            2: [dict(ref='obj1c', frag_index=1, durable=False)]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 503)
 
 
 class TestObjectDisconnectCleanup(unittest.TestCase):

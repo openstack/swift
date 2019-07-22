@@ -2002,6 +2002,10 @@ class ECGetResponseBucket(object):
     def set_durable(self):
         self._durable = True
 
+    @property
+    def durable(self):
+        return self._durable
+
     def add_response(self, getter, parts_iter):
         if not self.gets:
             self.status = getter.last_status
@@ -2017,7 +2021,8 @@ class ECGetResponseBucket(object):
             # metadata headers for self.headers by selecting the source with
             # the latest X-Timestamp.
             self.headers = getter.last_headers
-        elif (getter.last_headers.get('X-Object-Sysmeta-Ec-Etag') !=
+        elif (self.timestamp_str is not None and  # ie, not bad_bucket
+              getter.last_headers.get('X-Object-Sysmeta-Ec-Etag') !=
               self.headers.get('X-Object-Sysmeta-Ec-Etag')):
             # Fragments at the same timestamp with different etags are never
             # expected. If somehow it happens then ignore those fragments
@@ -2054,9 +2059,8 @@ class ECGetResponseBucket(object):
 
     @property
     def shortfall(self):
-        # A non-durable bucket always has a shortfall of at least 1
         result = self.policy.ec_ndata - len(self.get_responses())
-        return max(result, 0 if self._durable else 1)
+        return max(result, 0)
 
     @property
     def shortfall_with_alts(self):
@@ -2064,7 +2068,7 @@ class ECGetResponseBucket(object):
         # for frags on the alt nodes.
         alts = set(self.alt_nodes.keys()).difference(set(self.gets.keys()))
         result = self.policy.ec_ndata - (len(self.get_responses()) + len(alts))
-        return max(result, 0 if self._durable else 1)
+        return max(result, 0)
 
     def __str__(self):
         # return a string summarising bucket state, useful for debugging.
@@ -2141,12 +2145,14 @@ class ECGetResponseCollection(object):
     def _sort_buckets(self):
         def key_fn(bucket):
             # Returns a tuple to use for sort ordering:
-            # buckets with no shortfall sort higher,
+            # durable buckets with no shortfall sort higher,
+            # then durable buckets with no shortfall_with_alts,
+            # then non-durable buckets with no shortfall,
             # otherwise buckets with lowest shortfall_with_alts sort higher,
             # finally buckets with newer timestamps sort higher.
-            return (bucket.shortfall <= 0,
-                    (not (bucket.shortfall <= 0) and
-                     (-1 * bucket.shortfall_with_alts)),
+            return (bucket.durable,
+                    bucket.shortfall <= 0,
+                    -1 * bucket.shortfall_with_alts,
                     bucket.timestamp_str)
 
         return sorted(self.buckets.values(), key=key_fn, reverse=True)
@@ -2196,7 +2202,7 @@ class ECGetResponseCollection(object):
             return None
 
         bucket = self.best_bucket
-        if (bucket is None) or (bucket.shortfall <= 0):
+        if (bucket is None) or (bucket.shortfall <= 0) or not bucket.durable:
             return None
 
         alt_frags = set(bucket.alt_nodes.keys())
@@ -2381,7 +2387,11 @@ class ECObjectController(BaseObjectController):
                 shortfall = bad_bucket.shortfall
                 best_bucket = buckets.best_bucket
                 if best_bucket:
-                    shortfall = min(best_bucket.shortfall, shortfall)
+                    shortfall = best_bucket.shortfall
+                    if not best_bucket.durable and shortfall <= 0:
+                        # be willing to go a *little* deeper, slowly
+                        shortfall = 1
+                    shortfall = min(shortfall, bad_bucket.shortfall)
                 if (extra_requests < max_extra_requests and
                         shortfall > pile._pending and
                         (node_iter.nodes_left > 0 or
@@ -2395,7 +2405,7 @@ class ECObjectController(BaseObjectController):
                                buckets.get_extra_headers)
 
         req.range = orig_range
-        if best_bucket and best_bucket.shortfall <= 0:
+        if best_bucket and best_bucket.shortfall <= 0 and best_bucket.durable:
             # headers can come from any of the getters
             resp_headers = best_bucket.headers
             resp_headers.pop('Content-Range', None)
@@ -2435,10 +2445,28 @@ class ECObjectController(BaseObjectController):
             bodies = []
             headers = []
             for getter, _parts_iter in bad_bucket.get_responses():
+                if best_bucket and best_bucket.durable:
+                    headers = HeaderKeyDict(getter.last_headers)
+                    t_data_file = headers.get('X-Backend-Data-Timestamp')
+                    t_obj = headers.get('X-Backend-Timestamp',
+                                        headers.get('X-Timestamp'))
+                    bad_ts = Timestamp(t_data_file or t_obj or '0')
+                    if bad_ts <= Timestamp(best_bucket.timestamp_str):
+                        # We have reason to believe there's still good data
+                        # out there, it's just currently unavailable
+                        continue
                 statuses.extend(getter.statuses)
                 reasons.extend(getter.reasons)
                 bodies.extend(getter.bodies)
                 headers.extend(getter.source_headers)
+
+            if not statuses and best_bucket and not best_bucket.durable:
+                # pretend that non-durable bucket was 404s
+                statuses.append(404)
+                reasons.append('404 Not Found')
+                bodies.append(b'')
+                headers.append({})
+
             resp = self.best_response(
                 req, statuses, reasons, bodies, 'Object',
                 headers=headers)
