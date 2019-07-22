@@ -1054,7 +1054,7 @@ swift (2.10.0, OpenStack Newton)
       improved in clusters that are not completely healthy.
 
     * Significant improvements to the api-ref doc available at
-      https://developer.openstack.org/api-ref/object-storage/.
+      https://docs.openstack.org/api-ref/object-store/.
 
     * A PUT or POST to a container will now update the container's
       Last-Modified time, and that value will be included in a

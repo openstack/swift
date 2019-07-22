@@ -171,14 +171,14 @@ The API Reference describes the operations that you can perform with the
 Object Storage API:
 
 -  `Storage
-   accounts <https://developer.openstack.org/api-ref/object-store/index.html#accounts>`__:
+   accounts <https://docs.openstack.org/api-ref/object-store/index.html#accounts>`__:
    Use to perform account-level tasks.
 
    Lists containers for a specified account. Creates, updates, and
    deletes account metadata. Shows account metadata.
 
 -  `Storage
-   containers <https://developer.openstack.org/api-ref/object-store/index.html#containers>`__:
+   containers <https://docs.openstack.org/api-ref/object-store/index.html#containers>`__:
    Use to perform container-level tasks.
 
    Lists objects in a specified container. Creates, shows details for,
@@ -186,7 +186,7 @@ Object Storage API:
    container metadata.
 
 -  `Storage
-   objects <https://developer.openstack.org/api-ref/object-store/index.html#objects>`__:
+   objects <https://docs.openstack.org/api-ref/object-store/index.html#objects>`__:
    Use to perform object-level tasks.
 
    Creates, replaces, shows details for, and deletes objects. Copies
