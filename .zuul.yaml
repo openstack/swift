@@ -415,7 +415,6 @@
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
-            voting: false
         - swift-tox-py37:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -519,6 +518,7 @@
         # in-tree definitions) dsvm jobs.
         - swift-upload-image
         - swift-tox-py27
+        - swift-tox-py36
         - swift-tox-py37
         - swift-tox-func
         - swift-tox-func-encryption
