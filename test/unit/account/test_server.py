@@ -32,6 +32,7 @@ import xml.dom.minidom
 from swift import __version__ as swift_version
 from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent)
 from swift.common import constraints
+from swift.account.backend import AccountBroker
 from swift.account.server import AccountController
 from swift.common.utils import (normalize_timestamp, replication, public,
                                 mkdirs, storage_directory, Timestamp)
@@ -49,7 +50,8 @@ class TestAccountController(unittest.TestCase):
         self.testdir = os.path.join(self.testdir_base, 'account_server')
         mkdirs(os.path.join(self.testdir, 'sda1'))
         self.controller = AccountController(
-            {'devices': self.testdir, 'mount_check': 'false'})
+            {'devices': self.testdir, 'mount_check': 'false'},
+            logger=debug_logger())
 
     def tearDown(self):
         """Tear down for testing swift.account.server.AccountController"""
@@ -521,6 +523,51 @@ class TestAccountController(unittest.TestCase):
                      'X-Will-Not-Be-Saved': b'\xff'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 202)
+
+    def test_utf8_metadata(self):
+        ts_str = normalize_timestamp(1)
+
+        def get_test_meta(method, headers):
+            # Set metadata header
+            headers.setdefault('X-Timestamp', ts_str)
+            req = Request.blank(
+                '/sda1/p/a', environ={'REQUEST_METHOD': method},
+                headers=headers)
+            resp = req.get_response(self.controller)
+            self.assertIn(resp.status_int, (201, 202, 204))
+            db_path = os.path.join(*next(
+                (dir_name, file_name)
+                for dir_name, _, files in os.walk(self.testdir)
+                for file_name in files if file_name.endswith('.db')
+            ))
+            broker = AccountBroker(db_path)
+            # Why not use broker.metadata, you ask? Because we want to get
+            # as close to the on-disk format as is reasonable.
+            result = json.loads(broker.get_raw_metadata())
+            # Clear it out for the next run
+            with broker.get() as conn:
+                conn.execute("UPDATE account_stat SET metadata=''")
+                conn.commit()
+            return result
+
+        wsgi_str = '\xf0\x9f\x91\x8d'
+        uni_str = u'\U0001f44d'
+
+        self.assertEqual(
+            get_test_meta('PUT', {'x-account-sysmeta-' + wsgi_str: wsgi_str}),
+            {u'X-Account-Sysmeta-' + uni_str: [uni_str, ts_str]})
+
+        self.assertEqual(
+            get_test_meta('PUT', {'x-account-meta-' + wsgi_str: wsgi_str}),
+            {u'X-Account-Meta-' + uni_str: [uni_str, ts_str]})
+
+        self.assertEqual(
+            get_test_meta('POST', {'x-account-sysmeta-' + wsgi_str: wsgi_str}),
+            {u'X-Account-Sysmeta-' + uni_str: [uni_str, ts_str]})
+
+        self.assertEqual(
+            get_test_meta('POST', {'x-account-meta-' + wsgi_str: wsgi_str}),
+            {u'X-Account-Meta-' + uni_str: [uni_str, ts_str]})
 
     def test_PUT_GET_metadata(self):
         # Set metadata header
