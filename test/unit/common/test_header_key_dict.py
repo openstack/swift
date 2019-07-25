@@ -15,6 +15,7 @@
 
 import unittest
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import bytes_to_wsgi
 
 
 class TestHeaderKeyDict(unittest.TestCase):
@@ -26,6 +27,20 @@ class TestHeaderKeyDict(unittest.TestCase):
         self.assertEqual(headers['Content-Length'], '20')
         self.assertEqual(headers['content-length'], '20')
         self.assertEqual(headers['CONTENT-LENGTH'], '20')
+
+    def test_unicode(self):
+        def mkstr(prefix):
+            return bytes_to_wsgi((prefix + u'\U0001f44d').encode('utf8'))
+
+        headers = HeaderKeyDict()
+        headers[mkstr('x-object-meta-')] = 'ok'
+        self.assertIn(mkstr('x-object-meta-'), headers)
+        self.assertIn(mkstr('X-Object-Meta-'), headers)
+        self.assertIn(mkstr('X-OBJECT-META-'), headers)
+        keys = list(headers)
+        self.assertNotIn(mkstr('x-object-meta-'), keys)
+        self.assertIn(mkstr('X-Object-Meta-'), keys)
+        self.assertNotIn(mkstr('X-OBJECT-META-'), keys)
 
     def test_setdefault(self):
         headers = HeaderKeyDict()

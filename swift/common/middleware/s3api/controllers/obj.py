@@ -133,7 +133,7 @@ class ObjectController(Controller):
 
             # delete object metadata from response
             for key in list(resp.headers.keys()):
-                if key.startswith('x-amz-meta-'):
+                if key.lower().startswith('x-amz-meta-'):
                     del resp.headers[key]
 
         resp.status = HTTP_OK
