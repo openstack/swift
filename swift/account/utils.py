@@ -18,7 +18,7 @@ import json
 import six
 
 from swift.common.middleware import listing_formats
-from swift.common.swob import HTTPOk, HTTPNoContent
+from swift.common.swob import HTTPOk, HTTPNoContent, str_to_wsgi
 from swift.common.utils import Timestamp
 from swift.common.storage_policy import POLICIES
 
@@ -64,8 +64,8 @@ def get_response_headers(broker):
         for key, value in stats.items():
             header_name = header_prefix % key.replace('_', '-')
             resp_headers[header_name] = value
-    resp_headers.update((key, value)
-                        for key, (value, timestamp) in
+    resp_headers.update((str_to_wsgi(key), str_to_wsgi(value))
+                        for key, (value, _timestamp) in
                         broker.metadata.items() if value != '')
     return resp_headers
 

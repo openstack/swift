@@ -21,8 +21,6 @@ from swift import gettext_ as _
 
 from eventlet import Timeout
 
-import six
-
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
 from swift.account.utils import account_listing_response, get_response_headers
@@ -110,6 +108,14 @@ class AccountController(BaseStorageServer):
         broker.delete_db(req_timestamp.internal)
         return self._deleted_response(broker, req, HTTPNoContent)
 
+    def _update_metadata(self, req, broker, req_timestamp):
+        metadata = {
+            wsgi_to_str(key): (wsgi_to_str(value), req_timestamp.internal)
+            for key, value in req.headers.items()
+            if is_sys_or_user_meta('account', key)}
+        if metadata:
+            broker.update_metadata(metadata, validate_metadata=True)
+
     @public
     @timing_stats()
     def PUT(self, req):
@@ -169,24 +175,7 @@ class AccountController(BaseStorageServer):
                 broker.update_put_timestamp(timestamp.internal)
                 if broker.is_deleted():
                     return HTTPConflict(request=req)
-            metadata = {}
-            if six.PY2:
-                metadata.update((key, (value, timestamp.internal))
-                                for key, value in req.headers.items()
-                                if is_sys_or_user_meta('account', key))
-            else:
-                for key, value in req.headers.items():
-                    if is_sys_or_user_meta('account', key):
-                        # Cast to native strings, so that json inside
-                        # updata_metadata eats the data.
-                        try:
-                            value = value.encode('latin-1').decode('utf-8')
-                        except UnicodeDecodeError:
-                            raise HTTPBadRequest(
-                                'Metadata must be valid UTF-8')
-                        metadata[key] = (value, timestamp.internal)
-            if metadata:
-                broker.update_metadata(metadata, validate_metadata=True)
+            self._update_metadata(req, broker, timestamp)
             if created:
                 return HTTPCreated(request=req)
             else:
@@ -287,12 +276,7 @@ class AccountController(BaseStorageServer):
         broker = self._get_account_broker(drive, part, account)
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
-        metadata = {}
-        metadata.update((key, (value, req_timestamp.internal))
-                        for key, value in req.headers.items()
-                        if is_sys_or_user_meta('account', key))
-        if metadata:
-            broker.update_metadata(metadata, validate_metadata=True)
+        self._update_metadata(req, broker, req_timestamp)
         return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):
