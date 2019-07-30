@@ -38,6 +38,7 @@ from swift.obj.diskfile import (
 from swift.common.ring import RingData
 from swift.common import utils
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import bytes_to_wsgi
 from swift.common.utils import (
     hash_path, normalize_timestamp, mkdirs, write_pickle)
 from swift.common.storage_policy import StoragePolicy, POLICIES
@@ -504,13 +505,13 @@ class TestObjectUpdater(unittest.TestCase):
                     self.assertEqual(inc.readline(),
                                      b'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
                     headers = HeaderKeyDict()
-                    line = inc.readline()
-                    while line and line != b'\r\n':
-                        headers[line.split(b':')[0]] = \
-                            line.split(b':')[1].strip()
-                        line = inc.readline()
-                    self.assertIn(b'x-container-timestamp', headers)
-                    self.assertIn(b'X-Backend-Storage-Policy-Index',
+                    line = bytes_to_wsgi(inc.readline())
+                    while line and line != '\r\n':
+                        headers[line.split(':')[0]] = \
+                            line.split(':')[1].strip()
+                        line = bytes_to_wsgi(inc.readline())
+                    self.assertIn('x-container-timestamp', headers)
+                    self.assertIn('X-Backend-Storage-Policy-Index',
                                   headers)
             except BaseException as err:
                 return err
