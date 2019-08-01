@@ -107,6 +107,16 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
         self.assertEqual(val, '%s; symlink_target=c1/o' % MD5_OF_EMPTY_STRING)
 
+    def test_symlink_chunked_put_error(self):
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={'X-Symlink-Target': 'c1/o'},
+                            environ={'wsgi.input':
+                                     io.BytesIO(b'this has a body')})
+        self.assertIsNone(req.content_length)  # sanity
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '400 Bad Request')
+
     def test_symlink_put_different_account(self):
         self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
         req = Request.blank('/v1/a/c/symlink', method='PUT',
