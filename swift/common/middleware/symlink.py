@@ -425,7 +425,11 @@ class SymlinkObjectContext(WSGIContext):
         :param req: HTTP PUT object request
         :returns: Response Iterator
         """
-        if req.content_length != 0:
+        if req.content_length is None:
+            has_body = (req.body_file.read(1) != b'')
+        else:
+            has_body = (req.content_length != 0)
+        if has_body:
             raise HTTPBadRequest(
                 body='Symlink requests require a zero byte body',
                 request=req,

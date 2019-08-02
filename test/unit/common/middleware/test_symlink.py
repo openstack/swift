@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import unittest
+import io
 import json
 import mock
 
@@ -82,6 +83,21 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         req = Request.blank('/v1/a/c/symlink', method='PUT',
                             headers={'X-Symlink-Target': 'c1/o'},
                             body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[0]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
+        val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
+        self.assertEqual(val, '%s; symlink_target=c1/o' % MD5_OF_EMPTY_STRING)
+
+    def test_symlink_chunked_put(self):
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={'X-Symlink-Target': 'c1/o'},
+                            environ={'wsgi.input': io.BytesIO(b'')})
+        self.assertIsNone(req.content_length)  # sanity
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '201 Created')
         method, path, hdrs = self.app.calls_with_headers[0]
