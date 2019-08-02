@@ -3254,6 +3254,9 @@ class GreenAsyncPileWaitallTimeout(Timeout):
     pass
 
 
+DEAD = object()
+
+
 class GreenAsyncPile(object):
     """
     Runs jobs in a pool of green threads, and the results can be retrieved by
@@ -3282,6 +3285,8 @@ class GreenAsyncPile(object):
     def _run_func(self, func, args, kwargs):
         try:
             self._responses.put(func(*args, **kwargs))
+        except Exception:
+            self._responses.put(DEAD)
         finally:
             self._inflight -= 1
 
@@ -3332,14 +3337,17 @@ class GreenAsyncPile(object):
         return self
 
     def next(self):
-        try:
-            rv = self._responses.get_nowait()
-        except eventlet.queue.Empty:
-            if self._inflight == 0:
-                raise StopIteration()
-            rv = self._responses.get()
-        self._pending -= 1
-        return rv
+        while True:
+            try:
+                rv = self._responses.get_nowait()
+            except eventlet.queue.Empty:
+                if self._inflight == 0:
+                    raise StopIteration()
+                rv = self._responses.get()
+            self._pending -= 1
+            if rv == DEAD:
+                continue
+            return rv
     __next__ = next
 
 
