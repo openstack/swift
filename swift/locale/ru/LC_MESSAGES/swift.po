@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -84,37 +84,6 @@ msgstr "%s ответил как размонтированный"
 msgid "%s: Connection reset by peer"
 msgstr "%s: соединение сброшено на другой стороне"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr ", удалено контейнеров: %s"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr ", осталось контейнеров (возможно): %s"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr ", осталось контейнеров: %s"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr ", удалено объектов: %s"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr ", осталось объектов (возможно): %s"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr ", осталось объектов: %s"
-
-#, python-format
-msgid ", elapsed: %.02fs"
-msgstr ", прошло: %.02fs"
-
-msgid ", return codes: "
-msgstr ", коды возврата: "
-
 msgid "Account"
 msgstr "Учетная запись"
 
@@ -162,10 +131,6 @@ msgstr "Начать однонитевую сплошную проверку о
 
 msgid "Begin object update sweep"
 msgstr "Начать сплошную проверку обновлений объекта"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "Начинается проход для учетной записи %s"
 
 msgid "Beginning replication run"
 msgstr "Запуск репликации"
@@ -254,10 +219,6 @@ msgstr ""
 #, python-format
 msgid "Data download error: %s"
 msgstr "Ошибка загрузки данных: %s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "Проход устройств выполнен: %.02fs"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -491,31 +452,9 @@ msgstr "Ошибка: отсутствует аргумент пути конф�
 msgid "Error: unable to locate %s"
 msgstr "Ошибка: не удалось найти %s"
 
-msgid "Exception in top-level account reaper loop"
-msgstr ""
-"Исключительная ситуация в цикле чистильщика учетных записей верхнего уровня"
-
-msgid "Exception in top-levelreconstruction loop"
-msgstr "Исключение в цикле реконструкции верхнего уровня"
-
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Исключительная ситуация в %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "Исключительная ситуация в учетной записи %s"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "Исключительная ситуация в контейнерах для учетной записи %s"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr ""
-"Исключительная ситуация в объектах для контейнера %(container)s для учетной "
-"записи %(account)s"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -537,10 +476,6 @@ msgstr ""
 
 msgid "Host unreachable"
 msgstr "Хост недоступен"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "Не завершен проход для учетной записи %s"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -850,10 +785,6 @@ msgstr ""
 "%(key)s в стратегиях (%(sum)s)"
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "Исключение по таймауту %(ip)s:%(port)s/%(device)s"
-
-#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "Попытка выполнения метода %(method)s %(path)s"
 
@@ -863,9 +794,6 @@ msgstr "Попытка GET-запроса %(full_path)s"
 
 msgid "Trying to read during GET"
 msgstr "Попытка чтения во время операции GET"
-
-msgid "Trying to read during GET (retrying)"
-msgstr "Попытка чтения во время операции GET (выполняется повтор)"
 
 msgid "Trying to send to client"
 msgstr "Попытка отправки клиенту"

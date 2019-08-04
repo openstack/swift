@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-25 00:41+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -103,43 +103,8 @@ msgstr "%s ha respondido como desmontado"
 msgid "%s: Connection reset by peer"
 msgstr "%s: Restablecimiento de conexión por igual"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr ", %s contenedores suprimidos"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr ", %s contenedores posiblemente restantes"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr ", %s contenedores restantes"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr ", %s objetos suprimidos"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr ", %s objetos posiblemente restantes"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr ", %s objectos restantes"
-
-#, python-format
-msgid ", elapsed: %.02fs"
-msgstr ", transcurrido: %.02fs"
-
-msgid ", return codes: "
-msgstr ", códigos de retorno:"
-
 msgid "Account"
 msgstr "Cuenta"
-
-#, python-format
-msgid "Account %(account)s has not been reaped since %(time)s"
-msgstr "La cuenta  %(account)s no se ha cosechado desde %(time)s"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
@@ -200,10 +165,6 @@ msgstr "Comenzar el barrido de hebra única de actualización del objeto"
 
 msgid "Begin object update sweep"
 msgstr "Comenzar el barrido de actualización del objeto"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "Iniciando el paso en la cuenta %s"
 
 msgid "Beginning replication run"
 msgstr "Iniciando la ejecución de la replicación"
@@ -326,10 +287,6 @@ msgstr "No se ha podido cargar %(conf)r: %(error)s"
 #, python-format
 msgid "Data download error: %s"
 msgstr "Error de descarga de datos: %s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "Paso de dispositivos finalizado: %.02fs"
 
 msgid "Did not get a keys dict"
 msgstr "No tuvimos un diccionario de claves"
@@ -600,30 +557,9 @@ msgstr "Error: falta el argumento de vía de acceso de configuración"
 msgid "Error: unable to locate %s"
 msgstr "Error: no se ha podido localizar %s"
 
-msgid "Exception in top-level account reaper loop"
-msgstr "Excepción en el bucle cosechador de cuenta de nivel superior"
-
-msgid "Exception in top-levelreconstruction loop"
-msgstr "Excepción en el bucle de reconstrucción de nivel superior"
-
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Excepción con %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "Excepción con la cuenta %s"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "Excepción con los contenedores para la cuenta %s"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr ""
-"Excepción con objetos para el contenedor %(container)s para la cuenta "
-"%(account)s"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -645,10 +581,6 @@ msgstr ""
 
 msgid "Host unreachable"
 msgstr "Host no alcanzable"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "Paso incompleto en la cuenta %s"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -1010,10 +942,6 @@ msgstr ""
 "%(key)s en las políticas (%(sum)s)"
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "Excepción de tiempo de espera superado con %(ip)s:%(port)s/%(device)s"
-
-#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "Intentando %(method)s %(path)s"
 
@@ -1027,9 +955,6 @@ msgstr "Intentando obtener %(status_type)s el estado de PUT a %(path)s"
 
 msgid "Trying to read during GET"
 msgstr "Intentado leer durante GET"
-
-msgid "Trying to read during GET (retrying)"
-msgstr "Intentando leer durante GET (reintento)"
 
 msgid "Trying to send to client"
 msgstr "Intentando enviar al cliente"

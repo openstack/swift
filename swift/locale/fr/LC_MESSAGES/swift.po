@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -83,37 +83,6 @@ msgstr "%s ont été identifié(es) comme étant démonté(es)"
 msgid "%s: Connection reset by peer"
 msgstr "%s : Connexion réinitialisée par l'homologue"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr ", %s containers supprimés"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr ", %s conteneur(s) restant(s), le cas échéant"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr ", %s conteneur(s) restant(s)"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr ", %s objets supprimés"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr ", %s objet(s) restant(s), le cas échéant"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr ", %s objet(s) restant(s)"
-
-#, python-format
-msgid ", elapsed: %.02fs"
-msgstr ", temps écoulé : %.02fs"
-
-msgid ", return codes: "
-msgstr ", return codes: "
-
 msgid "Account"
 msgstr "Compte"
 
@@ -164,10 +133,6 @@ msgstr ""
 
 msgid "Begin object update sweep"
 msgstr "Démarrer le balayage des mises à jour d'objet"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "Démarrage de la session d'audit sur le compte %s"
 
 msgid "Beginning replication run"
 msgstr "Démarrage du cycle de réplication"
@@ -259,10 +224,6 @@ msgstr ""
 #, python-format
 msgid "Data download error: %s"
 msgstr "Erreur de téléchargement des données: %s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "Session d'audit d'unité terminée : %.02fs"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -500,30 +461,9 @@ msgstr "Erreur: Manque argument de configuration du chemin"
 msgid "Error: unable to locate %s"
 msgstr "Erreur: impossible de localiser %s"
 
-msgid "Exception in top-level account reaper loop"
-msgstr "Exception dans la boucle de collecteur de compte de niveau supérieur"
-
-msgid "Exception in top-levelreconstruction loop"
-msgstr "Exception dans la boucle de reconstruction de niveau supérieur"
-
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Exception liée à %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "Exception avec le compte %s"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "Exception avec les containers pour le compte %s"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr ""
-"Exception liée aux objets pour le conteneur %(container)s et le compte "
-"%(account)s"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -546,10 +486,6 @@ msgstr ""
 
 msgid "Host unreachable"
 msgstr "Hôte inaccessible"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "Session d'audit incomplète sur le compte %s"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -866,12 +802,6 @@ msgstr ""
 "clés %(key)s des différentes règles (%(sum)s)"
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr ""
-"Exception liée à un dépassement de délai concernant %(ip)s:%(port)s/"
-"%(device)s"
-
-#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "Tentative d'exécution de %(method)s %(path)s"
 
@@ -881,9 +811,6 @@ msgstr "Tentative de lecture de %(full_path)s"
 
 msgid "Trying to read during GET"
 msgstr "Tentative de lecture pendant une opération GET"
-
-msgid "Trying to read during GET (retrying)"
-msgstr "Tentative de lecture pendant une opération GET (nouvelle tentative)"
 
 msgid "Trying to send to client"
 msgstr "Tentative d'envoi au client"

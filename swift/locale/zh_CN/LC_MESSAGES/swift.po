@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -81,37 +81,6 @@ msgstr "%s 响应为未安装"
 msgid "%s: Connection reset by peer"
 msgstr "%s：已由同级重置连接"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr "，删除容器%s"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr "，可能剩余容器%s"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr "，剩余容器%s"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr "，删除对象%s"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr "，可能剩余对象%s"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr "，剩余对象%s"
-
-#, python-format
-msgid ", elapsed: %.02fs"
-msgstr "，耗时：%.02fs"
-
-msgid ", return codes: "
-msgstr "，返回代码："
-
 msgid "Account"
 msgstr "账号"
 
@@ -158,10 +127,6 @@ msgstr "开始对象更新单线程扫除"
 
 msgid "Begin object update sweep"
 msgstr "开始对象更新扫除"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "账号%s开始通过"
 
 msgid "Beginning replication run"
 msgstr "开始运行复制"
@@ -246,10 +211,6 @@ msgstr ""
 #, python-format
 msgid "Data download error: %s"
 msgstr "数据下载错误：%s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "设备通过完成： %.02fs"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -468,28 +429,9 @@ msgstr "错误：设置路径信息丢失"
 msgid "Error: unable to locate %s"
 msgstr "错误：无法查询到 %s"
 
-msgid "Exception in top-level account reaper loop"
-msgstr "异常出现在top-level账号reaper环"
-
-msgid "Exception in top-levelreconstruction loop"
-msgstr " top-levelreconstruction 环中发生异常"
-
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s出现异常"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "账号%s出现异常"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "账号%s内容器出现异常"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr "账号%(account)s容器%(container)s的对象出现异常"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -509,10 +451,6 @@ msgstr "Handoffs 优先方式仍有 handoffs。正在中止当前复制过程。
 
 msgid "Host unreachable"
 msgstr "无法连接到主机"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "账号%s未完成通过"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -801,10 +739,6 @@ msgid ""
 msgstr "容器(%(total)s)内%(key)s总数不符合协议%(key)s总数(%(sum)s)"
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "%(ip)s:%(port)s/%(device)s 发生超时异常"
-
-#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "尝试执行%(method)s %(path)s"
 
@@ -814,9 +748,6 @@ msgstr "正尝试获取 %(full_path)s"
 
 msgid "Trying to read during GET"
 msgstr "执行GET时尝试读取"
-
-msgid "Trying to read during GET (retrying)"
-msgstr "执行GET时尝试读取(重新尝试)"
 
 msgid "Trying to send to client"
 msgstr "尝试发送到客户端"

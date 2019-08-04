@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -82,43 +82,8 @@ msgstr "%s ha risposto come smontato"
 msgid "%s: Connection reset by peer"
 msgstr "%s: Connessione reimpostata dal peer"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr ", %s contenitori eliminati"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr ", %s contenitori probabilmente rimanenti"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr ", %s contenitori rimanenti"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr ", %s oggetti eliminati"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr ", %s oggetti probabilmente rimanenti"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr ", %s oggetti rimanenti"
-
-#, python-format
-msgid ", elapsed: %.02fs"
-msgstr ", trascorso: %.02fs"
-
-msgid ", return codes: "
-msgstr ", codici di ritorno: "
-
 msgid "Account"
 msgstr "Conto"
-
-#, python-format
-msgid "Account %(account)s has not been reaped since %(time)s"
-msgstr "Il conto %(account)s non è stato verificato dal %(time)s"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
@@ -165,10 +130,6 @@ msgstr "Avvio pulizia a singolo thread aggiornamento oggetto"
 
 msgid "Begin object update sweep"
 msgstr "Avvio pulizia aggiornamento oggetto"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "Avvio della trasmissione sull'account %s"
 
 msgid "Beginning replication run"
 msgstr "Avvio replica"
@@ -261,10 +222,6 @@ msgstr ""
 #, python-format
 msgid "Data download error: %s"
 msgstr "Errore di download dei dati: %s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "Trasmissione dei dispositivi completata: %.02fs"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -499,30 +456,9 @@ msgstr "Errore: Argomento path della configurazione mancante"
 msgid "Error: unable to locate %s"
 msgstr "Errore: impossibile individuare %s"
 
-msgid "Exception in top-level account reaper loop"
-msgstr "Eccezione nel loop reaper dell'account di livello superiore"
-
-msgid "Exception in top-levelreconstruction loop"
-msgstr "Eccezione nel loop di ricostruzione di livello superiore"
-
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Eccezione relativa a %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "Eccezione relativa all'account %s"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "Eccezione relativa ai contenitori per l'account %s"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr ""
-"Eccezione relativa agli oggetti per il contenitore %(container)s per "
-"l'account %(account)s"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -545,10 +481,6 @@ msgstr ""
 
 msgid "Host unreachable"
 msgstr "Host non raggiungibile"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "Trasmissione non completa sull'account %s"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -856,10 +788,6 @@ msgstr ""
 "alla somma di %(key)s tra le politiche (%(sum)s)"
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "Eccezione di timeout con %(ip)s:%(port)s/%(device)s"
-
-#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "Tentativo di %(method)s %(path)s"
 
@@ -869,9 +797,6 @@ msgstr "Tentativo di eseguire GET %(full_path)s"
 
 msgid "Trying to read during GET"
 msgstr "Tentativo di lettura durante GET"
-
-msgid "Trying to read during GET (retrying)"
-msgstr "Tentativo di lettura durante GET (nuovo tentativo)"
 
 msgid "Trying to send to client"
 msgstr "Tentativo di invio al client"

@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-25 00:41+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -115,43 +115,8 @@ msgstr "%s responded as unmounted"
 msgid "%s: Connection reset by peer"
 msgstr "%s: Connection reset by peer"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr ", %s containers deleted"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr ", %s containers possibly remaining"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr ", %s containers remaining"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr ", %s objects deleted"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr ", %s objects possibly remaining"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr ", %s objects remaining"
-
-#, python-format
-msgid ", elapsed: %.02fs"
-msgstr ", elapsed: %.02fs"
-
-msgid ", return codes: "
-msgstr ", return codes: "
-
 msgid "Account"
 msgstr "Account"
-
-#, python-format
-msgid "Account %(account)s has not been reaped since %(time)s"
-msgstr "Account %(account)s has not been reaped since %(time)s"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
@@ -219,10 +184,6 @@ msgstr "Begin object update single threaded sweep"
 
 msgid "Begin object update sweep"
 msgstr "Begin object update sweep"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "Beginning pass on account %s"
 
 msgid "Beginning replication run"
 msgstr "Beginning replication run"
@@ -345,10 +306,6 @@ msgstr "Could not load %(conf)r: %(error)s"
 #, python-format
 msgid "Data download error: %s"
 msgstr "Data download error: %s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "Devices pass completed: %.02fs"
 
 msgid "Did not get a keys dict"
 msgstr "Did not get a keys dict"
@@ -651,15 +608,9 @@ msgstr "Error: unable to locate %s"
 msgid "Exception fetching fragments for %r"
 msgstr "Exception fetching fragments for %r"
 
-msgid "Exception in top-level account reaper loop"
-msgstr "Exception in top-level account reaper loop"
-
 #, python-format
 msgid "Exception in top-level replication loop: %s"
 msgstr "Exception in top-level replication loop: %s"
-
-msgid "Exception in top-levelreconstruction loop"
-msgstr "Exception in top-level reconstruction loop"
 
 #, python-format
 msgid "Exception while deleting container %(account)s %(container)s %(err)s"
@@ -668,20 +619,6 @@ msgstr "Exception while deleting container %(account)s %(container)s %(err)s"
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Exception with %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "Exception with account %s"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "Exception with containers for account %s"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr ""
-"Exception with objects for container %(container)s for account %(account)s"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -717,10 +654,6 @@ msgstr ""
 
 msgid "Host unreachable"
 msgstr "Host unreachable"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "Incomplete pass on account %s"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -1115,10 +1048,6 @@ msgstr ""
 "%(key)s across policies (%(sum)s)"
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-
-#, python-format
 msgid "Timeout fetching fragments for %r"
 msgstr "Timeout fetching fragments for %r"
 
@@ -1136,9 +1065,6 @@ msgstr "Trying to get %(status_type)s status of PUT to %(path)s"
 
 msgid "Trying to read during GET"
 msgstr "Trying to read during GET"
-
-msgid "Trying to read during GET (retrying)"
-msgstr "Trying to read during GET (retrying)"
 
 msgid "Trying to send to client"
 msgstr "Trying to send to client"
@@ -1190,14 +1116,6 @@ msgstr "Unable to read config from %s"
 #, python-format
 msgid "Unauth %(sync_from)r => %(sync_to)r"
 msgstr "Unauth %(sync_from)r => %(sync_to)r"
-
-#, python-format
-msgid ""
-"Unexpected fragment data type (not quarantined)%(datadir)s: %(type)s at "
-"offset 0x%(offset)x"
-msgstr ""
-"Unexpected fragment data type (not quarantined)%(datadir)s: %(type)s at "
-"offset 0x%(offset)x"
 
 msgid "Unhandled exception"
 msgstr "Unhandled exception"

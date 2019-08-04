@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -81,37 +81,6 @@ msgstr "%s 已回應為未裝載"
 msgid "%s: Connection reset by peer"
 msgstr "%s：已由對等項目重設連線"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr "，已刪除 %s 個儲存器"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr "，可能剩餘 %s 個儲存器"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr "，剩餘 %s 個儲存器"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr "，已刪除 %s 個物件"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr "，可能剩餘 %s 個物件"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr "，剩餘 %s 個物件"
-
-#, python-format
-msgid ", elapsed: %.02fs"
-msgstr "，經歷時間：%.02fs"
-
-msgid ", return codes: "
-msgstr "，回覆碼："
-
 msgid "Account"
 msgstr "帳戶"
 
@@ -158,10 +127,6 @@ msgstr "開始物件更新單一執行緒清理"
 
 msgid "Begin object update sweep"
 msgstr "開始物件更新清理"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "正在開始帳戶 %s 上的通過"
 
 msgid "Beginning replication run"
 msgstr "正在開始抄寫執行"
@@ -246,10 +211,6 @@ msgstr ""
 #, python-format
 msgid "Data download error: %s"
 msgstr "資料下載錯誤：%s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "裝置通過已完成：%.02fs"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -469,28 +430,9 @@ msgstr "錯誤：遺漏配置路徑引數"
 msgid "Error: unable to locate %s"
 msgstr "錯誤：找不到 %s"
 
-msgid "Exception in top-level account reaper loop"
-msgstr "最上層帳戶 Reaper 迴圈發生異常狀況"
-
-msgid "Exception in top-levelreconstruction loop"
-msgstr "最上層重新建構迴圈中發生異常狀況"
-
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s  發生異常狀況"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "帳戶 %s 發生異常狀況"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "帳戶 %s 的儲存器發生異常狀況"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr "帳戶 %(account)s 儲存器 %(container)s 的物件發生異常狀況"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -510,10 +452,6 @@ msgstr "「遞交作業最先」模式仍有剩餘的遞交作業。正在中斷
 
 msgid "Host unreachable"
 msgstr "無法抵達主機"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "帳戶 %s 上的通過未完成"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -804,10 +742,6 @@ msgstr ""
 "儲存器的 %(key)s 總計 (%(total)s) 不符合原則中的 %(key)s 總和 (%(sum)s) "
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "%(ip)s:%(port)s/%(device)s  發生逾時異常狀況"
-
-#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "正在嘗試 %(method)s %(path)s"
 
@@ -817,9 +751,6 @@ msgstr "正在嘗試對 %(full_path)s 執行 GET 動作"
 
 msgid "Trying to read during GET"
 msgstr "正在嘗試於 GET 期間讀取"
-
-msgid "Trying to read during GET (retrying)"
-msgstr "正在嘗試於 GET 期間讀取（正在重試）"
 
 msgid "Trying to send to client"
 msgstr "正在嘗試傳送至用戶端"

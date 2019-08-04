@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-25 00:41+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -104,43 +104,8 @@ msgstr "%s はアンマウントとして応答しました"
 msgid "%s: Connection reset by peer"
 msgstr "%s: 接続がピアによってリセットされました"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr "、%s コンテナーが削除されました"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr "、%s コンテナーが残っていると思われます"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr "、%s コンテナーが残っています"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr "、%s オブジェクトが削除されました"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr "、%s オブジェクトが残っていると思われます"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr "、%s オブジェクトが残っています"
-
-#, fuzzy, python-format
-msgid ", elapsed: %.02fs"
-msgstr "、経過時間: %.02fs"
-
-msgid ", return codes: "
-msgstr "、戻りコード: "
-
 msgid "Account"
 msgstr "アカウント"
-
-#, python-format
-msgid "Account %(account)s has not been reaped since %(time)s"
-msgstr "アカウント %(account)s は %(time)s 以降リープされていません"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
@@ -197,10 +162,6 @@ msgstr "オブジェクト更新単一スレッド化スイープの開始"
 
 msgid "Begin object update sweep"
 msgstr "オブジェクト更新スイープの開始"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "アカウント %s でパスを開始中"
 
 msgid "Beginning replication run"
 msgstr "複製の実行を開始中"
@@ -292,10 +253,6 @@ msgstr "%(conf)r をロードできませんでした: %(error)s"
 #, python-format
 msgid "Data download error: %s"
 msgstr "データダウンロードエラー: %s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "デバイスの処理が完了しました: %.02fs"
 
 msgid "Did not get a keys dict"
 msgstr "キーの辞書を取得できませんでした。"
@@ -546,30 +503,9 @@ msgstr "エラー: 構成パス引数がありません"
 msgid "Error: unable to locate %s"
 msgstr "エラー: %s が見つかりません"
 
-msgid "Exception in top-level account reaper loop"
-msgstr "最上位アカウントリーパーループで例外が発生しました"
-
-msgid "Exception in top-levelreconstruction loop"
-msgstr "最上位再構成ループで例外が発生しました"
-
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s で例外が発生しました"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "アカウント %s で例外が発生しました"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "アカウント %s のコンテナーで例外が発生しました"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr ""
-"アカウント %(account)s のコンテナー %(container)s のオブジェクトで例外が発生"
-"しました"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -591,10 +527,6 @@ msgstr ""
 
 msgid "Host unreachable"
 msgstr "ホストが到達不能です"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "アカウント %s での不完全なパス"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -915,10 +847,6 @@ msgstr ""
 "一致しません"
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "%(ip)s:%(port)s/%(device)s のタイムアウト例外"
-
-#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "%(method)s %(path)s を試行中"
 
@@ -928,9 +856,6 @@ msgstr "GET %(full_path)s を試行中"
 
 msgid "Trying to read during GET"
 msgstr "GET 時に読み取りを試行中"
-
-msgid "Trying to read during GET (retrying)"
-msgstr "GET 時に読み取りを試行中 (再試行中)"
 
 msgid "Trying to send to client"
 msgstr "クライアントへの送信を試行中"

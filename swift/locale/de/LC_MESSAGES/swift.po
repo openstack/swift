@@ -7,16 +7,17 @@
 # Ettore Atalan <atalanttore@googlemail.com>, 2014-2015
 # Jonas John <jonas.john@e-werkzeug.eu>, 2015
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
+# Robert Holling <r.holling@protonmail.ch>, 2019. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2018-08-09 00:12+0000\n"
+"POT-Creation-Date: 2019-07-22 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-06-02 07:02+0000\n"
-"Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
+"PO-Revision-Date: 2019-08-03 04:14+0000\n"
+"Last-Translator: Robert Holling <r.holling@protonmail.ch>\n"
 "Language: de\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
@@ -58,8 +59,24 @@ msgstr ""
 "%(time).2fs (%(rate).2f/s, %(remaining)s verbleibend)"
 
 #, python-format
+msgid "%(replication_ip)s/%(device)s responded as unmounted"
+msgstr "%(replication_ip)s/%(device)s antwortet als unmounted"
+
+#, python-format
+msgid "%(server)s #%(number)d not running (%(conf)s)"
+msgstr "%(server)s #%(number)d wird nicht ausgeführt (%(conf)s)"
+
+#, python-format
 msgid "%(server)s (%(pid)s) appears to have stopped"
 msgstr "%(server)s (%(pid)s) scheinbar gestoppt"
+
+#, python-format
+msgid "%(server)s running (%(pid)s - %(conf)s)"
+msgstr "%(server)s wird ausgeführt (%(pid)s - %(conf)s)"
+
+#, python-format
+msgid "%(server)s running (%(pid)s - %(pid_file)s)"
+msgstr "%(server)s wird ausgeführt (%(pid)s - %(pid_file)s)"
 
 #, python-format
 msgid "%(success)s successes, %(failure)s failures"
@@ -93,43 +110,8 @@ msgstr "%s zurückgemeldet als ausgehängt"
 msgid "%s: Connection reset by peer"
 msgstr "%s: Verbindung zurückgesetzt durch Peer"
 
-#, python-format
-msgid ", %s containers deleted"
-msgstr ", %s Container gelöscht"
-
-#, python-format
-msgid ", %s containers possibly remaining"
-msgstr ", %s Container möglicherweise verbleibend"
-
-#, python-format
-msgid ", %s containers remaining"
-msgstr ", %s Container verbleibend"
-
-#, python-format
-msgid ", %s objects deleted"
-msgstr ", %s Objekte gelöscht"
-
-#, python-format
-msgid ", %s objects possibly remaining"
-msgstr ", %s Objekte möglicherweise verbleibend"
-
-#, python-format
-msgid ", %s objects remaining"
-msgstr ", %s Objekte verbleibend"
-
-#, python-format
-msgid ", elapsed: %.02fs"
-msgstr ", vergangen: %.02fs"
-
-msgid ", return codes: "
-msgstr ", Rückgabecodes: "
-
 msgid "Account"
 msgstr "Konto"
-
-#, python-format
-msgid "Account %(account)s has not been reaped since %(time)s"
-msgstr "Konto %(account)s wurde nicht aufgeräumt seit %(time)s"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
@@ -141,6 +123,13 @@ msgstr "Kontoprüfungsdurchlauf abgeschlossen: %.02fs"
 
 #, python-format
 msgid ""
+"Adding required filter %(filter_name)s to pipeline at position %(insert_at)d"
+msgstr ""
+"Füge erforderlichen Filter %(filter_name)s zu Pipeline an Position "
+"%(insert_at)d hinzu"
+
+#, python-format
+msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 "Versuch, %(count)d Datenbanken in %(time).5f Sekunden zu replizieren "
@@ -149,6 +138,14 @@ msgstr ""
 #, python-format
 msgid "Audit Failed for %(path)s: %(err)s"
 msgstr "Prüfung fehlgeschlagen für %(path)s: %(err)s"
+
+#, python-format
+msgid "Audit passed for %s"
+msgstr "Prüfung für %s erfolgt"
+
+#, python-format
+msgid "Bad key for %(name)r: %(err)s"
+msgstr "Schlechter Schlüssel für %(name)r: %(err)s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -180,10 +177,6 @@ msgstr "Einzelthread-Scanvorgang für Objektaktualisierung wird gestartet"
 
 msgid "Begin object update sweep"
 msgstr "Scanvorgang für Objektaktualisierung wird gestartet"
-
-#, python-format
-msgid "Beginning pass on account %s"
-msgstr "Durchlauf für Konto %s wird gestartet"
 
 msgid "Beginning replication run"
 msgstr "Replizierungsdurchlauf wird gestartet"
@@ -242,6 +235,9 @@ msgstr ""
 msgid "Connection refused"
 msgstr "Verbindung abgelehnt"
 
+msgid "Connection reset"
+msgstr "Verbindung zurückgesetzt"
+
 msgid "Connection timeout"
 msgstr "Verbindungszeitüberschreitung"
 
@@ -259,6 +255,18 @@ msgstr "Containerprüfungsdurchlauf abgeschlossen: %.02fs"
 #, python-format
 msgid "Container sync \"once\" mode completed: %.02fs"
 msgstr "Containersynchronisationsmodus \"once\" abgeschlossen: %.02fs"
+
+#, python-format
+msgid ""
+"Container sync report: %(container)s, time window start: %(start)s, time "
+"window end: %(end)s, puts: %(puts)s, posts: %(posts)s, deletes: %(deletes)s, "
+"bytes: %(bytes)s, sync_point1: %(point1)s, sync_point2: %(point2)s, "
+"total_rows: %(total)s"
+msgstr ""
+"Container Synchronisierungsbericht: %(container)s, Beginn Zeitfenster: "
+"%(start)s, Ende Zeitfenster: %(end)s, puts: %(puts)s, posts: %(posts)s, "
+"deletes: %(deletes)s, bytes: %(bytes)s, sync_point1: %(point1)s, "
+"sync_point2: %(point2)s, total_rows: %(total)s"
 
 #, python-format
 msgid ""
@@ -283,6 +291,10 @@ msgstr ""
 "Änderungen"
 
 #, python-format
+msgid "Could not autocreate account %r"
+msgstr "Kann das Konto %r nicht automatisch erstellen"
+
+#, python-format
 msgid ""
 "Could not bind to %(addr)s:%(port)s after trying for %(timeout)s seconds"
 msgstr ""
@@ -296,10 +308,6 @@ msgstr "%(conf)r konnte nicht geladen werden: %(error)s"
 #, python-format
 msgid "Data download error: %s"
 msgstr "Fehler beim Downloaden von Daten: %s"
-
-#, python-format
-msgid "Devices pass completed: %.02fs"
-msgstr "Gerätedurchgang abgeschlossen: %.02fs"
 
 #, python-format
 msgid "Directory %(directory)r does not map to a valid policy (%(error)s)"
@@ -322,6 +330,10 @@ msgstr "FEHLER %(status)d %(body)s Vom Objektserver bezüglich: %(path)s"
 #, python-format
 msgid "ERROR %(status)d Expect: 100-continue From Object Server"
 msgstr "FEHLER %(status)d Erwartet: 100-continue von Objektserver"
+
+#, python-format
+msgid "ERROR %(status)d Trying to %(method)s %(path)s From %(type)s Server"
+msgstr "FEHLER %(status)d Versuch, %(method)s %(path)s von %(type)s Server"
 
 #, python-format
 msgid ""
@@ -352,6 +364,14 @@ msgstr ""
 "FEHLER Containeraktualisierung fehlgeschlagen (wird für asynchrone "
 "Aktualisierung zu einem späteren Zeitpunkt gespeichert): %(status)d Antwort "
 "von %(ip)s:%(port)s/%(dev)s"
+
+#, python-format
+msgid ""
+"ERROR Container update failed: different numbers of hosts and devices in "
+"request: \"%(hosts)s\" vs \"%(devices)s\""
+msgstr ""
+"FEHLER Container Aktualisierung fehlgeschlagen: Unterschiedliche Anzahl von "
+"Hosts und Geräten in der Anfrage: \"%(hosts)s\" vs \"%(devices)s\""
 
 #, python-format
 msgid "ERROR Could not get account info %s"
@@ -497,6 +517,34 @@ msgstr "FEHLER: Auf %(path)s kann nicht zugegriffen werden: %(error)s"
 msgid "ERROR: Unable to run auditing: %s"
 msgstr "FEHLER: Prüfung konnte nicht durchgeführt werden: %s"
 
+#, python-format
+msgid ""
+"Error code %(status)d is returned from remote server %(ip)s: %(port)s / "
+"%(device)s"
+msgstr ""
+"Fehlercode %(status)d wurde vom entfernten Server %(ip)s:%(port)s / "
+"%(device)s zurück gegeben"
+
+#, python-format
+msgid "Error decoding fragments for %r"
+msgstr "Fehler beim Dekodieren von Fragmenten für %r"
+
+#, python-format
+msgid "Error decrypting %(resp_type)s: %(reason)s"
+msgstr "Fehler beim Entschlüsseln %(resp_type)s: %(reason)s"
+
+#, python-format
+msgid "Error decrypting %(resp_type)s: Missing %(key)s"
+msgstr "Fehler beim Entschlüsseln %(resp_type)s: Es fehlt %(key)s"
+
+#, python-format
+msgid "Error decrypting header %(header)s: %(error)s"
+msgstr "Fehler beim Entschlüsseln des header %(header)s: %(error)s"
+
+#, python-format
+msgid "Error decrypting object: %s"
+msgstr "Fehler beim Entschlüsseln object: %s"
+
 msgid "Error hashing suffix"
 msgstr "Fehler beim Hashing des Suffix"
 
@@ -526,6 +574,10 @@ msgstr "Fehler beim Lesen der swift.conf"
 msgid "Error retrieving recon data"
 msgstr "Fehler beim Abrufen der recon-Daten"
 
+#, python-format
+msgid "Error sending UDP message to %(target)r: %(err)s"
+msgstr "Fehler beim Senden von UDP Nachricht zu %(target)r: %(err)s"
+
 msgid "Error syncing handoff partition"
 msgstr "Fehler bei der Synchronisierung der Übergabepartition"
 
@@ -552,29 +604,24 @@ msgstr "Fehler: fehlendes Konfigurationspfadargument"
 msgid "Error: unable to locate %s"
 msgstr "Fehler: %s kann nicht lokalisiert werden"
 
-msgid "Exception in top-level account reaper loop"
-msgstr "Ausnahme in Reaper-Loop für Konto der höchsten Ebene"
+#, python-format
+msgid "Exception fetching fragments for %r"
+msgstr "Ausnahme beim Abrufen von Fragmenten für %r"
 
-msgid "Exception in top-levelreconstruction loop"
-msgstr "Ausnahme in Rekonstruktionsloop der höchsten Ebene"
+msgid "Exception in top-level reconstruction loop"
+msgstr "Ausnahme in Replizierungsloop der höchsten Ebene"
+
+#, python-format
+msgid "Exception in top-level replication loop: %s"
+msgstr "Ausnahme in Replizierungsschleife der höchsten Ebene: %s"
+
+#, python-format
+msgid "Exception while deleting container %(account)s %(container)s %(err)s"
+msgstr "Ausnahme beim Löschen von Container %(account)s %(container)s %(err)s"
 
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Ausnahme bei %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "Exception with account %s"
-msgstr "Ausnahme mit Account %s"
-
-#, python-format
-msgid "Exception with containers for account %s"
-msgstr "Ausnahme bei Containern für Konto %s"
-
-#, python-format
-msgid ""
-"Exception with objects for container %(container)s for account %(account)s"
-msgstr ""
-"Ausnahme bei Objekten für Container %(container)s für Konto %(account)s"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -594,12 +641,15 @@ msgstr ""
 "Der Modus 'handoffs_first' ist noch nicht abgeschlossen. Der aktuelle "
 "Replikationsdurchgang wird abgebrochen."
 
+msgid ""
+"Handoffs only mode still has handoffs remaining. Next pass will continue to "
+"revert handoffs."
+msgstr ""
+"Der Modus 'handoffs_first' ist noch nicht abgeschlossen. Der nächste "
+"Durchgang setzt die Übergaben fort."
+
 msgid "Host unreachable"
 msgstr "Host nicht erreichbar"
-
-#, python-format
-msgid "Incomplete pass on account %s"
-msgstr "Unvollständiger Durchgang auf Konto %s"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -629,6 +679,9 @@ msgstr ""
 "Ungültiges Schema %r in X-Container-Sync-To, muss \"//\", \"http\" oder "
 "\"https\" sein."
 
+msgid "Invalid swift_bytes"
+msgstr "Ungültige swift_bytes"
+
 #, python-format
 msgid "Killing long-running rsync: %s"
 msgstr "Lange laufendes rsync wird gekillt: %s"
@@ -643,6 +696,13 @@ msgstr "Suche erkannt. Live-Coros werden gelöscht."
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr "%(given_domain)s zugeordnet zu %(found_domain)s"
+
+#, python-format
+msgid "Missing key for %r"
+msgstr "Fehlender Schlüssel für %r"
+
+msgid "Network unreachable"
+msgstr "Netzwerk nicht erreichbar"
 
 #, python-format
 msgid "No %s running"
@@ -699,6 +759,20 @@ msgid "Object PUT"
 msgstr "Objekt PUT"
 
 #, python-format
+msgid ""
+"Object PUT exceptions after last send, %(conns)s/%(nodes)s required "
+"connections"
+msgstr ""
+"Objekt PUT Ausnahme nach letztem Senden, %(conns)s/%(nodes)s erfordert eine "
+"Verbindung"
+
+#, python-format
+msgid ""
+"Object PUT exceptions during send, %(conns)s/%(nodes)s required connections"
+msgstr ""
+"Objekt PUT Ausnahme beim Senden %(conns)s/%(nodes)s erfordern eine Verbindung"
+
+#, python-format
 msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
 msgstr ""
 "PUT-Operation für ein Objekt gibt 202 für 409 zurück: %(req_timestamp)s <= "
@@ -707,6 +781,11 @@ msgstr ""
 #, python-format
 msgid "Object PUT returning 412, %(statuses)r"
 msgstr "Objekt PUT Rückgabe 412, %(statuses)r"
+
+#, python-format
+msgid "Object PUT returning 503, %(conns)s/%(nodes)s required connections"
+msgstr ""
+"Objekt PUT gibt 503 zurück, %(conns)s/%(nodes)s erfordert eine Verbindung"
 
 #, python-format
 msgid ""
@@ -773,6 +852,18 @@ msgid "Path required in X-Container-Sync-To"
 msgstr "Pfad in X-Container-Sync-To ist erforderlich"
 
 #, python-format
+msgid "Pipeline is \"%s\""
+msgstr "Pipeline ist \"%s\""
+
+#, python-format
+msgid "Pipeline was modified. New pipeline is \"%s\"."
+msgstr "Pipeline wurde geändert. Neue Pipeline ist \"%s\"."
+
+#, python-format
+msgid "Problem checking EC fragment %(datadir)s: %(err)s"
+msgstr "Problemüberprüfung EC Fragment %(datadir)s: %(err)s"
+
+#, python-format
 msgid "Problem cleaning up %(datadir)s (%(err)s)"
 msgstr "Problem bei der Bereinigung von %(datadir)s (%(err)s)"
 
@@ -781,8 +872,18 @@ msgid "Problem cleaning up %s"
 msgstr "Problem bei der Bereinigung von %s"
 
 #, python-format
+msgid "Problem with fragment response: %s"
+msgstr "Problem mit Antwort von Fragment: %s"
+
+#, python-format
 msgid "Profiling Error: %s"
 msgstr "Fehler bei der Profilerstellung: %s"
+
+#, python-format
+msgid "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
+msgstr ""
+"%(db_dir)s nach %(quar_path)s aufgrund von %(reason)s in Quarantäne "
+"verschoben."
 
 #, python-format
 msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
@@ -893,6 +994,10 @@ msgstr ""
 "nicht bestandene Prüfung"
 
 #, python-format
+msgid "Skipping %(datadir)s because %(err)s"
+msgstr "Überspringe %(datadir)s aufgrund %(err)s"
+
+#, python-format
 msgid "Skipping %s as it is not mounted"
 msgstr "%s wird übersprungen, weil es nicht eingehängt ist"
 
@@ -928,8 +1033,8 @@ msgstr ""
 "der Summe der %(key)s für alle Richtlinien (%(sum)s)"
 
 #, python-format
-msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
-msgstr "Zeitüberschreitungsausnahme bei %(ip)s:%(port)s/%(device)s"
+msgid "Timeout fetching fragments for %r"
+msgstr "Zeitüberschreitung beim Abrufen von Fragmenten für %r"
 
 #, python-format
 msgid "Trying to %(method)s %(path)s"
@@ -939,10 +1044,15 @@ msgstr "Versuch, %(method)s %(path)s"
 msgid "Trying to GET %(full_path)s"
 msgstr "Versuch, %(full_path)s mit GET abzurufen"
 
+#, python-format
+msgid "Trying to get %(status_type)s status of PUT to %(path)s"
+msgstr ""
+"Es wird versucht, %(status_type)s Status von PUT für %(path)s abzurufen"
+
 msgid "Trying to read during GET"
 msgstr "Versuch, während des GET-Vorgangs zu lesen"
 
-msgid "Trying to read during GET (retrying)"
+msgid "Trying to read object during GET (retrying)"
 msgstr "Versuch, während des GET-Vorgangs zu lesen (Wiederholung)"
 
 msgid "Trying to send to client"
@@ -1001,6 +1111,14 @@ msgstr "Konfiguration aus %s kann nicht gelesen werden"
 msgid "Unauth %(sync_from)r => %(sync_to)r"
 msgstr "Nicht genehmigte %(sync_from)r => %(sync_to)r"
 
+#, python-format
+msgid ""
+"Unexpected fragment data type (not quarantined) %(datadir)s: %(type)s at "
+"offset 0x%(offset)x"
+msgstr ""
+"Unerwarteter Fragment Datentyp (nicht unter Quarantäne) %(datadir)s: "
+"%(type)s at offset 0x%(offset)x"
+
 msgid "Unhandled exception"
 msgstr "Nicht behandelte Exception"
 
@@ -1024,6 +1142,14 @@ msgstr ""
 "WARNUNG: SSL sollte nur zu Testzwecken aktiviert werden. Verwenden Sie die "
 "externe SSL-Beendigung für eine Implementierung in der Produktionsumgebung."
 
+msgid ""
+"WARNING: Unable to modify I/O scheduling class and priority of process. "
+"Keeping unchanged! Check logs for more info."
+msgstr ""
+"WARNUNG: I/O Planungsklasse und Priorität des Prozesses können nicht "
+"geändert werden. Es werden keine Änderungen vorgenommen! Überprüfen Sie die "
+"Log-Dateien für mehr Informationen."
+
 msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
 msgstr ""
 "WARNUNG: Grenzwert für Dateideskriptoren kann nicht geändert werden.  Wird "
@@ -1038,6 +1164,14 @@ msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "WARNUNG: Grenzwert für Speicher kann nicht geändert werden.  Wird nicht als "
 "Root ausgeführt?"
+
+msgid ""
+"WARNING: Unable to modify scheduling priority of process. Keeping unchanged! "
+"Check logs for more info. "
+msgstr ""
+"WARNUNG: Priorität der Planung des Prozesses kann nicht geändert werden. Es "
+"wird keine Änderung vorgenommen! Überprüfen Sie die Log-Dateien für mehr "
+"Informationen."
 
 #, python-format
 msgid "Waited %(kill_wait)s seconds for %(server)s to die; giving up"
@@ -1054,6 +1188,10 @@ msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr ""
 "Warnung: Geschwindigkeitsbegrenzung kann nicht ohne memcached-Client "
 "durchgeführt werden"
+
+#, python-format
+msgid "autocreate account %r"
+msgstr "Automatisch erstelltes Konto %r"
 
 #, python-format
 msgid "method %s is not allowed."
