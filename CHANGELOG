@@ -237,7 +237,7 @@ swift (2.20.0)
 
     * Various other minor bug fixes and improvements.
 
-2.19.1 (rocky stable backports)
+swift (2.19.1, rocky stable backports)
 
     * Prevent PyKMIP's kmip_protocol logger from logging at DEBUG.
       Previously, some versions of PyKMIP would include all wire
@@ -414,7 +414,7 @@ swift (2.18.0)
 
     * Various other minor bug fixes and improvements.
 
-2.17.1 (queens stable backports)
+swift (2.17.1, queens stable backports)
 
     * Fix SLO delete for accounts with non-ASCII names.
 
@@ -616,7 +616,7 @@ swift (2.16.0)
 
     * Various other minor bug fixes and improvements.
 
-2.15.2 (pike stable backports)
+swift (2.15.2, pike stable backports)
 
     * Fixed a cache invalidation issue related to GET and PUT requests to
       containers that would occasionally cause object PUTs to a container to
