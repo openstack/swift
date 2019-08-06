@@ -97,6 +97,18 @@
       python_version: 3.7
 
 - job:
+    name: swift-tox-func-encryption-py37
+    parent: swift-tox-func-py37
+    description: |
+      Run functional tests for swift under cPython version 3.7.
+
+      Uses tox with the ``func-encryption-py3`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-encryption-py3
+
+- job:
     name: swift-tox-func-ec-py37
     parent: swift-tox-func-py37
     description: |
@@ -454,6 +466,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-encryption-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-tox-func-domain-remap-staticweb-py37:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -536,6 +553,7 @@
         - swift-tox-func-ec
         - swift-tox-func-s3api
         - swift-tox-func-py37
+        - swift-tox-func-encryption
         - swift-tox-func-domain-remap-staticweb-py37
         - swift-tox-func-ec-py37
         - swift-probetests-centos-7:
