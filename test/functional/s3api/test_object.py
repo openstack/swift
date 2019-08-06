@@ -25,7 +25,8 @@ import email.parser
 from email.utils import formatdate, parsedate
 from time import mktime
 from hashlib import md5
-from urllib import quote
+import six
+from six.moves.urllib.parse import quote
 
 import test.functional as tf
 
@@ -59,7 +60,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_object(self):
         obj = 'object name with %-sign'
-        content = 'abc123'
+        content = b'abc123'
         etag = md5(content).hexdigest()
 
         # PUT Object
@@ -219,19 +220,19 @@ class TestS3ApiObject(S3ApiBase):
         status, headers, body = \
             auth_error_conn.make_request('HEAD', self.bucket, obj)
         self.assertEqual(status, 403)
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
         self.assertEqual(headers['content-type'], 'application/xml')
 
         status, headers, body = \
             self.conn.make_request('HEAD', self.bucket, 'invalid')
         self.assertEqual(status, 404)
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
         self.assertEqual(headers['content-type'], 'application/xml')
 
         status, headers, body = \
             self.conn.make_request('HEAD', 'invalid', obj)
         self.assertEqual(status, 404)
-        self.assertEqual(body, '')  # sanity
+        self.assertEqual(body, b'')  # sanity
         self.assertEqual(headers['content-type'], 'application/xml')
 
     def test_delete_object_error(self):
@@ -265,7 +266,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_put_object_content_md5(self):
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         etag = md5(content).hexdigest()
         headers = {'Content-MD5': calculate_md5(content)}
         status, headers, body = \
@@ -276,7 +277,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_put_object_content_type(self):
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         etag = md5(content).hexdigest()
         headers = {'Content-Type': 'text/plain'}
         status, headers, body = \
@@ -290,7 +291,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_put_object_conditional_requests(self):
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         headers = {'If-None-Match': '*'}
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj, headers, content)
@@ -318,7 +319,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_put_object_expect(self):
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         etag = md5(content).hexdigest()
         headers = {'Expect': '100-continue'}
         status, headers, body = \
@@ -331,7 +332,7 @@ class TestS3ApiObject(S3ApiBase):
         if expected_headers is None:
             expected_headers = req_headers
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         etag = md5(content).hexdigest()
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj,
@@ -387,7 +388,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_put_object_storage_class(self):
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         etag = md5(content).hexdigest()
         headers = {'X-Amz-Storage-Class': 'STANDARD'}
         status, headers, body = \
@@ -399,7 +400,7 @@ class TestS3ApiObject(S3ApiBase):
     def test_put_object_copy_source_params(self):
         obj = 'object'
         src_headers = {'X-Amz-Meta-Test': 'src'}
-        src_body = 'some content'
+        src_body = b'some content'
         dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
         self.conn.make_request('PUT', self.bucket, obj, src_headers, src_body)
@@ -433,7 +434,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_put_object_copy_source(self):
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         etag = md5(content).hexdigest()
         self.conn.make_request('PUT', self.bucket, obj, body=content)
 
@@ -648,7 +649,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_get_object_range(self):
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         headers = {'x-amz-meta-test': 'swift'}
         self.conn.make_request(
             'PUT', self.bucket, obj, headers=headers, body=content)
@@ -662,7 +663,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('x-amz-meta-test' in headers)
         self.assertEqual('swift', headers['x-amz-meta-test'])
-        self.assertEqual(body, 'bcdef')
+        self.assertEqual(body, b'bcdef')
 
         headers = {'Range': 'bytes=5-'}
         status, headers, body = \
@@ -673,7 +674,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('x-amz-meta-test' in headers)
         self.assertEqual('swift', headers['x-amz-meta-test'])
-        self.assertEqual(body, 'fghij')
+        self.assertEqual(body, b'fghij')
 
         headers = {'Range': 'bytes=-5'}
         status, headers, body = \
@@ -684,7 +685,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('x-amz-meta-test' in headers)
         self.assertEqual('swift', headers['x-amz-meta-test'])
-        self.assertEqual(body, 'fghij')
+        self.assertEqual(body, b'fghij')
 
         ranges = ['1-2', '4-5']
 
@@ -693,9 +694,9 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('GET', self.bucket, obj, headers=headers)
         self.assertEqual(status, 206)
         self.assertCommonResponseHeaders(headers)
-        self.assertTrue('content-length' in headers)
+        self.assertIn('content-length', headers)
 
-        self.assertTrue('content-type' in headers)  # sanity
+        self.assertIn('content-type', headers)  # sanity
         content_type, boundary = headers['content-type'].split(';')
 
         self.assertEqual('multipart/byteranges', content_type)
@@ -704,10 +705,13 @@ class TestS3ApiObject(S3ApiBase):
 
         # TODO: Using swift.common.utils.multipart_byteranges_to_document_iters
         #       could be easy enough.
-        parser = email.parser.FeedParser()
+        if six.PY2:
+            parser = email.parser.FeedParser()
+        else:
+            parser = email.parser.BytesFeedParser()
         parser.feed(
-            "Content-Type: multipart/byterange; boundary=%s\r\n\r\n" %
-            boundary_str)
+            b"Content-Type: multipart/byterange; boundary=%s\r\n\r\n" %
+            boundary_str.encode('ascii'))
         parser.feed(body)
         message = parser.close()
 
@@ -727,7 +731,7 @@ class TestS3ApiObject(S3ApiBase):
             self.assertEqual(
                 expected_range, part.get('Content-Range'))
             # rest
-            payload = part.get_payload().strip()
+            payload = part.get_payload(decode=True).strip()
             self.assertEqual(content[start:end + 1], payload)
 
     def test_get_object_if_modified_since(self):
@@ -783,7 +787,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_head_object_range(self):
         obj = 'object'
-        content = 'abcdefghij'
+        content = b'abcdefghij'
         self.conn.make_request('PUT', self.bucket, obj, body=content)
 
         headers = {'Range': 'bytes=1-5'}

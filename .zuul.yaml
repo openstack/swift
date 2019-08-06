@@ -133,6 +133,18 @@
       tox_envlist: func-domain-remap-staticweb-py3
 
 - job:
+    name: swift-tox-func-s3api-py37
+    parent: swift-tox-func-py37
+    description: |
+      Run functional tests for swift under cPython version 3.7.
+
+      Uses tox with the ``func-s3api`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-s3api-py3
+
+- job:
     name: swift-tox-func-centos-7
     parent: swift-tox-func
     nodeset: centos-7
@@ -480,6 +492,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-s3api-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
 
         # Other tests
         - swift-tox-func-s3api-ceph-s3tests-tempauth:
@@ -555,6 +572,7 @@
         - swift-tox-func-encryption
         - swift-tox-func-domain-remap-staticweb-py37
         - swift-tox-func-ec-py37
+        - swift-tox-func-s3api-py37
         - swift-probetests-centos-7:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$

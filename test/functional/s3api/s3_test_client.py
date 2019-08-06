@@ -81,7 +81,7 @@ class Connection(object):
                     break
 
                 for bucket in buckets:
-                    if not isinstance(bucket.name, six.binary_type):
+                    if six.PY2 and not isinstance(bucket.name, bytes):
                         bucket.name = bucket.name.encode('utf-8')
 
                     try:
@@ -103,7 +103,7 @@ class Connection(object):
             exceptions.insert(0, 'Too many errors to continue:')
             raise Exception('\n========\n'.join(exceptions))
 
-    def make_request(self, method, bucket='', obj='', headers=None, body='',
+    def make_request(self, method, bucket='', obj='', headers=None, body=b'',
                      query=None):
         """
         Wrapper method of S3Connection.make_request.
@@ -123,7 +123,9 @@ class Connection(object):
                                    query_args=query, sender=None,
                                    override_num_retries=RETRY_COUNT,
                                    retry_handler=None)
-        return response.status, dict(response.getheaders()), response.read()
+        return (response.status,
+                {h.lower(): v for h, v in response.getheaders()},
+                response.read())
 
     def generate_url_and_headers(self, method, bucket='', obj='',
                                  expires_in=3600):
