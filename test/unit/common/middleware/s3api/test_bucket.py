@@ -79,6 +79,9 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.swift.register(
             'HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound, {}, None)
         self.swift.register(
+            'HEAD', '/v1/AUTH_test/unavailable', swob.HTTPServiceUnavailable,
+            {}, None)
+        self.swift.register(
             'GET', '/v1/AUTH_test/junk', swob.HTTPOk,
             {'Content-Type': 'application/json'}, object_list)
         self.swift.register(
@@ -121,6 +124,15 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(status.split()[0], '404')
         self.assertEqual(body, '')  # sanity
 
+    def test_bucket_HEAD_503(self):
+        req = Request.blank('/unavailable',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '503')
+        self.assertEqual(body, b'')  # sanity
+
     def test_bucket_HEAD_slash(self):
         req = Request.blank('/junk/',
                             environ={'REQUEST_METHOD': 'HEAD'},
@@ -145,6 +157,9 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(code, 'AccessDenied')
         code = self._test_method_error('GET', '/bucket', swob.HTTPNotFound)
         self.assertEqual(code, 'NoSuchBucket')
+        code = self._test_method_error('GET', '/bucket',
+                                       swob.HTTPServiceUnavailable)
+        self.assertEqual(code, 'ServiceUnavailable')
         code = self._test_method_error('GET', '/bucket', swob.HTTPServerError)
         self.assertEqual(code, 'InternalError')
 
@@ -604,6 +619,9 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(code, 'BucketAlreadyExists')
         code = self._test_method_error('PUT', '/bucket', swob.HTTPServerError)
         self.assertEqual(code, 'InternalError')
+        code = self._test_method_error(
+            'PUT', '/bucket', swob.HTTPServiceUnavailable)
+        self.assertEqual(code, 'ServiceUnavailable')
         code = self._test_method_error(
             'PUT', '/bucket+bucket', swob.HTTPCreated)
         self.assertEqual(code, 'InvalidBucketName')
