@@ -3345,7 +3345,7 @@ class GreenAsyncPile(object):
                     raise StopIteration()
                 rv = self._responses.get()
             self._pending -= 1
-            if rv == DEAD:
+            if rv is DEAD:
                 continue
             return rv
     __next__ = next
