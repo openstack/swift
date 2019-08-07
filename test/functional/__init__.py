@@ -43,8 +43,6 @@ from swift.common.storage_policy import parse_storage_policies, PolicyError
 from swift.common.utils import set_swift_dir
 
 from test import get_config, listen_zero
-from test.functional.swift_test_client import Account, Connection, Container, \
-    ResponseError
 
 from test.unit import debug_logger, FakeMemcache
 # importing skip_if_no_xattrs so that functional tests can grab it from the
@@ -74,6 +72,10 @@ DEBUG = True
 eventlet.hubs.use_hub(utils.get_hub())
 eventlet.patcher.monkey_patch(all=False, socket=True)
 eventlet.debug.hub_exceptions(False)
+
+# swift_test_client import from swiftclient, so move after the monkey-patching
+from test.functional.swift_test_client import Account, Connection, Container, \
+    ResponseError
 
 from swiftclient import get_auth, http_connection
 
