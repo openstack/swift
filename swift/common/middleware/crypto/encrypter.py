@@ -22,7 +22,8 @@ from swift.common.http import is_success
 from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
     dump_crypto_meta, append_crypto_meta, Crypto
 from swift.common.request_helpers import get_object_transient_sysmeta, \
-    strip_user_meta_prefix, is_user_meta, update_etag_is_at_header
+    strip_user_meta_prefix, is_user_meta, update_etag_is_at_header, \
+    get_container_update_override_key
 from swift.common.swob import Request, Match, HTTPException, \
     HTTPUnprocessableEntity, wsgi_to_bytes, bytes_to_wsgi
 from swift.common.utils import get_logger, config_true_value, \
@@ -100,8 +101,8 @@ class EncInputWrapper(object):
         # remove any Etag from headers, it won't be valid for ciphertext and
         # we'll send the ciphertext Etag later in footer metadata
         client_etag = req.headers.pop('etag', None)
-        container_listing_etag_header = req.headers.get(
-            'X-Object-Sysmeta-Container-Update-Override-Etag')
+        override_header = get_container_update_override_key('etag')
+        container_listing_etag_header = req.headers.get(override_header)
 
         def footers_callback(footers):
             if inner_callback:
@@ -152,8 +153,7 @@ class EncInputWrapper(object):
             # This may be None if no override was set and no data was read. An
             # override value of '' will be passed on.
             container_listing_etag = footers.get(
-                'X-Object-Sysmeta-Container-Update-Override-Etag',
-                container_listing_etag_header)
+                override_header, container_listing_etag_header)
 
             if container_listing_etag is None:
                 container_listing_etag = plaintext_etag
@@ -174,7 +174,7 @@ class EncInputWrapper(object):
                     self.crypto, container_listing_etag,
                     self.keys['container'])
                 crypto_meta['key_id'] = self.keys['id']
-                footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
+                footers[override_header] = \
                     append_crypto_meta(val, crypto_meta)
             # else: no override was set and no data was read
 

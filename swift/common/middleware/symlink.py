@@ -164,7 +164,7 @@ from swift.common.utils import get_logger, register_swift_info, split_path, \
 from swift.common.constraints import check_account_format
 from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.request_helpers import get_sys_meta_prefix, \
-    check_path_header
+    check_path_header, get_container_update_override_key
 from swift.common.swob import Request, HTTPBadRequest, HTTPTemporaryRedirect, \
     HTTPException, HTTPConflict, HTTPPreconditionFailed, wsgi_quote, \
     wsgi_unquote
@@ -455,7 +455,7 @@ class SymlinkObjectContext(WSGIContext):
             etag_override.append(
                 'symlink_target_account=%s' %
                 req.headers[TGT_ACCT_SYSMETA_SYMLINK_HDR])
-        req.headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
+        req.headers[get_container_update_override_key('etag')] = \
             '; '.join(etag_override)
 
         return self._app_call(req.environ)

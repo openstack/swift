@@ -123,7 +123,7 @@ from swift.common.http import HTTP_MULTIPLE_CHOICES, is_success, HTTP_OK
 from swift.common.constraints import check_account_format, MAX_FILE_SIZE
 from swift.common.request_helpers import copy_header_subset, remove_items, \
     is_sys_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
-    check_path_header
+    check_path_header, OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
 from swift.common.wsgi import WSGIContext, make_subrequest
 
 
@@ -405,7 +405,7 @@ class ServerSideCopyMiddleware(object):
             # since we're not copying the source etag, make sure that any
             # container update override values are not copied.
             remove_items(sink_req.headers, lambda k: k.startswith(
-                'X-Object-Sysmeta-Container-Update-Override-'))
+                OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX.title()))
 
         # We no longer need these headers
         sink_req.headers.pop('X-Copy-From', None)

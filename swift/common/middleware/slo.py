@@ -339,7 +339,8 @@ from swift.common.utils import get_logger, config_true_value, \
     closing_if_possible, LRUCache, StreamingPile, strict_b64decode, \
     Timestamp
 from swift.common.request_helpers import SegmentedIterable, \
-    get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header
+    get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
+    get_container_update_override_key
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
 from swift.common.wsgi import WSGIContext, make_subrequest
@@ -1354,7 +1355,7 @@ class StaticLargeObject(object):
 
             # Ensure container listings have both etags. However, if any
             # middleware to the left of us touched the base value, trust them.
-            override_header = 'X-Object-Sysmeta-Container-Update-Override-Etag'
+            override_header = get_container_update_override_key('etag')
             val, sep, params = req.headers.get(
                 override_header, '').partition(';')
             req.headers[override_header] = '%s; slo_etag=%s' % (
