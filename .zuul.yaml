@@ -235,8 +235,7 @@
     vars:
       devstack_localrc:
         SERVICE_IP_VERSION: 6
-        HOST_IPV6: '[::1]'
-        SERVICE_HOST: '[::1]'
+        SERVICE_HOST: ""
 
 - job:
     name: swift-tox-func-s3api-ceph-s3tests-tempauth
