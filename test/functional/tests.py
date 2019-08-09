@@ -1290,6 +1290,10 @@ class TestFile(Base):
                 if not matches:
                     errors.append('Missing expected header %s' % k)
                 for (got_k, got_v) in matches:
+                    # The Connection: header is parsed by cluster's LB and may
+                    # be returned in either original lowercase or camel-cased.
+                    if k == 'connection':
+                        got_v = got_v.lower()
                     if got_v != v:
                         errors.append('Expected %s but got %s for %s' %
                                       (v, got_v, k))
