@@ -16,6 +16,7 @@
 from __future__ import print_function
 import mock
 import os
+import six
 from six.moves.urllib.parse import urlparse, urlsplit, urlunsplit
 import sys
 import pickle
@@ -25,6 +26,7 @@ import eventlet
 import eventlet.debug
 import functools
 import random
+import base64
 
 from time import time, sleep
 from contextlib import closing
@@ -319,7 +321,9 @@ def _load_encryption(proxy_conf_file, swift_conf_file, **kwargs):
             "proxy-logging proxy-server",
             "keymaster encryption proxy-logging proxy-server")
         conf.set(section, 'pipeline', pipeline)
-        root_secret = os.urandom(32).encode("base64")
+        root_secret = base64.b64encode(os.urandom(32))
+        if not six.PY2:
+            root_secret = root_secret.decode('ascii')
         conf.set('filter:keymaster', 'encryption_root_secret', root_secret)
     except NoSectionError as err:
         msg = 'Error problem with proxy conf file %s: %s' % \
