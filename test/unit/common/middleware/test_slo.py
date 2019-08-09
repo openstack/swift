@@ -54,7 +54,9 @@ def fake_start_response(*args, **kwargs):
 
 
 def md5hex(s):
-    return hashlib.md5(s.encode('ascii')).hexdigest()
+    if not isinstance(s, bytes):
+        s = s.encode('ascii')
+    return hashlib.md5(s).hexdigest()
 
 
 class SloTestCase(unittest.TestCase):
@@ -1532,12 +1534,13 @@ class TestSloHeadOldManifest(SloTestCase):
              'hash': 'seg02-hash',
              'content_type': 'text/plain',
              'last_modified': '2013-11-19T11:33:45.137447'}])
+        self.manifest_json_etag = md5hex(manifest_json)
         manifest_headers = {
             'Content-Length': str(len(manifest_json)),
             'Content-Type': 'test/data',
             'X-Static-Large-Object': 'true',
             'X-Object-Sysmeta-Artisanal-Etag': 'bespoke',
-            'Etag': md5hex(manifest_json)}
+            'Etag': self.manifest_json_etag}
         manifest_headers.update(getattr(self, 'extra_manifest_headers', {}))
         self.manifest_has_sysmeta = all(h in manifest_headers for h in (
             'X-Object-Sysmeta-Slo-Etag', 'X-Object-Sysmeta-Slo-Size'))
@@ -1553,6 +1556,7 @@ class TestSloHeadOldManifest(SloTestCase):
 
         self.assertEqual(status, '200 OK')
         self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
+        self.assertIn(('X-Manifest-Etag', self.manifest_json_etag), headers)
         self.assertIn(('Content-Length', '300'), headers)
         self.assertIn(('Content-Type', 'test/data'), headers)
         self.assertEqual(body, b'')  # it's a HEAD request, after all
@@ -1829,11 +1833,12 @@ class TestSloGetManifest(SloTestCase):
               'bytes': 25},
              {'name': '/gettest/d_20', 'hash': md5hex("d" * 20),
               'content_type': 'text/plain', 'bytes': '20'}])
+        self.abcd_manifest_json_etag = md5hex(_abcd_manifest_json)
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-abcd',
             swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true',
-                          'Etag': md5hex(_abcd_manifest_json)},
+                          'Etag': self.abcd_manifest_json_etag},
             _abcd_manifest_json)
 
         # A submanifest segment is created using the response headers from a
@@ -1995,9 +2000,8 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual(status, '200 OK')
-        self.assertTrue(
-            ('Content-Type', 'application/json; charset=utf-8') in headers,
-            headers)
+        self.assertIn(
+            ('Content-Type', 'application/json; charset=utf-8'), headers)
         try:
             resp_data = json.loads(body)
         except ValueError:
@@ -2010,6 +2014,7 @@ class TestSloGetManifest(SloTestCase):
              {'hash': md5hex('c' * 15), 'bytes': '15', 'name': '/gettest/c_15',
               'content_type': 'text/plain'}],
             body)
+        self.assertIn(('Etag', md5hex(body)), headers)
 
     def test_get_nonmanifest_passthrough(self):
         req = Request.blank(
@@ -2167,6 +2172,8 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
         self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.abcd_manifest_json_etag)
         self.assertEqual(
             body, b'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
 
@@ -3015,6 +3022,8 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
         self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
+        self.assertEqual(headers['X-Manifest-Etag'],
+                         self.abcd_manifest_json_etag)
         self.assertEqual(body, b'')
         # Note the lack of recursive descent into manifest-bc. We know the
         # content-length from the outer manifest, so there's no need for any
@@ -3772,11 +3781,12 @@ class TestSloConditionalGetOldManifest(SloTestCase):
             _bc_manifest_json)
 
         _abcd_manifest_json = json.dumps(self.slo_data)
+        self.abcd_manifest_json_etag = md5hex(_abcd_manifest_json)
         manifest_headers = {
             'Content-Length': str(len(_abcd_manifest_json)),
             'Content-Type': 'application/json',
             'X-Static-Large-Object': 'true',
-            'Etag': md5hex(_abcd_manifest_json),
+            'Etag': self.abcd_manifest_json_etag,
             'X-Object-Sysmeta-Custom-Etag': 'a custom etag'}
         manifest_headers.update(getattr(self, 'extra_manifest_headers', {}))
         self.manifest_has_sysmeta = all(h in manifest_headers for h in (

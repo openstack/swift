@@ -826,6 +826,7 @@ class SloGetContext(WSGIContext):
                 conditional_response=True)
             resp.headers.update({
                 'Etag': '"%s"' % slo_etag,
+                'X-Manifest-Etag': self._response_header_value('etag'),
                 'Content-Length': slo_size,
             })
             return resp(req.environ, start_response)
@@ -930,7 +931,9 @@ class SloGetContext(WSGIContext):
         response_headers = []
         for header, value in resp_headers:
             lheader = header.lower()
-            if lheader not in ('etag', 'content-length'):
+            if lheader == 'etag':
+                response_headers.append(('X-Manifest-Etag', value))
+            elif lheader != 'content-length':
                 response_headers.append((header, value))
 
             if lheader == SYSMETA_SLO_ETAG:
