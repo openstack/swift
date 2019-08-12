@@ -1321,6 +1321,65 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(8, context.cleave_to_row)
         self.assertEqual(8, context.max_row)
 
+    def test_cleave_root_empty_db_with_ranges(self):
+        broker = self._make_broker()
+        broker.enable_sharding(Timestamp.now())
+
+        shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CREATED)
+
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.set_sharding_state())
+
+        sharder_conf = {'cleave_batch_size': 1}
+        with self._mock_sharder(sharder_conf) as sharder:
+            self.assertTrue(sharder._cleave(broker))
+
+        info_lines = sharder.logger.get_lines_for_level('info')
+        expected_zero_obj = [line for line in info_lines
+                             if " - zero objects found" in line]
+        self.assertEqual(len(expected_zero_obj), len(shard_bounds))
+
+        cleaving_context = CleavingContext.load(broker)
+        # even though there is a cleave_batch_size of 1, we don't count empty
+        # ranges when cleaving seeing as they aren't replicated
+        self.assertEqual(cleaving_context.ranges_done, 3)
+        self.assertEqual(cleaving_context.ranges_todo, 0)
+        self.assertTrue(cleaving_context.cleaving_done)
+
+    def test_cleave_root_empty_db_with_pre_existing_shard_db_handoff(self):
+        broker = self._make_broker()
+        broker.enable_sharding(Timestamp.now())
+
+        shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CREATED)
+
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.set_sharding_state())
+
+        sharder_conf = {'cleave_batch_size': 1}
+        with self._mock_sharder(sharder_conf) as sharder:
+            # pre-create a shard broker on a handoff location. This will force
+            # the sharder to not skip it but instead force to replicate it and
+            # use up a cleave_batch_size count.
+            sharder._get_shard_broker(shard_ranges[0], broker.root_path,
+                                      0)
+            self.assertFalse(sharder._cleave(broker))
+
+        info_lines = sharder.logger.get_lines_for_level('info')
+        expected_zero_obj = [line for line in info_lines
+                             if " - zero objects found" in line]
+        self.assertEqual(len(expected_zero_obj), 1)
+
+        cleaving_context = CleavingContext.load(broker)
+        # even though there is a cleave_batch_size of 1, we don't count empty
+        # ranges when cleaving seeing as they aren't replicated
+        self.assertEqual(cleaving_context.ranges_done, 1)
+        self.assertEqual(cleaving_context.ranges_todo, 2)
+        self.assertFalse(cleaving_context.cleaving_done)
+
     def test_cleave_shard(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
         own_shard_range = ShardRange(
