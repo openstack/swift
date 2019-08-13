@@ -43,6 +43,8 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
     ChunkReadError, DiskFileXattrNotSupported
+from swift.common.request_helpers import \
+    OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
 from swift.obj import ssync_receiver
 from swift.common.http import is_success, HTTP_MOVED_PERMANENTLY
 from swift.common.base_storage_server import BaseStorageServer
@@ -583,7 +585,7 @@ class ObjectController(BaseStorageServer):
         # x-object-sysmeta-container-update-override-* headers take precedence
         # over x-backend-container-update-override-* headers
         override_prefixes = ['x-backend-container-update-override-',
-                             'x-object-sysmeta-container-update-override-']
+                             OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX]
         for override_prefix in override_prefixes:
             for key, val in metadata.items():
                 if key.lower().startswith(override_prefix):
