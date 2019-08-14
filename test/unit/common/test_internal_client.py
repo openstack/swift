@@ -107,7 +107,7 @@ class GetMetadataInternalClient(internal_client.InternalClient):
         self.metadata = 'some_metadata'
 
     def _get_metadata(self, path, metadata_prefix, acceptable_statuses=None,
-                      headers=None):
+                      headers=None, params=None):
         self.get_metadata_called += 1
         self.test.assertEqual(self.path, path)
         self.test.assertEqual(self.metadata_prefix, metadata_prefix)
@@ -649,7 +649,7 @@ class TestInternalClient(unittest.TestCase):
 
             def make_request(
                     self, method, path, headers, acceptable_statuses,
-                    body_file=None):
+                    body_file=None, params=None):
                 self.make_request_called += 1
                 self.test.assertEqual('HEAD', method)
                 self.test.assertEqual(self.path, path)
