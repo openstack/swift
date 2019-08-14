@@ -520,8 +520,36 @@ class TestS3ApiObj(S3ApiTestCase):
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
-        print(body)
         self.assertEqual(self._get_error_code(body), 'BadDigest')
+
+    @s3acl
+    def test_object_PUT_v4_unsigned_payload(self):
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={
+                'Authorization':
+                    'AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
+                    'SignedHeaders=host;x-amz-date, '
+                    'Signature=hmac' % (
+                        self.get_v4_amz_date_header().split('T', 1)[0]),
+                'x-amz-date': self.get_v4_amz_date_header(),
+                'x-amz-storage-class': 'STANDARD',
+                'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+                'Date': self.get_date_header()},
+            body=self.object_body)
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        # Check that s3api returns an etag header.
+        self.assertEqual(headers['etag'],
+                         '"%s"' % self.response_headers['etag'])
+
+        _, _, headers = self.swift.calls_with_headers[-1]
+        # No way to determine ETag to send
+        self.assertNotIn('etag', headers)
 
     def test_object_PUT_headers(self):
         content_md5 = self.etag.decode('hex').encode('base64').strip()
