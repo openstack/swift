@@ -927,8 +927,8 @@ class ReplicatedObjectController(BaseObjectController):
 
                     send_chunk(chunk)
 
-                if req.content_length and (
-                        bytes_transferred < req.content_length):
+                ml = req.message_length()
+                if ml and bytes_transferred < ml:
                     req.client_disconnect = True
                     self.app.logger.warning(
                         _('Client disconnected without sending enough data'))
@@ -2638,8 +2638,8 @@ class ECObjectController(BaseObjectController):
 
                     send_chunk(chunk)
 
-                if req.content_length and (
-                        bytes_transferred < req.content_length):
+                ml = req.message_length()
+                if ml and bytes_transferred < ml:
                     req.client_disconnect = True
                     self.app.logger.warning(
                         _('Client disconnected without sending enough data'))
@@ -2787,7 +2787,8 @@ class ECObjectController(BaseObjectController):
         policy = POLICIES.get_by_index(policy_index)
 
         expected_frag_size = None
-        if req.content_length:
+        ml = req.message_length()
+        if ml:
             # TODO: PyECLib <= 1.2.0 looks to return the segment info
             # different from the input for aligned data efficiency but
             # Swift never does. So calculate the fragment length Swift
@@ -2797,12 +2798,12 @@ class ECObjectController(BaseObjectController):
             # and the next call is to get info for the last segment
 
             # get number of fragments except the tail - use truncation //
-            num_fragments = req.content_length // policy.ec_segment_size
+            num_fragments = ml // policy.ec_segment_size
             expected_frag_size = policy.fragment_size * num_fragments
 
             # calculate the tail fragment_size by hand and add it to
             # expected_frag_size
-            last_segment_size = req.content_length % policy.ec_segment_size
+            last_segment_size = ml % policy.ec_segment_size
             if last_segment_size:
                 last_info = policy.pyeclib_driver.get_segment_info(
                     last_segment_size, policy.ec_segment_size)
