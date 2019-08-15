@@ -3171,14 +3171,68 @@ class TestReplicatedObjectController(
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+        with mock.patch('swift.obj.diskfile.fallocate') as mock_fallocate:
+            fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                     b'Host: localhost\r\n'
+                     b'Connection: keep-alive\r\n'
+                     b'X-Storage-Token: t\r\n'
+                     b'Content-Type: application/octet-stream\r\n'
+                     b'Content-Length: 33\r\n'
+                     b'Transfer-Encoding: chunked\r\n\r\n'
+                     b'2\r\n'
+                     b'oh\r\n'
+                     b'4\r\n'
+                     b' say\r\n'
+                     b'4\r\n'
+                     b' can\r\n'
+                     b'4\r\n'
+                     b' you\r\n'
+                     b'4\r\n'
+                     b' see\r\n'
+                     b'3\r\n'
+                     b' by\r\n'
+                     b'4\r\n'
+                     b' the\r\n'
+                     b'8\r\n'
+                     b' dawns\'\n\r\n'
+                     b'0\r\n\r\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.assertFalse(mock_fallocate.mock_calls)
+
+        fd.write(b'GET /v1/a/c/o.chunked HTTP/1.1\r\n'
                  b'Host: localhost\r\n'
                  b'Connection: close\r\n'
                  b'X-Storage-Token: t\r\n'
+                 b'\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.assertIn(b'Content-Length: 33', headers.split(b'\r\n'))
+        self.assertEqual(b"oh say can you see by the dawns'\n", fd.read(33))
+
+    @unpatch_policies
+    def test_PUT_message_length_using_both_with_crazy_meta(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'X-Storage-Token: t\r\n'
                  b'Content-Type: application/octet-stream\r\n'
                  b'Content-Length: 33\r\n'
-                 b'Transfer-Encoding: chunked\r\n\r\n'
-                 b'2\r\n'
+                 b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d\r\n'
+                 b'Expect: 100-continue\r\n'
+                 b'Transfer-Encoding: chunked\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 100 Continue'
+        self.assertEqual(headers[:len(exp)], exp)
+        # Since we got our 100 Continue, now we can send the body
+        fd.write(b'2\r\n'
                  b'oh\r\n'
                  b'4\r\n'
                  b' say\r\n'
@@ -3199,6 +3253,20 @@ class TestReplicatedObjectController(
         headers = readuntil2crlfs(fd)
         exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
+
+        fd.write(b'GET /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.assertIn(b'Content-Length: 33', headers.split(b'\r\n'))
+        self.assertIn(b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d',
+                      headers.split(b'\r\n'))
+        self.assertEqual(b"oh say can you see by the dawns'\n", fd.read(33))
 
     @unpatch_policies
     def test_PUT_bad_message_length(self):
