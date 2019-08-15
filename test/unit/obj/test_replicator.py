@@ -19,6 +19,7 @@ import os
 import mock
 from gzip import GzipFile
 from shutil import rmtree
+import six
 import six.moves.cPickle as pickle
 import time
 import tempfile
@@ -124,7 +125,8 @@ def _mock_process(ret):
     MockProcess.captured_log = captured_log
     orig_process = subprocess.Popen
     MockProcess.ret_code = (i[0] for i in ret)
-    MockProcess.ret_log = (i[1] for i in ret)
+    MockProcess.ret_log = (i[1] if six.PY2 else i[1].encode('utf8')
+                           for i in ret)
     MockProcess.check_args = (i[2] for i in ret)
     object_replicator.subprocess.Popen = MockProcess
     yield captured_log

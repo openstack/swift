@@ -394,7 +394,7 @@ class ObjectReplicator(Daemon):
             return 1  # failure response code
 
         total_time = time.time() - start_time
-        for result in results.split('\n'):
+        for result in results.decode('utf8').split('\n'):
             if result == '':
                 continue
             if result.startswith('cd+'):
