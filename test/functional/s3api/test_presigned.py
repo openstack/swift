@@ -190,7 +190,7 @@ class TestS3ApiPresignedUrls(S3ApiBase):
         # PUT empty object
         put_url, headers = self.conn.generate_url_and_headers(
             'PUT', bucket, obj)
-        resp = requests.put(put_url, data='', headers=headers)
+        resp = requests.put(put_url, data=b'', headers=headers)
         self.assertEqual(resp.status_code, 200,
                          'Got %d %s' % (resp.status_code, resp.content))
         # GET empty object
@@ -199,10 +199,10 @@ class TestS3ApiPresignedUrls(S3ApiBase):
         resp = requests.get(get_url, headers=headers)
         self.assertEqual(resp.status_code, 200,
                          'Got %d %s' % (resp.status_code, resp.content))
-        self.assertEqual(resp.content, '')
+        self.assertEqual(resp.content, b'')
 
         # PUT over object
-        resp = requests.put(put_url, data='foobar', headers=headers)
+        resp = requests.put(put_url, data=b'foobar', headers=headers)
         self.assertEqual(resp.status_code, 200,
                          'Got %d %s' % (resp.status_code, resp.content))
 
@@ -210,7 +210,7 @@ class TestS3ApiPresignedUrls(S3ApiBase):
         resp = requests.get(get_url, headers=headers)
         self.assertEqual(resp.status_code, 200,
                          'Got %d %s' % (resp.status_code, resp.content))
-        self.assertEqual(resp.content, 'foobar')
+        self.assertEqual(resp.content, b'foobar')
 
         # DELETE Object
         delete_url, headers = self.conn.generate_url_and_headers(

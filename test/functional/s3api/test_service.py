@@ -80,8 +80,8 @@ class TestS3ApiService(S3ApiBase):
             'GET', headers={'Date': '', 'x-amz-date': ''})
         self.assertEqual(status, 403)
         self.assertEqual(get_error_code(body), 'AccessDenied')
-        self.assertIn('AWS authentication requires a valid Date '
-                      'or x-amz-date header', body)
+        self.assertIn(b'AWS authentication requires a valid Date '
+                      b'or x-amz-date header', body)
 
 
 class TestS3ApiServiceSigV4(TestS3ApiService):
