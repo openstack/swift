@@ -833,7 +833,7 @@ this is unnecessary since the port is specified separately).  If a hostname
 resolves to an IPv4 address, an IPv4 socket will be used to send StatsD UDP
 packets, even if the hostname would also resolve to an IPv6 address.
 
-.. _StatsD: http://codeascraft.etsy.com/2011/02/15/measure-anything-measure-everything/
+.. _StatsD: https://codeascraft.com/2011/02/15/measure-anything-measure-everything/
 .. _Graphite: http://graphiteapp.org/
 .. _Ganglia: http://ganglia.sourceforge.net/
 
