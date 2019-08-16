@@ -667,10 +667,12 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'NoSuchBucket')
 
     def test_object_multipart_upload_complete(self):
+        content_md5 = base64.b64encode(hashlib.md5(xml).digest())
         req = Request.blank('/bucket/object?uploadId=X',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header(), },
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5, },
                             body=xml)
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
