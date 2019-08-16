@@ -1,10 +1,10 @@
 ################################################
 #
-#  Alpine 3.7 Swift-All-In-One
+#  Alpine 3.10.1 Swift-All-In-One
 #
 ################################################
 
-FROM        alpine:3.7
+FROM        alpine:3.10.1
 MAINTAINER  Openstack Swift
 
 ENV	        S6_LOGGING 1
