@@ -75,7 +75,7 @@ Command Line Access
 External Integration
 --------------------
 
-* `swift-s3-sync <https://github.com/swiftstack/swift-s3-sync>`_ -
+* `swift-s3-sync <https://github.com/swiftstack/s3sync>`_ -
   Swift-S3 synchronization tool
 * `swift-metadata-sync <https://github.com/swiftstack/swift-metadata-sync>`_ -
   Propagate OpenStack Swift object metadata into Elasticsearch
