@@ -113,7 +113,7 @@ Swift StatsD logging
 ~~~~~~~~~~~~~~~~~~~~
 
 StatsD (see `Measure Anything, Measure Everything
-<http://codeascraft.etsy.com/2011/02/15/measure-anything-measure-everything/>`_)
+<https://codeascraft.com/2011/02/15/measure-anything-measure-everything/>`_)
 was designed for application code to be deeply instrumented. Meters are
 sent in real-time by the code that just noticed or did something. The
 overhead of sending a meter is extremely low: a ``sendto`` of one UDP
