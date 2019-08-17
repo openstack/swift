@@ -1239,6 +1239,32 @@ class TestSloDeleteManifest(SloTestCase):
             'DELETE', '/v1/AUTH_test/deltest-unauth/q_17',
             swob.HTTPUnauthorized, {}, None)
 
+        self.app.register(
+            'GET', '/v1/AUTH_test/deltest/manifest-with-too-many-segs',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true'},
+            json.dumps([{'name': '/deltest/a_1',
+                         'hash': 'a', 'bytes': '1'},
+                        {'name': '/deltest/multi-submanifest', 'sub_slo': True,
+                         'hash': 'submanifest-etag',
+                         'bytes': len(_submanifest_data)},
+                        {'name': '/deltest/b_2',
+                         'hash': 'b', 'bytes': '1'},
+                        {'name': '/deltest/c_3',
+                         'hash': 'c', 'bytes': '1'},
+                        {'name': '/deltest/d_4',
+                         'hash': 'b', 'bytes': '1'},
+                        {'name': '/deltest/e_5',
+                         'hash': 'c', 'bytes': '1'},
+                        {'name': '/deltest/f_6',
+                         'hash': 'b', 'bytes': '1'},
+                        {'name': '/deltest/g_8',
+                         'hash': 'c', 'bytes': '1'},
+                        {'name': '/deltest/g_8',
+                         'hash': 'c', 'bytes': '1'},
+                        {'name': '/deltest/h_9',
+                         'hash': 'd', 'bytes': '3'}]))
+
     def test_handle_multipart_delete_man(self):
         req = Request.blank(
             '/v1/AUTH_test/deltest/man',
@@ -1365,11 +1391,11 @@ class TestSloDeleteManifest(SloTestCase):
 
     def test_handle_multipart_delete_nested_too_many_segments(self):
         req = Request.blank(
-            '/v1/AUTH_test/deltest/manifest-with-submanifest?' +
+            '/v1/AUTH_test/deltest/manifest-with-too-many-segs?' +
             'multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE',
                      'HTTP_ACCEPT': 'application/json'})
-        with patch.object(slo, 'MAX_BUFFERED_SLO_SEGMENTS', 1):
+        with patch.object(self.slo, 'max_manifest_segments', 1):
             status, headers, body = self.call_slo(req)
         self.assertEqual(status, '200 OK')
         resp_data = json.loads(body)
@@ -4095,7 +4121,7 @@ class TestSloConditionalGetNewManifest(TestSloConditionalGetOldManifest):
         super(TestSloConditionalGetNewManifest, self).setUp()
 
 
-class TestSloBulkLogger(unittest.TestCase):
+class TestSloBulkDeleter(unittest.TestCase):
     def test_reused_logger(self):
         slo_mware = slo.filter_factory({})('fake app')
         self.assertTrue(slo_mware.logger is slo_mware.bulk_deleter.logger)
@@ -4103,6 +4129,13 @@ class TestSloBulkLogger(unittest.TestCase):
     def test_passes_through_concurrency(self):
         slo_mware = slo.filter_factory({'delete_concurrency': 5})('fake app')
         self.assertEqual(5, slo_mware.bulk_deleter.delete_concurrency)
+
+    def test_uses_big_max_deletes(self):
+        slo_mware = slo.filter_factory(
+            {'max_manifest_segments': 123456789})('fake app')
+        self.assertGreaterEqual(
+            slo_mware.bulk_deleter.max_deletes_per_request,
+            123456789)
 
 
 class TestSwiftInfo(unittest.TestCase):
