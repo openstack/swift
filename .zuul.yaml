@@ -246,8 +246,10 @@
     parent: swift-dsvm-functional
     description: |
       Setup a Swift/Keystone environment under py3 and run Swift's func tests
-      (but under py2).
+      (also under py3).
     vars:
+      # This tox env get run twice; once for Keystone and once for tempauth
+      tox_envlist: func-py3
       devstack_localrc:
         USE_PYTHON3: true
         # explicitly clear swift's default-disabled status
