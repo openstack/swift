@@ -237,8 +237,8 @@ def _check_symlink_header(req):
     x-symlink-target header is present in req.headers.
 
     :param req: HTTP request object
-    :returns: a tuple, the full versioned WSGI quoted path to the object and
-              the value of the X-Symlink-Target-Etag header which may be None
+    :returns: a tuple, the full versioned path to the object (as a WSGI string)
+              and the X-Symlink-Target-Etag header value which may be None
     :raise: HTTPPreconditionFailed if x-symlink-target value
             is not well formatted.
     :raise: HTTPBadRequest if the x-symlink-target value points to the request
