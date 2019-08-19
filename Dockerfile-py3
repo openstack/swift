@@ -35,8 +35,8 @@ RUN         mkdir /etc/swift && \
             echo && \
             echo && \
             echo && \
-            echo "================   starting apk_install_py2  ===================" && \
-            /opt/swift/docker/install_scripts/20_apk_install_py2.sh && \
+            echo "================   starting apk_install_py3  ===================" && \
+            /opt/swift/docker/install_scripts/21_apk_install_py3.sh && \
             echo && \
             echo && \
             echo && \
