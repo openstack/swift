@@ -273,15 +273,6 @@
               - ^releasenotes/.*$
               - ^setup.cfg$
               - ^test/unit/.*$
-        - legacy-tempest-dsvm-neutron-full-opensuse-423:
-            irrelevant-files:
-              - ^(test-|)requirements.txt$
-              - ^api-ref/.*$
-              - ^doc/.*$
-              - ^install-guide/.*$
-              - ^releasenotes/.*$
-              - ^setup.cfg$
-              - ^test/unit/.*$
 
     post:
       jobs:
