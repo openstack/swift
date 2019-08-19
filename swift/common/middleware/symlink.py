@@ -229,7 +229,7 @@ TGT_BYTES_SYSMETA_SYMLINK_HDR = \
     get_sys_meta_prefix('object') + 'symlink-target-bytes'
 
 
-def _check_symlink_header(req):
+def _validate_and_prep_request_headers(req):
     """
     Validate that the value from x-symlink-target header is well formatted
     and that the x-symlink-target-etag header (if present) does not contain
@@ -561,7 +561,7 @@ class SymlinkObjectContext(WSGIContext):
                 request=req,
                 content_type='text/plain')
 
-        symlink_target_path, etag = _check_symlink_header(req)
+        symlink_target_path, etag = _validate_and_prep_request_headers(req)
         if etag:
             resp = self._validate_etag_and_update_sysmeta(
                 req, symlink_target_path, etag)

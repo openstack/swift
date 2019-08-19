@@ -653,11 +653,11 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '404 Not Found')
 
-    def test_check_symlink_header(self):
+    def test_validate_and_prep_request_headers(self):
         def do_test(headers):
             req = Request.blank('/v1/a/c/o', method='PUT',
                                 headers=headers)
-            symlink._check_symlink_header(req)
+            symlink._validate_and_prep_request_headers(req)
 
         # normal cases
         do_test({'X-Symlink-Target': 'c1/o1'})
@@ -682,12 +682,12 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             {'X-Symlink-Target': 'cont/obj',
              'X-Symlink-Target-Account': swob.wsgi_quote(target)})
 
-    def test_check_symlink_header_invalid_format(self):
+    def test_validate_and_prep_request_headers_invalid_format(self):
         def do_test(headers, status, err_msg):
             req = Request.blank('/v1/a/c/o', method='PUT',
                                 headers=headers)
             with self.assertRaises(swob.HTTPException) as cm:
-                symlink._check_symlink_header(req)
+                symlink._validate_and_prep_request_headers(req)
 
             self.assertEqual(cm.exception.status, status)
             self.assertEqual(cm.exception.body, err_msg)
@@ -747,11 +747,11 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             '412 Precondition Failed',
             b'Account name cannot contain slashes')
 
-    def test_check_symlink_header_points_to_itself(self):
+    def test_validate_and_prep_request_headers_points_to_itself(self):
         req = Request.blank('/v1/a/c/o', method='PUT',
                             headers={'X-Symlink-Target': 'c/o'})
         with self.assertRaises(swob.HTTPException) as cm:
-            symlink._check_symlink_header(req)
+            symlink._validate_and_prep_request_headers(req)
         self.assertEqual(cm.exception.status, '400 Bad Request')
         self.assertEqual(cm.exception.body, b'Symlink cannot target itself')
 
@@ -760,7 +760,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             headers={'X-Symlink-Target': 'c/o',
                                      'X-Symlink-Target-Account': 'a'})
         with self.assertRaises(swob.HTTPException) as cm:
-            symlink._check_symlink_header(req)
+            symlink._validate_and_prep_request_headers(req)
         self.assertEqual(cm.exception.status, '400 Bad Request')
         self.assertEqual(cm.exception.body, b'Symlink cannot target itself')
 
@@ -768,7 +768,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         req = Request.blank('/v1/a/c/o', method='PUT',
                             headers={'X-Symlink-Target': 'c/o',
                                      'X-Symlink-Target-Account': 'a1'})
-        symlink._check_symlink_header(req)
+        symlink._validate_and_prep_request_headers(req)
 
     def test_symloop_max_config(self):
         self.app = FakeSwift()
