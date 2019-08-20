@@ -73,8 +73,10 @@ class TestSymlinkEnv(BaseEnv):
         return (cls.link_cont, cls.tgt_cont)
 
     @classmethod
-    def target_content_location(cls):
-        return '%s/%s' % (cls.tgt_cont, cls.tgt_obj)
+    def target_content_location(cls, override_obj=None, override_account=None):
+        account = override_account or tf.parsed[0].path.split('/', 2)[2]
+        return '/v1/%s/%s/%s' % (account, cls.tgt_cont,
+                                 override_obj or cls.tgt_obj)
 
     @classmethod
     def _make_request(cls, url, token, parsed, conn, method,
@@ -102,20 +104,21 @@ class TestSymlinkEnv(BaseEnv):
         return name
 
     @classmethod
-    def _create_tgt_object(cls):
+    def _create_tgt_object(cls, body=TARGET_BODY):
         resp = retry(cls._make_request, method='PUT',
+                     headers={'Content-Type': 'application/target'},
                      container=cls.tgt_cont, obj=cls.tgt_obj,
-                     body=TARGET_BODY)
+                     body=body)
         if resp.status != 201:
             raise ResponseError(resp)
 
         # sanity: successful put response has content-length 0
-        cls.tgt_length = str(len(TARGET_BODY))
+        cls.tgt_length = str(len(body))
         cls.tgt_etag = resp.getheader('etag')
 
         resp = retry(cls._make_request, method='GET',
                      container=cls.tgt_cont, obj=cls.tgt_obj)
-        if resp.status != 200 and resp.content != TARGET_BODY:
+        if resp.status != 200 and resp.content != body:
             raise ResponseError(resp)
 
     @classmethod
@@ -176,9 +179,16 @@ class TestSymlink(Base):
                 yield uuid4().hex
 
         self.obj_name_gen = object_name_generator()
+        self._account_name = None
 
     def tearDown(self):
         self.env.tearDown()
+
+    @property
+    def account_name(self):
+        if not self._account_name:
+            self._account_name = tf.parsed[0].path.split('/', 2)[2]
+        return self._account_name
 
     def _make_request(self, url, token, parsed, conn, method,
                       container, obj='', headers=None, body=b'',
@@ -210,22 +220,30 @@ class TestSymlink(Base):
                      headers=headers)
         self.assertEqual(resp.status, 201)
 
+    def _test_put_symlink_with_etag(self, link_cont, link_obj, tgt_cont,
+                                    tgt_obj, etag, headers=None):
+        headers = headers or {}
+        headers.update({'X-Symlink-Target': '%s/%s' % (tgt_cont, tgt_obj),
+                        'X-Symlink-Target-Etag': etag})
+        resp = retry(self._make_request, method='PUT',
+                     container=link_cont, obj=link_obj,
+                     headers=headers)
+        self.assertEqual(resp.status, 201, resp.content)
+
     def _test_get_as_target_object(
             self, link_cont, link_obj, expected_content_location,
             use_account=1):
         resp = retry(
             self._make_request, method='GET',
             container=link_cont, obj=link_obj, use_account=use_account)
-        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.status, 200, resp.content)
         self.assertEqual(resp.content, TARGET_BODY)
         self.assertEqual(resp.getheader('content-length'),
                          str(self.env.tgt_length))
         self.assertEqual(resp.getheader('etag'), self.env.tgt_etag)
         self.assertIn('Content-Location', resp.headers)
-        # TODO: content-location is a full path so it's better to assert
-        # with the value, instead of assertIn
-        self.assertIn(expected_content_location,
-                      resp.getheader('content-location'))
+        self.assertEqual(expected_content_location,
+                         resp.getheader('content-location'))
         return resp
 
     def _test_head_as_target_object(self, link_cont, link_obj, use_account=1):
@@ -299,8 +317,8 @@ class TestSymlink(Base):
         # and it's normalized
         self._assertSymlink(
             self.env.link_cont, link_obj,
-            expected_content_location='%s/%s' % (
-                self.env.tgt_cont, normalized_quoted_obj))
+            expected_content_location=self.env.target_content_location(
+                normalized_quoted_obj))
 
         # create a symlink using the normalized target path
         self._test_put_symlink(link_cont=self.env.link_cont, link_obj=link_obj,
@@ -309,8 +327,8 @@ class TestSymlink(Base):
         # and it's ALSO normalized
         self._assertSymlink(
             self.env.link_cont, link_obj,
-            expected_content_location='%s/%s' % (
-                self.env.tgt_cont, normalized_quoted_obj))
+            expected_content_location=self.env.target_content_location(
+                normalized_quoted_obj))
 
     def test_symlink_put_head_get(self):
         link_obj = uuid4().hex
@@ -321,6 +339,195 @@ class TestSymlink(Base):
                                tgt_obj=self.env.tgt_obj)
 
         self._assertSymlink(self.env.link_cont, link_obj)
+
+    def test_symlink_with_etag_put_head_get(self):
+        link_obj = uuid4().hex
+
+        # PUT link_obj
+        self._test_put_symlink_with_etag(link_cont=self.env.link_cont,
+                                         link_obj=link_obj,
+                                         tgt_cont=self.env.tgt_cont,
+                                         tgt_obj=self.env.tgt_obj,
+                                         etag=self.env.tgt_etag)
+
+        self._assertSymlink(self.env.link_cont, link_obj)
+
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj,
+            headers={'If-Match': self.env.tgt_etag})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj,
+            headers={'If-Match': 'not-the-etag'})
+        self.assertEqual(resp.status, 412)
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+    def test_static_symlink_with_bad_etag_put_head_get(self):
+        link_obj = uuid4().hex
+
+        # PUT link_obj
+        self._test_put_symlink_with_etag(link_cont=self.env.link_cont,
+                                         link_obj=link_obj,
+                                         tgt_cont=self.env.tgt_cont,
+                                         tgt_obj=self.env.tgt_obj,
+                                         etag=self.env.tgt_etag)
+
+        # overwrite tgt object
+        self.env._create_tgt_object(body='updated target body')
+
+        resp = retry(
+            self._make_request, method='HEAD',
+            container=self.env.link_cont, obj=link_obj)
+        self.assertEqual(resp.status, 409)
+        # but we still know where it points
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj)
+        self.assertEqual(resp.status, 409)
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+        # uses a mechanism entirely divorced from if-match
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj,
+            headers={'If-Match': self.env.tgt_etag})
+        self.assertEqual(resp.status, 409)
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj,
+            headers={'If-Match': 'not-the-etag'})
+        self.assertEqual(resp.status, 409)
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+        resp = retry(
+            self._make_request, method='DELETE',
+            container=self.env.tgt_cont, obj=self.env.tgt_obj)
+
+        # not-found-ness trumps if-match-ness
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj)
+        self.assertEqual(resp.status, 404)
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+    def test_dynamic_link_to_static_link(self):
+        static_link_obj = uuid4().hex
+
+        # PUT static_link to tgt_obj
+        self._test_put_symlink_with_etag(link_cont=self.env.link_cont,
+                                         link_obj=static_link_obj,
+                                         tgt_cont=self.env.tgt_cont,
+                                         tgt_obj=self.env.tgt_obj,
+                                         etag=self.env.tgt_etag)
+
+        symlink_obj = uuid4().hex
+
+        # PUT symlink to static_link
+        self._test_put_symlink(link_cont=self.env.link_cont,
+                               link_obj=symlink_obj,
+                               tgt_cont=self.env.link_cont,
+                               tgt_obj=static_link_obj)
+
+        self._test_get_as_target_object(
+            link_cont=self.env.link_cont, link_obj=symlink_obj,
+            expected_content_location=self.env.target_content_location())
+
+    def test_static_link_to_dynamic_link(self):
+        symlink_obj = uuid4().hex
+
+        # PUT symlink to tgt_obj
+        self._test_put_symlink(link_cont=self.env.link_cont,
+                               link_obj=symlink_obj,
+                               tgt_cont=self.env.tgt_cont,
+                               tgt_obj=self.env.tgt_obj)
+
+        static_link_obj = uuid4().hex
+
+        # PUT a static_link to the symlink
+        self._test_put_symlink_with_etag(link_cont=self.env.link_cont,
+                                         link_obj=static_link_obj,
+                                         tgt_cont=self.env.link_cont,
+                                         tgt_obj=symlink_obj,
+                                         etag=MD5_OF_EMPTY_STRING)
+
+        self._test_get_as_target_object(
+            link_cont=self.env.link_cont, link_obj=static_link_obj,
+            expected_content_location=self.env.target_content_location())
+
+    def test_static_link_to_nowhere(self):
+        missing_obj = uuid4().hex
+        static_link_obj = uuid4().hex
+
+        # PUT a static_link to the missing name
+        headers = {
+            'X-Symlink-Target': '%s/%s' % (self.env.link_cont, missing_obj),
+            'X-Symlink-Target-Etag': MD5_OF_EMPTY_STRING}
+        resp = retry(self._make_request, method='PUT',
+                     container=self.env.link_cont, obj=static_link_obj,
+                     headers=headers)
+        self.assertEqual(resp.status, 409)
+        self.assertEqual(resp.content, b'X-Symlink-Target does not exist')
+
+    def test_static_link_to_broken_symlink(self):
+        symlink_obj = uuid4().hex
+
+        # PUT symlink to tgt_obj
+        self._test_put_symlink(link_cont=self.env.link_cont,
+                               link_obj=symlink_obj,
+                               tgt_cont=self.env.tgt_cont,
+                               tgt_obj=self.env.tgt_obj)
+
+        static_link_obj = uuid4().hex
+
+        # PUT a static_link to the symlink
+        self._test_put_symlink_with_etag(link_cont=self.env.link_cont,
+                                         link_obj=static_link_obj,
+                                         tgt_cont=self.env.link_cont,
+                                         tgt_obj=symlink_obj,
+                                         etag=MD5_OF_EMPTY_STRING)
+
+        # break the symlink
+        resp = retry(
+            self._make_request, method='DELETE',
+            container=self.env.tgt_cont, obj=self.env.tgt_obj)
+        self.assertEqual(resp.status // 100, 2)
+
+        # sanity
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=symlink_obj)
+        self.assertEqual(resp.status, 404)
+
+        # static_link is broken too!
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=static_link_obj)
+        self.assertEqual(resp.status, 404)
+
+        # interestingly you may create a static_link to a broken symlink
+        broken_static_link_obj = uuid4().hex
+
+        # PUT a static_link to the broken symlink
+        self._test_put_symlink_with_etag(link_cont=self.env.link_cont,
+                                         link_obj=broken_static_link_obj,
+                                         tgt_cont=self.env.link_cont,
+                                         tgt_obj=symlink_obj,
+                                         etag=MD5_OF_EMPTY_STRING)
 
     def test_symlink_get_ranged(self):
         link_obj = uuid4().hex
@@ -353,9 +560,8 @@ class TestSymlink(Base):
             container=self.env.link_cont, obj=link_obj, use_account=1)
         self.assertEqual(resp.status, 404)
         self.assertIn('Content-Location', resp.headers)
-        expected_location_hdr = "%s/%s" % (self.env.tgt_cont, target_obj)
-        self.assertIn(expected_location_hdr,
-                      resp.getheader('content-location'))
+        self.assertEqual(self.env.target_content_location(target_obj),
+                         resp.getheader('content-location'))
 
         # HEAD on target object via symlink should return a 404 since target
         # object has not yet been written
@@ -396,8 +602,8 @@ class TestSymlink(Base):
         self.assertEqual(resp.getheader('content-length'), str(target_length))
         self.assertEqual(resp.getheader('etag'), target_etag)
         self.assertIn('Content-Location', resp.headers)
-        self.assertIn(expected_location_hdr,
-                      resp.getheader('content-location'))
+        self.assertEqual(self.env.target_content_location(target_obj),
+                         resp.getheader('content-location'))
 
     def test_symlink_chain(self):
         # Testing to symlink chain like symlink -> symlink -> target.
@@ -427,6 +633,66 @@ class TestSymlink(Base):
         self._test_put_symlink(
             link_cont=container, link_obj=too_many_chain_link,
             tgt_cont=container, tgt_obj=max_chain_link)
+
+        # try to HEAD to target object via too_many_chain_link
+        resp = retry(self._make_request, method='HEAD',
+                     container=container,
+                     obj=too_many_chain_link)
+        self.assertEqual(resp.status, 409)
+        self.assertEqual(resp.content, b'')
+
+        # try to GET to target object via too_many_chain_link
+        resp = retry(self._make_request, method='GET',
+                     container=container,
+                     obj=too_many_chain_link)
+        self.assertEqual(resp.status, 409)
+        self.assertEqual(
+            resp.content,
+            b'Too many levels of symbolic links, maximum allowed is %d' %
+            symloop_max)
+
+        # However, HEAD/GET to the (just) link is still ok
+        self._assertLinkObject(container, too_many_chain_link)
+
+    def test_symlink_chain_with_etag(self):
+        # Testing to symlink chain like symlink -> symlink -> target.
+        symloop_max = cluster_info['symlink']['symloop_max']
+
+        # create symlink chain in a container. To simplify,
+        # use target container for all objects (symlinks and target) here
+        previous = self.env.tgt_obj
+        container = self.env.tgt_cont
+
+        for link_obj in itertools.islice(self.obj_name_gen, symloop_max):
+            # PUT link_obj point to tgt_obj
+            self._test_put_symlink_with_etag(link_cont=container,
+                                             link_obj=link_obj,
+                                             tgt_cont=container,
+                                             tgt_obj=previous,
+                                             etag=self.env.tgt_etag)
+
+            # set current link_obj to previous
+            previous = link_obj
+
+        # the last link is valid for symloop_max constraint
+        max_chain_link = link_obj
+        self._assertSymlink(link_cont=container, link_obj=max_chain_link)
+
+        # chained etag validation works as long as the target symlink works
+        headers = {'X-Symlink-Target': '%s/%s' % (container, max_chain_link),
+                   'X-Symlink-Target-Etag': 'not-the-real-etag'}
+        resp = retry(self._make_request, method='PUT',
+                     container=container, obj=uuid4().hex,
+                     headers=headers)
+        self.assertEqual(resp.status, 409)
+
+        # PUT a new link_obj pointing to the max_chain_link can validate the
+        # ETag but will result in 409 error on the HEAD/GET.
+        too_many_chain_link = next(self.obj_name_gen)
+        self._test_put_symlink_with_etag(
+            link_cont=container, link_obj=too_many_chain_link,
+            tgt_cont=container, tgt_obj=max_chain_link,
+            etag=self.env.tgt_etag)
 
         # try to HEAD to target object via too_many_chain_link
         resp = retry(self._make_request, method='HEAD',
@@ -557,7 +823,7 @@ class TestSymlink(Base):
                    '%s/%s' % (self.env.tgt_cont, self.env.tgt_obj)}
         resp = retry(
             self._make_request, method='PUT', container=self.env.link_cont,
-            obj=link_obj, body='non-zero-length', headers=headers)
+            obj=link_obj, body=b'non-zero-length', headers=headers)
 
         self.assertEqual(resp.status, 400)
         self.assertEqual(resp.content,
@@ -636,7 +902,6 @@ class TestSymlink(Base):
                                tgt_obj=self.env.tgt_obj)
 
         copy_src = '%s/%s' % (self.env.link_cont, link_obj1)
-        account_one = tf.parsed[0].path.split('/', 2)[2]
         perm_two = tf.swift_test_perm[1]
 
         # add X-Content-Read to account 1 link_cont and tgt_cont
@@ -659,7 +924,7 @@ class TestSymlink(Base):
         # symlink to the account 2 container that points to the
         # container/object in the account 2.
         # (the container/object is not prepared)
-        headers = {'X-Copy-From-Account': account_one,
+        headers = {'X-Copy-From-Account': self.account_name,
                    'X-Copy-From': copy_src}
         resp = retry(self._make_request_with_symlink_get, method='PUT',
                      container=self.env.link_cont, obj=link_obj2,
@@ -669,6 +934,7 @@ class TestSymlink(Base):
         # sanity: HEAD/GET on link_obj itself
         self._assertLinkObject(self.env.link_cont, link_obj2, use_account=2)
 
+        account_two = tf.parsed[1].path.split('/', 2)[2]
         # no target object in the account 2
         for method in ('HEAD', 'GET'):
             resp = retry(
@@ -676,14 +942,15 @@ class TestSymlink(Base):
                 container=self.env.link_cont, obj=link_obj2, use_account=2)
             self.assertEqual(resp.status, 404)
             self.assertIn('content-location', resp.headers)
-            self.assertIn(self.env.target_content_location(),
-                          resp.getheader('content-location'))
+            self.assertEqual(
+                self.env.target_content_location(override_account=account_two),
+                resp.getheader('content-location'))
 
         # copy symlink itself to a different account with target account
         # the target path will be in account 1
         # the target path will have an object
-        headers = {'X-Symlink-target-Account': account_one,
-                   'X-Copy-From-Account': account_one,
+        headers = {'X-Symlink-target-Account': self.account_name,
+                   'X-Copy-From-Account': self.account_name,
                    'X-Copy-From': copy_src}
         resp = retry(
             self._make_request_with_symlink_get, method='PUT',
@@ -780,7 +1047,8 @@ class TestSymlink(Base):
         link_obj = uuid4().hex
         value1 = uuid4().hex
 
-        self._test_put_symlink(link_cont=self.env.link_cont, link_obj=link_obj,
+        self._test_put_symlink(link_cont=self.env.link_cont,
+                               link_obj=link_obj,
                                tgt_cont=self.env.tgt_cont,
                                tgt_obj=self.env.tgt_obj)
 
@@ -820,6 +1088,73 @@ class TestSymlink(Base):
         self.assertEqual(resp.getheader('X-Object-Meta-Test'), value1)
         # sanity: no X-Object-Meta-Alpha exists in the response header
         self.assertNotIn('X-Object-Meta-Alpha', resp.headers)
+
+    def test_post_to_broken_dynamic_symlink(self):
+        # create a symlink to nowhere
+        link_obj = '%s-the-link' % uuid4().hex
+        tgt_obj = '%s-no-where' % uuid4().hex
+        headers = {'X-Symlink-Target': '%s/%s' % (self.env.tgt_cont, tgt_obj)}
+        resp = retry(self._make_request, method='PUT',
+                     container=self.env.link_cont, obj=link_obj,
+                     headers=headers)
+        self.assertEqual(resp.status, 201)
+        # it's a real link!
+        self._assertLinkObject(self.env.link_cont, link_obj)
+        # ... it's just broken
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj)
+        self.assertEqual(resp.status, 404)
+        target_path = '/v1/%s/%s/%s' % (
+            self.account_name, self.env.tgt_cont, tgt_obj)
+        self.assertEqual(target_path, resp.headers['Content-Location'])
+
+        # we'll redirect with the Location header to the (invalid) target
+        headers = {'X-Object-Meta-Alpha': 'apple'}
+        resp = retry(
+            self._make_request, method='POST', container=self.env.link_cont,
+            obj=link_obj, headers=headers, allow_redirects=False)
+        self.assertEqual(resp.status, 307)
+        self.assertEqual(target_path, resp.headers['Location'])
+
+        # and of course metadata *is* applied to the link
+        resp = retry(
+            self._make_request_with_symlink_get, method='HEAD',
+            container=self.env.link_cont, obj=link_obj)
+        self.assertEqual(resp.status, 200)
+        self.assertTrue(resp.getheader('X-Object-Meta-Alpha'), 'apple')
+
+    def test_post_to_broken_static_symlink(self):
+        link_obj = uuid4().hex
+
+        # PUT link_obj
+        self._test_put_symlink_with_etag(link_cont=self.env.link_cont,
+                                         link_obj=link_obj,
+                                         tgt_cont=self.env.tgt_cont,
+                                         tgt_obj=self.env.tgt_obj,
+                                         etag=self.env.tgt_etag)
+
+        # overwrite tgt object
+        old_tgt_etag = self.env.tgt_etag
+        self.env._create_tgt_object(body='updated target body')
+
+        # sanity
+        resp = retry(
+            self._make_request, method='HEAD',
+            container=self.env.link_cont, obj=link_obj)
+        self.assertEqual(resp.status, 409)
+
+        # but POST will still 307
+        headers = {'X-Object-Meta-Alpha': 'apple'}
+        resp = retry(
+            self._make_request, method='POST', container=self.env.link_cont,
+            obj=link_obj, headers=headers, allow_redirects=False)
+        self.assertEqual(resp.status, 307)
+        target_path = '/v1/%s/%s/%s' % (
+            self.account_name, self.env.tgt_cont, self.env.tgt_obj)
+        self.assertEqual(target_path, resp.headers['Location'])
+        # but we give you the Etag just like... FYI?
+        self.assertEqual(old_tgt_etag, resp.headers['X-Symlink-Target-Etag'])
 
     def test_post_with_symlink_header(self):
         # POSTing to a symlink is not allowed and should return a 307
@@ -878,11 +1213,9 @@ class TestSymlink(Base):
             raise SkipTest
         link_obj = uuid4().hex
 
-        account_one = tf.parsed[0].path.split('/', 2)[2]
-
         # create symlink in account 2
         # pointing to account 1
-        headers = {'X-Symlink-Target-Account': account_one,
+        headers = {'X-Symlink-Target-Account': self.account_name,
                    'X-Symlink-Target':
                    '%s/%s' % (self.env.tgt_cont, self.env.tgt_obj)}
         resp = retry(self._make_request, method='PUT',
@@ -900,6 +1233,9 @@ class TestSymlink(Base):
             container=self.env.link_cont, obj=link_obj, use_account=2)
 
         self.assertEqual(resp.status, 403)
+        # still know where it's pointing
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
 
         # add X-Content-Read to account 1 tgt_cont
         # permit account 2 to read account 1 tgt_cont
@@ -917,11 +1253,96 @@ class TestSymlink(Base):
             self.env.link_cont, link_obj,
             expected_content_location=self.env.target_content_location(),
             use_account=2)
-        self.assertIn(account_one, resp.getheader('content-location'))
+
+    @requires_acls
+    def test_symlink_with_etag_put_target_account(self):
+        if tf.skip or tf.skip2:
+            raise SkipTest
+        link_obj = uuid4().hex
+
+        # try to create a symlink in account 2 pointing to account 1
+        symlink_headers = {
+            'X-Symlink-Target-Account': self.account_name,
+            'X-Symlink-Target':
+            '%s/%s' % (self.env.tgt_cont, self.env.tgt_obj),
+            'X-Symlink-Target-Etag': self.env.tgt_etag}
+        resp = retry(self._make_request, method='PUT',
+                     container=self.env.link_cont, obj=link_obj,
+                     headers=symlink_headers, use_account=2)
+        # since we don't have read access to verify the object we get the
+        # permissions error
+        self.assertEqual(resp.status, 403)
+        perm_two = tf.swift_test_perm[1]
+
+        # add X-Content-Read to account 1 tgt_cont
+        # permit account 2 to read account 1 tgt_cont
+        # add acl to allow reading from source
+        acl_headers = {'X-Container-Read': perm_two}
+        resp = retry(self._make_request, method='POST',
+                     container=self.env.tgt_cont, headers=acl_headers)
+        self.assertEqual(resp.status, 204)
+
+        # now we can create the symlink
+        resp = retry(self._make_request, method='PUT',
+                     container=self.env.link_cont, obj=link_obj,
+                     headers=symlink_headers, use_account=2)
+        self.assertEqual(resp.status, 201)
+        self._assertLinkObject(self.env.link_cont, link_obj, use_account=2)
+
+        # GET to target object via symlink
+        resp = self._test_get_as_target_object(
+            self.env.link_cont, link_obj,
+            expected_content_location=self.env.target_content_location(),
+            use_account=2)
+
+        # Overwrite target
+        resp = retry(self._make_request, method='PUT',
+                     container=self.env.tgt_cont, obj=self.env.tgt_obj,
+                     body='some other content')
+        self.assertEqual(resp.status, 201)
+
+        # link is now broken
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj, use_account=2)
+        self.assertEqual(resp.status, 409)
+
+        # but we still know where it points
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+        # sanity test, remove permissions
+        headers = {'X-Remove-Container-Read': 'remove'}
+        resp = retry(self._make_request, method='POST',
+                     container=self.env.tgt_cont, headers=headers)
+        self.assertEqual(resp.status, 204)
+        # it should be ok to get the symlink itself, but not the target object
+        # because the read acl has been revoked
+        self._assertLinkObject(self.env.link_cont, link_obj, use_account=2)
+        resp = retry(
+            self._make_request, method='GET',
+            container=self.env.link_cont, obj=link_obj, use_account=2)
+        self.assertEqual(resp.status, 403)
+        # Still know where it is, though
+        self.assertEqual(resp.getheader('content-location'),
+                         self.env.target_content_location())
+
+    def test_symlink_invalid_etag(self):
+        link_obj = uuid4().hex
+        headers = {'X-Symlink-Target': '%s/%s' % (self.env.tgt_cont,
+                                                  self.env.tgt_obj),
+                   'X-Symlink-Target-Etag': 'not-the-real-etag'}
+        resp = retry(self._make_request, method='PUT',
+                     container=self.env.link_cont, obj=link_obj,
+                     headers=headers)
+        self.assertEqual(resp.status, 409)
+        self.assertEqual(resp.content,
+                         b"Object Etag 'ab706c400731332bffa67ed4bc15dcac' "
+                         b"does not match X-Symlink-Target-Etag header "
+                         b"'not-the-real-etag'")
 
     def test_symlink_object_listing(self):
         link_obj = uuid4().hex
-
         self._test_put_symlink(link_cont=self.env.link_cont, link_obj=link_obj,
                                tgt_cont=self.env.tgt_cont,
                                tgt_obj=self.env.tgt_obj)
@@ -933,9 +1354,53 @@ class TestSymlink(Base):
         self.assertEqual(resp.status, 200)
         object_list = json.loads(resp.content)
         self.assertEqual(len(object_list), 1)
+        obj_info = object_list[0]
+        self.assertIn('symlink_path', obj_info)
+        self.assertEqual(self.env.target_content_location(),
+                         obj_info['symlink_path'])
+        self.assertNotIn('symlink_etag', obj_info)
+
+    def test_static_link_object_listing(self):
+        link_obj = uuid4().hex
+        self._test_put_symlink_with_etag(link_cont=self.env.link_cont,
+                                         link_obj=link_obj,
+                                         tgt_cont=self.env.tgt_cont,
+                                         tgt_obj=self.env.tgt_obj,
+                                         etag=self.env.tgt_etag)
+        # sanity
+        self._assertSymlink(self.env.link_cont, link_obj)
+        resp = retry(self._make_request, method='GET',
+                     container=self.env.link_cont,
+                     query_args='format=json')
+        self.assertEqual(resp.status, 200)
+        object_list = json.loads(resp.content)
+        self.assertEqual(len(object_list), 1)
         self.assertIn('symlink_path', object_list[0])
-        self.assertIn(self.env.target_content_location(),
-                      object_list[0]['symlink_path'])
+        self.assertEqual(self.env.target_content_location(),
+                         object_list[0]['symlink_path'])
+        obj_info = object_list[0]
+        self.assertIn('symlink_etag', obj_info)
+        self.assertEqual(self.env.tgt_etag,
+                         obj_info['symlink_etag'])
+        self.assertEqual(int(self.env.tgt_length),
+                         obj_info['symlink_bytes'])
+        self.assertEqual(obj_info['content_type'], 'application/target')
+
+        # POSTing to a static_link can change the listing Content-Type
+        headers = {'Content-Type': 'application/foo'}
+        resp = retry(
+            self._make_request, method='POST', container=self.env.link_cont,
+            obj=link_obj, headers=headers, allow_redirects=False)
+        self.assertEqual(resp.status, 307)
+
+        resp = retry(self._make_request, method='GET',
+                     container=self.env.link_cont,
+                     query_args='format=json')
+        self.assertEqual(resp.status, 200)
+        object_list = json.loads(resp.content)
+        self.assertEqual(len(object_list), 1)
+        obj_info = object_list[0]
+        self.assertEqual(obj_info['content_type'], 'application/foo')
 
 
 class TestCrossPolicySymlinkEnv(TestSymlinkEnv):
@@ -1007,6 +1472,8 @@ class TestSymlinkSlo(Base):
                 "Expected slo_enabled to be True/False, got %r" %
                 (self.env.slo_enabled,))
         self.file_symlink = self.env.container.file(uuid4().hex)
+        self.account_name = self.env.container.conn.storage_path.rsplit(
+            '/', 1)[-1]
 
     def test_symlink_target_slo_manifest(self):
         self.file_symlink.write(hdrs={'X-Symlink-Target':
@@ -1019,6 +1486,142 @@ class TestSymlinkSlo(Base):
             (b'd', 1024 * 1024),
             (b'e', 1),
         ], group_by_byte(self.file_symlink.read()))
+
+        manifest_body = self.file_symlink.read(parms={
+            'multipart-manifest': 'get'})
+        self.assertEqual(
+            [seg['hash'] for seg in json.loads(manifest_body)],
+            [self.env.seg_info['seg_%s' % c]['etag'] for c in 'abcde'])
+
+        for obj_info in self.env.container.files(parms={'format': 'json'}):
+            if obj_info['name'] == self.file_symlink.name:
+                break
+        else:
+            self.fail('Unable to find file_symlink in listing.')
+        obj_info.pop('last_modified')
+        self.assertEqual(obj_info, {
+            'name': self.file_symlink.name,
+            'content_type': 'application/octet-stream',
+            'hash': 'd41d8cd98f00b204e9800998ecf8427e',
+            'bytes': 0,
+            'symlink_path': '/v1/%s/%s/manifest-abcde' % (
+                self.account_name, self.env.container.name),
+        })
+
+    def test_static_link_target_slo_manifest(self):
+        manifest_info = self.env.container2.file(
+            "manifest-abcde").info(parms={
+                'multipart-manifest': 'get'})
+        manifest_etag = manifest_info['etag']
+        self.file_symlink.write(hdrs={
+            'X-Symlink-Target': '%s/%s' % (
+                self.env.container2.name, 'manifest-abcde'),
+            'X-Symlink-Target-Etag': manifest_etag,
+        })
+        self.assertEqual([
+            (b'a', 1024 * 1024),
+            (b'b', 1024 * 1024),
+            (b'c', 1024 * 1024),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+        ], group_by_byte(self.file_symlink.read()))
+
+        manifest_body = self.file_symlink.read(parms={
+            'multipart-manifest': 'get'})
+        self.assertEqual(
+            [seg['hash'] for seg in json.loads(manifest_body)],
+            [self.env.seg_info['seg_%s' % c]['etag'] for c in 'abcde'])
+
+        # check listing
+        for obj_info in self.env.container.files(parms={'format': 'json'}):
+            if obj_info['name'] == self.file_symlink.name:
+                break
+        else:
+            self.fail('Unable to find file_symlink in listing.')
+        obj_info.pop('last_modified')
+        self.maxDiff = None
+        slo_info = self.env.container2.file("manifest-abcde").info()
+        self.assertEqual(obj_info, {
+            'name': self.file_symlink.name,
+            'content_type': 'application/octet-stream',
+            'hash': u'd41d8cd98f00b204e9800998ecf8427e',
+            'bytes': 0,
+            'slo_etag': slo_info['etag'],
+            'symlink_path': '/v1/%s/%s/manifest-abcde' % (
+                self.account_name, self.env.container2.name),
+            'symlink_bytes': 4 * 2 ** 20 + 1,
+            'symlink_etag': manifest_etag,
+        })
+
+    def test_static_link_target_slo_manifest_wrong_etag(self):
+        # try the slo "etag"
+        slo_etag = self.env.container2.file(
+            "manifest-abcde").info()['etag']
+        self.assertRaises(ResponseError, self.file_symlink.write, hdrs={
+            'X-Symlink-Target': '%s/%s' % (
+                self.env.container2.name, 'manifest-abcde'),
+            'X-Symlink-Target-Etag': slo_etag,
+        })
+        self.assert_status(400)  # no quotes allowed!
+
+        # try the slo etag w/o the quotes
+        slo_etag = slo_etag.strip('"')
+        self.assertRaises(ResponseError, self.file_symlink.write, hdrs={
+            'X-Symlink-Target': '%s/%s' % (
+                self.env.container2.name, 'manifest-abcde'),
+            'X-Symlink-Target-Etag': slo_etag,
+        })
+        self.assert_status(409)  # that just doesn't match
+
+    def test_static_link_target_symlink_to_slo_manifest(self):
+        # write symlink
+        self.file_symlink.write(hdrs={'X-Symlink-Target':
+                                '%s/%s' % (self.env.container.name,
+                                           'manifest-abcde')})
+        # write static_link
+        file_static_link = self.env.container.file(uuid4().hex)
+        file_static_link.write(hdrs={
+            'X-Symlink-Target': '%s/%s' % (
+                self.file_symlink.container, self.file_symlink.name),
+            'X-Symlink-Target-Etag': MD5_OF_EMPTY_STRING,
+        })
+
+        # validate reads
+        self.assertEqual([
+            (b'a', 1024 * 1024),
+            (b'b', 1024 * 1024),
+            (b'c', 1024 * 1024),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+        ], group_by_byte(file_static_link.read()))
+
+        manifest_body = file_static_link.read(parms={
+            'multipart-manifest': 'get'})
+        self.assertEqual(
+            [seg['hash'] for seg in json.loads(manifest_body)],
+            [self.env.seg_info['seg_%s' % c]['etag'] for c in 'abcde'])
+
+        # check listing
+        for obj_info in self.env.container.files(parms={'format': 'json'}):
+            if obj_info['name'] == file_static_link.name:
+                break
+        else:
+            self.fail('Unable to find file_symlink in listing.')
+        obj_info.pop('last_modified')
+        self.maxDiff = None
+        self.assertEqual(obj_info, {
+            'name': file_static_link.name,
+            'content_type': 'application/octet-stream',
+            'hash': 'd41d8cd98f00b204e9800998ecf8427e',
+            'bytes': 0,
+            'symlink_path': u'/v1/%s/%s/%s' % (
+                self.account_name, self.file_symlink.container,
+                self.file_symlink.name),
+            # the only time bytes/etag aren't the target object are when they
+            # validate through another static_link
+            'symlink_bytes': 0,
+            'symlink_etag': MD5_OF_EMPTY_STRING,
+        })
 
     def test_symlink_target_slo_nested_manifest(self):
         self.file_symlink.write(hdrs={'X-Symlink-Target':
