@@ -401,6 +401,7 @@ class ObjectReconstructor(Daemon):
                        path, headers, full_get_path)
 
         buckets = defaultdict(dict)
+        durable_buckets = {}
         etag_buckets = {}
         error_resp_count = 0
         for resp in pile:
@@ -444,6 +445,10 @@ class ObjectReconstructor(Daemon):
                 continue
             timestamp = Timestamp(timestamp)
 
+            durable = resp.headers.get('X-Backend-Durable-Timestamp')
+            if durable:
+                durable_buckets[Timestamp(durable)] = True
+
             etag = resp.headers.get('X-Object-Sysmeta-Ec-Etag')
             if not etag:
                 self.logger.warning('Invalid resp from %s, frag index %s '
@@ -469,26 +474,29 @@ class ObjectReconstructor(Daemon):
                         % (fi_to_rebuild, list(buckets[timestamp])))
                     break
         else:
+            path = _full_path(node, job['partition'],
+                              datafile_metadata['name'],
+                              job['policy'])
+
             for timestamp, resp in sorted(buckets.items()):
                 etag = etag_buckets[timestamp]
+                durable = durable_buckets.get(timestamp)
                 self.logger.error(
-                    'Unable to get enough responses (%s/%s) '
-                    'to reconstruct %s frag#%s with ETag %s' % (
+                    'Unable to get enough responses (%s/%s) to reconstruct '
+                    '%s %s frag#%s with ETag %s and timestamp %s' % (
                         len(resp), job['policy'].ec_ndata,
-                        _full_path(node, job['partition'],
-                                   datafile_metadata['name'],
-                                   job['policy']),
-                        fi_to_rebuild, etag))
+                        'durable' if durable else 'non-durable',
+                        path, fi_to_rebuild, etag, timestamp.internal))
 
             if error_resp_count:
+                durable = durable_buckets.get(Timestamp(
+                    datafile_metadata['X-Timestamp']))
                 self.logger.error(
                     'Unable to get enough responses (%s error responses) '
-                    'to reconstruct %s frag#%s' % (
+                    'to reconstruct %s %s frag#%s' % (
                         error_resp_count,
-                        _full_path(node, job['partition'],
-                                   datafile_metadata['name'],
-                                   job['policy']),
-                        fi_to_rebuild))
+                        'durable' if durable else 'non-durable',
+                        path, fi_to_rebuild))
 
             raise DiskFileError('Unable to reconstruct EC archive')
 
