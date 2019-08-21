@@ -417,7 +417,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertRequestEqual(req, self.authorized[1])
         self.assertEqual(3, self.app.call_count)
         self.assertEqual([
-            ('GET', '/v1/a/c/o'),
+            ('GET', '/v1/a/c/o?symlink=get'),
             ('PUT', '/v1/a/ver_cont/001o/0000000060.00000'),
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
@@ -449,7 +449,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertRequestEqual(req, self.authorized[1])
         self.assertEqual(3, self.app.call_count)
         self.assertEqual([
-            ('GET', '/v1/a/c/o'),
+            ('GET', '/v1/a/c/o?symlink=get'),
             ('PUT', '/v1/a/ver_cont/001o/0000003600.00000'),
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
@@ -682,7 +682,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/2?symlink=get'),
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/2'),
         ])
@@ -777,7 +777,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
             ('HEAD', '/v1/a/c/o'),
-            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/1?symlink=get'),
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
             ('DELETE', '/v1/a/ver_cont/001o/2'),
@@ -941,7 +941,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/1?symlink=get'),
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
         ])
@@ -989,8 +989,8 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('GET', '/v1/a/ver_cont/001o/2'),
-            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/2?symlink=get'),
+            ('GET', '/v1/a/ver_cont/001o/1?symlink=get'),
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
         ])
@@ -1114,7 +1114,7 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
             ('GET', prefix_listing_prefix + 'marker=001o/2'),
-            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/2?symlink=get'),
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/2'),
         ])
@@ -1167,8 +1167,8 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
             ('GET', prefix_listing_prefix + 'marker=001o/2'),
-            ('GET', '/v1/a/ver_cont/001o/2'),
-            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/2?symlink=get'),
+            ('GET', '/v1/a/ver_cont/001o/1?symlink=get'),
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
         ])
@@ -1282,14 +1282,14 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('GET', '/v1/a/ver_cont/001o/4'),
-            ('GET', '/v1/a/ver_cont/001o/3'),
-            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/4?symlink=get'),
+            ('GET', '/v1/a/ver_cont/001o/3?symlink=get'),
+            ('GET', '/v1/a/ver_cont/001o/2?symlink=get'),
             ('GET', prefix_listing_prefix + 'marker=001o/2&reverse=on'),
             ('GET', prefix_listing_prefix + 'marker=&end_marker=001o/2'),
             ('GET', prefix_listing_prefix + 'marker=001o/0&end_marker=001o/2'),
             ('GET', prefix_listing_prefix + 'marker=001o/1&end_marker=001o/2'),
-            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/1?symlink=get'),
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
         ])
@@ -1354,13 +1354,13 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('GET', '/v1/a/ver_cont/001o/4'),
-            ('GET', '/v1/a/ver_cont/001o/3'),
+            ('GET', '/v1/a/ver_cont/001o/4?symlink=get'),
+            ('GET', '/v1/a/ver_cont/001o/3?symlink=get'),
             ('GET', prefix_listing_prefix + 'marker=001o/3&reverse=on'),
             ('GET', prefix_listing_prefix + 'marker=&end_marker=001o/3'),
             ('GET', prefix_listing_prefix + 'marker=001o/1&end_marker=001o/3'),
             ('GET', prefix_listing_prefix + 'marker=001o/2&end_marker=001o/3'),
-            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/2?symlink=get'),
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/2'),
         ])

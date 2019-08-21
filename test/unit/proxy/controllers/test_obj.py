@@ -1570,6 +1570,45 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 404)
 
+    def test_GET_primaries_explode(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        codes = [Exception('kaboom!')] * self.obj_ring.replicas + (
+            [404] * self.obj_ring.max_more_nodes)
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_GET_primaries_timeout(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        codes = [Timeout()] * self.obj_ring.replicas + (
+            [404] * self.obj_ring.max_more_nodes)
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_GET_primaries_mixed_explode_and_timeout(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        primaries = []
+        for i in range(self.obj_ring.replicas):
+            if i % 2:
+                primaries.append(Timeout())
+            else:
+                primaries.append(Exception('kaboom!'))
+        codes = primaries + [404] * self.obj_ring.max_more_nodes
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_primary_returns_some_nonsense_timestamp(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        # an un-handled ValueError in _make_node_request should just continue
+        # to the next node rather than hang the request
+        headers = [{'X-Backend-Timestamp': 'not-a-timestamp'}, {}]
+        codes = [200, 200]
+        with set_http_connect(*codes, headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+
     def test_GET_not_found_when_404_newer(self):
         # if proxy receives a 404, it keeps waiting for other connections until
         # max number of nodes in hopes of finding an object, but if 404 is
@@ -2136,7 +2175,7 @@ class ECObjectControllerMixin(CommonObjectControllerMixin):
             {'obj': obj1, 'frag': 13},
         ]
 
-        # ... and the rests are 404s which is limited by request_count
+        # ... and the rest are 404s which is limited by request_count
         # (2 * replicas in default) rather than max_extra_requests limitation
         # because the retries will be in ResumingGetter if the responses
         # are 404s
@@ -2147,7 +2186,7 @@ class ECObjectControllerMixin(CommonObjectControllerMixin):
         with capture_http_requests(fake_response) as log:
             resp = req.get_response(self.app)
 
-        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 503)
 
         # expect a request to all nodes
         self.assertEqual(2 * self.replicas(), len(log))
@@ -2693,7 +2732,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         with capture_http_requests(fake_response) as log:
             resp = req.get_response(self.app)
 
-        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 503)
 
         collected_responses = defaultdict(set)
         for conn in log:
@@ -2792,10 +2831,72 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                 collected_indexes[fi].append(conn)
         self.assertEqual(len(collected_indexes), 7)
 
-    def test_GET_with_mixed_frags_and_no_quorum_will_503(self):
+    def test_GET_with_mixed_nondurable_frags_and_no_quorum_will_503(self):
         # all nodes have a frag but there is no one set that reaches quorum,
         # which means there is no backend 404 response, but proxy should still
         # return 404 rather than 503
+        obj1 = self._make_ec_object_stub(pattern='obj1')
+        obj2 = self._make_ec_object_stub(pattern='obj2')
+        obj3 = self._make_ec_object_stub(pattern='obj3')
+        obj4 = self._make_ec_object_stub(pattern='obj4')
+
+        node_frags = [
+            {'obj': obj1, 'frag': 0, 'durable': False},
+            {'obj': obj2, 'frag': 0, 'durable': False},
+            {'obj': obj3, 'frag': 0, 'durable': False},
+            {'obj': obj1, 'frag': 1, 'durable': False},
+            {'obj': obj2, 'frag': 1, 'durable': False},
+            {'obj': obj3, 'frag': 1, 'durable': False},
+            {'obj': obj1, 'frag': 2, 'durable': False},
+            {'obj': obj2, 'frag': 2, 'durable': False},
+            {'obj': obj3, 'frag': 2, 'durable': False},
+            {'obj': obj1, 'frag': 3, 'durable': False},
+            {'obj': obj2, 'frag': 3, 'durable': False},
+            {'obj': obj3, 'frag': 3, 'durable': False},
+            {'obj': obj1, 'frag': 4, 'durable': False},
+            {'obj': obj2, 'frag': 4, 'durable': False},
+            {'obj': obj3, 'frag': 4, 'durable': False},
+            {'obj': obj1, 'frag': 5, 'durable': False},
+            {'obj': obj2, 'frag': 5, 'durable': False},
+            {'obj': obj3, 'frag': 5, 'durable': False},
+            {'obj': obj1, 'frag': 6, 'durable': False},
+            {'obj': obj2, 'frag': 6, 'durable': False},
+            {'obj': obj3, 'frag': 6, 'durable': False},
+            {'obj': obj1, 'frag': 7, 'durable': False},
+            {'obj': obj2, 'frag': 7, 'durable': False},
+            {'obj': obj3, 'frag': 7, 'durable': False},
+            {'obj': obj1, 'frag': 8, 'durable': False},
+            {'obj': obj2, 'frag': 8, 'durable': False},
+            {'obj': obj3, 'frag': 8, 'durable': False},
+            {'obj': obj4, 'frag': 8, 'durable': False},
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 404)
+
+        collected_etags = set()
+        collected_status = set()
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            collected_etags.add(etag)
+            collected_status.add(conn.resp.status)
+
+        # default node_iter will exhaust at 2 * replicas
+        self.assertEqual(len(log), 2 * self.replicas())
+        self.assertEqual(
+            {obj1['etag'], obj2['etag'], obj3['etag'], obj4['etag']},
+            collected_etags)
+        self.assertEqual({200}, collected_status)
+
+    def test_GET_with_mixed_frags_and_no_quorum_will_503(self):
+        # all nodes have a frag but there is no one set that reaches quorum,
+        # but since they're all marked durable (so we *should* be able to
+        # reconstruct), proxy will 503
         obj1 = self._make_ec_object_stub(pattern='obj1')
         obj2 = self._make_ec_object_stub(pattern='obj2')
         obj3 = self._make_ec_object_stub(pattern='obj3')
@@ -3229,9 +3330,9 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         with capture_http_requests(fake_response) as log:
             resp = req.get_response(self.app)
         # read body to provoke any EC decode errors
-        self.assertFalse(resp.body)
+        self.assertTrue(resp.body)
 
-        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 503)
         self.assertEqual(len(log), self.replicas() * 2)
         collected_etags = set()
         for conn in log:
@@ -3240,7 +3341,10 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual({obj1['etag'], obj2['etag'], None}, collected_etags)
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(log_lines,
-                         ['Problem with fragment response: ETag mismatch'] * 7)
+                         ['Problem with fragment response: ETag mismatch'] * 7
+                         + ['Object returning 503 for []'])
+        # Note the empty list above -- that log line comes out of
+        # best_response but we've already thrown out the "good" responses :-/
 
     def test_GET_mixed_success_with_range(self):
         fragment_size = self.policy.fragment_size
@@ -3926,7 +4030,7 @@ class TestECDuplicationObjController(
             {'obj': obj1, 'frag': 8},
             {'obj': obj2, 'frag': 8},
         ]
-        # ... and the rests are 404s which is limited by request_count
+        # ... and the rest are 404s which is limited by request_count
         # (2 * replicas in default) rather than max_extra_requests limitation
         # because the retries will be in ResumingGetter if the responses
         # are 404s
@@ -3937,7 +4041,7 @@ class TestECDuplicationObjController(
         with capture_http_requests(fake_response) as log:
             resp = req.get_response(self.app)
 
-        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 503)
 
         collected_responses = defaultdict(set)
         for conn in log:
@@ -4267,9 +4371,9 @@ class TestECDuplicationObjController(
         with capture_http_requests(fake_response) as log:
             resp = req.get_response(self.app)
         # read body to provoke any EC decode errors
-        self.assertFalse(resp.body)
+        self.assertTrue(resp.body)
 
-        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 503)
         self.assertEqual(len(log), self.replicas() * 2)
         collected_etags = set()
         for conn in log:
@@ -4278,7 +4382,8 @@ class TestECDuplicationObjController(
         self.assertEqual({obj1['etag'], obj2['etag'], None}, collected_etags)
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(log_lines,
-                         ['Problem with fragment response: ETag mismatch'] * 7)
+                         ['Problem with fragment response: ETag mismatch'] * 7
+                         + ['Object returning 503 for []'])
 
     def _test_determine_chunk_destinations_prioritize(
             self, missing_two, missing_one):

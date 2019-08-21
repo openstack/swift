@@ -371,7 +371,7 @@ class VersionedWritesContext(WSGIContext):
         # to container, but not READ. This was allowed in previous version
         # (i.e., before middleware) so keeping the same behavior here
         get_req = make_pre_authed_request(
-            req.environ, path=wsgi_quote(path_info),
+            req.environ, path=wsgi_quote(path_info) + '?symlink=get',
             headers={'X-Newest': 'True'}, method='GET', swift_source='VW')
         source_resp = get_req.get_response(self.app)
 

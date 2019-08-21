@@ -21,6 +21,8 @@ import itertools
 import json
 from copy import deepcopy
 
+import six
+
 import test.functional as tf
 from test.functional import cluster_info, SkipTest
 from test.functional.tests import Utils, Base, Base2, BaseEnv
@@ -33,6 +35,16 @@ def setUpModule():
 
 def tearDownModule():
     tf.teardown_package()
+
+
+def group_file_contents(file_contents):
+    # This looks a little funny, but iterating through a byte string on py3
+    # yields a sequence of ints, not a sequence of single-byte byte strings
+    # as it did on py2.
+    byte_iter = (file_contents[i:i + 1] for i in range(len(file_contents)))
+    return [
+        (char, sum(1 for _ in grp))
+        for char, grp in itertools.groupby(byte_iter)]
 
 
 class TestSloEnv(BaseEnv):
@@ -250,33 +262,36 @@ class TestSlo(Base):
                 (self.env.slo_enabled,))
 
         manifest_abcde_hash = hashlib.md5()
-        manifest_abcde_hash.update(hashlib.md5('a' * 1024 * 1024).hexdigest())
-        manifest_abcde_hash.update(hashlib.md5('b' * 1024 * 1024).hexdigest())
-        manifest_abcde_hash.update(hashlib.md5('c' * 1024 * 1024).hexdigest())
-        manifest_abcde_hash.update(hashlib.md5('d' * 1024 * 1024).hexdigest())
-        manifest_abcde_hash.update(hashlib.md5('e').hexdigest())
+        for letter in (b'a', b'b', b'c', b'd'):
+            manifest_abcde_hash.update(hashlib.md5(
+                letter * 1024 * 1024).hexdigest().encode('ascii'))
+        manifest_abcde_hash.update(hashlib.md5(
+            b'e').hexdigest().encode('ascii'))
         self.manifest_abcde_etag = manifest_abcde_hash.hexdigest()
 
     def test_slo_get_simple_manifest(self):
         file_item = self.env.container.file('manifest-abcde')
         file_contents = file_item.read()
         self.assertEqual(file_item.conn.response.status, 200)
-        headers = dict(file_item.conn.response.getheaders())
+        headers = dict(
+            (h.lower(), v)
+            for h, v in file_item.conn.response.getheaders())
         self.assertIn('etag', headers)
         self.assertEqual(headers['etag'], '"%s"' % self.manifest_abcde_etag)
-        self.assertEqual(4 * 1024 * 1024 + 1, len(file_contents))
-        self.assertEqual('a', file_contents[0])
-        self.assertEqual('a', file_contents[1024 * 1024 - 1])
-        self.assertEqual('b', file_contents[1024 * 1024])
-        self.assertEqual('d', file_contents[-2])
-        self.assertEqual('e', file_contents[-1])
+        self.assertEqual([
+            (b'a', 1024 * 1024),
+            (b'b', 1024 * 1024),
+            (b'c', 1024 * 1024),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+        ], group_file_contents(file_contents))
 
     def test_slo_container_listing(self):
         # the listing object size should equal the sum of the size of the
         # segments, not the size of the manifest body
         file_item = self.env.container.file(Utils.create_name())
         file_item.write(
-            json.dumps([self.env.seg_info['seg_a']]),
+            json.dumps([self.env.seg_info['seg_a']]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         # The container listing exposes BOTH the MD5 of the manifest content
         # and the SLO MD5-of-MD5s by splitting the latter out into a separate
@@ -346,93 +361,85 @@ class TestSlo(Base):
         file_item = self.env.container.file('manifest-abcde-submanifest')
         file_contents = file_item.read()
         self.assertEqual(4 * 1024 * 1024 + 1, len(file_contents))
-        self.assertEqual('a', file_contents[0])
-        self.assertEqual('a', file_contents[1024 * 1024 - 1])
-        self.assertEqual('b', file_contents[1024 * 1024])
-        self.assertEqual('d', file_contents[-2])
-        self.assertEqual('e', file_contents[-1])
+        self.assertEqual([
+            (b'a', 1024 * 1024),
+            (b'b', 1024 * 1024),
+            (b'c', 1024 * 1024),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+        ], group_file_contents(file_item.read()))
 
     def test_slo_get_ranged_manifest(self):
         file_item = self.env.container.file('ranged-manifest')
-        grouped_file_contents = [
-            (char, sum(1 for _char in grp))
-            for char, grp in itertools.groupby(file_item.read())]
         self.assertEqual([
-            ('c', 1),
-            ('d', 1024 * 1024),
-            ('e', 1),
-            ('a', 512 * 1024),
-            ('b', 512 * 1024),
-            ('c', 1),
-            ('d', 1)], grouped_file_contents)
+            (b'c', 1),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+            (b'a', 512 * 1024),
+            (b'b', 512 * 1024),
+            (b'c', 1),
+            (b'd', 1),
+        ], group_file_contents(file_item.read()))
 
     def test_slo_get_ranged_manifest_repeated_segment(self):
         file_item = self.env.container.file('ranged-manifest-repeated-segment')
-        grouped_file_contents = [
-            (char, sum(1 for _char in grp))
-            for char, grp in itertools.groupby(file_item.read())]
         self.assertEqual(
-            [('a', 2097152), ('b', 1048576)],
-            grouped_file_contents)
+            [(b'a', 2097152), (b'b', 1048576)],
+            group_file_contents(file_item.read()))
 
     def test_slo_get_ranged_submanifest(self):
         file_item = self.env.container.file('ranged-submanifest')
-        grouped_file_contents = [
-            (char, sum(1 for _char in grp))
-            for char, grp in itertools.groupby(file_item.read())]
         self.assertEqual([
-            ('c', 1024 * 1024 + 1),
-            ('d', 1024 * 1024),
-            ('e', 1),
-            ('a', 512 * 1024),
-            ('b', 512 * 1024),
-            ('c', 1),
-            ('d', 512 * 1024 + 1),
-            ('e', 1),
-            ('a', 512 * 1024),
-            ('b', 1),
-            ('c', 1),
-            ('d', 1)], grouped_file_contents)
+            (b'c', 1024 * 1024 + 1),
+            (b'd', 1024 * 1024),
+            (b'e', 1),
+            (b'a', 512 * 1024),
+            (b'b', 512 * 1024),
+            (b'c', 1),
+            (b'd', 512 * 1024 + 1),
+            (b'e', 1),
+            (b'a', 512 * 1024),
+            (b'b', 1),
+            (b'c', 1),
+            (b'd', 1),
+        ], group_file_contents(file_item.read()))
 
     def test_slo_ranged_get(self):
         file_item = self.env.container.file('manifest-abcde')
         file_contents = file_item.read(size=1024 * 1024 + 2,
                                        offset=1024 * 1024 - 1)
         self.assertEqual(file_item.conn.response.status, 206)
-        headers = dict(file_item.conn.response.getheaders())
+        headers = dict(
+            (h.lower(), v)
+            for h, v in file_item.conn.response.getheaders())
         self.assertIn('etag', headers)
         self.assertEqual(headers['etag'], '"%s"' % self.manifest_abcde_etag)
-        self.assertEqual('a', file_contents[0])
-        self.assertEqual('b', file_contents[1])
-        self.assertEqual('b', file_contents[-2])
-        self.assertEqual('c', file_contents[-1])
+        self.assertEqual([
+            (b'a', 1),
+            (b'b', 1048576),
+            (b'c', 1),
+        ], group_file_contents(file_contents))
 
     def test_slo_ranged_get_half_open_on_right(self):
         file_item = self.env.container.file('manifest-abcde')
         file_contents = file_item.read(
             hdrs={"Range": "bytes=1048571-"})
-        grouped_file_contents = [
-            (char, sum(1 for _char in grp))
-            for char, grp in itertools.groupby(file_contents)]
         self.assertEqual([
-            ('a', 5),
-            ('b', 1048576),
-            ('c', 1048576),
-            ('d', 1048576),
-            ('e', 1)
-        ], grouped_file_contents)
+            (b'a', 5),
+            (b'b', 1048576),
+            (b'c', 1048576),
+            (b'd', 1048576),
+            (b'e', 1)
+        ], group_file_contents(file_contents))
 
     def test_slo_ranged_get_half_open_on_left(self):
         file_item = self.env.container.file('manifest-abcde')
         file_contents = file_item.read(
             hdrs={"Range": "bytes=-123456"})
-        grouped_file_contents = [
-            (char, sum(1 for _char in grp))
-            for char, grp in itertools.groupby(file_contents)]
         self.assertEqual([
-            ('d', 123455),
-            ('e', 1),
-        ], grouped_file_contents)
+            (b'd', 123455),
+            (b'e', 1),
+        ], group_file_contents(file_contents))
 
     def test_slo_multi_ranged_get(self):
         file_item = self.env.container.file('manifest-abcde')
@@ -440,8 +447,12 @@ class TestSlo(Base):
             hdrs={"Range": "bytes=1048571-1048580,2097147-2097156"})
 
         # See testMultiRangeGets for explanation
-        parser = email.parser.FeedParser()
-        parser.feed("Content-Type: %s\r\n\r\n" % file_item.content_type)
+        if six.PY2:
+            parser = email.parser.FeedParser()
+        else:
+            parser = email.parser.BytesFeedParser()
+        parser.feed((
+            "Content-Type: %s\r\n\r\n" % file_item.content_type).encode())
         parser.feed(file_contents)
 
         root_message = parser.close()
@@ -454,22 +465,23 @@ class TestSlo(Base):
                          "application/octet-stream")
         self.assertEqual(
             byteranges[0]['Content-Range'], "bytes 1048571-1048580/4194305")
-        self.assertEqual(byteranges[0].get_payload(), "aaaaabbbbb")
+        self.assertEqual(byteranges[0].get_payload(decode=True), b"aaaaabbbbb")
 
         self.assertEqual(byteranges[1]['Content-Type'],
                          "application/octet-stream")
         self.assertEqual(
             byteranges[1]['Content-Range'], "bytes 2097147-2097156/4194305")
-        self.assertEqual(byteranges[1].get_payload(), "bbbbbccccc")
+        self.assertEqual(byteranges[1].get_payload(decode=True), b"bbbbbccccc")
 
     def test_slo_ranged_submanifest(self):
         file_item = self.env.container.file('manifest-abcde-submanifest')
         file_contents = file_item.read(size=1024 * 1024 + 2,
                                        offset=1024 * 1024 * 2 - 1)
-        self.assertEqual('b', file_contents[0])
-        self.assertEqual('c', file_contents[1])
-        self.assertEqual('c', file_contents[-2])
-        self.assertEqual('d', file_contents[-1])
+        self.assertEqual([
+            (b'b', 1),
+            (b'c', 1024 * 1024),
+            (b'd', 1),
+        ], group_file_contents(file_contents))
 
     def test_slo_etag_is_quote_wrapped_hash_of_etags(self):
         # we have this check in test_slo_get_simple_manifest, too,
@@ -481,16 +493,17 @@ class TestSlo(Base):
     def test_slo_etag_is_quote_wrapped_hash_of_etags_submanifests(self):
 
         def hd(x):
-            return hashlib.md5(x).hexdigest()
+            return hashlib.md5(x).hexdigest().encode('ascii')
 
-        expected_etag = hd(hd('a' * 1024 * 1024) +
-                           hd(hd('b' * 1024 * 1024) +
-                              hd(hd('c' * 1024 * 1024) +
-                                 hd('d' * 1024 * 1024))) +
-                           hd('e'))
+        expected_etag = hd(hd(b'a' * 1024 * 1024) +
+                           hd(hd(b'b' * 1024 * 1024) +
+                              hd(hd(b'c' * 1024 * 1024) +
+                                 hd(b'd' * 1024 * 1024))) +
+                           hd(b'e'))
 
         file_item = self.env.container.file('manifest-abcde-submanifest')
-        self.assertEqual('"%s"' % expected_etag, file_item.info()['etag'])
+        self.assertEqual('"%s"' % expected_etag.decode('ascii'),
+                         file_item.info()['etag'])
 
     def test_slo_etag_mismatch(self):
         file_item = self.env.container.file("manifest-a-bad-etag")
@@ -499,7 +512,8 @@ class TestSlo(Base):
                 json.dumps([{
                     'size_bytes': 1024 * 1024,
                     'etag': 'not it',
-                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+                }]).encode('ascii'),
                 parms={'multipart-manifest': 'put'})
         except ResponseError as err:
             self.assertEqual(400, err.status)
@@ -512,8 +526,9 @@ class TestSlo(Base):
             file_item.write(
                 json.dumps([{
                     'size_bytes': 1024 * 1024 - 1,
-                    'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
-                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                    'etag': hashlib.md5(b'a' * 1024 * 1024).hexdigest(),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+                }]).encode('ascii'),
                 parms={'multipart-manifest': 'put'})
         except ResponseError as err:
             self.assertEqual(400, err.status)
@@ -526,8 +541,9 @@ class TestSlo(Base):
             file_item.write(
                 json.dumps([{
                     'size_bytes': 1024 * 1024,
-                    'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
-                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                    'etag': hashlib.md5(b'a' * 1024 * 1024).hexdigest(),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+                }]).encode('ascii'),
                 parms={'multipart-manifest': 'put'},
                 hdrs={'Etag': 'NOTetagofthesegments'})
         except ResponseError as err:
@@ -535,8 +551,8 @@ class TestSlo(Base):
 
     def test_slo_client_etag(self):
         file_item = self.env.container.file("manifest-a-b-etag")
-        etag_a = hashlib.md5('a' * 1024 * 1024).hexdigest()
-        etag_b = hashlib.md5('b' * 1024 * 1024).hexdigest()
+        etag_a = hashlib.md5(b'a' * 1024 * 1024).hexdigest()
+        etag_b = hashlib.md5(b'b' * 1024 * 1024).hexdigest()
         file_item.write(
             json.dumps([{
                 'size_bytes': 1024 * 1024,
@@ -544,9 +560,10 @@ class TestSlo(Base):
                 'path': '/%s/%s' % (self.env.container.name, 'seg_a')}, {
                 'size_bytes': 1024 * 1024,
                 'etag': etag_b,
-                'path': '/%s/%s' % (self.env.container.name, 'seg_b')}]),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_b'),
+            }]).encode('ascii'),
             parms={'multipart-manifest': 'put'},
-            hdrs={'Etag': hashlib.md5(etag_a + etag_b).hexdigest()})
+            hdrs={'Etag': hashlib.md5((etag_a + etag_b).encode()).hexdigest()})
         self.assert_status(201)
 
     def test_slo_unspecified_etag(self):
@@ -555,7 +572,8 @@ class TestSlo(Base):
             json.dumps([{
                 'size_bytes': 1024 * 1024,
                 'etag': None,
-                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+            }]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         self.assert_status(201)
 
@@ -564,8 +582,9 @@ class TestSlo(Base):
         file_item.write(
             json.dumps([{
                 'size_bytes': None,
-                'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
-                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                'etag': hashlib.md5(b'a' * 1024 * 1024).hexdigest(),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+            }]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         self.assert_status(201)
 
@@ -574,18 +593,20 @@ class TestSlo(Base):
         file_item.write(
             json.dumps([{
                 'path': '/%s/%s' % (self.env.container.name,
-                                    'seg_with_%ff_funky_name')}]),
+                                    'seg_with_%ff_funky_name'),
+            }]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         self.assert_status(201)
 
-        self.assertEqual('z' * 10, file_item.read())
+        self.assertEqual(b'z' * 10, file_item.read())
 
     def test_slo_missing_etag(self):
         file_item = self.env.container.file("manifest-a-missing-etag")
         file_item.write(
             json.dumps([{
                 'size_bytes': 1024 * 1024,
-                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+            }]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         self.assert_status(201)
 
@@ -593,8 +614,9 @@ class TestSlo(Base):
         file_item = self.env.container.file("manifest-a-missing-size")
         file_item.write(
             json.dumps([{
-                'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
-                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                'etag': hashlib.md5(b'a' * 1024 * 1024).hexdigest(),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+            }]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         self.assert_status(201)
 
@@ -602,7 +624,8 @@ class TestSlo(Base):
         file_item = self.env.container.file("manifest-a-path-only")
         file_item.write(
             json.dumps([{
-                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+            }]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         self.assert_status(201)
 
@@ -611,9 +634,10 @@ class TestSlo(Base):
         try:
             file_item.write(
                 json.dumps([{
-                    'teag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                    'teag': hashlib.md5(b'a' * 1024 * 1024).hexdigest(),
                     'size_bytes': 1024 * 1024,
-                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+                }]).encode('ascii'),
                 parms={'multipart-manifest': 'put'})
         except ResponseError as err:
             self.assertEqual(400, err.status)
@@ -625,9 +649,10 @@ class TestSlo(Base):
         try:
             file_item.write(
                 json.dumps([{
-                    'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                    'etag': hashlib.md5(b'a' * 1024 * 1024).hexdigest(),
                     'siz_bytes': 1024 * 1024,
-                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a'),
+                }]).encode('ascii'),
                 parms={'multipart-manifest': 'put'})
         except ResponseError as err:
             self.assertEqual(400, err.status)
@@ -640,14 +665,15 @@ class TestSlo(Base):
             file_item.write(
                 json.dumps([
                     {'size_bytes': 1024 * 1024,
-                     'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                     'etag': hashlib.md5(b'a' * 1024 * 1024).hexdigest(),
                      'path': '/%s/%s' % (self.env.container.name, 'seg_a')},
                     {'size_bytes': 1024 * 1024,
-                     'etag': hashlib.md5('b' * 1024 * 1024).hexdigest(),
+                     'etag': hashlib.md5(b'b' * 1024 * 1024).hexdigest(),
                      'path': '/%s/%s' % (self.env.container.name, 'seg_b')},
                     {'size_bytes': 1024 * 1024,
-                     'etag': hashlib.md5('c' * 1024 * 1024).hexdigest(),
-                     'path': '/%s/%s' % (self.env.container.name, 'seg_c')}]),
+                     'etag': hashlib.md5(b'c' * 1024 * 1024).hexdigest(),
+                     'path': '/%s/%s' % (self.env.container.name, 'seg_c')},
+                ]).encode('ascii'),
                 parms={'multipart-manifest': 'put'})
         self.assertEqual(400, catcher.exception.status)
 
@@ -752,8 +778,8 @@ class TestSlo(Base):
         except ValueError:
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
         self.assertEqual(source_contents, copied_contents)
-        self.assertEqual(copied_json[0],
-                         {'data': base64.b64encode('APRE' * 8)})
+        self.assertEqual(copied_json[0], {
+            'data': base64.b64encode(b'APRE' * 8).decode('ascii')})
 
     def test_slo_copy_the_manifest_updating_metadata(self):
         source = self.env.container.file("manifest-abcde")
@@ -847,7 +873,7 @@ class TestSlo(Base):
                           parms={'multipart-manifest': 'get'})
         self.assertEqual(400, file_item.conn.response.status)
         resp_body = file_item.conn.response.read()
-        self.assertEqual(5, resp_body.count('403 Forbidden'),
+        self.assertEqual(5, resp_body.count(b'403 Forbidden'),
                          'Unexpected response body %r' % resp_body)
 
         # create segments container in account2 with read access for account1
@@ -863,7 +889,7 @@ class TestSlo(Base):
                           parms={'multipart-manifest': 'get'})
         self.assertEqual(400, file_item.conn.response.status)
         resp_body = file_item.conn.response.read()
-        self.assertEqual(5, resp_body.count('404 Not Found'),
+        self.assertEqual(5, resp_body.count(b'404 Not Found'),
                          'Unexpected response body %r' % resp_body)
 
         # create segments in account2 container with same name as in account1,
@@ -895,23 +921,24 @@ class TestSlo(Base):
             if include_error:
                 manifest_data.append({'path': 'non-existent/segment'})
             resp = file_item.write(
-                json.dumps(manifest_data),
+                json.dumps(manifest_data).encode('ascii'),
                 parms={'multipart-manifest': 'put', 'heartbeat': 'on'},
                 hdrs=headers, return_resp=True)
             self.assertEqual(resp.status, 202)
             self.assertTrue(resp.chunked)
-            body_lines = resp.body.split('\n', 2)
+            body_lines = resp.body.split(b'\n', 2)
             self.assertFalse(body_lines[0].strip())  # all whitespace
-            self.assertEqual('\r', body_lines[1])
+            self.assertEqual(b'\r', body_lines[1])
             return body_lines[2]
 
-        body_lines = do_put().split('\n')
+        body_lines = do_put().decode('utf8').split('\n')
         self.assertIn('Response Status: 201 Created', body_lines)
         self.assertIn('Etag', [line.split(':', 1)[0] for line in body_lines])
         self.assertIn('Last Modified', [line.split(':', 1)[0]
                                         for line in body_lines])
 
-        body_lines = do_put({'Accept': 'text/plain'}).split('\n')
+        body_lines = do_put(
+            {'Accept': 'text/plain'}).decode('utf8').split('\n')
         self.assertIn('Response Status: 201 Created', body_lines)
         self.assertIn('Etag', [line.split(':', 1)[0] for line in body_lines])
         self.assertIn('Last Modified', [line.split(':', 1)[0]
@@ -932,7 +959,7 @@ class TestSlo(Base):
             'Errors': [],
         })
 
-        body_lines = do_put(include_error=True).split('\n')
+        body_lines = do_put(include_error=True).decode('utf8').split('\n')
         self.assertIn('Response Status: 400 Bad Request', body_lines)
         self.assertIn('Response Body: Bad Request', body_lines)
         self.assertNotIn('Etag', [line.split(':', 1)[0]
@@ -982,7 +1009,7 @@ class TestSlo(Base):
         file_item.write(
             json.dumps([seg_info['seg_a'], seg_info['seg_b'],
                         seg_info['seg_c'], seg_info['seg_d'],
-                        seg_info['seg_e']]),
+                        seg_info['seg_e']]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         return file_item
 
@@ -1053,15 +1080,19 @@ class TestSlo(Base):
         self.assertEqual(len(value), 2)
         self.assertEqual(value[0]['bytes'], 1024 * 1024)
         self.assertEqual(value[0]['hash'],
-                         hashlib.md5('d' * 1024 * 1024).hexdigest())
-        self.assertEqual(value[0]['name'],
-                         '/%s/seg_d' % self.env.container.name.decode("utf-8"))
+                         hashlib.md5(b'd' * 1024 * 1024).hexdigest())
+        expected_name = '/%s/seg_d' % self.env.container.name
+        if six.PY2:
+            expected_name = expected_name.decode("utf-8")
+        self.assertEqual(value[0]['name'], expected_name)
 
         self.assertEqual(value[1]['bytes'], 1024 * 1024)
         self.assertEqual(value[1]['hash'],
-                         hashlib.md5('b' * 1024 * 1024).hexdigest())
-        self.assertEqual(value[1]['name'],
-                         '/%s/seg_b' % self.env.container.name.decode("utf-8"))
+                         hashlib.md5(b'b' * 1024 * 1024).hexdigest())
+        expected_name = '/%s/seg_b' % self.env.container.name
+        if six.PY2:
+            expected_name = expected_name.decode("utf-8")
+        self.assertEqual(value[1]['name'], expected_name)
 
     def test_slo_get_raw_the_manifest_with_details_from_server(self):
         manifest = self.env.container.file("manifest-db")
@@ -1081,14 +1112,18 @@ class TestSlo(Base):
         self.assertEqual(len(value), 2)
         self.assertEqual(value[0]['size_bytes'], 1024 * 1024)
         self.assertEqual(value[0]['etag'],
-                         hashlib.md5('d' * 1024 * 1024).hexdigest())
-        self.assertEqual(value[0]['path'],
-                         '/%s/seg_d' % self.env.container.name.decode("utf-8"))
+                         hashlib.md5(b'd' * 1024 * 1024).hexdigest())
+        expected_name = '/%s/seg_d' % self.env.container.name
+        if six.PY2:
+            expected_name = expected_name.decode("utf-8")
+        self.assertEqual(value[0]['path'], expected_name)
         self.assertEqual(value[1]['size_bytes'], 1024 * 1024)
         self.assertEqual(value[1]['etag'],
-                         hashlib.md5('b' * 1024 * 1024).hexdigest())
-        self.assertEqual(value[1]['path'],
-                         '/%s/seg_b' % self.env.container.name.decode("utf-8"))
+                         hashlib.md5(b'b' * 1024 * 1024).hexdigest())
+        expected_name = '/%s/seg_b' % self.env.container.name
+        if six.PY2:
+            expected_name = expected_name.decode("utf-8")
+        self.assertEqual(value[1]['path'], expected_name)
 
         file_item = self.env.container.file("manifest-from-get-raw")
         file_item.write(got_body, parms={'multipart-manifest': 'put'})
@@ -1121,16 +1156,19 @@ class TestSlo(Base):
             'etag': None,
             'path': '/%s/%s' % (self.env.container.name, 'seg_a')}])
 
-        self.assertRaises(ResponseError, file_item.write, manifest,
+        self.assertRaises(ResponseError, file_item.write,
+                          manifest.encode('ascii'),
                           parms={'multipart-manifest': 'put'},
                           hdrs={'If-None-Match': '"not-star"'})
         self.assert_status(400)
 
-        file_item.write(manifest, parms={'multipart-manifest': 'put'},
+        file_item.write(manifest.encode('ascii'),
+                        parms={'multipart-manifest': 'put'},
                         hdrs={'If-None-Match': '*'})
         self.assert_status(201)
 
-        self.assertRaises(ResponseError, file_item.write, manifest,
+        self.assertRaises(ResponseError, file_item.write,
+                          manifest.encode('ascii'),
                           parms={'multipart-manifest': 'put'},
                           hdrs={'If-None-Match': '*'})
         self.assert_status(412)
@@ -1191,11 +1229,11 @@ class TestSlo(Base):
         self.env.container.update_metadata(referer_metadata)
         contents = slo_file.read(hdrs=headers)
         self.assertEqual(4 * 1024 * 1024 + 1, len(contents))
-        self.assertEqual('a', contents[0])
-        self.assertEqual('a', contents[1024 * 1024 - 1])
-        self.assertEqual('b', contents[1024 * 1024])
-        self.assertEqual('d', contents[-2])
-        self.assertEqual('e', contents[-1])
+        self.assertEqual(b'a', contents[:1])
+        self.assertEqual(b'a', contents[1024 * 1024 - 1:1024 * 1024])
+        self.assertEqual(b'b', contents[1024 * 1024:1024 * 1024 + 1])
+        self.assertEqual(b'd', contents[-2:-1])
+        self.assertEqual(b'e', contents[-1:])
 
     def test_slo_data_segments(self):
         # len('APRE' * 8) == 32
@@ -1212,40 +1250,37 @@ class TestSlo(Base):
             file_item = self.env.container.file(file_name)
             file_contents = file_item.read(size=3 * 1024 ** 2 + 456,
                                            offset=28)
-            grouped_file_contents = [
-                (char, sum(1 for _char in grp))
-                for char, grp in itertools.groupby(file_contents)]
             self.assertEqual([
-                ('A', 1),
-                ('P', 1),
-                ('R', 1),
-                ('E', 1),
-                ('a', 1024 * 1024),
+                (b'A', 1),
+                (b'P', 1),
+                (b'R', 1),
+                (b'E', 1),
+                (b'a', 1024 * 1024),
             ] + [
-                ('A', 1),
-                ('P', 1),
-                ('O', 1),
-                ('S', 1),
+                (b'A', 1),
+                (b'P', 1),
+                (b'O', 1),
+                (b'S', 1),
             ] * 16 + [
-                ('b', 1024 * 1024),
+                (b'b', 1024 * 1024),
             ] + [
-                ('B', 1),
-                ('P', 1),
-                ('O', 1),
-                ('S', 1),
+                (b'B', 1),
+                (b'P', 1),
+                (b'O', 1),
+                (b'S', 1),
             ] * 32 + [
-                ('C', 1),
-                ('P', 1),
-                ('R', 1),
-                ('E', 1),
+                (b'C', 1),
+                (b'P', 1),
+                (b'R', 1),
+                (b'E', 1),
             ] * 64 + [
-                ('c', 1024 * 1024),
+                (b'c', 1024 * 1024),
             ] + [
-                ('C', 1),
-                ('P', 1),
-                ('O', 1),
-                ('S', 1),
-            ], grouped_file_contents)
+                (b'C', 1),
+                (b'P', 1),
+                (b'O', 1),
+                (b'S', 1),
+            ], group_file_contents(file_contents))
 
 
 class TestSloUTF8(Base2, TestSlo):

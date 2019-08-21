@@ -20,8 +20,10 @@ import json
 from uuid import uuid4
 from string import ascii_letters
 
+import six
 from six.moves import range
 from swift.common.middleware.acl import format_acl
+from swift.common.utils import distribute_evenly
 
 from test.functional import check_response, retry, requires_acls, \
     load_constraint, SkipTest
@@ -57,8 +59,8 @@ class TestAccount(unittest2.TestCase):
             conn.request('POST', parsed.path, '', headers)
             return check_response(conn)
 
-        for i in range(0, len(remove_metadata_keys), 90):
-            batch = remove_metadata_keys[i:i + 90]
+        buckets = (len(remove_metadata_keys) - 1) // 90 + 1
+        for batch in distribute_evenly(remove_metadata_keys, buckets):
             resp = retry(post, batch)
             resp.read()
 
@@ -148,7 +150,7 @@ class TestAccount(unittest2.TestCase):
 
         # needs to be an acceptable header size
         num_keys = 8
-        max_key_size = load_constraint('max_header_size') / num_keys
+        max_key_size = load_constraint('max_header_size') // num_keys
         acl = {'admin': [c * max_key_size for c in ascii_letters[:num_keys]]}
         headers = {'x-account-access-control': format_acl(
             version=2, acl_dict=acl)}
@@ -717,7 +719,9 @@ class TestAccount(unittest2.TestCase):
             return check_response(conn)
         uni_key = u'X-Account-Meta-uni\u0E12'
         uni_value = u'uni\u0E12'
-        if (tf.web_front_end == 'integral'):
+        # Note that py3 has issues with non-ascii header names; see
+        # https://bugs.python.org/issue37093
+        if (tf.web_front_end == 'integral' and six.PY2):
             resp = retry(post, uni_key, '1')
             resp.read()
             self.assertIn(resp.status, (201, 204))
@@ -731,9 +735,14 @@ class TestAccount(unittest2.TestCase):
         resp = retry(head)
         resp.read()
         self.assertIn(resp.status, (200, 204))
-        self.assertEqual(resp.getheader('X-Account-Meta-uni'),
-                         uni_value.encode('utf-8'))
-        if (tf.web_front_end == 'integral'):
+        if six.PY2:
+            self.assertEqual(resp.getheader('X-Account-Meta-uni'),
+                             uni_value.encode('utf8'))
+        else:
+            self.assertEqual(resp.getheader('X-Account-Meta-uni'),
+                             uni_value)
+        # See above note about py3 and non-ascii header names
+        if (tf.web_front_end == 'integral' and six.PY2):
             resp = retry(post, uni_key, uni_value)
             resp.read()
             self.assertEqual(resp.status, 204)

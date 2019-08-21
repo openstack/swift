@@ -97,6 +97,30 @@
       python_version: 3.7
 
 - job:
+    name: swift-tox-func-encryption-py37
+    parent: swift-tox-func-py37
+    description: |
+      Run functional tests for swift under cPython version 3.7.
+
+      Uses tox with the ``func-encryption-py3`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-encryption-py3
+
+- job:
+    name: swift-tox-func-ec-py37
+    parent: swift-tox-func-py37
+    description: |
+      Run functional tests for swift under cPython version 3.7.
+
+      Uses tox with the ``func-ec-py3`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-ec-py3
+
+- job:
     name: swift-tox-func-domain-remap-staticweb-py37
     parent: swift-tox-func-py37
     description: |
@@ -107,6 +131,18 @@
       tools/test-setup.sh.
     vars:
       tox_envlist: func-domain-remap-staticweb-py3
+
+- job:
+    name: swift-tox-func-s3api-py37
+    parent: swift-tox-func-py37
+    description: |
+      Run functional tests for swift under cPython version 3.7.
+
+      Uses tox with the ``func-s3api`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-s3api-py3
 
 - job:
     name: swift-tox-func-centos-7
@@ -244,8 +280,7 @@
     vars:
       devstack_localrc:
         SERVICE_IP_VERSION: 6
-        HOST_IPV6: '[::1]'
-        SERVICE_HOST: '[::1]'
+        SERVICE_HOST: ""
 
 - job:
     name: swift-tox-func-s3api-ceph-s3tests-tempauth
@@ -408,12 +443,15 @@
       - periodic-stable-jobs
       - check-requirements
       - release-notes-jobs-python3
+      - integrated-gate-object-storage
     check:
       jobs:
         - swift-build-image:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
+
+        # Unit tests
         - swift-tox-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -422,17 +460,13 @@
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
-            voting: false
         - swift-tox-py37:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
+
+        # Functional tests
         - swift-tox-func:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-py37:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
@@ -462,11 +496,35 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+
+        # py3 functional tests
+        - swift-tox-func-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-encryption-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-tox-func-domain-remap-staticweb-py37:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-ec-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - swift-tox-func-s3api-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/probe/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+
+        # Other tests
         - swift-tox-func-s3api-ceph-s3tests-tempauth:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
@@ -511,7 +569,16 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-            voting: false
+        - tempest-integrated-object-storage:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - grenade-py3:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -520,14 +587,18 @@
         # in-tree definitions) dsvm jobs.
         - swift-upload-image
         - swift-tox-py27
+        - swift-tox-py36
         - swift-tox-py37
         - swift-tox-func
-        - swift-tox-func-py37
         - swift-tox-func-encryption
         - swift-tox-func-domain-remap-staticweb
         - swift-tox-func-ec
         - swift-tox-func-s3api
+        - swift-tox-func-py37
+        - swift-tox-func-encryption
         - swift-tox-func-domain-remap-staticweb-py37
+        - swift-tox-func-ec-py37
+        - swift-tox-func-s3api-py37
         - swift-probetests-centos-7:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
@@ -559,6 +630,16 @@
               - ^(api-ref|etc|examples|releasenotes)/.*$
               # Keep doc/manpages -- we want to syntax check them
               - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
+        - tempest-integrated-object-storage:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - grenade-py3:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
     experimental:
       jobs:
         - swift-tox-py27-centos-7

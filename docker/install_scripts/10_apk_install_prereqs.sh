@@ -25,6 +25,3 @@ apk add --update \
   libxslt-dev \
   libxml2 \
   libxml2-dev \
-  python \
-  python-dev \
-  py-pip

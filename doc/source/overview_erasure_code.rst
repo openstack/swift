@@ -646,16 +646,16 @@ multi-phase conversation, that the other nodes have landed enough for a quorum.
 
 The basic flow looks like this:
 
- * The Proxy Server erasure codes and streams the object fragments
+#. The Proxy Server erasure codes and streams the object fragments
    (ec_ndata + ec_nparity) to the storage nodes.
- * The storage nodes store objects as EC archives and upon finishing object
+#. The storage nodes store objects as EC archives and upon finishing object
    data/metadata write, send a 1st-phase response to proxy.
- * Upon quorum of storage nodes responses, the proxy initiates 2nd-phase by
+#. Upon quorum of storage nodes responses, the proxy initiates 2nd-phase by
    sending commit confirmations to object servers.
- * Upon receipt of commit message, object servers rename ``.data`` files to
+#. Upon receipt of commit message, object servers rename ``.data`` files to
    include the ``#d`` substring, indicating successful PUT, and send a final
    response to the proxy server.
- * The proxy waits for `ec_ndata + 1` object servers to respond with a
+#. The proxy waits for `ec_ndata + 1` object servers to respond with a
    success (2xx) status before responding to the client with a successful
    status.
 

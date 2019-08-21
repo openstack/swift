@@ -318,7 +318,7 @@ in Barbican::
     --mode ctr --secret-type symmetric --payload <base64_encoded_root_secret>
 
 Alternatively, the existing root secret can also be stored in Barbican using
-`curl <http://developer.openstack.org/api-guide/key-manager/secrets.html>`__.
+`curl <https://docs.openstack.org/api-guide/key-manager/secrets.html>`__.
 
 .. note::
 

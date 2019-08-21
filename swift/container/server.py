@@ -415,12 +415,11 @@ class ContainerController(BaseStorageServer):
         return created
 
     def _update_metadata(self, req, broker, req_timestamp, method):
-        metadata = {}
-        metadata.update(
-            (wsgi_to_str(key), (wsgi_to_str(value), req_timestamp.internal))
+        metadata = {
+            wsgi_to_str(key): (wsgi_to_str(value), req_timestamp.internal)
             for key, value in req.headers.items()
-            if key.lower() in self.save_headers or
-            is_sys_or_user_meta('container', key))
+            if key.lower() in self.save_headers
+            or is_sys_or_user_meta('container', key)}
         if metadata:
             if 'X-Container-Sync-To' in metadata:
                 if 'X-Container-Sync-To' not in broker.metadata or \
@@ -706,7 +705,7 @@ class ContainerController(BaseStorageServer):
 
     def create_listing(self, req, out_content_type, info, resp_headers,
                        metadata, container_list, container):
-        for key, (value, timestamp) in metadata.items():
+        for key, (value, _timestamp) in metadata.items():
             if value and (key.lower() in self.save_headers or
                           is_sys_or_user_meta('container', key)):
                 resp_headers[str_to_wsgi(key)] = str_to_wsgi(value)

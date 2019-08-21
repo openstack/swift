@@ -5031,16 +5031,18 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             archive_bodies = encode_frag_archive_bodies(self.policy, body)
             # pop the index to the destination node
             archive_bodies.pop(1)
-            ec_archive_dict[
-                (md5(body).hexdigest(), next(ts).internal)] = archive_bodies
+            key = (md5(body).hexdigest(), next(ts).internal, bool(i % 2))
+            ec_archive_dict[key] = archive_bodies
 
         responses = list()
         # fill out response list by 3 different etag bodies
-        for etag, ts in itertools.cycle(ec_archive_dict):
-            body = ec_archive_dict[(etag, ts)].pop(0)
+        for etag, ts, durable in itertools.cycle(ec_archive_dict):
+            body = ec_archive_dict[(etag, ts, durable)].pop(0)
             headers = get_header_frag_index(self, body)
             headers.update({'X-Object-Sysmeta-Ec-Etag': etag,
                             'X-Backend-Timestamp': ts})
+            if durable:
+                headers['X-Backend-Durable-Timestamp'] = ts
             responses.append((200, body, headers))
             if len(responses) >= (self.policy.object_ring.replicas - 1):
                 break
@@ -5063,7 +5065,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         # 1 error log per etag to report not enough responses
         self.assertEqual(3, len(error_lines))
         for error_line in error_lines:
-            for expected_etag, ts in ec_archive_dict:
+            for expected_etag, ts, durable in ec_archive_dict:
                 if expected_etag in error_line:
                     break
             else:
@@ -5072,13 +5074,15 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                     (list(ec_archive_dict), error_line))
             # remove the found etag which should not be found in the
             # following error lines
-            del ec_archive_dict[(expected_etag, ts)]
+            del ec_archive_dict[(expected_etag, ts, durable)]
 
             expected = 'Unable to get enough responses (%s/10) to ' \
-                       'reconstruct 10.0.0.1:1001/sdb/0%s policy#0 ' \
-                       'frag#1 with ETag' % \
+                       'reconstruct %s 10.0.0.1:1001/sdb/0%s policy#0 ' \
+                       'frag#1 with ETag %s and timestamp %s' % \
                        (etag_count[expected_etag],
-                        self.obj_path.decode('utf8'))
+                        'durable' if durable else 'non-durable',
+                        self.obj_path.decode('utf8'),
+                        expected_etag, ts)
             self.assertIn(
                 expected, error_line,
                 "Unexpected error line found: Expected: %s Got: %s"

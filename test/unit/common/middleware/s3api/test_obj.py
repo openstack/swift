@@ -161,7 +161,7 @@ class TestS3ApiObj(S3ApiTestCase):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPServiceUnavailable, {}, None)
         status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '500')
+        self.assertEqual(status.split()[0], '503')
         self.assertEqual(body, b'')  # sanity
 
     def test_object_HEAD(self):
@@ -281,7 +281,7 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual(code, 'PreconditionFailed')
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
-        self.assertEqual(code, 'InternalError')
+        self.assertEqual(code, 'ServiceUnavailable')
 
     @s3acl
     def test_object_GET(self):
@@ -398,7 +398,7 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual(code, 'InternalError')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
-        self.assertEqual(code, 'InternalError')
+        self.assertEqual(code, 'ServiceUnavailable')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPCreated,
                                        {'X-Amz-Copy-Source': ''})
@@ -582,9 +582,9 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual('200 ', status[:4], body)
         # Check that s3api does not return an etag header,
         # specified copy source.
-        self.assertTrue(headers.get('etag') is None)
+        self.assertNotIn('etag', headers)
         # Check that s3api does not return custom metadata in response
-        self.assertTrue(headers.get('x-amz-meta-something') is None)
+        self.assertNotIn('x-amz-meta-something', headers)
 
         _, _, headers = self.swift.calls_with_headers[-1]
         # Check that s3api converts a Content-MD5 header into an etag.
@@ -964,7 +964,7 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual(code, 'InternalError')
         code = self._test_method_error('DELETE', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
-        self.assertEqual(code, 'InternalError')
+        self.assertEqual(code, 'ServiceUnavailable')
 
         with patch(
                 'swift.common.middleware.s3api.s3request.get_container_info',

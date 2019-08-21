@@ -1367,7 +1367,8 @@ def xattr_supported_check():
         fd, tmppath = mkstemp()
         xattr.setxattr(fd, 'user.swift.testing_key', big_val)
     except IOError as e:
-        if errno.errorcode.get(e.errno) in ('ENOSPC', 'ENOTSUP', 'EOPNOTSUPP'):
+        if errno.errorcode.get(e.errno) in ('ENOSPC', 'ENOTSUP', 'EOPNOTSUPP',
+                                            'ERANGE'):
             # filesystem does not support xattr of this size
             return False
         raise

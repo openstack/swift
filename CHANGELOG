@@ -1,3 +1,78 @@
+swift (2.22.0)
+
+    * Experimental support for Python 3.6 and 3.7 is now available.
+      Note that this requires eventlet>=0.25.0. All unit tests pass,
+      and running functional tests under Python 2 will pass against
+      services running under Python 3. Expect full support in the
+      next minor release.
+
+    * Log formats are now more configurable and include support for
+      anonymization. See the log_msg_template option in proxy-server.conf
+      and https://docs.openstack.org/swift/latest/logs.html#proxy-logs
+      for more information.
+
+    * Added an operator tool, swift-container-deleter, to asynchronously
+      delete some or all objects in a container using the object expirers.
+
+    * Swift-all-in-one Docker images are now built and published to
+      https://hub.docker.com/r/openstackswift/saio. These are intended
+      for use as development targets, but will hopefully be useful as a
+      starting point for other work involving containerizing Swift.
+
+    * The object-expirer may now be configured in object-server.conf.
+      This is in anticipation of a future change to allow the
+      object-expirer to be deployed on all nodes that run object-servers.
+
+    * Correctness improvements
+
+      * The proxy-server now ignores 404 responses from handoffs without
+        databases when deciding on the correct response for account and
+        container requests.
+
+      * Object writes to a container whose existence cannot be verified
+        now 503 instead of 404.
+
+    * Sharding improvements
+
+      * The container-replicator now only attempts to fetch shard ranges if
+        the remote indicates that it has shard ranges. Further, it does so
+        with a timeout to prevent the process from hanging in certain cases.
+
+      * The proxy-server now caches 'updating' shards, improving write
+        performance for sharded containers. A new config option,
+        `recheck_updating_shard_ranges`, controls the cache time; set it to
+        0 to disable caching.
+
+      * The container-replicator now correctly enqueues container-reconciler
+        work for sharded containers.
+
+    * S3 API improvements
+
+      * Unsigned payloads work with v4 signatures once more.
+
+      * Multipart upload parts may now be copied from other multipart uploads.
+
+      * CompleteMultipartUpload requests with a Content-MD5 now work.
+
+      * Content-Type can now be updated when copying an object.
+
+      * Fixed v1 listings that end with a non-ASCII object name.
+
+    * Background corruption-detection improvements
+
+      * Detect and remove invalid entries from hashes.pkl
+
+      * When object path is not a directory, just quarantine it,
+        rather than the whole suffix.
+
+    * Dependency updates: we've increased our minimum supported version
+      of cryptography to 2.0.2 and netifaces to 0.8. This is largely due
+      to the difficulty of continuing to test with the old versions.
+
+      If running Swift under Python 3, eventlet must be at least 0.25.0.
+
+    * Various other minor bug fixes and improvements.
+
 swift (2.21.0, OpenStack Stein release)
 
     * Change the behavior of the EC reconstructor to perform a
@@ -162,7 +237,7 @@ swift (2.20.0)
 
     * Various other minor bug fixes and improvements.
 
-2.19.1 (rocky stable backports)
+swift (2.19.1, rocky stable backports)
 
     * Prevent PyKMIP's kmip_protocol logger from logging at DEBUG.
       Previously, some versions of PyKMIP would include all wire
@@ -339,7 +414,7 @@ swift (2.18.0)
 
     * Various other minor bug fixes and improvements.
 
-2.17.1 (queens stable backports)
+swift (2.17.1, queens stable backports)
 
     * Fix SLO delete for accounts with non-ASCII names.
 
@@ -541,7 +616,7 @@ swift (2.16.0)
 
     * Various other minor bug fixes and improvements.
 
-2.15.2 (pike stable backports)
+swift (2.15.2, pike stable backports)
 
     * Fixed a cache invalidation issue related to GET and PUT requests to
       containers that would occasionally cause object PUTs to a container to
@@ -979,7 +1054,7 @@ swift (2.10.0, OpenStack Newton)
       improved in clusters that are not completely healthy.
 
     * Significant improvements to the api-ref doc available at
-      https://developer.openstack.org/api-ref/object-storage/.
+      https://docs.openstack.org/api-ref/object-store/.
 
     * A PUT or POST to a container will now update the container's
       Last-Modified time, and that value will be included in a

@@ -21,7 +21,7 @@ A source tarball for the latest release of Swift is available on the
 Prebuilt packages for Ubuntu and RHEL variants are available.
 
 * `Swift Ubuntu Packages <https://launchpad.net/ubuntu/+source/swift>`_
-* `Swift RDO Packages <https://www.rdoproject.org/Repositories>`_
+* `Swift RDO Packages <https://www.rdoproject.org/documentation/repositories/>`_
 
 --------------------
 Source Control Setup

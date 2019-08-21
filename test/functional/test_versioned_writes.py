@@ -18,6 +18,7 @@ from copy import deepcopy
 import json
 import time
 import unittest2
+import six
 from six.moves.urllib.parse import quote, unquote
 
 import test.functional as tf
@@ -54,9 +55,12 @@ class TestObjectVersioningEnv(BaseEnv):
             cls.conn2 = Connection(config2)
             cls.conn2.authenticate()
 
-        # avoid getting a prefix that stops halfway through an encoded
-        # character
-        prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
+        if six.PY2:
+            # avoid getting a prefix that stops halfway through an encoded
+            # character
+            prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
+        else:
+            prefix = Utils.create_name()[:10]
 
         cls.versions_container = cls.account.container(prefix + "-versions")
         if not cls.versions_container.create():
@@ -143,9 +147,12 @@ class TestCrossPolicyObjectVersioningEnv(BaseEnv):
             cls.conn2 = Connection(config2)
             cls.conn2.authenticate()
 
-        # avoid getting a prefix that stops halfway through an encoded
-        # character
-        prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
+        if six.PY2:
+            # avoid getting a prefix that stops halfway through an encoded
+            # character
+            prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
+        else:
+            prefix = Utils.create_name()[:10]
 
         cls.versions_container = cls.account.container(prefix + "-versions")
         if not cls.versions_container.create(
@@ -254,7 +261,7 @@ class TestObjectVersioning(Base):
         put_headers = {'Content-Type': 'text/jibberish01',
                        'Content-Encoding': 'gzip',
                        'Content-Disposition': 'attachment; filename=myfile'}
-        versioned_obj.write("aaaaa", hdrs=put_headers)
+        versioned_obj.write(b"aaaaa", hdrs=put_headers)
         obj_info = versioned_obj.info()
         self.assertEqual('text/jibberish01', obj_info['content_type'])
         expected_content_types.append('text/jibberish01')
@@ -263,14 +270,15 @@ class TestObjectVersioning(Base):
         # assert that content-encoding or content-disposition get *copied* to
         # the object version unless they were set on the original PUT, so
         # populate expected_headers by making a HEAD on the original object
-        resp_headers = dict(versioned_obj.conn.response.getheaders())
+        resp_headers = {
+            h.lower(): v for h, v in versioned_obj.conn.response.getheaders()}
         expected_headers = {}
         for k, v in put_headers.items():
             if k.lower() in resp_headers:
                 expected_headers[k] = v
 
         self.assertEqual(0, versions_container.info()['object_count'])
-        versioned_obj.write("bbbbb", hdrs={'Content-Type': 'text/jibberish02',
+        versioned_obj.write(b"bbbbb", hdrs={'Content-Type': 'text/jibberish02',
                             'X-Object-Meta-Foo': 'Bar'})
         versioned_obj.initialize()
         self.assertEqual(versioned_obj.content_type, 'text/jibberish02')
@@ -282,10 +290,11 @@ class TestObjectVersioning(Base):
         versioned_obj_name = versions_container.files()[0]
         prev_version = versions_container.file(versioned_obj_name)
         prev_version.initialize()
-        self.assertEqual("aaaaa", prev_version.read())
+        self.assertEqual(b"aaaaa", prev_version.read())
         self.assertEqual(prev_version.content_type, 'text/jibberish01')
 
-        resp_headers = dict(prev_version.conn.response.getheaders())
+        resp_headers = {
+            h.lower(): v for h, v in prev_version.conn.response.getheaders()}
         for k, v in expected_headers.items():
             self.assertIn(k.lower(), resp_headers)
             self.assertEqual(v, resp_headers[k.lower()])
@@ -298,29 +307,29 @@ class TestObjectVersioning(Base):
         self.assertEqual(1, versions_container.info()['object_count'])
 
         # if we overwrite it again, there are two versions
-        versioned_obj.write("ccccc")
+        versioned_obj.write(b"ccccc")
         self.assertEqual(2, versions_container.info()['object_count'])
         expected_content_types.append('text/jibberish02')
         versioned_obj_name = versions_container.files()[1]
         prev_version = versions_container.file(versioned_obj_name)
         prev_version.initialize()
-        self.assertEqual("bbbbb", prev_version.read())
+        self.assertEqual(b"bbbbb", prev_version.read())
         self.assertEqual(prev_version.content_type, 'text/jibberish02')
         self.assertNotIn('foo', prev_version.metadata)
         self.assertIn('fu', prev_version.metadata)
 
         # versioned_obj keeps the newest content
-        self.assertEqual("ccccc", versioned_obj.read())
+        self.assertEqual(b"ccccc", versioned_obj.read())
 
         # test copy from a different container
         src_container = self.env.account.container(Utils.create_name())
         self.assertTrue(src_container.create())
         src_name = Utils.create_name()
         src_obj = src_container.file(src_name)
-        src_obj.write("ddddd", hdrs={'Content-Type': 'text/jibberish04'})
+        src_obj.write(b"ddddd", hdrs={'Content-Type': 'text/jibberish04'})
         src_obj.copy(container.name, obj_name)
 
-        self.assertEqual("ddddd", versioned_obj.read())
+        self.assertEqual(b"ddddd", versioned_obj.read())
         versioned_obj.initialize()
         self.assertEqual(versioned_obj.content_type, 'text/jibberish04')
         expected_content_types.append('text/jibberish04')
@@ -330,7 +339,7 @@ class TestObjectVersioning(Base):
         versioned_obj_name = versions_container.files()[2]
         prev_version = versions_container.file(versioned_obj_name)
         prev_version.initialize()
-        self.assertEqual("ccccc", prev_version.read())
+        self.assertEqual(b"ccccc", prev_version.read())
 
         # for further use in the mode-specific tests
         return (versioned_obj, expected_headers, expected_content_types)
@@ -348,27 +357,28 @@ class TestObjectVersioning(Base):
 
         # test delete
         versioned_obj.delete()
-        self.assertEqual("ccccc", versioned_obj.read())
+        self.assertEqual(b"ccccc", versioned_obj.read())
         expected_content_types.pop()
         self.assertEqual(expected_content_types, [
             o['content_type'] for o in versions_container.files(
                 parms={'format': 'json'})])
 
         versioned_obj.delete()
-        self.assertEqual("bbbbb", versioned_obj.read())
+        self.assertEqual(b"bbbbb", versioned_obj.read())
         expected_content_types.pop()
         self.assertEqual(expected_content_types, [
             o['content_type'] for o in versions_container.files(
                 parms={'format': 'json'})])
 
         versioned_obj.delete()
-        self.assertEqual("aaaaa", versioned_obj.read())
+        self.assertEqual(b"aaaaa", versioned_obj.read())
         self.assertEqual(0, versions_container.info()['object_count'])
 
         # verify that all the original object headers have been copied back
         obj_info = versioned_obj.info()
         self.assertEqual('text/jibberish01', obj_info['content_type'])
-        resp_headers = dict(versioned_obj.conn.response.getheaders())
+        resp_headers = {
+            h.lower(): v for h, v in versioned_obj.conn.response.getheaders()}
         for k, v in expected_headers.items():
             self.assertIn(k.lower(), resp_headers)
             self.assertEqual(v, resp_headers[k.lower()])
@@ -390,27 +400,28 @@ class TestObjectVersioning(Base):
 
         # test delete
         versioned_obj.delete()
-        self.assertEqual("ccccc", versioned_obj.read())
+        self.assertEqual(b"ccccc", versioned_obj.read())
         expected_content_types.pop()
         self.assertEqual(expected_content_types, [
             o['content_type'] for o in versions_container.files(
                 parms={'format': 'json'})])
 
         versioned_obj.delete()
-        self.assertEqual("bbbbb", versioned_obj.read())
+        self.assertEqual(b"bbbbb", versioned_obj.read())
         expected_content_types.pop()
         self.assertEqual(expected_content_types, [
             o['content_type'] for o in versions_container.files(
                 parms={'format': 'json'})])
 
         versioned_obj.delete()
-        self.assertEqual("aaaaa", versioned_obj.read())
+        self.assertEqual(b"aaaaa", versioned_obj.read())
         self.assertEqual(0, versions_container.info()['object_count'])
 
         # verify that all the original object headers have been copied back
         obj_info = versioned_obj.info()
         self.assertEqual('text/jibberish01', obj_info['content_type'])
-        resp_headers = dict(versioned_obj.conn.response.getheaders())
+        resp_headers = {
+            h.lower(): v for h, v in versioned_obj.conn.response.getheaders()}
         for k, v in expected_headers.items():
             self.assertIn(k.lower(), resp_headers)
             self.assertEqual(v, resp_headers[k.lower()])
@@ -420,12 +431,14 @@ class TestObjectVersioning(Base):
 
     def assert_most_recent_version(self, obj_name, content,
                                    should_be_dlo=False):
+        name_len = len(obj_name if six.PY2 else obj_name.encode('utf8'))
         archive_versions = self.env.versions_container.files(parms={
-            'prefix': '%03x%s/' % (len(obj_name), obj_name),
+            'prefix': '%03x%s/' % (name_len, obj_name),
             'reverse': 'yes'})
         archive_file = self.env.versions_container.file(archive_versions[0])
         self.assertEqual(content, archive_file.read())
-        resp_headers = dict(archive_file.conn.response.getheaders())
+        resp_headers = {
+            h.lower(): v for h, v in archive_file.conn.response.getheaders()}
         if should_be_dlo:
             self.assertIn('x-object-manifest', resp_headers)
         else:
@@ -443,34 +456,35 @@ class TestObjectVersioning(Base):
             time.sleep(.01)  # guarantee that the timestamp changes
             obj_name_seg = obj_name + '/' + i
             versioned_obj = container.file(obj_name_seg)
-            versioned_obj.write(i)
+            versioned_obj.write(i.encode('ascii'))
             # immediately overwrite
-            versioned_obj.write(i + i)
+            versioned_obj.write((i + i).encode('ascii'))
 
         self.assertEqual(3, versions_container.info()['object_count'])
 
         man_file = container.file(obj_name)
 
         # write a normal file first
-        man_file.write('old content')
+        man_file.write(b'old content')
 
         # guarantee that the timestamp changes
         time.sleep(.01)
 
         # overwrite with a dlo manifest
-        man_file.write('', hdrs={"X-Object-Manifest": "%s/%s/" %
+        man_file.write(b'', hdrs={"X-Object-Manifest": "%s/%s/" %
                        (self.env.container.name, obj_name)})
 
         self.assertEqual(4, versions_container.info()['object_count'])
-        self.assertEqual("112233", man_file.read())
-        self.assert_most_recent_version(obj_name, 'old content')
+        self.assertEqual(b"112233", man_file.read())
+        self.assert_most_recent_version(obj_name, b'old content')
 
         # overwrite the manifest with a normal file
-        man_file.write('new content')
+        man_file.write(b'new content')
         self.assertEqual(5, versions_container.info()['object_count'])
 
         # new most-recent archive is the dlo
-        self.assert_most_recent_version(obj_name, '112233', should_be_dlo=True)
+        self.assert_most_recent_version(
+            obj_name, b'112233', should_be_dlo=True)
 
         return obj_name, man_file
 
@@ -480,15 +494,16 @@ class TestObjectVersioning(Base):
         # verify that restore works properly
         man_file.delete()
         self.assertEqual(4, self.env.versions_container.info()['object_count'])
-        self.assertEqual("112233", man_file.read())
-        resp_headers = dict(man_file.conn.response.getheaders())
+        self.assertEqual(b"112233", man_file.read())
+        resp_headers = {
+            h.lower(): v for h, v in man_file.conn.response.getheaders()}
         self.assertIn('x-object-manifest', resp_headers)
 
-        self.assert_most_recent_version(obj_name, 'old content')
+        self.assert_most_recent_version(obj_name, b'old content')
 
         man_file.delete()
         self.assertEqual(3, self.env.versions_container.info()['object_count'])
-        self.assertEqual("old content", man_file.read())
+        self.assertEqual(b"old content", man_file.read())
 
     def test_versioning_container_acl(self):
         if tf.skip2:
@@ -503,7 +518,7 @@ class TestObjectVersioning(Base):
         # check account2 cannot write to versions container
         fail_obj_name = Utils.create_name()
         fail_obj = versions_container.file(fail_obj_name)
-        self.assertRaises(ResponseError, fail_obj.write, "should fail",
+        self.assertRaises(ResponseError, fail_obj.write, b"should fail",
                           cfg={'use_token': self.env.storage_token2})
 
         # create container and give write access to account2
@@ -528,22 +543,22 @@ class TestObjectVersioning(Base):
         # write object twice to container and check version
         obj_name = Utils.create_name()
         versioned_obj = container.file(obj_name)
-        self.assertTrue(versioned_obj.write("never argue with the data",
+        self.assertTrue(versioned_obj.write(b"never argue with the data",
                         cfg={'use_token': self.env.storage_token2}))
-        self.assertEqual(versioned_obj.read(), "never argue with the data")
+        self.assertEqual(versioned_obj.read(), b"never argue with the data")
 
         self.assertTrue(
-            versioned_obj.write("we don't have no beer, just tequila",
+            versioned_obj.write(b"we don't have no beer, just tequila",
                                 cfg={'use_token': self.env.storage_token2}))
         self.assertEqual(versioned_obj.read(),
-                         "we don't have no beer, just tequila")
+                         b"we don't have no beer, just tequila")
         self.assertEqual(1, versions_container.info()['object_count'])
 
         # read the original uploaded object
         for filename in versions_container.files():
             backup_file = versions_container.file(filename)
             break
-        self.assertEqual(backup_file.read(), "never argue with the data")
+        self.assertEqual(backup_file.read(), b"never argue with the data")
 
         # user3 (some random user with no access to any of account1)
         # tries to read from versioned container
@@ -556,13 +571,13 @@ class TestObjectVersioning(Base):
             hdrs={'X-Container-Read': self.env.conn3.user_acl},
             cfg={'use_token': self.env.storage_token2})
         a2_obj = a2_container.file(Utils.create_name())
-        self.assertTrue(a2_obj.write("unused",
+        self.assertTrue(a2_obj.write(b"unused",
                         cfg={'use_token': self.env.storage_token2}))
 
         # user3 cannot write, delete, or copy to/from source container either
         number_of_versions = versions_container.info()['object_count']
         self.assertRaises(ResponseError, versioned_obj.write,
-                          "some random user trying to write data",
+                          b"some random user trying to write data",
                           cfg={'use_token': self.env.storage_token3})
         self.assertEqual(number_of_versions,
                          versions_container.info()['object_count'])
@@ -610,11 +625,11 @@ class TestObjectVersioning(Base):
 
         obj_name = Utils.create_name()
         versioned_obj = container.file(obj_name)
-        versioned_obj.write("aaaaa")
-        self.assertEqual("aaaaa", versioned_obj.read())
+        versioned_obj.write(b"aaaaa")
+        self.assertEqual(b"aaaaa", versioned_obj.read())
 
-        versioned_obj.write("bbbbb")
-        self.assertEqual("bbbbb", versioned_obj.read())
+        versioned_obj.write(b"bbbbb")
+        self.assertEqual(b"bbbbb", versioned_obj.read())
 
         # Use token from second account and try to delete the object
         org_token = self.env.account.conn.storage_token
@@ -627,7 +642,7 @@ class TestObjectVersioning(Base):
             self.env.account.conn.storage_token = org_token
 
         # Verify with token from first account
-        self.assertEqual("bbbbb", versioned_obj.read())
+        self.assertEqual(b"bbbbb", versioned_obj.read())
         return versioned_obj
 
     def test_versioning_check_acl(self):
@@ -635,7 +650,7 @@ class TestObjectVersioning(Base):
             raise SkipTest('Account2 not set')
         versioned_obj = self._test_versioning_check_acl_setup()
         versioned_obj.delete()
-        self.assertEqual("aaaaa", versioned_obj.read())
+        self.assertEqual(b"aaaaa", versioned_obj.read())
 
     def _check_overwriting_symlink(self):
         # assertions common to x-versions-location and x-history-location modes
@@ -646,29 +661,29 @@ class TestObjectVersioning(Base):
         tgt_b_name = Utils.create_name()
 
         tgt_a = container.file(tgt_a_name)
-        tgt_a.write("aaaaa")
+        tgt_a.write(b"aaaaa")
 
         tgt_b = container.file(tgt_b_name)
-        tgt_b.write("bbbbb")
+        tgt_b.write(b"bbbbb")
 
         symlink_name = Utils.create_name()
         sym_tgt_header = quote(unquote('%s/%s' % (container.name, tgt_a_name)))
         sym_headers_a = {'X-Symlink-Target': sym_tgt_header}
         symlink = container.file(symlink_name)
-        symlink.write("", hdrs=sym_headers_a)
-        self.assertEqual("aaaaa", symlink.read())
+        symlink.write(b"", hdrs=sym_headers_a)
+        self.assertEqual(b"aaaaa", symlink.read())
 
         sym_headers_b = {'X-Symlink-Target': '%s/%s' % (container.name,
                                                         tgt_b_name)}
-        symlink.write("", hdrs=sym_headers_b)
-        self.assertEqual("bbbbb", symlink.read())
+        symlink.write(b"", hdrs=sym_headers_b)
+        self.assertEqual(b"bbbbb", symlink.read())
 
         # the old version got saved off
         self.assertEqual(1, versions_container.info()['object_count'])
         versioned_obj_name = versions_container.files()[0]
         prev_version = versions_container.file(versioned_obj_name)
         prev_version_info = prev_version.info(parms={'symlink': 'get'})
-        self.assertEqual("aaaaa", prev_version.read())
+        self.assertEqual(b"aaaaa", prev_version.read())
         self.assertEqual(MD5_OF_EMPTY_STRING, prev_version_info['etag'])
         self.assertEqual(sym_tgt_header,
                          prev_version_info['x_symlink_target'])
@@ -682,7 +697,7 @@ class TestObjectVersioning(Base):
         # test delete
         symlink.delete()
         sym_info = symlink.info(parms={'symlink': 'get'})
-        self.assertEqual("aaaaa", symlink.read())
+        self.assertEqual(b"aaaaa", symlink.read())
         self.assertEqual(MD5_OF_EMPTY_STRING, sym_info['etag'])
         self.assertEqual(
             quote(unquote('%s/%s' % (self.env.container.name, target.name))),
@@ -690,16 +705,16 @@ class TestObjectVersioning(Base):
 
     def _setup_symlink(self):
         target = self.env.container.file('target-object')
-        target.write('target object data')
+        target.write(b'target object data')
         symlink = self.env.container.file('symlink')
-        symlink.write('', hdrs={
+        symlink.write(b'', hdrs={
             'Content-Type': 'application/symlink',
             'X-Symlink-Target': '%s/%s' % (
                 self.env.container.name, target.name)})
         return symlink, target
 
     def _assert_symlink(self, symlink, target):
-        self.assertEqual('target object data', symlink.read())
+        self.assertEqual(b'target object data', symlink.read())
         self.assertEqual(target.info(), symlink.info())
         self.assertEqual('application/symlink',
                          symlink.info(parms={
@@ -708,7 +723,7 @@ class TestObjectVersioning(Base):
     def _check_copy_destination_restore_symlink(self):
         # assertions common to x-versions-location and x-history-location modes
         symlink, target = self._setup_symlink()
-        symlink.write('this is not a symlink')
+        symlink.write(b'this is not a symlink')
         # the symlink is versioned
         version_container_files = self.env.versions_container.files(
             parms={'format': 'json'})
@@ -736,7 +751,7 @@ class TestObjectVersioning(Base):
         # and versioned writes restore
         symlink.delete()
         self.assertEqual(1, self.env.versions_container.info()['object_count'])
-        self.assertEqual('this is not a symlink', symlink.read())
+        self.assertEqual(b'this is not a symlink', symlink.read())
         symlink.delete()
         self.assertEqual(0, self.env.versions_container.info()['object_count'])
         self._assert_symlink(symlink, target)
@@ -746,7 +761,7 @@ class TestObjectVersioning(Base):
             raise SkipTest("Symlinks not enabled")
 
         symlink, target = self._setup_symlink()
-        symlink.write('this is not a symlink')
+        symlink.write(b'this is not a symlink')
         version_container_files = self.env.versions_container.files()
         self.assertEqual(1, len(version_container_files))
         versioned_obj = self.env.versions_container.file(
@@ -812,7 +827,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
                 parms={'format': 'json'})])
 
         # update versioned_obj
-        versioned_obj.write("eeee", hdrs={'Content-Type': 'text/thanksgiving',
+        versioned_obj.write(b"eeee", hdrs={'Content-Type': 'text/thanksgiving',
                             'X-Object-Meta-Bar': 'foo'})
         # verify the PUT object is kept successfully
         obj_info = versioned_obj.info()
@@ -822,7 +837,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         self.assertEqual(8, versions_container.info()['object_count'])
 
         # update versioned_obj
-        versioned_obj.write("ffff", hdrs={'Content-Type': 'text/teriyaki',
+        versioned_obj.write(b"ffff", hdrs={'Content-Type': 'text/teriyaki',
                             'X-Object-Meta-Food': 'chickin'})
         # verify the PUT object is kept successfully
         obj_info = versioned_obj.info()
@@ -864,7 +879,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
                 parms={'format': 'json'})])
 
         # update versioned_obj
-        versioned_obj.write("eeee", hdrs={'Content-Type': 'text/thanksgiving',
+        versioned_obj.write(b"eeee", hdrs={'Content-Type': 'text/thanksgiving',
                             'X-Object-Meta-Bar': 'foo'})
         # verify the PUT object is kept successfully
         obj_info = versioned_obj.info()
@@ -874,7 +889,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         self.assertEqual(8, versions_container.info()['object_count'])
 
         # update versioned_obj
-        versioned_obj.write("ffff", hdrs={'Content-Type': 'text/teriyaki',
+        versioned_obj.write(b"ffff", hdrs={'Content-Type': 'text/teriyaki',
                             'X-Object-Meta-Food': 'chickin'})
         # verify the PUT object is kept successfully
         obj_info = versioned_obj.info()
@@ -898,7 +913,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         self.assertEqual(404, cm.exception.status)
         self.assertEqual(7, self.env.versions_container.info()['object_count'])
 
-        expected = ['old content', '112233', 'new content', '']
+        expected = [b'old content', b'112233', b'new content', b'']
 
         bodies = [
             self.env.versions_container.file(f).read()
@@ -919,7 +934,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         # and delete-marker with empty content
         self.assertEqual(3, self.env.versions_container.info()['object_count'])
         files = self.env.versions_container.files()
-        for actual, expected in zip(files, ['aaaaa', 'bbbbb', '']):
+        for actual, expected in zip(files, [b'aaaaa', b'bbbbb', b'']):
             prev_version = self.env.versions_container.file(actual)
             self.assertEqual(expected, prev_version.read())
 
@@ -981,7 +996,7 @@ class TestSloWithVersioning(unittest2.TestCase):
                              ('b', 1024 * 1024)):
             seg_name = letter
             file_item = self.segments_container.file(seg_name)
-            file_item.write(letter * size)
+            file_item.write((letter * size).encode('ascii'))
             self.seg_info[seg_name] = {
                 'size_bytes': size,
                 'etag': file_item.md5,
@@ -991,13 +1006,14 @@ class TestSloWithVersioning(unittest2.TestCase):
         # create a manifest in the versioning container
         file_item = self.container.file("my-slo-manifest")
         file_item.write(
-            json.dumps([self.seg_info[seg_name]]),
+            json.dumps([self.seg_info[seg_name]]).encode('ascii'),
             parms={'multipart-manifest': 'put'})
         return file_item
 
     def _assert_is_manifest(self, file_item, seg_name):
         manifest_body = file_item.read(parms={'multipart-manifest': 'get'})
-        resp_headers = dict(file_item.conn.response.getheaders())
+        resp_headers = {
+            h.lower(): v for h, v in file_item.conn.response.getheaders()}
         self.assertIn('x-static-large-object', resp_headers)
         self.assertEqual('application/json; charset=utf-8',
                          file_item.content_type)
@@ -1012,11 +1028,11 @@ class TestSloWithVersioning(unittest2.TestCase):
             self.assertEqual(self.seg_info[seg_name][k_client],
                              manifest[0][k_slo])
 
-    def _assert_is_object(self, file_item, seg_name):
+    def _assert_is_object(self, file_item, seg_data):
         file_contents = file_item.read()
         self.assertEqual(1024 * 1024, len(file_contents))
-        self.assertEqual(seg_name, file_contents[0])
-        self.assertEqual(seg_name, file_contents[-1])
+        self.assertEqual(seg_data, file_contents[:1])
+        self.assertEqual(seg_data, file_contents[-1:])
 
     def tearDown(self):
         # remove versioning to allow simple container delete
@@ -1027,24 +1043,24 @@ class TestSloWithVersioning(unittest2.TestCase):
         file_item = self._create_manifest('a')
         # sanity check: read the manifest, then the large object
         self._assert_is_manifest(file_item, 'a')
-        self._assert_is_object(file_item, 'a')
+        self._assert_is_object(file_item, b'a')
 
         # upload new manifest
         file_item = self._create_manifest('b')
         # sanity check: read the manifest, then the large object
         self._assert_is_manifest(file_item, 'b')
-        self._assert_is_object(file_item, 'b')
+        self._assert_is_object(file_item, b'b')
 
         versions_list = self.versions_container.files()
         self.assertEqual(1, len(versions_list))
         version_file = self.versions_container.file(versions_list[0])
         # check the version is still a manifest
         self._assert_is_manifest(version_file, 'a')
-        self._assert_is_object(version_file, 'a')
+        self._assert_is_object(version_file, b'a')
 
         # delete the newest manifest
         file_item.delete()
 
         # expect the original manifest file to be restored
         self._assert_is_manifest(file_item, 'a')
-        self._assert_is_object(file_item, 'a')
+        self._assert_is_object(file_item, b'a')

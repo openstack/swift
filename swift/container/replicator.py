@@ -138,7 +138,7 @@ class ContainerReplicator(db_replicator.Replicator):
     def _fetch_and_merge_shard_ranges(self, http, broker):
         with Timeout(self.node_timeout):
             response = http.replicate('get_shard_ranges')
-        if is_success(response.status):
+        if response and is_success(response.status):
             broker.merge_shard_ranges(json.loads(
                 response.data.decode('ascii')))
 

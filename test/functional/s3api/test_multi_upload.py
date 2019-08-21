@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import base64
+import binascii
 import unittest2
 import os
 import boto
@@ -23,7 +24,7 @@ import boto
 from distutils.version import StrictVersion
 
 from hashlib import md5
-from itertools import izip, izip_longest
+from six.moves import zip, zip_longest
 
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
@@ -67,7 +68,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
             headers = [None] * len(keys)
         self.conn.make_request('PUT', bucket)
         query = 'uploads'
-        for key, key_headers in izip_longest(keys, headers):
+        for key, key_headers in zip_longest(keys, headers):
             for i in range(trials):
                 status, resp_headers, body = \
                     self.conn.make_request('POST', bucket, key,
@@ -76,7 +77,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
     def _upload_part(self, bucket, key, upload_id, content=None, part_num=1):
         query = 'partNumber=%s&uploadId=%s' % (part_num, upload_id)
-        content = content if content else 'a' * self.min_segment_size
+        content = content if content else b'a' * self.min_segment_size
         status, headers, body = \
             self.conn.make_request('PUT', bucket, key, body=content,
                                    query=query)
@@ -108,8 +109,9 @@ class TestS3ApiMultiUpload(S3ApiBase):
     def test_object_multi_upload(self):
         bucket = 'bucket'
         keys = ['obj1', 'obj2', 'obj3']
+        bad_content_md5 = base64.b64encode(b'a' * 16).strip().decode('ascii')
         headers = [None,
-                   {'Content-MD5': base64.b64encode('a' * 16).strip()},
+                   {'Content-MD5': bad_content_md5},
                    {'Etag': 'nonsense'}]
         uploads = []
 
@@ -118,20 +120,20 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # Initiate Multipart Upload
         for expected_key, (status, headers, body) in \
-                izip(keys, results_generator):
-            self.assertEqual(status, 200)
+                zip(keys, results_generator):
+            self.assertEqual(status, 200, body)
             self.assertCommonResponseHeaders(headers)
-            self.assertTrue('content-type' in headers)
+            self.assertIn('content-type', headers)
             self.assertEqual(headers['content-type'], 'application/xml')
-            self.assertTrue('content-length' in headers)
+            self.assertIn('content-length', headers)
             self.assertEqual(headers['content-length'], str(len(body)))
             elem = fromstring(body, 'InitiateMultipartUploadResult')
             self.assertEqual(elem.find('Bucket').text, bucket)
             key = elem.find('Key').text
             self.assertEqual(expected_key, key)
             upload_id = elem.find('UploadId').text
-            self.assertTrue(upload_id is not None)
-            self.assertTrue((key, upload_id) not in uploads)
+            self.assertIsNotNone(upload_id)
+            self.assertNotIn((key, upload_id), uploads)
             uploads.append((key, upload_id))
 
         self.assertEqual(len(uploads), len(keys))  # sanity
@@ -157,7 +159,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(elem.find('IsTruncated').text, 'false')
         self.assertEqual(len(elem.findall('Upload')), 3)
         for (expected_key, expected_upload_id), u in \
-                izip(uploads, elem.findall('Upload')):
+                zip(uploads, elem.findall('Upload')):
             key = u.find('Key').text
             upload_id = u.find('UploadId').text
             self.assertEqual(expected_key, key)
@@ -174,7 +176,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # Upload Part
         key, upload_id = uploads[0]
-        content = 'a' * self.min_segment_size
+        content = b'a' * self.min_segment_size
         etag = md5(content).hexdigest()
         status, headers, body = \
             self._upload_part(bucket, key, upload_id, content)
@@ -190,7 +192,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         key, upload_id = uploads[1]
         src_bucket = 'bucket2'
         src_obj = 'obj3'
-        src_content = 'b' * self.min_segment_size
+        src_content = b'b' * self.min_segment_size
         etag = md5(src_content).hexdigest()
 
         # prepare src obj
@@ -266,7 +268,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         # etags will be used to generate xml for Complete Multipart Upload
         etags = []
         for (expected_etag, expected_date), p in \
-                izip(expected_parts_list, elem.findall('Part')):
+                zip(expected_parts_list, elem.findall('Part')):
             last_modified = p.find('LastModified').text
             self.assertTrue(last_modified is not None)
             # TODO: sanity check
@@ -295,9 +297,9 @@ class TestS3ApiMultiUpload(S3ApiBase):
         else:
             self.assertIn('transfer-encoding', headers)
             self.assertEqual(headers['transfer-encoding'], 'chunked')
-        lines = body.split('\n')
-        self.assertTrue(lines[0].startswith('<?xml'), body)
-        self.assertTrue(lines[0].endswith('?>'), body)
+        lines = body.split(b'\n')
+        self.assertTrue(lines[0].startswith(b'<?xml'), body)
+        self.assertTrue(lines[0].endswith(b'?>'), body)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
         # TODO: use tf.config value
         self.assertEqual(
@@ -305,9 +307,10 @@ class TestS3ApiMultiUpload(S3ApiBase):
             elem.find('Location').text)
         self.assertEqual(elem.find('Bucket').text, bucket)
         self.assertEqual(elem.find('Key').text, key)
-        concatted_etags = ''.join(etag.strip('"') for etag in etags)
+        concatted_etags = b''.join(
+            etag.strip('"').encode('ascii') for etag in etags)
         exp_etag = '"%s-%s"' % (
-            md5(concatted_etags.decode('hex')).hexdigest(), len(etags))
+            md5(binascii.unhexlify(concatted_etags)).hexdigest(), len(etags))
         etag = elem.find('ETag').text
         self.assertEqual(etag, exp_etag)
 
@@ -332,7 +335,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         last_modified = elem.find('LastModified').text
         self.assertIsNotNone(last_modified)
 
-        exp_content = 'a' * self.min_segment_size
+        exp_content = b'a' * self.min_segment_size
         etag = md5(exp_content).hexdigest()
         self.assertEqual(resp_etag, etag)
 
@@ -723,7 +726,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key, query=query,
-                                       body='A' * body_size[i])
+                                       body=b'A' * body_size[i])
             etags.append(headers['etag'])
             xml = self._gen_comp_xml(etags)
 
@@ -747,7 +750,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
             query = 'partNumber=%s&uploadId=%s' % (i, upload_id)
             status, headers, body = \
                 self.conn.make_request('PUT', bucket, key, query=query,
-                                       body='A' * body_size[i])
+                                       body=b'A' * body_size[i])
             etags.append(headers['etag'])
             xml = self._gen_comp_xml(etags)
 
@@ -770,9 +773,9 @@ class TestS3ApiMultiUpload(S3ApiBase):
         etags = []
         for i in range(1, 4):
             query = 'partNumber=%s&uploadId=%s' % (2 * i - 1, upload_id)
-            status, headers, body = \
-                self.conn.make_request('PUT', bucket, key,
-                                       body='A' * 1024 * 1024 * 5, query=query)
+            status, headers, body = self.conn.make_request(
+                'PUT', bucket, key, body=b'A' * 1024 * 1024 * 5,
+                query=query)
             etags.append(headers['etag'])
         query = 'uploadId=%s' % upload_id
         xml = self._gen_comp_xml(etags[:-1], step=2)
@@ -791,7 +794,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # Initiate Multipart Upload
         for expected_key, (status, headers, body) in \
-                izip(keys, results_generator):
+                zip(keys, results_generator):
             self.assertEqual(status, 200)
             self.assertCommonResponseHeaders(headers)
             self.assertTrue('content-type' in headers)
@@ -813,7 +816,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         key, upload_id = uploads[0]
         src_bucket = 'bucket2'
         src_obj = 'obj4'
-        src_content = 'y' * (self.min_segment_size / 2) + 'z' * \
+        src_content = b'y' * (self.min_segment_size // 2) + b'z' * \
             self.min_segment_size
         src_range = 'bytes=0-%d' % (self.min_segment_size - 1)
         etag = md5(src_content[:self.min_segment_size]).hexdigest()
@@ -901,7 +904,7 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
 
         # Initiate Multipart Upload
         for expected_key, (status, _, body) in \
-                izip(keys, results_generator):
+                zip(keys, results_generator):
             self.assertEqual(status, 200)  # sanity
             elem = fromstring(body, 'InitiateMultipartUploadResult')
             key = elem.find('Key').text
@@ -915,7 +918,7 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
 
         # Upload Part
         key, upload_id = uploads[0]
-        content = 'a' * self.min_segment_size
+        content = b'a' * self.min_segment_size
         status, headers, body = \
             self._upload_part(bucket, key, upload_id, content)
         self.assertEqual(status, 200)

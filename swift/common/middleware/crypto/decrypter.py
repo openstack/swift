@@ -23,7 +23,8 @@ from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
     load_crypto_meta, extract_crypto_meta, Crypto
 from swift.common.exceptions import EncryptionException, UnknownSecretIdError
 from swift.common.request_helpers import get_object_transient_sysmeta, \
-    get_sys_meta_prefix, get_user_meta_prefix
+    get_sys_meta_prefix, get_user_meta_prefix, \
+    get_container_update_override_key
 from swift.common.swob import Request, HTTPException, \
     HTTPInternalServerError, wsgi_to_bytes, bytes_to_wsgi
 from swift.common.utils import get_logger, config_true_value, \
@@ -220,7 +221,7 @@ class DecrypterObjContext(BaseDecrypterContext):
                     required=True)
                 mod_hdr_pairs.append(('Etag', decrypted_etag))
 
-            etag_header = 'X-Object-Sysmeta-Container-Update-Override-Etag'
+            etag_header = get_container_update_override_key('etag')
             encrypted_etag = self._response_header_value(etag_header)
             if encrypted_etag:
                 decrypted_etag = self._decrypt_header(

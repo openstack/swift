@@ -40,7 +40,8 @@ class TestS3Acl(S3ApiBase):
             raise tf.SkipTest(
                 'TestS3Acl requires s3_access_key3 and s3_secret_key3 '
                 'configured for reduced-access user')
-        self.conn.make_request('PUT', self.bucket)
+        status, headers, body = self.conn.make_request('PUT', self.bucket)
+        self.assertEqual(status, 200, body)
         access_key3 = tf.config['s3_access_key3']
         secret_key3 = tf.config['s3_secret_key3']
         self.conn3 = Connection(access_key3, secret_key3, access_key3)

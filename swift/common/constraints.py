@@ -100,10 +100,6 @@ def reload_constraints():
 reload_constraints()
 
 
-# Maximum slo segments in buffer
-MAX_BUFFERED_SLO_SEGMENTS = 10000
-
-
 # By default the maximum number of allowed headers depends on the number of max
 # allowed metadata settings plus a default value of 36 for swift internally
 # generated headers and regular http headers.  If for some reason this is not

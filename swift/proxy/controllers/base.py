@@ -1282,10 +1282,10 @@ class ResumingGetter(object):
                     if not self.newest:  # one good source is enough
                         return True
         else:
-            if self.server_type != 'Object' and 'handoff_index' in node and \
+            if 'handoff_index' in node and \
                     possible_source.status == HTTP_NOT_FOUND and \
                     not Timestamp(src_headers.get('x-backend-timestamp', 0)):
-                # throw out 404s from handoff nodes unless the db is really
+                # throw out 404s from handoff nodes unless the data is really
                 # on disk and had been DELETEd
                 return False
             self.statuses.append(possible_source.status)

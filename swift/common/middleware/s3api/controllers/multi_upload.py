@@ -70,6 +70,7 @@ import six
 from swift.common.swob import Range, bytes_to_wsgi
 from swift.common.utils import json, public, reiterate
 from swift.common.db import utf8encode
+from swift.common.request_helpers import get_container_update_override_key
 
 from six.moves.urllib.parse import quote, urlparse
 
@@ -182,7 +183,7 @@ class PartController(Controller):
                 'X-Object-Sysmeta-Swift3-Etag': '',  # for legacy data
                 'X-Object-Sysmeta-Slo-Etag': '',
                 'X-Object-Sysmeta-Slo-Size': '',
-                'X-Object-Sysmeta-Container-Update-Override-Etag': '',
+                get_container_update_override_key('etag'): '',
             })
         resp = req.get_response(self.app)
 
@@ -634,7 +635,7 @@ class UploadController(Controller):
         headers[sysmeta_header('object', 'etag')] = s3_etag
         # Leave base header value blank; SLO will populate
         c_etag = '; s3_etag=%s' % s3_etag
-        headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = c_etag
+        headers[get_container_update_override_key('etag')] = c_etag
 
         too_small_message = ('s3api requires that each segment be at least '
                              '%d bytes' % self.conf.min_segment_size)

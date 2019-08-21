@@ -92,7 +92,7 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
     conf = {'devices': _testdir, 'swift_dir': _testdir,
             'mount_check': 'false', 'allowed_headers':
             'content-encoding, x-object-manifest, content-disposition, foo',
-            'allow_versions': 't'}
+            'allow_versions': 't', 'node_timeout': 20}
     if extra_conf:
         conf.update(extra_conf)
     prolis = listen_zero()

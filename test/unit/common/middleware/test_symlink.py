@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import unittest
+import io
 import json
 import mock
 
@@ -23,7 +24,7 @@ from swift.common import swob
 from swift.common.middleware import symlink, copy, versioned_writes, \
     listing_formats
 from swift.common.swob import Request
-from swift.common.utils import MD5_OF_EMPTY_STRING
+from swift.common.utils import MD5_OF_EMPTY_STRING, get_swift_info
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.common.middleware.test_versioned_writes import FakeCache
 
@@ -77,6 +78,14 @@ class TestSymlinkMiddlewareBase(unittest.TestCase):
 
 
 class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
+
+    def test_symlink_info(self):
+        swift_info = get_swift_info()
+        self.assertEqual(swift_info['symlink'], {
+            'symloop_max': 2,
+            'static_links': True,
+        })
+
     def test_symlink_simple_put(self):
         self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
         req = Request.blank('/v1/a/c/symlink', method='PUT',
@@ -90,6 +99,196 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
         val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
         self.assertEqual(val, '%s; symlink_target=c1/o' % MD5_OF_EMPTY_STRING)
+        self.assertEqual('application/symlink', hdrs.get('Content-Type'))
+
+    def test_symlink_simple_put_with_content_type(self):
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={'X-Symlink-Target': 'c1/o',
+                                     'Content-Type': 'application/linkyfoo'},
+                            body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[0]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
+        val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
+        self.assertEqual(val, '%s; symlink_target=c1/o' % MD5_OF_EMPTY_STRING)
+        self.assertEqual('application/linkyfoo', hdrs.get('Content-Type'))
+
+    def test_symlink_simple_put_with_etag(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'Etag': 'tgt-etag', 'Content-Length': 42,
+            'Content-Type': 'application/foo'})
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'tgt-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[1]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
+        val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
+        self.assertEqual(val, '%s; symlink_target=c1/o; '
+                         'symlink_target_etag=tgt-etag; '
+                         'symlink_target_bytes=42' % MD5_OF_EMPTY_STRING)
+        self.assertEqual([
+            ('HEAD', '/v1/a/c1/o'),
+            ('PUT', '/v1/a/c/symlink'),
+        ], self.app.calls)
+        self.assertEqual('application/foo',
+                         self.app._calls[-1].headers['Content-Type'])
+
+    def test_symlink_simple_put_with_etag_target_missing_content_type(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'Etag': 'tgt-etag', 'Content-Length': 42})
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'tgt-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[1]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
+        val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
+        self.assertEqual(val, '%s; symlink_target=c1/o; '
+                         'symlink_target_etag=tgt-etag; '
+                         'symlink_target_bytes=42' % MD5_OF_EMPTY_STRING)
+        self.assertEqual([
+            ('HEAD', '/v1/a/c1/o'),
+            ('PUT', '/v1/a/c/symlink'),
+        ], self.app.calls)
+        # N.B. the ObjectController would call _update_content_type on PUT
+        # regardless, but you actually can't get a HEAD response without swob
+        # setting a Content-Type
+        self.assertEqual('text/html; charset=UTF-8',
+                         self.app._calls[-1].headers['Content-Type'])
+
+    def test_symlink_simple_put_with_etag_explicit_content_type(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'Etag': 'tgt-etag', 'Content-Length': 42,
+            'Content-Type': 'application/foo'})
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'tgt-etag',
+                                'Content-Type': 'application/bar',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[1]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
+        val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
+        self.assertEqual(val, '%s; symlink_target=c1/o; '
+                         'symlink_target_etag=tgt-etag; '
+                         'symlink_target_bytes=42' % MD5_OF_EMPTY_STRING)
+        self.assertEqual([
+            ('HEAD', '/v1/a/c1/o'),
+            ('PUT', '/v1/a/c/symlink'),
+        ], self.app.calls)
+        self.assertEqual('application/bar',
+                         self.app._calls[-1].headers['Content-Type'])
+
+    def test_symlink_simple_put_with_unmatched_etag(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'Etag': 'tgt-etag', 'Content-Length': 42})
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'not-tgt-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertIn(('Content-Location', '/v1/a/c1/o'), headers)
+        self.assertEqual(body, b"Object Etag 'tgt-etag' does not match "
+                         b"X-Symlink-Target-Etag header 'not-tgt-etag'")
+
+    def test_symlink_simple_put_to_non_existing_object(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPNotFound, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'not-tgt-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertIn(('Content-Location', '/v1/a/c1/o'), headers)
+        self.assertIn(b'does not exist', body)
+
+    def test_symlink_put_with_prevalidated_etag(self):
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT', headers={
+            'X-Symlink-Target': 'c1/o',
+            'X-Object-Sysmeta-Symlink-Target-Etag': 'tgt-etag',
+            'X-Object-Sysmeta-Symlink-Target-Bytes': '13',
+            'Content-Type': 'application/foo',
+        }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+
+        self.assertEqual([
+            # N.B. no HEAD!
+            ('PUT', '/v1/a/c/symlink'),
+        ], self.app.calls)
+        self.assertEqual('application/foo',
+                         self.app._calls[-1].headers['Content-Type'])
+
+        method, path, hdrs = self.app.calls_with_headers[0]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
+        val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
+        self.assertEqual(val, '%s; symlink_target=c1/o; '
+                         'symlink_target_etag=tgt-etag; '
+                         'symlink_target_bytes=13' % MD5_OF_EMPTY_STRING)
+
+    def test_symlink_put_with_prevalidated_etag_sysmeta_incomplete(self):
+        req = Request.blank('/v1/a/c/symlink', method='PUT', headers={
+            'X-Symlink-Target': 'c1/o',
+            'X-Object-Sysmeta-Symlink-Target-Etag': 'tgt-etag',
+        }, body='')
+        with self.assertRaises(KeyError) as cm:
+            self.call_sym(req)
+        self.assertEqual(cm.exception.args[0], swob.header_to_environ_key(
+            'X-Object-Sysmeta-Symlink-Target-Bytes'))
+
+    def test_symlink_chunked_put(self):
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={'X-Symlink-Target': 'c1/o'},
+                            environ={'wsgi.input': io.BytesIO(b'')})
+        self.assertIsNone(req.content_length)  # sanity
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[0]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
+        val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
+        self.assertEqual(val, '%s; symlink_target=c1/o' % MD5_OF_EMPTY_STRING)
+
+    def test_symlink_chunked_put_error(self):
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={'X-Symlink-Target': 'c1/o'},
+                            environ={'wsgi.input':
+                                     io.BytesIO(b'this has a body')})
+        self.assertIsNone(req.content_length)  # sanity
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '400 Bad Request')
 
     def test_symlink_put_different_account(self):
         self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
@@ -248,6 +447,64 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertNotIn('Content-Location', dict(headers))
 
+    def test_get_static_link_mismatched_etag(self):
+        self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
+                          {'X-Object-Sysmeta-Symlink-Target': 'c1/o',
+                           'X-Object-Sysmeta-Symlink-Target-Etag': 'the-etag'})
+        # apparently target object was overwritten
+        self.app.register('GET', '/v1/a/c1/o', swob.HTTPOk,
+                          {'ETag': 'not-the-etag'}, 'resp_body')
+        req = Request.blank('/v1/a/c/symlink', method='GET')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertEqual(body, b"Object Etag 'not-the-etag' does not "
+                         b"match X-Symlink-Target-Etag header 'the-etag'")
+
+    def test_get_static_link_to_symlink(self):
+        self.app.register('GET', '/v1/a/c/static_link', swob.HTTPOk,
+                          {'X-Object-Sysmeta-Symlink-Target': 'c/symlink',
+                           'X-Object-Sysmeta-Symlink-Target-Etag': 'the-etag'})
+        self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
+                          {'ETag': 'the-etag',
+                           'X-Object-Sysmeta-Symlink-Target': 'c1/o'})
+        self.app.register('GET', '/v1/a/c1/o', swob.HTTPOk,
+                          {'ETag': 'not-the-etag'}, 'resp_body')
+        req = Request.blank('/v1/a/c/static_link', method='GET')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '200 OK')
+
+    def test_get_static_link_to_symlink_fails(self):
+        self.app.register('GET', '/v1/a/c/static_link', swob.HTTPOk,
+                          {'X-Object-Sysmeta-Symlink-Target': 'c/symlink',
+                           'X-Object-Sysmeta-Symlink-Target-Etag': 'the-etag'})
+        self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
+                          {'ETag': 'not-the-etag',
+                           'X-Object-Sysmeta-Symlink-Target': 'c1/o'})
+        req = Request.blank('/v1/a/c/static_link', method='GET')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertEqual(body, b"X-Symlink-Target-Etag headers do not match")
+
+    def put_static_link_to_symlink(self):
+        self.app.register('HEAD', '/v1/a/c/symlink', swob.HTTPOk,
+                          {'ETag': 'symlink-etag',
+                           'X-Object-Sysmeta-Symlink-Target': 'c/o',
+                           'Content-Type': 'application/symlink'})
+        self.app.register('HEAD', '/v1/a/c/o', swob.HTTPOk,
+                          {'ETag': 'tgt-etag',
+                           'Content-Type': 'application/data'}, 'resp_body')
+        self.app.register('PUT', '/v1/a/c/static_link', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/static_link', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c/symlink',
+                                'X-Symlink-Target-Etag': 'symlink-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual([], self.app.calls)
+        self.assertEqual('application/data',
+                         self.app._calls[-1].headers['Content-Type'])
+
     def test_head_symlink(self):
         self.app.register('HEAD', '/v1/a/c/symlink', swob.HTTPOk,
                           {'X-Object-Sysmeta-Symlink-Target': 'c1/o',
@@ -298,15 +555,21 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertFalse(calls[2:])
 
     def test_symlink_too_deep(self):
-        self.app.register('HEAD', '/v1/a/c/symlink', swob.HTTPOk,
+        self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
                           {'X-Object-Sysmeta-Symlink-Target': 'c/sym1'})
-        self.app.register('HEAD', '/v1/a/c/sym1', swob.HTTPOk,
+        self.app.register('GET', '/v1/a/c/sym1', swob.HTTPOk,
                           {'X-Object-Sysmeta-Symlink-Target': 'c/sym2'})
-        self.app.register('HEAD', '/v1/a/c/sym2', swob.HTTPOk,
+        self.app.register('GET', '/v1/a/c/sym2', swob.HTTPOk,
                           {'X-Object-Sysmeta-Symlink-Target': 'c/o'})
         req = Request.blank('/v1/a/c/symlink', method='HEAD')
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '409 Conflict')
+        self.assertEqual(body, b'')
+        req = Request.blank('/v1/a/c/symlink')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertEqual(body, b'Too many levels of symbolic links, '
+                         b'maximum allowed is 2')
 
     def test_symlink_change_symloopmax(self):
         # similar test to test_symlink_too_deep, but now changed the limit to 3
@@ -390,11 +653,11 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '404 Not Found')
 
-    def test_check_symlink_header(self):
+    def test_validate_and_prep_request_headers(self):
         def do_test(headers):
             req = Request.blank('/v1/a/c/o', method='PUT',
                                 headers=headers)
-            symlink._check_symlink_header(req)
+            symlink._validate_and_prep_request_headers(req)
 
         # normal cases
         do_test({'X-Symlink-Target': 'c1/o1'})
@@ -419,12 +682,12 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             {'X-Symlink-Target': 'cont/obj',
              'X-Symlink-Target-Account': swob.wsgi_quote(target)})
 
-    def test_check_symlink_header_invalid_format(self):
+    def test_validate_and_prep_request_headers_invalid_format(self):
         def do_test(headers, status, err_msg):
             req = Request.blank('/v1/a/c/o', method='PUT',
                                 headers=headers)
             with self.assertRaises(swob.HTTPException) as cm:
-                symlink._check_symlink_header(req)
+                symlink._validate_and_prep_request_headers(req)
 
             self.assertEqual(cm.exception.status, status)
             self.assertEqual(cm.exception.body, err_msg)
@@ -484,11 +747,11 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
             '412 Precondition Failed',
             b'Account name cannot contain slashes')
 
-    def test_check_symlink_header_points_to_itself(self):
+    def test_validate_and_prep_request_headers_points_to_itself(self):
         req = Request.blank('/v1/a/c/o', method='PUT',
                             headers={'X-Symlink-Target': 'c/o'})
         with self.assertRaises(swob.HTTPException) as cm:
-            symlink._check_symlink_header(req)
+            symlink._validate_and_prep_request_headers(req)
         self.assertEqual(cm.exception.status, '400 Bad Request')
         self.assertEqual(cm.exception.body, b'Symlink cannot target itself')
 
@@ -497,7 +760,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                             headers={'X-Symlink-Target': 'c/o',
                                      'X-Symlink-Target-Account': 'a'})
         with self.assertRaises(swob.HTTPException) as cm:
-            symlink._check_symlink_header(req)
+            symlink._validate_and_prep_request_headers(req)
         self.assertEqual(cm.exception.status, '400 Bad Request')
         self.assertEqual(cm.exception.body, b'Symlink cannot target itself')
 
@@ -505,7 +768,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         req = Request.blank('/v1/a/c/o', method='PUT',
                             headers={'X-Symlink-Target': 'c/o',
                                      'X-Symlink-Target-Account': 'a1'})
-        symlink._check_symlink_header(req)
+        symlink._validate_and_prep_request_headers(req)
 
     def test_symloop_max_config(self):
         self.app = FakeSwift()
@@ -665,6 +928,145 @@ class SymlinkCopyingTestCase(TestSymlinkMiddlewareBase):
         self.assertEqual(
             hdrs.get('X-Object-Sysmeta-Symlink-Target-Account'), 'a2')
 
+    def test_static_link_to_new_slo_manifest(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'X-Static-Large-Object': 'True',
+            'Etag': 'manifest-etag',
+            'X-Object-Sysmeta-Slo-Size': '1048576',
+            'X-Object-Sysmeta-Slo-Etag': 'this-is-not-used',
+            'Content-Length': 42,
+            'Content-Type': 'application/big-data',
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+            '956859738870e5ca6aa17eeda58e4df0; '
+            'slo_etag=71e938d37c1d06dc634dd24660255a88',
+
+        })
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'manifest-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual([
+            ('HEAD', '/v1/a/c1/o'),
+            ('PUT', '/v1/a/c/symlink'),
+        ], self.app.calls)
+        method, path, hdrs = self.app.calls_with_headers[-1]
+        self.assertEqual('application/big-data', hdrs['Content-Type'])
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target'], 'c1/o')
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target-Etag'],
+                         'manifest-etag')
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target-Bytes'],
+                         '1048576')
+        self.assertEqual(
+            hdrs['X-Object-Sysmeta-Container-Update-Override-Etag'],
+            'd41d8cd98f00b204e9800998ecf8427e; '
+            'slo_etag=71e938d37c1d06dc634dd24660255a88; '
+            'symlink_target=c1/o; '
+            'symlink_target_etag=manifest-etag; '
+            'symlink_target_bytes=1048576')
+
+    def test_static_link_to_old_slo_manifest(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'X-Static-Large-Object': 'True',
+            'Etag': 'manifest-etag',
+            'X-Object-Sysmeta-Slo-Size': '1048576',
+            'X-Object-Sysmeta-Slo-Etag': '71e938d37c1d06dc634dd24660255a88',
+            'Content-Length': 42,
+            'Content-Type': 'application/big-data',
+
+        })
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'manifest-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual([
+            ('HEAD', '/v1/a/c1/o'),
+            ('PUT', '/v1/a/c/symlink'),
+        ], self.app.calls)
+        method, path, hdrs = self.app.calls_with_headers[-1]
+        self.assertEqual('application/big-data', hdrs['Content-Type'])
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target'], 'c1/o')
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target-Etag'],
+                         'manifest-etag')
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target-Bytes'],
+                         '1048576')
+        self.assertEqual(
+            hdrs['X-Object-Sysmeta-Container-Update-Override-Etag'],
+            'd41d8cd98f00b204e9800998ecf8427e; '
+            'slo_etag=71e938d37c1d06dc634dd24660255a88; '
+            'symlink_target=c1/o; '
+            'symlink_target_etag=manifest-etag; '
+            'symlink_target_bytes=1048576')
+
+    def test_static_link_to_really_old_slo_manifest(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'X-Static-Large-Object': 'True',
+            'Etag': 'manifest-etag',
+            'Content-Length': 42,
+            'Content-Type': 'application/big-data',
+
+        })
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'manifest-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual([
+            ('HEAD', '/v1/a/c1/o'),
+            ('PUT', '/v1/a/c/symlink'),
+        ], self.app.calls)
+        method, path, hdrs = self.app.calls_with_headers[-1]
+        self.assertEqual('application/big-data', hdrs['Content-Type'])
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target'], 'c1/o')
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target-Etag'],
+                         'manifest-etag')
+        # symlink m/w is doing a HEAD, it's not going to going to read the
+        # manifest body and sum up the bytes - so we just use manifest size
+        self.assertEqual(hdrs['X-Object-Sysmeta-Symlink-Target-Bytes'],
+                         '42')
+        # no slo_etag, and target_bytes is manifest
+        self.assertEqual(
+            hdrs['X-Object-Sysmeta-Container-Update-Override-Etag'],
+            'd41d8cd98f00b204e9800998ecf8427e; '
+            'symlink_target=c1/o; '
+            'symlink_target_etag=manifest-etag; '
+            'symlink_target_bytes=42')
+
+    def test_static_link_to_slo_manifest_slo_etag(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'Etag': 'manifest-etag',
+            'X-Object-Sysmeta-Slo-Etag': 'slo-etag',
+            'Content-Length': 42,
+        })
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        # unquoted slo-etag doesn't match
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': 'slo-etag',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '409 Conflict')
+        # the quoted slo-etag is just straight up invalid
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': '"slo-etag"',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertEqual(b'Bad X-Symlink-Target-Etag format', body)
+
 
 class SymlinkVersioningTestCase(TestSymlinkMiddlewareBase):
     # verify interaction of versioned_writes and symlink middlewares
@@ -793,13 +1195,16 @@ class TestSymlinkContainerContext(TestSymlinkMiddlewareBase):
     def test_extract_symlink_path_json_symlink_path(self):
         obj_dict = {"bytes": 6,
                     "last_modified": "1",
-                    "hash": "etag; symlink_target=c/o",
+                    "hash": "etag; symlink_target=c/o; something_else=foo; "
+                    "symlink_target_etag=tgt_etag; symlink_target_bytes=8",
                     "name": "obj",
                     "content_type": "application/octet-stream"}
         obj_dict = self.context._extract_symlink_path_json(
             obj_dict, 'v1', 'AUTH_a')
-        self.assertEqual(obj_dict['hash'], 'etag')
+        self.assertEqual(obj_dict['hash'], 'etag; something_else=foo')
         self.assertEqual(obj_dict['symlink_path'], '/v1/AUTH_a/c/o')
+        self.assertEqual(obj_dict['symlink_etag'], 'tgt_etag')
+        self.assertEqual(obj_dict['symlink_bytes'], 8)
 
     def test_extract_symlink_path_json_symlink_path_and_account(self):
         obj_dict = {

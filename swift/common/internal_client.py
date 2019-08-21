@@ -229,7 +229,7 @@ class InternalClient(object):
 
     def _get_metadata(
             self, path, metadata_prefix='', acceptable_statuses=(2,),
-            headers=None):
+            headers=None, params=None):
         """
         Gets metadata by doing a HEAD on a path and using the metadata_prefix
         to get values from the headers returned.
@@ -252,7 +252,8 @@ class InternalClient(object):
         """
 
         headers = headers or {}
-        resp = self.make_request('HEAD', path, headers, acceptable_statuses)
+        resp = self.make_request('HEAD', path, headers, acceptable_statuses,
+                                 params=params)
         metadata_prefix = metadata_prefix.lower()
         metadata = {}
         for k, v in resp.headers.items():
@@ -406,7 +407,8 @@ class InternalClient(object):
                 int(resp.headers.get('x-account-object-count', 0)))
 
     def get_account_metadata(
-            self, account, metadata_prefix='', acceptable_statuses=(2,)):
+            self, account, metadata_prefix='', acceptable_statuses=(2,),
+            params=None):
         """Gets account metadata.
 
         :param account: Account on which to get the metadata.
@@ -425,7 +427,8 @@ class InternalClient(object):
         """
 
         path = self.make_path(account)
-        return self._get_metadata(path, metadata_prefix, acceptable_statuses)
+        return self._get_metadata(path, metadata_prefix, acceptable_statuses,
+                                  headers=None, params=params)
 
     def set_account_metadata(
             self, account, metadata, metadata_prefix='',
@@ -516,7 +519,7 @@ class InternalClient(object):
 
     def get_container_metadata(
             self, account, container, metadata_prefix='',
-            acceptable_statuses=(2,)):
+            acceptable_statuses=(2,), params=None):
         """Gets container metadata.
 
         :param account: The container's account.
@@ -536,7 +539,8 @@ class InternalClient(object):
         """
 
         path = self.make_path(account, container)
-        return self._get_metadata(path, metadata_prefix, acceptable_statuses)
+        return self._get_metadata(path, metadata_prefix, acceptable_statuses,
+                                  params=params)
 
     def iter_objects(
             self, account, container, marker='', end_marker='', prefix='',
@@ -618,7 +622,7 @@ class InternalClient(object):
 
     def get_object_metadata(
             self, account, container, obj, metadata_prefix='',
-            acceptable_statuses=(2,), headers=None):
+            acceptable_statuses=(2,), headers=None, params=None):
         """Gets object metadata.
 
         :param account: The object's account.
@@ -641,7 +645,7 @@ class InternalClient(object):
 
         path = self.make_path(account, container, obj)
         return self._get_metadata(path, metadata_prefix, acceptable_statuses,
-                                  headers=headers)
+                                  headers=headers, params=params)
 
     def get_object(self, account, container, obj, headers,
                    acceptable_statuses=(2,), params=None):

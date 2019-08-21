@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
+from swift.common.swob import str_to_wsgi
 import test.functional as tf
 from test.functional.tests import Utils, Base, Base2, BaseEnv
 from test.functional.swift_test_client import Connection, ResponseError
@@ -86,25 +86,25 @@ class TestDlo(Base):
         file_contents = file_item.read()
         self.assertEqual(
             file_contents,
-            "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
+            b"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
 
         file_item = self.env.container.file('man2')
         file_contents = file_item.read()
         self.assertEqual(
             file_contents,
-            "AAAAAAAAAABBBBBBBBBBCCCCCCCCCCDDDDDDDDDDEEEEEEEEEE")
+            b"AAAAAAAAAABBBBBBBBBBCCCCCCCCCCDDDDDDDDDDEEEEEEEEEE")
 
         file_item = self.env.container.file('manall')
         file_contents = file_item.read()
         self.assertEqual(
             file_contents,
-            ("aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee" +
-             "AAAAAAAAAABBBBBBBBBBCCCCCCCCCCDDDDDDDDDDEEEEEEEEEE"))
+            (b"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee" +
+             b"AAAAAAAAAABBBBBBBBBBCCCCCCCCCCDDDDDDDDDDEEEEEEEEEE"))
 
     def test_get_manifest_document_itself(self):
         file_item = self.env.container.file('man1')
         file_contents = file_item.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual(file_contents, "man1-contents")
+        self.assertEqual(file_contents, b"man1-contents")
         self.assertEqual(file_item.info()['x_object_manifest'],
                          "%s/%s/seg_lower" %
                          (self.env.container.name, self.env.segment_prefix))
@@ -112,10 +112,19 @@ class TestDlo(Base):
     def test_get_range(self):
         file_item = self.env.container.file('man1')
         file_contents = file_item.read(size=25, offset=8)
-        self.assertEqual(file_contents, "aabbbbbbbbbbccccccccccddd")
+        self.assertEqual(file_contents, b"aabbbbbbbbbbccccccccccddd")
 
         file_contents = file_item.read(size=1, offset=47)
-        self.assertEqual(file_contents, "e")
+        self.assertEqual(file_contents, b"e")
+
+    def test_get_multiple_ranges(self):
+        file_item = self.env.container.file('man1')
+        file_contents = file_item.read(
+            hdrs={'Range': 'bytes=0-4,10-14'})
+        self.assert_status(200)  # *not* 206
+        self.assertEqual(
+            file_contents,
+            b"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
 
     def test_get_range_out_of_range(self):
         file_item = self.env.container.file('man1')
@@ -130,7 +139,7 @@ class TestDlo(Base):
         # segments and not just a manifest.
         f_segment = self.env.container.file("%s/seg_lowerf" %
                                             (self.env.segment_prefix))
-        f_segment.write('ffffffffff')
+        f_segment.write(b'ffffffffff')
         try:
             man1_item = self.env.container.file('man1')
             man1_item.copy(self.env.container.name, "copied-man1")
@@ -142,7 +151,7 @@ class TestDlo(Base):
         file_contents = file_item.read()
         self.assertEqual(
             file_contents,
-            "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
+            b"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
         # The copied object must not have X-Object-Manifest
         self.assertNotIn("x_object_manifest", file_item.info())
 
@@ -154,7 +163,7 @@ class TestDlo(Base):
         # segments and not just a manifest.
         f_segment = self.env.container.file("%s/seg_lowerf" %
                                             (self.env.segment_prefix))
-        f_segment.write('ffffffffff')
+        f_segment.write(b'ffffffffff')
         try:
             man1_item = self.env.container.file('man1')
             man1_item.copy_account(acct,
@@ -168,7 +177,7 @@ class TestDlo(Base):
         file_contents = file_item.read()
         self.assertEqual(
             file_contents,
-            "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
+            b"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
         # The copied object must not have X-Object-Manifest
         self.assertNotIn("x_object_manifest", file_item.info())
 
@@ -182,12 +191,12 @@ class TestDlo(Base):
 
             copied = self.env.container.file("copied-man1")
             copied_contents = copied.read(parms={'multipart-manifest': 'get'})
-            self.assertEqual(copied_contents, "man1-contents")
+            self.assertEqual(copied_contents, b"man1-contents")
 
             copied_contents = copied.read()
             self.assertEqual(
                 copied_contents,
-                "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
+                b"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
             self.assertEqual(man1_item.info()['x_object_manifest'],
                              copied.info()['x_object_manifest'])
         finally:
@@ -239,8 +248,9 @@ class TestDlo(Base):
         manifest.info(hdrs={'If-None-Match': "not-%s" % etag})
         self.assert_status(200)
 
-    @unittest.skipIf('username3' not in tf.config, "Requires user 3")
     def test_dlo_referer_on_segment_container(self):
+        if 'username3' not in tf.config:
+            raise tf.SkipTest('Requires user 3')
         # First the account2 (test3) should fail
         config2 = tf.config.copy()
         config2['username'] = tf.config['username3']
@@ -268,7 +278,7 @@ class TestDlo(Base):
         contents = dlo_file.read(hdrs=headers)
         self.assertEqual(
             contents,
-            "ffffffffffgggggggggghhhhhhhhhhiiiiiiiiiijjjjjjjjjj")
+            b"ffffffffffgggggggggghhhhhhhhhhiiiiiiiiiijjjjjjjjjj")
 
     def test_dlo_post_with_manifest_header(self):
         # verify that performing a POST to a DLO manifest
@@ -278,12 +288,13 @@ class TestDlo(Base):
         # create a new manifest for this test to avoid test coupling.
         x_o_m = self.env.container.file('man1').info()['x_object_manifest']
         file_item = self.env.container.file(Utils.create_name())
-        file_item.write('manifest-contents', hdrs={"X-Object-Manifest": x_o_m})
+        file_item.write(b'manifest-contents',
+                        hdrs={"X-Object-Manifest": x_o_m})
 
         # sanity checks
         manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual('manifest-contents', manifest_contents)
-        expected_contents = ''.join([(c * 10) for c in 'abcde'])
+        self.assertEqual(b'manifest-contents', manifest_contents)
+        expected_contents = ''.join((c * 10) for c in 'abcde').encode('ascii')
         contents = file_item.read(parms={})
         self.assertEqual(expected_contents, contents)
 
@@ -294,16 +305,18 @@ class TestDlo(Base):
 
         # verify that x-object-manifest was updated
         file_item.info()
-        resp_headers = file_item.conn.response.getheaders()
-        self.assertIn(('x-object-manifest', new_x_o_m), resp_headers)
+        resp_headers = [(h.lower(), v)
+                        for h, v in file_item.conn.response.getheaders()]
+        self.assertIn(('x-object-manifest', str_to_wsgi(new_x_o_m)),
+                      resp_headers)
         self.assertIn(('x-object-meta-foo', 'bar'), resp_headers)
 
         # verify that manifest content was not changed
         manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual('manifest-contents', manifest_contents)
+        self.assertEqual(b'manifest-contents', manifest_contents)
 
         # verify that updated manifest points to new content
-        expected_contents = ''.join([(c * 10) for c in 'ABCDE'])
+        expected_contents = ''.join((c * 10) for c in 'ABCDE').encode('ascii')
         contents = file_item.read(parms={})
         self.assertEqual(expected_contents, contents)
 
@@ -319,10 +332,10 @@ class TestDlo(Base):
 
         # verify that manifest content was not changed
         manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual('manifest-contents', manifest_contents)
+        self.assertEqual(b'manifest-contents', manifest_contents)
 
         # verify that updated manifest points new content
-        expected_contents = ''.join([(c * 10) for c in 'abcde'])
+        expected_contents = ''.join((c * 10) for c in 'abcde').encode('ascii')
         contents = file_item.read(parms={})
         self.assertEqual(expected_contents, contents)
 
@@ -334,12 +347,13 @@ class TestDlo(Base):
         # create a new manifest for this test to avoid test coupling.
         x_o_m = self.env.container.file('man1').info()['x_object_manifest']
         file_item = self.env.container.file(Utils.create_name())
-        file_item.write('manifest-contents', hdrs={"X-Object-Manifest": x_o_m})
+        file_item.write(b'manifest-contents',
+                        hdrs={"X-Object-Manifest": x_o_m})
 
         # sanity checks
         manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual('manifest-contents', manifest_contents)
-        expected_contents = ''.join([(c * 10) for c in 'abcde'])
+        self.assertEqual(b'manifest-contents', manifest_contents)
+        expected_contents = ''.join((c * 10) for c in 'abcde').encode('ascii')
         contents = file_item.read(parms={})
         self.assertEqual(expected_contents, contents)
 
@@ -352,11 +366,11 @@ class TestDlo(Base):
 
         # verify that object content was not changed
         manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual('manifest-contents', manifest_contents)
+        self.assertEqual(b'manifest-contents', manifest_contents)
 
         # verify that object is no longer a manifest
         contents = file_item.read(parms={})
-        self.assertEqual('manifest-contents', contents)
+        self.assertEqual(b'manifest-contents', contents)
 
     def test_dlo_post_with_manifest_regular_object(self):
         # verify that performing a POST to a regular object
@@ -364,11 +378,11 @@ class TestDlo(Base):
 
         # Put a regular object
         file_item = self.env.container.file(Utils.create_name())
-        file_item.write('file contents', hdrs={})
+        file_item.write(b'file contents', hdrs={})
 
         # sanity checks
         file_contents = file_item.read(parms={})
-        self.assertEqual('file contents', file_contents)
+        self.assertEqual(b'file contents', file_contents)
 
         # get the path associated with man1
         x_o_m = self.env.container.file('man1').info()['x_object_manifest']
@@ -378,13 +392,14 @@ class TestDlo(Base):
 
         # verify that the file is now a manifest
         manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
-        self.assertEqual('file contents', manifest_contents)
-        expected_contents = ''.join([(c * 10) for c in 'abcde'])
+        self.assertEqual(b'file contents', manifest_contents)
+        expected_contents = ''.join([(c * 10) for c in 'abcde']).encode()
         contents = file_item.read(parms={})
         self.assertEqual(expected_contents, contents)
         file_item.info()
-        resp_headers = file_item.conn.response.getheaders()
-        self.assertIn(('x-object-manifest', x_o_m), resp_headers)
+        resp_headers = [(h.lower(), v)
+                        for h, v in file_item.conn.response.getheaders()]
+        self.assertIn(('x-object-manifest', str_to_wsgi(x_o_m)), resp_headers)
 
 
 class TestDloUTF8(Base2, TestDlo):

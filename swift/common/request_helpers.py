@@ -44,6 +44,8 @@ from swift.common.wsgi import make_subrequest
 
 
 OBJECT_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-'
+OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX = \
+    'x-object-sysmeta-container-update-override-'
 
 
 def get_param(req, name, default=None):
@@ -258,6 +260,17 @@ def get_object_transient_sysmeta(key):
     :returns: the entire object transient system metadata header for key
     """
     return '%s%s' % (OBJECT_TRANSIENT_SYSMETA_PREFIX, key)
+
+
+def get_container_update_override_key(key):
+    """
+    Returns the full X-Object-Sysmeta-Container-Update-Override-* header key.
+
+    :param key: the key you want to override in the container update
+    :returns: the full header key
+    """
+    header = '%s%s' % (OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX, key)
+    return header.title()
 
 
 def remove_items(headers, condition):
