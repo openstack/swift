@@ -1108,3 +1108,87 @@ class TestSloWithVersioning(unittest2.TestCase):
         primary_file_size = primary_list[0]['bytes']
         # expect the original manifest file size to be the same
         self.assertEqual(primary_file_size, org_size)
+
+
+class TestObjectVersioningChangingMode(Base):
+    env = TestObjectVersioningHistoryModeEnv
+
+    def test_delete_while_changing_mode(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        cont_info = container.info()
+        self.assertEqual(cont_info['versions'], quote(versions_container.name))
+
+        obj_name = Utils.create_name()
+        versioned_obj = container.file(obj_name)
+
+        versioned_obj.write(
+            b"version1", hdrs={'Content-Type': 'text/jibberish01'})
+        versioned_obj.write(
+            b"version2", hdrs={'Content-Type': 'text/jibberish01'})
+
+        # sanity, version1 object should have moved to versions_container
+        self.assertEqual(1, versions_container.info()['object_count'])
+
+        versioned_obj.delete()
+
+        # version2 and the delete marker should have put in versions_container
+        self.assertEqual(3, versions_container.info()['object_count'])
+        delete_marker_name = versions_container.files()[2]
+        delete_marker = versions_container.file(delete_marker_name)
+        delete_marker.initialize()
+        self.assertEqual(
+            delete_marker.content_type,
+            'application/x-deleted;swift_versions_deleted=1')
+
+        # change to stack mode
+        hdrs = {'X-Versions-Location': versions_container.name}
+        container.update_metadata(hdrs=hdrs)
+
+        versioned_obj.delete()
+
+        # version2 object should have been moved in container
+        self.assertEqual(b"version2", versioned_obj.read())
+
+        # and there's only one version1 is left in versions_container
+        self.assertEqual(1, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[0]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual(b"version1", prev_version.read())
+        self.assertEqual(prev_version.content_type, 'text/jibberish01')
+
+        # reset and test double delete
+        # change back to history mode
+        hdrs = {'X-History-Location': versions_container.name}
+        container.update_metadata(hdrs=hdrs)
+
+        # double delete, second DELETE returns a 404 as expected
+        versioned_obj.delete()
+        with self.assertRaises(ResponseError) as cm:
+            versioned_obj.delete()
+        self.assertEqual(404, cm.exception.status)
+
+        # There should now be 4 objects total in versions_container
+        # 2 are delete markers
+        self.assertEqual(4, versions_container.info()['object_count'])
+
+        # change to stack mode
+        hdrs = {'X-Versions-Location': versions_container.name}
+        container.update_metadata(hdrs=hdrs)
+
+        # a delete, just deletes one delete marker, it doesn't yet pop
+        # version2 back in the container
+        # This DELETE doesn't return a 404!
+        versioned_obj.delete()
+        self.assertEqual(3, versions_container.info()['object_count'])
+        self.assertEqual(0, container.info()['object_count'])
+
+        # neither does this one!
+        versioned_obj.delete()
+
+        # version2 object should have been moved in container
+        self.assertEqual(b"version2", versioned_obj.read())
+
+        # and there's only one version1 is left in versions_container
+        self.assertEqual(1, versions_container.info()['object_count'])
