@@ -53,7 +53,7 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
 
     for root, directories, files in os.walk(options.run_dir):
         for name in files:
-            if name.endswith('.pid'):
+            if name.endswith(('.pid', '.pid.d')):
                 pids.append(open(os.path.join(root, name)).read().strip())
                 pids.extend(subprocess.Popen(
                     ['ps', '--ppid', pids[-1], '-o', 'pid', '--no-headers'],
