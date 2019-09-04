@@ -55,7 +55,8 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.todo',
               'sphinx.ext.coverage',
               'sphinx.ext.ifconfig',
-              'openstackdocstheme']
+              'openstackdocstheme',
+              'sphinxcontrib.rsvgconverter']
 todo_include_todos = True
 
 # Add any paths that contain templates here, relative to this directory.
@@ -223,7 +224,7 @@ htmlhelp_basename = 'swiftdoc'
 # (source start file, target name, title, author, documentclass
 # [howto/manual]).
 latex_documents = [
-    ('index', 'Swift.tex', u'Swift Documentation',
+    ('index', 'doc-swift.tex', u'Swift Documentation',
      u'Swift Team', 'manual'),
 ]
 
@@ -243,6 +244,8 @@ latex_documents = [
 
 # If false, no module index is generated.
 # latex_use_modindex = True
+
+latex_use_xindy = False
 
 # -- Options for openstackdocstheme -------------------------------------------
 repository_name = 'openstack/swift'
