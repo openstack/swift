@@ -2284,6 +2284,10 @@ class BaseDiskFile(object):
             self._account = account
             self._container = container
             self._obj = obj
+        elif account or container or obj:
+            raise ValueError(
+                'Received a/c/o args %r, %r, and %r. Either none or all must '
+                'be provided.' % (account, container, obj))
         else:
             # gets populated when we read the metadata
             self._name = None
