@@ -34,7 +34,7 @@ import socket
 import eventlet
 from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
     HTTPResponse, HTTPSConnection, _UNKNOWN
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, parse_qsl, urlencode
 import six
 
 if six.PY2:
@@ -263,6 +263,15 @@ def http_connect_raw(ipaddr, port, method, path, headers=None,
     else:
         conn = BufferedHTTPConnection('%s:%s' % (ipaddr, port))
     if query_string:
+        # Round trip to ensure proper quoting
+        if six.PY2:
+            query_string = urlencode(parse_qsl(
+                query_string, keep_blank_values=True))
+        else:
+            query_string = urlencode(
+                parse_qsl(query_string, keep_blank_values=True,
+                          encoding='latin1'),
+                encoding='latin1')
         path += '?' + query_string
     conn.path = path
     conn.putrequest(method, path, skip_host=(headers and 'Host' in headers))
