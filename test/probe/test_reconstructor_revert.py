@@ -132,7 +132,7 @@ class TestReconstructorRevert(ECProbeTest):
 
         # fire up reconstructor on handoff nodes only
         for hnode in hnodes:
-            hnode_id = (hnode['port'] - 6000) / 10
+            hnode_id = (hnode['port'] - 6000) // 10
             self.reconstructor.once(number=hnode_id)
 
         # first three primaries have data again

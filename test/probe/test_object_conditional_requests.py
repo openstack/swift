@@ -40,7 +40,7 @@ class TestPutIfNoneMatchRepl(ReplProbeTest):
         self.brain.put_container()
         self.brain.stop_primary_half()
         # put object to only 1 of 3 primaries
-        self.brain.put_object(contents='VERIFY')
+        self.brain.put_object(contents=b'VERIFY')
         self.brain.start_primary_half()
 
         # Restart services and attempt to overwrite
@@ -64,16 +64,16 @@ class TestPutIfNoneMatchRepl(ReplProbeTest):
         # ...and verify the object was not overwritten
         _headers, body = client.get_object(
             self.url, self.token, self.container_name, self.object_name)
-        self.assertEqual(body, 'VERIFY')
+        self.assertEqual(body, b'VERIFY')
 
     def test_content_length_nonzero(self):
-        self._do_test('OVERWRITE')
+        self._do_test(b'OVERWRITE')
 
     def test_content_length_zero(self):
-        self._do_test('')
+        self._do_test(b'')
 
     def test_chunked(self):
-        self._do_test(chunker('OVERWRITE'))
+        self._do_test(chunker(b'OVERWRITE'))
 
     def test_chunked_empty(self):
-        self._do_test(chunker(''))
+        self._do_test(chunker(b''))
