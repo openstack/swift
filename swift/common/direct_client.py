@@ -100,6 +100,7 @@ def _make_req(node, part, method, path, headers, stype,
         if content_length is None:
             headers['Transfer-Encoding'] = 'chunked'
 
+    headers.setdefault('X-Backend-Allow-Reserved-Names', 'true')
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                             method, path, headers=headers)
@@ -193,6 +194,7 @@ def gen_headers(hdrs_in=None, add_ts=True):
         hdrs_out['X-Timestamp'] = Timestamp.now().internal
     if 'user-agent' not in hdrs_out:
         hdrs_out['User-Agent'] = 'direct-client %s' % os.getpid()
+    hdrs_out.setdefault('X-Backend-Allow-Reserved-Names', 'true')
     return hdrs_out
 
 

@@ -1115,6 +1115,19 @@ class TestRequest(unittest.TestCase):
         else:
             self.fail("Expected an AttributeError raised for 'gzip,identity'")
 
+    def test_allow_reserved_names(self):
+        req = swift.common.swob.Request.blank('', headers={})
+        self.assertFalse(req.allow_reserved_names)
+        req = swift.common.swob.Request.blank('', headers={
+            'X-Allow-Reserved-Names': 'true'})
+        self.assertFalse(req.allow_reserved_names)
+        req = swift.common.swob.Request.blank('', headers={
+            'X-Backend-Allow-Reserved-Names': 'false'})
+        self.assertFalse(req.allow_reserved_names)
+        req = swift.common.swob.Request.blank('', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        self.assertTrue(req.allow_reserved_names)
+
 
 class TestStatusMap(unittest.TestCase):
     def test_status_map(self):

@@ -52,7 +52,7 @@ from six.moves import urllib
 
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import UTC, reiterate, split_path, Timestamp, pairs, \
-    close_if_possible, closing_if_possible
+    close_if_possible, closing_if_possible, config_true_value
 from swift.common.exceptions import InvalidTimestamp
 
 
@@ -1062,6 +1062,11 @@ class Request(object):
     def url(self):
         "Provides the full url of the request"
         return self.host_url + self.path_qs
+
+    @property
+    def allow_reserved_names(self):
+        return config_true_value(self.environ.get(
+            'HTTP_X_BACKEND_ALLOW_RESERVED_NAMES'))
 
     def as_referer(self):
         return self.method + ' ' + self.url

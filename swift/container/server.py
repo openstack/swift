@@ -32,7 +32,8 @@ from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, \
-    split_and_validate_path, is_sys_or_user_meta
+    split_and_validate_path, is_sys_or_user_meta, \
+    validate_internal_container, validate_internal_obj
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
@@ -81,6 +82,33 @@ def gen_resp_headers(info, is_deleted=False):
             'X-Backend-Sharding-State': info.get('db_state', UNSHARDED),
         })
     return headers
+
+
+def get_container_name_and_placement(req):
+    """
+    Split and validate path for a container.
+
+    :param req: a swob request
+
+    :returns: a tuple of path parts as strings
+    """
+    drive, part, account, container = split_and_validate_path(req, 4)
+    validate_internal_container(account, container)
+    return drive, part, account, container
+
+
+def get_obj_name_and_placement(req):
+    """
+    Split and validate path for an object.
+
+    :param req: a swob request
+
+    :returns: a tuple of path parts as strings
+    """
+    drive, part, account, container, obj = split_and_validate_path(
+        req, 4, 5, True)
+    validate_internal_obj(account, container, obj)
+    return drive, part, account, container, obj
 
 
 class ContainerController(BaseStorageServer):
@@ -311,8 +339,7 @@ class ContainerController(BaseStorageServer):
     @timing_stats()
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
-        drive, part, account, container, obj = split_and_validate_path(
-            req, 4, 5, True)
+        drive, part, account, container, obj = get_obj_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         try:
             check_drive(self.root, drive, self.mount_check)
@@ -433,8 +460,7 @@ class ContainerController(BaseStorageServer):
     @timing_stats()
     def PUT(self, req):
         """Handle HTTP PUT request."""
-        drive, part, account, container, obj = split_and_validate_path(
-            req, 4, 5, True)
+        drive, part, account, container, obj = get_obj_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         if 'x-container-sync-to' in req.headers:
             err, sync_to, realm, realm_key = validate_sync_to(
@@ -514,8 +540,7 @@ class ContainerController(BaseStorageServer):
     @timing_stats(sample_rate=0.1)
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
-        drive, part, account, container, obj = split_and_validate_path(
-            req, 4, 5, True)
+        drive, part, account, container, obj = get_obj_name_and_placement(req)
         out_content_type = listing_formats.get_listing_content_type(req)
         try:
             check_drive(self.root, drive, self.mount_check)
@@ -632,8 +657,7 @@ class ContainerController(BaseStorageServer):
         :param req: an instance of :class:`swift.common.swob.Request`
         :returns: an instance of :class:`swift.common.swob.Response`
         """
-        drive, part, account, container, obj = split_and_validate_path(
-            req, 4, 5, True)
+        drive, part, account, container, obj = get_obj_name_and_placement(req)
         path = get_param(req, 'path')
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
@@ -696,7 +720,7 @@ class ContainerController(BaseStorageServer):
             container_list = src_broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],
-                reverse=reverse)
+                reverse=reverse, allow_reserved=req.allow_reserved_names)
         return self.create_listing(req, out_content_type, info, resp_headers,
                                    broker.metadata, container_list, container)
 
@@ -751,7 +775,7 @@ class ContainerController(BaseStorageServer):
         """
         Handle HTTP UPDATE request (merge_items RPCs coming from the proxy.)
         """
-        drive, part, account, container = split_and_validate_path(req, 4)
+        drive, part, account, container = get_container_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         try:
             check_drive(self.root, drive, self.mount_check)
@@ -775,7 +799,7 @@ class ContainerController(BaseStorageServer):
     @timing_stats()
     def POST(self, req):
         """Handle HTTP POST request."""
-        drive, part, account, container = split_and_validate_path(req, 4)
+        drive, part, account, container = get_container_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         if 'x-container-sync-to' in req.headers:
             err, sync_to, realm, realm_key = validate_sync_to(
@@ -800,7 +824,7 @@ class ContainerController(BaseStorageServer):
         start_time = time.time()
         req = Request(env)
         self.logger.txn_id = req.headers.get('x-trans-id', None)
-        if not check_utf8(wsgi_to_str(req.path_info)):
+        if not check_utf8(wsgi_to_str(req.path_info), internal=True):
             res = HTTPPreconditionFailed(body='Invalid UTF8 or contains NULL')
         else:
             try:

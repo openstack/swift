@@ -487,6 +487,7 @@ class ProbeTest(unittest.TestCase):
 
             [app:proxy-server]
             use = egg:swift#proxy
+            allow_account_management = True
 
             [filter:copy]
             use = egg:swift#copy

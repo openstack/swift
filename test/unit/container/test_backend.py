@@ -36,6 +36,7 @@ from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, UNSHARDED, SHARDING, SHARDED, \
     COLLAPSED, SHARD_LISTING_STATES, SHARD_UPDATE_STATES
 from swift.common.db import DatabaseAlreadyExists, GreenDBConnection
+from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
     ShardRange, make_db_file_path
 from swift.common.storage_policy import POLICIES
@@ -2364,6 +2365,33 @@ class TestContainerBroker(unittest.TestCase):
         listing = broker.list_objects_iter(2, None, None, None, None, '3')
         self.assertEqual(len(listing), 2)
         self.assertEqual([row[0] for row in listing], ['3/0000', '3/0001'])
+
+    def test_list_objects_iter_with_reserved_name(self):
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+
+        broker.put_object(
+            'foo', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+        broker.put_object(
+            get_reserved_name('foo'), next(self.ts).internal, 0, 0, 0,
+            POLICIES.default.idx)
+
+        listing = broker.list_objects_iter(100, None, None, '', '')
+        self.assertEqual([row[0] for row in listing], ['foo'])
+
+        listing = broker.list_objects_iter(100, None, None, '', '',
+                                           reverse=True)
+        self.assertEqual([row[0] for row in listing], ['foo'])
+
+        listing = broker.list_objects_iter(100, None, None, '', '',
+                                           allow_reserved=True)
+        self.assertEqual([row[0] for row in listing],
+                         [get_reserved_name('foo'), 'foo'])
+
+        listing = broker.list_objects_iter(100, None, None, '', '',
+                                           reverse=True, allow_reserved=True)
+        self.assertEqual([row[0] for row in listing],
+                         ['foo', get_reserved_name('foo')])
 
     def test_reverse_prefix_delim(self):
         expectations = [

@@ -27,17 +27,19 @@ from io import BytesIO
 
 import json
 from six import StringIO
+from six.moves.urllib.parse import quote
 import xml.dom.minidom
 
 from swift import __version__ as swift_version
 from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent)
-from swift.common import constraints
+from swift.common.constraints import ACCOUNT_LISTING_LIMIT
 from swift.account.backend import AccountBroker
 from swift.account.server import AccountController
 from swift.common.utils import (normalize_timestamp, replication, public,
                                 mkdirs, storage_directory, Timestamp)
-from swift.common.request_helpers import get_sys_meta_prefix
-from test.unit import patch_policies, debug_logger, mock_check_drive
+from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
+from test.unit import patch_policies, debug_logger, mock_check_drive, \
+    make_timestamp_iter
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -52,6 +54,7 @@ class TestAccountController(unittest.TestCase):
         self.controller = AccountController(
             {'devices': self.testdir, 'mount_check': 'false'},
             logger=debug_logger())
+        self.ts = make_timestamp_iter()
 
     def tearDown(self):
         """Tear down for testing swift.account.server.AccountController"""
@@ -501,6 +504,65 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.body, b'Recently deleted')
         self.assertEqual(resp.headers['X-Account-Status'], 'Deleted')
 
+    def test_create_reserved_namespace_account(self):
+        path = '/sda1/p/%s' % get_reserved_name('a')
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status, '201 Created')
+
+        path = '/sda1/p/%s' % get_reserved_name('foo', 'bar')
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status, '201 Created')
+
+    def test_create_invalid_reserved_namespace_account(self):
+        account_name = get_reserved_name('foo', 'bar')[1:]
+        path = '/sda1/p/%s' % account_name
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status, '400 Bad Request')
+
+    def test_create_reserved_container_in_account(self):
+        # create account
+        path = '/sda1/p/a'
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        # put null container in it
+        path += '/%s' % get_reserved_name('c', 'stuff')
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal,
+            'X-Put-Timestamp': next(self.ts).internal,
+            'X-Delete-Timestamp': 0,
+            'X-Object-Count': 0,
+            'X-Bytes-Used': 0,
+        })
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status, '201 Created')
+
+    def test_create_invalid_reserved_container_in_account(self):
+        # create account
+        path = '/sda1/p/a'
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        # put invalid container in it
+        path += '/%s' % get_reserved_name('c', 'stuff')[1:]
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal,
+            'X-Put-Timestamp': next(self.ts).internal,
+            'X-Delete-Timestamp': 0,
+            'X-Object-Count': 0,
+            'X-Bytes-Used': 0,
+        })
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status, '400 Bad Request')
+
     def test_PUT_non_utf8_metadata(self):
         # Set metadata header
         req = Request.blank(
@@ -706,7 +768,7 @@ class TestAccountController(unittest.TestCase):
             headers={'X-Timestamp': normalize_timestamp(1),
                      'X-Account-Meta-Test': 'Value'})
         resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204, resp.body)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
@@ -935,7 +997,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_over_limit(self):
         req = Request.blank(
-            '/sda1/p/a?limit=%d' % (constraints.ACCOUNT_LISTING_LIMIT + 1),
+            '/sda1/p/a?limit=%d' % (ACCOUNT_LISTING_LIMIT + 1),
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 412)
@@ -1752,6 +1814,382 @@ class TestAccountController(unittest.TestCase):
              for item in json.loads(resp.body)],
             [{"name": "US~~UT~~~B"}])
 
+    def _expected_listing(self, containers):
+        return [dict(
+            last_modified=c['timestamp'].isoformat, **{
+                k: v for k, v in c.items()
+                if k != 'timestamp'
+            }) for c in sorted(containers, key=lambda c: c['name'])]
+
+    def _report_containers(self, containers, account='a'):
+        req = Request.blank('/sda1/p/%s' % account, method='PUT', headers={
+            'x-timestamp': next(self.ts).internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int // 100, 2, resp.body)
+        for container in containers:
+            path = '/sda1/p/%s/%s' % (account, container['name'])
+            req = Request.blank(path, method='PUT', headers={
+                'X-Put-Timestamp': container['timestamp'].internal,
+                'X-Delete-Timestamp': container.get(
+                    'deleted', Timestamp(0)).internal,
+                'X-Object-Count': container['count'],
+                'X-Bytes-Used': container['bytes'],
+            })
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int // 100, 2, resp.body)
+
+    def test_delimiter_with_reserved_and_no_public(self):
+        containers = [{
+            'name': get_reserved_name('null', 'test01'),
+            'bytes': 200,
+            'count': 2,
+            'timestamp': next(self.ts),
+        }]
+        self._report_containers(containers)
+
+        req = Request.blank('/sda1/p/a', headers={
+            'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [])
+
+        req = Request.blank('/sda1/p/a', headers={
+            'X-Backend-Allow-Reserved-Names': 'true',
+            'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers))
+
+        req = Request.blank('/sda1/p/a?prefix=%s&delimiter=l' %
+                            get_reserved_name('nul'), headers={
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [])
+
+        req = Request.blank('/sda1/p/a?prefix=%s&delimiter=l' %
+                            get_reserved_name('nul'), headers={
+                                'X-Backend-Allow-Reserved-Names': 'true',
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [{
+            'subdir': '%s' % get_reserved_name('null')}])
+
+    def test_delimiter_with_reserved_and_public(self):
+        containers = [{
+            'name': get_reserved_name('null', 'test01'),
+            'bytes': 200,
+            'count': 2,
+            'timestamp': next(self.ts),
+        }, {
+            'name': 'nullish',
+            'bytes': 10,
+            'count': 10,
+            'timestamp': next(self.ts),
+        }]
+        self._report_containers(containers)
+
+        req = Request.blank('/sda1/p/a?prefix=nul&delimiter=l', headers={
+            'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [{'subdir': 'null'}])
+
+        # allow-reserved header doesn't really make a difference
+        req = Request.blank('/sda1/p/a?prefix=nul&delimiter=l', headers={
+            'X-Backend-Allow-Reserved-Names': 'true',
+            'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [{'subdir': 'null'}])
+
+        req = Request.blank('/sda1/p/a?prefix=%s&delimiter=l' %
+                            get_reserved_name('nul'), headers={
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [])
+
+        req = Request.blank('/sda1/p/a?prefix=%s&delimiter=l' %
+                            get_reserved_name('nul'), headers={
+                                'X-Backend-Allow-Reserved-Names': 'true',
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [{
+            'subdir': '%s' % get_reserved_name('null')}])
+
+        req = Request.blank('/sda1/p/a?delimiter=%00', headers={
+                            'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers)[1:])
+
+        req = Request.blank('/sda1/p/a?delimiter=%00', headers={
+                            'X-Backend-Allow-Reserved-Names': 'true',
+                            'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         [{'subdir': '\x00'}] +
+                         self._expected_listing(containers)[1:])
+
+    def test_markers_with_reserved(self):
+        containers = [{
+            'name': get_reserved_name('null', 'test01'),
+            'bytes': 200,
+            'count': 2,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('null', 'test02'),
+            'bytes': 10,
+            'count': 10,
+            'timestamp': next(self.ts),
+        }]
+        self._report_containers(containers)
+
+        req = Request.blank('/sda1/p/a?marker=%s' %
+                            get_reserved_name('null', ''), headers={
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [])
+
+        req = Request.blank('/sda1/p/a?marker=%s' %
+                            get_reserved_name('null', ''), headers={
+                                'X-Backend-Allow-Reserved-Names': 'true',
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers))
+
+        req = Request.blank('/sda1/p/a?marker=%s' % quote(
+            self._expected_listing(containers)[0]['name']), headers={
+                'X-Backend-Allow-Reserved-Names': 'true',
+                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers)[1:])
+
+        containers.append({
+            'name': get_reserved_name('null', 'test03'),
+            'bytes': 300,
+            'count': 30,
+            'timestamp': next(self.ts),
+        })
+        self._report_containers(containers)
+
+        req = Request.blank('/sda1/p/a?marker=%s' % quote(
+            self._expected_listing(containers)[0]['name']), headers={
+                'X-Backend-Allow-Reserved-Names': 'true',
+                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers)[1:])
+
+        req = Request.blank('/sda1/p/a?marker=%s' % quote(
+            self._expected_listing(containers)[1]['name']), headers={
+                'X-Backend-Allow-Reserved-Names': 'true',
+                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers)[-1:])
+
+    def test_prefix_with_reserved(self):
+        containers = [{
+            'name': get_reserved_name('null', 'test01'),
+            'bytes': 200,
+            'count': 2,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('null', 'test02'),
+            'bytes': 10,
+            'count': 10,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('null', 'foo'),
+            'bytes': 10,
+            'count': 10,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('nullish'),
+            'bytes': 300,
+            'count': 32,
+            'timestamp': next(self.ts),
+        }]
+        self._report_containers(containers)
+
+        req = Request.blank('/sda1/p/a?prefix=%s' %
+                            get_reserved_name('null', 'test'), headers={
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [])
+
+        req = Request.blank('/sda1/p/a?prefix=%s' %
+                            get_reserved_name('null', 'test'), headers={
+                                'X-Backend-Allow-Reserved-Names': 'true',
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers[:2]))
+
+    def test_prefix_and_delim_with_reserved(self):
+        containers = [{
+            'name': get_reserved_name('null', 'test01'),
+            'bytes': 200,
+            'count': 2,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('null', 'test02'),
+            'bytes': 10,
+            'count': 10,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('null', 'foo'),
+            'bytes': 10,
+            'count': 10,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('nullish'),
+            'bytes': 300,
+            'count': 32,
+            'timestamp': next(self.ts),
+        }]
+        self._report_containers(containers)
+
+        req = Request.blank('/sda1/p/a?prefix=%s&delimiter=%s' % (
+            get_reserved_name('null'), get_reserved_name()), headers={
+                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body), [])
+
+        req = Request.blank('/sda1/p/a?prefix=%s&delimiter=%s' % (
+            get_reserved_name('null'), get_reserved_name()), headers={
+                'X-Backend-Allow-Reserved-Names': 'true',
+                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        expected = [{'subdir': get_reserved_name('null', '')}] + \
+            self._expected_listing(containers[-1:])
+        self.assertEqual(json.loads(resp.body), expected)
+
+    def test_reserved_markers_with_non_reserved(self):
+        containers = [{
+            'name': get_reserved_name('null', 'test01'),
+            'bytes': 200,
+            'count': 2,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('null', 'test02'),
+            'bytes': 10,
+            'count': 10,
+            'timestamp': next(self.ts),
+        }, {
+            'name': 'nullish',
+            'bytes': 300,
+            'count': 32,
+            'timestamp': next(self.ts),
+        }]
+        self._report_containers(containers)
+
+        req = Request.blank('/sda1/p/a?marker=%s' %
+                            get_reserved_name('null', ''), headers={
+                                'X-Backend-Allow-Reserved-Names': 'true',
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers))
+
+        req = Request.blank('/sda1/p/a?marker=%s' %
+                            get_reserved_name('null', ''), headers={
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         [c for c in self._expected_listing(containers)
+                          if get_reserved_name() not in c['name']])
+
+        req = Request.blank('/sda1/p/a?marker=%s' %
+                            get_reserved_name('null', ''), headers={
+                                'X-Backend-Allow-Reserved-Names': 'true',
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers))
+
+        req = Request.blank('/sda1/p/a?marker=%s' % quote(
+            self._expected_listing(containers)[0]['name']), headers={
+                'X-Backend-Allow-Reserved-Names': 'true',
+                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers)[1:])
+
+    def test_null_markers(self):
+        containers = [{
+            'name': get_reserved_name('null', ''),
+            'bytes': 200,
+            'count': 2,
+            'timestamp': next(self.ts),
+        }, {
+            'name': get_reserved_name('null', 'test01'),
+            'bytes': 200,
+            'count': 2,
+            'timestamp': next(self.ts),
+        }, {
+            'name': 'null',
+            'bytes': 300,
+            'count': 32,
+            'timestamp': next(self.ts),
+        }]
+        self._report_containers(containers)
+
+        req = Request.blank('/sda1/p/a?marker=%s' % get_reserved_name('null'),
+                            headers={'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers)[-1:])
+
+        req = Request.blank('/sda1/p/a?marker=%s' % get_reserved_name('null'),
+                            headers={'X-Backend-Allow-Reserved-Names': 'true',
+                                     'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers))
+
+        req = Request.blank('/sda1/p/a?marker=%s' %
+                            get_reserved_name('null', ''), headers={
+                                'X-Backend-Allow-Reserved-Names': 'true',
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers)[1:])
+
+        req = Request.blank('/sda1/p/a?marker=%s' %
+                            get_reserved_name('null', 'test00'), headers={
+                                'X-Backend-Allow-Reserved-Names': 'true',
+                                'Accept': 'application/json'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200, resp.body)
+        self.assertEqual(json.loads(resp.body),
+                         self._expected_listing(containers)[1:])
+
     def test_through_call(self):
         inbuf = BytesIO()
         errbuf = StringIO()
@@ -1814,7 +2252,7 @@ class TestAccountController(unittest.TestCase):
 
         self.controller.__call__({'REQUEST_METHOD': 'GET',
                                   'SCRIPT_NAME': '',
-                                  'PATH_INFO': '\x00',
+                                  'PATH_INFO': '/sda1/p/a/c\xd8\x3e%20',
                                   'SERVER_NAME': '127.0.0.1',
                                   'SERVER_PORT': '8080',
                                   'SERVER_PROTOCOL': 'HTTP/1.0',

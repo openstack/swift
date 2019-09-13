@@ -356,6 +356,9 @@ def get_container_info(env, app, swift_source=None):
         req = _prepare_pre_auth_info_request(
             env, ("/%s/%s/%s" % (version, wsgi_account, wsgi_container)),
             (swift_source or 'GET_CONTAINER_INFO'))
+        # *Always* allow reserved names for get-info requests -- it's on the
+        # caller to keep the result private-ish
+        req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
         resp = req.get_response(app)
         close_if_possible(resp.app_iter)
         # Check in infocache to see if the proxy (or anyone else) already
@@ -412,6 +415,9 @@ def get_account_info(env, app, swift_source=None):
         req = _prepare_pre_auth_info_request(
             env, "/%s/%s" % (version, wsgi_account),
             (swift_source or 'GET_ACCOUNT_INFO'))
+        # *Always* allow reserved names for get-info requests -- it's on the
+        # caller to keep the result private-ish
+        req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
         resp = req.get_response(app)
         close_if_possible(resp.app_iter)
         # Check in infocache to see if the proxy (or anyone else) already
@@ -739,6 +745,9 @@ def _get_object_info(app, env, account, container, obj, swift_source=None):
     # Not in cache, let's try the object servers
     path = '/v1/%s/%s/%s' % (account, container, obj)
     req = _prepare_pre_auth_info_request(env, path, swift_source)
+    # *Always* allow reserved names for get-info requests -- it's on the
+    # caller to keep the result private-ish
+    req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
     resp = req.get_response(app)
     # Unlike get_account_info() and get_container_info(), we don't save
     # things in memcache, so we can store the info without network traffic,

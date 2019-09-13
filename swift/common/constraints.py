@@ -346,12 +346,13 @@ def check_delete_headers(request):
     return request
 
 
-def check_utf8(string):
+def check_utf8(string, internal=False):
     """
     Validate if a string is valid UTF-8 str or unicode and that it
-    does not contain any null character.
+    does not contain any reserved characters.
 
     :param string: string to be validated
+    :param internal: boolean, allows reserved characters if True
     :returns: True if the string is valid utf-8 str or unicode and
               contains no null characters, False otherwise
     """
@@ -382,7 +383,9 @@ def check_utf8(string):
         if any(0xD800 <= ord(codepoint) <= 0xDFFF
                for codepoint in decoded):
             return False
-        return b'\x00' not in encoded
+        if b'\x00' != utils.RESERVED_BYTE and b'\x00' in encoded:
+            return False
+        return True if internal else utils.RESERVED_BYTE not in encoded
     # If string is unicode, decode() will raise UnicodeEncodeError
     # So, we should catch both UnicodeDecodeError & UnicodeEncodeError
     except UnicodeError:
@@ -412,6 +415,7 @@ def check_name_format(req, name, target_type):
             request=req,
             body='%s name cannot contain slashes' % target_type)
     return name
+
 
 check_account_format = functools.partial(check_name_format,
                                          target_type='Account')

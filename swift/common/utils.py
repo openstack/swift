@@ -186,6 +186,10 @@ O_TMPFILE = getattr(os, 'O_TMPFILE', 0o20000000 | os.O_DIRECTORY)
 IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
 
 MD5_OF_EMPTY_STRING = 'd41d8cd98f00b204e9800998ecf8427e'
+RESERVED_BYTE = b'\x00'
+RESERVED_STR = u'\x00'
+RESERVED = '\x00'
+
 
 LOG_LINE_DEFAULT_FORMAT = '{remote_addr} - - [{time.d}/{time.b}/{time.Y}' \
                           ':{time.H}:{time.M}:{time.S} +0000] ' \

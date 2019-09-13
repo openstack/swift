@@ -212,7 +212,8 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
          obj4srv, obj5srv, obj6srv)
     nl = NullLogger()
     logging_prosv = proxy_logging.ProxyLoggingMiddleware(
-        listing_formats.ListingFilter(prosrv), conf, logger=prosrv.logger)
+        listing_formats.ListingFilter(prosrv, {}, logger=prosrv.logger),
+        conf, logger=prosrv.logger)
     prospa = spawn(wsgi.server, prolis, logging_prosv, nl,
                    protocol=SwiftHttpProtocol,
                    capitalize_response_headers=False)

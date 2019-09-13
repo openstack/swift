@@ -1008,6 +1008,11 @@ use = egg:swift#gatekeeper
 # difficult-to-delete data.
 # shunt_inbound_x_timestamp = true
 #
+# Set this to true if you want to allow clients to access and manipulate the
+# (normally internal-to-swift) null namespace by including a header like
+#    X-Allow-Reserved-Names: true
+# allow_reserved_names_header = false
+#
 # You can override the default log routing for this filter here:
 # set log_name = gatekeeper
 # set log_facility = LOG_LOCAL0

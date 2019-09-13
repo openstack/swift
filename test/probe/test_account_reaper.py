@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from io import BytesIO
 from time import sleep
 import uuid
 import unittest
@@ -23,6 +24,7 @@ from swift.common import utils
 from swift.common.manager import Manager
 from swift.common.direct_client import direct_delete_account, \
     direct_get_object, direct_head_container, ClientException
+from swift.common.request_helpers import get_reserved_name
 from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 
 
@@ -30,8 +32,9 @@ class TestAccountReaper(ReplProbeTest):
     def setUp(self):
         super(TestAccountReaper, self).setUp()
         self.all_objects = []
+        int_client = self.make_internal_client()
         # upload some containers
-        body = 'test-body'
+        body = b'test-body'
         for policy in ENABLED_POLICIES:
             container = 'container-%s-%s' % (policy.name, uuid.uuid4())
             client.put_container(self.url, self.token, container,
@@ -39,6 +42,18 @@ class TestAccountReaper(ReplProbeTest):
             obj = 'object-%s' % uuid.uuid4()
             client.put_object(self.url, self.token, container, obj, body)
             self.all_objects.append((policy, container, obj))
+
+            # Also create some reserved names
+            container = get_reserved_name(
+                'reserved', policy.name, str(uuid.uuid4()))
+            int_client.create_container(
+                self.account, container,
+                headers={'X-Storage-Policy': policy.name})
+            obj = get_reserved_name('object', str(uuid.uuid4()))
+            int_client.upload_object(
+                BytesIO(body), self.account, container, obj)
+            self.all_objects.append((policy, container, obj))
+
             policy.load_ring('/etc/swift')
 
         Manager(['container-updater']).once()
@@ -46,11 +61,11 @@ class TestAccountReaper(ReplProbeTest):
         headers = client.head_account(self.url, self.token)
 
         self.assertEqual(int(headers['x-account-container-count']),
-                         len(ENABLED_POLICIES))
+                         len(self.all_objects))
         self.assertEqual(int(headers['x-account-object-count']),
-                         len(ENABLED_POLICIES))
+                         len(self.all_objects))
         self.assertEqual(int(headers['x-account-bytes-used']),
-                         len(ENABLED_POLICIES) * len(body))
+                         len(self.all_objects) * len(body))
 
         part, nodes = self.account_ring.get_nodes(self.account)
 

@@ -55,6 +55,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication, encode_timestamps, \
     Timestamp
 from swift.common import constraints
+from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, WsgiBytesIO
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
@@ -7147,6 +7148,60 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(errbuf.getvalue(), '')
             self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
+    def test_create_reserved_namespace_object(self):
+        path = '/sda1/p/a/%sc/%so' % (utils.RESERVED_STR, utils.RESERVED_STR)
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal,
+            'Content-Type': 'application/x-test',
+            'Content-Length': 0,
+        })
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status, '201 Created')
+
+    def test_create_reserved_namespace_object_in_user_container(self):
+        path = '/sda1/p/a/c/%so' % utils.RESERVED_STR
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal,
+            'Content-Type': 'application/x-test',
+            'Content-Length': 0,
+        })
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status, '400 Bad Request', resp.body)
+        self.assertEqual(resp.body, b'Invalid reserved-namespace object in '
+                         b'user-namespace container')
+
+    def test_other_methods_reserved_namespace_object(self):
+        container = get_reserved_name('c')
+        obj = get_reserved_name('o', 'v1')
+        path = '/sda1/p/a/%s/%s' % (container, obj)
+        req = Request.blank(path, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal,
+            'Content-Type': 'application/x-test',
+            'Content-Length': 0,
+        })
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status, '201 Created')
+
+        bad_req = Request.blank('/sda1/p/a/c/%s' % obj, method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal})
+        resp = bad_req.get_response(self.object_controller)
+        self.assertEqual(resp.status, '400 Bad Request')
+        self.assertEqual(resp.body, b'Invalid reserved-namespace object '
+                         b'in user-namespace container')
+
+        for method in ('GET', 'POST', 'DELETE'):
+            req.method = method
+            req.headers['X-Timestamp'] = next(self.ts).internal
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int // 100, 2)
+
+            bad_req.method = method
+            req.headers['X-Timestamp'] = next(self.ts).internal
+            resp = bad_req.get_response(self.object_controller)
+            self.assertEqual(resp.status, '400 Bad Request')
+            self.assertEqual(resp.body, b'Invalid reserved-namespace object '
+                             b'in user-namespace container')
+
     def test_not_utf8_and_not_logging_requests(self):
         inbuf = WsgiBytesIO()
         errbuf = StringIO()
@@ -7164,7 +7219,7 @@ class TestObjectController(unittest.TestCase):
 
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
-               'PATH_INFO': '/sda1/p/a/c/\x00%20/%',
+               'PATH_INFO': '/sda1/p/a/c/\xd8\x3e%20/%',
                'SERVER_NAME': '127.0.0.1',
                'SERVER_PORT': '8080',
                'SERVER_PROTOCOL': 'HTTP/1.0',

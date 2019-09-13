@@ -35,7 +35,8 @@ from swift.common.utils import public, get_logger, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
-    config_auto_int_value, split_path, get_redirect_data, normalize_timestamp
+    config_auto_int_value, split_path, get_redirect_data, \
+    normalize_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -51,7 +52,7 @@ from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
-    resolve_etag_is_at_header, is_sys_meta
+    resolve_etag_is_at_header, is_sys_meta, validate_internal_obj
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -87,6 +88,20 @@ def drain(file_like, read_size, timeout):
             chunk = file_like.read(read_size)
             if not chunk:
                 break
+
+
+def get_obj_name_and_placement(request):
+    """
+    Split and validate path for an object.
+
+    :param request: a swob request
+
+    :returns: a tuple of path parts and storage policy
+    """
+    device, partition, account, container, obj, policy = \
+        get_name_and_placement(request, 5, 5, True)
+    validate_internal_obj(account, container, obj)
+    return device, partition, account, container, obj, policy
 
 
 def _make_backend_fragments_header(fragments):
@@ -603,7 +618,8 @@ class ObjectController(BaseStorageServer):
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
+
         req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
         if new_delete_at and new_delete_at < req_timestamp:
@@ -995,7 +1011,7 @@ class ObjectController(BaseStorageServer):
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
         disk_file, fsize, orig_metadata = self._pre_create_checks(
             request, device, partition, account, container, obj, policy)
         writer = disk_file.writer(size=fsize)
@@ -1037,7 +1053,7 @@ class ObjectController(BaseStorageServer):
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
         request.headers.setdefault('X-Timestamp',
                                    normalize_timestamp(time.time()))
         req_timestamp = valid_timestamp(request)
@@ -1104,7 +1120,7 @@ class ObjectController(BaseStorageServer):
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
         request.headers.setdefault('X-Timestamp',
                                    normalize_timestamp(time.time()))
         req_timestamp = valid_timestamp(request)
@@ -1163,7 +1179,7 @@ class ObjectController(BaseStorageServer):
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
         req_timestamp = valid_timestamp(request)
         next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
@@ -1275,7 +1291,7 @@ class ObjectController(BaseStorageServer):
         req = Request(env)
         self.logger.txn_id = req.headers.get('x-trans-id', None)
 
-        if not check_utf8(wsgi_to_str(req.path_info)):
+        if not check_utf8(wsgi_to_str(req.path_info), internal=True):
             res = HTTPPreconditionFailed(body='Invalid UTF8 or contains NULL')
         else:
             try:

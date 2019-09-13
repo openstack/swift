@@ -480,7 +480,8 @@ class Application(object):
                                       body='Invalid Content-Length')
 
             try:
-                if not check_utf8(wsgi_to_str(req.path_info)):
+                if not check_utf8(wsgi_to_str(req.path_info),
+                                  internal=req.allow_reserved_names):
                     self.logger.increment('errors')
                     return HTTPPreconditionFailed(
                         request=req, body='Invalid UTF8 or contains NULL')

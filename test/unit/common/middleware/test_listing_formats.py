@@ -18,13 +18,17 @@ import unittest
 
 from swift.common.swob import Request, HTTPOk
 from swift.common.middleware import listing_formats
+from swift.common.request_helpers import get_reserved_name
+from test.unit import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift
 
 
 class TestListingFormats(unittest.TestCase):
     def setUp(self):
         self.fake_swift = FakeSwift()
-        self.app = listing_formats.ListingFilter(self.fake_swift)
+        self.logger = debug_logger('test-listing')
+        self.app = listing_formats.ListingFilter(self.fake_swift, {},
+                                                 logger=self.logger)
         self.fake_account_listing = json.dumps([
             {'name': 'bar', 'bytes': 0, 'count': 0,
              'last_modified': '1970-01-01T00:00:00.000000'},
@@ -35,6 +39,25 @@ class TestListingFormats(unittest.TestCase):
              'content_type': 'text/plain',
              'last_modified': '1970-01-01T00:00:00.000000'},
             {'subdir': 'foo/'},
+        ]).encode('ascii')
+
+        self.fake_account_listing_with_reserved = json.dumps([
+            {'name': 'bar', 'bytes': 0, 'count': 0,
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'name': get_reserved_name('bar', 'versions'), 'bytes': 0,
+             'count': 0, 'last_modified': '1970-01-01T00:00:00.000000'},
+            {'subdir': 'foo_'},
+            {'subdir': get_reserved_name('foo_')},
+        ]).encode('ascii')
+        self.fake_container_listing_with_reserved = json.dumps([
+            {'name': 'bar', 'hash': 'etag', 'bytes': 0,
+             'content_type': 'text/plain',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'name': get_reserved_name('bar', 'extra data'), 'hash': 'etag',
+             'bytes': 0, 'content_type': 'text/plain',
+             'last_modified': '1970-01-01T00:00:00.000000'},
+            {'subdir': 'foo/'},
+            {'subdir': get_reserved_name('foo/')},
         ]).encode('ascii')
 
     def test_valid_account(self):
@@ -60,7 +83,8 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a?format=json')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, self.fake_account_listing)
+        self.assertEqual(json.loads(resp.body),
+                         json.loads(self.fake_account_listing))
         self.assertEqual(resp.headers['Content-Type'],
                          'application/json; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -81,6 +105,119 @@ class TestListingFormats(unittest.TestCase):
                          'application/xml; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a?format=json'))
+
+    def test_valid_account_with_reserved(self):
+        body_len = len(self.fake_account_listing_with_reserved)
+        self.fake_swift.register(
+            'GET', '/v1/a\xe2\x98\x83', HTTPOk, {
+                'Content-Length': str(body_len),
+                'Content-Type': 'application/json',
+            }, self.fake_account_listing_with_reserved)
+
+        req = Request.blank('/v1/a\xe2\x98\x83')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'bar\nfoo_\n')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', '/v1/a\xe2\x98\x83?format=json'))
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            "Account listing for a%E2%98%83 had reserved byte in name: "
+            "'\\x00bar\\x00versions'",
+            "Account listing for a%E2%98%83 had reserved byte in subdir: "
+            "'\\x00foo_'",
+        ])
+
+        req = Request.blank('/v1/a\xe2\x98\x83', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'bar\n%s\nfoo_\n%s\n' % (
+            get_reserved_name('bar', 'versions').encode('ascii'),
+            get_reserved_name('foo_').encode('ascii'),
+        ))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', '/v1/a\xe2\x98\x83?format=json'))
+
+        req = Request.blank('/v1/a\xe2\x98\x83?format=txt')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'bar\nfoo_\n')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', '/v1/a\xe2\x98\x83?format=json'))
+
+        req = Request.blank('/v1/a\xe2\x98\x83?format=txt', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'bar\n%s\nfoo_\n%s\n' % (
+            get_reserved_name('bar', 'versions').encode('ascii'),
+            get_reserved_name('foo_').encode('ascii'),
+        ))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', '/v1/a\xe2\x98\x83?format=json'))
+
+        req = Request.blank('/v1/a\xe2\x98\x83?format=json')
+        resp = req.get_response(self.app)
+        self.assertEqual(json.loads(resp.body),
+                         json.loads(self.fake_account_listing))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/json; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', '/v1/a\xe2\x98\x83?format=json'))
+
+        req = Request.blank('/v1/a\xe2\x98\x83?format=json', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = req.get_response(self.app)
+        self.assertEqual(json.loads(resp.body),
+                         json.loads(self.fake_account_listing_with_reserved))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/json; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', '/v1/a\xe2\x98\x83?format=json'))
+
+        req = Request.blank('/v1/a\xe2\x98\x83?format=xml')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body.split(b'\n'), [
+            b'<?xml version="1.0" encoding="UTF-8"?>',
+            b'<account name="a\xe2\x98\x83">',
+            b'<container><name>bar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
+            b'</container>',
+            b'<subdir name="foo_" />',
+            b'</account>',
+        ])
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/xml; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', '/v1/a\xe2\x98\x83?format=json'))
+
+        req = Request.blank('/v1/a\xe2\x98\x83?format=xml', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body.split(b'\n'), [
+            b'<?xml version="1.0" encoding="UTF-8"?>',
+            b'<account name="a\xe2\x98\x83">',
+            b'<container><name>bar</name><count>0</count><bytes>0</bytes>'
+            b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
+            b'</container>',
+            b'<container><name>%s</name>'
+            b'<count>0</count><bytes>0</bytes>'
+            b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
+            b'</container>' % get_reserved_name(
+                'bar', 'versions').encode('ascii'),
+            b'<subdir name="foo_" />',
+            b'<subdir name="%s" />' % get_reserved_name(
+                'foo_').encode('ascii'),
+            b'</account>',
+        ])
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/xml; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', '/v1/a\xe2\x98\x83?format=json'))
 
     def test_valid_container(self):
         self.fake_swift.register('GET', '/v1/a/c', HTTPOk, {
@@ -105,7 +242,8 @@ class TestListingFormats(unittest.TestCase):
 
         req = Request.blank('/v1/a/c?format=json')
         resp = req.get_response(self.app)
-        self.assertEqual(resp.body, self.fake_container_listing)
+        self.assertEqual(json.loads(resp.body),
+                         json.loads(self.fake_container_listing))
         self.assertEqual(resp.headers['Content-Type'],
                          'application/json; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
@@ -128,6 +266,126 @@ class TestListingFormats(unittest.TestCase):
                          'application/xml; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a/c?format=json'))
+
+    def test_valid_container_with_reserved(self):
+        path = '/v1/a\xe2\x98\x83/c\xf0\x9f\x8c\xb4'
+        body_len = len(self.fake_container_listing_with_reserved)
+        self.fake_swift.register(
+            'GET', path, HTTPOk, {
+                'Content-Length': str(body_len),
+                'Content-Type': 'application/json',
+            }, self.fake_container_listing_with_reserved)
+
+        req = Request.blank(path)
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'bar\nfoo/\n')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', path + '?format=json'))
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            "Container listing for a%E2%98%83/c%F0%9F%8C%B4 had reserved byte "
+            "in name: '\\x00bar\\x00extra data'",
+            "Container listing for a%E2%98%83/c%F0%9F%8C%B4 had reserved byte "
+            "in subdir: '\\x00foo/'",
+        ])
+
+        req = Request.blank(path, headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'bar\n%s\nfoo/\n%s\n' % (
+            get_reserved_name('bar', 'extra data').encode('ascii'),
+            get_reserved_name('foo/').encode('ascii'),
+        ))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', path + '?format=json'))
+
+        req = Request.blank(path + '?format=txt')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'bar\nfoo/\n')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', path + '?format=json'))
+
+        req = Request.blank(path + '?format=txt', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'bar\n%s\nfoo/\n%s\n' % (
+            get_reserved_name('bar', 'extra data').encode('ascii'),
+            get_reserved_name('foo/').encode('ascii'),
+        ))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', path + '?format=json'))
+
+        req = Request.blank(path + '?format=json')
+        resp = req.get_response(self.app)
+        self.assertEqual(json.loads(resp.body),
+                         json.loads(self.fake_container_listing))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/json; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', path + '?format=json'))
+
+        req = Request.blank(path + '?format=json', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = req.get_response(self.app)
+        self.assertEqual(json.loads(resp.body),
+                         json.loads(self.fake_container_listing_with_reserved))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/json; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', path + '?format=json'))
+
+        req = Request.blank(path + '?format=xml')
+        resp = req.get_response(self.app)
+        self.assertEqual(
+            resp.body,
+            b'<?xml version="1.0" encoding="UTF-8"?>\n'
+            b'<container name="c\xf0\x9f\x8c\xb4">'
+            b'<object><name>bar</name><hash>etag</hash><bytes>0</bytes>'
+            b'<content_type>text/plain</content_type>'
+            b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
+            b'</object>'
+            b'<subdir name="foo/"><name>foo/</name></subdir>'
+            b'</container>'
+        )
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/xml; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', path + '?format=json'))
+
+        req = Request.blank(path + '?format=xml', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = req.get_response(self.app)
+        self.assertEqual(
+            resp.body,
+            b'<?xml version="1.0" encoding="UTF-8"?>\n'
+            b'<container name="c\xf0\x9f\x8c\xb4">'
+            b'<object><name>bar</name><hash>etag</hash><bytes>0</bytes>'
+            b'<content_type>text/plain</content_type>'
+            b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
+            b'</object>'
+            b'<object><name>%s</name>'
+            b'<hash>etag</hash><bytes>0</bytes>'
+            b'<content_type>text/plain</content_type>'
+            b'<last_modified>1970-01-01T00:00:00.000000</last_modified>'
+            b'</object>'
+            b'<subdir name="foo/"><name>foo/</name></subdir>'
+            b'<subdir name="%s"><name>%s</name></subdir>'
+            b'</container>' % (
+                get_reserved_name('bar', 'extra data').encode('ascii'),
+                get_reserved_name('foo/').encode('ascii'),
+                get_reserved_name('foo/').encode('ascii'),
+            ))
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/xml; charset=utf-8')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'GET', path + '?format=json'))
 
     def test_blank_account(self):
         self.fake_swift.register('GET', '/v1/a', HTTPOk, {

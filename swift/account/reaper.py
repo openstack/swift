@@ -262,7 +262,7 @@ class AccountReaper(Daemon):
             container_limit *= len(nodes)
         try:
             containers = list(broker.list_containers_iter(
-                container_limit, '', None, None, None))
+                container_limit, '', None, None, None, allow_reserved=True))
             while containers:
                 try:
                     for (container, _junk, _junk, _junk, _junk) in containers:
@@ -282,7 +282,8 @@ class AccountReaper(Daemon):
                     self.logger.exception(
                         'Exception with containers for account %s', account)
                 containers = list(broker.list_containers_iter(
-                    container_limit, containers[-1][0], None, None, None))
+                    container_limit, containers[-1][0], None, None, None,
+                    allow_reserved=True))
             log_buf = ['Completed pass on account %s' % account]
         except (Exception, Timeout):
             self.logger.exception('Exception with account %s', account)

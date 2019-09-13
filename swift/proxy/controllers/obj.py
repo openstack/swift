@@ -24,7 +24,7 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-from six.moves.urllib.parse import unquote
+from six.moves.urllib.parse import quote, unquote
 from six.moves import zip
 
 import collections
@@ -72,7 +72,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import update_etag_is_at_header, \
-    resolve_etag_is_at_header
+    resolve_etag_is_at_header, validate_internal_obj
 
 
 def check_content_type(req):
@@ -168,6 +168,8 @@ class BaseObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
+        validate_internal_obj(
+            self.account_name, self.container_name, self.object_name)
 
     def iter_nodes_local_first(self, ring, partition, policy=None,
                                local_handoffs_first=False):
@@ -637,7 +639,8 @@ class BaseObjectController(Controller):
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, _('Object'),
-                    _('Expect: 100-continue on %s') % req.swift_entity_path)
+                    _('Expect: 100-continue on %s') %
+                    quote(req.swift_entity_path))
 
     def _get_put_connections(self, req, nodes, partition, outgoing_headers,
                              policy):
@@ -1399,10 +1402,10 @@ class ECAppIter(object):
             except ChunkReadTimeout:
                 # unable to resume in GetOrHeadHandler
                 self.logger.exception(_("Timeout fetching fragments for %r"),
-                                      self.path)
+                                      quote(self.path))
             except:  # noqa
                 self.logger.exception(_("Exception fetching fragments for"
-                                        " %r"), self.path)
+                                        " %r"), quote(self.path))
             finally:
                 queue.resize(2)  # ensure there's room
                 queue.put(None)
@@ -1431,7 +1434,7 @@ class ECAppIter(object):
                     segment = self.policy.pyeclib_driver.decode(fragments)
                 except ECDriverError:
                     self.logger.exception(_("Error decoding fragments for"
-                                            " %r"), self.path)
+                                            " %r"), quote(self.path))
                     raise
 
                 yield segment
@@ -1670,7 +1673,7 @@ class Putter(object):
                 self.failed = True
                 self.send_exception_handler(self.node, _('Object'),
                                             _('Trying to write to %s')
-                                            % self.path)
+                                            % quote(self.path))
 
     def close(self):
         # release reference to response to ensure connection really does close,

@@ -83,7 +83,7 @@ from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException, HTTPBadRequest, wsgi_to_str
 from swift.common.storage_policy import StoragePolicy, POLICIES
 import swift.common.request_helpers
-from swift.common.request_helpers import get_sys_meta_prefix
+from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -697,6 +697,29 @@ class TestProxyServer(unittest.TestCase):
         self.assertEqual(resp.status, '405 Method Not Allowed')
         self.assertEqual(sorted(resp.headers['Allow'].split(', ')), [
             'DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'UPDATE'])
+
+    def test_internal_reserved_name_request(self):
+        # set account info
+        fake_cache = FakeMemcache()
+        fake_cache.store[get_cache_key('a')] = {'status': 200}
+        app = proxy_server.Application({}, fake_cache,
+                                       container_ring=FakeRing(),
+                                       account_ring=FakeRing())
+        # build internal container request
+        container = get_reserved_name('c')
+        req = Request.blank('/v1/a/%s' % container)
+        app.update_request(req)
+
+        # try client request to reserved name
+        resp = app.handle_request(req)
+        self.assertEqual(resp.status_int, 412)
+        self.assertEqual(resp.body, b'Invalid UTF8 or contains NULL')
+
+        # set backend header
+        req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+        with mocked_http_conn(200):
+            resp = app.handle_request(req)
+        self.assertEqual(resp.status_int, 200)
 
     def test_calls_authorize_allow(self):
         called = [False]
@@ -10405,7 +10428,8 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
         self.app = listing_formats.ListingFilter(
             proxy_server.Application(conf, FakeMemcache(),
                                      account_ring=FakeRing(),
-                                     container_ring=FakeRing()))
+                                     container_ring=FakeRing()),
+            {})
         self.app.app.memcache = FakeMemcacheReturnsNone()
 
     def test_GET_autocreate_accept_json(self):
@@ -10823,7 +10847,8 @@ class TestSocketObjectVersions(unittest.TestCase):
                         _test_servers[0], conf,
                         logger=_test_servers[0].logger), {}),
                 {}
-            )
+            ),
+            {}, logger=_test_servers[0].logger
         )
         self.coro = spawn(wsgi.server, prolis, prosrv, NullLogger(),
                           protocol=SwiftHttpProtocol)

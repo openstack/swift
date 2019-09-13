@@ -31,6 +31,7 @@ from eventlet import Timeout
 import six
 from six import StringIO
 from six.moves import range
+from six.moves.urllib.parse import quote
 if six.PY2:
     from email.parser import FeedParser as EmailFeedParser
 else:
@@ -1258,10 +1259,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertFalse(log_lines[1:])
         self.assertIn('ERROR with Object server', log_lines[0])
-        if six.PY3:
-            self.assertIn(req.swift_entity_path, log_lines[0])
-        else:
-            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(quote(req.swift_entity_path), log_lines[0])
         self.assertIn('re: Expect: 100-continue', log_lines[0])
 
     def test_PUT_get_expect_errors_with_unicode_path(self):
@@ -1305,11 +1303,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             log_lines = self.app.logger.get_lines_for_level('error')
             self.assertFalse(log_lines[1:])
             self.assertIn('ERROR with Object server', log_lines[0])
-            if six.PY3:
-                self.assertIn(req.swift_entity_path, log_lines[0])
-            else:
-                self.assertIn(req.swift_entity_path.decode('utf-8'),
-                              log_lines[0])
+            self.assertIn(quote(req.swift_entity_path), log_lines[0])
             self.assertIn('Trying to write to', log_lines[0])
 
         do_test(Exception('Exception while sending data on connection'))

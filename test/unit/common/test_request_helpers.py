@@ -181,6 +181,174 @@ class TestRequestHelpers(unittest.TestCase):
         self.assertEqual(policy, POLICIES[1])
         self.assertEqual(policy.policy_type, REPL_POLICY)
 
+    def test_validate_internal_name(self):
+        self.assertIsNone(rh._validate_internal_name('foo'))
+        self.assertIsNone(rh._validate_internal_name(
+            rh.get_reserved_name('foo')))
+        self.assertIsNone(rh._validate_internal_name(
+            rh.get_reserved_name('foo', 'bar')))
+        self.assertIsNone(rh._validate_internal_name(''))
+        self.assertIsNone(rh._validate_internal_name(rh.RESERVED))
+
+    def test_invalid_reserved_name(self):
+        with self.assertRaises(HTTPException) as raised:
+            rh._validate_internal_name('foo' + rh.RESERVED)
+        e = raised.exception
+        self.assertEqual(e.status_int, 400)
+        self.assertEqual(str(e), '400 Bad Request')
+        self.assertEqual(e.body, b"Invalid reserved-namespace name")
+
+    def test_validate_internal_account(self):
+        self.assertIsNone(rh.validate_internal_account('AUTH_foo'))
+        self.assertIsNone(rh.validate_internal_account(
+            rh.get_reserved_name('AUTH_foo')))
+        with self.assertRaises(HTTPException) as raised:
+            rh.validate_internal_account('AUTH_foo' + rh.RESERVED)
+        e = raised.exception
+        self.assertEqual(e.status_int, 400)
+        self.assertEqual(str(e), '400 Bad Request')
+        self.assertEqual(e.body, b"Invalid reserved-namespace account")
+
+    def test_validate_internal_container(self):
+        self.assertIsNone(rh.validate_internal_container('AUTH_foo', 'bar'))
+        self.assertIsNone(rh.validate_internal_container(
+            rh.get_reserved_name('AUTH_foo'), 'bar'))
+        self.assertIsNone(rh.validate_internal_container(
+            'foo', rh.get_reserved_name('bar')))
+        self.assertIsNone(rh.validate_internal_container(
+            rh.get_reserved_name('AUTH_foo'), rh.get_reserved_name('bar')))
+        with self.assertRaises(HTTPException) as raised:
+            rh.validate_internal_container('AUTH_foo' + rh.RESERVED, 'bar')
+        e = raised.exception
+        self.assertEqual(e.status_int, 400)
+        self.assertEqual(str(e), '400 Bad Request')
+        self.assertEqual(e.body, b"Invalid reserved-namespace account")
+        with self.assertRaises(HTTPException) as raised:
+            rh.validate_internal_container('AUTH_foo', 'bar' + rh.RESERVED)
+        e = raised.exception
+        self.assertEqual(e.status_int, 400)
+        self.assertEqual(str(e), '400 Bad Request')
+        self.assertEqual(e.body, b"Invalid reserved-namespace container")
+
+        # These should always be operating on split_path outputs so this
+        # shouldn't really be an issue, but just in case...
+        for acct in ('', None):
+            with self.assertRaises(ValueError) as raised:
+                rh.validate_internal_container(
+                    acct, 'bar')
+            self.assertEqual(raised.exception.args[0], 'Account is required')
+
+    def test_validate_internal_object(self):
+        self.assertIsNone(rh.validate_internal_obj('AUTH_foo', 'bar', 'baz'))
+        self.assertIsNone(rh.validate_internal_obj(
+            rh.get_reserved_name('AUTH_foo'), 'bar', 'baz'))
+        for acct in ('AUTH_foo', rh.get_reserved_name('AUTH_foo')):
+            self.assertIsNone(rh.validate_internal_obj(
+                acct,
+                rh.get_reserved_name('bar'),
+                rh.get_reserved_name('baz')))
+        for acct in ('AUTH_foo', rh.get_reserved_name('AUTH_foo')):
+            with self.assertRaises(HTTPException) as raised:
+                rh.validate_internal_obj(
+                    acct, 'bar', rh.get_reserved_name('baz'))
+            e = raised.exception
+            self.assertEqual(e.status_int, 400)
+            self.assertEqual(str(e), '400 Bad Request')
+            self.assertEqual(e.body, b"Invalid reserved-namespace object "
+                             b"in user-namespace container")
+        for acct in ('AUTH_foo', rh.get_reserved_name('AUTH_foo')):
+            with self.assertRaises(HTTPException) as raised:
+                rh.validate_internal_obj(
+                    acct, rh.get_reserved_name('bar'), 'baz')
+            e = raised.exception
+            self.assertEqual(e.status_int, 400)
+            self.assertEqual(str(e), '400 Bad Request')
+            self.assertEqual(e.body, b"Invalid user-namespace object "
+                             b"in reserved-namespace container")
+
+        # These should always be operating on split_path outputs so this
+        # shouldn't really be an issue, but just in case...
+        for acct in ('', None):
+            with self.assertRaises(ValueError) as raised:
+                rh.validate_internal_obj(
+                    acct, 'bar', 'baz')
+            self.assertEqual(raised.exception.args[0], 'Account is required')
+
+        for cont in ('', None):
+            with self.assertRaises(ValueError) as raised:
+                rh.validate_internal_obj(
+                    'AUTH_foo', cont, 'baz')
+            self.assertEqual(raised.exception.args[0], 'Container is required')
+
+    def test_invalid_reserved_names(self):
+        with self.assertRaises(HTTPException) as raised:
+            rh.validate_internal_obj('AUTH_foo' + rh.RESERVED, 'bar', 'baz')
+        e = raised.exception
+        self.assertEqual(e.status_int, 400)
+        self.assertEqual(str(e), '400 Bad Request')
+        self.assertEqual(e.body, b"Invalid reserved-namespace account")
+        with self.assertRaises(HTTPException) as raised:
+            rh.validate_internal_obj('AUTH_foo', 'bar' + rh.RESERVED, 'baz')
+        e = raised.exception
+        self.assertEqual(e.status_int, 400)
+        self.assertEqual(str(e), '400 Bad Request')
+        self.assertEqual(e.body, b"Invalid reserved-namespace container")
+        with self.assertRaises(HTTPException) as raised:
+            rh.validate_internal_obj('AUTH_foo', 'bar', 'baz' + rh.RESERVED)
+        e = raised.exception
+        self.assertEqual(e.status_int, 400)
+        self.assertEqual(str(e), '400 Bad Request')
+        self.assertEqual(e.body, b"Invalid reserved-namespace object")
+
+    def test_get_reserved_name(self):
+        expectations = {
+            tuple(): rh.RESERVED,
+            ('',): rh.RESERVED,
+            ('foo',): rh.RESERVED + 'foo',
+            ('foo', 'bar'): rh.RESERVED + 'foo' + rh.RESERVED + 'bar',
+            ('foo', ''): rh.RESERVED + 'foo' + rh.RESERVED,
+            ('', ''): rh.RESERVED * 2,
+        }
+        failures = []
+        for parts, expected in expectations.items():
+            name = rh.get_reserved_name(*parts)
+            if name != expected:
+                failures.append('get given %r expected %r != %r' % (
+                    parts, expected, name))
+        if failures:
+            self.fail('Unexpected reults:\n' + '\n'.join(failures))
+
+    def test_invalid_get_reserved_name(self):
+        self.assertRaises(ValueError)
+        with self.assertRaises(ValueError) as ctx:
+            rh.get_reserved_name('foo', rh.RESERVED + 'bar', 'baz')
+        self.assertEqual(str(ctx.exception),
+                         'Invalid reserved part in components')
+
+    def test_split_reserved_name(self):
+        expectations = {
+            rh.RESERVED: ('',),
+            rh.RESERVED + 'foo': ('foo',),
+            rh.RESERVED + 'foo' + rh.RESERVED + 'bar': ('foo', 'bar'),
+            rh.RESERVED + 'foo' + rh.RESERVED: ('foo', ''),
+            rh.RESERVED * 2: ('', ''),
+        }
+        failures = []
+        for name, expected in expectations.items():
+            parts = rh.split_reserved_name(name)
+            if tuple(parts) != expected:
+                failures.append('split given %r expected %r != %r' % (
+                    name, expected, parts))
+        if failures:
+            self.fail('Unexpected reults:\n' + '\n'.join(failures))
+
+    def test_invalid_split_reserved_name(self):
+        self.assertRaises(ValueError)
+        with self.assertRaises(ValueError) as ctx:
+            rh.split_reserved_name('foo')
+        self.assertEqual(str(ctx.exception),
+                         'Invalid reserved name')
+
 
 class TestHTTPResponseToDocumentIters(unittest.TestCase):
     def test_200(self):

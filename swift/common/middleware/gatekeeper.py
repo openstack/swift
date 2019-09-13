@@ -75,6 +75,8 @@ class GatekeeperMiddleware(object):
         self.outbound_condition = make_exclusion_test(outbound_exclusions)
         self.shunt_x_timestamp = config_true_value(
             conf.get('shunt_inbound_x_timestamp', 'true'))
+        self.allow_reserved_names_header = config_true_value(
+            conf.get('allow_reserved_names_header', 'false'))
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -88,6 +90,11 @@ class GatekeeperMiddleware(object):
             # log in a similar format as the removed headers
             self.logger.debug('shunted request headers: %s' %
                               [('X-Timestamp', ts)])
+
+        if 'X-Allow-Reserved-Names' in req.headers \
+                and self.allow_reserved_names_header:
+            req.headers['X-Backend-Allow-Reserved-Names'] = \
+                req.headers.pop('X-Allow-Reserved-Names')
 
         def gatekeeper_response(status, response_headers, exc_info=None):
             def fixed_response_headers():

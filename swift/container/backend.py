@@ -30,7 +30,8 @@ from swift.common.exceptions import LockTimeout
 from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, storage_directory, hash_path, \
     ShardRange, renamer, find_shard_range, MD5_OF_EMPTY_STRING, mkdirs, \
-    get_db_files, parse_db_filename, make_db_file_path, split_path
+    get_db_files, parse_db_filename, make_db_file_path, split_path, \
+    RESERVED_BYTE
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT, \
     zero_like, DatabaseAlreadyExists
 
@@ -1028,7 +1029,8 @@ class ContainerBroker(DatabaseBroker):
     def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
                           path=None, storage_policy_index=0, reverse=False,
                           include_deleted=False, since_row=None,
-                          transform_func=None, all_policies=False):
+                          transform_func=None, all_policies=False,
+                          allow_reserved=False):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -1054,6 +1056,8 @@ class ContainerBroker(DatabaseBroker):
             :meth:`~_transform_record`; defaults to :meth:`~_transform_record`.
         :param all_policies: if True, include objects for all storage policies
             ignoring any value given for ``storage_policy_index``
+        :param allow_reserved: exclude names with reserved-byte by default
+
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag, deleted)
         """
@@ -1110,6 +1114,9 @@ class ContainerBroker(DatabaseBroker):
                 elif prefix:
                     query_conditions.append('name >= ?')
                     query_args.append(prefix)
+                if not allow_reserved:
+                    query_conditions.append('name >= ?')
+                    query_args.append(chr(ord(RESERVED_BYTE) + 1))
                 query_conditions.append(deleted_key + deleted_arg)
                 if since_row:
                     query_conditions.append('ROWID > ?')

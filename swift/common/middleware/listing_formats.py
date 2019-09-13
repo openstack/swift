@@ -21,7 +21,8 @@ from swift.common.constraints import valid_api_version
 from swift.common.http import HTTP_NO_CONTENT
 from swift.common.request_helpers import get_param
 from swift.common.swob import HTTPException, HTTPNotAcceptable, Request, \
-    RESPONSE_REASONS, HTTPBadRequest
+    RESPONSE_REASONS, HTTPBadRequest, wsgi_quote, wsgi_to_bytes
+from swift.common.utils import RESERVED, get_logger
 
 
 #: Mapping of query string ``format=`` values to their corresponding
@@ -73,8 +74,6 @@ def to_xml(document_element):
 
 
 def account_to_xml(listing, account_name):
-    if isinstance(account_name, bytes):
-        account_name = account_name.decode('utf-8')
     doc = Element('account', name=account_name)
     doc.text = '\n'
     for record in listing:
@@ -91,8 +90,6 @@ def account_to_xml(listing, account_name):
 
 
 def container_to_xml(listing, base_name):
-    if isinstance(base_name, bytes):
-        base_name = base_name.decode('utf-8')
     doc = Element('container', name=base_name)
     for record in listing:
         if 'subdir' in record:
@@ -119,8 +116,33 @@ def listing_to_text(listing):
 
 
 class ListingFilter(object):
-    def __init__(self, app):
+    def __init__(self, app, conf, logger=None):
         self.app = app
+        self.logger = logger or get_logger(conf, log_route='listing-filter')
+
+    def filter_reserved(self, listing, account, container):
+        new_listing = []
+        for entry in list(listing):
+            for key in ('name', 'subdir'):
+                value = entry.get(key, '')
+                if six.PY2:
+                    value = value.encode('utf-8')
+                if RESERVED in value:
+                    if container:
+                        self.logger.warning(
+                            'Container listing for %s/%s had '
+                            'reserved byte in %s: %r',
+                            wsgi_quote(account), wsgi_quote(container),
+                            key, value)
+                    else:
+                        self.logger.warning(
+                            'Account listing for %s had '
+                            'reserved byte in %s: %r',
+                            wsgi_quote(account), key, value)
+                    break  # out of the *key* loop; check next entry
+            else:
+                new_listing.append(entry)
+        return new_listing
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -128,10 +150,10 @@ class ListingFilter(object):
             # account and container only
             version, acct, cont = req.split_path(2, 3)
         except ValueError:
-            is_container_req = False
+            is_account_or_container_req = False
         else:
-            is_container_req = True
-        if not is_container_req:
+            is_account_or_container_req = True
+        if not is_account_or_container_req:
             return self.app(env, start_response)
 
         if not valid_api_version(version) or req.method not in ('GET', 'HEAD'):
@@ -201,15 +223,21 @@ class ListingFilter(object):
             start_response(status, headers)
             return [body]
 
+        if not req.allow_reserved_names:
+            listing = self.filter_reserved(listing, acct, cont)
+
         try:
             if out_content_type.endswith('/xml'):
                 if cont:
-                    body = container_to_xml(listing, cont)
+                    body = container_to_xml(
+                        listing, wsgi_to_bytes(cont).decode('utf-8'))
                 else:
-                    body = account_to_xml(listing, acct)
+                    body = account_to_xml(
+                        listing, wsgi_to_bytes(acct).decode('utf-8'))
             elif out_content_type == 'text/plain':
                 body = listing_to_text(listing)
-            # else, json -- we continue down here to be sure we set charset
+            else:
+                body = json.dumps(listing).encode('ascii')
         except KeyError:
             # listing was in a bad format -- funky static web listing??
             start_response(status, headers)
@@ -226,4 +254,9 @@ class ListingFilter(object):
 
 
 def filter_factory(global_conf, **local_conf):
-    return ListingFilter
+    conf = global_conf.copy()
+    conf.update(local_conf)
+
+    def listing_filter(app):
+        return ListingFilter(app, conf)
+    return listing_filter

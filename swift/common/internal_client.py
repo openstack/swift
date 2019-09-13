@@ -184,6 +184,7 @@ class InternalClient(object):
 
         headers = dict(headers)
         headers['user-agent'] = self.user_agent
+        headers.setdefault('x-backend-allow-reserved-names', 'true')
         for attempt in range(self.request_tries):
             resp = exc_type = exc_value = exc_traceback = None
             req = Request.blank(
@@ -384,6 +385,19 @@ class InternalClient(object):
         return self._iter_items(path, marker, end_marker, prefix,
                                 acceptable_statuses)
 
+    def create_account(self, account):
+        """
+        Creates an account.
+
+        :param account: Account to create.
+        :raises UnexpectedResponse: Exception raised when requests fail
+                                    to get a response with an acceptable status
+        :raises Exception: Exception is raised when code fails in an
+                           unexpected way.
+        """
+        path = self.make_path(account)
+        self.make_request('PUT', path, {}, (201, 202))
+
     def delete_account(self, account, acceptable_statuses=(2, HTTP_NOT_FOUND)):
         """
         Deletes an account.
@@ -514,7 +528,8 @@ class InternalClient(object):
         self.make_request('PUT', path, headers, acceptable_statuses)
 
     def delete_container(
-            self, account, container, acceptable_statuses=(2, HTTP_NOT_FOUND)):
+            self, account, container, headers=None,
+            acceptable_statuses=(2, HTTP_NOT_FOUND)):
         """
         Deletes a container.
 
@@ -529,8 +544,9 @@ class InternalClient(object):
                            unexpected way.
         """
 
+        headers = headers or {}
         path = self.make_path(account, container)
-        self.make_request('DELETE', path, {}, acceptable_statuses)
+        self.make_request('DELETE', path, headers, acceptable_statuses)
 
     def get_container_metadata(
             self, account, container, metadata_prefix='',
@@ -669,7 +685,7 @@ class InternalClient(object):
         return self._get_metadata(path, metadata_prefix, acceptable_statuses,
                                   headers=headers, params=params)
 
-    def get_object(self, account, container, obj, headers,
+    def get_object(self, account, container, obj, headers=None,
                    acceptable_statuses=(2,), params=None):
         """
         Gets an object.
@@ -771,7 +787,8 @@ class InternalClient(object):
             path, metadata, metadata_prefix, acceptable_statuses)
 
     def upload_object(
-            self, fobj, account, container, obj, headers=None):
+            self, fobj, account, container, obj, headers=None,
+            acceptable_statuses=(2,)):
         """
         :param fobj: File object to read object's content from.
         :param account: The object's account.
@@ -789,7 +806,7 @@ class InternalClient(object):
         if 'Content-Length' not in headers:
             headers['Transfer-Encoding'] = 'chunked'
         path = self.make_path(account, container, obj)
-        self.make_request('PUT', path, headers, (2,), fobj)
+        self.make_request('PUT', path, headers, acceptable_statuses, fobj)
 
 
 def get_auth(url, user, key, auth_version='1.0', **kwargs):
