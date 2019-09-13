@@ -1376,6 +1376,11 @@ class Timestamp(object):
     def __hash__(self):
         return hash(self.internal)
 
+    def __invert__(self):
+        if self.offset:
+            raise ValueError('Cannot invert timestamps with offsets')
+        return Timestamp((999999999999999 - self.raw) * PRECISION)
+
 
 def encode_timestamps(t1, t2=None, t3=None, explicit=False):
     """

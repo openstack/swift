@@ -303,7 +303,7 @@ class BaseObjectController(Controller):
         if error_response:
             return error_response
 
-        req.headers['X-Timestamp'] = Timestamp.now().internal
+        req.ensure_x_timestamp()
 
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
@@ -547,23 +547,6 @@ class BaseObjectController(Controller):
             if detect_content_type:
                 req.headers.pop('x-detect-content-type')
 
-    def _update_x_timestamp(self, req):
-        # The container sync feature includes an x-timestamp header with
-        # requests. If present this is checked and preserved, otherwise a fresh
-        # timestamp is added.
-        if 'x-timestamp' in req.headers:
-            try:
-                req_timestamp = Timestamp(req.headers['X-Timestamp'])
-            except ValueError:
-                raise HTTPBadRequest(
-                    request=req, content_type='text/plain',
-                    body='X-Timestamp should be a UNIX timestamp float value; '
-                         'was %r' % req.headers['x-timestamp'])
-            req.headers['X-Timestamp'] = req_timestamp.internal
-        else:
-            req.headers['X-Timestamp'] = Timestamp.now().internal
-        return None
-
     def _check_failure_put_connections(self, putters, req, min_conns):
         """
         Identify any failed connections and check minimum connection count.
@@ -785,7 +768,7 @@ class BaseObjectController(Controller):
         # update content type in case it is missing
         self._update_content_type(req)
 
-        self._update_x_timestamp(req)
+        req.ensure_x_timestamp()
 
         # check constraints on object name and request headers
         error_response = check_object_creation(req, self.object_name) or \
@@ -845,7 +828,7 @@ class BaseObjectController(Controller):
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
 
-        self._update_x_timestamp(req)
+        req.ensure_x_timestamp()
 
         # Include local handoff nodes if write-affinity is enabled.
         node_count = len(nodes)

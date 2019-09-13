@@ -1236,7 +1236,7 @@ class ContainerBroker(DatabaseBroker):
             limit, marker, end_marker, prefix=None, delimiter=None, path=None,
             reverse=False, include_deleted=include_deleted,
             transform_func=self._record_to_dict, since_row=since_row,
-            all_policies=True
+            all_policies=True, allow_reserved=True
         )
 
     def _transform_record(self, record):

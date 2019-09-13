@@ -87,6 +87,14 @@ class ContainerSync(object):
         info = get_container_info(
             req.environ, self.app, swift_source='CS')
         sync_to = req.headers.get('x-container-sync-to')
+        if req.method in ('PUT', 'POST') and cont and not obj:
+            versions_cont = info.get(
+                'sysmeta', {}).get('versions-container')
+            if sync_to and versions_cont:
+                raise HTTPBadRequest(
+                    'Cannot configure container sync on a container '
+                    'with object versioning configured.',
+                    request=req)
 
         if not self.allow_full_urls:
             if sync_to and not sync_to.startswith('//'):

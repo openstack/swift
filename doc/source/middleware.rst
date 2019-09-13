@@ -278,12 +278,12 @@ Name Check (Forbidden Character Filter)
     :members:
     :show-inheritance:
 
-.. _versioned_writes:
+.. _object_versioning:
 
 Object Versioning
 =================
 
-.. automodule:: swift.common.middleware.versioned_writes
+.. automodule:: swift.common.middleware.versioned_writes.object_versioning
     :members:
     :show-inheritance:
 
@@ -368,6 +368,15 @@ TempURL
 =======
 
 .. automodule:: swift.common.middleware.tempurl
+    :members:
+    :show-inheritance:
+
+.. _versioned_writes:
+
+Versioned Writes
+=================
+
+.. automodule:: swift.common.middleware.versioned_writes.legacy
     :members:
     :show-inheritance:
 

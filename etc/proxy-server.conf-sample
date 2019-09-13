@@ -1072,6 +1072,8 @@ use = egg:swift#versioned_writes
 # in the container configuration file, which will be eventually
 # deprecated. See documentation for more details.
 # allow_versioned_writes = false
+# Enables Swift object-versioning API
+# allow_object_versioning = false
 
 # Note: Put after auth and before dlo and slo middlewares.
 # If you don't put it in the pipeline, it will be inserted for you.

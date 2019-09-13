@@ -327,6 +327,7 @@ def _load_encryption(proxy_conf_file, swift_conf_file, **kwargs):
         if not six.PY2:
             root_secret = root_secret.decode('ascii')
         conf.set('filter:keymaster', 'encryption_root_secret', root_secret)
+        conf.set('filter:versioned_writes', 'allow_object_versioning', 'true')
     except NoSectionError as err:
         msg = 'Error problem with proxy conf file %s: %s' % \
               (proxy_conf_file, err)
@@ -456,6 +457,8 @@ def _load_s3api(proxy_conf_file, swift_conf_file, **kwargs):
             "s3api tempauth")
         conf.set(section, 'pipeline', pipeline)
         conf.set('filter:s3api', 's3_acl', 'true')
+
+        conf.set('filter:versioned_writes', 'allow_object_versioning', 'true')
     except NoSectionError as err:
         msg = 'Error problem with proxy conf file %s: %s' % \
               (proxy_conf_file, err)

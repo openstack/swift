@@ -57,7 +57,8 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
-    status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, normalize_etag
+    status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, wsgi_unquote, \
+    normalize_etag
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
@@ -395,6 +396,17 @@ def get_container_info(env, app, swift_source=None):
 
     if info.get('sharding_state') is None:
         info['sharding_state'] = 'unsharded'
+
+    versions_cont = info.get('sysmeta', {}).get('versions-container', '')
+    if versions_cont:
+        versions_cont = wsgi_unquote(str_to_wsgi(
+            versions_cont)).split('/')[0]
+        versions_req = _prepare_pre_auth_info_request(
+            env, ("/%s/%s/%s" % (version, wsgi_account, versions_cont)),
+            (swift_source or 'GET_CONTAINER_INFO'))
+        versions_req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+        versions_info = get_container_info(versions_req.environ, app)
+        info['bytes'] = info['bytes'] + versions_info['bytes']
 
     return info
 
