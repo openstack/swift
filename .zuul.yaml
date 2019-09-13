@@ -175,7 +175,6 @@
       Uses tox with the ``func-ec`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    branches: ^(?!stable/ocata).*$
     vars:
       tox_envlist: func-ec
 
