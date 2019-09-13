@@ -197,7 +197,8 @@ def find_shrinking_candidates(broker, shrink_threshold, merge_size):
 class CleavingContext(object):
     def __init__(self, ref, cursor='', max_row=None, cleave_to_row=None,
                  last_cleave_to_row=None, cleaving_done=False,
-                 misplaced_done=False, ranges_done=0, ranges_todo=0):
+                 misplaced_done=False, ranges_done=0, ranges_todo=0,
+                 last_modified=None):
         self.ref = ref
         self._cursor = None
         self.cursor = cursor
@@ -208,6 +209,7 @@ class CleavingContext(object):
         self.misplaced_done = misplaced_done
         self.ranges_done = ranges_done
         self.ranges_todo = ranges_todo
+        self.last_modified = last_modified
 
     def __iter__(self):
         yield 'ref', self.ref
@@ -219,6 +221,7 @@ class CleavingContext(object):
         yield 'misplaced_done', self.misplaced_done
         yield 'ranges_done', self.ranges_done
         yield 'ranges_todo', self.ranges_todo
+        yield 'last_modified', self.last_modified
 
     def _encode(cls, value):
         if value is not None and six.PY2 and isinstance(value, six.text_type):
@@ -240,6 +243,26 @@ class CleavingContext(object):
     @classmethod
     def _make_ref(cls, broker):
         return broker.get_info()['id']
+
+    @classmethod
+    def load_all(cls, broker):
+        """
+        Returns all cleaving contexts stored in the broker.
+
+        :param broker:
+        :return: list of CleavingContexts
+        """
+        brokers = broker.get_brokers()
+        sysmeta = brokers[-1].get_sharding_sysmeta()
+
+        for key, val in sysmeta.items():
+            # If the value is of length 0, then the metadata is
+            # marked for deletion
+            if key.startswith("Context-") and len(val) > 0:
+                try:
+                    yield cls(**json.loads(val))
+                except ValueError:
+                    continue
 
     @classmethod
     def load(cls, broker):
@@ -265,6 +288,7 @@ class CleavingContext(object):
         return cls(**data)
 
     def store(self, broker):
+        self.last_modified = Timestamp.now().internal
         broker.set_sharding_sysmeta('Context-' + self.ref,
                                     json.dumps(dict(self)))
 
@@ -286,6 +310,11 @@ class CleavingContext(object):
     def done(self):
         return all((self.misplaced_done, self.cleaving_done,
                     self.max_row == self.cleave_to_row))
+
+    def delete(self, broker):
+        # These will get reclaimed when `_reclaim_metadata` in
+        # common/db.py is called.
+        broker.set_sharding_sysmeta('Context-' + self.ref, '')
 
 
 DEFAULT_SHARD_CONTAINER_THRESHOLD = 1000000
@@ -724,12 +753,23 @@ class ContainerSharder(ContainerReplicator):
         self._increment_stat('audit_shard', 'success', statsd=True)
         return True
 
+    def _audit_cleave_contexts(self, broker):
+        for context in CleavingContext.load_all(broker):
+            now = Timestamp.now()
+            last_mod = context.last_modified
+            if not last_mod:
+                context.store(broker)
+            elif Timestamp(last_mod).timestamp + self.reclaim_age < \
+                    now.timestamp:
+                context.delete(broker)
+
     def _audit_container(self, broker):
         if broker.is_deleted():
             # if the container has been marked as deleted, all metadata will
             # have been erased so no point auditing. But we want it to pass, in
             # case any objects exist inside it.
             return True
+        self._audit_cleave_contexts(broker)
         if broker.is_root_container():
             return self._audit_root_container(broker)
         return self._audit_shard_container(broker)
@@ -1307,6 +1347,7 @@ class ContainerSharder(ContainerReplicator):
             modified_shard_ranges.append(own_shard_range)
             broker.merge_shard_ranges(modified_shard_ranges)
             if broker.set_sharded_state():
+                cleaving_context.delete(broker)
                 return True
             else:
                 self.logger.warning(
