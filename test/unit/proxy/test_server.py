@@ -2433,6 +2433,41 @@ class TestReplicatedObjectController(
         self.assertEqual(res.body, b'')
 
     @unpatch_policies
+    def test_PUT_GET_unicode_metadata(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+
+        path = b'/v1/a/c/o.zerobyte'
+        fd.write(b'PUT %s HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'Expect: 100-continue\r\n'
+                 b'Transfer-Encoding: chunked\r\n'
+                 b'Content-Type: application/octet-stream\r\n'
+                 b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d\r\n'
+                 b'\r\n0\r\n\r\n' % (path,))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 100'
+        self.assertEqual(headers[:len(exp)], exp)
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        fd.write(b'GET %s HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'\r\n' % (path,))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.assertIn(b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d',
+                      headers.split(b'\r\n'))
+
+    @unpatch_policies
     def test_GET_short_read(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -5332,7 +5367,7 @@ class TestReplicatedObjectController(
         exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
         self.assertIn(b'\r\nX-Object-Meta-%s: %s\r\n' %
-                      (quote(ustr_short).lower().encode('ascii'),
+                      (quote(ustr_short).title().encode('ascii'),
                        quote(ustr).encode('ascii')), headers)
 
     @unpatch_policies
