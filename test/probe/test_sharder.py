@@ -432,12 +432,12 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
                 expected = expected[:params['limit']]
             self.assertEqual(expected, listing)
 
-        def check_listing_precondition_fails(**params):
+        def check_listing_fails(exp_status, **params):
             qs = '&'.join(['%s=%s' % param for param in params.items()])
             with self.assertRaises(ClientException) as cm:
                 client.get_container(
                     self.url, self.token, self.container_name, query_string=qs)
-            self.assertEqual(412, cm.exception.http_status)
+            self.assertEqual(exp_status, cm.exception.http_status)
             return cm.exception
 
         def do_listing_checks(objects):
@@ -469,12 +469,16 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
                 self.url, self.token, self.container_name,
                 query_string='delimiter=-')
             self.assertEqual([{'subdir': 'obj-'}], listing)
+            headers, listing = client.get_container(
+                self.url, self.token, self.container_name,
+                query_string='delimiter=j-')
+            self.assertEqual([{'subdir': 'obj-'}], listing)
 
             limit = self.cluster_info['swift']['container_listing_limit']
-            exc = check_listing_precondition_fails(limit=limit + 1)
+            exc = check_listing_fails(412, limit=limit + 1)
             self.assertIn(b'Maximum limit', exc.http_response_content)
-            exc = check_listing_precondition_fails(delimiter='ab')
-            self.assertIn(b'Bad delimiter', exc.http_response_content)
+            exc = check_listing_fails(400, delimiter='%ff')
+            self.assertIn(b'not valid UTF-8', exc.http_response_content)
 
         # sanity checks
         do_listing_checks(obj_names)
