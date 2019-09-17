@@ -982,7 +982,10 @@ class TestSloWithVersioning(unittest2.TestCase):
         self.segments_container = self.account.container(Utils.create_name())
         if not self.container.create(
                 hdrs={'X-Versions-Location': self.versions_container.name}):
-            raise ResponseError(self.conn.response)
+            if self.conn.response.status == 412:
+                raise SkipTest("Object versioning not enabled")
+            else:
+                raise ResponseError(self.conn.response)
         if 'versions' not in self.container.info():
             raise SkipTest("Object versioning not enabled")
 
