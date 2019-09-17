@@ -549,6 +549,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - tempest-ipv6-only:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - grenade-py3:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -606,6 +611,11 @@
               # Keep doc/manpages -- we want to syntax check them
               - ^doc/(requirements.txt|(saio|s3api|source)/.*)$
         - tempest-integrated-object-storage:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - tempest-ipv6-only:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
