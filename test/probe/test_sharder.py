@@ -28,6 +28,7 @@ from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
     quorum_size, config_true_value, Timestamp
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
+from swift.container.sharder import CleavingContext
 from swiftclient import client, get_auth, ClientException
 
 from swift.proxy.controllers.base import get_cache_key
@@ -612,6 +613,8 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_shard_ranges_contiguous(2, orig_root_shard_ranges)
         self.assertEqual([ShardRange.ACTIVE, ShardRange.ACTIVE],
                          [sr['state'] for sr in orig_root_shard_ranges])
+        contexts = list(CleavingContext.load_all(broker))
+        self.assertEqual([], contexts)  # length check
         self.direct_delete_container(expect_failure=True)
 
         self.assertLengthEqual(found['normal_dbs'], 2)
@@ -628,6 +631,9 @@ class TestContainerSharding(BaseTestContainerSharding):
             self.assert_shard_range_lists_equal(
                 orig_root_shard_ranges, shard_ranges,
                 excludes=['meta_timestamp', 'state', 'state_timestamp'])
+
+            contexts = list(CleavingContext.load_all(broker))
+            self.assertEqual([], contexts)  # length check
 
         if run_replicators:
             Manager(['container-replicator']).once()
@@ -658,6 +664,9 @@ class TestContainerSharding(BaseTestContainerSharding):
                                         orig['state_timestamp'])
                 self.assertGreaterEqual(updated.meta_timestamp,
                                         orig['meta_timestamp'])
+
+            contexts = list(CleavingContext.load_all(broker))
+            self.assertEqual([], contexts)  # length check
 
         # Check that entire listing is available
         headers, actual_listing = self.assert_container_listing(obj_names)
@@ -749,6 +758,16 @@ class TestContainerSharding(BaseTestContainerSharding):
                     first_lower=orig_root_shard_ranges[0]['lower'],
                     last_upper=orig_root_shard_ranges[0]['upper'])
 
+                contexts = list(CleavingContext.load_all(broker))
+                self.assertEqual(len(contexts), 1)
+                context, _lm = contexts[0]
+                self.assertIs(context.cleaving_done, False)
+                self.assertIs(context.misplaced_done, True)
+                self.assertEqual(context.ranges_done, 2)
+                self.assertEqual(context.ranges_todo, 1)
+                self.assertEqual(context.max_row,
+                                 self.max_shard_size * 3 // 2)
+
         # but third replica still has no idea it should be sharding
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
         self.assertEqual(
@@ -776,16 +795,36 @@ class TestContainerSharding(BaseTestContainerSharding):
             ShardRange.SHARDING, broker.get_own_shard_range().state)
         self.assertFalse(broker.get_shard_ranges())
 
+        contexts = list(CleavingContext.load_all(broker))
+        self.assertEqual([], contexts)  # length check
+
         # ...until sub-shard ranges are replicated from another shard replica;
         # there may also be a sub-shard replica missing so run replicators on
         # all nodes to fix that if necessary
         self.brain.servers.start(number=shard_1_nodes[2])
         self.replicators.once()
 
+        # Now that the replicators have all run, third replica sees cleaving
+        # contexts for the first two
+        contexts = list(CleavingContext.load_all(broker))
+        self.assertEqual(len(contexts), 2)
+
         # now run sharder again on third replica
         self.sharders.once(
             number=shard_1_nodes[2],
             additional_args='--partitions=%s' % shard_1_part)
+        sharding_broker = ContainerBroker(found_for_shard['normal_dbs'][2])
+        self.assertEqual('sharding', sharding_broker.get_db_state())
+
+        broker_id = broker.get_info()['id']
+        # Old, unsharded DB doesn't have the context...
+        contexts = list(CleavingContext.load_all(broker))
+        self.assertEqual(len(contexts), 2)
+        self.assertNotIn(broker_id, [ctx[0].ref for ctx in contexts])
+        # ...but the sharding one does
+        contexts = list(CleavingContext.load_all(sharding_broker))
+        self.assertEqual(len(contexts), 3)
+        self.assertIn(broker_id, [ctx[0].ref for ctx in contexts])
 
         # check original first shard range state and sub-shards - all replicas
         # should now be in consistent state
@@ -861,6 +900,8 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
         # Run sharders again so things settle.
         self.run_sharders(shard_1)
+        # Also run replicators to settle cleaving contexts
+        self.replicators.once()
 
         # check original first shard range shards
         for db_file in found_for_shard['shard_dbs']:
@@ -871,6 +912,11 @@ class TestContainerSharding(BaseTestContainerSharding):
                 self.assertEqual(
                     [ShardRange.ACTIVE] * 3,
                     [sr.state for sr in broker.get_shard_ranges()])
+
+                # Make sure our cleaving contexts got cleaned up
+                contexts = list(CleavingContext.load_all(broker))
+                self.assertEqual([], contexts)
+
         # check root shard ranges
         root_shard_ranges = self.direct_get_container_shard_ranges()
         for node, (hdrs, root_shards) in root_shard_ranges.items():
