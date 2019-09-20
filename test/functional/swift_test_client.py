@@ -208,6 +208,7 @@ class Connection(object):
         self.insecure = config_true_value(config.get('insecure', 'false'))
         self.auth_version = str(config.get('auth_version', '1'))
 
+        self.domain = config.get('domain')
         self.account = config.get('account')
         self.username = config['username']
         self.password = config['password']
@@ -269,8 +270,13 @@ class Connection(object):
             else:
                 requests.packages.urllib3.disable_warnings(
                     InsecureRequestWarning)
+        if self.domain:
+            os_opts = {'project_domain_name': self.domain,
+                       'user_domain_name': self.domain}
+        else:
+            os_opts = {}
         authargs = dict(snet=False, tenant_name=self.account,
-                        auth_version=self.auth_version, os_options={},
+                        auth_version=self.auth_version, os_options=os_opts,
                         insecure=self.insecure)
         (storage_url, storage_token) = get_auth(
             self.auth_url, auth_user, self.password, **authargs)
