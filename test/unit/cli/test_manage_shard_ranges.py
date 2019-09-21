@@ -201,7 +201,6 @@ class TestManageShardRanges(unittest.TestCase):
                     '  "cleaving_done": false,',
                     '  "cursor": "",',
                     '  "last_cleave_to_row": null,',
-                    '  "last_modified": null,',
                     '  "max_row": -1,',
                     '  "misplaced_done": false,',
                     '  "ranges_done": 0,',
