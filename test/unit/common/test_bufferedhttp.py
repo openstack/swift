@@ -56,7 +56,8 @@ class TestBufferedHTTP(unittest.TestCase):
                              b'RESPONSE')
                     fp.flush()
                     line = fp.readline()
-                    path = b'/dev/' + expected_par + b'/path/..%25/?omg&no=%7f'
+                    path = (b'/dev/' + expected_par +
+                            b'/path/..%25/?omg=&no=%7F&%FF=%FF&no=%25ff')
                     self.assertEqual(
                         line,
                         b'PUT ' + path + b' HTTP/1.1\r\n')
@@ -83,7 +84,7 @@ class TestBufferedHTTP(unittest.TestCase):
                         'PUT', '/path/..%/', {
                             'content-length': 7,
                             'x-header': 'value'},
-                        query_string='omg&no=%7f')
+                        query_string='omg&no=%7f&\xff=%ff&no=%25ff')
                     conn.send(b'REQUEST\r\n')
                     self.assertTrue(conn.sock.getsockopt(socket.IPPROTO_TCP,
                                                          socket.TCP_NODELAY))
