@@ -915,10 +915,11 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
 
         expected = [b'old content', b'112233', b'new content', b'']
 
+        name_len = len(obj_name if six.PY2 else obj_name.encode('utf8'))
         bodies = [
             self.env.versions_container.file(f).read()
             for f in self.env.versions_container.files(parms={
-                'prefix': '%03x%s/' % (len(obj_name), obj_name)})]
+                'prefix': '%03x%s/' % (name_len, obj_name)})]
         self.assertEqual(expected, bodies)
 
     def test_versioning_check_acl(self):
@@ -960,6 +961,11 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         self.assertEqual(404, cm.exception.status)
         # 2 versions plus delete marker and deleted version
         self.assertEqual(4, self.env.versions_container.info()['object_count'])
+
+
+class TestObjectVersioningHistoryModeUTF8(
+        Base2, TestObjectVersioningHistoryMode):
+    pass
 
 
 class TestSloWithVersioning(unittest2.TestCase):
@@ -1026,10 +1032,16 @@ class TestSloWithVersioning(unittest2.TestCase):
             self.fail("GET with multipart-manifest=get got invalid json")
 
         self.assertEqual(1, len(manifest))
-        key_map = {'etag': 'hash', 'size_bytes': 'bytes', 'path': 'name'}
+        key_map = {'etag': 'hash', 'size_bytes': 'bytes'}
         for k_client, k_slo in key_map.items():
             self.assertEqual(self.seg_info[seg_name][k_client],
                              manifest[0][k_slo])
+        if six.PY2:
+            self.assertEqual(self.seg_info[seg_name]['path'].decode('utf8'),
+                             manifest[0]['name'])
+        else:
+            self.assertEqual(self.seg_info[seg_name]['path'],
+                             manifest[0]['name'])
 
     def _assert_is_object(self, file_item, seg_data):
         file_contents = file_item.read()
@@ -1108,6 +1120,10 @@ class TestSloWithVersioning(unittest2.TestCase):
         primary_file_size = primary_list[0]['bytes']
         # expect the original manifest file size to be the same
         self.assertEqual(primary_file_size, org_size)
+
+
+class TestSloWithVersioningUTF8(Base2, TestSloWithVersioning):
+    pass
 
 
 class TestObjectVersioningChangingMode(Base):
@@ -1192,3 +1208,8 @@ class TestObjectVersioningChangingMode(Base):
 
         # and there's only one version1 is left in versions_container
         self.assertEqual(1, versions_container.info()['object_count'])
+
+
+class TestObjectVersioningChangingModeUTF8(
+        Base2, TestObjectVersioningChangingMode):
+    pass
