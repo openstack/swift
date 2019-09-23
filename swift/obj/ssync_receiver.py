@@ -16,6 +16,7 @@
 
 import eventlet.greenio
 import eventlet.wsgi
+from eventlet import sleep
 from six.moves import urllib
 
 from swift.common import exceptions
@@ -341,6 +342,7 @@ class Receiver(object):
             raise Exception(
                 'Looking for :MISSING_CHECK: START got %r' % line[:1024])
         object_hashes = []
+        nlines = 0
         while True:
             with exceptions.MessageTimeout(
                     self.app.client_timeout, 'missing_check line'):
@@ -350,6 +352,9 @@ class Receiver(object):
             want = self._check_missing(line)
             if want:
                 object_hashes.append(want)
+            if nlines % 5 == 0:
+                sleep()  # Gives a chance for other greenthreads to run
+            nlines += 1
         yield b':MISSING_CHECK: START\r\n'
         if object_hashes:
             yield b'\r\n'.join(hsh.encode('ascii') for hsh in object_hashes)
