@@ -220,6 +220,10 @@ class CleavingContext(object):
         yield 'ranges_done', self.ranges_done
         yield 'ranges_todo', self.ranges_todo
 
+    def __repr__(self):
+        return '%s(%s)' % (self.__class__.__name__, ', '.join(
+            '%s=%r' % prop for prop in self))
+
     def _encode(cls, value):
         if value is not None and six.PY2 and isinstance(value, six.text_type):
             return value.encode('utf-8')
@@ -750,8 +754,8 @@ class ContainerSharder(ContainerReplicator):
         return True
 
     def _audit_cleave_contexts(self, broker):
+        now = Timestamp.now()
         for context, last_mod in CleavingContext.load_all(broker):
-            now = Timestamp.now()
             if Timestamp(last_mod).timestamp + self.reclaim_age < \
                     now.timestamp:
                 context.delete(broker)
