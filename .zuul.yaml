@@ -272,6 +272,7 @@
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
+      - tools/playbooks/saio_single_node_setup/add_s3api.yaml
       - tools/playbooks/saio_single_node_setup/make_rings.yaml
     run: tools/playbooks/ceph-s3tests/run.yaml
     post-run:

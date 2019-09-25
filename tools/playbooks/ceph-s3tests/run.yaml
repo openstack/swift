@@ -14,16 +14,13 @@
 # limitations under the License.
 - hosts: all
   tasks:
-    # TODO: remove this task when s3api is in the pipeline by default
-    - name: Add s3api in proxy-server.conf
-      replace:
-          path: "/etc/swift/proxy-server.conf"
-          regexp: "container_sync tempauth"
-          replace: "container_sync s3api tempauth"
+    - name: Shutdown main swift services
+      shell: "swift-init stop main"
       become: true
+      ignore_errors: true
 
-    - name: Starts main swift servers
-      shell: "swift-init main start"
+    - name: Start main swift services
+      shell: "swift-init start main"
       become: true
 
     - name: Clone s3compat repository
@@ -35,17 +32,18 @@
       pip:
           requirements: "{{ ansible_env.HOME }}/s3compat/requirements.txt"
           virtualenv: "{{ ansible_env.HOME }}/venv"
+          virtualenv_python: python2
       become: true
 
     - name: Run s3compat tests
-      shell: '{{ ansible_env.HOME }}/venv/bin/python {{ ansible_env.HOME }}/s3compat/bin/run_ceph_tests.py "$@" || true'
+      shell: '{{ ansible_env.HOME }}/venv/bin/python {{ ansible_env.HOME }}/s3compat/bin/run_ceph_tests.py "$@"'
+      ignore_errors: true
       environment:
           S3TEST_CONF: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/tools/playbooks/ceph-s3tests/ceph-s3.conf"
-          S3ACL: "true"
-          DNS_BUCKET_NAMES: "false"
-          CHECK_BUCKET_OWNER: "true"
       args:
           chdir: '{{ ansible_env.HOME }}/s3compat'
+      tags:
+        - tests
 
     - name: Show report
       shell: |
@@ -58,3 +56,5 @@
       args:
           chdir:
               "{{ ansible_env.HOME }}/s3compat"
+      tags:
+        - tests
