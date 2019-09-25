@@ -250,7 +250,7 @@ class CleavingContext(object):
         :return: list of tuples of (CleavingContext, timestamp)
         """
         brokers = broker.get_brokers()
-        sysmeta = brokers[-1].get_sharding_sysmeta(include_timestamps=True)
+        sysmeta = brokers[-1].get_sharding_sysmeta_with_timestamps()
 
         for key, (val, timestamp) in sysmeta.items():
             # If the value is of length 0, then the metadata is
