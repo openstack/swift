@@ -21,7 +21,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='filemgr',
   syntax='proto3',
   serialized_options=None,
-  serialized_pb=_b('\n\nfmgr.proto\x12\x07\x66ilemgr\",\n\x12ListPartitionsInfo\x12\x16\n\x0epartition_bits\x18\x01 \x01(\r\">\n\x11ListPartitionInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12\x16\n\x0epartition_bits\x18\x02 \x01(\r\"K\n\x0eListSuffixInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12\x0e\n\x06suffix\x18\x02 \x01(\x0c\x12\x16\n\x0epartition_bits\x18\x03 \x01(\r\"\x1b\n\nDirEntries\x12\r\n\x05\x65ntry\x18\x01 \x03(\t\"m\n\x0bVolumeIndex\x12\r\n\x05index\x18\x01 \x01(\r\x12\x13\n\x0bquarantined\x18\x02 \x01(\x08\x12\x12\n\npage_token\x18\x03 \x01(\x0c\x12\x11\n\tpage_size\x18\x04 \x01(\r\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"q\n\x06Volume\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12\x13\n\x0bvolume_type\x18\x02 \x01(\r\x12\x14\n\x0cvolume_state\x18\x03 \x01(\r\x12\x11\n\tpartition\x18\x04 \x01(\r\x12\x13\n\x0bnext_offset\x18\x05 \x01(\x04\"i\n\x11GetNextOffsetInfo\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12\x13\n\x0bvolume_type\x18\x02 \x01(\r\x12\x14\n\x0cvolume_state\x18\x03 \x01(\r\x12\x13\n\x0brepair_tool\x18\x04 \x01(\x08\"\\\n\x0fListVolumesInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12!\n\x04type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"+\n\x07Volumes\x12 \n\x07volumes\x18\x01 \x03(\x0b\x32\x0f.filemgr.Volume\"\"\n\x10VolumeNextOffset\x12\x0e\n\x06offset\x18\x01 \x01(\x04\"\xa5\x01\n\rNewVolumeInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12!\n\x04type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x14\n\x0cvolume_index\x18\x03 \x01(\r\x12\x0e\n\x06offset\x18\x04 \x01(\x04\x12#\n\x05state\x18\x05 \x01(\x0e\x32\x14.filemgr.VolumeState\x12\x13\n\x0brepair_tool\x18\x06 \x01(\x08\"`\n\x0eNewVolumeState\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12#\n\x05state\x18\x02 \x01(\x0e\x32\x14.filemgr.VolumeState\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"\x10\n\x0eNewVolumeReply\"\x10\n\x0e\x44\x65lObjectReply\"\r\n\x0bRenameReply\"m\n\rNewObjectInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\x12\x13\n\x0bnext_offset\x18\x04 \x01(\x04\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"\x10\n\x0eNewObjectReply\"%\n\x15QuarantinedObjectName\x12\x0c\n\x04name\x18\x01 \x01(\x0c\"b\n\x16QuarantinedObjectNames\x12/\n\x07objects\x18\x01 \x03(\x0b\x32\x1e.filemgr.QuarantinedObjectName\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"/\n\nObjectName\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"K\n\x0eLoadObjectInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x16\n\x0eis_quarantined\x18\x02 \x01(\x08\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"A\n\nRenameInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x10\n\x08new_name\x18\x02 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"<\n\x06Object\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\"P\n\x13LoadObjectsResponse\x12 \n\x07objects\x18\x01 \x03(\x0b\x32\x0f.filemgr.Object\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"3\n\x0cObjectPrefix\x12\x0e\n\x06prefix\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"\x07\n\x05\x45mpty\"\x0e\n\x0cGetStatsInfo\"@\n\x10PartitionContent\x12,\n\x0c\x66ile_entries\x18\x01 \x03(\x0b\x32\x16.filemgr.FullPathEntry\"@\n\rFullPathEntry\x12\x0e\n\x06suffix\x18\x01 \x01(\x0c\x12\r\n\x05ohash\x18\x02 \x01(\x0c\x12\x10\n\x08\x66ilename\x18\x03 \x01(\x0c\"\x1a\n\x07KvState\x12\x0f\n\x07isClean\x18\x01 \x01(\x08\"c\n\x07KVStats\x12*\n\x05stats\x18\x01 \x03(\x0b\x32\x1b.filemgr.KVStats.StatsEntry\x1a,\n\nStatsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x04:\x02\x38\x01\"C\n\x1aListQuarantinedOHashesInfo\x12\x12\n\npage_token\x18\x01 \x01(\x0c\x12\x11\n\tpage_size\x18\x02 \x01(\r*N\n\nVolumeType\x12\x12\n\x0eVOLUME_DEFAULT\x10\x00\x12\x14\n\x10VOLUME_TOMBSTONE\x10\x01\x12\x16\n\x12VOLUME_X_DELETE_AT\x10\x02*R\n\x0bVolumeState\x12\x0c\n\x08STATE_RW\x10\x00\x12\x18\n\x14STATE_COMPACTION_SRC\x10\x01\x12\x1b\n\x17STATE_COMPACTION_TARGET\x10\x02\x62\x06proto3')
+  serialized_pb=_b('\n\nfmgr.proto\x12\x07\x66ilemgr\",\n\x12ListPartitionsInfo\x12\x16\n\x0epartition_bits\x18\x01 \x01(\r\">\n\x11ListPartitionInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12\x16\n\x0epartition_bits\x18\x02 \x01(\r\"K\n\x0eListSuffixInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12\x0e\n\x06suffix\x18\x02 \x01(\x0c\x12\x16\n\x0epartition_bits\x18\x03 \x01(\r\"\x1b\n\nDirEntries\x12\r\n\x05\x65ntry\x18\x01 \x03(\t\"m\n\x0bVolumeIndex\x12\r\n\x05index\x18\x01 \x01(\r\x12\x13\n\x0bquarantined\x18\x02 \x01(\x08\x12\x12\n\npage_token\x18\x03 \x01(\x0c\x12\x11\n\tpage_size\x18\x04 \x01(\r\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"\x86\x01\n\x06Volume\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12(\n\x0bvolume_type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x14\n\x0cvolume_state\x18\x03 \x01(\r\x12\x11\n\tpartition\x18\x04 \x01(\r\x12\x13\n\x0bnext_offset\x18\x05 \x01(\x04\"i\n\x11GetNextOffsetInfo\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12\x13\n\x0bvolume_type\x18\x02 \x01(\r\x12\x14\n\x0cvolume_state\x18\x03 \x01(\r\x12\x13\n\x0brepair_tool\x18\x04 \x01(\x08\"\\\n\x0fListVolumesInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12!\n\x04type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"+\n\x07Volumes\x12 \n\x07volumes\x18\x01 \x03(\x0b\x32\x0f.filemgr.Volume\"\"\n\x10VolumeNextOffset\x12\x0e\n\x06offset\x18\x01 \x01(\x04\"\xa5\x01\n\rNewVolumeInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12!\n\x04type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x14\n\x0cvolume_index\x18\x03 \x01(\r\x12\x0e\n\x06offset\x18\x04 \x01(\x04\x12#\n\x05state\x18\x05 \x01(\x0e\x32\x14.filemgr.VolumeState\x12\x13\n\x0brepair_tool\x18\x06 \x01(\x08\"`\n\x0eNewVolumeState\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12#\n\x05state\x18\x02 \x01(\x0e\x32\x14.filemgr.VolumeState\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"\x10\n\x0eNewVolumeReply\"\x10\n\x0e\x44\x65lObjectReply\"\r\n\x0bRenameReply\"m\n\rNewObjectInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\x12\x13\n\x0bnext_offset\x18\x04 \x01(\x04\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"\x10\n\x0eNewObjectReply\"%\n\x15QuarantinedObjectName\x12\x0c\n\x04name\x18\x01 \x01(\x0c\"b\n\x16QuarantinedObjectNames\x12/\n\x07objects\x18\x01 \x03(\x0b\x32\x1e.filemgr.QuarantinedObjectName\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"/\n\nObjectName\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"K\n\x0eLoadObjectInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x16\n\x0eis_quarantined\x18\x02 \x01(\x08\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"A\n\nRenameInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x10\n\x08new_name\x18\x02 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"<\n\x06Object\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\"P\n\x13LoadObjectsResponse\x12 \n\x07objects\x18\x01 \x03(\x0b\x32\x0f.filemgr.Object\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"3\n\x0cObjectPrefix\x12\x0e\n\x06prefix\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"\x07\n\x05\x45mpty\"\x0e\n\x0cGetStatsInfo\"@\n\x10PartitionContent\x12,\n\x0c\x66ile_entries\x18\x01 \x03(\x0b\x32\x16.filemgr.FullPathEntry\"@\n\rFullPathEntry\x12\x0e\n\x06suffix\x18\x01 \x01(\x0c\x12\r\n\x05ohash\x18\x02 \x01(\x0c\x12\x10\n\x08\x66ilename\x18\x03 \x01(\x0c\"\x1a\n\x07KvState\x12\x0f\n\x07isClean\x18\x01 \x01(\x08\"c\n\x07KVStats\x12*\n\x05stats\x18\x01 \x03(\x0b\x32\x1b.filemgr.KVStats.StatsEntry\x1a,\n\nStatsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x04:\x02\x38\x01\"C\n\x1aListQuarantinedOHashesInfo\x12\x12\n\npage_token\x18\x01 \x01(\x0c\x12\x11\n\tpage_size\x18\x02 \x01(\r*N\n\nVolumeType\x12\x12\n\x0eVOLUME_DEFAULT\x10\x00\x12\x14\n\x10VOLUME_TOMBSTONE\x10\x01\x12\x16\n\x12VOLUME_X_DELETE_AT\x10\x02*R\n\x0bVolumeState\x12\x0c\n\x08STATE_RW\x10\x00\x12\x18\n\x14STATE_COMPACTION_SRC\x10\x01\x12\x1b\n\x17STATE_COMPACTION_TARGET\x10\x02\x62\x06proto3')
 )
 
 _VOLUMETYPE = _descriptor.EnumDescriptor(
@@ -45,8 +45,8 @@ _VOLUMETYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=2077,
-  serialized_end=2155,
+  serialized_start=2099,
+  serialized_end=2177,
 )
 _sym_db.RegisterEnumDescriptor(_VOLUMETYPE)
 
@@ -72,8 +72,8 @@ _VOLUMESTATE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=2157,
-  serialized_end=2239,
+  serialized_start=2179,
+  serialized_end=2261,
 )
 _sym_db.RegisterEnumDescriptor(_VOLUMESTATE)
 
@@ -307,7 +307,7 @@ _VOLUME = _descriptor.Descriptor(
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='volume_type', full_name='filemgr.Volume.volume_type', index=1,
-      number=2, type=13, cpp_type=3, label=1,
+      number=2, type=14, cpp_type=8, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
@@ -345,8 +345,8 @@ _VOLUME = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=350,
-  serialized_end=463,
+  serialized_start=351,
+  serialized_end=485,
 )
 
 
@@ -397,8 +397,8 @@ _GETNEXTOFFSETINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=465,
-  serialized_end=570,
+  serialized_start=487,
+  serialized_end=592,
 )
 
 
@@ -442,8 +442,8 @@ _LISTVOLUMESINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=572,
-  serialized_end=664,
+  serialized_start=594,
+  serialized_end=686,
 )
 
 
@@ -473,8 +473,8 @@ _VOLUMES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=666,
-  serialized_end=709,
+  serialized_start=688,
+  serialized_end=731,
 )
 
 
@@ -504,8 +504,8 @@ _VOLUMENEXTOFFSET = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=711,
-  serialized_end=745,
+  serialized_start=733,
+  serialized_end=767,
 )
 
 
@@ -570,8 +570,8 @@ _NEWVOLUMEINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=748,
-  serialized_end=913,
+  serialized_start=770,
+  serialized_end=935,
 )
 
 
@@ -615,8 +615,8 @@ _NEWVOLUMESTATE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=915,
-  serialized_end=1011,
+  serialized_start=937,
+  serialized_end=1033,
 )
 
 
@@ -639,8 +639,8 @@ _NEWVOLUMEREPLY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1013,
-  serialized_end=1029,
+  serialized_start=1035,
+  serialized_end=1051,
 )
 
 
@@ -663,8 +663,8 @@ _DELOBJECTREPLY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1031,
-  serialized_end=1047,
+  serialized_start=1053,
+  serialized_end=1069,
 )
 
 
@@ -687,8 +687,8 @@ _RENAMEREPLY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1049,
-  serialized_end=1062,
+  serialized_start=1071,
+  serialized_end=1084,
 )
 
 
@@ -746,8 +746,8 @@ _NEWOBJECTINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1064,
-  serialized_end=1173,
+  serialized_start=1086,
+  serialized_end=1195,
 )
 
 
@@ -770,8 +770,8 @@ _NEWOBJECTREPLY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1175,
-  serialized_end=1191,
+  serialized_start=1197,
+  serialized_end=1213,
 )
 
 
@@ -801,8 +801,8 @@ _QUARANTINEDOBJECTNAME = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1193,
-  serialized_end=1230,
+  serialized_start=1215,
+  serialized_end=1252,
 )
 
 
@@ -839,8 +839,8 @@ _QUARANTINEDOBJECTNAMES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1232,
-  serialized_end=1330,
+  serialized_start=1254,
+  serialized_end=1352,
 )
 
 
@@ -877,8 +877,8 @@ _OBJECTNAME = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1332,
-  serialized_end=1379,
+  serialized_start=1354,
+  serialized_end=1401,
 )
 
 
@@ -922,8 +922,8 @@ _LOADOBJECTINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1381,
-  serialized_end=1456,
+  serialized_start=1403,
+  serialized_end=1478,
 )
 
 
@@ -967,8 +967,8 @@ _RENAMEINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1458,
-  serialized_end=1523,
+  serialized_start=1480,
+  serialized_end=1545,
 )
 
 
@@ -1012,8 +1012,8 @@ _OBJECT = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1525,
-  serialized_end=1585,
+  serialized_start=1547,
+  serialized_end=1607,
 )
 
 
@@ -1050,8 +1050,8 @@ _LOADOBJECTSRESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1587,
-  serialized_end=1667,
+  serialized_start=1609,
+  serialized_end=1689,
 )
 
 
@@ -1088,8 +1088,8 @@ _OBJECTPREFIX = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1669,
-  serialized_end=1720,
+  serialized_start=1691,
+  serialized_end=1742,
 )
 
 
@@ -1112,8 +1112,8 @@ _EMPTY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1722,
-  serialized_end=1729,
+  serialized_start=1744,
+  serialized_end=1751,
 )
 
 
@@ -1136,8 +1136,8 @@ _GETSTATSINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1731,
-  serialized_end=1745,
+  serialized_start=1753,
+  serialized_end=1767,
 )
 
 
@@ -1167,8 +1167,8 @@ _PARTITIONCONTENT = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1747,
-  serialized_end=1811,
+  serialized_start=1769,
+  serialized_end=1833,
 )
 
 
@@ -1212,8 +1212,8 @@ _FULLPATHENTRY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1813,
-  serialized_end=1877,
+  serialized_start=1835,
+  serialized_end=1899,
 )
 
 
@@ -1243,8 +1243,8 @@ _KVSTATE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1879,
-  serialized_end=1905,
+  serialized_start=1901,
+  serialized_end=1927,
 )
 
 
@@ -1281,8 +1281,8 @@ _KVSTATS_STATSENTRY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1962,
-  serialized_end=2006,
+  serialized_start=1984,
+  serialized_end=2028,
 )
 
 _KVSTATS = _descriptor.Descriptor(
@@ -1311,8 +1311,8 @@ _KVSTATS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1907,
-  serialized_end=2006,
+  serialized_start=1929,
+  serialized_end=2028,
 )
 
 
@@ -1349,10 +1349,11 @@ _LISTQUARANTINEDOHASHESINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=2008,
-  serialized_end=2075,
+  serialized_start=2030,
+  serialized_end=2097,
 )
 
+_VOLUME.fields_by_name['volume_type'].enum_type = _VOLUMETYPE
 _LISTVOLUMESINFO.fields_by_name['type'].enum_type = _VOLUMETYPE
 _VOLUMES.fields_by_name['volumes'].message_type = _VOLUME
 _NEWVOLUMEINFO.fields_by_name['type'].enum_type = _VOLUMETYPE
@@ -1399,236 +1400,236 @@ DESCRIPTOR.enum_types_by_name['VolumeType'] = _VOLUMETYPE
 DESCRIPTOR.enum_types_by_name['VolumeState'] = _VOLUMESTATE
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
-ListPartitionsInfo = _reflection.GeneratedProtocolMessageType('ListPartitionsInfo', (_message.Message,), dict(
-  DESCRIPTOR = _LISTPARTITIONSINFO,
-  __module__ = 'fmgr_pb2'
+ListPartitionsInfo = _reflection.GeneratedProtocolMessageType('ListPartitionsInfo', (_message.Message,), {
+  'DESCRIPTOR' : _LISTPARTITIONSINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.ListPartitionsInfo)
-  ))
+  })
 _sym_db.RegisterMessage(ListPartitionsInfo)
 
-ListPartitionInfo = _reflection.GeneratedProtocolMessageType('ListPartitionInfo', (_message.Message,), dict(
-  DESCRIPTOR = _LISTPARTITIONINFO,
-  __module__ = 'fmgr_pb2'
+ListPartitionInfo = _reflection.GeneratedProtocolMessageType('ListPartitionInfo', (_message.Message,), {
+  'DESCRIPTOR' : _LISTPARTITIONINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.ListPartitionInfo)
-  ))
+  })
 _sym_db.RegisterMessage(ListPartitionInfo)
 
-ListSuffixInfo = _reflection.GeneratedProtocolMessageType('ListSuffixInfo', (_message.Message,), dict(
-  DESCRIPTOR = _LISTSUFFIXINFO,
-  __module__ = 'fmgr_pb2'
+ListSuffixInfo = _reflection.GeneratedProtocolMessageType('ListSuffixInfo', (_message.Message,), {
+  'DESCRIPTOR' : _LISTSUFFIXINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.ListSuffixInfo)
-  ))
+  })
 _sym_db.RegisterMessage(ListSuffixInfo)
 
-DirEntries = _reflection.GeneratedProtocolMessageType('DirEntries', (_message.Message,), dict(
-  DESCRIPTOR = _DIRENTRIES,
-  __module__ = 'fmgr_pb2'
+DirEntries = _reflection.GeneratedProtocolMessageType('DirEntries', (_message.Message,), {
+  'DESCRIPTOR' : _DIRENTRIES,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.DirEntries)
-  ))
+  })
 _sym_db.RegisterMessage(DirEntries)
 
-VolumeIndex = _reflection.GeneratedProtocolMessageType('VolumeIndex', (_message.Message,), dict(
-  DESCRIPTOR = _VOLUMEINDEX,
-  __module__ = 'fmgr_pb2'
+VolumeIndex = _reflection.GeneratedProtocolMessageType('VolumeIndex', (_message.Message,), {
+  'DESCRIPTOR' : _VOLUMEINDEX,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.VolumeIndex)
-  ))
+  })
 _sym_db.RegisterMessage(VolumeIndex)
 
-Volume = _reflection.GeneratedProtocolMessageType('Volume', (_message.Message,), dict(
-  DESCRIPTOR = _VOLUME,
-  __module__ = 'fmgr_pb2'
+Volume = _reflection.GeneratedProtocolMessageType('Volume', (_message.Message,), {
+  'DESCRIPTOR' : _VOLUME,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.Volume)
-  ))
+  })
 _sym_db.RegisterMessage(Volume)
 
-GetNextOffsetInfo = _reflection.GeneratedProtocolMessageType('GetNextOffsetInfo', (_message.Message,), dict(
-  DESCRIPTOR = _GETNEXTOFFSETINFO,
-  __module__ = 'fmgr_pb2'
+GetNextOffsetInfo = _reflection.GeneratedProtocolMessageType('GetNextOffsetInfo', (_message.Message,), {
+  'DESCRIPTOR' : _GETNEXTOFFSETINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.GetNextOffsetInfo)
-  ))
+  })
 _sym_db.RegisterMessage(GetNextOffsetInfo)
 
-ListVolumesInfo = _reflection.GeneratedProtocolMessageType('ListVolumesInfo', (_message.Message,), dict(
-  DESCRIPTOR = _LISTVOLUMESINFO,
-  __module__ = 'fmgr_pb2'
+ListVolumesInfo = _reflection.GeneratedProtocolMessageType('ListVolumesInfo', (_message.Message,), {
+  'DESCRIPTOR' : _LISTVOLUMESINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.ListVolumesInfo)
-  ))
+  })
 _sym_db.RegisterMessage(ListVolumesInfo)
 
-Volumes = _reflection.GeneratedProtocolMessageType('Volumes', (_message.Message,), dict(
-  DESCRIPTOR = _VOLUMES,
-  __module__ = 'fmgr_pb2'
+Volumes = _reflection.GeneratedProtocolMessageType('Volumes', (_message.Message,), {
+  'DESCRIPTOR' : _VOLUMES,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.Volumes)
-  ))
+  })
 _sym_db.RegisterMessage(Volumes)
 
-VolumeNextOffset = _reflection.GeneratedProtocolMessageType('VolumeNextOffset', (_message.Message,), dict(
-  DESCRIPTOR = _VOLUMENEXTOFFSET,
-  __module__ = 'fmgr_pb2'
+VolumeNextOffset = _reflection.GeneratedProtocolMessageType('VolumeNextOffset', (_message.Message,), {
+  'DESCRIPTOR' : _VOLUMENEXTOFFSET,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.VolumeNextOffset)
-  ))
+  })
 _sym_db.RegisterMessage(VolumeNextOffset)
 
-NewVolumeInfo = _reflection.GeneratedProtocolMessageType('NewVolumeInfo', (_message.Message,), dict(
-  DESCRIPTOR = _NEWVOLUMEINFO,
-  __module__ = 'fmgr_pb2'
+NewVolumeInfo = _reflection.GeneratedProtocolMessageType('NewVolumeInfo', (_message.Message,), {
+  'DESCRIPTOR' : _NEWVOLUMEINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.NewVolumeInfo)
-  ))
+  })
 _sym_db.RegisterMessage(NewVolumeInfo)
 
-NewVolumeState = _reflection.GeneratedProtocolMessageType('NewVolumeState', (_message.Message,), dict(
-  DESCRIPTOR = _NEWVOLUMESTATE,
-  __module__ = 'fmgr_pb2'
+NewVolumeState = _reflection.GeneratedProtocolMessageType('NewVolumeState', (_message.Message,), {
+  'DESCRIPTOR' : _NEWVOLUMESTATE,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.NewVolumeState)
-  ))
+  })
 _sym_db.RegisterMessage(NewVolumeState)
 
-NewVolumeReply = _reflection.GeneratedProtocolMessageType('NewVolumeReply', (_message.Message,), dict(
-  DESCRIPTOR = _NEWVOLUMEREPLY,
-  __module__ = 'fmgr_pb2'
+NewVolumeReply = _reflection.GeneratedProtocolMessageType('NewVolumeReply', (_message.Message,), {
+  'DESCRIPTOR' : _NEWVOLUMEREPLY,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.NewVolumeReply)
-  ))
+  })
 _sym_db.RegisterMessage(NewVolumeReply)
 
-DelObjectReply = _reflection.GeneratedProtocolMessageType('DelObjectReply', (_message.Message,), dict(
-  DESCRIPTOR = _DELOBJECTREPLY,
-  __module__ = 'fmgr_pb2'
+DelObjectReply = _reflection.GeneratedProtocolMessageType('DelObjectReply', (_message.Message,), {
+  'DESCRIPTOR' : _DELOBJECTREPLY,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.DelObjectReply)
-  ))
+  })
 _sym_db.RegisterMessage(DelObjectReply)
 
-RenameReply = _reflection.GeneratedProtocolMessageType('RenameReply', (_message.Message,), dict(
-  DESCRIPTOR = _RENAMEREPLY,
-  __module__ = 'fmgr_pb2'
+RenameReply = _reflection.GeneratedProtocolMessageType('RenameReply', (_message.Message,), {
+  'DESCRIPTOR' : _RENAMEREPLY,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.RenameReply)
-  ))
+  })
 _sym_db.RegisterMessage(RenameReply)
 
-NewObjectInfo = _reflection.GeneratedProtocolMessageType('NewObjectInfo', (_message.Message,), dict(
-  DESCRIPTOR = _NEWOBJECTINFO,
-  __module__ = 'fmgr_pb2'
+NewObjectInfo = _reflection.GeneratedProtocolMessageType('NewObjectInfo', (_message.Message,), {
+  'DESCRIPTOR' : _NEWOBJECTINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.NewObjectInfo)
-  ))
+  })
 _sym_db.RegisterMessage(NewObjectInfo)
 
-NewObjectReply = _reflection.GeneratedProtocolMessageType('NewObjectReply', (_message.Message,), dict(
-  DESCRIPTOR = _NEWOBJECTREPLY,
-  __module__ = 'fmgr_pb2'
+NewObjectReply = _reflection.GeneratedProtocolMessageType('NewObjectReply', (_message.Message,), {
+  'DESCRIPTOR' : _NEWOBJECTREPLY,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.NewObjectReply)
-  ))
+  })
 _sym_db.RegisterMessage(NewObjectReply)
 
-QuarantinedObjectName = _reflection.GeneratedProtocolMessageType('QuarantinedObjectName', (_message.Message,), dict(
-  DESCRIPTOR = _QUARANTINEDOBJECTNAME,
-  __module__ = 'fmgr_pb2'
+QuarantinedObjectName = _reflection.GeneratedProtocolMessageType('QuarantinedObjectName', (_message.Message,), {
+  'DESCRIPTOR' : _QUARANTINEDOBJECTNAME,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.QuarantinedObjectName)
-  ))
+  })
 _sym_db.RegisterMessage(QuarantinedObjectName)
 
-QuarantinedObjectNames = _reflection.GeneratedProtocolMessageType('QuarantinedObjectNames', (_message.Message,), dict(
-  DESCRIPTOR = _QUARANTINEDOBJECTNAMES,
-  __module__ = 'fmgr_pb2'
+QuarantinedObjectNames = _reflection.GeneratedProtocolMessageType('QuarantinedObjectNames', (_message.Message,), {
+  'DESCRIPTOR' : _QUARANTINEDOBJECTNAMES,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.QuarantinedObjectNames)
-  ))
+  })
 _sym_db.RegisterMessage(QuarantinedObjectNames)
 
-ObjectName = _reflection.GeneratedProtocolMessageType('ObjectName', (_message.Message,), dict(
-  DESCRIPTOR = _OBJECTNAME,
-  __module__ = 'fmgr_pb2'
+ObjectName = _reflection.GeneratedProtocolMessageType('ObjectName', (_message.Message,), {
+  'DESCRIPTOR' : _OBJECTNAME,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.ObjectName)
-  ))
+  })
 _sym_db.RegisterMessage(ObjectName)
 
-LoadObjectInfo = _reflection.GeneratedProtocolMessageType('LoadObjectInfo', (_message.Message,), dict(
-  DESCRIPTOR = _LOADOBJECTINFO,
-  __module__ = 'fmgr_pb2'
+LoadObjectInfo = _reflection.GeneratedProtocolMessageType('LoadObjectInfo', (_message.Message,), {
+  'DESCRIPTOR' : _LOADOBJECTINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.LoadObjectInfo)
-  ))
+  })
 _sym_db.RegisterMessage(LoadObjectInfo)
 
-RenameInfo = _reflection.GeneratedProtocolMessageType('RenameInfo', (_message.Message,), dict(
-  DESCRIPTOR = _RENAMEINFO,
-  __module__ = 'fmgr_pb2'
+RenameInfo = _reflection.GeneratedProtocolMessageType('RenameInfo', (_message.Message,), {
+  'DESCRIPTOR' : _RENAMEINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.RenameInfo)
-  ))
+  })
 _sym_db.RegisterMessage(RenameInfo)
 
-Object = _reflection.GeneratedProtocolMessageType('Object', (_message.Message,), dict(
-  DESCRIPTOR = _OBJECT,
-  __module__ = 'fmgr_pb2'
+Object = _reflection.GeneratedProtocolMessageType('Object', (_message.Message,), {
+  'DESCRIPTOR' : _OBJECT,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.Object)
-  ))
+  })
 _sym_db.RegisterMessage(Object)
 
-LoadObjectsResponse = _reflection.GeneratedProtocolMessageType('LoadObjectsResponse', (_message.Message,), dict(
-  DESCRIPTOR = _LOADOBJECTSRESPONSE,
-  __module__ = 'fmgr_pb2'
+LoadObjectsResponse = _reflection.GeneratedProtocolMessageType('LoadObjectsResponse', (_message.Message,), {
+  'DESCRIPTOR' : _LOADOBJECTSRESPONSE,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.LoadObjectsResponse)
-  ))
+  })
 _sym_db.RegisterMessage(LoadObjectsResponse)
 
-ObjectPrefix = _reflection.GeneratedProtocolMessageType('ObjectPrefix', (_message.Message,), dict(
-  DESCRIPTOR = _OBJECTPREFIX,
-  __module__ = 'fmgr_pb2'
+ObjectPrefix = _reflection.GeneratedProtocolMessageType('ObjectPrefix', (_message.Message,), {
+  'DESCRIPTOR' : _OBJECTPREFIX,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.ObjectPrefix)
-  ))
+  })
 _sym_db.RegisterMessage(ObjectPrefix)
 
-Empty = _reflection.GeneratedProtocolMessageType('Empty', (_message.Message,), dict(
-  DESCRIPTOR = _EMPTY,
-  __module__ = 'fmgr_pb2'
+Empty = _reflection.GeneratedProtocolMessageType('Empty', (_message.Message,), {
+  'DESCRIPTOR' : _EMPTY,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.Empty)
-  ))
+  })
 _sym_db.RegisterMessage(Empty)
 
-GetStatsInfo = _reflection.GeneratedProtocolMessageType('GetStatsInfo', (_message.Message,), dict(
-  DESCRIPTOR = _GETSTATSINFO,
-  __module__ = 'fmgr_pb2'
+GetStatsInfo = _reflection.GeneratedProtocolMessageType('GetStatsInfo', (_message.Message,), {
+  'DESCRIPTOR' : _GETSTATSINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.GetStatsInfo)
-  ))
+  })
 _sym_db.RegisterMessage(GetStatsInfo)
 
-PartitionContent = _reflection.GeneratedProtocolMessageType('PartitionContent', (_message.Message,), dict(
-  DESCRIPTOR = _PARTITIONCONTENT,
-  __module__ = 'fmgr_pb2'
+PartitionContent = _reflection.GeneratedProtocolMessageType('PartitionContent', (_message.Message,), {
+  'DESCRIPTOR' : _PARTITIONCONTENT,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.PartitionContent)
-  ))
+  })
 _sym_db.RegisterMessage(PartitionContent)
 
-FullPathEntry = _reflection.GeneratedProtocolMessageType('FullPathEntry', (_message.Message,), dict(
-  DESCRIPTOR = _FULLPATHENTRY,
-  __module__ = 'fmgr_pb2'
+FullPathEntry = _reflection.GeneratedProtocolMessageType('FullPathEntry', (_message.Message,), {
+  'DESCRIPTOR' : _FULLPATHENTRY,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.FullPathEntry)
-  ))
+  })
 _sym_db.RegisterMessage(FullPathEntry)
 
-KvState = _reflection.GeneratedProtocolMessageType('KvState', (_message.Message,), dict(
-  DESCRIPTOR = _KVSTATE,
-  __module__ = 'fmgr_pb2'
+KvState = _reflection.GeneratedProtocolMessageType('KvState', (_message.Message,), {
+  'DESCRIPTOR' : _KVSTATE,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.KvState)
-  ))
+  })
 _sym_db.RegisterMessage(KvState)
 
-KVStats = _reflection.GeneratedProtocolMessageType('KVStats', (_message.Message,), dict(
+KVStats = _reflection.GeneratedProtocolMessageType('KVStats', (_message.Message,), {
 
-  StatsEntry = _reflection.GeneratedProtocolMessageType('StatsEntry', (_message.Message,), dict(
-    DESCRIPTOR = _KVSTATS_STATSENTRY,
-    __module__ = 'fmgr_pb2'
+  'StatsEntry' : _reflection.GeneratedProtocolMessageType('StatsEntry', (_message.Message,), {
+    'DESCRIPTOR' : _KVSTATS_STATSENTRY,
+    '__module__' : 'fmgr_pb2'
     # @@protoc_insertion_point(class_scope:filemgr.KVStats.StatsEntry)
-    ))
+    })
   ,
-  DESCRIPTOR = _KVSTATS,
-  __module__ = 'fmgr_pb2'
+  'DESCRIPTOR' : _KVSTATS,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.KVStats)
-  ))
+  })
 _sym_db.RegisterMessage(KVStats)
 _sym_db.RegisterMessage(KVStats.StatsEntry)
 
-ListQuarantinedOHashesInfo = _reflection.GeneratedProtocolMessageType('ListQuarantinedOHashesInfo', (_message.Message,), dict(
-  DESCRIPTOR = _LISTQUARANTINEDOHASHESINFO,
-  __module__ = 'fmgr_pb2'
+ListQuarantinedOHashesInfo = _reflection.GeneratedProtocolMessageType('ListQuarantinedOHashesInfo', (_message.Message,), {
+  'DESCRIPTOR' : _LISTQUARANTINEDOHASHESINFO,
+  '__module__' : 'fmgr_pb2'
   # @@protoc_insertion_point(class_scope:filemgr.ListQuarantinedOHashesInfo)
-  ))
+  })
 _sym_db.RegisterMessage(ListQuarantinedOHashesInfo)
 
 

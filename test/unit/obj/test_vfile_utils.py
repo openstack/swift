@@ -233,11 +233,11 @@ class TestSwiftPathInfo(unittest.TestCase):
             self.assertEqual(si.filename, test["filename"])
 
     def test_swift_path_info_error(self):
-        with self.assertRaises(vfile_utils.VFileUtilException):
+        with self.assertRaises(vfile_utils.VOSError):
             vfile_utils.SwiftPathInfo.from_path("/invalid")
-        with self.assertRaises(vfile_utils.VFileUtilException):
+        with self.assertRaises(vfile_utils.VOSError):
             vfile_utils.SwiftPathInfo.from_path("/srv/node/sda2")
-        with self.assertRaises(vfile_utils.VFileUtilException):
+        with self.assertRaises(vfile_utils.VOSError):
             invalid_path = "/sda/objects/1234/def" \
                            "/d41d8cd98f00b204e9800998ecf8427e/" \
                            "1522913866.16520#12#d.data/extra_dir"
@@ -317,11 +317,11 @@ class TestSwiftQuarantinedPathInfo(unittest.TestCase):
             self.assertEqual(si.filename, test["filename"])
 
     def test_swift_path_info_error(self):
-        with self.assertRaises(vfile_utils.VFileUtilException):
+        with self.assertRaises(vfile_utils.VOSError):
             vfile_utils.SwiftPathInfo.from_path("/invalid")
-        with self.assertRaises(vfile_utils.VFileUtilException):
+        with self.assertRaises(vfile_utils.VOSError):
             vfile_utils.SwiftPathInfo.from_path("/srv/node/sda2")
-        with self.assertRaises(vfile_utils.VFileUtilException):
+        with self.assertRaises(vfile_utils.VOSError):
             invalid_path = "/sdb/objects/1234/def" \
                            "/d41d8cd98f00b204e9800998ecf8427e/" \
                            "1522913866.16520#12#d.data/extra_dir"
