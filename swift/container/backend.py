@@ -2004,20 +2004,24 @@ class ContainerBroker(DatabaseBroker):
         self.update_metadata({'X-Container-Sysmeta-Shard-' + key:
                               (value, Timestamp.now().internal)})
 
-    def get_sharding_sysmeta(self, key=None):
+    def get_sharding_sysmeta(self, key=None, include_timestamps=False):
         """
         Returns sharding specific info from the broker's metadata.
 
         :param key: if given the value stored under ``key`` in the sharding
             info will be returned.
+        :param include_timestamps: bool, return the metadata timestamps
+            along with the metadata. I.e last modified timestamp.
         :return: either a dict of sharding info or the value stored under
             ``key`` in that dict.
         """
         prefix = 'X-Container-Sysmeta-Shard-'
         metadata = self.metadata
-        info = dict((k[len(prefix):], v[0]) for
-                    k, v in metadata.items() if k.startswith(prefix))
+        info = dict((k[len(prefix):], v if include_timestamps else v[0])
+                    for k, v in metadata.items() if k.startswith(prefix))
         if key:
+            if include_timestamps:
+                return info.get(key, (None, None))
             return info.get(key)
         return info
 

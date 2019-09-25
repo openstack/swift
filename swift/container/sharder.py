@@ -197,8 +197,7 @@ def find_shrinking_candidates(broker, shrink_threshold, merge_size):
 class CleavingContext(object):
     def __init__(self, ref, cursor='', max_row=None, cleave_to_row=None,
                  last_cleave_to_row=None, cleaving_done=False,
-                 misplaced_done=False, ranges_done=0, ranges_todo=0,
-                 last_modified=None):
+                 misplaced_done=False, ranges_done=0, ranges_todo=0):
         self.ref = ref
         self._cursor = None
         self.cursor = cursor
@@ -209,7 +208,6 @@ class CleavingContext(object):
         self.misplaced_done = misplaced_done
         self.ranges_done = ranges_done
         self.ranges_todo = ranges_todo
-        self.last_modified = last_modified
 
     def __iter__(self):
         yield 'ref', self.ref
@@ -221,7 +219,6 @@ class CleavingContext(object):
         yield 'misplaced_done', self.misplaced_done
         yield 'ranges_done', self.ranges_done
         yield 'ranges_todo', self.ranges_todo
-        yield 'last_modified', self.last_modified
 
     def _encode(cls, value):
         if value is not None and six.PY2 and isinstance(value, six.text_type):
@@ -250,17 +247,17 @@ class CleavingContext(object):
         Returns all cleaving contexts stored in the broker.
 
         :param broker:
-        :return: list of CleavingContexts
+        :return: list of tuples of (CleavingContext, timestamp)
         """
         brokers = broker.get_brokers()
-        sysmeta = brokers[-1].get_sharding_sysmeta()
+        sysmeta = brokers[-1].get_sharding_sysmeta(include_timestamps=True)
 
-        for key, val in sysmeta.items():
+        for key, (val, timestamp) in sysmeta.items():
             # If the value is of length 0, then the metadata is
             # marked for deletion
             if key.startswith("Context-") and len(val) > 0:
                 try:
-                    yield cls(**json.loads(val))
+                    yield cls(**json.loads(val)), timestamp
                 except ValueError:
                     continue
 
@@ -288,7 +285,6 @@ class CleavingContext(object):
         return cls(**data)
 
     def store(self, broker):
-        self.last_modified = Timestamp.now().internal
         broker.set_sharding_sysmeta('Context-' + self.ref,
                                     json.dumps(dict(self)))
 
@@ -754,12 +750,9 @@ class ContainerSharder(ContainerReplicator):
         return True
 
     def _audit_cleave_contexts(self, broker):
-        for context in CleavingContext.load_all(broker):
+        for context, last_mod in CleavingContext.load_all(broker):
             now = Timestamp.now()
-            last_mod = context.last_modified
-            if not last_mod:
-                context.store(broker)
-            elif Timestamp(last_mod).timestamp + self.reclaim_age < \
+            if Timestamp(last_mod).timestamp + self.reclaim_age < \
                     now.timestamp:
                 context.delete(broker)
 
