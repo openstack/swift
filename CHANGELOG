@@ -1,3 +1,61 @@
+swift (2.23.0, OpenStack Train)
+
+    * Python 3.6 and 3.7 are now fully supported. Several py3-related
+      fixes are included:
+
+      * Removed a request-smuggling vector when running a mixed
+        py2/py3 cluster.
+
+      * Allow fallocate_reserve to be specified as a percentage.
+
+      * Fixed listings for sharded containers.
+
+      * Fixed non-ASCII account metadata handling.
+
+      * Fixed rsync output parsing.
+
+      * Fixed some title-casing of headers.
+
+      If you've been testing Swift on Python 3, upgrade at your earliest
+      convenience.
+
+    * Added "static symlinks", which perform some validation as they
+      follow redirects and include more information about their target
+      in container listings.
+
+    * Multi-character strings may now be used as delimiters in account
+      and container listings.
+
+    * Sharding improvements
+
+      * Container metadata related to sharding are now removed when no
+        longer needed.
+
+      * Empty container databases (such as might be created on handoffs)
+        now shard much more quickly.
+
+    * The proxy-server now ignores 404 responses from handoffs that have
+      no data when deciding on the correct response for object requests,
+      similar to what it already does for account and container requests.
+
+    * Static Large Object sizes in listings for versioned containers are
+      now more accurate.
+
+    * When refetching Static Large Object manifests, non-manifest responses
+      are now handled better.
+
+    * S3 API now translates 503 Service Unavailable responses to a more
+      S3-like response instead of raising an error.
+
+    * Improved proxy-to-backend requests to be more RFC-compliant.
+
+    * Dependency update: eventlet must be at least 0.25.0. This also
+      dragged forward minimum-supported versions of dnspython (1.15.0),
+      greenlet (0.3.2), and six (1.10.0).
+
+    * Various other minor bug fixes and improvements.
+
+
 swift (2.22.0)
 
     * Experimental support for Python 3.6 and 3.7 is now available.
@@ -73,7 +131,8 @@ swift (2.22.0)
 
     * Various other minor bug fixes and improvements.
 
-swift (2.21.0, OpenStack Stein release)
+
+swift (2.21.0, OpenStack Stein)
 
     * Change the behavior of the EC reconstructor to perform a
       fragment rebuild to a handoff node when a primary peer responds
@@ -130,6 +189,7 @@ swift (2.21.0, OpenStack Stein release)
       100-continue would return a malformed HTTP response.
 
     * Various other minor bug fixes and improvements.
+
 
 swift (2.20.0)
 
@@ -237,6 +297,7 @@ swift (2.20.0)
 
     * Various other minor bug fixes and improvements.
 
+
 swift (2.19.1, rocky stable backports)
 
     * Prevent PyKMIP's kmip_protocol logger from logging at DEBUG.
@@ -250,6 +311,7 @@ swift (2.19.1, rocky stable backports)
 
     * Fixed a bug in how Swift uses eventlet that was exposed under high
       concurrency.
+
 
 swift (2.19.0, OpenStack Rocky)
 
@@ -341,6 +403,7 @@ swift (2.19.0, OpenStack Rocky)
 
     * Various other minor bug fixes and improvements.
 
+
 swift (2.18.0)
 
     * Added container sharding, an operator controlled feature that
@@ -414,6 +477,7 @@ swift (2.18.0)
 
     * Various other minor bug fixes and improvements.
 
+
 swift (2.17.1, queens stable backports)
 
     * Fix SLO delete for accounts with non-ASCII names.
@@ -423,6 +487,7 @@ swift (2.17.1, queens stable backports)
 
     * Fixed a bug in how Swift uses eventlet that was exposed under high
       concurrency.
+
 
 swift (2.17.0, OpenStack Queens)
 
@@ -616,6 +681,7 @@ swift (2.16.0)
 
     * Various other minor bug fixes and improvements.
 
+
 swift (2.15.2, pike stable backports)
 
     * Fixed a cache invalidation issue related to GET and PUT requests to
@@ -635,6 +701,7 @@ swift (2.15.2, pike stable backports)
     * Fixed time skew when using X-Delete-After.
 
     * Send ETag header in 206 Partial Content responses to SLO reads.
+
 
 swift (2.15.1, OpenStack Pike)
 
@@ -3061,6 +3128,7 @@ swift (1.4.0)
 
     * Stats uploaders now allow overrides for source_filename_pattern and
       new_log_cutoff values.
+
 
 ----
 
