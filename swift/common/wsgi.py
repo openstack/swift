@@ -32,6 +32,7 @@ from eventlet.green import socket, ssl, os as green_os
 import six
 from six import BytesIO
 from six import StringIO
+from six.moves import configparser
 
 from swift.common import utils, constraints
 from swift.common.storage_policy import BindPortsCache
@@ -53,6 +54,23 @@ try:
     CPU_COUNT = multiprocessing.cpu_count() or 1
 except (ImportError, NotImplementedError):
     CPU_COUNT = 1
+
+
+if not six.PY2:
+    # In general, we haven't really thought much about interpolation in
+    # configs. Python's default ConfigParser has always supported it, though,
+    # so *we* got it "for free". Unfortunatley, since we "supported"
+    # interpolation, we have to assume there are deployments in the wild that
+    # use it, and try not to break them. So, do what we can to mimic the py2
+    # behavior of passing through values like "1%" (which we want to support
+    # for fallocate_reserve).
+    class NicerInterpolation(configparser.BasicInterpolation):
+        def before_get(self, parser, section, option, value, defaults):
+            if '%(' not in value:
+                return value
+            return super(NicerInterpolation, self).before_get(
+                parser, section, option, value, defaults)
+    configparser.ConfigParser._DEFAULT_INTERPOLATION = NicerInterpolation()
 
 
 class NamedConfigLoader(loadwsgi.ConfigLoader):
