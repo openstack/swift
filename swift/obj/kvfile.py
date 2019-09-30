@@ -52,11 +52,11 @@ from swift.obj.diskfile import BaseDiskFileManager, DiskFileManager, \
 
 
 def invalidate_hash(suffix_dir):
-    raise Exception("Not supposed to be called")
+    pass
 
 
 def consolidate_hashes(partition_dir):
-    raise Exception("Not supposed to be called")
+    pass
 
 
 def quarantine_vrenamer(device_path, corrupted_file_path):
