@@ -498,6 +498,11 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
                         break
                     header, value = line.split(':', 1)
                     value = value.strip(' \t\n\r')
+                    # NB: Eventlet looks at the headers obj to figure out
+                    # whether the client said the connection should close;
+                    # see https://github.com/eventlet/eventlet/blob/v0.25.0/
+                    # eventlet/wsgi.py#L504
+                    self.headers.add_header(header, value)
                     headers_raw.append((header, value))
                     wsgi_key = 'HTTP_' + header.replace('-', '_').encode(
                         'latin1').upper().decode('latin1')
@@ -506,6 +511,20 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
                         wsgi_key = wsgi_key[5:]
                     environ[wsgi_key] = value
                 environ['headers_raw'] = tuple(headers_raw)
+                # Since we parsed some more headers, check to see if they
+                # change how our wsgi.input should behave
+                te = environ.get('HTTP_TRANSFER_ENCODING', '').lower()
+                if te.rsplit(',', 1)[-1].strip() == 'chunked':
+                    environ['wsgi.input'].chunked_input = True
+                else:
+                    length = environ.get('CONTENT_LENGTH')
+                    if length:
+                        length = int(length)
+                    environ['wsgi.input'].content_length = length
+                if environ.get('HTTP_EXPECT', '').lower() == '100-continue':
+                    environ['wsgi.input'].wfile = self.wfile
+                    environ['wsgi.input'].wfile_line = \
+                        b'HTTP/1.1 100 Continue\r\n'
             return environ
 
 

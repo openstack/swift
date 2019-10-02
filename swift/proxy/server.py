@@ -457,6 +457,13 @@ class Application(object):
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']
+        te = req.headers.get('transfer-encoding', '').lower()
+        if te.rsplit(',', 1)[-1].strip() == 'chunked' and \
+                'content-length' in req.headers:
+            # RFC says if both are present, transfer-encoding wins.
+            # Definitely *don't* forward on the header the backend
+            # ought to ignore; that offers request-smuggling vectors.
+            del req.headers['content-length']
         return req
 
     def handle_request(self, req):

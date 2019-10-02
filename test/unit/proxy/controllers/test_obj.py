@@ -1104,6 +1104,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                 body = unchunk_body(body)
                 self.assertEqual('100-continue', headers['Expect'])
                 self.assertEqual('chunked', headers['Transfer-Encoding'])
+                self.assertNotIn('Content-Length', headers)
             else:
                 self.assertNotIn('Transfer-Encoding', headers)
             if body or not test_body:
