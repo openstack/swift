@@ -82,30 +82,33 @@ List of Devices
 The list of devices is known internally to the Ring class as ``devs``. Each
 item in the list of devices is a dictionary with the following keys:
 
-======  =======  ==============================================================
-id      integer  The index into the list of devices.
-zone    integer  The zone in which the device resides.
-region  integer  The region in which the zone resides.
-weight  float    The relative weight of the device in comparison to other
-                 devices. This usually corresponds directly to the amount of
-                 disk space the device has compared to other devices. For
-                 instance a device with 1 terabyte of space might have a weight
-                 of 100.0 and another device with 2 terabytes of space might
-                 have a weight of 200.0. This weight can also be used to bring
-                 back into balance a device that has ended up with more or less
-                 data than desired over time. A good average weight of 100.0
-                 allows flexibility in lowering the weight later if necessary.
-ip      string   The IP address or hostname of the server containing the device.
-port    int      The TCP port on which the server process listens to serve
-                 requests for the device.
-device  string   The on-disk name of the device on the server.
-                 For example: ``sdb1``
-meta    string   A general-use field for storing additional information for the
-                 device. This information isn't used directly by the server
-                 processes, but can be useful in debugging. For example, the
-                 date and time of installation and hardware manufacturer could
-                 be stored here.
-======  =======  ==============================================================
+.. table::
+   :widths: 10 10 80
+
+   ======  =======  ==============================================================
+   id      integer  The index into the list of devices.
+   zone    integer  The zone in which the device resides.
+   region  integer  The region in which the zone resides.
+   weight  float    The relative weight of the device in comparison to other
+                    devices. This usually corresponds directly to the amount of
+                    disk space the device has compared to other devices. For
+                    instance a device with 1 terabyte of space might have a weight
+                    of 100.0 and another device with 2 terabytes of space might
+                    have a weight of 200.0. This weight can also be used to bring
+                    back into balance a device that has ended up with more or less
+                    data than desired over time. A good average weight of 100.0
+                    allows flexibility in lowering the weight later if necessary.
+   ip      string   The IP address or hostname of the server containing the device.
+   port    int      The TCP port on which the server process listens to serve
+                    requests for the device.
+   device  string   The on-disk name of the device on the server.
+                    For example: ``sdb1``
+   meta    string   A general-use field for storing additional information for the
+                    device. This information isn't used directly by the server
+                    processes, but can be useful in debugging. For example, the
+                    date and time of installation and hardware manufacturer could
+                    be stored here.
+   ======  =======  ==============================================================
 
 .. note::
     The list of devices may contain holes, or indexes set to ``None``, for
