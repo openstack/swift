@@ -543,10 +543,15 @@ class UploadController(Controller):
 
         #  Iterate over the segment objects and delete them individually
         objects = json.loads(resp.body)
-        for o in objects:
-            container = req.container_name + MULTIUPLOAD_SUFFIX
-            obj = bytes_to_wsgi(o['name'].encode('utf-8'))
-            req.get_response(self.app, container=container, obj=obj)
+        while objects:
+            for o in objects:
+                container = req.container_name + MULTIUPLOAD_SUFFIX
+                obj = bytes_to_wsgi(o['name'].encode('utf-8'))
+                req.get_response(self.app, container=container, obj=obj)
+            query['marker'] = objects[-1]['name']
+            resp = req.get_response(self.app, 'GET', container, '',
+                                    query=query)
+            objects = json.loads(resp.body)
 
         return HTTPNoContent()
 
