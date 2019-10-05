@@ -16,6 +16,7 @@
 from swift import gettext_ as _
 import json
 
+import six
 from six.moves.urllib.parse import unquote
 
 from swift.common.utils import public, private, csv_append, Timestamp, \
@@ -27,7 +28,8 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, set_info_cache, clear_info_cache
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
-    HTTPNotFound, HTTPServiceUnavailable, str_to_wsgi, wsgi_to_bytes
+    HTTPNotFound, HTTPServiceUnavailable, str_to_wsgi, wsgi_to_str, \
+    bytes_to_wsgi
 
 
 class ContainerController(Controller):
@@ -162,8 +164,8 @@ class ContainerController(Controller):
         params.pop('states', None)
         req.headers.pop('X-Backend-Record-Type', None)
         reverse = config_true_value(params.get('reverse'))
-        marker = params.get('marker')
-        end_marker = params.get('end_marker')
+        marker = wsgi_to_str(params.get('marker'))
+        end_marker = wsgi_to_str(params.get('end_marker'))
 
         limit = req_limit
         for shard_range in shard_ranges:
@@ -176,9 +178,9 @@ class ContainerController(Controller):
             if objects:
                 last_name = objects[-1].get('name',
                                             objects[-1].get('subdir', u''))
-                params['marker'] = last_name.encode('utf-8')
+                params['marker'] = bytes_to_wsgi(last_name.encode('utf-8'))
             elif marker:
-                params['marker'] = marker
+                params['marker'] = str_to_wsgi(marker)
             else:
                 params['marker'] = ''
             # Always set end_marker to ensure that misplaced objects beyond the
@@ -186,7 +188,7 @@ class ContainerController(Controller):
             # object obscuring correctly placed objects in the next shard
             # range.
             if end_marker and end_marker in shard_range:
-                params['end_marker'] = end_marker
+                params['end_marker'] = str_to_wsgi(end_marker)
             elif reverse:
                 params['end_marker'] = str_to_wsgi(shard_range.lower_str)
             else:
@@ -213,13 +215,13 @@ class ContainerController(Controller):
 
             if limit <= 0:
                 break
-            if (end_marker and reverse and
-                (wsgi_to_bytes(end_marker) >=
-                 objects[-1]['name'].encode('utf-8'))):
+            last_name = objects[-1].get('name',
+                                        objects[-1].get('subdir', u''))
+            if six.PY2:
+                last_name = last_name.encode('utf8')
+            if end_marker and reverse and end_marker >= last_name:
                 break
-            if (end_marker and not reverse and
-                (wsgi_to_bytes(end_marker) <=
-                 objects[-1]['name'].encode('utf-8'))):
+            if end_marker and not reverse and end_marker <= last_name:
                 break
 
         resp.body = json.dumps(objects).encode('ascii')

@@ -19,17 +19,64 @@ To enable this middleware to your configuration, add the s3api middleware
 in front of the auth middleware. See ``proxy-server.conf-sample`` for more
 detail and configurable options.
 
-To set up your client, the access key will be the concatenation of the
-account and user strings that should look like test:tester, and the
-secret access key is the account password.  The host should also point
-to the swift storage hostname.
+To set up your client, ensure you are using the tempauth or keystone auth
+system for swift project.
+When your swift on a SAIO environment, make sure you have setting the tempauth
+middleware configuration in ``proxy-server.conf``, and the access key will be
+the concatenation of the account and user strings that should look like
+test:tester, and the secret access key is the account password. The host should
+also point to the swift storage hostname.
 
-An example client using the python boto library is as follows::
+The tempauth option example:
+
+.. code-block:: ini
+
+   [filter:tempauth]
+   use = egg:swift#tempauth
+   user_admin_admin = admin .admin .reseller_admin
+   user_test_tester = testing
+
+An example client using tempauth with the python boto library is as follows:
+
+.. code-block:: python
 
     from boto.s3.connection import S3Connection
     connection = S3Connection(
         aws_access_key_id='test:tester',
         aws_secret_access_key='testing',
+        port=8080,
+        host='127.0.0.1',
+        is_secure=False,
+        calling_format=boto.s3.connection.OrdinaryCallingFormat())
+
+And if you using keystone auth, you need the ec2 credentials, which can
+be downloaded from the API Endpoints tab of the dashboard or by openstack
+ec2 command.
+
+Here is showing to create an EC2 credential:
+
+.. code-block:: console
+
+  # openstack ec2 credentials create
+  +------------+---------------------------------------------------+
+  | Field      | Value                                             |
+  +------------+---------------------------------------------------+
+  | access     | c2e30f2cd5204b69a39b3f1130ca8f61                  |
+  | links      | {u'self': u'http://controller:5000/v3/......'}    |
+  | project_id | 407731a6c2d0425c86d1e7f12a900488                  |
+  | secret     | baab242d192a4cd6b68696863e07ed59                  |
+  | trust_id   | None                                              |
+  | user_id    | 00f0ee06afe74f81b410f3fe03d34fbc                  |
+  +------------+---------------------------------------------------+
+
+An example client using keystone auth with the python boto library will be:
+
+.. code-block:: python
+
+    from boto.s3.connection import S3Connection
+    connection = S3Connection(
+        aws_access_key_id='c2e30f2cd5204b69a39b3f1130ca8f61',
+        aws_secret_access_key='baab242d192a4cd6b68696863e07ed59',
         port=8080,
         host='127.0.0.1',
         is_secure=False,
@@ -47,23 +94,35 @@ To enable all compatibility currently supported, you should make sure that
 bulk, slo, and your auth middleware are also included in your proxy
 pipeline setting.
 
-Minimum example config is::
+Using tempauth, the minimum example config is:
+
+.. code-block:: ini
 
     [pipeline:main]
-    pipeline = proxy-logging cache s3api tempauth bulk slo proxy-logging
-    proxy-server
+    pipeline = proxy-logging cache s3api tempauth bulk slo proxy-logging \
+proxy-server
 
-When using keystone, the config will be::
+When using keystone, the config will be:
+
+.. code-block:: ini
 
     [pipeline:main]
-    pipeline = proxy-logging cache s3api s3token keystoneauth bulk slo
-    proxy-logging proxy-server
+    pipeline = proxy-logging cache authtoken s3api s3token keystoneauth bulk \
+slo proxy-logging proxy-server
+
+Finally, add the s3api middleware section:
+
+.. code-block:: ini
+
+   [filter:s3api]
+   use = egg:swift#s3api
 
 .. note::
     ``keystonemiddleware.authtoken`` can be located before/after s3api but
     we recommend to put it before s3api because when authtoken is after s3api,
     both authtoken and s3token will issue the acceptable token to keystone
-    (i.e. authenticate twice).
+    (i.e. authenticate twice). And in the ``keystonemiddleware.authtoken``
+    middleware , you should set ``delay_auth_decision`` option to ``True``.
 
 -----------
 Constraints

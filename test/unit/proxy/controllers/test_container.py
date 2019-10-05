@@ -19,14 +19,15 @@ import socket
 import unittest
 
 from eventlet import Timeout
+import six
 from six.moves import urllib
 
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
-from swift.common.swob import Request
+from swift.common.swob import Request, bytes_to_wsgi, str_to_wsgi, wsgi_quote
 from swift.common.utils import ShardRange, Timestamp
 from swift.proxy import server as proxy_server
-from swift.proxy.controllers.base import headers_to_container_info, Controller, \
-    get_container_info
+from swift.proxy.controllers.base import headers_to_container_info, \
+    Controller, get_container_info
 from test import annotate_failure
 from test.unit import fake_http_connect, FakeRing, FakeMemcache, \
     make_timestamp_iter
@@ -435,13 +436,21 @@ class TestContainerController(TestRingBase):
         self._assert_responses('POST', POST_TEST_CASES)
 
     def _make_shard_objects(self, shard_range):
-        lower = ord(shard_range.lower[0]) if shard_range.lower else ord('@')
-        upper = ord(shard_range.upper[0]) if shard_range.upper else ord('z')
+        if six.PY2:
+            lower = ord(shard_range.lower.decode('utf8')[0]
+                        if shard_range.lower else '@')
+            upper = ord(shard_range.upper.decode('utf8')[0]
+                        if shard_range.upper else u'\U0001ffff')
+        else:
+            lower = ord(shard_range.lower[0] if shard_range.lower else '@')
+            upper = ord(shard_range.upper[0] if shard_range.upper
+                        else '\U0001ffff')
 
-        objects = [{'name': chr(i), 'bytes': i, 'hash': 'hash%s' % chr(i),
+        objects = [{'name': six.unichr(i), 'bytes': i,
+                    'hash': 'hash%s' % six.unichr(i),
                     'content_type': 'text/plain', 'deleted': 0,
                     'last_modified': next(self.ts_iter).isoformat}
-                   for i in range(lower + 1, upper + 1)]
+                   for i in range(lower + 1, upper + 1)][:1024]
         return objects
 
     def _check_GET_shard_listing(self, mock_responses, expected_objects,
@@ -484,9 +493,12 @@ class TestContainerController(TestRingBase):
             with annotate_failure('Request check at index %d.' % i):
                 # strip off /sdx/0/ from path
                 self.assertEqual(exp_path, req['path'][7:])
-                self.assertEqual(
-                    dict(exp_params, format='json'),
-                    dict(urllib.parse.parse_qsl(req['qs'], True)))
+                if six.PY2:
+                    got_params = dict(urllib.parse.parse_qsl(req['qs'], True))
+                else:
+                    got_params = dict(urllib.parse.parse_qsl(
+                        req['qs'], True, encoding='latin1'))
+                self.assertEqual(dict(exp_params, format='json'), got_params)
                 for k, v in exp_headers.items():
                     self.assertIn(k, req['headers'])
                     self.assertEqual(v, req['headers'][k])
@@ -517,10 +529,11 @@ class TestContainerController(TestRingBase):
         self.assertEqual(headers_to_container_info(info_hdrs), info)
 
     def test_GET_sharded_container(self):
-        shard_bounds = (('', 'ham'), ('ham', 'pie'), ('pie', ''))
+        # Don't worry, ShardRange._encode takes care of unicode/bytes issues
+        shard_bounds = ('', 'ham', 'pie', u'\N{SNOWMAN}', u'\U0001F334', '')
         shard_ranges = [
             ShardRange('.shards_a/c_%s' % upper, Timestamp.now(), lower, upper)
-            for lower, upper in shard_bounds]
+            for lower, upper in zip(shard_bounds[:-1], shard_bounds[1:])]
         sr_dicts = [dict(sr) for sr in shard_ranges]
         sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
         shard_resp_hdrs = [
@@ -530,7 +543,7 @@ class TestContainerController(TestRingBase):
                  sum([obj['bytes'] for obj in sr_objs[i]]),
              'X-Container-Meta-Flavour': 'flavour%d' % i,
              'X-Backend-Storage-Policy-Index': 0}
-            for i in range(3)]
+            for i, _ in enumerate(shard_ranges)]
 
         all_objects = []
         for objects in sr_objs:
@@ -556,7 +569,9 @@ class TestContainerController(TestRingBase):
             (200, sr_dicts, root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, sr_objs[1], shard_resp_hdrs[1]),
-            (200, sr_objs[2], shard_resp_hdrs[2])
+            (200, sr_objs[2], shard_resp_hdrs[2]),
+            (200, sr_objs[3], shard_resp_hdrs[3]),
+            (200, sr_objs[4], shard_resp_hdrs[4]),
         ]
         expected_requests = [
             # path, headers, params
@@ -564,15 +579,29 @@ class TestContainerController(TestRingBase):
              dict(states='listing')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(states='listing')),  # 200
-            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+            (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
+             {'X-Backend-Record-Type': 'auto'},
              dict(marker='', end_marker='ham\x00', limit=str(limit),
                   states='listing')),  # 200
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto'},
              dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),  # 200
-            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
-             dict(marker='p', end_marker='', states='listing',
-                  limit=str(limit - len(sr_objs[0] + sr_objs[1]))))  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
+             {'X-Backend-Record-Type': 'auto'},
+             dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto'},
+             dict(marker='\xd1\xb0', end_marker='\xf0\x9f\x8c\xb4\x00',
+                  states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]
+                                        + sr_objs[2])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
+             {'X-Backend-Record-Type': 'auto'},
+             dict(marker='\xe2\xa8\x83', end_marker='', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1] + sr_objs[2]
+                                        + sr_objs[3])))),  # 200
         ]
 
         resp = self._check_GET_shard_listing(
@@ -588,7 +617,7 @@ class TestContainerController(TestRingBase):
             (200, sr_dicts[:2] + [dict(root_range)], root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (200, sr_objs[1], shard_resp_hdrs[1]),
-            (200, sr_objs[2], root_resp_hdrs)
+            (200, sr_objs[2] + sr_objs[3] + sr_objs[4], root_resp_hdrs)
         ]
         expected_requests = [
             # path, headers, params
@@ -615,6 +644,8 @@ class TestContainerController(TestRingBase):
         mock_responses = [
             # status, body, headers
             (200, list(reversed(sr_dicts)), root_shard_resp_hdrs),
+            (200, list(reversed(sr_objs[4])), shard_resp_hdrs[4]),
+            (200, list(reversed(sr_objs[3])), shard_resp_hdrs[3]),
             (200, list(reversed(sr_objs[2])), shard_resp_hdrs[2]),
             (200, list(reversed(sr_objs[1])), shard_resp_hdrs[1]),
             (200, list(reversed(sr_objs[0])), shard_resp_hdrs[0]),
@@ -623,15 +654,31 @@ class TestContainerController(TestRingBase):
             # path, headers, params
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(states='listing', reverse='true')),
-            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},
-             dict(marker='', end_marker='pie', reverse='true',
-                  limit=str(limit), states='listing')),  # 200
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},
+            (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
+             {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='\xf0\x9f\x8c\xb4', states='listing',
+                  reverse='true', limit=str(limit))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto'},
+             dict(marker='\xf0\x9f\x8c\xb5', end_marker='\xe2\x98\x83',
+                  states='listing', reverse='true',
+                  limit=str(limit - len(sr_objs[4])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
+             {'X-Backend-Record-Type': 'auto'},
+             dict(marker='\xe2\x98\x84', end_marker='pie', states='listing',
+                  reverse='true',
+                  limit=str(limit - len(sr_objs[4] + sr_objs[3])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto'},
              dict(marker='q', end_marker='ham', states='listing',
-                  reverse='true', limit=str(limit - len(sr_objs[2])))),  # 200
-            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},
+                  reverse='true',
+                  limit=str(limit - len(sr_objs[4] + sr_objs[3]
+                                        + sr_objs[2])))),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
+             {'X-Backend-Record-Type': 'auto'},
              dict(marker='i', end_marker='', states='listing', reverse='true',
-                  limit=str(limit - len(sr_objs[2] + sr_objs[1])))),  # 200
+                  limit=str(limit - len(sr_objs[4] + sr_objs[3] + sr_objs[2]
+                                        + sr_objs[1])))),  # 200
         ]
 
         resp = self._check_GET_shard_listing(
@@ -656,15 +703,18 @@ class TestContainerController(TestRingBase):
              dict(limit=str(limit), states='listing')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(limit=str(limit), states='listing')),  # 200
-            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
              dict(marker='', end_marker='ham\x00', states='listing',
                   limit=str(limit))),
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
              dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),
-            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},   # 200
-             dict(marker='p', end_marker='', states='listing',
-                  limit=str(limit - len(sr_objs[0] + sr_objs[1]))))
+            (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
+             {'X-Backend-Record-Type': 'auto'},   # 200
+             dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1])))),
         ]
         resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
@@ -672,31 +722,35 @@ class TestContainerController(TestRingBase):
         self.check_response(resp, root_resp_hdrs)
 
         # GET with marker
-        marker = sr_objs[1][2]['name']
-        first_included = len(sr_objs[0]) + 2
+        marker = bytes_to_wsgi(sr_objs[3][2]['name'].encode('utf8'))
+        first_included = (len(sr_objs[0]) + len(sr_objs[1])
+                          + len(sr_objs[2]) + 2)
         limit = CONTAINER_LISTING_LIMIT
         expected_objects = all_objects[first_included:]
         mock_responses = [
             (404, '', {}),
-            (200, sr_dicts[1:], root_shard_resp_hdrs),
+            (200, sr_dicts[3:], root_shard_resp_hdrs),
             (404, '', {}),
-            (200, sr_objs[1][2:], shard_resp_hdrs[1]),
-            (200, sr_objs[2], shard_resp_hdrs[2])
+            (200, sr_objs[3][2:], shard_resp_hdrs[3]),
+            (200, sr_objs[4], shard_resp_hdrs[4]),
         ]
         expected_requests = [
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(marker=marker, states='listing')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(marker=marker, states='listing')),  # 200
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},  # 404
-             dict(marker=marker, end_marker='pie\x00', states='listing',
-                  limit=str(limit))),
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},  # 200
-             dict(marker=marker, end_marker='pie\x00', states='listing',
-                  limit=str(limit))),
-            (shard_ranges[2].name, {'X-Backend-Record-Type': 'auto'},  # 200
-             dict(marker='p', end_marker='', states='listing',
-                  limit=str(limit - len(sr_objs[1][2:])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
+             dict(marker=marker, end_marker='\xf0\x9f\x8c\xb4\x00',
+                  states='listing', limit=str(limit))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
+             dict(marker=marker, end_marker='\xf0\x9f\x8c\xb4\x00',
+                  states='listing', limit=str(limit))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
+             dict(marker='\xe2\xa8\x83', end_marker='', states='listing',
+                  limit=str(limit - len(sr_objs[3][2:])))),
         ]
         resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
@@ -704,30 +758,51 @@ class TestContainerController(TestRingBase):
         self.check_response(resp, root_resp_hdrs)
 
         # GET with end marker
-        end_marker = sr_objs[1][6]['name']
-        first_excluded = len(sr_objs[0]) + 6
+        end_marker = bytes_to_wsgi(sr_objs[3][6]['name'].encode('utf8'))
+        first_excluded = (len(sr_objs[0]) + len(sr_objs[1])
+                          + len(sr_objs[2]) + 6)
         expected_objects = all_objects[:first_excluded]
         mock_responses = [
             (404, '', {}),
-            (200, sr_dicts[:2], root_shard_resp_hdrs),
+            (200, sr_dicts[:4], root_shard_resp_hdrs),
             (200, sr_objs[0], shard_resp_hdrs[0]),
             (404, '', {}),
-            (200, sr_objs[1][:6], shard_resp_hdrs[1])
+            (200, sr_objs[1], shard_resp_hdrs[1]),
+            (200, sr_objs[2], shard_resp_hdrs[2]),
+            (404, '', {}),
+            (200, sr_objs[3][:6], shard_resp_hdrs[3]),
         ]
         expected_requests = [
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(end_marker=end_marker, states='listing')),  # 404
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(end_marker=end_marker, states='listing')),  # 200
-            (shard_ranges[0].name, {'X-Backend-Record-Type': 'auto'},  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[0].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
              dict(marker='', end_marker='ham\x00', states='listing',
                   limit=str(limit))),
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},  # 404
-             dict(marker='h', end_marker=end_marker, states='listing',
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 404
+             dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},  # 200
-             dict(marker='h', end_marker=end_marker, states='listing',
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
+             dict(marker='h', end_marker='pie\x00', states='listing',
                   limit=str(limit - len(sr_objs[0])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[2].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
+             dict(marker='p', end_marker='\xe2\x98\x83\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 404
+             dict(marker='\xd1\xb0', end_marker=end_marker, states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]
+                                        + sr_objs[2])))),
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
+             dict(marker='\xd1\xb0', end_marker=end_marker, states='listing',
+                  limit=str(limit - len(sr_objs[0] + sr_objs[1]
+                                        + sr_objs[2])))),
         ]
         resp = self._check_GET_shard_listing(
             mock_responses, expected_objects, expected_requests,
@@ -738,14 +813,15 @@ class TestContainerController(TestRingBase):
         limit = 2
         expected_objects = all_objects[first_included:first_excluded]
         mock_responses = [
-            (200, sr_dicts[1:2], root_shard_resp_hdrs),
-            (200, sr_objs[1][2:6], shard_resp_hdrs[1])
+            (200, sr_dicts[3:4], root_shard_resp_hdrs),
+            (200, sr_objs[3][2:6], shard_resp_hdrs[1])
         ]
         expected_requests = [
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(states='listing', limit=str(limit),
                   marker=marker, end_marker=end_marker)),  # 200
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
              dict(marker=marker, end_marker=end_marker, states='listing',
                   limit=str(limit))),
         ]
@@ -758,14 +834,15 @@ class TestContainerController(TestRingBase):
         # reverse with marker, end_marker
         expected_objects.reverse()
         mock_responses = [
-            (200, sr_dicts[1:2], root_shard_resp_hdrs),
-            (200, list(reversed(sr_objs[1][2:6])), shard_resp_hdrs[1])
+            (200, sr_dicts[3:4], root_shard_resp_hdrs),
+            (200, list(reversed(sr_objs[3][2:6])), shard_resp_hdrs[1])
         ]
         expected_requests = [
             ('a/c', {'X-Backend-Record-Type': 'auto'},
              dict(marker=end_marker, reverse='true', end_marker=marker,
                   limit=str(limit), states='listing',)),  # 200
-            (shard_ranges[1].name, {'X-Backend-Record-Type': 'auto'},  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[3].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 200
              dict(marker=end_marker, end_marker=marker, states='listing',
                   limit=str(limit), reverse='true')),
         ]

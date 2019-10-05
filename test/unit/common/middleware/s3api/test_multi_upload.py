@@ -89,12 +89,25 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         objects = [{'name': item[0], 'last_modified': item[1],
                     'hash': item[2], 'bytes': item[3]}
                    for item in OBJECTS_TEMPLATE]
-        object_list = json.dumps(objects)
 
         self.swift.register('PUT', segment_bucket,
                             swob.HTTPAccepted, {}, None)
+        # default to just returning everybody...
         self.swift.register('GET', segment_bucket, swob.HTTPOk, {},
-                            object_list)
+                            json.dumps(objects))
+        # but for the listing when aborting an upload, break it up into pages
+        self.swift.register(
+            'GET', '%s?delimiter=/&format=json&prefix=object/X/' % (
+                segment_bucket, ),
+            swob.HTTPOk, {}, json.dumps(objects[:1]))
+        self.swift.register(
+            'GET', '%s?delimiter=/&format=json&marker=%s&prefix=object/X/' % (
+                segment_bucket, objects[0]['name']),
+            swob.HTTPOk, {}, json.dumps(objects[1:]))
+        self.swift.register(
+            'GET', '%s?delimiter=/&format=json&marker=%s&prefix=object/X/' % (
+                segment_bucket, objects[-1]['name']),
+            swob.HTTPOk, {}, '[]')
         self.swift.register('HEAD', segment_bucket + '/object/X',
                             swob.HTTPOk,
                             {'x-object-meta-foo': 'bar',
@@ -1660,6 +1673,13 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = \
             self._test_for_s3acl('DELETE', '?uploadId=X', 'test:full_control')
         self.assertEqual(status.split()[0], '204')
+        self.assertEqual([
+            path for method, path in self.swift.calls if method == 'DELETE'
+        ], [
+            '/v1/AUTH_test/bucket+segments/object/X',
+            '/v1/AUTH_test/bucket+segments/object/X/1',
+            '/v1/AUTH_test/bucket+segments/object/X/2',
+        ])
 
     @s3acl(s3acl_only=True)
     def test_complete_multipart_upload_acl_without_permission(self):

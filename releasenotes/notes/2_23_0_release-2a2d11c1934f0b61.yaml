@@ -1,0 +1,74 @@
+---
+features:
+  - |
+    Python 3.6 and 3.7 are now fully supported. If you've been testing Swift
+    on Python 3, upgrade at your earliest convenience.
+
+  - |
+    Added "static symlinks", which perform some validation as they
+    follow redirects and include more information about their target
+    in container listings. For more information, see the `symlink middleware
+    <https://docs.openstack.org/swift/latest/middleware.html#symlink>`__
+    section of the documentation.
+
+  - |
+    Multi-character strings may now be used as delimiters in account
+    and container listings.
+
+upgrade:
+  - |
+    **Dependency update**: ``eventlet`` must be at least 0.25.0. This also
+    dragged forward minimum-supported versions of ``dnspython`` (1.15.0),
+    ``greenlet`` (0.3.2), and ``six`` (1.10.0).
+
+fixes:
+  - |
+    Python 3 fixes:
+
+    * Removed a request-smuggling vector when running a mixed
+      py2/py3 cluster.
+
+    * Allow ``fallocate_reserve`` to be specified as a percentage.
+
+    * Fixed listings for sharded containers.
+
+    * Fixed non-ASCII account metadata handling.
+
+    * Fixed ``rsync`` output parsing.
+
+    * Fixed some title-casing of headers.
+
+    If you've been testing Swift on Python 3, upgrade at your earliest
+    convenience.
+
+  - |
+    Sharding improvements
+
+    * Container metadata related to sharding are now removed when no
+      longer needed.
+
+    * Empty container databases (such as might be created on handoffs)
+      now shard much more quickly.
+
+  - |
+    The ``proxy-server`` now ignores 404 responses from handoffs that have
+    no data when deciding on the correct response for object requests,
+    similar to what it already does for account and container requests.
+
+  - |
+    Static Large Object sizes in listings for versioned containers are
+    now more accurate.
+
+  - |
+    When refetching Static Large Object manifests, non-manifest responses
+    are now handled better.
+
+  - |
+    S3 API now translates ``503 Service Unavailable`` responses to a more
+    S3-like response instead of raising an error.
+
+  - |
+    Improved proxy-to-backend requests to be more RFC-compliant.
+
+  - |
+    Various other minor bug fixes and improvements.

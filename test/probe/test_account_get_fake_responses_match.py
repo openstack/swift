@@ -56,7 +56,7 @@ class TestAccountGetFakeResponsesMatch(ReplProbeTest):
             raise Exception("Unexpected status %s\n%s" %
                             (resp.status, resp.read()))
 
-        response_headers = dict(resp.getheaders())
+        response_headers = {h.lower(): v for h, v in resp.getheaders()}
         response_body = resp.read()
         resp.close()
         return response_headers, response_body
@@ -98,8 +98,8 @@ class TestAccountGetFakeResponsesMatch(ReplProbeTest):
             fake_acct, headers={'Accept': 'application/xml'})
 
         # the account name is in the XML response
-        real_body = re.sub('AUTH_\w{4}', 'AUTH_someaccount', real_body)
-        fake_body = re.sub('AUTH_\w{4}', 'AUTH_someaccount', fake_body)
+        real_body = re.sub(br'AUTH_\w{4}', b'AUTH_someaccount', real_body)
+        fake_body = re.sub(br'AUTH_\w{4}', b'AUTH_someaccount', fake_body)
 
         self.assertEqual(real_body, fake_body)
         self.assertEqual(real_headers['content-type'],

@@ -21,7 +21,13 @@
 
     - name: "checkout a previous version: {{ previous_swift_version | default(latest_swift_release.stdout) }}"
       shell:
-        cmd: git checkout {{ previous_swift_verion | default(latest_swift_release.stdout) }} -b previous_swift_version
+        cmd: git checkout {{ previous_swift_version | default(latest_swift_release.stdout) }} -b previous_swift_version
+        executable: /bin/bash
+        chdir: '{{ zuul.project.src_dir }}'
+
+    - name: confirm checked out version
+      shell:
+        cmd: git describe
         executable: /bin/bash
         chdir: '{{ zuul.project.src_dir }}'
 

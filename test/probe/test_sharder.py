@@ -19,6 +19,7 @@ import shutil
 import uuid
 
 from nose import SkipTest
+import six
 
 from swift.common import direct_client, utils
 from swift.common.manager import Manager
@@ -27,6 +28,7 @@ from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
     quorum_size, config_true_value, Timestamp
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
+from swift.container.sharder import CleavingContext
 from swiftclient import client, get_auth, ClientException
 
 from swift.proxy.controllers.base import get_cache_key
@@ -65,8 +67,8 @@ class BaseTestContainerSharding(ReplProbeTest):
                            'container-server configs')
 
         skip_reasons = []
-        auto_shard = all([config_true_value(c.get('auto_shard', False))
-                          for c in cont_configs])
+        auto_shard = all(config_true_value(c.get('auto_shard', False))
+                         for c in cont_configs)
         if not auto_shard:
             skip_reasons.append(
                 'auto_shard must be true in all container_sharder configs')
@@ -83,7 +85,7 @@ class BaseTestContainerSharding(ReplProbeTest):
                  MAX_SHARD_CONTAINER_THRESHOLD))
 
         def skip_check(reason_list, option, required):
-            values = set([int(c.get(option, required)) for c in cont_configs])
+            values = {int(c.get(option, required)) for c in cont_configs}
             if values != {required}:
                 reason_list.append('%s must be %s' % (option, required))
 
@@ -259,8 +261,8 @@ class BaseTestContainerSharding(ReplProbeTest):
 
     def assert_dict_contains(self, expected_items, actual_dict):
         ignored = set(expected_items) ^ set(actual_dict)
-        filtered_actual = dict((k, actual_dict[k])
-                               for k in actual_dict if k not in ignored)
+        filtered_actual = {k: actual_dict[k]
+                           for k in actual_dict if k not in ignored}
         self.assertEqual(expected_items, filtered_actual)
 
     def assert_shard_ranges_contiguous(self, expected_number, shard_ranges,
@@ -268,8 +270,8 @@ class BaseTestContainerSharding(ReplProbeTest):
         if shard_ranges and isinstance(shard_ranges[0], ShardRange):
             actual_shard_ranges = sorted(shard_ranges)
         else:
-            actual_shard_ranges = sorted([ShardRange.from_dict(d)
-                                          for d in shard_ranges])
+            actual_shard_ranges = sorted(ShardRange.from_dict(d)
+                                         for d in shard_ranges)
         self.assertLengthEqual(actual_shard_ranges, expected_number)
         if expected_number:
             with annotate_failure('Ranges %s.' % actual_shard_ranges):
@@ -300,7 +302,7 @@ class BaseTestContainerSharding(ReplProbeTest):
                          [sr.state for sr in shard_ranges])
 
     def assert_total_object_count(self, expected_object_count, shard_ranges):
-        actual = sum([sr['object_count'] for sr in shard_ranges])
+        actual = sum(sr['object_count'] for sr in shard_ranges)
         self.assertEqual(expected_object_count, actual)
 
     def assert_container_listing(self, expected_listing):
@@ -309,7 +311,8 @@ class BaseTestContainerSharding(ReplProbeTest):
         self.assertIn('x-container-object-count', headers)
         expected_obj_count = len(expected_listing)
         self.assertEqual(expected_listing, [
-            x['name'].encode('utf-8') for x in actual_listing])
+            x['name'].encode('utf-8') if six.PY2 else x['name']
+            for x in actual_listing])
         self.assertEqual(str(expected_obj_count),
                          headers['x-container-object-count'])
         return headers, actual_listing
@@ -407,15 +410,16 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
         self.put_objects(obj_names)
         # choose some names approx in middle of each expected shard range
         markers = [
-            obj_names[i] for i in range(self.max_shard_size / 4,
+            obj_names[i] for i in range(self.max_shard_size // 4,
                                         2 * self.max_shard_size,
-                                        self.max_shard_size / 2)]
+                                        self.max_shard_size // 2)]
 
         def check_listing(objects, **params):
             qs = '&'.join(['%s=%s' % param for param in params.items()])
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name, query_string=qs)
-            listing = [x['name'].encode('utf-8') for x in listing]
+            listing = [x['name'].encode('utf-8') if six.PY2 else x['name']
+                       for x in listing]
             if params.get('reverse'):
                 marker = params.get('marker', ShardRange.MAX)
                 end_marker = params.get('end_marker', ShardRange.MIN)
@@ -429,12 +433,12 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
                 expected = expected[:params['limit']]
             self.assertEqual(expected, listing)
 
-        def check_listing_precondition_fails(**params):
+        def check_listing_fails(exp_status, **params):
             qs = '&'.join(['%s=%s' % param for param in params.items()])
             with self.assertRaises(ClientException) as cm:
                 client.get_container(
                     self.url, self.token, self.container_name, query_string=qs)
-            self.assertEqual(412, cm.exception.http_status)
+            self.assertEqual(exp_status, cm.exception.http_status)
             return cm.exception
 
         def do_listing_checks(objects):
@@ -443,16 +447,17 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
             check_listing(objects, marker=markers[0], end_marker=markers[2])
             check_listing(objects, marker=markers[1], end_marker=markers[3])
             check_listing(objects, marker=markers[1], end_marker=markers[3],
-                          limit=self.max_shard_size / 4)
+                          limit=self.max_shard_size // 4)
             check_listing(objects, marker=markers[1], end_marker=markers[3],
-                          limit=self.max_shard_size / 4)
+                          limit=self.max_shard_size // 4)
             check_listing(objects, marker=markers[1], end_marker=markers[2],
-                          limit=self.max_shard_size / 2)
+                          limit=self.max_shard_size // 2)
             check_listing(objects, marker=markers[1], end_marker=markers[1])
             check_listing(objects, reverse=True)
             check_listing(objects, reverse=True, end_marker=markers[1])
             check_listing(objects, reverse=True, marker=markers[3],
-                          end_marker=markers[1], limit=self.max_shard_size / 4)
+                          end_marker=markers[1],
+                          limit=self.max_shard_size // 4)
             check_listing(objects, reverse=True, marker=markers[3],
                           end_marker=markers[1], limit=0)
             check_listing([], marker=markers[0], end_marker=markers[0])
@@ -465,12 +470,16 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
                 self.url, self.token, self.container_name,
                 query_string='delimiter=-')
             self.assertEqual([{'subdir': 'obj-'}], listing)
+            headers, listing = client.get_container(
+                self.url, self.token, self.container_name,
+                query_string='delimiter=j-')
+            self.assertEqual([{'subdir': 'obj-'}], listing)
 
             limit = self.cluster_info['swift']['container_listing_limit']
-            exc = check_listing_precondition_fails(limit=limit + 1)
-            self.assertIn('Maximum limit', exc.http_response_content)
-            exc = check_listing_precondition_fails(delimiter='ab')
-            self.assertIn('Bad delimiter', exc.http_response_content)
+            exc = check_listing_fails(412, limit=limit + 1)
+            self.assertIn(b'Maximum limit', exc.http_response_content)
+            exc = check_listing_fails(400, delimiter='%ff')
+            self.assertIn(b'not valid UTF-8', exc.http_response_content)
 
         # sanity checks
         do_listing_checks(obj_names)
@@ -544,7 +553,9 @@ class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
         obj_names = []
         for x in range(number):
             name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb-%04d' % x)
-            name = name.encode('utf8').ljust(name_length, 'o')
+            name = name.encode('utf8').ljust(name_length, b'o')
+            if not six.PY2:
+                name = name.decode('utf8')
             obj_names.append(name)
         return obj_names
 
@@ -553,7 +564,9 @@ class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
         super(TestContainerShardingUTF8, self)._setup_container_name()
         name_length = self.cluster_info['swift']['max_container_name_length']
         cont_name = self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb'
-        self.conainer_name = cont_name.encode('utf8').ljust(name_length, 'x')
+        self.conainer_name = cont_name.ljust(name_length, 'x')
+        if six.PY2:
+            self.conainer_name = self.container_name.encode('utf8')
 
 
 class TestContainerSharding(BaseTestContainerSharding):
@@ -573,8 +586,9 @@ class TestContainerSharding(BaseTestContainerSharding):
 
         headers, pre_sharding_listing = client.get_container(
             self.url, self.token, self.container_name)
-        self.assertEqual(obj_names, [x['name'].encode('utf-8')
-                                     for x in pre_sharding_listing])  # sanity
+        self.assertEqual(obj_names, [
+            x['name'].encode('utf-8') if six.PY2 else x['name']
+            for x in pre_sharding_listing])  # sanity
 
         # Shard it
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -603,6 +617,8 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_shard_ranges_contiguous(2, orig_root_shard_ranges)
         self.assertEqual([ShardRange.ACTIVE, ShardRange.ACTIVE],
                          [sr['state'] for sr in orig_root_shard_ranges])
+        contexts = list(CleavingContext.load_all(broker))
+        self.assertEqual([], contexts)  # length check
         self.direct_delete_container(expect_failure=True)
 
         self.assertLengthEqual(found['normal_dbs'], 2)
@@ -619,6 +635,9 @@ class TestContainerSharding(BaseTestContainerSharding):
             self.assert_shard_range_lists_equal(
                 orig_root_shard_ranges, shard_ranges,
                 excludes=['meta_timestamp', 'state', 'state_timestamp'])
+
+            contexts = list(CleavingContext.load_all(broker))
+            self.assertEqual([], contexts)  # length check
 
         if run_replicators:
             Manager(['container-replicator']).once()
@@ -649,6 +668,9 @@ class TestContainerSharding(BaseTestContainerSharding):
                                         orig['state_timestamp'])
                 self.assertGreaterEqual(updated.meta_timestamp,
                                         orig['meta_timestamp'])
+
+            contexts = list(CleavingContext.load_all(broker))
+            self.assertEqual([], contexts)  # length check
 
         # Check that entire listing is available
         headers, actual_listing = self.assert_container_listing(obj_names)
@@ -740,6 +762,16 @@ class TestContainerSharding(BaseTestContainerSharding):
                     first_lower=orig_root_shard_ranges[0]['lower'],
                     last_upper=orig_root_shard_ranges[0]['upper'])
 
+                contexts = list(CleavingContext.load_all(broker))
+                self.assertEqual(len(contexts), 1)
+                context, _lm = contexts[0]
+                self.assertIs(context.cleaving_done, False)
+                self.assertIs(context.misplaced_done, True)
+                self.assertEqual(context.ranges_done, 2)
+                self.assertEqual(context.ranges_todo, 1)
+                self.assertEqual(context.max_row,
+                                 self.max_shard_size * 3 // 2)
+
         # but third replica still has no idea it should be sharding
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
         self.assertEqual(
@@ -767,16 +799,36 @@ class TestContainerSharding(BaseTestContainerSharding):
             ShardRange.SHARDING, broker.get_own_shard_range().state)
         self.assertFalse(broker.get_shard_ranges())
 
+        contexts = list(CleavingContext.load_all(broker))
+        self.assertEqual([], contexts)  # length check
+
         # ...until sub-shard ranges are replicated from another shard replica;
         # there may also be a sub-shard replica missing so run replicators on
         # all nodes to fix that if necessary
         self.brain.servers.start(number=shard_1_nodes[2])
         self.replicators.once()
 
+        # Now that the replicators have all run, third replica sees cleaving
+        # contexts for the first two
+        contexts = list(CleavingContext.load_all(broker))
+        self.assertEqual(len(contexts), 2)
+
         # now run sharder again on third replica
         self.sharders.once(
             number=shard_1_nodes[2],
             additional_args='--partitions=%s' % shard_1_part)
+        sharding_broker = ContainerBroker(found_for_shard['normal_dbs'][2])
+        self.assertEqual('sharding', sharding_broker.get_db_state())
+
+        broker_id = broker.get_info()['id']
+        # Old, unsharded DB doesn't have the context...
+        contexts = list(CleavingContext.load_all(broker))
+        self.assertEqual(len(contexts), 2)
+        self.assertNotIn(broker_id, [ctx[0].ref for ctx in contexts])
+        # ...but the sharding one does
+        contexts = list(CleavingContext.load_all(sharding_broker))
+        self.assertEqual(len(contexts), 3)
+        self.assertIn(broker_id, [ctx[0].ref for ctx in contexts])
 
         # check original first shard range state and sub-shards - all replicas
         # should now be in consistent state
@@ -852,6 +904,8 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assert_container_listing(['alpha'] + more_obj_names + obj_names)
         # Run sharders again so things settle.
         self.run_sharders(shard_1)
+        # Also run replicators to settle cleaving contexts
+        self.replicators.once()
 
         # check original first shard range shards
         for db_file in found_for_shard['shard_dbs']:
@@ -862,6 +916,11 @@ class TestContainerSharding(BaseTestContainerSharding):
                 self.assertEqual(
                     [ShardRange.ACTIVE] * 3,
                     [sr.state for sr in broker.get_shard_ranges()])
+
+                # Make sure our cleaving contexts got cleaned up
+                contexts = list(CleavingContext.load_all(broker))
+                self.assertEqual([], contexts)
+
         # check root shard ranges
         root_shard_ranges = self.direct_get_container_shard_ranges()
         for node, (hdrs, root_shards) in root_shard_ranges.items():
@@ -901,7 +960,7 @@ class TestContainerSharding(BaseTestContainerSharding):
                 old_shard_range = by_name.pop(
                     orig_root_shard_ranges[0]['name'])
                 self.assertTrue(old_shard_range.deleted)
-                self.assert_shard_ranges_contiguous(4, by_name.values())
+                self.assert_shard_ranges_contiguous(4, list(by_name.values()))
             else:
                 # Everyone's on the same page. Well, except for
                 # meta_timestamps, since the shards each reported
@@ -1070,26 +1129,29 @@ class TestContainerSharding(BaseTestContainerSharding):
         start_listing = [
             o for o in obj_names if o <= expected_shard_ranges[1].upper]
         self.assertEqual(
-            [x['name'].encode('utf-8') for x in listing[:len(start_listing)]],
+            [x['name'].encode('utf-8') if six.PY2 else x['name']
+             for x in listing[:len(start_listing)]],
             start_listing)
         # we can't assert much about the remaining listing, other than that
         # there should be something
         self.assertTrue(
-            [x['name'].encode('utf-8') for x in listing[len(start_listing):]])
+            [x['name'].encode('utf-8') if six.PY2 else x['name']
+             for x in listing[len(start_listing):]])
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(str(len(listing)),
                          headers['x-container-object-count'])
         headers, listing = client.get_container(self.url, self.token,
                                                 self.container_name,
                                                 query_string='reverse=on')
-        self.assertEqual([x['name'].encode('utf-8')
+        self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
                           for x in listing[-len(start_listing):]],
                          list(reversed(start_listing)))
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(str(len(listing)),
                          headers['x-container-object-count'])
         self.assertTrue(
-            [x['name'].encode('utf-8') for x in listing[:-len(start_listing)]])
+            [x['name'].encode('utf-8') if six.PY2 else x['name']
+             for x in listing[:-len(start_listing)]])
 
         # Run the sharders again to get everything to settle
         self.sharders.once()
@@ -1099,7 +1161,8 @@ class TestContainerSharding(BaseTestContainerSharding):
         # now all shards have been cleaved we should get the complete listing
         headers, listing = client.get_container(self.url, self.token,
                                                 self.container_name)
-        self.assertEqual([x['name'].encode('utf-8') for x in listing],
+        self.assertEqual([x['name'].encode('utf-8') if six.PY2 else x['name']
+                          for x in listing],
                          obj_names)
 
     def test_shrinking(self):
@@ -1409,7 +1472,7 @@ class TestContainerSharding(BaseTestContainerSharding):
 
         # put objects while all servers are up
         obj_names = self._make_object_names(
-            num_shards * self.max_shard_size / 2)
+            num_shards * self.max_shard_size // 2)
         self.put_objects(obj_names)
 
         client.post_container(self.url, self.admin_token, self.container_name,
@@ -2004,7 +2067,7 @@ class TestContainerSharding(BaseTestContainerSharding):
                             if n['id'] not in primary_ids)
         num_shards = 3
         obj_names = self._make_object_names(
-            num_shards * self.max_shard_size / 2)
+            num_shards * self.max_shard_size // 2)
         self.put_objects(obj_names)
         client.post_container(self.url, self.admin_token, self.container_name,
                               headers={'X-Container-Sharding': 'on'})

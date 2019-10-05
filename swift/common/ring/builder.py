@@ -364,13 +364,15 @@ class RingBuilder(object):
             # shift an unsigned int >I right to obtain the partition for the
             # int).
             if not self._replica2part2dev:
-                self._ring = RingData([], devs, self.part_shift)
+                self._ring = RingData([], devs, self.part_shift,
+                                      version=self.version)
             else:
                 self._ring = \
                     RingData([array('H', p2d) for p2d in
                               self._replica2part2dev],
                              devs, self.part_shift,
-                             self.next_part_power)
+                             self.next_part_power,
+                             self.version)
         return self._ring
 
     def add_dev(self, dev):

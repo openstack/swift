@@ -196,11 +196,11 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
         self.middleware(req.environ, self.start_fake_response)
         self.assertEqual(self.response_status, 200)
 
-    def _assert_authorized(self, req, expect_token=True,
-                           account_path='/v1/AUTH_TENANT_ID/'):
+    def _assert_authorized(self, req, account_path='/v1/AUTH_TENANT_ID/'):
         self.assertTrue(
             req.path.startswith(account_path),
             '%r does not start with %r' % (req.path, account_path))
+        self.assertNotIn('X-Auth-Token', req.headers)
         expected_headers = {
             'X-Identity-Status': 'Confirmed',
             'X-Roles': 'swift-user,_member_',
@@ -210,12 +210,8 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             'X-Tenant-Name': 'TENANT_NAME',
             'X-Project-Id': 'TENANT_ID',
             'X-Project-Name': 'TENANT_NAME',
-            'X-Auth-Token': 'TOKEN_ID',
         }
         for header, value in expected_headers.items():
-            if header == 'X-Auth-Token' and not expect_token:
-                self.assertNotIn(header, req.headers)
-                continue
             self.assertIn(header, req.headers)
             self.assertEqual(value, req.headers[header])
             # WSGI wants native strings for headers
@@ -253,7 +249,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             'string_to_sign': u'token',
         }
         req.get_response(self.middleware)
-        self._assert_authorized(req, expect_token=False)
+        self._assert_authorized(req)
 
     def test_authorized_bytes(self):
         req = Request.blank('/v1/AUTH_cfa/c/o')
@@ -533,7 +529,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
 
         cache = MOCK_CACHE_FROM_ENV.return_value
 
-        fake_cache_response = ({}, 'token_id', {'id': 'tenant_id'}, 'secret')
+        fake_cache_response = ({}, {'id': 'tenant_id'}, 'secret')
         cache.get.return_value = fake_cache_response
 
         MOCK_REQUEST.return_value = TestResponse({
@@ -600,8 +596,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
 
         self.assertTrue(MOCK_REQUEST.called)
         tenant = GOOD_RESPONSE_V2['access']['token']['tenant']
-        token = GOOD_RESPONSE_V2['access']['token']['id']
-        expected_cache = (expected_headers, token, tenant, 'secret')
+        expected_cache = (expected_headers, tenant, 'secret')
         cache.set.assert_called_once_with('s3secret/access', expected_cache,
                                           time=20)
 

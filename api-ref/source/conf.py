@@ -23,6 +23,7 @@
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
+import datetime
 import os
 from swift import __version__
 import subprocess
@@ -154,20 +155,22 @@ pygments_style = 'sphinx'
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
 # html_last_updated_fmt = '%b %d, %Y'
-git_cmd = ["git", "log", "--pretty=format:'%ad, commit %h'", "--date=local",
-           "-n1"]
-try:
-    html_last_updated_fmt = subprocess.Popen(
-        git_cmd, stdout=subprocess.PIPE).communicate()[0]
-except OSError:
-    warnings.warn('Cannot get last updated time from git repository. '
-                  'Not setting "html_last_updated_fmt".')
+if 'SOURCE_DATE_EPOCH' in os.environ:
+    now = float(os.environ.get('SOURCE_DATE_EPOCH'))
+    html_last_updated_fmt = datetime.datetime.utcfromtimestamp(now).isoformat()
 else:
-    if not isinstance(html_last_updated_fmt, str):
-        # for py3
-        html_last_updated_fmt = html_last_updated_fmt.decode('ascii')
-
-
+    git_cmd = ["git", "log", "--pretty=format:'%ad, commit %h'", "--date=local",
+               "-n1"]
+    try:
+        html_last_updated_fmt = subprocess.Popen(
+            git_cmd, stdout=subprocess.PIPE).communicate()[0]
+    except OSError:
+        warnings.warn('Cannot get last updated time from git repository. '
+                      'Not setting "html_last_updated_fmt".')
+    else:
+        if not isinstance(html_last_updated_fmt, str):
+            # for py3
+            html_last_updated_fmt = html_last_updated_fmt.decode('ascii')
 # If true, SmartyPants will be used to convert quotes and dashes to
 # typographically correct entities.
 # html_use_smartypants = True

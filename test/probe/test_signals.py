@@ -48,10 +48,10 @@ class TestWSGIServerProcessHandling(unittest.TestCase):
         manager = Manager([server_name])
         manager.start()
 
-        starting_pids = set(pid for server in manager.servers
-                            for (_, pid) in server.iter_pid_files())
+        starting_pids = {pid for server in manager.servers
+                         for (_, pid) in server.iter_pid_files()}
 
-        body = 'test' * 10
+        body = b'test' * 10
         conn = httplib.HTTPConnection('%s:%s' % (ip, port))
 
         # sanity request
@@ -68,8 +68,8 @@ class TestWSGIServerProcessHandling(unittest.TestCase):
 
         manager.reload()
 
-        post_reload_pids = set(pid for server in manager.servers
-                               for (_, pid) in server.iter_pid_files())
+        post_reload_pids = {pid for server in manager.servers
+                            for (_, pid) in server.iter_pid_files()}
 
         # none of the pids we started with are being tracked after reload
         msg = 'expected all pids from %r to have died, but found %r' % (
@@ -92,8 +92,8 @@ class TestWSGIServerProcessHandling(unittest.TestCase):
         conn.close()
 
         # sanity
-        post_close_pids = set(pid for server in manager.servers
-                              for (_, pid) in server.iter_pid_files())
+        post_close_pids = {pid for server in manager.servers
+                           for (_, pid) in server.iter_pid_files()}
         self.assertEqual(post_reload_pids, post_close_pids)
 
     def test_proxy_reload(self):

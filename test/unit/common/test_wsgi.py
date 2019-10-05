@@ -70,6 +70,7 @@ class TestWSGI(unittest.TestCase):
         config = """
         [DEFAULT]
         swift_dir = TEMPDIR
+        fallocate_reserve = 1%
 
         [pipeline:main]
         pipeline = proxy-server
@@ -122,6 +123,7 @@ class TestWSGI(unittest.TestCase):
             '__file__': conf_file,
             'here': os.path.dirname(conf_file),
             'conn_timeout': '0.2',
+            'fallocate_reserve': '1%',
             'swift_dir': t,
             '__name__': 'proxy-server'
         }
@@ -2064,6 +2066,7 @@ class TestPipelineModification(unittest.TestCase):
 
             [filter:tempauth]
             use = egg:swift#tempauth
+            user_test_tester = t%%sting .admin
 
             [filter:copy]
             use = egg:swift#copy
@@ -2090,7 +2093,10 @@ class TestPipelineModification(unittest.TestCase):
             for version, pipeline, expected in to_test:
                 conf_file = os.path.join(t, 'proxy-server.conf')
                 with open(conf_file, 'w') as f:
-                    f.write(contents % (t, pipeline))
+                    to_write = contents % (t, pipeline)
+                    # Sanity check that the password only has one % in it
+                    self.assertIn('t%sting', to_write)
+                    f.write(to_write)
                 app = wsgi.loadapp(conf_file, global_conf={})
 
                 actual = ' '.join(m.rsplit('.', 1)[1]

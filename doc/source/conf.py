@@ -55,7 +55,8 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.todo',
               'sphinx.ext.coverage',
               'sphinx.ext.ifconfig',
-              'openstackdocstheme']
+              'openstackdocstheme',
+              'sphinxcontrib.rsvgconverter']
 todo_include_todos = True
 
 # Add any paths that contain templates here, relative to this directory.
@@ -72,7 +73,12 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Swift'
-copyright = u'%d, OpenStack Foundation' % datetime.datetime.now().year
+if 'SOURCE_DATE_EPOCH' in os.environ:
+    now = float(os.environ.get('SOURCE_DATE_EPOCH'))
+    now = datetime.datetime.utcfromtimestamp(now)
+else:
+    now = datetime.date.today()
+copyright = u'%d, OpenStack Foundation' % now.year
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -218,7 +224,7 @@ htmlhelp_basename = 'swiftdoc'
 # (source start file, target name, title, author, documentclass
 # [howto/manual]).
 latex_documents = [
-    ('index', 'Swift.tex', u'Swift Documentation',
+    ('index', 'doc-swift.tex', u'Swift Documentation',
      u'Swift Team', 'manual'),
 ]
 
@@ -238,6 +244,8 @@ latex_documents = [
 
 # If false, no module index is generated.
 # latex_use_modindex = True
+
+latex_use_xindy = False
 
 # -- Options for openstackdocstheme -------------------------------------------
 repository_name = 'openstack/swift'

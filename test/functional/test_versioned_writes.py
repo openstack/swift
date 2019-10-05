@@ -915,10 +915,11 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
 
         expected = [b'old content', b'112233', b'new content', b'']
 
+        name_len = len(obj_name if six.PY2 else obj_name.encode('utf8'))
         bodies = [
             self.env.versions_container.file(f).read()
             for f in self.env.versions_container.files(parms={
-                'prefix': '%03x%s/' % (len(obj_name), obj_name)})]
+                'prefix': '%03x%s/' % (name_len, obj_name)})]
         self.assertEqual(expected, bodies)
 
     def test_versioning_check_acl(self):
@@ -962,6 +963,11 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         self.assertEqual(4, self.env.versions_container.info()['object_count'])
 
 
+class TestObjectVersioningHistoryModeUTF8(
+        Base2, TestObjectVersioningHistoryMode):
+    pass
+
+
 class TestSloWithVersioning(unittest2.TestCase):
 
     def setUp(self):
@@ -982,7 +988,10 @@ class TestSloWithVersioning(unittest2.TestCase):
         self.segments_container = self.account.container(Utils.create_name())
         if not self.container.create(
                 hdrs={'X-Versions-Location': self.versions_container.name}):
-            raise ResponseError(self.conn.response)
+            if self.conn.response.status == 412:
+                raise SkipTest("Object versioning not enabled")
+            else:
+                raise ResponseError(self.conn.response)
         if 'versions' not in self.container.info():
             raise SkipTest("Object versioning not enabled")
 
@@ -1023,10 +1032,16 @@ class TestSloWithVersioning(unittest2.TestCase):
             self.fail("GET with multipart-manifest=get got invalid json")
 
         self.assertEqual(1, len(manifest))
-        key_map = {'etag': 'hash', 'size_bytes': 'bytes', 'path': 'name'}
+        key_map = {'etag': 'hash', 'size_bytes': 'bytes'}
         for k_client, k_slo in key_map.items():
             self.assertEqual(self.seg_info[seg_name][k_client],
                              manifest[0][k_slo])
+        if six.PY2:
+            self.assertEqual(self.seg_info[seg_name]['path'].decode('utf8'),
+                             manifest[0]['name'])
+        else:
+            self.assertEqual(self.seg_info[seg_name]['path'],
+                             manifest[0]['name'])
 
     def _assert_is_object(self, file_item, seg_data):
         file_contents = file_item.read()
@@ -1064,3 +1079,137 @@ class TestSloWithVersioning(unittest2.TestCase):
         # expect the original manifest file to be restored
         self._assert_is_manifest(file_item, 'a')
         self._assert_is_object(file_item, b'a')
+
+    def test_slo_manifest_version_size(self):
+        file_item = self._create_manifest('a')
+        # sanity check: read the manifest, then the large object
+        self._assert_is_manifest(file_item, 'a')
+        self._assert_is_object(file_item, b'a')
+
+        # original manifest size
+        primary_list = self.container.files(parms={'format': 'json'})
+        self.assertEqual(1, len(primary_list))
+        org_size = primary_list[0]['bytes']
+
+        # upload new manifest
+        file_item = self._create_manifest('b')
+        # sanity check: read the manifest, then the large object
+        self._assert_is_manifest(file_item, 'b')
+        self._assert_is_object(file_item, b'b')
+
+        versions_list = self.versions_container.files(parms={'format': 'json'})
+        self.assertEqual(1, len(versions_list))
+        version_file = self.versions_container.file(versions_list[0]['name'])
+        version_file_size = versions_list[0]['bytes']
+        # check the version is still a manifest
+        self._assert_is_manifest(version_file, 'a')
+        self._assert_is_object(version_file, b'a')
+
+        # check the version size is correct
+        self.assertEqual(version_file_size, org_size)
+
+        # delete the newest manifest
+        file_item.delete()
+
+        # expect the original manifest file to be restored
+        self._assert_is_manifest(file_item, 'a')
+        self._assert_is_object(file_item, b'a')
+
+        primary_list = self.container.files(parms={'format': 'json'})
+        self.assertEqual(1, len(primary_list))
+        primary_file_size = primary_list[0]['bytes']
+        # expect the original manifest file size to be the same
+        self.assertEqual(primary_file_size, org_size)
+
+
+class TestSloWithVersioningUTF8(Base2, TestSloWithVersioning):
+    pass
+
+
+class TestObjectVersioningChangingMode(Base):
+    env = TestObjectVersioningHistoryModeEnv
+
+    def test_delete_while_changing_mode(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        cont_info = container.info()
+        self.assertEqual(cont_info['versions'], quote(versions_container.name))
+
+        obj_name = Utils.create_name()
+        versioned_obj = container.file(obj_name)
+
+        versioned_obj.write(
+            b"version1", hdrs={'Content-Type': 'text/jibberish01'})
+        versioned_obj.write(
+            b"version2", hdrs={'Content-Type': 'text/jibberish01'})
+
+        # sanity, version1 object should have moved to versions_container
+        self.assertEqual(1, versions_container.info()['object_count'])
+
+        versioned_obj.delete()
+
+        # version2 and the delete marker should have put in versions_container
+        self.assertEqual(3, versions_container.info()['object_count'])
+        delete_marker_name = versions_container.files()[2]
+        delete_marker = versions_container.file(delete_marker_name)
+        delete_marker.initialize()
+        self.assertEqual(
+            delete_marker.content_type,
+            'application/x-deleted;swift_versions_deleted=1')
+
+        # change to stack mode
+        hdrs = {'X-Versions-Location': versions_container.name}
+        container.update_metadata(hdrs=hdrs)
+
+        versioned_obj.delete()
+
+        # version2 object should have been moved in container
+        self.assertEqual(b"version2", versioned_obj.read())
+
+        # and there's only one version1 is left in versions_container
+        self.assertEqual(1, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[0]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual(b"version1", prev_version.read())
+        self.assertEqual(prev_version.content_type, 'text/jibberish01')
+
+        # reset and test double delete
+        # change back to history mode
+        hdrs = {'X-History-Location': versions_container.name}
+        container.update_metadata(hdrs=hdrs)
+
+        # double delete, second DELETE returns a 404 as expected
+        versioned_obj.delete()
+        with self.assertRaises(ResponseError) as cm:
+            versioned_obj.delete()
+        self.assertEqual(404, cm.exception.status)
+
+        # There should now be 4 objects total in versions_container
+        # 2 are delete markers
+        self.assertEqual(4, versions_container.info()['object_count'])
+
+        # change to stack mode
+        hdrs = {'X-Versions-Location': versions_container.name}
+        container.update_metadata(hdrs=hdrs)
+
+        # a delete, just deletes one delete marker, it doesn't yet pop
+        # version2 back in the container
+        # This DELETE doesn't return a 404!
+        versioned_obj.delete()
+        self.assertEqual(3, versions_container.info()['object_count'])
+        self.assertEqual(0, container.info()['object_count'])
+
+        # neither does this one!
+        versioned_obj.delete()
+
+        # version2 object should have been moved in container
+        self.assertEqual(b"version2", versioned_obj.read())
+
+        # and there's only one version1 is left in versions_container
+        self.assertEqual(1, versions_container.info()['object_count'])
+
+
+class TestObjectVersioningChangingModeUTF8(
+        Base2, TestObjectVersioningChangingMode):
+    pass

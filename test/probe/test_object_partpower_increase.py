@@ -51,8 +51,8 @@ class TestPartPowerIncrease(ProbeTest):
 
         self.devices = [
             self.device_dir('object', {'ip': ip, 'port': port, 'device': ''})
-            for ip, port in set((dev['ip'], dev['port'])
-                                for dev in self.object_ring.devs)]
+            for ip, port in {(dev['ip'], dev['port'])
+                             for dev in self.object_ring.devs}]
 
     def tearDown(self):
         # Keep a backup copy of the modified .builder file

@@ -44,7 +44,7 @@ import six
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    GreenAsyncPile, quorum_size, parse_content_type, \
+    GreenAsyncPile, quorum_size, parse_content_type, close_if_possible, \
     document_iters_to_http_response_body, ShardRange, find_shard_range
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
@@ -357,6 +357,7 @@ def get_container_info(env, app, swift_source=None):
             env, ("/%s/%s/%s" % (version, wsgi_account, wsgi_container)),
             (swift_source or 'GET_CONTAINER_INFO'))
         resp = req.get_response(app)
+        close_if_possible(resp.app_iter)
         # Check in infocache to see if the proxy (or anyone else) already
         # populated the cache for us. If they did, just use what's there.
         #
@@ -412,6 +413,7 @@ def get_account_info(env, app, swift_source=None):
             env, "/%s/%s" % (version, wsgi_account),
             (swift_source or 'GET_ACCOUNT_INFO'))
         resp = req.get_response(app)
+        close_if_possible(resp.app_iter)
         # Check in infocache to see if the proxy (or anyone else) already
         # populated the cache for us. If they did, just use what's there.
         #

@@ -8,3 +8,4 @@ openstackdocstheme>=1.30.0 # Apache-2.0
 reno>=1.8.0  # Apache-2.0
 os-api-ref>=1.0.0 # Apache-2.0
 python-keystoneclient!=2.1.0,>=2.0.0 # Apache-2.0
+sphinxcontrib-svg2pdfconverter>=0.1.0 # BSD

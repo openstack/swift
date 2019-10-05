@@ -2433,6 +2433,41 @@ class TestReplicatedObjectController(
         self.assertEqual(res.body, b'')
 
     @unpatch_policies
+    def test_PUT_GET_unicode_metadata(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+
+        path = b'/v1/a/c/o.zerobyte'
+        fd.write(b'PUT %s HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'Expect: 100-continue\r\n'
+                 b'Transfer-Encoding: chunked\r\n'
+                 b'Content-Type: application/octet-stream\r\n'
+                 b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d\r\n'
+                 b'\r\n0\r\n\r\n' % (path,))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 100'
+        self.assertEqual(headers[:len(exp)], exp)
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        fd.write(b'GET %s HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'\r\n' % (path,))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.assertIn(b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d',
+                      headers.split(b'\r\n'))
+
+    @unpatch_policies
     def test_GET_short_read(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -3136,14 +3171,68 @@ class TestReplicatedObjectController(
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+        with mock.patch('swift.obj.diskfile.fallocate') as mock_fallocate:
+            fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                     b'Host: localhost\r\n'
+                     b'Connection: keep-alive\r\n'
+                     b'X-Storage-Token: t\r\n'
+                     b'Content-Type: application/octet-stream\r\n'
+                     b'Content-Length: 33\r\n'
+                     b'Transfer-Encoding: chunked\r\n\r\n'
+                     b'2\r\n'
+                     b'oh\r\n'
+                     b'4\r\n'
+                     b' say\r\n'
+                     b'4\r\n'
+                     b' can\r\n'
+                     b'4\r\n'
+                     b' you\r\n'
+                     b'4\r\n'
+                     b' see\r\n'
+                     b'3\r\n'
+                     b' by\r\n'
+                     b'4\r\n'
+                     b' the\r\n'
+                     b'8\r\n'
+                     b' dawns\'\n\r\n'
+                     b'0\r\n\r\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.assertFalse(mock_fallocate.mock_calls)
+
+        fd.write(b'GET /v1/a/c/o.chunked HTTP/1.1\r\n'
                  b'Host: localhost\r\n'
                  b'Connection: close\r\n'
                  b'X-Storage-Token: t\r\n'
+                 b'\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.assertIn(b'Content-Length: 33', headers.split(b'\r\n'))
+        self.assertEqual(b"oh say can you see by the dawns'\n", fd.read(33))
+
+    @unpatch_policies
+    def test_PUT_message_length_using_both_with_crazy_meta(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+        fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'X-Storage-Token: t\r\n'
                  b'Content-Type: application/octet-stream\r\n'
                  b'Content-Length: 33\r\n'
-                 b'Transfer-Encoding: chunked\r\n\r\n'
-                 b'2\r\n'
+                 b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d\r\n'
+                 b'Expect: 100-continue\r\n'
+                 b'Transfer-Encoding: chunked\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 100 Continue'
+        self.assertEqual(headers[:len(exp)], exp)
+        # Since we got our 100 Continue, now we can send the body
+        fd.write(b'2\r\n'
                  b'oh\r\n'
                  b'4\r\n'
                  b' say\r\n'
@@ -3164,6 +3253,20 @@ class TestReplicatedObjectController(
         headers = readuntil2crlfs(fd)
         exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
+
+        fd.write(b'GET /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 b'Host: localhost\r\n'
+                 b'Connection: close\r\n'
+                 b'X-Storage-Token: t\r\n'
+                 b'\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.assertIn(b'Content-Length: 33', headers.split(b'\r\n'))
+        self.assertIn(b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d',
+                      headers.split(b'\r\n'))
+        self.assertEqual(b"oh say can you see by the dawns'\n", fd.read(33))
 
     @unpatch_policies
     def test_PUT_bad_message_length(self):
@@ -4282,6 +4385,31 @@ class TestReplicatedObjectController(
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 499)
 
+            # chunked transfers basically go "until I stop sending bytes"
+            req = Request.blank('/v1/a/c/o',
+                                environ={'REQUEST_METHOD': 'PUT',
+                                         'wsgi.input': DisconnectedBody()},
+                                headers={'Transfer-Encoding': 'chunked',
+                                         'Content-Type': 'text/plain'})
+            self.app.update_request(req)
+            set_http_connect(200, 200, 201, 201, 201)
+            #                acct cont obj  obj  obj
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 201)  # ... so, no disconnect
+
+            # chunked transfer trumps content-length
+            req = Request.blank('/v1/a/c/o',
+                                environ={'REQUEST_METHOD': 'PUT',
+                                         'wsgi.input': DisconnectedBody()},
+                                headers={'Content-Length': '4',
+                                         'Transfer-Encoding': 'chunked',
+                                         'Content-Type': 'text/plain'})
+            self.app.update_request(req)
+            set_http_connect(200, 200, 201, 201, 201)
+            #                acct cont obj  obj  obj
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 201)
+
     def test_node_read_timeout(self):
         with save_globals():
             self.app.account_ring.get_nodes('account')
@@ -5332,7 +5460,7 @@ class TestReplicatedObjectController(
         exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
         self.assertIn(b'\r\nX-Object-Meta-%s: %s\r\n' %
-                      (quote(ustr_short).lower().encode('ascii'),
+                      (quote(ustr_short).title().encode('ascii'),
                        quote(ustr).encode('ascii')), headers)
 
     @unpatch_policies
@@ -7185,6 +7313,104 @@ class BaseTestECObjectController(BaseTestObjectController):
         expected = ['Client disconnected without sending enough data']
         warns = _test_servers[0].logger.get_lines_for_level('warning')
         self.assertEqual(expected, warns)
+        errors = _test_servers[0].logger.get_lines_for_level('error')
+        self.assertEqual([], errors)
+
+        # try it chunked
+        _test_servers[0].logger.clear()
+        chunk = 'a' * 64 * 2 ** 10
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s-discon/test HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Transfer-Encoding: chunked\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: donuts\r\n'
+                  '\r\n' % (self.ec_policy.name,)).encode('ascii'))
+        fd.write(('%x\r\n%s\r\n' % (len(chunk), chunk)).encode('ascii'))
+        # no zero-byte end chunk
+        fd.flush()
+        fd.close()
+        sock.close()
+        # sleep to trampoline enough
+        condition = \
+            lambda: _test_servers[0].logger.get_lines_for_level('warning')
+        self._sleep_enough(condition)
+        expected = ['Client disconnected without sending last chunk']
+        warns = _test_servers[0].logger.get_lines_for_level('warning')
+        self.assertEqual(expected, warns)
+        errors = _test_servers[0].logger.get_lines_for_level('error')
+        self.assertEqual([], errors)
+
+        _test_servers[0].logger.clear()
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s-discon/test HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Transfer-Encoding: chunked\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: donuts\r\n'
+                  '\r\n' % (self.ec_policy.name,)).encode('ascii'))
+        fd.write(('%x\r\n%s\r\n' % (len(chunk), chunk)).encode('ascii')[:-10])
+        fd.flush()
+        fd.close()
+        sock.close()
+        # sleep to trampoline enough
+        condition = \
+            lambda: _test_servers[0].logger.get_lines_for_level('warning')
+        self._sleep_enough(condition)
+        expected = ['Client disconnected without sending last chunk']
+        warns = _test_servers[0].logger.get_lines_for_level('warning')
+        self.assertEqual(expected, warns)
+        errors = _test_servers[0].logger.get_lines_for_level('error')
+        self.assertEqual([], errors)
+
+        _test_servers[0].logger.clear()
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s-discon/test HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Transfer-Encoding: chunked\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: donuts\r\n'
+                  '\r\n' % (self.ec_policy.name,)).encode('ascii'))
+        fd.write(('%x\r\n' % len(chunk)).encode('ascii'))
+        fd.flush()
+        fd.close()
+        sock.close()
+        # sleep to trampoline enough
+        condition = \
+            lambda: _test_servers[0].logger.get_lines_for_level('warning')
+        self._sleep_enough(condition)
+        expected = ['Client disconnected without sending last chunk']
+        warns = _test_servers[0].logger.get_lines_for_level('warning')
+        self.assertEqual(expected, warns)
+        errors = _test_servers[0].logger.get_lines_for_level('error')
+        self.assertEqual([], errors)
+
+        # Do a valid guy with conflicting headers
+        _test_servers[0].logger.clear()
+        chunk = 'a' * 64 * 2 ** 10
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile('rwb')
+        fd.write(('PUT /v1/a/%s-discon/test HTTP/1.1\r\n'
+                  'Host: localhost\r\n'
+                  'Transfer-Encoding: chunked\r\n'
+                  'Content-Length: 999999999999999999999999\r\n'
+                  'X-Storage-Token: t\r\n'
+                  'Content-Type: donuts\r\n'
+                  '\r\n' % (self.ec_policy.name,)).encode('ascii'))
+        fd.write(('%x\r\n%s\r\n0\r\n\r\n' % (
+            len(chunk), chunk)).encode('ascii'))
+        # no zero-byte end chunk
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = b'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+        fd.close()
+        sock.close()
+        warns = _test_servers[0].logger.get_lines_for_level('warning')
+        self.assertEqual([], warns)
         errors = _test_servers[0].logger.get_lines_for_level('error')
         self.assertEqual([], errors)
 

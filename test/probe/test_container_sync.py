@@ -113,7 +113,7 @@ class TestContainerSync(BaseTestContainerSync):
 
         resp_headers, body = client.get_object(self.url, self.token,
                                                dest_container, object_name)
-        self.assertEqual(body, 'test-body')
+        self.assertEqual(body, b'test-body')
         self.assertIn('x-object-meta-test', resp_headers)
         self.assertEqual('put_value', resp_headers['x-object-meta-test'])
 
@@ -136,7 +136,7 @@ class TestContainerSync(BaseTestContainerSync):
         # verify that metadata changes were sync'd
         resp_headers, body = client.get_object(self.url, self.token,
                                                dest_container, object_name)
-        self.assertEqual(body, 'test-body')
+        self.assertEqual(body, b'test-body')
         self.assertIn('x-object-meta-test', resp_headers)
         self.assertEqual('post_value', resp_headers['x-object-meta-test'])
         self.assertEqual('image/jpeg', resp_headers['content-type'])
@@ -180,7 +180,7 @@ class TestContainerSync(BaseTestContainerSync):
 
         # upload a segment to source
         segment_name = 'segment-%s' % uuid.uuid4()
-        segment_data = 'segment body'  # it's ok for first segment to be small
+        segment_data = b'segment body'  # it's ok for first segment to be small
         segment_etag = client.put_object(
             self.url, self.token, segs_container, segment_name,
             segment_data)
@@ -270,7 +270,7 @@ class TestContainerSync(BaseTestContainerSync):
         Manager(['container-sync']).once()
         _junk, body = client.get_object(self.url, self.token,
                                         dest_container, object_name)
-        self.assertEqual(body, 'test-body')
+        self.assertEqual(body, b'test-body')
 
     def test_sync_lazy_dkey(self):
         # Create synced containers, but with no key at dest
@@ -297,7 +297,7 @@ class TestContainerSync(BaseTestContainerSync):
         Manager(['container-sync']).once()
         _junk, body = client.get_object(self.url, self.token,
                                         dest_container, object_name)
-        self.assertEqual(body, 'test-body')
+        self.assertEqual(body, b'test-body')
 
     def test_sync_with_stale_container_rows(self):
         source_container, dest_container = self._setup_synced_containers()
@@ -351,7 +351,7 @@ class TestContainerSync(BaseTestContainerSync):
         # verify sync'd object has same content and headers
         dest_headers, body = client.get_object(self.url, self.token,
                                                dest_container, object_name)
-        self.assertEqual(body, 'new-test-body')
+        self.assertEqual(body, b'new-test-body')
         mismatched_headers = []
         for k in ('etag', 'content-length', 'content-type', 'x-timestamp',
                   'last-modified'):
@@ -381,7 +381,7 @@ class TestContainerSync(BaseTestContainerSync):
         # verify that the remote object did not change
         resp_headers, body = client.get_object(self.url, self.token,
                                                dest_container, object_name)
-        self.assertEqual(body, 'new-test-body')
+        self.assertEqual(body, b'new-test-body')
 
 
 class TestContainerSyncAndSymlink(BaseTestContainerSync):
@@ -413,7 +413,7 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
 
         # upload a target to source
         target_name = 'target-%s' % uuid.uuid4()
-        target_body = 'target body'
+        target_body = b'target body'
         client.put_object(
             self.url, self.token, tgt_container, target_name,
             target_body)
@@ -432,7 +432,7 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
         resp_headers, symlink_body = client.get_object(
             self.url, self.token, source_container, symlink_name,
             query_string='symlink=get')
-        self.assertEqual('', symlink_body)
+        self.assertEqual(b'', symlink_body)
         self.assertIn('x-symlink-target', resp_headers)
 
         # verify symlink behavior
@@ -453,7 +453,7 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
         resp_headers, symlink_body = client.get_object(
             dest_account['url'], dest_account['token'], dest_container,
             symlink_name, query_string='symlink=get')
-        self.assertEqual('', symlink_body)
+        self.assertEqual(b'', symlink_body)
         self.assertIn('x-symlink-target', resp_headers)
 
         # attempt to GET the target object via symlink will fail because
@@ -480,7 +480,7 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
         resp_headers, symlink_body = client.get_object(
             dest_account['url'], dest_account['token'], dest_container,
             symlink_name, query_string='symlink=get')
-        self.assertEqual('', symlink_body)
+        self.assertEqual(b'', symlink_body)
         self.assertIn('x-symlink-target', resp_headers)
 
         # verify GET of target object via symlink now succeeds
@@ -511,7 +511,7 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
 
         # upload a target to source
         target_name = 'target-%s' % uuid.uuid4()
-        target_body = 'target body'
+        target_body = b'target body'
         client.put_object(tgt_account['url'], tgt_account['token'],
                           tgt_container, target_name, target_body)
 
@@ -531,7 +531,7 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
         resp_headers, symlink_body = client.get_object(
             self.url, self.token, source_container, symlink_name,
             query_string='symlink=get')
-        self.assertEqual('', symlink_body)
+        self.assertEqual(b'', symlink_body)
         self.assertIn('x-symlink-target', resp_headers)
         self.assertIn('x-symlink-target-account', resp_headers)
 
@@ -553,7 +553,7 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
         resp_headers, symlink_body = client.get_object(
             self.url, self.token, dest_container,
             symlink_name, query_string='symlink=get')
-        self.assertEqual('', symlink_body)
+        self.assertEqual(b'', symlink_body)
         self.assertIn('x-symlink-target', resp_headers)
         self.assertIn('x-symlink-target-account', resp_headers)
 

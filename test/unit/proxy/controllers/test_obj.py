@@ -1104,6 +1104,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                 body = unchunk_body(body)
                 self.assertEqual('100-continue', headers['Expect'])
                 self.assertEqual('chunked', headers['Transfer-Encoding'])
+                self.assertNotIn('Content-Length', headers)
             else:
                 self.assertNotIn('Transfer-Encoding', headers)
             if body or not test_body:
@@ -4677,6 +4678,15 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         self.assertEqual(resp.status_int, 201)
 
     def test_PUT_with_body(self):
+        self._test_PUT_with_body()
+
+    def test_PUT_with_chunked_body(self):
+        self._test_PUT_with_body(chunked=True, content_length=False)
+
+    def test_PUT_with_both_body(self):
+        self._test_PUT_with_body(chunked=True, content_length=True)
+
+    def _test_PUT_with_body(self, chunked=False, content_length=True):
         segment_size = self.policy.ec_segment_size
         test_body = (b'asdf' * segment_size)[:-10]
         # make the footers callback not include Etag footer so that we can
@@ -4689,6 +4699,10 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         etag = md5(test_body).hexdigest()
         size = len(test_body)
         req.body = test_body
+        if chunked:
+            req.headers['Transfer-Encoding'] = 'chunked'
+        if not content_length:
+            del req.headers['Content-Length']
         codes = [201] * self.replicas()
         resp_headers = {
             'Some-Other-Header': 'Four',
@@ -4705,8 +4719,8 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             conn_id = kwargs['connection_id']
             put_requests[conn_id]['boundary'] = headers[
                 'X-Backend-Obj-Multipart-Mime-Boundary']
-            put_requests[conn_id]['backend-content-length'] = headers[
-                'X-Backend-Obj-Content-Length']
+            put_requests[conn_id]['backend-content-length'] = headers.get(
+                'X-Backend-Obj-Content-Length')
             put_requests[conn_id]['x-timestamp'] = headers[
                 'X-Timestamp']
 
@@ -4734,9 +4748,6 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             self.assertIsNotNone(info['boundary'],
                                  "didn't get boundary for conn %r" % (
                                      connection_id,))
-            self.assertTrue(size > int(info['backend-content-length']) > 0,
-                            "invalid backend-content-length for conn %r" % (
-                                connection_id,))
 
             # email.parser.FeedParser doesn't know how to take a multipart
             # message and boundary together and parse it; it only knows how
@@ -4759,12 +4770,19 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             obj_payload = obj_part.get_payload(decode=True)
             frag_archives.append(obj_payload)
 
-            # assert length was correct for this connection
-            self.assertEqual(int(info['backend-content-length']),
-                             len(frag_archives[-1]))
-            # assert length was the same for all connections
-            self.assertEqual(int(info['backend-content-length']),
-                             len(frag_archives[0]))
+            if chunked:
+                self.assertIsNone(info['backend-content-length'])
+            else:
+                self.assertTrue(
+                    size > int(info['backend-content-length']) > 0,
+                    "invalid backend-content-length for conn %r" % (
+                        connection_id,))
+                # assert length was correct for this connection
+                self.assertEqual(int(info['backend-content-length']),
+                                 len(frag_archives[-1]))
+                # assert length was the same for all connections
+                self.assertEqual(int(info['backend-content-length']),
+                                 len(frag_archives[0]))
 
             # validate some footer metadata
             self.assertEqual(footer_part['X-Document'], 'object metadata')

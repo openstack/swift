@@ -301,6 +301,25 @@ class TestAccount(Base):
         results = [r for r in results if r in expected]
         self.assertEqual(expected, results)
 
+    def testListMultiCharDelimiter(self):
+        delimiter = '-&'
+        containers = ['test', delimiter.join(['test', 'bar']),
+                      delimiter.join(['test', 'foo'])]
+        for c in containers:
+            cont = self.env.account.container(c)
+            self.assertTrue(cont.create())
+
+        results = self.env.account.containers(parms={'delimiter': delimiter})
+        expected = ['test', 'test-&']
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
+        results = self.env.account.containers(parms={'delimiter': delimiter,
+                                                     'reverse': 'yes'})
+        expected.reverse()
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
     def testListDelimiterAndPrefix(self):
         delimiter = 'a'
         containers = ['bar', 'bazar']
@@ -667,6 +686,36 @@ class TestContainer(Base):
             if isinstance(results[0], dict):
                 results = [x.get('name', x.get('subdir')) for x in results]
             self.assertEqual(results, ['test-', 'test'])
+
+    def testListMultiCharDelimiter(self):
+        cont = self.env.account.container(Utils.create_name())
+        self.assertTrue(cont.create())
+
+        delimiter = '-&'
+        files = ['test', delimiter.join(['test', 'bar']),
+                 delimiter.join(['test', 'foo'])]
+        for f in files:
+            file_item = cont.file(f)
+            self.assertTrue(file_item.write_random())
+
+        for format_type in [None, 'json', 'xml']:
+            results = cont.files(parms={'format': format_type})
+            if isinstance(results[0], dict):
+                results = [x.get('name', x.get('subdir')) for x in results]
+            self.assertEqual(results, ['test', 'test-&bar', 'test-&foo'])
+
+            results = cont.files(parms={'delimiter': delimiter,
+                                        'format': format_type})
+            if isinstance(results[0], dict):
+                results = [x.get('name', x.get('subdir')) for x in results]
+            self.assertEqual(results, ['test', 'test-&'])
+
+            results = cont.files(parms={'delimiter': delimiter,
+                                        'format': format_type,
+                                        'reverse': 'yes'})
+            if isinstance(results[0], dict):
+                results = [x.get('name', x.get('subdir')) for x in results]
+            self.assertEqual(results, ['test-&', 'test'])
 
     def testListDelimiterAndPrefix(self):
         cont = self.env.account.container(Utils.create_name())

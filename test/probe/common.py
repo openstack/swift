@@ -164,7 +164,7 @@ def add_ring_devs_to_ipport2server(ring, server_type, ipport2server,
     # We'll number the servers by order of unique occurrence of:
     #   IP, if servers_per_port > 0 OR there > 1 IP in ring
     #   ipport, otherwise
-    unique_ip_count = len(set(dev['ip'] for dev in ring.devs if dev))
+    unique_ip_count = len({dev['ip'] for dev in ring.devs if dev})
     things_to_number = {}
     number = 0
     for dev in filter(None, ring.devs):
@@ -244,7 +244,7 @@ def get_ring(ring_name, required_replicas, required_devices,
         if p.returncode:
             raise unittest.SkipTest('unable to connect to rsync '
                                     'export %s (%s)' % (rsync_export, cmd))
-        for line in stdout.splitlines():
+        for line in stdout.decode().splitlines():
             if line.rsplit(None, 1)[-1] == dev['device']:
                 break
         else:
@@ -295,11 +295,11 @@ def kill_orphans():
 class Body(object):
 
     def __init__(self, total=3.5 * 2 ** 20):
-        self.length = total
+        self.length = int(total)
         self.hasher = md5()
         self.read_amount = 0
-        self.chunk = uuid4().hex * 2 ** 10
-        self.buff = ''
+        self.chunk = uuid4().hex.encode('ascii') * 2 ** 10
+        self.buff = b''
 
     @property
     def etag(self):
@@ -320,9 +320,9 @@ class Body(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         if self.buff:
-            rv, self.buff = self.buff, ''
+            rv, self.buff = self.buff, b''
             return rv
         if self.read_amount >= self.length:
             raise StopIteration()
@@ -331,8 +331,8 @@ class Body(object):
         self.hasher.update(rv)
         return rv
 
-    def __next__(self):
-        return next(self)
+    # for py2 compat:
+    next = __next__
 
 
 class ProbeTest(unittest.TestCase):

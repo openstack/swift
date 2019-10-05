@@ -130,7 +130,7 @@ class TestContainerFailures(ReplProbeTest):
         onode = onodes[0]
         db_files = []
         for onode in onodes:
-            node_id = (onode['port'] - 6000) / 10
+            node_id = (onode['port'] - 6000) // 10
             device = onode['device']
             hash_str = hash_path(self.account, container)
             server_conf = readconf(self.configs['container-server'][node_id])

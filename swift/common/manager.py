@@ -22,6 +22,7 @@ import signal
 import time
 import subprocess
 import re
+import six
 from swift import gettext_ as _
 import tempfile
 
@@ -721,6 +722,8 @@ class Server(object):
             else:
                 output = proc.stdout.read()
                 proc.stdout.close()
+                if not six.PY2:
+                    output = output.decode('utf8', 'backslashreplace')
 
             if kwargs.get('once', False):
                 # if you don't want once to wait you can send it to the

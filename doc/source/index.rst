@@ -33,7 +33,7 @@ be found on the `OpenStack wiki`_ and at http://docs.openstack.org.
 
 
 .. toctree::
-    :maxdepth: 1
+    :maxdepth: 2
 
     getting_started
 

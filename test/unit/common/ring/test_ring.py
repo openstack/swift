@@ -16,6 +16,7 @@
 import array
 import collections
 import six.moves.cPickle as pickle
+import hashlib
 import os
 import unittest
 import stat
@@ -63,6 +64,8 @@ class TestRingData(unittest.TestCase):
                          rd_got._replica2part2dev_id)
         self.assertEqual(rd_expected.devs, rd_got.devs)
         self.assertEqual(rd_expected._part_shift, rd_got._part_shift)
+        self.assertEqual(rd_expected.next_part_power, rd_got.next_part_power)
+        self.assertEqual(rd_expected.version, rd_got.version)
 
     def test_attrs(self):
         r2p2d = [[0, 1, 0, 1], [0, 1, 0, 1]]
@@ -230,6 +233,17 @@ class TestRing(TestRingBase):
         self.assertEqual(self.ring.devs, self.intended_devs)
         self.assertEqual(self.ring.reload_time, self.intended_reload_time)
         self.assertEqual(self.ring.serialized_path, self.testgz)
+        self.assertIsNone(self.ring.version)
+
+        with open(self.testgz, 'rb') as fp:
+            expected_md5 = hashlib.md5()
+            expected_size = 0
+            for chunk in iter(lambda: fp.read(2 ** 16), b''):
+                expected_md5.update(chunk)
+                expected_size += len(chunk)
+        self.assertEqual(self.ring.md5, expected_md5.hexdigest())
+        self.assertEqual(self.ring.size, expected_size)
+
         # test invalid endcap
         with mock.patch.object(utils, 'HASH_PATH_SUFFIX', b''), \
                 mock.patch.object(utils, 'HASH_PATH_PREFIX', b''), \
@@ -900,6 +914,7 @@ class TestRing(TestRingBase):
         rb.rebalance()
         rb.get_ring().save(self.testgz)
         r = ring.Ring(self.testdir, ring_name='whatever')
+        self.assertEqual(r.version, rb.version)
 
         class CountingRingTable(object):
 

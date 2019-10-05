@@ -175,7 +175,6 @@
       Uses tox with the ``func-ec`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    branches: ^(?!stable/ocata).*$
     vars:
       tox_envlist: func-ec
 
@@ -267,8 +266,10 @@
     parent: swift-dsvm-functional
     description: |
       Setup a Swift/Keystone environment under py3 and run Swift's func tests
-      (but under py2).
+      (also under py3).
     vars:
+      # This tox env get run twice; once for Keystone and once for tempauth
+      tox_envlist: func-py3
       devstack_localrc:
         USE_PYTHON3: true
         # explicitly clear swift's default-disabled status
@@ -292,6 +293,7 @@
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
+      - tools/playbooks/saio_single_node_setup/add_s3api.yaml
       - tools/playbooks/saio_single_node_setup/make_rings.yaml
     run: tools/playbooks/ceph-s3tests/run.yaml
     post-run:
@@ -380,6 +382,12 @@
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/rocky
+
+- job:
+    name: swift-multinode-rolling-upgrade-stein
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/stein
 
 - job:
     name: swift-tox-lower-constraints
@@ -574,6 +582,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - tempest-ipv6-only:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - grenade-py3:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -635,6 +648,11 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
+        - tempest-ipv6-only:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - grenade-py3:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -648,6 +666,7 @@
         - swift-tox-func-ec-centos-7
         - swift-multinode-rolling-upgrade-queens
         - swift-multinode-rolling-upgrade-rocky
+        - swift-multinode-rolling-upgrade-stein
 
     post:
       jobs:

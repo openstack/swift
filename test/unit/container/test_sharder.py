@@ -21,6 +21,7 @@ import os
 import shutil
 from contextlib import contextmanager
 from tempfile import mkdtemp
+from uuid import uuid4
 
 import mock
 import unittest
@@ -1319,6 +1320,65 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(shard_ranges[2].upper_str, context.cursor)
         self.assertEqual(8, context.cleave_to_row)
         self.assertEqual(8, context.max_row)
+
+    def test_cleave_root_empty_db_with_ranges(self):
+        broker = self._make_broker()
+        broker.enable_sharding(Timestamp.now())
+
+        shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CREATED)
+
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.set_sharding_state())
+
+        sharder_conf = {'cleave_batch_size': 1}
+        with self._mock_sharder(sharder_conf) as sharder:
+            self.assertTrue(sharder._cleave(broker))
+
+        info_lines = sharder.logger.get_lines_for_level('info')
+        expected_zero_obj = [line for line in info_lines
+                             if " - zero objects found" in line]
+        self.assertEqual(len(expected_zero_obj), len(shard_bounds))
+
+        cleaving_context = CleavingContext.load(broker)
+        # even though there is a cleave_batch_size of 1, we don't count empty
+        # ranges when cleaving seeing as they aren't replicated
+        self.assertEqual(cleaving_context.ranges_done, 3)
+        self.assertEqual(cleaving_context.ranges_todo, 0)
+        self.assertTrue(cleaving_context.cleaving_done)
+
+    def test_cleave_root_empty_db_with_pre_existing_shard_db_handoff(self):
+        broker = self._make_broker()
+        broker.enable_sharding(Timestamp.now())
+
+        shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CREATED)
+
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.set_sharding_state())
+
+        sharder_conf = {'cleave_batch_size': 1}
+        with self._mock_sharder(sharder_conf) as sharder:
+            # pre-create a shard broker on a handoff location. This will force
+            # the sharder to not skip it but instead force to replicate it and
+            # use up a cleave_batch_size count.
+            sharder._get_shard_broker(shard_ranges[0], broker.root_path,
+                                      0)
+            self.assertFalse(sharder._cleave(broker))
+
+        info_lines = sharder.logger.get_lines_for_level('info')
+        expected_zero_obj = [line for line in info_lines
+                             if " - zero objects found" in line]
+        self.assertEqual(len(expected_zero_obj), 1)
+
+        cleaving_context = CleavingContext.load(broker)
+        # even though there is a cleave_batch_size of 1, we don't count empty
+        # ranges when cleaving seeing as they aren't replicated
+        self.assertEqual(cleaving_context.ranges_done, 1)
+        self.assertEqual(cleaving_context.ranges_todo, 2)
+        self.assertFalse(cleaving_context.cleaving_done)
 
     def test_cleave_shard(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
@@ -4486,6 +4546,63 @@ class TestSharder(BaseTestSharder):
                          set((call[0][0].path, call[0][1]['id'], call[0][2])
                              for call in mock_process_broker.call_args_list))
 
+    def test_audit_cleave_contexts(self):
+
+        def add_cleave_context(id, last_modified):
+            params = {'ref': id,
+                      'cursor': 'curs',
+                      'max_row': 2,
+                      'cleave_to_row': 2,
+                      'last_cleave_to_row': 1,
+                      'cleaving_done': False,
+                      'misplaced_done': True,
+                      'ranges_done': 2,
+                      'ranges_todo': 4}
+            key = 'X-Container-Sysmeta-Shard-Context-%s' % id
+            with mock_timestamp_now(Timestamp(last_modified)):
+                broker.update_metadata(
+                    {key: (json.dumps(params),
+                           Timestamp(last_modified).internal)})
+
+        def get_context(id, broker):
+            data = broker.get_sharding_sysmeta().get('Context-%s' % id)
+            if data:
+                return CleavingContext(**json.loads(data))
+            return data
+
+        reclaim_age = 100
+        broker = self._make_broker()
+
+        # sanity check
+        self.assertIsNone(broker.get_own_shard_range(no_default=True))
+        self.assertEqual(UNSHARDED, broker.get_db_state())
+
+        # Setup some cleaving contexts
+        id_old, id_newish = [str(uuid4()) for _ in range(2)]
+        contexts = ((id_old, 1),
+                    (id_newish, reclaim_age // 2))
+        for id, last_modified in contexts:
+            add_cleave_context(id, last_modified)
+
+        with self._mock_sharder({'reclaim_age': str(reclaim_age)}) as sharder:
+            with mock_timestamp_now(Timestamp(reclaim_age + 2)):
+                sharder._audit_cleave_contexts(broker)
+
+        old_ctx = get_context(id_old, broker)
+        self.assertEqual(old_ctx, "")
+
+        newish_ctx = get_context(id_newish, broker)
+        self.assertEqual(newish_ctx.ref, id_newish)
+
+        # If we push time another reclaim age later, and they all be removed
+        # minus id_missing_lm as it has a later last_modified.
+        with self._mock_sharder({'reclaim_age': str(reclaim_age)}) as sharder:
+            with mock_timestamp_now(Timestamp(reclaim_age * 2)):
+                sharder._audit_cleave_contexts(broker)
+
+        newish_ctx = get_context(id_newish, broker)
+        self.assertEqual(newish_ctx, "")
+
 
 class TestCleavingContext(BaseTestSharder):
     def test_init(self):
@@ -4571,11 +4688,85 @@ class TestCleavingContext(BaseTestSharder):
         self.assertEqual(2, ctx.ranges_done)
         self.assertEqual(4, ctx.ranges_todo)
 
+    def test_load_all(self):
+        broker = self._make_broker()
+        last_ctx = None
+        timestamp = Timestamp.now()
+
+        db_ids = [str(uuid4()) for _ in range(6)]
+        for db_id in db_ids:
+            params = {'ref': db_id,
+                      'cursor': 'curs',
+                      'max_row': 2,
+                      'cleave_to_row': 2,
+                      'last_cleave_to_row': 1,
+                      'cleaving_done': False,
+                      'misplaced_done': True,
+                      'ranges_done': 2,
+                      'ranges_todo': 4}
+            key = 'X-Container-Sysmeta-Shard-Context-%s' % db_id
+            broker.update_metadata(
+                {key: (json.dumps(params), timestamp.internal)})
+        first_ctx = None
+        for ctx, lm in CleavingContext.load_all(broker):
+            if not first_ctx:
+                first_ctx = ctx
+            last_ctx = ctx
+            self.assertIn(ctx.ref, db_ids)
+            self.assertEqual(lm, timestamp.internal)
+
+        # If a context is deleted (metadata is "") then it's skipped
+        last_ctx.delete(broker)
+        db_ids.remove(last_ctx.ref)
+
+        # and let's modify the first
+        with mock_timestamp_now() as new_timestamp:
+            first_ctx.store(broker)
+
+        for ctx, lm in CleavingContext.load_all(broker):
+            self.assertIn(ctx.ref, db_ids)
+            if ctx.ref == first_ctx.ref:
+                self.assertEqual(lm, new_timestamp.internal)
+            else:
+                self.assertEqual(lm, timestamp.internal)
+
+    def test_delete(self):
+        broker = self._make_broker()
+
+        db_id = broker.get_info()['id']
+        params = {'ref': db_id,
+                  'cursor': 'curs',
+                  'max_row': 2,
+                  'cleave_to_row': 2,
+                  'last_cleave_to_row': 1,
+                  'cleaving_done': False,
+                  'misplaced_done': True,
+                  'ranges_done': 2,
+                  'ranges_todo': 4}
+        key = 'X-Container-Sysmeta-Shard-Context-%s' % db_id
+        broker.update_metadata(
+            {key: (json.dumps(params), Timestamp.now().internal)})
+        ctx = CleavingContext.load(broker)
+        self.assertEqual(db_id, ctx.ref)
+
+        # Now let's delete it. When deleted the metadata key will exist, but
+        # the value will be "" as this means it'll be reaped later.
+        ctx.delete(broker)
+        sysmeta = broker.get_sharding_sysmeta()
+        for key, val in sysmeta.items():
+            if key == "Context-%s" % db_id:
+                self.assertEqual(val, "")
+                break
+        else:
+            self.fail("Deleted context 'Context-%s' not found")
+
     def test_store(self):
         broker = self._make_sharding_broker()
         old_db_id = broker.get_brokers()[0].get_info()['id']
+        last_mod = Timestamp.now()
         ctx = CleavingContext(old_db_id, 'curs', 12, 11, 2, True, True, 2, 4)
-        ctx.store(broker)
+        with mock_timestamp_now(last_mod):
+            ctx.store(broker)
         key = 'X-Container-Sysmeta-Shard-Context-%s' % old_db_id
         data = json.loads(broker.metadata[key][0])
         expected = {'ref': old_db_id,
@@ -4588,6 +4779,8 @@ class TestCleavingContext(BaseTestSharder):
                     'ranges_done': 2,
                     'ranges_todo': 4}
         self.assertEqual(expected, data)
+        # last modified is the metadata timestamp
+        self.assertEqual(broker.metadata[key][1], last_mod.internal)
 
     def test_store_add_row_load(self):
         # adding row to older db changes only max_row in the context

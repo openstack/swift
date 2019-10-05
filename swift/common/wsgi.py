@@ -32,6 +32,7 @@ from eventlet.green import socket, ssl, os as green_os
 import six
 from six import BytesIO
 from six import StringIO
+from six.moves import configparser
 
 from swift.common import utils, constraints
 from swift.common.storage_policy import BindPortsCache
@@ -53,6 +54,23 @@ try:
     CPU_COUNT = multiprocessing.cpu_count() or 1
 except (ImportError, NotImplementedError):
     CPU_COUNT = 1
+
+
+if not six.PY2:
+    # In general, we haven't really thought much about interpolation in
+    # configs. Python's default ConfigParser has always supported it, though,
+    # so *we* got it "for free". Unfortunatley, since we "supported"
+    # interpolation, we have to assume there are deployments in the wild that
+    # use it, and try not to break them. So, do what we can to mimic the py2
+    # behavior of passing through values like "1%" (which we want to support
+    # for fallocate_reserve).
+    class NicerInterpolation(configparser.BasicInterpolation):
+        def before_get(self, parser, section, option, value, defaults):
+            if '%(' not in value:
+                return value
+            return super(NicerInterpolation, self).before_get(
+                parser, section, option, value, defaults)
+    configparser.ConfigParser._DEFAULT_INTERPOLATION = NicerInterpolation()
 
 
 class NamedConfigLoader(loadwsgi.ConfigLoader):
@@ -480,6 +498,11 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
                         break
                     header, value = line.split(':', 1)
                     value = value.strip(' \t\n\r')
+                    # NB: Eventlet looks at the headers obj to figure out
+                    # whether the client said the connection should close;
+                    # see https://github.com/eventlet/eventlet/blob/v0.25.0/
+                    # eventlet/wsgi.py#L504
+                    self.headers.add_header(header, value)
                     headers_raw.append((header, value))
                     wsgi_key = 'HTTP_' + header.replace('-', '_').encode(
                         'latin1').upper().decode('latin1')
@@ -488,6 +511,20 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
                         wsgi_key = wsgi_key[5:]
                     environ[wsgi_key] = value
                 environ['headers_raw'] = tuple(headers_raw)
+                # Since we parsed some more headers, check to see if they
+                # change how our wsgi.input should behave
+                te = environ.get('HTTP_TRANSFER_ENCODING', '').lower()
+                if te.rsplit(',', 1)[-1].strip() == 'chunked':
+                    environ['wsgi.input'].chunked_input = True
+                else:
+                    length = environ.get('CONTENT_LENGTH')
+                    if length:
+                        length = int(length)
+                    environ['wsgi.input'].content_length = length
+                if environ.get('HTTP_EXPECT', '').lower() == '100-continue':
+                    environ['wsgi.input'].wfile = self.wfile
+                    environ['wsgi.input'].wfile_line = \
+                        b'HTTP/1.1 100 Continue\r\n'
             return environ
 
 

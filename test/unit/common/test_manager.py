@@ -1288,9 +1288,9 @@ class TestServer(unittest.TestCase):
                 # setup pipe
                 rfd, wfd = os.pipe()
                 # subprocess connection to read stdout
-                self.stdout = os.fdopen(rfd)
+                self.stdout = os.fdopen(rfd, 'rb')
                 # real process connection to write stdout
-                self._stdout = os.fdopen(wfd, 'w')
+                self._stdout = os.fdopen(wfd, 'wb')
                 self.delay = delay
                 self.finished = False
                 self.returncode = None
@@ -1317,9 +1317,9 @@ class TestServer(unittest.TestCase):
                         pass
 
             def fail(self):
-                print('mock process started', file=self._stdout)
+                self._stdout.write(b'mock process started\n')
                 sleep(self.delay)  # perform setup processing
-                print('mock process failed to start', file=self._stdout)
+                self._stdout.write(b'mock process failed to start\n')
                 self.close_stdout()
 
             def poll(self):
@@ -1327,12 +1327,12 @@ class TestServer(unittest.TestCase):
                 return self.returncode or None
 
             def run(self):
-                print('mock process started', file=self._stdout)
+                self._stdout.write(b'mock process started\n')
                 sleep(self.delay)  # perform setup processing
-                print('setup complete!', file=self._stdout)
+                self._stdout.write(b'setup complete!\n')
                 self.close_stdout()
                 sleep(self.delay)  # do some more processing
-                print('mock process finished', file=self._stdout)
+                self._stdout.write(b'mock process finished\n')
                 self.finished = True
 
         class MockTime(object):

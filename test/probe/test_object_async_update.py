@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from io import StringIO
+from io import BytesIO
 from unittest import main, SkipTest
 from uuid import uuid4
 
@@ -82,7 +82,7 @@ class TestObjectAsyncUpdate(ReplProbeTest):
             self.assertEqual(err.http_status, 503)
 
         # Assert handoff device has a container replica
-        another_cnode = self.container_ring.get_more_nodes(cpart).next()
+        another_cnode = next(self.container_ring.get_more_nodes(cpart))
         direct_client.direct_get_container(
             another_cnode, cpart, self.account, container)
 
@@ -143,7 +143,7 @@ class TestUpdateOverrides(ReplProbeTest):
                                       self.policy.name})
 
         int_client.upload_object(
-            StringIO(u'stuff'), self.account, 'c1', 'o1', headers)
+            BytesIO(b'stuff'), self.account, 'c1', 'o1', headers)
 
         # Run the object-updaters to be sure updates are done
         Manager(['object-updater']).once()
