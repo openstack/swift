@@ -40,7 +40,7 @@ message VolumeIndex {
 
 message Volume {
     uint32 volume_index = 1;
-    uint32 volume_type = 2;
+    VolumeType volume_type = 2;
     uint32 volume_state = 3;
     uint32 partition = 4;
     uint64 next_offset = 5;

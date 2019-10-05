@@ -28,7 +28,21 @@ volume_name_re = re.compile(r"^v\d{7}$")
 losf_name_re = re.compile(r"^losf(-\d+)?$")
 
 
-class VFileUtilException(Exception):
+class VIOError(IOError):
+    """
+    Exceptions are part of the interface, subclass IOError to make it easier
+    to interface with diskfile.py
+    """
+
+
+class VOSError(OSError):
+    """
+    Exceptions are part of the interface, subclass OSError to make it easier
+    to interface with diskfile.py
+    """
+
+
+class VFileException(Exception):
     pass
 
 
@@ -112,13 +126,13 @@ class SwiftPathInfo(object):
             obj_idx = [i for i, elem in enumerate(ldir)
                        if elem.startswith("objects")][0]
         except IndexError:
-            raise VFileUtilException("cannot parse object directory")
+            raise VOSError("cannot parse object directory")
 
         elements = ldir[(obj_idx + 1):]
         count = len(elements)
 
         if count > 4:
-            raise VFileUtilException("cannot parse swift file path")
+            raise VOSError("cannot parse swift file path")
 
         _, policy = split_policy_string(ldir[obj_idx])
         policy_idx = policy.idx
@@ -126,7 +140,7 @@ class SwiftPathInfo(object):
         prefix = os.path.join("/", *ldir[0:obj_idx])
         m = policy_re.match(ldir[obj_idx])
         if not m:
-            raise VFileUtilException(
+            raise VOSError(
                 "cannot parse object element of directory")
         if m.group(1):
             sofsdir = "losf{}".format(m.group(1))
@@ -165,15 +179,15 @@ class SwiftQuarantinedPathInfo(object):
         try:
             quar_idx = ldir.index("quarantined")
         except ValueError:
-            raise VFileUtilException("cannot parse quarantined path %s" %
-                                     path)
+            raise VOSError("cannot parse quarantined path %s" %
+                           path)
 
         elements = ldir[(quar_idx + 1):]
         count = len(elements)
 
         if count < 1 or count > 3 or "objects" not in elements[0]:
-            raise VFileUtilException("cannot parse quarantined path %s" %
-                                     path)
+            raise VOSError("cannot parse quarantined path %s" %
+                           path)
 
         _, policy = split_policy_string(elements[0])
         policy_idx = policy.idx

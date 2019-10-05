@@ -274,7 +274,7 @@ func GetVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
 
 	s.statsd_c.Increment("get_volume.ok")
 
-	pb_volume := pb.Volume{VolumeIndex: in.Index, VolumeType: uint32(dfType), VolumeState: uint32(state),
+	pb_volume := pb.Volume{VolumeIndex: in.Index, VolumeType: pb.VolumeType(dfType), VolumeState: uint32(state),
 		Partition: uint32(partition), NextOffset: uint64(nextOffset)}
 	out, err := proto.Marshal(&pb_volume)
 	if err != nil {
@@ -325,7 +325,7 @@ func ListVolumes(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) 
 		}
 		if uint32(partition) == in.Partition && pb.VolumeType(dfType) == in.Type {
 			response.Volumes = append(response.Volumes, &pb.Volume{VolumeIndex: idx,
-				VolumeType: uint32(in.Type), VolumeState: uint32(state),
+				VolumeType: pb.VolumeType(in.Type), VolumeState: uint32(state),
 				Partition: uint32(partition), NextOffset: uint64(nextOffset)})
 		}
 	}

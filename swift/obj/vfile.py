@@ -21,6 +21,7 @@ vfile names and metadata (xattr) are also stored in the volume.
 
 import errno
 import fcntl
+import six
 import hashlib
 import re
 from collections import defaultdict
@@ -40,13 +41,15 @@ from swift.obj.fmgr_pb2 import STATE_RW
 from swift.obj.meta_pb2 import Metadata
 from swift.obj.diskfile import _encode_metadata
 from swift.common import utils
-from swift.obj.vfile_utils import SwiftPathInfo, get_volume_index, get_volume_type, \
-    next_aligned_offset, SwiftQuarantinedPathInfo
+from swift.obj.vfile_utils import SwiftPathInfo, get_volume_index, \
+    get_volume_type, next_aligned_offset, SwiftQuarantinedPathInfo, VOSError, \
+    VIOError, VFileException
 
-vcreation_lock_name = "volume_creation.lock"
+VCREATION_LOCK_NAME = "volume_creation.lock"
 
 PICKLE_PROTOCOL = 2
 METADATA_RESERVE = 500
+VOL_AND_LOCKS_RE = re.compile(r'v\d{7}(.writelock)?')
 
 
 def increment(logger, counter, count=1):
@@ -55,28 +58,6 @@ def increment(logger, counter, count=1):
             logger.update_stats(counter, count)
         except Exception:
             pass
-
-
-class VIOError(IOError):
-    """
-    Exceptions are part of the interface, subclass IOError to make it easier
-    to interface with diskfile.py
-    """
-    def __init__(self, *args, **kwargs):
-        super(VIOError, self).__init__(*args, **kwargs)
-
-
-class VOSError(OSError):
-    """
-    Exceptions are part of the interface, subclass OSError to make it easier
-    to interface with diskfile.py
-    """
-    def __init__(self, *args, **kwargs):
-        super(VOSError, self).__init__(*args, **kwargs)
-
-
-class VFileException(Exception):
-    pass
 
 
 class VFileReader(object):
@@ -264,6 +245,13 @@ class VFileWriter(object):
         # parse datadir
         si = SwiftPathInfo.from_path(datadir)
 
+        if si.type != "ohash":
+            raise VOSError("not a valid object hash path")
+
+        if obj_size is not None:
+            if obj_size < 0:
+                raise VOSError("obj size may not be negative")
+
         socket_path = os.path.normpath(si.socket_path)
         volume_dir = os.path.normpath(si.volume_dir)
 
@@ -277,6 +265,7 @@ class VFileWriter(object):
 
         # create object header
         header = ObjectHeader(version=OBJECT_HEADER_VERSION)
+        # TODO: this is unused, always set to zero.
         header.ohash = si.ohash
         header.policy_idx = 0
         header.data_offset = len(header) + conf['metadata_reserve']
@@ -284,18 +273,21 @@ class VFileWriter(object):
         # requires header v3
         header.state = STATE_OBJ_FILE
 
-        # get offset at which to start writing
-        offset = rpc.get_next_offset(socket_path, volume_index)
-        # FIXME: this is unused message, please fix as expected
-        # txt = "datadir {} seek to offset {} where data will start"
+        try:
+            # get offset at which to start writing
+            offset = rpc.get_next_offset(socket_path, volume_index)
 
-        # pre-allocate space if needed
-        _may_grow_volume(volume_file, offset, obj_size, conf, logger)
+            # pre-allocate space if needed
+            _may_grow_volume(volume_file, offset, obj_size, conf, logger)
 
-        # seek to absolute object offset + relative data offset
-        # (we leave space for the header and some metadata)
-        os.lseek(volume_file, offset + header.data_offset,
-                 os.SEEK_SET)
+            # seek to absolute object offset + relative data offset
+            # (we leave space for the header and some metadata)
+            os.lseek(volume_file, offset + header.data_offset,
+                     os.SEEK_SET)
+        except Exception:
+            os.close(volume_file)
+            os.close(lock_file)
+            raise
 
         return cls(datadir, volume_file, lock_file, volume_dir,
                    volume_index, header, offset, logger)
@@ -306,6 +298,9 @@ class VFileWriter(object):
         """
         if self.fd < 0:
             raise VIOError(errno.EBADF, "Bad file descriptor")
+
+        if not filename:
+            raise VIOError("filename cannot be empty")
 
         # how much data has been written ?
         # header.data_offset is relative to the object's offset
@@ -343,13 +338,8 @@ class VFileWriter(object):
 
         object_end = data_end + metadata_remainder
 
-        # TODO: use next_aligned_offset()
-        # keep unaligned obj_end to log how much space is lost to padding
-        # FIXME: this line is unused so that we should check the algorithms
-        # unaligned_obj_end = object_end
-        # align
-        if object_end % ALIGNMENT != 0:
-            object_end = object_end + (ALIGNMENT - object_end % ALIGNMENT)
+        object_end = next_aligned_offset(object_end, ALIGNMENT)
+
         self.header.total_size = object_end - self.offset
 
         # write header
@@ -375,7 +365,8 @@ class VFileWriter(object):
             errtxt = "BUG: wrote past object_end! curpos: {} object_end: {}"
             raise Exception(errtxt.format(curpos, object_end))
 
-        # sync
+        # sync data. fdatasync() is enough, if the volume was just created,
+        # it has been fsync()'ed previously, along with its parent directory.
         fdatasync(self.fd)
 
         # register object
@@ -394,7 +385,12 @@ class VFileWriter(object):
 
 def open_or_create_volume(socket_path, partition, extension, volume_dir,
                           conf, logger, size=0):
-    # try to find an available volume
+    """
+    Tries to open or create a volume for writing. If a volume cannot be
+    opened or created, a VOSError exception is raised.
+    :return: volume file descriptor, lock file descriptor, absolute path
+    to volume.
+    """
     volume_file, lock_file, volume_path = open_writable_volume(socket_path,
                                                                partition,
                                                                extension,
@@ -402,42 +398,49 @@ def open_or_create_volume(socket_path, partition, extension, volume_dir,
                                                                conf,
                                                                logger)
     if not volume_file:
+        # attempt to create new volume for partition
         try:
-            os.makedirs(volume_dir)
-        except OSError as err:
-            if err.errno == errno.EEXIST:
-                pass
-            else:
-                raise
-        try:
-            # attempt to create new volume for partition
-            volume_type = get_volume_type(extension)
             volume_file, lock_file, volume_path = create_writable_volume(
-                socket_path, partition, volume_type, volume_dir,
+                socket_path, partition, extension, volume_dir,
                 conf, logger, size=size)
-        except (OSError, IOError):
-            if err.errno in (errno.EDQUOT, errno.EACCES, errno.EAGAIN):
-                # failed to create a volume, try again to open an existing one
-                volume_type = get_volume_type(extension)
-                volume_file, lock_file, volume_path = open_writable_volume(
-                    socket_path, partition, volume_type, volume_dir, conf,
-                    logger)
-            else:
-                raise
-
-        if not volume_file:
-            # TODO: make sure this ends in DiskFileNoSpace in caller
-            raise VIOError(errno.EIO, "Failed to open a volume for writing")
-
-    if not volume_file:
-        # TODO: make sure this ends in DiskFileNoSpace in caller
-        raise VIOError(errno.EIO, "Failed to open a volume for writing")
+        except Exception as err:
+            error_msg = "Failed to open or create a volume for writing: "
+            error_msg += getattr(err, "strerror", "Unknown error")
+            raise VOSError(errno.ENOSPC, error_msg)
 
     return volume_file, lock_file, volume_path
 
 
+def _create_new_lock_file(volume_dir, logger):
+    creation_lock_path = os.path.join(volume_dir, VCREATION_LOCK_NAME)
+    with open(creation_lock_path, 'w') as creation_lock_file:
+        # this may block
+        fcntl.flock(creation_lock_file, fcntl.LOCK_EX)
+
+        index = get_next_volume_index(volume_dir)
+        next_lock_name = get_lock_file_name(index)
+        next_lock_path = os.path.join(volume_dir, next_lock_name)
+
+        try:
+            lock_file = os.open(next_lock_path,
+                                os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except OSError:
+            increment(logger, 'vfile.volume_creation.fail_other')
+            raise
+
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except IOError:
+            increment(logger, 'vfile.volume_creation.fail_other')
+            os.close(lock_file)
+            os.unlink(next_lock_path)
+            raise
+
+    return index, next_lock_path, lock_file
+
+
 # create a new volume
-def create_writable_volume(socket_path, partition, volume_type, volume_dir,
+def create_writable_volume(socket_path, partition, extension, volume_dir,
                            conf, logger, state=STATE_RW, size=0):
     """
     Creates a new writable volume, and associated lock file.
@@ -456,47 +459,32 @@ def create_writable_volume(socket_path, partition, volume_type, volume_dir,
     if size is None:
         size = 0
 
-    # lock the volume creation lock file
-    creation_lock_path = os.path.join(volume_dir, vcreation_lock_name)
-
     # Check if we have exceeded the allowed volume count for this partition
     # Move this check below with the lock held ? (now, we may have
     # a few extra volumes)
+    volume_type = get_volume_type(extension)
     volumes = rpc.list_volumes(socket_path, partition, volume_type)
     max_volume_count = conf['max_volume_count']
     if len(volumes) >= max_volume_count:
-        err_txt = "Maximum count of volumes reached for partition: {} type:\
-                   {}".format(partition, volume_type)
+        err_txt = ("Maximum count of volumes reached for partition:"
+                   " {} type: {}".format(partition, volume_type))
         increment(logger, 'vfile.volume_creation.fail_count_exceeded')
         raise VOSError(errno.EDQUOT, err_txt)
 
-    with open(creation_lock_path, 'w') as creation_lock_file:
-        # this may block
-        fcntl.flock(creation_lock_file, fcntl.LOCK_EX)
-
-        index = get_next_volume_index(volume_dir)
-        next_lock_name = get_lock_file_name(index)
-        next_lock_path = os.path.join(volume_dir, next_lock_name)
-
-        lock_file = None
-        try:
-            lock_file = os.open(next_lock_path,
-                                os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except OSError:
-            increment(logger, 'vfile.volume_creation.fail_other')
+    try:
+        os.makedirs(volume_dir)
+    except OSError as err:
+        if err.errno == errno.EEXIST:
+            pass
+        else:
             raise
 
-        try:
-            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except IOError:
-            increment(logger, 'vfile.volume_creation.fail_other')
-            raise
+    index, next_lock_path, lock_file = _create_new_lock_file(
+        volume_dir, logger)
 
     # create the volume
     next_volume_name = get_volume_name(index)
     next_volume_path = os.path.join(volume_dir, next_volume_name)
-    volume_file = os.open(next_volume_path,
-                          os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
 
     vol_header = VolumeHeader()
     vol_header.volume_idx = index
@@ -511,22 +499,26 @@ def create_writable_volume(socket_path, partition, volume_type, volume_dir,
     # reserved space, but we cannot know this in advance)
     alloc_size = vol_header.first_obj_offset + size
     volume_alloc_chunk_size = conf['volume_alloc_chunk_size']
-    _allocate_volume_space(volume_file, 0, alloc_size, volume_alloc_chunk_size,
-                           logger)
 
-    # Write volume header
-    write_volume_header(vol_header, volume_file)
-
-    # If the uploader is slow to send data to the object server, a crash may
-    # occur before the object is received and a call to fsync() is issued.
-    # We end up with volumes without a header.
-    # Issue a fsync() here, at the cost of performance early on, until
-    # volumes have been created for all partitions.
-    fsync(volume_file)
-    fsync_dir(volume_dir)
-
-    # Register volume
     try:
+        volume_file = os.open(next_volume_path,
+                              os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        _allocate_volume_space(volume_file, 0, alloc_size,
+                               volume_alloc_chunk_size, logger)
+
+        # Write volume header
+        write_volume_header(vol_header, volume_file)
+
+        # If the uploader is slow to send data to the object server, a crash
+        # may occur before the object is received and a call to fsync() is
+        # issued. We end up with volumes without a header.
+        # Issue a fsync() here, at the cost of performance early on. As
+        # partitions get volumes we switch to open_writable_volume, avoiding
+        # the fsync.
+        fsync(volume_file)
+        fsync_dir(volume_dir)
+
+        # Register volume
         rpc.register_volume(socket_path, partition, vol_header.type, index,
                             vol_header.first_obj_offset, vol_header.state)
     except Exception:
@@ -613,8 +605,23 @@ def open_writable_volume(socket_path, partition, extension, volume_dir, conf,
 
 
 def open_volume(volume_path):
+    """Locks the volume, and returns a fd to the volume and a fd to its lock
+    file. Returns None, None, if it cannot be locked. Raises for any other
+    error.
+    :param volume_path: full path to volume
+    :return: (volume fd, lock fd)
+    """
     lock_file_path = "{}.writelock".format(volume_path)
-    lock_file = os.open(lock_file_path, os.O_WRONLY)
+
+    try:
+        lock_file = os.open(lock_file_path, os.O_WRONLY)
+    except OSError as e:
+        if e.errno != errno.ENOENT:
+            raise
+        # if the volume lock file as been removed, create it
+        lock_file = os.open(lock_file_path,
+                            os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except IOError as err:
@@ -623,8 +630,18 @@ def open_volume(volume_path):
             os.close(lock_file)
             return None, None
         else:
-            os.close(lock_file)
+            try:
+                os.close(lock_file)
+            except Exception:
+                pass
             raise
+    except Exception:
+        try:
+            os.close(lock_file)
+        except Exception:
+            pass
+        raise
+
     volume_file = os.open(volume_path, os.O_WRONLY)
     return volume_file, lock_file
 
@@ -651,32 +668,41 @@ def change_volume_state(volume_file_path, state, compaction_target=None):
 def get_next_volume_index(volume_dir):
     """
     Returns the next volume index to use for the given dir.
+    Caller must hold the volume creation lock.
+    :param volume_dir: volume directory
+    :return: the next volume index to use
     """
     dir_entries = os.listdir(volume_dir)
-    lock_file_idxs = [int(f[1:8]) for f in dir_entries if
-                      f.endswith(".writelock")]
-    if len(lock_file_idxs) < 1:
+    # Get all volumes and their lock: a volume should always have a lock,
+    # but a fsck may have removed either. If we find such a case, skip the
+    # index.
+    volumes_and_locks_idxs = set([name[1:8] for name in dir_entries if
+                                  VOL_AND_LOCKS_RE.match(name)])
+    if len(volumes_and_locks_idxs) < 1:
         return 1
 
-    lock_file_idxs.sort()
+    # This is about 30% faster than calling int() in the list comprehension
+    # above.
+    idxs = sorted(int(i) for i in volumes_and_locks_idxs)
 
     # find the first "hole" in the indexes
-    for i in xrange(1, len(lock_file_idxs) + 1):
-        if lock_file_idxs[i - 1] != i:
-            return i
+    for pos, idx in enumerate(idxs, start=1):
+        if pos != idx:
+            return pos
+
     # no hole found
-    return i + 1
+    return idx + 1
 
 
 def get_lock_file_name(index):
-    if index < 0 or index > 9999999:
+    if index <= 0 or index > 9999999:
         raise VFileException("invalid lock file index")
     lock_file_name = "v{0:07d}.writelock".format(index)
     return lock_file_name
 
 
 def get_volume_name(index):
-    if index < 0 or index > 9999999:
+    if index <= 0 or index > 9999999:
         raise VFileException("invalid volume file index")
     volume_file_name = "v{0:07d}".format(index)
     return volume_file_name
@@ -1122,7 +1148,11 @@ def read_metadata(fp, offset, header):
     metadata = {}
     for attr in meta.attrs:
         if attr.key:
-            metadata[attr.key] = attr.value
+            if six.PY2:
+                metadata[attr.key] = attr.value
+            else:
+                metadata[attr.key.decode('utf8', 'surrogateescape')] = \
+                    attr.value.decode('utf8', 'surrogateescape')
 
     return metadata
 

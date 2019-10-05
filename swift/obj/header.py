@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import six
 import os
 import struct
 
@@ -23,8 +24,8 @@ PICKLE_PROTOCOL = 2
 OBJECT_HEADER_VERSION = 4
 VOLUME_HEADER_VERSION = 1
 
-OBJECT_START_MARKER = "SWIFTOBJ"
-VOLUME_START_MARKER = "SWIFTVOL"
+OBJECT_START_MARKER = b"SWIFTOBJ"
+VOLUME_START_MARKER = b"SWIFTVOL"
 
 # object alignment within a volume.
 # this is needed so that FALLOC_FL_PUNCH_HOLE can actually return space back
@@ -74,15 +75,11 @@ class ObjectHeader(object):
     def __init__(self, version=OBJECT_HEADER_VERSION):
         if version not in object_header_formats.keys():
             raise HeaderException('Unsupported object header version')
-        self.magic_string = bytes(OBJECT_START_MARKER)
+        self.magic_string = OBJECT_START_MARKER
         self.version = version
 
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
-
-    def __repr__(self):
-        return "<ObjectHeader ohash: {} filename: {}>".format(self.ohash,
-                                                              self.filename)
 
     def __len__(self):
         try:
@@ -107,7 +104,7 @@ class ObjectHeader(object):
 
         args = (self.magic_string, self.version,
                 self.policy_idx, ohash_h, ohash_l,
-                str(self.filename),
+                str(self.filename).encode('ascii'),
                 self.metadata_offset, self.metadata_size,
                 self.data_offset, self.data_size, self.total_size)
 
@@ -120,7 +117,7 @@ class ObjectHeader(object):
 
         args = (self.magic_string, self.version,
                 self.policy_idx, ohash_h, ohash_l,
-                str(self.filename),
+                str(self.filename).encode('ascii'),
                 self.metadata_offset, self.metadata_size,
                 self.data_offset, self.data_size, self.total_size)
 
@@ -133,7 +130,7 @@ class ObjectHeader(object):
 
         args = (self.magic_string, self.version,
                 self.policy_idx, ohash_h, ohash_l,
-                str(self.filename),
+                str(self.filename).encode('ascii'),
                 self.metadata_offset, self.metadata_size,
                 self.data_offset, self.data_size, self.total_size, self.state)
 
@@ -146,7 +143,7 @@ class ObjectHeader(object):
 
         args = (self.magic_string, self.version,
                 self.policy_idx, ohash_h, ohash_l,
-                str(self.filename),
+                str(self.filename).encode('ascii'),
                 self.metadata_offset, self.metadata_size,
                 self.data_offset, self.data_size, self.total_size, self.state,
                 self.metastr_md5)
@@ -164,7 +161,7 @@ class ObjectHeader(object):
 
         if buf[0:8] != OBJECT_START_MARKER:
             raise HeaderException('Not a header')
-        version = struct.unpack('<B', buf[8])[0]
+        version = struct.unpack('<B', buf[8:9])[0]
         if version not in object_header_formats.keys():
             raise HeaderException('Unsupported header version')
 
@@ -179,7 +176,10 @@ class ObjectHeader(object):
         header.version = raw_header[1]
         header.policy_idx = raw_header[2]
         header.ohash = "{:032x}".format((raw_header[3] << 64) + raw_header[4])
-        header.filename = raw_header[5].rstrip('\0')
+        if six.PY2:
+            header.filename = raw_header[5].rstrip(b'\0')
+        else:
+            header.filename = raw_header[5].rstrip(b'\0').decode('ascii')
         header.metadata_offset = raw_header[6]
         header.metadata_size = raw_header[7]
         header.data_offset = raw_header[8]
@@ -199,7 +199,10 @@ class ObjectHeader(object):
         header.version = raw_header[1]
         header.policy_idx = raw_header[2]
         header.ohash = "{:032x}".format((raw_header[3] << 64) + raw_header[4])
-        header.filename = raw_header[5].rstrip('\0')
+        if six.PY2:
+            header.filename = raw_header[5].rstrip(b'\0')
+        else:
+            header.filename = raw_header[5].rstrip(b'\0').decode('ascii')
         header.metadata_offset = raw_header[6]
         header.metadata_size = raw_header[7]
         header.data_offset = raw_header[8]
@@ -219,7 +222,10 @@ class ObjectHeader(object):
         header.version = raw_header[1]
         header.policy_idx = raw_header[2]
         header.ohash = "{:032x}".format((raw_header[3] << 64) + raw_header[4])
-        header.filename = raw_header[5].rstrip('\0')
+        if six.PY2:
+            header.filename = raw_header[5].rstrip(b'\0')
+        else:
+            header.filename = raw_header[5].rstrip(b'\0').decode('ascii')
         header.metadata_offset = raw_header[6]
         header.metadata_size = raw_header[7]
         header.data_offset = raw_header[8]
@@ -240,7 +246,10 @@ class ObjectHeader(object):
         header.version = raw_header[1]
         header.policy_idx = raw_header[2]
         header.ohash = "{:032x}".format((raw_header[3] << 64) + raw_header[4])
-        header.filename = raw_header[5].rstrip('\0')
+        if six.PY2:
+            header.filename = raw_header[5].rstrip(b'\0')
+        else:
+            header.filename = raw_header[5].rstrip(b'\0').decode('ascii')
         header.metadata_offset = raw_header[6]
         header.metadata_size = raw_header[7]
         header.data_offset = raw_header[8]
@@ -273,7 +282,7 @@ class VolumeHeader(object):
             (only valid if state is STATE_COMPACTION_SRC)
     """
     def __init__(self, version=VOLUME_HEADER_VERSION):
-        self.magic_string = bytes(VOLUME_START_MARKER)
+        self.magic_string = VOLUME_START_MARKER
         self.version = version
         self.state = 0
         self.compaction_target = 0
@@ -316,7 +325,7 @@ class VolumeHeader(object):
         }
         if buf[0:8] != VOLUME_START_MARKER:
             raise HeaderException('Not a header')
-        version = struct.unpack('<B', buf[8])[0]
+        version = struct.unpack('<B', buf[8:9])[0]
         if version not in volume_header_formats.keys():
             raise HeaderException('Unsupported header version')
 

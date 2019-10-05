@@ -603,7 +603,7 @@ class BaseKVFileWriter(BaseDiskFileWriter):
         except OSError as err:
             if err.errno in (errno.ENOSPC, errno.EDQUOT):
                 # No more inodes in filesystem
-                raise DiskFileNoSpace()
+                raise DiskFileNoSpace(err.strerror)
             raise
         return self
 
