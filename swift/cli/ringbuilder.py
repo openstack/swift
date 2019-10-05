@@ -1167,7 +1167,7 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
             'parts': ring.partition_count,
             'devs': ring.devs,
             'devs_changed': False,
-            'version': 0,
+            'version': ring.version or 0,
             '_replica2part2dev': ring._replica2part2dev_id,
             '_last_part_moves_epoch': None,
             '_last_part_moves': None,
