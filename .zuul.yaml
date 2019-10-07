@@ -424,6 +424,41 @@
       pass-to-parent: true
     vars: *swift_image_vars
 
+- job:
+    name: swift-build-image-py3
+    parent: opendev-build-docker-image
+    voting: false
+    description: Build py3 SAIO docker images.
+    vars: &swift_image_vars_py3
+      docker_images:
+        - context: .
+          dockerfile: Dockerfile-py3
+          repository: openstackswift/saio
+          tags:
+           - py3
+
+- job:
+    name: swift-upload-image-py3
+    parent: opendev-upload-docker-image
+    voting: false
+    description: Build py3 SAIO docker images and upload to Docker Hub.
+    secrets:
+      name: docker_credentials
+      secret: swift-dockerhub
+      pass-to-parent: true
+    vars: *swift_image_vars_py3
+
+- job:
+    name: swift-promote-image-py3
+    parent: opendev-promote-docker-image
+    voting: false
+    description: Promote previously uploaded Docker images.
+    secrets:
+      name: docker_credentials
+      secret: swift-dockerhub
+      pass-to-parent: true
+    vars: *swift_image_vars_py3
+
 - project:
     templates:
       - publish-openstack-docs-pti
@@ -434,6 +469,10 @@
     check:
       jobs:
         - swift-build-image:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+        - swift-build-image-py3:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
@@ -573,6 +612,7 @@
         # long-running jobs, like probetests or (once they move to
         # in-tree definitions) dsvm jobs.
         - swift-upload-image
+        - swift-upload-image-py3
         - swift-tox-py27
         - swift-tox-py36
         - swift-tox-py37
@@ -648,3 +688,4 @@
     promote:
       jobs:
         - swift-promote-image
+        - swift-promote-image-py3
