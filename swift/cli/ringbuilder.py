@@ -212,6 +212,32 @@ def _set_weight_values(devs, weight, opts):
                                        dev['weight']))
 
 
+def _set_region_values(devs, region, opts):
+
+    input_question = 'Are you sure you want to update the region for these ' \
+                     '%s devices? (y/N) ' % len(devs)
+    abort_msg = 'Aborting device modifications'
+    check_devs(devs, input_question, opts, abort_msg)
+
+    for dev in devs:
+        builder.set_dev_region(dev['id'], region)
+        print('%s region set to %s' % (format_device(dev),
+                                       dev['region']))
+
+
+def _set_zone_values(devs, zone, opts):
+
+    input_question = 'Are you sure you want to update the zone for these ' \
+                     '%s devices? (y/N) ' % len(devs)
+    abort_msg = 'Aborting device modifications'
+    check_devs(devs, input_question, opts, abort_msg)
+
+    for dev in devs:
+        builder.set_dev_zone(dev['id'], zone)
+        print('%s zone set to %s' % (format_device(dev),
+                                     dev['zone']))
+
+
 def _parse_set_weight_values(argvish):
 
     new_cmd_format, opts, args = validate_args(argvish)
@@ -299,6 +325,76 @@ def calculate_change_value(change_value, change, v_name, v_name_port):
         change[v_name_port] = int(change_value[1:i])
         change_value = change_value[i:]
     return change_value
+
+
+def _parse_set_region_values(argvish):
+
+    new_cmd_format, opts, args = validate_args(argvish)
+
+    # We'll either parse the all-in-one-string format or the
+    # --options format,
+    # but not both. If both are specified, raise an error.
+    try:
+        devs = []
+        if not new_cmd_format:
+            if len(args) % 2 != 0:
+                print(Commands.set_region.__doc__.strip())
+                exit(EXIT_ERROR)
+
+            devs_and_regions = izip(islice(argvish, 0, len(argvish), 2),
+                                    islice(argvish, 1, len(argvish), 2))
+            for devstr, regionstr in devs_and_regions:
+                devs.extend(builder.search_devs(
+                    parse_search_value(devstr)) or [])
+                region = int(regionstr)
+                _set_region_values(devs, region, opts)
+        else:
+            if len(args) != 1:
+                print(Commands.set_region.__doc__.strip())
+                exit(EXIT_ERROR)
+
+            devs.extend(builder.search_devs(
+                parse_search_values_from_opts(opts)) or [])
+            region = int(args[0])
+            _set_region_values(devs, region, opts)
+    except ValueError as e:
+        print(e)
+        exit(EXIT_ERROR)
+
+
+def _parse_set_zone_values(argvish):
+
+    new_cmd_format, opts, args = validate_args(argvish)
+
+    # We'll either parse the all-in-one-string format or the
+    # --options format,
+    # but not both. If both are specified, raise an error.
+    try:
+        devs = []
+        if not new_cmd_format:
+            if len(args) % 2 != 0:
+                print(Commands.set_zone.__doc__.strip())
+                exit(EXIT_ERROR)
+
+            devs_and_zones = izip(islice(argvish, 0, len(argvish), 2),
+                                  islice(argvish, 1, len(argvish), 2))
+            for devstr, zonestr in devs_and_zones:
+                devs.extend(builder.search_devs(
+                    parse_search_value(devstr)) or [])
+                zone = int(zonestr)
+                _set_zone_values(devs, zone, opts)
+        else:
+            if len(args) != 1:
+                print(Commands.set_zone.__doc__.strip())
+                exit(EXIT_ERROR)
+
+            devs.extend(builder.search_devs(
+                parse_search_values_from_opts(opts)) or [])
+            zone = int(args[0])
+            _set_zone_values(devs, zone, opts)
+    except ValueError as e:
+        print(e)
+        exit(EXIT_ERROR)
 
 
 def _parse_set_info_values(argvish):
@@ -741,6 +837,75 @@ swift-ring-builder <builder_file> set_weight
             exit(EXIT_ERROR)
 
         _parse_set_weight_values(argv[3:])
+
+        builder.save(builder_file)
+        exit(EXIT_SUCCESS)
+
+    @staticmethod
+    def set_region():
+        """
+swift-ring-builder <builder_file> set_region <search-value> <region>
+    [<search-value> <region] ...
+
+or
+
+swift-ring-builder <builder_file> set_region
+    --region <region> --zone <zone> --ip <ip or hostname> --port <port>
+    --replication-ip <r_ip or r_hostname> --replication-port <r_port>
+    --device <device_name> --meta <meta> <new region> [--yes]
+
+    Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
+    and port.
+    Any of the options are optional in both cases.
+
+    Resets the devices' regions. No partitions will be reassigned to or from
+    the device until after running 'rebalance'. This is so you can make
+    multiple device changes and rebalance them all just once.
+
+    Option --yes assume a yes response to all questions.
+        """
+        if len(argv) < 5:
+            print(Commands.set_region.__doc__.strip())
+            print()
+            print(parse_search_value.__doc__.strip())
+            exit(EXIT_ERROR)
+
+        _parse_set_region_values(argv[3:])
+
+        builder.save(builder_file)
+        exit(EXIT_SUCCESS)
+
+    @staticmethod
+    def set_zone():
+        """
+swift-ring-builder <builder_file> set_zone <search-value> <zone>
+    [<search-value> <zone] ...
+
+or
+
+swift-ring-builder <builder_file> set_zone
+    --region <region> --zone <zone> --ip <ip or hostname> --port <port>
+    --replication-ip <r_ip or r_hostname> --replication-port <r_port>
+    --device <device_name> --meta <meta> <new zone> [--yes]
+
+    Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
+    and port.
+    Any of the options are optional in both cases.
+
+    Resets the devices' zones. No partitions will be reassigned to or from
+    the device until after running 'rebalance'. This is so you can make
+    multiple device changes and rebalance them all just once.
+
+    Option --yes assume a yes response to all questions.
+        """
+        # if len(argv) < 5 or len(argv) % 2 != 1:
+        if len(argv) < 5:
+            print(Commands.set_zone.__doc__.strip())
+            print()
+            print(parse_search_value.__doc__.strip())
+            exit(EXIT_ERROR)
+
+        _parse_set_zone_values(argv[3:])
 
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
