@@ -60,6 +60,7 @@ Static Large Object when the multipart upload is completed.
 """
 
 import binascii
+import copy
 from hashlib import md5
 import os
 import re
@@ -86,6 +87,7 @@ from swift.common.middleware.s3api.utils import unique_id, \
     MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
+from swift.common.storage_policy import POLICIES
 
 DEFAULT_MAX_PARTS_LISTING = 1000
 DEFAULT_MAX_UPLOADS = 1000
@@ -364,8 +366,7 @@ class UploadsController(Controller):
         # Create a unique S3 upload id from UUID to avoid duplicates.
         upload_id = unique_id()
 
-        orig_container = req.container_name
-        seg_container = orig_container + MULTIUPLOAD_SUFFIX
+        seg_container = req.container_name + MULTIUPLOAD_SUFFIX
         content_type = req.headers.get('Content-Type')
         if content_type:
             req.headers[sysmeta_header('object', 'has-content-type')] = 'yes'
@@ -376,15 +377,21 @@ class UploadsController(Controller):
         req.headers['Content-Type'] = 'application/directory'
 
         try:
-            req.container_name = seg_container
-            req.get_container_info(self.app)
+            seg_req = copy.copy(req)
+            seg_req.environ = copy.copy(req.environ)
+            seg_req.container_name = seg_container
+            seg_req.get_container_info(self.app)
         except NoSuchBucket:
             try:
-                req.get_response(self.app, 'PUT', seg_container, '')
+                # multi-upload bucket doesn't exist, create one with
+                # same storage policy as the primary bucket
+                info = req.get_container_info(self.app)
+                policy_name = POLICIES[info['storage_policy']].name
+                hdrs = {'X-Storage-Policy': policy_name}
+                seg_req.get_response(self.app, 'PUT', seg_container, '',
+                                     headers=hdrs)
             except (BucketAlreadyExists, BucketAlreadyOwnedByYou):
                 pass
-        finally:
-            req.container_name = orig_container
 
         obj = '%s/%s' % (req.object_name, upload_id)
 
