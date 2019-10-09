@@ -137,9 +137,19 @@ class VFileReader(object):
         try:
             header = read_object_header(fp)
         except HeaderException:
+            fp.seek(obj.offset)
+            data = fp.read(512)
+            if all(c == '\x00' for c in data):
+                # unregister the object here
+                rpc.unregister_object(socket_path, name)
+                msg = "Zeroed header found for {} at offset {} in volume\
+                        {}".format(name, obj.offset, volume_filepath)
+                increment(logger, 'vfile.already_punched')
+                raise VFileException(msg)
             msg = "Failed to read header for {} at offset {} in volume\
                    {}".format(name, obj.offset, volume_filepath)
             raise VIOError(errno.EIO, msg)
+
         # check that we have the object we were expecting
         header_fullname = "{}{}".format(header.ohash, header.filename)
         if header_fullname != name:
