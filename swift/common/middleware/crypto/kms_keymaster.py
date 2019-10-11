@@ -96,7 +96,10 @@ class KmsKeyMaster(BaseKeyMaster):
             except Exception:
                 raise ValueError("Secret with key_id '%s' is not a symmetric "
                                  "key (type: %s)" % (key_id, str(type(key))))
-            root_secrets[secret_id] = key.get_encoded()
+            secret = key.get_encoded()
+            if not isinstance(secret, bytes):
+                secret = secret.encode('utf-8')
+            root_secrets[secret_id] = secret
         return root_secrets
 
 

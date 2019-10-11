@@ -214,6 +214,10 @@ class BaseKeyMaster(object):
         if self.active_secret_id not in self._root_secrets:
             raise ValueError('No secret loaded for active_root_secret_id %s' %
                              self.active_secret_id)
+        for secret_id, secret in self._root_secrets.items():
+            if not isinstance(secret, bytes):
+                raise ValueError('Secret with id %s is %s, not bytes' % (
+                    secret_id, type(secret)))
 
     @property
     def root_secret(self):
