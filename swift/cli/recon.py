@@ -459,6 +459,8 @@ class SwiftRecon(object):
                         stats[stat_key].append(repl_stats.get(stat_key))
                 last = response.get('replication_last',
                                     response.get('object_replication_last', 0))
+                if last is None:
+                    continue
                 if last < least_recent_time:
                     least_recent_time = last
                     least_recent_url = url
