@@ -38,10 +38,10 @@ import json
 import random
 import errno
 import xattr
+from io import BytesIO
 
 import six
 import six.moves.cPickle as pickle
-from six import BytesIO
 from six.moves import range
 from six.moves.http_client import HTTPException
 

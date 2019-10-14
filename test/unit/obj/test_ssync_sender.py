@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import io
 import os
 import time
 import unittest
@@ -60,7 +61,7 @@ class FakeResponse(ssync_sender.SsyncBufferedHTTPResponse):
         if not six.PY2:
             chunk_body = chunk_body.encode('ascii')
         if chunk_body:
-            self.fp = six.BytesIO(
+            self.fp = io.BytesIO(
                 b'%x\r\n%s\r\n0\r\n\r\n' % (len(chunk_body), chunk_body))
         self.ssync_response_buffer = b''
         self.ssync_response_chunk_left = 0
@@ -691,39 +692,39 @@ class TestSender(BaseTest):
 
     def test_readline_at_start_of_chunk(self):
         response = FakeResponse()
-        response.fp = six.BytesIO(b'2\r\nx\n\r\n')
+        response.fp = io.BytesIO(b'2\r\nx\n\r\n')
         self.assertEqual(response.readline(), b'x\n')
 
     def test_readline_chunk_with_extension(self):
         response = FakeResponse()
-        response.fp = six.BytesIO(
+        response.fp = io.BytesIO(
             b'2 ; chunk=extension\r\nx\n\r\n')
         self.assertEqual(response.readline(), b'x\n')
 
     def test_readline_broken_chunk(self):
         response = FakeResponse()
-        response.fp = six.BytesIO(b'q\r\nx\n\r\n')
+        response.fp = io.BytesIO(b'q\r\nx\n\r\n')
         self.assertRaises(
             exceptions.ReplicationException, response.readline)
         self.assertTrue(response.close_called)
 
     def test_readline_terminated_chunk(self):
         response = FakeResponse()
-        response.fp = six.BytesIO(b'b\r\nnot enough')
+        response.fp = io.BytesIO(b'b\r\nnot enough')
         self.assertRaises(
             exceptions.ReplicationException, response.readline)
         self.assertTrue(response.close_called)
 
     def test_readline_all(self):
         response = FakeResponse()
-        response.fp = six.BytesIO(b'2\r\nx\n\r\n0\r\n\r\n')
+        response.fp = io.BytesIO(b'2\r\nx\n\r\n0\r\n\r\n')
         self.assertEqual(response.readline(), b'x\n')
         self.assertEqual(response.readline(), b'')
         self.assertEqual(response.readline(), b'')
 
     def test_readline_all_trailing_not_newline_termed(self):
         response = FakeResponse()
-        response.fp = six.BytesIO(
+        response.fp = io.BytesIO(
             b'2\r\nx\n\r\n3\r\n123\r\n0\r\n\r\n')
         self.assertEqual(response.readline(), b'x\n')
         self.assertEqual(response.readline(), b'123')

@@ -46,7 +46,7 @@ import math
 import inspect
 
 import six
-from six import BytesIO, StringIO
+from six import StringIO
 from six.moves.queue import Queue, Empty
 from six.moves import http_client
 from six.moves import range
@@ -59,6 +59,7 @@ import fcntl
 import shutil
 
 from getpass import getuser
+from io import BytesIO
 from shutil import rmtree
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp

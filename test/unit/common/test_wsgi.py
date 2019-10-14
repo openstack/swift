@@ -21,14 +21,14 @@ import logging
 import socket
 import unittest
 import os
-from textwrap import dedent
-from collections import defaultdict
 import types
-
 import eventlet.wsgi
 
+from collections import defaultdict
+from io import BytesIO
+from textwrap import dedent
+
 import six
-from six import BytesIO
 from six.moves.urllib.parse import quote
 
 import mock

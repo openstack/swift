@@ -17,11 +17,12 @@ import json
 import mock
 import unittest
 import zlib
-from textwrap import dedent
 import os
 
+from io import BytesIO
+from textwrap import dedent
+
 import six
-from six import BytesIO
 from six.moves import range, zip_longest
 from six.moves.urllib.parse import quote, parse_qsl
 from test.unit import FakeLogger

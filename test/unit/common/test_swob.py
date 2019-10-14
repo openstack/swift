@@ -20,8 +20,9 @@ import unittest
 import re
 import time
 
+from io import BytesIO
+
 import six
-from six import BytesIO
 from six.moves.urllib.parse import quote
 
 import swift.common.swob

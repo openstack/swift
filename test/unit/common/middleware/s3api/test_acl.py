@@ -17,7 +17,7 @@ import base64
 import unittest
 import mock
 
-from six import BytesIO
+from io import BytesIO
 from hashlib import md5
 
 from swift.common.swob import Request, HTTPAccepted

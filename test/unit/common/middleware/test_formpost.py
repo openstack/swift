@@ -19,7 +19,7 @@ from hashlib import sha1
 from time import time
 
 import six
-from six import BytesIO
+from io import BytesIO
 
 from swift.common.swob import Request, Response
 from swift.common.middleware import tempauth, formpost
