@@ -26,6 +26,10 @@
 # pattern to check against device errors.
 # log_file_pattern = /var/log/kern.*[!.][!g][!z]
 #
+# On Python 3, the encoding to use when reading the log file. Defaults
+# to the result of locale.getpreferredencoding(), like Python's open().
+# log_file_encoding = auto
+#
 # Regular expression patterns to be used to locate
 # device blocks with errors in the log file. Currently
 # the default ones are as follows:
