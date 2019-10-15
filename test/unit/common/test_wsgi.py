@@ -600,7 +600,7 @@ class TestWSGI(unittest.TestCase):
                 logger = logging.getLogger('test')
                 sock = listen_zero()
                 wsgi.run_server(conf, logger, sock)
-                self.assertTrue(os.environ['TZ'] is not '')
+                self.assertNotEqual(os.environ['TZ'], '')
 
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())

@@ -217,7 +217,7 @@ def parse_acl_v2(data):
     """
     if data is None:
         return None
-    if data is '':
+    if data == '':
         return {}
     try:
         result = json.loads(data)

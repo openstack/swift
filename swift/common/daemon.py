@@ -267,7 +267,7 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     """
     # very often the config section_name is based on the class name
     # the None singleton will be passed through to readconf as is
-    if section_name is '':
+    if section_name == '':
         section_name = sub(r'([a-z])([A-Z])', r'\1-\2',
                            klass.__name__).lower()
     try:
