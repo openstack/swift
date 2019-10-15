@@ -123,13 +123,13 @@ Example usage of this middleware via ``swift``:
 """
 
 
-import cgi
 import json
 import six
 import time
 
 from six.moves.urllib.parse import urlparse
 
+from swift.common.request_helpers import html_escape
 from swift.common.utils import human_readable, split_path, config_true_value, \
     quote, register_swift_info, get_logger
 from swift.common.wsgi import make_env, WSGIContext
@@ -243,7 +243,7 @@ class _StaticWebContext(WSGIContext):
                 'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
                 '<html>\n' \
                 '<head>\n' \
-                '<title>Listing of %s</title>\n' % cgi.escape(label)
+                '<title>Listing of %s</title>\n' % html_escape(label)
             if self._listings_css:
                 body += '  <link rel="stylesheet" type="text/css" ' \
                     'href="%s" />\n' % self._build_css_path(prefix or '')
@@ -290,7 +290,7 @@ class _StaticWebContext(WSGIContext):
                '<html>\n' \
                ' <head>\n' \
                '  <title>Listing of %s</title>\n' % \
-               cgi.escape(label)
+               html_escape(label)
         if self._listings_css:
             body += '  <link rel="stylesheet" type="text/css" ' \
                     'href="%s" />\n' % (self._build_css_path(prefix))
@@ -309,7 +309,7 @@ class _StaticWebContext(WSGIContext):
                 '    <th class="colname">Name</th>\n' \
                 '    <th class="colsize">Size</th>\n' \
                 '    <th class="coldate">Date</th>\n' \
-                '   </tr>\n' % cgi.escape(label)
+                '   </tr>\n' % html_escape(label)
         if prefix:
             body += '   <tr id="parent" class="item">\n' \
                     '    <td class="colname"><a href="../">../</a></td>\n' \
@@ -327,7 +327,7 @@ class _StaticWebContext(WSGIContext):
                         '    <td class="colsize">&nbsp;</td>\n' \
                         '    <td class="coldate">&nbsp;</td>\n' \
                         '   </tr>\n' % \
-                        (quote(subdir), cgi.escape(subdir))
+                        (quote(subdir), html_escape(subdir))
         for item in listing:
             if 'name' in item:
                 name = item['name'] if six.PY3 else  \
@@ -338,17 +338,17 @@ class _StaticWebContext(WSGIContext):
                     item['content_type'].encode('utf-8')
                 bytes = human_readable(item['bytes'])
                 last_modified = (
-                    cgi.escape(item['last_modified'] if six.PY3 else
-                               item['last_modified'].encode('utf-8')).
+                    html_escape(item['last_modified'] if six.PY3 else
+                                item['last_modified'].encode('utf-8')).
                     split('.')[0].replace('T', ' '))
                 body += '   <tr class="item %s">\n' \
                         '    <td class="colname"><a href="%s">%s</a></td>\n' \
                         '    <td class="colsize">%s</td>\n' \
                         '    <td class="coldate">%s</td>\n' \
                         '   </tr>\n' % \
-                        (' '.join('type-' + cgi.escape(t.lower(), quote=True)
+                        (' '.join('type-' + html_escape(t.lower())
                                   for t in content_type.split('/')),
-                         quote(name), cgi.escape(name),
+                         quote(name), html_escape(name),
                          bytes, last_modified)
         body += '  </table>\n' \
                 ' </body>\n' \
