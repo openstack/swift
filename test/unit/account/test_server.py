@@ -23,9 +23,9 @@ from shutil import rmtree
 from test.unit import FakeLogger
 import itertools
 import random
+from io import BytesIO
 
 import json
-from six import BytesIO
 from six import StringIO
 import xml.dom.minidom
 

@@ -23,8 +23,7 @@ import unittest
 from mock import patch
 
 import six
-from six import BytesIO
-from six.moves import range
+from io import BytesIO
 
 from swift.common import swob, utils
 from swift.common.header_key_dict import HeaderKeyDict

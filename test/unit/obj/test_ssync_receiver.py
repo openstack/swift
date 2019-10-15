@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
 import os
 import shutil
 import tempfile
@@ -494,10 +495,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_SSYNC_Exception(self):
 
-        class _Wrapper(six.BytesIO):
+        class _Wrapper(io.BytesIO):
 
             def __init__(self, value):
-                six.BytesIO.__init__(self, value)
+                io.BytesIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -529,10 +530,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_SSYNC_Exception_Exception(self):
 
-        class _Wrapper(six.BytesIO):
+        class _Wrapper(io.BytesIO):
 
             def __init__(self, value):
-                six.BytesIO.__init__(self, value)
+                io.BytesIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -565,14 +566,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_timeout(self):
 
-        class _Wrapper(six.BytesIO):
+        class _Wrapper(io.BytesIO):
 
             def __init__(self, value):
-                six.BytesIO.__init__(self, value)
+                io.BytesIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = six.BytesIO.readline(self)
+                line = io.BytesIO.readline(self)
                 if line.startswith(b'hash'):
                     eventlet.sleep(0.1)
                 return line
@@ -607,14 +608,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_other_exception(self):
 
-        class _Wrapper(six.BytesIO):
+        class _Wrapper(io.BytesIO):
 
             def __init__(self, value):
-                six.BytesIO.__init__(self, value)
+                io.BytesIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = six.BytesIO.readline(self)
+                line = io.BytesIO.readline(self)
                 if line.startswith(b'hash'):
                     raise Exception('test exception')
                 return line
@@ -1038,14 +1039,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_timeout(self):
 
-        class _Wrapper(six.BytesIO):
+        class _Wrapper(io.BytesIO):
 
             def __init__(self, value):
-                six.BytesIO.__init__(self, value)
+                io.BytesIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = six.BytesIO.readline(self)
+                line = io.BytesIO.readline(self)
                 if line.startswith(b'DELETE'):
                     eventlet.sleep(0.1)
                 return line
@@ -1085,14 +1086,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_other_exception(self):
 
-        class _Wrapper(six.BytesIO):
+        class _Wrapper(io.BytesIO):
 
             def __init__(self, value):
-                six.BytesIO.__init__(self, value)
+                io.BytesIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = six.BytesIO.readline(self)
+                line = io.BytesIO.readline(self)
                 if line.startswith(b'DELETE'):
                     raise Exception('test exception')
                 return line
@@ -1131,10 +1132,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_no_problems_no_hard_disconnect(self):
 
-        class _Wrapper(six.BytesIO):
+        class _Wrapper(io.BytesIO):
 
             def __init__(self, value):
-                six.BytesIO.__init__(self, value)
+                io.BytesIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -1981,13 +1982,13 @@ class TestReceiver(unittest.TestCase):
             request.read_body = request.environ['wsgi.input'].read(2)
             return swob.HTTPInternalServerError()
 
-        class _IgnoreReadlineHint(six.BytesIO):
+        class _IgnoreReadlineHint(io.BytesIO):
 
             def __init__(self, value):
-                six.BytesIO.__init__(self, value)
+                io.BytesIO.__init__(self, value)
 
             def readline(self, hint=-1):
-                return six.BytesIO.readline(self)
+                return io.BytesIO.readline(self)
 
         self.controller.PUT = _PUT
         self.controller.network_chunk_size = 2

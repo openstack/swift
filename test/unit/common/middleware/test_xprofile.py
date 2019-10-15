@@ -19,7 +19,7 @@ import shutil
 import tempfile
 import unittest
 
-from six import BytesIO
+from io import BytesIO
 
 from swift import gettext_ as _
 from swift.common.swob import Request, Response

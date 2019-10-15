@@ -29,8 +29,9 @@ import eventlet.debug
 from eventlet import greenio, GreenPool, sleep, wsgi, listen, Timeout
 from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl, os as green_os
+from io import BytesIO
+
 import six
-from six import BytesIO
 from six import StringIO
 from six.moves import configparser
 

@@ -16,6 +16,7 @@
 
 from datetime import datetime
 import hashlib
+import io
 import locale
 import random
 import six
@@ -2609,7 +2610,7 @@ class TestFile(Base):
     def testEtagResponse(self):
         file_item = self.env.container.file(Utils.create_name())
 
-        data = six.BytesIO(file_item.write_random(512))
+        data = io.BytesIO(file_item.write_random(512))
         etag = File.compute_md5sum(data)
 
         headers = dict((h.lower(), v)

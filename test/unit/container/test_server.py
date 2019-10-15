@@ -20,18 +20,18 @@ import posix
 import mock
 import unittest
 import itertools
+import time
+import random
 from contextlib import contextmanager
+from io import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
 from test.unit import make_timestamp_iter, mock_timestamp_now
 from xml.dom import minidom
-import time
-import random
 
 from eventlet import spawn, Timeout
 import json
 import six
-from six import BytesIO
 from six import StringIO
 
 from swift import __version__ as swift_version

@@ -22,7 +22,7 @@ import tarfile
 import zlib
 import mock
 import six
-from six import BytesIO
+from io import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
 from eventlet import sleep

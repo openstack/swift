@@ -46,8 +46,9 @@ import uuid
 import mock
 from eventlet import sleep, spawn, wsgi, Timeout, debug
 from eventlet.green import httplib
+from io import BytesIO
+
 import six
-from six import BytesIO
 from six.moves import range
 from six.moves.urllib.parse import quote, parse_qsl
 

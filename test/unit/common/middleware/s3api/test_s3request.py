@@ -17,7 +17,7 @@ import hashlib
 from mock import patch, MagicMock
 import unittest
 
-from six import BytesIO
+from io import BytesIO
 
 from swift.common import swob
 from swift.common.swob import Request, HTTPNoContent
