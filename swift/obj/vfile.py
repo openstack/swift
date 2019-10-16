@@ -936,9 +936,9 @@ def quarantine_ohash(dirpath, policy):
         raise VFileException("dirpath not an object dir: {}".format(dirpath))
 
     if policy.policy_type == 'erasure_coding':
-        sort_f = lambda x: utils.Timestamp(os.path.splitext(x)[0])
-    else:
         sort_f = lambda x: utils.Timestamp(x.split('#')[0])
+    else:
+        sort_f = lambda x: utils.Timestamp(os.path.splitext(x)[0])
 
     final = []
     vfiles = listdir(dirpath)
