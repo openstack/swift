@@ -252,14 +252,14 @@ class Auditor(object):
                         self.account_not_found += 1
                         consistent = False
                         print("  Bad status GETting account '%s' "
-                              " from %ss:%ss" %
+                              " from %s:%s" %
                               (account, node['ip'], node['device']))
                         break
                     results = json.loads(resp.read())
                 except Exception:
                     self.account_exceptions += 1
                     consistent = False
-                    print("  Exception GETting account '%s' on %ss:%ss" %
+                    print("  Exception GETting account '%s' on %s:%s" %
                           (account, node['ip'], node['device']))
                     break
                 if node_id not in responses:
