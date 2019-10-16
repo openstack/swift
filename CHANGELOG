@@ -1,3 +1,19 @@
+swift (2.23.1, train stable backports)
+
+    * On Python 3, the KMS keymaster now works with secrets stored
+      in Barbican with a text/plain payload-content-type.
+
+    * Several utility scripts now work better on Python 3:
+
+      * swift-account-audit
+
+      * swift-dispersion-populate
+
+      * swift-drive-recon
+
+      * swift-recon
+
+
 swift (2.23.0, OpenStack Train)
 
     * Python 3.6 and 3.7 are now fully supported. Several py3-related

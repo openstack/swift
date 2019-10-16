@@ -1,0 +1,16 @@
+---
+fixes:
+  - |
+    On Python 3, the KMS keymaster now works with secrets stored
+    in Barbican with a ``text/plain`` payload-content-type.
+
+  - |
+    Several utility scripts now work better on Python 3:
+
+    * ``swift-account-audit``
+
+    * ``swift-dispersion-populate``
+
+    * ``swift-drive-recon``
+
+    * ``swift-recon``
