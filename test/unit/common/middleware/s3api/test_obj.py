@@ -717,8 +717,7 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual(headers['Content-Disposition'], 'how are you')
         self.assertEqual(headers['Content-Encoding'], 'good and you')
         self.assertEqual(headers['Content-Language'], 'great')
-        # Content-Type can't be set during an S3 copy operation
-        self.assertIsNone(headers.get('Content-Type'))
+        self.assertEqual(headers['Content-Type'], 'so')
         self.assertEqual(headers['Expires'], 'yeah')
         self.assertEqual(headers['X-Robots-Tag'], 'bye')
 
@@ -1206,6 +1205,7 @@ class TestS3ApiObjNonUTC(TestS3ApiObj):
         super(TestS3ApiObjNonUTC, self).tearDown()
         os.environ['TZ'] = self.orig_tz
         time.tzset()
+
 
 if __name__ == '__main__':
     unittest.main()

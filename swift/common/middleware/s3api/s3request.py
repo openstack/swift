@@ -1100,14 +1100,13 @@ class S3Request(swob.Request):
             env['HTTP_X_COPY_FROM'] = env['HTTP_X_AMZ_COPY_SOURCE']
             del env['HTTP_X_AMZ_COPY_SOURCE']
             env['CONTENT_LENGTH'] = '0'
-            # Content type cannot be modified on COPY
-            env.pop('CONTENT_TYPE', None)
             if env.pop('HTTP_X_AMZ_METADATA_DIRECTIVE', None) == 'REPLACE':
                 env['HTTP_X_FRESH_METADATA'] = 'True'
             else:
                 copy_exclude_headers = ('HTTP_CONTENT_DISPOSITION',
                                         'HTTP_CONTENT_ENCODING',
                                         'HTTP_CONTENT_LANGUAGE',
+                                        'CONTENT_TYPE',
                                         'HTTP_EXPIRES',
                                         'HTTP_CACHE_CONTROL',
                                         'HTTP_X_ROBOTS_TAG')
