@@ -385,13 +385,18 @@ class VersionedWritesContext(WSGIContext):
         return source_resp
 
     def _put_versioned_obj(self, req, put_path_info, source_resp):
-        # Create a new Request object to PUT to the versions container, copying
+        # Create a new Request object to PUT to the container, copying
         # all headers from the source object apart from x-timestamp.
         put_req = make_pre_authed_request(
             req.environ, path=quote(put_path_info), method='PUT',
             swift_source='VW')
         copy_header_subset(source_resp, put_req,
                            lambda k: k.lower() != 'x-timestamp')
+        slo_size = put_req.headers.get('X-Object-Sysmeta-Slo-Size')
+        if slo_size:
+            put_req.headers['Content-Type'] += '; swift_bytes=' + slo_size
+            put_req.environ['swift.content_type_overridden'] = True
+
         put_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
         put_resp = put_req.get_response(self.app)
         close_if_possible(source_resp.app_iter)

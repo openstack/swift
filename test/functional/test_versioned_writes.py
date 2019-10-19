@@ -1047,3 +1047,44 @@ class TestSloWithVersioning(unittest2.TestCase):
         # expect the original manifest file to be restored
         self._assert_is_manifest(file_item, 'a')
         self._assert_is_object(file_item, 'a')
+
+    def test_slo_manifest_version_size(self):
+        file_item = self._create_manifest('a')
+        # sanity check: read the manifest, then the large object
+        self._assert_is_manifest(file_item, 'a')
+        self._assert_is_object(file_item, b'a')
+
+        # original manifest size
+        primary_list = self.container.files(parms={'format': 'json'})
+        self.assertEqual(1, len(primary_list))
+        org_size = primary_list[0]['bytes']
+
+        # upload new manifest
+        file_item = self._create_manifest('b')
+        # sanity check: read the manifest, then the large object
+        self._assert_is_manifest(file_item, 'b')
+        self._assert_is_object(file_item, b'b')
+
+        versions_list = self.versions_container.files(parms={'format': 'json'})
+        self.assertEqual(1, len(versions_list))
+        version_file = self.versions_container.file(versions_list[0]['name'])
+        version_file_size = versions_list[0]['bytes']
+        # check the version is still a manifest
+        self._assert_is_manifest(version_file, 'a')
+        self._assert_is_object(version_file, b'a')
+
+        # check the version size is correct
+        self.assertEqual(version_file_size, org_size)
+
+        # delete the newest manifest
+        file_item.delete()
+
+        # expect the original manifest file to be restored
+        self._assert_is_manifest(file_item, 'a')
+        self._assert_is_object(file_item, b'a')
+
+        primary_list = self.container.files(parms={'format': 'json'})
+        self.assertEqual(1, len(primary_list))
+        primary_file_size = primary_list[0]['bytes']
+        # expect the original manifest file size to be the same
+        self.assertEqual(primary_file_size, org_size)
