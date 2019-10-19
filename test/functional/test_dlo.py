@@ -119,6 +119,15 @@ class TestDlo(Base):
         file_contents = file_item.read(size=1, offset=47)
         self.assertEqual(file_contents, "e")
 
+    def test_get_multiple_ranges(self):
+        file_item = self.env.container.file('man1')
+        file_contents = file_item.read(
+            hdrs={'Range': 'bytes=0-4,10-14'})
+        self.assert_status(200)  # *not* 206
+        self.assertEqual(
+            file_contents,
+            b"aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
+
     def test_get_range_out_of_range(self):
         file_item = self.env.container.file('man1')
 

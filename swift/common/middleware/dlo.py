@@ -284,6 +284,8 @@ class GetContext(WSGIContext):
                 actual_content_length = None
                 content_length_for_swob_range = None
                 req.range = None
+        else:
+            req.range = None
 
         response_headers = [
             (h, v) for h, v in response_headers
