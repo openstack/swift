@@ -45,12 +45,12 @@
         <data type="int"/>
       </element>
       <optional>
-        <element name="EncodingType">
+        <element name="Delimiter">
           <data type="string"/>
         </element>
       </optional>
       <optional>
-        <element name="Delimiter">
+        <element name="EncodingType">
           <data type="string"/>
         </element>
       </optional>

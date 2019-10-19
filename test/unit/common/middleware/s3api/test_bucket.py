@@ -17,6 +17,7 @@ import unittest
 import cgi
 import mock
 
+import six
 from six.moves.urllib.parse import quote
 
 from swift.common import swob
@@ -95,7 +96,7 @@ class TestS3ApiBucket(S3ApiTestCase):
             '/v1/AUTH_test/subdirs?delimiter=/&format=json&limit=3',
             swob.HTTPOk, {}, json.dumps([
                 {'subdir': 'nothing/'},
-                {'subdir': 'but/'},
+                {'subdir': u'but-\u062a/'},
                 {'subdir': 'subdirs/'},
             ]))
 
@@ -242,7 +243,46 @@ class TestS3ApiBucket(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         elem = fromstring(body, 'ListBucketResult')
         self.assertEqual(elem.find('./IsTruncated').text, 'true')
-        self.assertEqual(elem.find('./NextMarker').text, 'but/')
+        if six.PY2:
+            self.assertEqual(elem.find('./NextMarker').text,
+                             u'but-\u062a/'.encode('utf-8'))
+        else:
+            self.assertEqual(elem.find('./NextMarker').text,
+                             u'but-\u062a/')
+
+    def test_bucket_GET_is_truncated_url_encoded(self):
+        bucket_name = 'junk'
+
+        req = Request.blank(
+            '/%s?encoding-type=url&max-keys=%d' % (
+                bucket_name, len(self.objects)),
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'ListBucketResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'false')
+
+        req = Request.blank(
+            '/%s?encoding-type=url&max-keys=%d' % (
+                bucket_name, len(self.objects) - 1),
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'ListBucketResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'true')
+
+        req = Request.blank('/subdirs?encoding-type=url&delimiter=/&'
+                            'max-keys=2',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'ListBucketResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'true')
+        self.assertEqual(elem.find('./NextMarker').text,
+                         quote(u'but-\u062a/'.encode('utf-8')))
 
     def test_bucket_GET_v2_is_truncated(self):
         bucket_name = 'junk'
