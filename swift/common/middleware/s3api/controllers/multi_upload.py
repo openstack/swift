@@ -172,6 +172,15 @@ class PartController(Controller):
 
             req.headers['Range'] = rng
             del req.headers['X-Amz-Copy-Source-Range']
+        if 'X-Amz-Copy-Source' in req.headers:
+            # Clear some problematic headers that might be on the source
+            req.headers.update({
+                sysmeta_header('object', 'etag'): '',
+                'X-Object-Sysmeta-Swift3-Etag': '',  # for legacy data
+                'X-Object-Sysmeta-Slo-Etag': '',
+                'X-Object-Sysmeta-Slo-Size': '',
+                'X-Object-Sysmeta-Container-Update-Override-Etag': '',
+            })
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:

@@ -281,20 +281,6 @@ class TestS3ApiMultiUpload(S3ApiBase):
             self.assertEqual(self.min_segment_size, int(p.find('Size').text))
             etags.append(p.find('ETag').text)
 
-        # Abort Multipart Uploads
-        # note that uploads[1] has part data while uploads[2] does not
-        for key, upload_id in uploads[1:]:
-            query = 'uploadId=%s' % upload_id
-            status, headers, body = \
-                self.conn.make_request('DELETE', bucket, key, query=query)
-            self.assertEqual(status, 204)
-            self.assertCommonResponseHeaders(headers)
-            self.assertTrue('content-type' in headers)
-            self.assertEqual(headers['content-type'],
-                             'text/html; charset=UTF-8')
-            self.assertTrue('content-length' in headers)
-            self.assertEqual(headers['content-length'], '0')
-
         # Complete Multipart Upload
         key, upload_id = uploads[0]
         xml = self._gen_comp_xml(etags)
@@ -329,10 +315,61 @@ class TestS3ApiMultiUpload(S3ApiBase):
         swift_etag = '"%s"' % md5(concatted_etags).hexdigest()
         # TODO: GET via swift api, check against swift_etag
 
+        # Upload Part Copy -- MU as source
+        key, upload_id = uploads[1]
+        status, headers, body, resp_etag = \
+            self._upload_part_copy(bucket, keys[0], bucket,
+                                   key, upload_id, part_num=2)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self.assertIn('content-type', headers)
+        self.assertEqual(headers['content-type'], 'application/xml')
+        self.assertIn('content-length', headers)
+        self.assertEqual(headers['content-length'], str(len(body)))
+        self.assertNotIn('etag', headers)
+        elem = fromstring(body, 'CopyPartResult')
+
+        last_modified = elem.find('LastModified').text
+        self.assertIsNotNone(last_modified)
+
+        exp_content = 'a' * self.min_segment_size
+        etag = md5(exp_content).hexdigest()
+        self.assertEqual(resp_etag, etag)
+
+        # Also check that the etag is correct in part listings
+        query = 'uploadId=%s' % upload_id
+        status, headers, body = \
+            self.conn.make_request('GET', bucket, key, query=query)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self.assertTrue('content-type' in headers)
+        self.assertEqual(headers['content-type'], 'application/xml')
+        self.assertTrue('content-length' in headers)
+        self.assertEqual(headers['content-length'], str(len(body)))
+        elem = fromstring(body, 'ListPartsResult')
+        self.assertEqual(len(elem.findall('Part')), 2)
+        self.assertEqual(elem.findall('Part')[1].find('PartNumber').text, '2')
+        self.assertEqual(elem.findall('Part')[1].find('ETag').text,
+                         '"%s"' % etag)
+
+        # Abort Multipart Uploads
+        # note that uploads[1] has part data while uploads[2] does not
+        for key, upload_id in uploads[1:]:
+            query = 'uploadId=%s' % upload_id
+            status, headers, body = \
+                self.conn.make_request('DELETE', bucket, key, query=query)
+            self.assertEqual(status, 204)
+            self.assertCommonResponseHeaders(headers)
+            self.assertTrue('content-type' in headers)
+            self.assertEqual(headers['content-type'],
+                             'text/html; charset=UTF-8')
+            self.assertTrue('content-length' in headers)
+            self.assertEqual(headers['content-length'], '0')
+
         # Check object
         def check_obj(req_headers, exp_status):
             status, headers, body = \
-                self.conn.make_request('HEAD', bucket, key, req_headers)
+                self.conn.make_request('HEAD', bucket, keys[0], req_headers)
             self.assertEqual(status, exp_status)
             self.assertCommonResponseHeaders(headers)
             self.assertIn('content-length', headers)
@@ -364,20 +401,20 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(status, 200)
 
         elem = fromstring(body, 'ListBucketResult')
-        resp_objects = elem.findall('./Contents')
-        self.assertEqual(len(list(resp_objects)), 1)
-        for o in resp_objects:
-            self.assertEqual(o.find('Key').text, key)
-            self.assertIsNotNone(o.find('LastModified').text)
-            self.assertRegexpMatches(
-                o.find('LastModified').text,
-                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
-            self.assertEqual(o.find('ETag').text, exp_etag)
-            self.assertEqual(o.find('Size').text, str(exp_size))
-            self.assertIsNotNone(o.find('StorageClass').text is not None)
-            self.assertEqual(o.find('Owner/ID').text, self.conn.user_id)
-            self.assertEqual(o.find('Owner/DisplayName').text,
-                             self.conn.user_id)
+        resp_objects = list(elem.findall('./Contents'))
+        self.assertEqual(len(resp_objects), 1)
+        o = resp_objects[0]
+        self.assertEqual(o.find('Key').text, keys[0])
+        self.assertIsNotNone(o.find('LastModified').text)
+        self.assertRegexpMatches(
+            o.find('LastModified').text,
+            r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
+        self.assertEqual(o.find('ETag').text, exp_etag)
+        self.assertEqual(o.find('Size').text, str(exp_size))
+        self.assertIsNotNone(o.find('StorageClass').text)
+        self.assertEqual(o.find('Owner/ID').text, self.conn.user_id)
+        self.assertEqual(o.find('Owner/DisplayName').text,
+                         self.conn.user_id)
 
     def test_initiate_multi_upload_error(self):
         bucket = 'bucket'
