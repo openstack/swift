@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import unittest
 from datetime import datetime
 from hashlib import md5
@@ -64,8 +65,15 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             swob.HTTPNoContent, {}, None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key2',
                             swob.HTTPNotFound, {}, None)
+        slo_delete_resp = {
+            'Number Not Found': 0,
+            'Response Status': '200 OK',
+            'Errors': [],
+            'Response Body': '',
+            'Number Deleted': 8
+        }
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key3',
-                            swob.HTTPOk, {}, None)
+                            swob.HTTPOk, {}, json.dumps(slo_delete_resp))
 
         elem = Element('Delete')
         for key in ['Key1', 'Key2', 'Key3']:
