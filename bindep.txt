@@ -18,9 +18,9 @@ libxslt1-dev [platform:dpkg]
 libxslt-dev [platform:apk]
 memcached
 python-dev [platform:dpkg platform:apk]
-python-devel [platform:rpm]
+python-devel [platform:rpm !py36]
 python3-dev [platform:dpkg platform:apk test]
-python3-devel [platform:fedora platform:suse test]
+python3-devel [platform:rpm !py27 test]
 # python3-devel does not pull in the python3 package on openSUSE so
 # we need to be explicit. The python3 package contains the XML module
 # which is required by a python3 virtualenv. Similarly, in python2,

@@ -22,15 +22,19 @@
         name: pip
         extra_args: --upgrade
 
-    - name: installing dependencies
-      yum: name={{ item }} state=present
-      with_items:
-        - python-pyeclib
-        - python-nose
-        - python-swiftclient
+    - name: install rsync-daemon - CentOS 8
+      package:
+        name: rsync-daemon
+        state: present
+      when:
+        - ansible_facts['distribution'] == "CentOS"
+        - ansible_facts['distribution_major_version'] == "8"
 
     - name: install python modules with pip
       pip: name={{ item }} state=present extra_args='--upgrade'
       with_items:
         - crudini
         - eventlet
+        - nose
+        - pyeclib
+        - python-swiftclient

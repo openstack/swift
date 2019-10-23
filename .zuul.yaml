@@ -244,13 +244,26 @@
     nodeset: centos-7
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
+      under Python 2.
     timeout: 7200
+    vars:
+      bindep_profile: test py27
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
       - tools/playbooks/saio_single_node_setup/make_rings.yaml
     run: tools/playbooks/probetests/run.yaml
     post-run: tools/playbooks/probetests/post.yaml
+
+- job:
+    name: swift-probetests-centos-8
+    parent: swift-probetests-centos-7
+    nodeset: centos-8
+    description: |
+      Setup a SAIO dev environment and run Swift's probe tests
+      under Python 3.
+    vars:
+      bindep_profile: test py36
 
 - nodeset:
     name: swift-five-nodes
@@ -524,6 +537,13 @@
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+        - swift-probetests-centos-8:
+            irrelevant-files:
+              - ^(api-ref|releasenotes)/.*$
+              # Keep doc/saio -- we use those sample configs in the saio playbooks
+              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
+              - ^test/(unit|functional)/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-dsvm-functional:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -583,6 +603,13 @@
         - swift-tox-func-encryption-py37
         - swift-tox-func-ec-py37
         - swift-probetests-centos-7:
+            irrelevant-files:
+              - ^(api-ref|releasenotes)/.*$
+              # Keep doc/saio -- we use those sample configs in the saio playbooks
+              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
+              - ^test/(unit|functional)/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+        - swift-probetests-centos-8:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
