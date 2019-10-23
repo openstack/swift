@@ -220,6 +220,10 @@ class CleavingContext(object):
         yield 'ranges_done', self.ranges_done
         yield 'ranges_todo', self.ranges_todo
 
+    def __repr__(self):
+        return '%s(%s)' % (self.__class__.__name__, ', '.join(
+            '%s=%r' % prop for prop in self))
+
     def _encode(cls, value):
         if value is not None and six.PY2 and isinstance(value, six.text_type):
             return value.encode('utf-8')
@@ -240,6 +244,26 @@ class CleavingContext(object):
     @classmethod
     def _make_ref(cls, broker):
         return broker.get_info()['id']
+
+    @classmethod
+    def load_all(cls, broker):
+        """
+        Returns all cleaving contexts stored in the broker.
+
+        :param broker:
+        :return: list of tuples of (CleavingContext, timestamp)
+        """
+        brokers = broker.get_brokers()
+        sysmeta = brokers[-1].get_sharding_sysmeta_with_timestamps()
+
+        for key, (val, timestamp) in sysmeta.items():
+            # If the value is of length 0, then the metadata is
+            # marked for deletion
+            if key.startswith("Context-") and len(val) > 0:
+                try:
+                    yield cls(**json.loads(val)), timestamp
+                except ValueError:
+                    continue
 
     @classmethod
     def load(cls, broker):
@@ -286,6 +310,11 @@ class CleavingContext(object):
     def done(self):
         return all((self.misplaced_done, self.cleaving_done,
                     self.max_row == self.cleave_to_row))
+
+    def delete(self, broker):
+        # These will get reclaimed when `_reclaim_metadata` in
+        # common/db.py is called.
+        broker.set_sharding_sysmeta('Context-' + self.ref, '')
 
 
 DEFAULT_SHARD_CONTAINER_THRESHOLD = 1000000
@@ -723,12 +752,20 @@ class ContainerSharder(ContainerReplicator):
         self._increment_stat('audit_shard', 'success', statsd=True)
         return True
 
+    def _audit_cleave_contexts(self, broker):
+        now = Timestamp.now()
+        for context, last_mod in CleavingContext.load_all(broker):
+            if Timestamp(last_mod).timestamp + self.reclaim_age < \
+                    now.timestamp:
+                context.delete(broker)
+
     def _audit_container(self, broker):
         if broker.is_deleted():
             # if the container has been marked as deleted, all metadata will
             # have been erased so no point auditing. But we want it to pass, in
             # case any objects exist inside it.
             return True
+        self._audit_cleave_contexts(broker)
         if broker.is_root_container():
             return self._audit_root_container(broker)
         return self._audit_shard_container(broker)
@@ -1306,6 +1343,7 @@ class ContainerSharder(ContainerReplicator):
             modified_shard_ranges.append(own_shard_range)
             broker.merge_shard_ranges(modified_shard_ranges)
             if broker.set_sharded_state():
+                cleaving_context.delete(broker)
                 return True
             else:
                 self.logger.warning(
