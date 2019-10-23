@@ -24,7 +24,7 @@ import six
 from six.moves.urllib.parse import quote, unquote, parse_qsl
 import string
 
-from swift.common.utils import split_path
+from swift.common.utils import split_path, close_if_possible
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_NO_CONTENT, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_NOT_FOUND, \
@@ -108,6 +108,34 @@ def _header_acl_property(resource):
 
     return property(getter, setter, deleter,
                     doc='Get and set the %s acl property' % resource)
+
+
+class HashingInput(object):
+    """
+    wsgi.input wrapper to verify the hash of the input as it's read.
+    """
+    def __init__(self, reader, content_length, hasher, expected_hex_hash):
+        self._input = reader
+        self._to_read = content_length
+        self._hasher = hasher()
+        self._expected = expected_hex_hash
+
+    def read(self, size=None):
+        chunk = self._input.read(size)
+        self._hasher.update(chunk)
+        self._to_read -= len(chunk)
+        if self._to_read < 0 or (size > len(chunk) and self._to_read) or (
+                self._to_read == 0 and
+                self._hasher.hexdigest() != self._expected):
+            self.close()
+            # Since we don't return the last chunk, the PUT never completes
+            raise swob.HTTPUnprocessableEntity(
+                'The X-Amz-Content-SHA56 you specified did not match '
+                'what we received.')
+        return chunk
+
+    def close(self):
+        close_if_possible(self._input)
 
 
 class SigV4Mixin(object):
@@ -358,6 +386,21 @@ class SigV4Mixin(object):
             raise InvalidRequest(msg)
         else:
             hashed_payload = self.headers['X-Amz-Content-SHA256']
+            if hashed_payload != 'UNSIGNED-PAYLOAD':
+                if self.content_length == 0:
+                    if hashed_payload != sha256().hexdigest():
+                        raise BadDigest(
+                            'The X-Amz-Content-SHA56 you specified did not '
+                            'match what we received.')
+                elif self.content_length:
+                    self.environ['wsgi.input'] = HashingInput(
+                        self.environ['wsgi.input'],
+                        self.content_length,
+                        sha256,
+                        hashed_payload)
+                # else, length not provided -- Swift will kick out a
+                # 411 Length Required which will get translated back
+                # to a S3-style response in S3Request._swift_error_codes
         cr.append(hashed_payload)
         return '\n'.join(cr).encode('utf-8')
 
@@ -1189,12 +1232,15 @@ class S3Request(swob.Request):
         sw_req = self.to_swift_req(method, container, obj, headers=headers,
                                    body=body, query=query)
 
-        sw_resp = sw_req.get_response(app)
-
-        # reuse account and tokens
-        _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],
-                                        2, 3, True)
-        self.account = utf8encode(self.account)
+        try:
+            sw_resp = sw_req.get_response(app)
+        except swob.HTTPException as err:
+            sw_resp = err
+        else:
+            # reuse account and tokens
+            _, self.account, _ = split_path(sw_resp.environ['PATH_INFO'],
+                                            2, 3, True)
+            self.account = utf8encode(self.account)
 
         resp = S3Response.from_swift_resp(sw_resp)
         status = resp.status_int  # pylint: disable-msg=E1101
