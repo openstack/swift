@@ -49,7 +49,7 @@ from swift.common.utils import Timestamp, config_true_value, \
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
-    ConnectionTimeout, RangeAlreadyComplete
+    ConnectionTimeout, RangeAlreadyComplete, ShortReadError
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
@@ -748,6 +748,37 @@ def bytes_to_skip(record_size, range_start):
     return (record_size - (range_start % record_size)) % record_size
 
 
+class ByteCountEnforcer(object):
+    """
+    Enforces that successive calls to file_like.read() give at least
+    <nbytes> bytes before exhaustion.
+
+    If file_like fails to do so, ShortReadError is raised.
+
+    If more than <nbytes> bytes are read, we don't care.
+    """
+
+    def __init__(self, file_like, nbytes):
+        """
+        :param file_like: file-like object
+        :param nbytes: number of bytes expected, or None if length is unknown.
+        """
+        self.file_like = file_like
+        self.nbytes = self.bytes_left = nbytes
+
+    def read(self, amt=None):
+        chunk = self.file_like.read(amt)
+        if self.bytes_left is None:
+            return chunk
+        elif len(chunk) == 0 and self.bytes_left > 0:
+            raise ShortReadError(
+                "Too few bytes; read %d, expecting %d" % (
+                    self.nbytes - self.bytes_left, self.nbytes))
+        else:
+            self.bytes_left -= len(chunk)
+            return chunk
+
+
 class ResumingGetter(object):
     def __init__(self, app, req, server_type, node_iter, partition, path,
                  backend_headers, concurrency=1, client_chunk_size=None,
@@ -945,9 +976,9 @@ class ResumingGetter(object):
                     except ChunkReadTimeout:
                         new_source, new_node = self._get_source_and_node()
                         if new_source:
-                            self.app.exception_occurred(
-                                node[0], _('Object'),
-                                _('Trying to read during GET (retrying)'))
+                            self.app.error_occurred(
+                                node[0], _('Trying to read object during '
+                                           'GET (retrying)'))
                             # Close-out the connection as best as possible.
                             if getattr(source[0], 'swift_conn', None):
                                 close_swift_conn(source[0])
@@ -961,16 +992,21 @@ class ResumingGetter(object):
                         else:
                             raise StopIteration()
 
-            def iter_bytes_from_response_part(part_file):
+            def iter_bytes_from_response_part(part_file, nbytes):
                 nchunks = 0
                 buf = ''
+                part_file = ByteCountEnforcer(part_file, nbytes)
                 while True:
                     try:
                         with ChunkReadTimeout(node_timeout):
                             chunk = part_file.read(self.app.object_chunk_size)
                             nchunks += 1
+                            # NB: this append must be *inside* the context
+                            # manager for test.unit.SlowBody to do its thing
                             buf += chunk
-                    except ChunkReadTimeout:
+                            if nbytes is not None:
+                                nbytes -= len(chunk)
+                    except (ChunkReadTimeout, ShortReadError):
                         exc_type, exc_value, exc_traceback = exc_info()
                         if self.newest or self.server_type != 'Object':
                             raise
@@ -983,9 +1019,9 @@ class ResumingGetter(object):
                         buf = ''
                         new_source, new_node = self._get_source_and_node()
                         if new_source:
-                            self.app.exception_occurred(
-                                node[0], _('Object'),
-                                _('Trying to read during GET (retrying)'))
+                            self.app.error_occurred(
+                                node[0], _('Trying to read object during '
+                                           'GET (retrying)'))
                             # Close-out the connection as best as possible.
                             if getattr(source[0], 'swift_conn', None):
                                 close_swift_conn(source[0])
@@ -1004,8 +1040,9 @@ class ResumingGetter(object):
                             except StopIteration:
                                 # Tried to find a new node from which to
                                 # finish the GET, but failed. There's
-                                # nothing more to do here.
-                                return
+                                # nothing more we can do here.
+                                six.reraise(exc_type, exc_value, exc_traceback)
+                            part_file = ByteCountEnforcer(part_file, nbytes)
                         else:
                             six.reraise(exc_type, exc_value, exc_traceback)
                     else:
@@ -1067,10 +1104,18 @@ class ResumingGetter(object):
                 while True:
                     start_byte, end_byte, length, headers, part = \
                         get_next_doc_part()
+                    # note: learn_size_from_content_range() sets
+                    # self.skip_bytes
                     self.learn_size_from_content_range(
                         start_byte, end_byte, length)
                     self.bytes_used_from_backend = 0
-                    part_iter = iter_bytes_from_response_part(part)
+                    # not length; that refers to the whole object, so is the
+                    # wrong value to use for GET-range responses
+                    byte_count = ((end_byte - start_byte + 1) - self.skip_bytes
+                                  if (end_byte is not None
+                                      and start_byte is not None)
+                                  else None)
+                    part_iter = iter_bytes_from_response_part(part, byte_count)
                     yield {'start_byte': start_byte, 'end_byte': end_byte,
                            'entity_length': length, 'headers': headers,
                            'part_iter': part_iter}

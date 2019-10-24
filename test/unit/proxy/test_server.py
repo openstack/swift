@@ -20,6 +20,8 @@ import logging
 import json
 import math
 import os
+import posix
+import socket
 import sys
 import traceback
 import unittest
@@ -64,7 +66,7 @@ from swift.common.middleware import proxy_logging, versioned_writes, \
     copy, listing_formats
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
-    APIVersionError, ChunkWriteTimeout
+    APIVersionError, ChunkWriteTimeout, ChunkReadError
 from swift.common import utils, constraints
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
@@ -930,14 +932,18 @@ class TestProxyServer(unittest.TestCase):
                 self.kargs = kargs
 
             def getresponse(self):
+                body = 'Response from %s' % self.ip
+
                 def mygetheader(header, *args, **kargs):
                     if header == "Content-Type":
                         return ""
+                    elif header == "Content-Length":
+                        return str(len(body))
                     else:
                         return 1
 
                 resp = mock.Mock()
-                resp.read.side_effect = ['Response from %s' % self.ip, '']
+                resp.read.side_effect = [body, '']
                 resp.getheader = mygetheader
                 resp.getheaders.return_value = {}
                 resp.reason = ''
@@ -2315,6 +2321,178 @@ class TestReplicatedObjectController(
         self.assertEqual(res.body, '')
 
     @unpatch_policies
+    def test_GET_short_read(self):
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        obj = (''.join(
+            ('%d bottles of beer on the wall\n' % i)
+            for i in reversed(range(1, 200))))
+
+        # if the object is too short, then we don't have a mid-stream
+        # exception after the headers are sent, but instead an early one
+        # before the headers
+        self.assertGreater(len(obj), wsgi.MINIMUM_CHUNK_SIZE)
+
+        path = '/v1/a/c/o.bottles'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Connection: keep-alive\r\n'
+                 'Host: localhost\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: application/beer-stream\r\n'
+                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # go shorten that object by a few bytes
+        shrinkage = 100   # bytes
+        shortened = 0
+        for dirpath, _, filenames in os.walk(_testdir):
+            for filename in filenames:
+                if filename.endswith(".data"):
+                    with open(os.path.join(dirpath, filename), "r+") as fh:
+                        fh.truncate(len(obj) - shrinkage)
+                        shortened += 1
+        self.assertGreater(shortened, 0)  # ensure test is working
+
+        real_fstat = os.fstat
+
+        # stop the object server from immediately quarantining the object
+        # and returning 404
+        def lying_fstat(fd):
+            sr = real_fstat(fd)
+            fake_stat_result = posix.stat_result((
+                sr.st_mode, sr.st_ino, sr.st_dev, sr.st_nlink, sr.st_uid,
+                sr.st_gid,
+                sr.st_size + shrinkage,   # here's the lie
+                sr.st_atime, sr.st_mtime, sr.st_ctime))
+            return fake_stat_result
+
+        # Read the object back
+        with mock.patch('os.fstat', lying_fstat), \
+                mock.patch.object(prosrv, 'client_chunk_size', 32), \
+                mock.patch.object(prosrv, 'object_chunk_size', 32):
+            fd.write('GET %s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: keep-alive\r\n'
+                     'X-Storage-Token: t\r\n'
+                     '\r\n' % (path,))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        obj_parts = []
+        while True:
+            buf = fd.read(1024)
+            if not buf:
+                break
+            obj_parts.append(buf)
+        got_obj = ''.join(obj_parts)
+        self.assertLessEqual(len(got_obj), len(obj) - shrinkage)
+
+        # Make sure the server closed the connection
+        with self.assertRaises(socket.error):
+            # Two calls are necessary; you can apparently write to a socket
+            # that the peer has closed exactly once without error, then the
+            # kernel discovers that the connection is not open and
+            # subsequent send attempts fail.
+            sock.sendall('GET /info HTTP/1.1\r\n')
+            sock.sendall('Host: localhost\r\n'
+                         'X-Storage-Token: t\r\n'
+                         '\r\n')
+
+    @unpatch_policies
+    def test_GET_short_read_resuming(self):
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        obj = (''.join(
+            ('%d bottles of beer on the wall\n' % i)
+            for i in reversed(range(1, 200))))
+
+        # if the object is too short, then we don't have a mid-stream
+        # exception after the headers are sent, but instead an early one
+        # before the headers
+        self.assertGreater(len(obj), wsgi.MINIMUM_CHUNK_SIZE)
+
+        path = '/v1/a/c/o.bottles'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Connection: keep-alive\r\n'
+                 'Host: localhost\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: application/beer-stream\r\n'
+                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # we shorten the first replica of the object by 200 bytes and leave
+        # the others untouched
+        _, obj_nodes = POLICIES.default.object_ring.get_nodes(
+            "a", "c", "o.bottles")
+
+        shortened = 0
+        for dirpath, _, filenames in os.walk(
+                os.path.join(_testdir, obj_nodes[0]['device'])):
+            for filename in filenames:
+                if filename.endswith(".data"):
+                    if shortened == 0:
+                        with open(os.path.join(dirpath, filename), "r+") as fh:
+                            fh.truncate(len(obj) - 200)
+                            shortened += 1
+        self.assertEqual(shortened, 1)  # sanity check
+
+        real_fstat = os.fstat
+
+        # stop the object server from immediately quarantining the object
+        # and returning 404
+        def lying_fstat(fd):
+            sr = real_fstat(fd)
+            fake_stat_result = posix.stat_result((
+                sr.st_mode, sr.st_ino, sr.st_dev, sr.st_nlink, sr.st_uid,
+                sr.st_gid,
+                len(obj),  # sometimes correct, sometimes not
+                sr.st_atime, sr.st_mtime, sr.st_ctime))
+            return fake_stat_result
+
+        # Read the object back
+        with mock.patch('os.fstat', lying_fstat), \
+                mock.patch.object(prosrv, 'client_chunk_size', 32), \
+                mock.patch.object(prosrv, 'object_chunk_size', 32), \
+                mock.patch.object(prosrv, 'sort_nodes',
+                                  lambda nodes, **kw: nodes):
+            fd.write('GET %s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     '\r\n' % (path,))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        obj_parts = []
+        while True:
+            buf = fd.read(1024)
+            if not buf:
+                break
+            obj_parts.append(buf)
+        got_obj = ''.join(obj_parts)
+
+        # technically this is a redundant test, but it saves us from screens
+        # full of error message when got_obj is shorter than obj
+        self.assertEqual(len(obj), len(got_obj))
+        self.assertEqual(obj, got_obj)
+
+    @unpatch_policies
     def test_GET_ranges_resuming(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -2438,7 +2616,7 @@ class TestReplicatedObjectController(
             try:
                 for chunk in res.app_iter:
                     body += chunk
-            except ChunkReadTimeout:
+            except (ChunkReadTimeout, ChunkReadError):
                 pass
 
         self.assertEqual(res.status_int, 206)
@@ -3786,12 +3964,8 @@ class TestReplicatedObjectController(
             self.app.recoverable_node_timeout = 0.1
             set_http_connect(200, 200, 200, slow=1.0)
             resp = req.get_response(self.app)
-            got_exc = False
-            try:
+            with self.assertRaises(ChunkReadTimeout):
                 resp.body
-            except ChunkReadTimeout:
-                got_exc = True
-            self.assertTrue(got_exc)
 
     def test_node_read_timeout_retry(self):
         with save_globals():
@@ -3814,53 +3988,30 @@ class TestReplicatedObjectController(
             self.app.recoverable_node_timeout = 0.1
             set_http_connect(200, 200, 200, slow=[1.0, 1.0, 1.0])
             resp = req.get_response(self.app)
-            got_exc = False
-            try:
-                self.assertEqual('', resp.body)
-            except ChunkReadTimeout:
-                got_exc = True
-            self.assertTrue(got_exc)
+            with self.assertRaises(ChunkReadTimeout):
+                resp.body
 
             set_http_connect(200, 200, 200, body='lalala',
                              slow=[1.0, 1.0])
             resp = req.get_response(self.app)
-            got_exc = False
-            try:
-                self.assertEqual(resp.body, 'lalala')
-            except ChunkReadTimeout:
-                got_exc = True
-            self.assertFalse(got_exc)
+            self.assertEqual(resp.body, 'lalala')
 
             set_http_connect(200, 200, 200, body='lalala',
                              slow=[1.0, 1.0], etags=['a', 'a', 'a'])
             resp = req.get_response(self.app)
-            got_exc = False
-            try:
-                self.assertEqual(resp.body, 'lalala')
-            except ChunkReadTimeout:
-                got_exc = True
-            self.assertFalse(got_exc)
+            self.assertEqual(resp.body, 'lalala')
 
             set_http_connect(200, 200, 200, body='lalala',
                              slow=[1.0, 1.0], etags=['a', 'b', 'a'])
             resp = req.get_response(self.app)
-            got_exc = False
-            try:
-                self.assertEqual(resp.body, 'lalala')
-            except ChunkReadTimeout:
-                got_exc = True
-            self.assertFalse(got_exc)
+            self.assertEqual(resp.body, 'lalala')
 
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
             set_http_connect(200, 200, 200, body='lalala',
                              slow=[1.0, 1.0], etags=['a', 'b', 'b'])
             resp = req.get_response(self.app)
-            got_exc = False
-            try:
+            with self.assertRaises(ChunkReadTimeout):
                 resp.body
-            except ChunkReadTimeout:
-                got_exc = True
-            self.assertTrue(got_exc)
 
     def test_node_write_timeout(self):
         with save_globals():
