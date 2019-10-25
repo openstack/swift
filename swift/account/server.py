@@ -62,6 +62,8 @@ class AccountController(BaseStorageServer):
             conf.get('auto_create_account_prefix') or '.'
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
+        swift.common.db.QUERY_LOGGING = \
+            config_true_value(conf.get('db_query_logging', 'f'))
         self.fallocate_reserve, self.fallocate_is_percent = \
             config_fallocate_value(conf.get('fallocate_reserve', '1%'))
 

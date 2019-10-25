@@ -125,6 +125,8 @@ class ContainerController(BaseStorageServer):
                                 'be ignored in a future release.')
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
+        swift.common.db.QUERY_LOGGING = \
+            config_true_value(conf.get('db_query_logging', 'f'))
         self.sync_store = ContainerSyncStore(self.root,
                                              self.logger,
                                              self.mount_check)
