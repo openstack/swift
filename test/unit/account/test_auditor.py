@@ -170,7 +170,7 @@ class TestAuditorRealBrokerMigration(
         for i in range(num_containers):
             name = 'test-container-%02d' % i
             policy = next(policies)
-            self.broker.put_container(name, next(self.ts),
+            self.broker.put_container(name, next(self.ts).internal,
                                       0, 0, 0, int(policy))
             per_policy_container_counts[int(policy)] += 1
 

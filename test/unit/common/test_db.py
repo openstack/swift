@@ -46,7 +46,7 @@ from swift.common.utils import normalize_timestamp, mkdirs, Timestamp
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
 
-from test.unit import with_tempdir
+from test.unit import with_tempdir, make_timestamp_iter
 
 
 class TestHelperFunctions(unittest.TestCase):
@@ -327,17 +327,16 @@ class TestExampleBroker(unittest.TestCase):
     policy = 0
 
     def setUp(self):
-        self.ts = (Timestamp(t).internal for t in
-                   itertools.count(int(time.time())))
+        self.ts = make_timestamp_iter()
 
     def test_delete_db(self):
         broker = self.broker_class(':memory:', account='a', container='c')
-        broker.initialize(next(self.ts))
-        broker.delete_db(next(self.ts))
+        broker.initialize(next(self.ts).internal)
+        broker.delete_db(next(self.ts).internal)
         self.assertTrue(broker.is_deleted())
 
     def test_merge_timestamps_simple_delete(self):
-        put_timestamp = next(self.ts)
+        put_timestamp = next(self.ts).internal
         broker = self.broker_class(':memory:', account='a', container='c')
         broker.initialize(put_timestamp)
         created_at = broker.get_info()['created_at']
@@ -348,7 +347,7 @@ class TestExampleBroker(unittest.TestCase):
         self.assertEqual(info['delete_timestamp'], '0')
         self.assertEqual(info['status_changed_at'], put_timestamp)
         # delete
-        delete_timestamp = next(self.ts)
+        delete_timestamp = next(self.ts).internal
         broker.merge_timestamps(created_at, put_timestamp, delete_timestamp)
         self.assertTrue(broker.is_deleted())
         info = broker.get_info()
@@ -364,7 +363,7 @@ class TestExampleBroker(unittest.TestCase):
         broker.delete_test('test', timestamp)
 
     def test_merge_timestamps_delete_with_objects(self):
-        put_timestamp = next(self.ts)
+        put_timestamp = next(self.ts).internal
         broker = self.broker_class(':memory:', account='a', container='c')
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         created_at = broker.get_info()['created_at']
@@ -375,11 +374,11 @@ class TestExampleBroker(unittest.TestCase):
         self.assertEqual(info['delete_timestamp'], '0')
         self.assertEqual(info['status_changed_at'], put_timestamp)
         # add object
-        self.put_item(broker, next(self.ts))
+        self.put_item(broker, next(self.ts).internal)
         self.assertEqual(broker.get_info()[
             '%s_count' % broker.db_contains_type], 1)
         # delete
-        delete_timestamp = next(self.ts)
+        delete_timestamp = next(self.ts).internal
         broker.merge_timestamps(created_at, put_timestamp, delete_timestamp)
         self.assertFalse(broker.is_deleted())
         info = broker.get_info()
@@ -389,18 +388,18 @@ class TestExampleBroker(unittest.TestCase):
         # status is unchanged
         self.assertEqual(info['status_changed_at'], put_timestamp)
         # count is causing status to hold on
-        self.delete_item(broker, next(self.ts))
+        self.delete_item(broker, next(self.ts).internal)
         self.assertEqual(broker.get_info()[
             '%s_count' % broker.db_contains_type], 0)
         self.assertTrue(broker.is_deleted())
 
     def test_merge_timestamps_simple_recreate(self):
-        put_timestamp = next(self.ts)
+        put_timestamp = next(self.ts).internal
         broker = self.broker_class(':memory:', account='a', container='c')
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         virgin_status_changed_at = broker.get_info()['status_changed_at']
         created_at = broker.get_info()['created_at']
-        delete_timestamp = next(self.ts)
+        delete_timestamp = next(self.ts).internal
         broker.merge_timestamps(created_at, put_timestamp, delete_timestamp)
         self.assertTrue(broker.is_deleted())
         info = broker.get_info()
@@ -411,7 +410,7 @@ class TestExampleBroker(unittest.TestCase):
         self.assertTrue(orig_status_changed_at >
                         Timestamp(virgin_status_changed_at))
         # recreate
-        recreate_timestamp = next(self.ts)
+        recreate_timestamp = next(self.ts).internal
         status_changed_at = time.time()
         with patch('swift.common.db.time.time', new=lambda: status_changed_at):
             broker.merge_timestamps(created_at, recreate_timestamp, '0')
@@ -423,12 +422,12 @@ class TestExampleBroker(unittest.TestCase):
         self.assertTrue(info['status_changed_at'], status_changed_at)
 
     def test_merge_timestamps_recreate_with_objects(self):
-        put_timestamp = next(self.ts)
+        put_timestamp = next(self.ts).internal
         broker = self.broker_class(':memory:', account='a', container='c')
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         created_at = broker.get_info()['created_at']
         # delete
-        delete_timestamp = next(self.ts)
+        delete_timestamp = next(self.ts).internal
         broker.merge_timestamps(created_at, put_timestamp, delete_timestamp)
         self.assertTrue(broker.is_deleted())
         info = broker.get_info()
@@ -439,12 +438,12 @@ class TestExampleBroker(unittest.TestCase):
         self.assertTrue(Timestamp(orig_status_changed_at) >=
                         Timestamp(put_timestamp))
         # add object
-        self.put_item(broker, next(self.ts))
+        self.put_item(broker, next(self.ts).internal)
         count_key = '%s_count' % broker.db_contains_type
         self.assertEqual(broker.get_info()[count_key], 1)
         self.assertFalse(broker.is_deleted())
         # recreate
-        recreate_timestamp = next(self.ts)
+        recreate_timestamp = next(self.ts).internal
         broker.merge_timestamps(created_at, recreate_timestamp, '0')
         self.assertFalse(broker.is_deleted())
         info = broker.get_info()
@@ -453,30 +452,31 @@ class TestExampleBroker(unittest.TestCase):
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], orig_status_changed_at)
         # count is not causing status to hold on
-        self.delete_item(broker, next(self.ts))
+        self.delete_item(broker, next(self.ts).internal)
         self.assertFalse(broker.is_deleted())
 
     def test_merge_timestamps_update_put_no_status_change(self):
-        put_timestamp = next(self.ts)
+        put_timestamp = next(self.ts).internal
         broker = self.broker_class(':memory:', account='a', container='c')
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         info = broker.get_info()
         orig_status_changed_at = info['status_changed_at']
         created_at = info['created_at']
-        new_put_timestamp = next(self.ts)
+        new_put_timestamp = next(self.ts).internal
         broker.merge_timestamps(created_at, new_put_timestamp, '0')
         info = broker.get_info()
         self.assertEqual(new_put_timestamp, info['put_timestamp'])
         self.assertEqual(orig_status_changed_at, info['status_changed_at'])
 
     def test_merge_timestamps_update_delete_no_status_change(self):
-        put_timestamp = next(self.ts)
+        put_timestamp = next(self.ts).internal
         broker = self.broker_class(':memory:', account='a', container='c')
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         created_at = broker.get_info()['created_at']
-        broker.merge_timestamps(created_at, put_timestamp, next(self.ts))
+        broker.merge_timestamps(created_at, put_timestamp,
+                                next(self.ts).internal)
         orig_status_changed_at = broker.get_info()['status_changed_at']
-        new_delete_timestamp = next(self.ts)
+        new_delete_timestamp = next(self.ts).internal
         broker.merge_timestamps(created_at, put_timestamp,
                                 new_delete_timestamp)
         info = broker.get_info()
@@ -485,13 +485,14 @@ class TestExampleBroker(unittest.TestCase):
 
     def test_get_max_row(self):
         broker = self.broker_class(':memory:', account='a', container='c')
-        broker.initialize(next(self.ts), storage_policy_index=int(self.policy))
+        broker.initialize(next(self.ts).internal,
+                          storage_policy_index=int(self.policy))
         self.assertEqual(-1, broker.get_max_row())
-        self.put_item(broker, next(self.ts))
+        self.put_item(broker, next(self.ts).internal)
         self.assertEqual(1, broker.get_max_row())
-        self.delete_item(broker, next(self.ts))
+        self.delete_item(broker, next(self.ts).internal)
         self.assertEqual(2, broker.get_max_row())
-        self.put_item(broker, next(self.ts))
+        self.put_item(broker, next(self.ts).internal)
         self.assertEqual(3, broker.get_max_row())
 
     def test_get_info(self):
@@ -540,7 +541,7 @@ class TestExampleBroker(unittest.TestCase):
 
     def test_put_timestamp(self):
         broker = self.broker_class(':memory:', account='a', container='c')
-        orig_put_timestamp = next(self.ts)
+        orig_put_timestamp = next(self.ts).internal
         broker.initialize(orig_put_timestamp,
                           storage_policy_index=int(self.policy))
         self.assertEqual(broker.get_info()['put_timestamp'],
@@ -550,7 +551,7 @@ class TestExampleBroker(unittest.TestCase):
         self.assertEqual(broker.get_info()['put_timestamp'],
                          orig_put_timestamp)
         # put_timestamp newer - gets newer
-        newer_put_timestamp = next(self.ts)
+        newer_put_timestamp = next(self.ts).internal
         broker.update_put_timestamp(newer_put_timestamp)
         self.assertEqual(broker.get_info()['put_timestamp'],
                          newer_put_timestamp)
@@ -561,7 +562,7 @@ class TestExampleBroker(unittest.TestCase):
 
     def test_status_changed_at(self):
         broker = self.broker_class(':memory:', account='test', container='c')
-        put_timestamp = next(self.ts)
+        put_timestamp = next(self.ts).internal
         created_at = time.time()
         with patch('swift.common.db.time.time', new=lambda: created_at):
             broker.initialize(put_timestamp,
@@ -570,13 +571,13 @@ class TestExampleBroker(unittest.TestCase):
                          put_timestamp)
         self.assertEqual(broker.get_info()['created_at'],
                          Timestamp(created_at).internal)
-        status_changed_at = next(self.ts)
+        status_changed_at = next(self.ts).internal
         broker.update_status_changed_at(status_changed_at)
         self.assertEqual(broker.get_info()['status_changed_at'],
                          status_changed_at)
         # save the old and get a new status_changed_at
         old_status_changed_at, status_changed_at = \
-            status_changed_at, next(self.ts)
+            status_changed_at, next(self.ts).internal
         broker.update_status_changed_at(status_changed_at)
         self.assertEqual(broker.get_info()['status_changed_at'],
                          status_changed_at)
@@ -603,9 +604,9 @@ class TestExampleBroker(unittest.TestCase):
     def test_commit_pending(self, tempdir):
         broker = self.broker_class(os.path.join(tempdir, 'test.db'),
                                    account='a', container='c')
-        broker.initialize(next(self.ts),
+        broker.initialize(next(self.ts).internal,
                           storage_policy_index=int(self.policy))
-        self.put_item(broker, next(self.ts))
+        self.put_item(broker, next(self.ts).internal)
         qry = 'select * from %s_stat' % broker.db_type
         with broker.get() as conn:
             rows = [dict(x) for x in conn.execute(qry)]
@@ -619,7 +620,7 @@ class TestExampleBroker(unittest.TestCase):
     def test_maybe_get(self, tempdir):
         broker = self.broker_class(os.path.join(tempdir, 'test.db'),
                                    account='a', container='c')
-        broker.initialize(next(self.ts),
+        broker.initialize(next(self.ts).internal,
                           storage_policy_index=int(self.policy))
         qry = 'select account from %s_stat' % broker.db_type
         with broker.maybe_get(None) as conn:
