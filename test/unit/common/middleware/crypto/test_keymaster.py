@@ -385,6 +385,78 @@ class TestKeymaster(unittest.TestCase):
         self.assertEqual(expected_keys, keys)
         self.assertEqual([('/a/c', None), ('/a/c//o', None)], calls)
 
+    def test_v1_keys_with_weird_paths(self):
+        secrets = {None: os.urandom(32),
+                   '22': os.urandom(33)}
+        conf = {}
+        for secret_id, secret in secrets.items():
+            opt = ('encryption_root_secret%s' %
+                   (('_%s' % secret_id) if secret_id else ''))
+            conf[opt] = base64.b64encode(secret)
+        conf['active_root_secret_id'] = '22'
+        self.app = keymaster.KeyMaster(self.swift, conf)
+        orig_create_key = self.app.create_key
+        calls = []
+
+        def mock_create_key(path, secret_id=None):
+            calls.append((path, secret_id))
+            return orig_create_key(path, secret_id)
+
+        # request path doesn't match stored path -- this could happen if you
+        # misconfigured your proxy to have copy right of encryption
+        context = keymaster.KeyMasterContext(self.app, 'a', 'not-c', 'not-o')
+        for version in ('1', '2'):
+            with mock.patch.object(self.app, 'create_key', mock_create_key):
+                keys = context.fetch_crypto_keys(key_id={
+                    'v': version, 'path': '/a/c/o'})
+            expected_keys = {
+                'container': hmac.new(secrets[None], b'/a/c',
+                                      digestmod=hashlib.sha256).digest(),
+                'object': hmac.new(secrets[None], b'/a/c/o',
+                                   digestmod=hashlib.sha256).digest(),
+                'id': {'path': '/a/c/o', 'v': version},
+                'all_ids': [
+                    {'path': '/a/c/o', 'v': version},
+                    {'path': '/a/c/o', 'secret_id': '22', 'v': version}]}
+            self.assertEqual(expected_keys, keys)
+            self.assertEqual([('/a/c', None), ('/a/c/o', None)], calls)
+            del calls[:]
+
+        context = keymaster.KeyMasterContext(
+            self.app, 'not-a', 'not-c', '/not-o')
+        with mock.patch.object(self.app, 'create_key', mock_create_key):
+            keys = context.fetch_crypto_keys(key_id={
+                'v': '1', 'path': '/o'})
+        expected_keys = {
+            'container': hmac.new(secrets[None], b'/not-a/not-c',
+                                  digestmod=hashlib.sha256).digest(),
+            'object': hmac.new(secrets[None], b'/o',
+                               digestmod=hashlib.sha256).digest(),
+            'id': {'path': '/o', 'v': '1'},
+            'all_ids': [
+                {'path': '/o', 'v': '1'},
+                {'path': '/o', 'secret_id': '22', 'v': '1'}]}
+        self.assertEqual(expected_keys, keys)
+        self.assertEqual([('/not-a/not-c', None), ('/o', None)], calls)
+        del calls[:]
+
+        context = keymaster.KeyMasterContext(
+            self.app, 'not-a', 'not-c', '/not-o')
+        with mock.patch.object(self.app, 'create_key', mock_create_key):
+            keys = context.fetch_crypto_keys(key_id={
+                'v': '2', 'path': '/a/c//o'})
+        expected_keys = {
+            'container': hmac.new(secrets[None], b'/a/c',
+                                  digestmod=hashlib.sha256).digest(),
+            'object': hmac.new(secrets[None], b'/a/c//o',
+                               digestmod=hashlib.sha256).digest(),
+            'id': {'path': '/a/c//o', 'v': '2'},
+            'all_ids': [
+                {'path': '/a/c//o', 'v': '2'},
+                {'path': '/a/c//o', 'secret_id': '22', 'v': '2'}]}
+        self.assertEqual(expected_keys, keys)
+        self.assertEqual([('/a/c', None), ('/a/c//o', None)], calls)
+
     @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     def test_keymaster_config_path(self, mock_readconf):
         for secret in (os.urandom(32), os.urandom(33), os.urandom(50)):
