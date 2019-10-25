@@ -836,7 +836,8 @@ class TestWSGI(unittest.TestCase):
 
         with mock.patch.object(wsgi, '_initrp', _initrp), \
                 mock.patch.object(wsgi, 'get_socket'), \
-                mock.patch.object(wsgi, 'drop_privileges'), \
+                mock.patch.object(wsgi, 'drop_privileges') as _d_privs, \
+                mock.patch.object(wsgi, 'clean_up_daemon_hygiene') as _c_hyg, \
                 mock.patch.object(wsgi, 'loadapp', _loadapp), \
                 mock.patch.object(wsgi, 'capture_stdio'), \
                 mock.patch.object(wsgi, 'run_server'), \
@@ -849,6 +850,10 @@ class TestWSGI(unittest.TestCase):
                                                            socket=True,
                                                            select=True,
                                                            thread=True)
+        # run_wsgi() no longer calls drop_privileges() in the parent process,
+        # just clean_up_deemon_hygene()
+        self.assertEqual([], _d_privs.mock_calls)
+        self.assertEqual([mock.call()], _c_hyg.mock_calls)
 
     @mock.patch('swift.common.wsgi.run_server')
     @mock.patch('swift.common.wsgi.WorkersStrategy')
@@ -1353,36 +1358,11 @@ class TestServersPerPortStrategy(unittest.TestCase):
             6006, self.strategy.port_pid_state.port_for_sock(self.s1))
         self.assertEqual(
             6007, self.strategy.port_pid_state.port_for_sock(self.s2))
-        self.assertEqual([mock.call()], self.mock_setsid.mock_calls)
-        self.assertEqual([mock.call('/')], self.mock_chdir.mock_calls)
-        self.assertEqual([mock.call(0o22)], self.mock_umask.mock_calls)
-
-    def test_bind_ports_ignores_setsid_errors(self):
-        self.mock_setsid.side_effect = OSError()
-        self.strategy.do_bind_ports()
-
-        self.assertEqual(set((6006, 6007)), self.strategy.bind_ports)
-        self.assertEqual([
-            mock.call({'workers': 100,  # ignored
-                       'user': 'bob',
-                       'swift_dir': '/jim/cricket',
-                       'ring_check_interval': '76',
-                       'bind_ip': '2.3.4.5',
-                       'bind_port': 6006}),
-            mock.call({'workers': 100,  # ignored
-                       'user': 'bob',
-                       'swift_dir': '/jim/cricket',
-                       'ring_check_interval': '76',
-                       'bind_ip': '2.3.4.5',
-                       'bind_port': 6007}),
-        ], self.mock_get_socket.mock_calls)
-        self.assertEqual(
-            6006, self.strategy.port_pid_state.port_for_sock(self.s1))
-        self.assertEqual(
-            6007, self.strategy.port_pid_state.port_for_sock(self.s2))
-        self.assertEqual([mock.call()], self.mock_setsid.mock_calls)
-        self.assertEqual([mock.call('/')], self.mock_chdir.mock_calls)
-        self.assertEqual([mock.call(0o22)], self.mock_umask.mock_calls)
+        # strategy binding no longer does clean_up_deemon_hygene() actions, the
+        # user of the strategy does.
+        self.assertEqual([], self.mock_setsid.mock_calls)
+        self.assertEqual([], self.mock_chdir.mock_calls)
+        self.assertEqual([], self.mock_umask.mock_calls)
 
     def test_no_fork_sock(self):
         self.assertIsNone(self.strategy.no_fork_sock())
@@ -1519,7 +1499,7 @@ class TestServersPerPortStrategy(unittest.TestCase):
         self.strategy.post_fork_hook()
 
         self.assertEqual([
-            mock.call('bob', call_setsid=False),
+            mock.call('bob'),
         ], self.mock_drop_privileges.mock_calls)
 
     def test_shutdown_sockets(self):
@@ -1555,6 +1535,9 @@ class TestWorkersStrategy(unittest.TestCase):
         patcher = mock.patch('swift.common.wsgi.drop_privileges')
         self.mock_drop_privileges = patcher.start()
         self.addCleanup(patcher.stop)
+        patcher = mock.patch('swift.common.wsgi.clean_up_daemon_hygiene')
+        self.mock_clean_up_daemon_hygene = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_loop_timeout(self):
         # This strategy should sit in the green.os.wait() for a bit (to avoid
@@ -1569,9 +1552,10 @@ class TestWorkersStrategy(unittest.TestCase):
         self.assertEqual([
             mock.call(self.conf),
         ], self.mock_get_socket.mock_calls)
-        self.assertEqual([
-            mock.call('bob'),
-        ], self.mock_drop_privileges.mock_calls)
+        # strategy binding no longer drops privileges nor does
+        # clean_up_deemon_hygene() actions.
+        self.assertEqual([], self.mock_drop_privileges.mock_calls)
+        self.assertEqual([], self.mock_clean_up_daemon_hygene.mock_calls)
 
         self.mock_get_socket.side_effect = wsgi.ConfigFilePortError()
 
@@ -1643,9 +1627,16 @@ class TestWorkersStrategy(unittest.TestCase):
         self.assertEqual([
             mock.call.shutdown_safe(self.mock_get_socket.return_value),
         ], mock_greenio.mock_calls)
-        self.assertEqual([
-            mock.call.close(),
-        ], self.mock_get_socket.return_value.mock_calls)
+        if six.PY2:
+            self.assertEqual([
+                mock.call.__nonzero__(),
+                mock.call.close(),
+            ], self.mock_get_socket.return_value.mock_calls)
+        else:
+            self.assertEqual([
+                mock.call.__bool__(),
+                mock.call.close(),
+            ], self.mock_get_socket.return_value.mock_calls)
 
     def test_log_sock_exit(self):
         self.strategy.log_sock_exit('blahblah', 'blahblah')

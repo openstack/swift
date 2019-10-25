@@ -46,6 +46,7 @@ REST_SERVERS = [s for s in ALL_SERVERS if s not in MAIN_SERVERS]
 # aliases mapping
 ALIASES = {'all': ALL_SERVERS, 'main': MAIN_SERVERS, 'rest': REST_SERVERS}
 GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS
+SEAMLESS_SHUTDOWN_SERVERS = MAIN_SERVERS
 START_ONCE_SERVERS = REST_SERVERS
 # These are servers that match a type (account-*, container-*, object-*) but
 # don't use that type-server.conf file and instead use their own.
@@ -366,6 +367,21 @@ class Manager(object):
         return status
 
     @command
+    def reload_seamless(self, **kwargs):
+        """seamlessly re-exec, then shutdown of old listen sockets on
+           supporting servers
+        """
+        kwargs.pop('graceful', None)
+        kwargs['seamless'] = True
+        status = 0
+        for server in self.servers:
+            signaled_pids = server.stop(**kwargs)
+            if not signaled_pids:
+                print(_('No %s running') % server)
+                status += 1
+        return status
+
+    @command
     def force_reload(self, **kwargs):
         """alias for reload
         """
@@ -628,13 +644,17 @@ class Server(object):
         """Kill running pids
 
         :param graceful: if True, attempt SIGHUP on supporting servers
+        :param seamless: if True, attempt SIGUSR1 on supporting servers
 
         :returns: a dict mapping pids (ints) to pid_files (paths)
 
         """
         graceful = kwargs.get('graceful')
+        seamless = kwargs.get('seamless')
         if graceful and self.server in GRACEFUL_SHUTDOWN_SERVERS:
             sig = signal.SIGHUP
+        elif seamless and self.server in SEAMLESS_SHUTDOWN_SERVERS:
+            sig = signal.SIGUSR1
         else:
             sig = signal.SIGTERM
         return self.signal_pids(sig, **kwargs)
