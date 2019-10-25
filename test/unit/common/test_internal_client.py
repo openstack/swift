@@ -1600,6 +1600,36 @@ class TestSimpleClient(unittest.TestCase):
             self.assertEqual(mock_sleep.call_count, 1)
             self.assertEqual(mock_urlopen.call_count, 2)
 
+    @mock.patch.object(urllib2, 'urlopen')
+    def test_delete_object_with_404_no_retry(self, mock_urlopen):
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = b''
+        err_args = [None, 404, None, None, None]
+        mock_urlopen.side_effect = urllib2.HTTPError(*err_args)
+
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep, \
+                self.assertRaises(exceptions.ClientException) as caught:
+            internal_client.delete_object('http://127.0.0.1',
+                                          container='con', name='obj')
+        self.assertEqual(caught.exception.http_status, 404)
+        self.assertEqual(mock_sleep.call_count, 0)
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+    @mock.patch.object(urllib2, 'urlopen')
+    def test_delete_object_with_409_no_retry(self, mock_urlopen):
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = b''
+        err_args = [None, 409, None, None, None]
+        mock_urlopen.side_effect = urllib2.HTTPError(*err_args)
+
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep, \
+                self.assertRaises(exceptions.ClientException) as caught:
+            internal_client.delete_object('http://127.0.0.1',
+                                          container='con', name='obj')
+        self.assertEqual(caught.exception.http_status, 409)
+        self.assertEqual(mock_sleep.call_count, 0)
+        self.assertEqual(mock_urlopen.call_count, 1)
+
     def test_proxy(self):
         # check that proxy arg is passed through to the urllib Request
         scheme = 'http'
