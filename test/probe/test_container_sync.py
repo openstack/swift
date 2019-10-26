@@ -383,6 +383,30 @@ class TestContainerSync(BaseTestContainerSync):
                                                dest_container, object_name)
         self.assertEqual(body, b'new-test-body')
 
+    def test_sync_delete_when_object_never_synced(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        # create a tombstone row
+        object_name = 'object-%s' % uuid.uuid4()
+        client.put_object(self.url, self.token, source_container,
+                          object_name, 'source-body')
+        client.delete_object(self.url, self.token, source_container,
+                             object_name)
+
+        # upload some other name, too
+        object_name = 'object-%s' % uuid.uuid4()
+        client.put_object(self.url, self.token, source_container, object_name,
+                          'other-source-body')
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # verify that the deletes (which 404ed) didn't block
+        # that last row from syncing
+        resp_headers, body = client.get_object(self.url, self.token,
+                                               dest_container, object_name)
+        self.assertEqual(body, b'other-source-body')
+
 
 class TestContainerSyncAndSymlink(BaseTestContainerSync):
 
