@@ -140,30 +140,6 @@
       tox_envlist: func-ec-py3
 
 - job:
-    name: swift-tox-func-domain-remap-staticweb-py37
-    parent: swift-tox-func-py37
-    description: |
-      Run functional tests for swift under cPython version 3.7.
-
-      Uses tox with the ``func-domain-remap-staticweb-py3`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: func-domain-remap-staticweb-py3
-
-- job:
-    name: swift-tox-func-s3api-py37
-    parent: swift-tox-func-py37
-    description: |
-      Run functional tests for swift under cPython version 3.7.
-
-      Uses tox with the ``func-s3api`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: func-s3api-py3
-
-- job:
     name: swift-tox-func-py27-centos-7
     parent: swift-tox-func-py27
     nodeset: centos-7
@@ -201,30 +177,6 @@
     name: swift-tox-func-ec-py27-centos-7
     parent: swift-tox-func-ec-py27
     nodeset: centos-7
-
-- job:
-    name: swift-tox-func-domain-remap-staticweb-py27
-    parent: swift-tox-base
-    description: |
-      Run functional tests for swift under cPython version 2.7.
-
-      Uses tox with the ``func-domain-remap-staticweb`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: func-domain-remap-staticweb
-
-- job:
-    name: swift-tox-func-s3api-py27
-    parent: swift-tox-base
-    description: |
-      Run functional tests for swift under cPython version 2.7.
-
-      Uses tox with the ``func-s3api`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: func-s3api
 
 - job:
     name: swift-dsvm-functional
@@ -526,17 +478,7 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-tox-func-domain-remap-staticweb-py27:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-tox-func-ec-py27:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-tox-func-s3api-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
@@ -553,17 +495,7 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-tox-func-domain-remap-staticweb-py37:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-tox-func-ec-py37:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-tox-func-s3api-py37:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
@@ -640,14 +572,10 @@
         - swift-tox-py38
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
-        - swift-tox-func-domain-remap-staticweb-py27
         - swift-tox-func-ec-py27
-        - swift-tox-func-s3api-py27
         - swift-tox-func-py37
         - swift-tox-func-encryption
-        - swift-tox-func-domain-remap-staticweb-py37
         - swift-tox-func-ec-py37
-        - swift-tox-func-s3api-py37
         - swift-probetests-centos-7:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
