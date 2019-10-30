@@ -457,10 +457,12 @@ class TestReconstructorRebuild(ECProbeTest):
             self.assertNotIn('X-Delete-At', headers)
 
 
-class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
+if six.PY2:
+    class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
 
-    def _make_name(self, prefix):
-        return b'%s\xc3\xa8-%s' % (prefix.encode(), str(uuid.uuid4()).encode())
+        def _make_name(self, prefix):
+            return b'%s\xc3\xa8-%s' % (
+                prefix.encode(), str(uuid.uuid4()).encode())
 
 
 if __name__ == "__main__":
