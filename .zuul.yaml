@@ -372,6 +372,8 @@
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
     vars:
+      bindep_profile: test py27
+      python_version: 2.7
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
