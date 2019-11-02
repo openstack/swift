@@ -16,10 +16,11 @@ This section documents setting up a virtual machine for doing Swift
 development.  The virtual machine will emulate running a four node Swift
 cluster. To begin:
 
-* Get a linux system server image, this guide will cover:
+* Get a Linux system server image, this guide will cover:
 
   * Ubuntu 14.04, 16.04 LTS
-  * Fedora/CentOS
+  * CentOS 7
+  * Fedora
   * OpenSuse
 
 - Create guest virtual machine from the image.
@@ -38,6 +39,14 @@ is ``swift``, which may not exist on your system.  These instructions are
 intended to allow a developer to use his/her username for
 ``<your-user-name>:<your-group-name>``.
 
+.. note::
+  For OpenSuse users, a user's primary group is ``users``, so you have 2 options:
+
+  * Change ``${USER}:${USER}`` to ``${USER}:users`` in all references of this guide; or
+  * Create a group for your username and add yourself to it::
+
+     sudo groupadd ${USER} && sudo gpasswd -a ${USER} ${USER} && newgrp ${USER}
+
 -----------------------
 Installing dependencies
 -----------------------
@@ -54,10 +63,25 @@ Installing dependencies
                              python-netifaces python-pip python-dnspython \
                              python-mock
 
-* On ``yum`` based systems::
+* On ``CentOS`` (requires additional repositories)::
 
         sudo yum update
+        sudo yum install epel-release
+        sudo yum-config-manager --enable epel extras
+        sudo yum install centos-release-openstack-train
         sudo yum install curl gcc memcached rsync sqlite xfsprogs git-core \
+                         libffi-devel xinetd liberasurecode-devel \
+                         openssl-devel python-setuptools \
+                         python-coverage python-devel python-nose \
+                         pyxattr python-eventlet \
+                         python-greenlet python-paste-deploy \
+                         python-netifaces python-pip python-dns \
+                         python-mock
+
+* On ``Fedora``::
+
+        sudo dnf update
+        sudo dnf install curl gcc memcached rsync-daemon sqlite xfsprogs git-core \
                          libffi-devel xinetd liberasurecode-devel \
                          openssl-devel python-setuptools \
                          python-coverage python-devel python-nose \
@@ -81,7 +105,13 @@ Installing dependencies
    dependencies. Later in the process setuptools/distribute or pip will install
    and/or upgrade packages.
 
-Next, choose either :ref:`partition-section` or :ref:`loopback-section`.
+-------------------
+Configuring storage
+-------------------
+
+Swift requires some space on XFS filesystems to store data and run tests.
+
+Choose either :ref:`partition-section` or :ref:`loopback-section`.
 
 .. _partition-section:
 
@@ -91,53 +121,28 @@ Using a partition for storage
 If you are going to use a separate partition for Swift data, be sure to add
 another device when creating the VM, and follow these instructions:
 
-#. Set up a single partition::
+.. note::
+   The disk does not have to be ``/dev/sdb1`` (for example, it could be
+   ``/dev/vdb1``) however the mount point should still be ``/mnt/sdb1``.
 
-      sudo fdisk /dev/sdb
+#. Set up a single partition on the device (this will wipe the drive)::
+
+      sudo parted /dev/sdb mklabel msdos mkpart p xfs 0% 100%
+
+#. Create an XFS file system on the partition::
+
       sudo mkfs.xfs /dev/sdb1
 
 #. Edit ``/etc/fstab`` and add::
 
       /dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,logbufs=8 0 0
 
-#. Create the mount point and the individualized links::
+#. Create the Swift data mount point and test that mounting works::
 
       sudo mkdir /mnt/sdb1
-      sudo mount /mnt/sdb1
-      sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
-      sudo chown ${USER}:${USER} /mnt/sdb1/*
-      sudo mkdir /srv
-      for x in {1..4}; do sudo ln -s /mnt/sdb1/$x /srv/$x; done
-      sudo mkdir -p /srv/1/node/sdb1 /srv/1/node/sdb5 \
-                    /srv/2/node/sdb2 /srv/2/node/sdb6 \
-                    /srv/3/node/sdb3 /srv/3/node/sdb7 \
-                    /srv/4/node/sdb4 /srv/4/node/sdb8 \
-                    /var/run/swift
-      sudo chown -R ${USER}:${USER} /var/run/swift
-      # **Make sure to include the trailing slash after /srv/$x/**
-      for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done
-
-   .. note::
-      For OpenSuse users, a user's primary group is ``users``, so you have 2 options:
-
-      * Change ``${USER}:${USER}`` to ``${USER}:users`` in all references of this guide; or
-      * Create a group for your username and add yourself to it::
-
-         sudo groupadd ${USER} && sudo gpasswd -a ${USER} ${USER}
-
-   .. note::
-      We create the mount points and mount the storage disk under
-      /mnt/sdb1. This disk will contain one directory per simulated swift node,
-      each owned by the current swift user.
-
-   We then create symlinks to these directories under /srv.
-   If the disk sdb is unmounted, files will not be written under
-   /srv/\*, because the symbolic link destination /mnt/sdb1/* will not
-   exist. This prevents disk sync operations from writing to the root
-   partition in the event a drive is unmounted.
+      sudo mount -a
 
 #. Next, skip to :ref:`common-dev-section`.
-
 
 .. _loopback-section:
 
@@ -149,7 +154,7 @@ these instructions:
 
 #. Create the file for the loopback device::
 
-      sudo mkdir /srv
+      sudo mkdir -p /srv
       sudo truncate -s 1GB /srv/swift-disk
       sudo mkfs.xfs /srv/swift-disk
 
@@ -160,75 +165,115 @@ these instructions:
 
       /srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,logbufs=8 0 0
 
-#. Create the mount point and the individualized links::
+#. Create the Swift data mount point and test that mounting works::
 
       sudo mkdir /mnt/sdb1
-      sudo mount /mnt/sdb1
-      sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
-      sudo chown ${USER}:${USER} /mnt/sdb1/*
-      for x in {1..4}; do sudo ln -s /mnt/sdb1/$x /srv/$x; done
-      sudo mkdir -p /srv/1/node/sdb1 /srv/1/node/sdb5 \
-                    /srv/2/node/sdb2 /srv/2/node/sdb6 \
-                    /srv/3/node/sdb3 /srv/3/node/sdb7 \
-                    /srv/4/node/sdb4 /srv/4/node/sdb8 \
-                    /var/run/swift
-      sudo chown -R ${USER}:${USER} /var/run/swift
-      # **Make sure to include the trailing slash after /srv/$x/**
-      for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done
-
-   .. note::
-      For OpenSuse users, a user's primary group is ``users``, so you have 2 options:
-
-      * Change ``${USER}:${USER}`` to ``${USER}:users`` in all references of this guide; or
-      * Create a group for your username and add yourself to it::
-
-         sudo groupadd ${USER} && sudo gpasswd -a ${USER} ${USER}
-
-   .. note::
-      We create the mount points and mount the loopback file under
-      /mnt/sdb1. This file will contain one directory per simulated swift node,
-      each owned by the current swift user.
-
-   We then create symlinks to these directories under /srv.
-   If the loopback file is unmounted, files will not be written under
-   /srv/\*, because the symbolic link destination /mnt/sdb1/* will not
-   exist. This prevents disk sync operations from writing to the root
-   partition in the event a drive is unmounted.
+      sudo mount -a
 
 .. _common-dev-section:
 
 Common Post-Device Setup
 ========================
 
-Add the following lines to ``/etc/rc.local`` (before the ``exit 0``)::
+#. Create the individualized data links::
+
+      sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
+      sudo chown ${USER}:${USER} /mnt/sdb1/*
+      for x in {1..4}; do sudo ln -s /mnt/sdb1/$x /srv/$x; done
+      sudo mkdir -p /srv/1/node/sdb1 /srv/1/node/sdb5 \
+                    /srv/2/node/sdb2 /srv/2/node/sdb6 \
+                    /srv/3/node/sdb3 /srv/3/node/sdb7 \
+                    /srv/4/node/sdb4 /srv/4/node/sdb8
+      sudo mkdir -p /var/run/swift
+      sudo mkdir -p /var/cache/swift /var/cache/swift2 \
+                    /var/cache/swift3 /var/cache/swift4
+      sudo chown -R ${USER}:${USER} /var/run/swift
+      sudo chown -R ${USER}:${USER} /var/cache/swift*
+      # **Make sure to include the trailing slash after /srv/$x/**
+      for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done
+
+   .. note::
+      We create the mount points and mount the loopback file under
+      /mnt/sdb1. This file will contain one directory per simulated Swift node,
+      each owned by the current Swift user.
+
+      We then create symlinks to these directories under /srv.
+      If the disk sdb or loopback file is unmounted, files will not be written under
+      /srv/\*, because the symbolic link destination /mnt/sdb1/* will not
+      exist. This prevents disk sync operations from writing to the root
+      partition in the event a drive is unmounted.
+
+#. Restore appropriate permissions on reboot.
+
+   * On traditional Linux systems, add the following lines to ``/etc/rc.local`` (before the ``exit 0``)::
 
         mkdir -p /var/cache/swift /var/cache/swift2 /var/cache/swift3 /var/cache/swift4
         chown <your-user-name>:<your-group-name> /var/cache/swift*
         mkdir -p /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
 
-Note that on some systems you might have to create ``/etc/rc.local``.
+   * On CentOS and Fedora we can use systemd (rc.local is deprecated)::
 
-On Fedora 19 or later, you need to place these in ``/etc/rc.d/rc.local``.
+        cat << EOF |sudo tee /etc/tmpfiles.d/swift.conf
+        d /var/cache/swift 0755 ${USER} ${USER} - -
+        d /var/cache/swift2 0755 ${USER} ${USER} - -
+        d /var/cache/swift3 0755 ${USER} ${USER} - -
+        d /var/cache/swift4 0755 ${USER} ${USER} - -
+        d /var/run/swift 0755 ${USER} ${USER} - -
+        EOF
 
-On OpenSuse you need to place these in ``/etc/init.d/boot.local``.
+   * On OpenSuse place the lines in ``/etc/init.d/boot.local``.
+
+   .. note::
+      On some systems the rc file might need to be an executable shell script.
 
 Creating an XFS tmp dir
 -----------------------
 
-Tests require having an XFS directory available in ``/tmp`` or in the
-``TMPDIR`` environment variable. To set up ``/tmp`` with an XFS filesystem,
-do the following::
+Tests require having a directory available on an XFS filesystem. By default the
+tests use ``/tmp``, however this can be pointed elsewhere with the ``TMPDIR``
+environment variable.
 
-        cd ~
-        truncate -s 1GB xfs_file  # create 1GB fil for XFS in your home directory
-        mkfs.xfs xfs_file
-        sudo mount -o loop,noatime,nodiratime xfs_file /tmp
-        sudo chmod -R 1777 /tmp
+.. note::
+   If your root filesystem is XFS, you can skip this section if ``/tmp`` is
+   just a directory and not a mounted tmpfs. Or you could simply point to any
+   existing directory owned by your user by specifying it with the ``TMPDIR``
+   environment variable.
 
-To persist this, edit and add the following to ``/etc/fstab``::
+   If your root filesystem is not XFS, you should create a loopback device,
+   format it with XFS and mount it. You can mount it over ``/tmp`` or to
+   another location and specify it with the ``TMPDIR`` environment variable.
 
-        /home/<your-user-name>/xfs_file /tmp xfs rw,noatime,nodiratime,attr2,inode64,noquota 0 0
+* Create the file for the tmp loopback device::
+
+      sudo mkdir -p /srv
+      sudo truncate -s 1GB /srv/swift-tmp  # create 1GB file for XFS in /srv
+      sudo mkfs.xfs /srv/swift-tmp
+
+* To mount the tmp loopback device at ``/tmp``, do the following::
+
+      sudo mount -o loop,noatime,nodiratime /srv/swift-tmp /tmp
+      sudo chmod -R 1777 /tmp
+
+  * To persist this, edit and add the following to ``/etc/fstab``::
+
+        /srv/swift-tmp /tmp xfs rw,noatime,nodiratime,attr2,inode64,noquota 0 0
+
+* To mount the tmp loopback at an alternate location (for example, ``/mnt/tmp``),
+  do the following::
+
+      sudo mkdir -p /mnt/tmp
+      sudo mount -o loop,noatime,nodiratime /srv/swift-tmp /mnt/tmp
+      sudo chown ${USER}:${USER} /mnt/tmp
+
+  * To persist this, edit and add the following to ``/etc/fstab``::
+
+        /srv/swift-tmp /mnt/tmp xfs rw,noatime,nodiratime,attr2,inode64,noquota 0 0
+
+  * Set your ``TMPDIR`` environment dir so that Swift looks in the right location::
+
+        export TMPDIR=/mnt/tmp
+        echo "export TMPDIR=/mnt/tmp" >> $HOME/.bashrc
 
 ----------------
 Getting the code
@@ -247,11 +292,11 @@ Getting the code
 
       cd $HOME/python-swiftclient; sudo pip install -r requirements.txt; sudo python setup.py develop; cd -
 
-#. Check out the swift repo::
+#. Check out the Swift repo::
 
       git clone https://github.com/openstack/swift.git
 
-#. Build a development installation of swift::
+#. Build a development installation of Swift::
 
       cd $HOME/swift; sudo pip install --no-binary cryptography -r requirements.txt; sudo python setup.py develop; cd -
 
@@ -260,12 +305,12 @@ Getting the code
       wheel/binary won't work; thus we use ``--no-binary cryptography`` to build ``cryptography``
       locally.
 
-   Fedora 19 or later users might have to perform the following if development
-   installation of swift fails::
+   Fedora users might have to perform the following if development
+   installation of Swift fails::
 
       sudo pip install -U xattr
 
-#. Install swift's test dependencies::
+#. Install Swift's test dependencies::
 
       cd $HOME/swift; sudo pip install -r test-requirements.txt
 
@@ -284,21 +329,26 @@ Setting up rsync
    .. literalinclude:: /../saio/rsyncd.conf
       :language: ini
 
-#. On Ubuntu, edit the following line in ``/etc/default/rsync``::
+#. Enable rsync daemon
+
+   * On Ubuntu, edit the following line in ``/etc/default/rsync``::
 
       RSYNC_ENABLE=true
 
-   On Fedora, edit the following line in ``/etc/xinetd.d/rsync``::
+   .. note::
+      You might have to create the file to perform the edits.
 
-      disable = no
+   * On CentOS and Fedora, enable the systemd service::
 
-   One might have to create the above files to perform the edits.
+      sudo systemctl enable rsyncd
 
-   On OpenSuse, nothing needs to happen here.
+   * On OpenSuse, nothing needs to happen here.
+
 
 #. On platforms with SELinux in ``Enforcing`` mode, either set to ``Permissive``::
 
       sudo setenforce Permissive
+      sudo sed -i 's/^SELINUX=.*/SELINUX=permissive/g' /etc/selinux/config
 
    Or just allow rsync full access::
 
@@ -315,16 +365,9 @@ Setting up rsync
       sudo systemctl enable rsync
       sudo systemctl start rsync
 
-   * On Fedora, run::
+   * On CentOS, Fedora and OpenSuse, run::
 
-      sudo systemctl restart xinetd.service
-      sudo systemctl enable rsyncd.service
-      sudo systemctl start rsyncd.service
-
-   * On OpenSuse, run::
-
-      sudo systemctl enable rsyncd.service
-      sudo systemctl start rsyncd.service
+      sudo systemctl start rsyncd
 
    * On other xinetd based systems simply run::
 
@@ -360,8 +403,8 @@ On non-Ubuntu distros you need to ensure memcached is running::
 
 or::
 
-        sudo systemctl enable memcached.service
-        sudo systemctl start memcached.service
+        sudo systemctl enable memcached
+        sudo systemctl start memcached
 
 The tempauth middleware stores tokens in memcached. If memcached is not
 running, tokens cannot be validated, and accessing Swift becomes impossible.
@@ -370,16 +413,23 @@ running, tokens cannot be validated, and accessing Swift becomes impossible.
 Optional: Setting up rsyslog for individual logging
 ---------------------------------------------------
 
-#. Install the swift rsyslogd configuration::
+Fedora and OpenSuse may not have rsyslog installed, in which case you will need
+to install it if you want to use individual logging.
 
-      sudo cp $HOME/swift/doc/saio/rsyslog.d/10-swift.conf /etc/rsyslog.d/
+#. Install rsyslogd
 
-   Note: OpenSuse may have the systemd logger installed, so if you want this
-   to work, you need to install rsyslog::
+
+   * On Fedora::
+
+      sudo dnf install rsyslog
+
+   * On OpenSuse::
 
       sudo zypper install rsyslog
-      sudo systemctl start rsyslog.service
-      sudo systemctl enable rsyslog.service
+
+#. Install the Swift rsyslogd configuration::
+
+      sudo cp $HOME/swift/doc/saio/rsyslog.d/10-swift.conf /etc/rsyslog.d/
 
    Be sure to review that conf file to determine if you want all the logs
    in one file vs. all the logs separated out, and if you want hourly logs
@@ -410,11 +460,12 @@ Optional: Setting up rsyslog for individual logging
       sudo chmod -R g+w /var/log/swift
       sudo service rsyslog restart
 
-   * On Fedora and OpenSuse::
+   * On CentOS, Fedora and OpenSuse::
 
       sudo chown -R root:adm /var/log/swift
       sudo chmod -R g+w /var/log/swift
-      sudo systemctl restart rsyslog.service
+      sudo systemctl restart rsyslog
+      sudo systemctl enable rsyslog
 
 ---------------------
 Configuring each node
@@ -544,11 +595,6 @@ Setting up scripts for running Swift
    .. literalinclude:: /../saio/bin/resetswift
       :language: bash
 
-   If you are using a loopback device add an environment var to
-   substitute ``/dev/sdb1`` with ``/srv/swift-disk``::
-
-      echo "export SAIO_BLOCK_DEVICE=/srv/swift-disk" >> $HOME/.bashrc
-
    If you did not set up rsyslog for individual logging, remove the ``find
    /var/log/swift...`` line::
 
@@ -564,6 +610,10 @@ Setting up scripts for running Swift
    .. literalinclude:: /../../test/sample.conf
       :language: ini
 
+-----------------------------------------
+Configure environment variables for Swift
+-----------------------------------------
+
 #. Add an environment variable for running tests below::
 
       echo "export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf" >> $HOME/.bashrc
@@ -572,9 +622,29 @@ Setting up scripts for running Swift
 
       echo "export PATH=${PATH}:$HOME/bin" >> $HOME/.bashrc
 
+#. If you are using a loopback device for Swift Storage, add an environment var
+   to substitute ``/dev/sdb1`` with ``/srv/swift-disk``::
+
+      echo "export SAIO_BLOCK_DEVICE=/srv/swift-disk" >> $HOME/.bashrc
+
+#. If you are using a device other than ``/dev/sdb1`` for Swift storage (for
+   example, ``/dev/vdb1``), add an environment var to substitute it::
+
+      echo "export SAIO_BLOCK_DEVICE=/dev/vdb1" >> $HOME/.bashrc
+
+#. If you are using a location other than ``/tmp`` for Swift tmp data (for
+   example, ``/mnt/tmp``), add ``TMPDIR`` environment var to set it::
+
+      export TMPDIR=/mnt/tmp
+      echo "export TMPDIR=/mnt/tmp" >> $HOME/.bashrc
+
 #. Source the above environment variables into your current environment::
 
       . $HOME/.bashrc
+
+--------------------------
+Constructing initial rings
+--------------------------
 
 #. Construct the initial rings using the provided script::
 
@@ -627,11 +697,15 @@ Setting up scripts for running Swift
 
 #. Read more about Storage Policies and your SAIO :doc:`policies_saio`
 
+-------------
+Testing Swift
+-------------
+
 #. Verify the unit tests run::
 
       $HOME/swift/.unittests
 
-   Note that the unit tests do not require any swift daemons running.
+   Note that the unit tests do not require any Swift daemons running.
 
 #. Start the "main" Swift daemon processes (proxy, account, container, and
    object)::
