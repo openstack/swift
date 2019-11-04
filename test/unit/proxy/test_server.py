@@ -67,7 +67,7 @@ from swift.common.middleware import proxy_logging, versioned_writes, \
     copy, listing_formats
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
-    APIVersionError, ChunkWriteTimeout, ChunkReadError
+    APIVersionError, ChunkReadError
 from swift.common import utils, constraints
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
@@ -7302,7 +7302,7 @@ class BaseTestECObjectController(BaseTestObjectController):
         exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        class WrappedTimeout(ChunkWriteTimeout):
+        class WrappedTimeout(utils.WatchdogTimeout):
             def __enter__(self):
                 timeouts[self] = traceback.extract_stack()
                 return super(WrappedTimeout, self).__enter__()
@@ -7312,7 +7312,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                 return super(WrappedTimeout, self).__exit__(typ, value, tb)
 
         timeouts = {}
-        with mock.patch('swift.proxy.controllers.base.ChunkWriteTimeout',
+        with mock.patch('swift.proxy.controllers.base.WatchdogTimeout',
                         WrappedTimeout):
             with mock.patch.object(_test_servers[0], 'client_timeout', new=5):
                 # get object
