@@ -88,7 +88,7 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-func
+    name: swift-tox-func-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -100,12 +100,12 @@
       tox_envlist: func
 
 - job:
-    name: swift-tox-func-centos-7
-    parent: swift-tox-func
+    name: swift-tox-func-py27-centos-7
+    parent: swift-tox-func-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-encryption
+    name: swift-tox-func-encryption-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -117,12 +117,12 @@
       tox_envlist: func-encryption
 
 - job:
-    name: swift-tox-func-encryption-centos-7
-    parent: swift-tox-func-encryption
+    name: swift-tox-func-encryption-py27-centos-7
+    parent: swift-tox-func-encryption-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-ec
+    name: swift-tox-func-ec-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -135,12 +135,12 @@
       tox_envlist: func-ec
 
 - job:
-    name: swift-tox-func-ec-centos-7
-    parent: swift-tox-func-ec
+    name: swift-tox-func-ec-py27-centos-7
+    parent: swift-tox-func-ec-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-domain-remap-staticweb
+    name: swift-tox-func-domain-remap-staticweb-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -152,7 +152,7 @@
       tox_envlist: func-domain-remap-staticweb
 
 - job:
-    name: swift-tox-func-s3api
+    name: swift-tox-func-s3api-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -309,6 +309,8 @@
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
     vars:
+      bindep_profile: test py27
+      python_version: 2.7
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
@@ -338,27 +340,29 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
             voting: false
-        - swift-tox-func:
+
+        # Functional tests
+        - swift-tox-func-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-encryption:
+        - swift-tox-func-encryption-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-domain-remap-staticweb:
+        - swift-tox-func-domain-remap-staticweb-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-ec:
+        - swift-tox-func-ec-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-s3api:
+        - swift-tox-func-s3api-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
@@ -410,11 +414,11 @@
         # in-tree definitions) dsvm jobs.
         - swift-tox-py27
         - swift-tox-py35
-        - swift-tox-func
-        - swift-tox-func-encryption
-        - swift-tox-func-domain-remap-staticweb
-        - swift-tox-func-ec
-        - swift-tox-func-s3api
+        - swift-tox-func-py27
+        - swift-tox-func-encryption-py27
+        - swift-tox-func-domain-remap-staticweb-py27
+        - swift-tox-func-ec-py27
+        - swift-tox-func-s3api-py27
         - swift-probetests-centos-7:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
@@ -444,9 +448,9 @@
     experimental:
       jobs:
         - swift-tox-py27-centos-7
-        - swift-tox-func-centos-7
-        - swift-tox-func-encryption-centos-7
-        - swift-tox-func-ec-centos-7
+        - swift-tox-func-py27-centos-7
+        - swift-tox-func-encryption-py27-centos-7
+        - swift-tox-func-ec-py27-centos-7
         - swift-multinode-rolling-upgrade-queens
         - swift-multinode-rolling-upgrade-rocky
 
