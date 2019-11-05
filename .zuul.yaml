@@ -70,7 +70,7 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-func
+    name: swift-tox-func-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -145,12 +145,12 @@
       tox_envlist: func-s3api-py3
 
 - job:
-    name: swift-tox-func-centos-7
-    parent: swift-tox-func
+    name: swift-tox-func-py27-centos-7
+    parent: swift-tox-func-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-encryption
+    name: swift-tox-func-encryption-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -162,12 +162,12 @@
       tox_envlist: func-encryption
 
 - job:
-    name: swift-tox-func-encryption-centos-7
-    parent: swift-tox-func-encryption
+    name: swift-tox-func-encryption-py27-centos-7
+    parent: swift-tox-func-encryption-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-ec
+    name: swift-tox-func-ec-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -179,12 +179,12 @@
       tox_envlist: func-ec
 
 - job:
-    name: swift-tox-func-ec-centos-7
-    parent: swift-tox-func-ec
+    name: swift-tox-func-ec-py27-centos-7
+    parent: swift-tox-func-ec-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-domain-remap-staticweb
+    name: swift-tox-func-domain-remap-staticweb-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -196,7 +196,7 @@
       tox_envlist: func-domain-remap-staticweb
 
 - job:
-    name: swift-tox-func-s3api
+    name: swift-tox-func-s3api-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -494,27 +494,27 @@
               - ^test/(functional|probe)/.*$
 
         # Functional tests
-        - swift-tox-func:
+        - swift-tox-func-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-encryption:
+        - swift-tox-func-encryption-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-domain-remap-staticweb:
+        - swift-tox-func-domain-remap-staticweb-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-ec:
+        - swift-tox-func-ec-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-s3api:
+        - swift-tox-func-s3api-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
@@ -618,11 +618,11 @@
         - swift-tox-py27
         - swift-tox-py36
         - swift-tox-py37
-        - swift-tox-func
-        - swift-tox-func-encryption
-        - swift-tox-func-domain-remap-staticweb
-        - swift-tox-func-ec
-        - swift-tox-func-s3api
+        - swift-tox-func-py27
+        - swift-tox-func-encryption-py27
+        - swift-tox-func-domain-remap-staticweb-py27
+        - swift-tox-func-ec-py27
+        - swift-tox-func-s3api-py27
         - swift-tox-func-py37
         - swift-tox-func-encryption
         - swift-tox-func-domain-remap-staticweb-py37
@@ -677,9 +677,9 @@
     experimental:
       jobs:
         - swift-tox-py27-centos-7
-        - swift-tox-func-centos-7
-        - swift-tox-func-encryption-centos-7
-        - swift-tox-func-ec-centos-7
+        - swift-tox-func-py27-centos-7
+        - swift-tox-func-encryption-py27-centos-7
+        - swift-tox-func-ec-py27-centos-7
         - swift-multinode-rolling-upgrade-queens
         - swift-multinode-rolling-upgrade-rocky
         - swift-multinode-rolling-upgrade-stein
