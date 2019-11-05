@@ -234,7 +234,7 @@ class TestRing(TestRingBase):
         with mock.patch.object(utils, 'HASH_PATH_SUFFIX', b''), \
                 mock.patch.object(utils, 'HASH_PATH_PREFIX', b''), \
                 mock.patch.object(utils, 'SWIFT_CONF_FILE', ''):
-            self.assertRaises(SystemExit, ring.Ring, self.testdir, 'whatever')
+            self.assertRaises(IOError, ring.Ring, self.testdir, 'whatever')
 
     def test_replica_count(self):
         self.assertEqual(self.ring.replica_count, 3)
