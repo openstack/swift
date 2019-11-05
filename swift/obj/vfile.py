@@ -29,7 +29,8 @@ from eventlet.green import os
 from swift.obj.header import ObjectHeader, VolumeHeader, ALIGNMENT, \
     read_volume_header, HeaderException, STATE_OBJ_QUARANTINED, \
     STATE_OBJ_FILE, write_object_header, \
-    read_object_header, OBJECT_HEADER_VERSION, write_volume_header
+    read_object_header, OBJECT_HEADER_VERSION, write_volume_header, \
+    erase_object_header, MAX_OBJECT_HEADER_LEN
 from swift.common.exceptions import DiskFileNoSpace, \
     DiskFileBadMetadataChecksum
 from swift.common.storage_policy import POLICIES
@@ -370,14 +371,17 @@ class VFileWriter(object):
         fdatasync(self.fd)
 
         # register object
-        # TODO: if that fails, we want to remove the data that was written
-        # in the volume: an exception is raised, the caller does not expect
-        # the file to have been written. However, if we crash before
-        # the volume is written to again, the file that was written will
-        # be recovered and an entry created for it in the KV.
         full_name = "{}{}".format(self.header.ohash, filename)
-        rpc.register_object(self.socket_path, full_name, self.volume_index,
-                            self.offset, object_end)
+        try:
+            rpc.register_object(self.socket_path, full_name, self.volume_index,
+                                self.offset, object_end)
+        except RpcError:
+            # If we failed to register the object, erase the header so that it
+            # will not be picked up by the volume checker if there is a crash
+            # or power failure before it gets overwritten by another object.
+            erase_object_header(self.fd, self.offset)
+            raise
+
         increment(self.logger, 'vfile.vfile_creation')
         increment(self.logger, 'vfile.total_space_used',
                   self.header.total_size)
@@ -908,7 +912,7 @@ def set_header_state(socket_path, name, quarantine):
             # if we find a hole instead of the header, remove entry from
             # kv and return.
             fp.seek(obj.offset)
-            data = fp.read(512)
+            data = fp.read(MAX_OBJECT_HEADER_LEN)
             if all(c == '\x00' for c in data):
                 # unregister the object here
                 rpc.unregister_object(socket_path, name)
@@ -1076,7 +1080,7 @@ def delete_vfile_from_path(filepath):
             # if we find a hole instead of the header, remove entry from
             # kv and return.
             fp.seek(obj.offset)
-            data = fp.read(512)
+            data = fp.read(MAX_OBJECT_HEADER_LEN)
             if all(c == '\x00' for c in data):
                 # unregister the object here
                 _unregister_object(si.socket_path, full_name,

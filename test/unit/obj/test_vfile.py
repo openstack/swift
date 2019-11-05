@@ -23,7 +23,8 @@ from random import randint
 import six
 
 from swift.common.storage_policy import StoragePolicy
-from swift.obj.header import ObjectHeader, STATE_OBJ_FILE
+from swift.obj.header import ObjectHeader, STATE_OBJ_FILE, \
+    MAX_OBJECT_HEADER_LEN
 from swift.obj.meta_pb2 import Metadata
 from swift.obj.vfile import VFileWriter
 from swift.obj.vfile_utils import VOSError, next_aligned_offset
@@ -400,7 +401,7 @@ class TestVFileWriter(unittest.TestCase):
 
             # check header
             vol_file.seek(t["offset"])
-            serialized_header = vol_file.read(512)
+            serialized_header = vol_file.read(MAX_OBJECT_HEADER_LEN)
             header = ObjectHeader.unpack(serialized_header)
             self.assertEqual(header.version, vfile.OBJECT_HEADER_VERSION)
             self.assertEqual(header.ohash, "d41d8cd98f00b204e9800998ecf8427e")
@@ -463,6 +464,40 @@ class TestVFileWriter(unittest.TestCase):
     def test_commit_no_name(self):
         vfile_writer, _ = self._get_vfile_writer()
         self.assertRaises(vfile.VIOError, vfile_writer.commit, "", {})
+
+    @mock.patch("swift.obj.rpc_http.register_object")
+    def test_commit_register_fail(self, m_register_object):
+        """
+        Check that the header object is erased if commit() fails to register
+        the object on the index server.
+        """
+        m_register_object.side_effect = RpcError("failed to register object",
+                                                 StatusCode.Unavailable)
+        offset = 4096
+        metadata_reserve = 500
+        vfile_writer, vol_file = self._get_vfile_writer(
+            offset=offset, metadata_reserve=metadata_reserve)
+        content = b"dummy data"
+        os.write(vfile_writer.fd, content)
+
+        filename = "dummy-filename"
+        metadata = {"dummy": "metadata"}
+
+        self.assertRaises(RpcError, vfile_writer.commit, filename, metadata)
+
+        # check the header was erased
+        vol_file.seek(offset)
+        serialized_header = vol_file.read(MAX_OBJECT_HEADER_LEN)
+        self.assertEqual(serialized_header, b"\x00" * MAX_OBJECT_HEADER_LEN)
+
+        # check we did not write past the header by checking the file data
+        data_offset = (offset +
+                       len(ObjectHeader(
+                           version=header.OBJECT_HEADER_VERSION)) +
+                       metadata_reserve)
+        vol_file.seek(data_offset)
+        data = vol_file.read(len(content))
+        self.assertEqual(data, content)
 
     @mock.patch("swift.obj.vfile.open", new_callable=mock.mock_open)
     @mock.patch("swift.obj.vfile.fcntl.flock")
