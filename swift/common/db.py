@@ -356,7 +356,14 @@ class DatabaseBroker(object):
         self.update_metadata(cleared_meta)
         # then mark the db as deleted
         with self.get() as conn:
-            self._delete_db(conn, timestamp)
+            conn.execute(
+                """
+                UPDATE %s_stat
+                SET delete_timestamp = ?,
+                    status = 'DELETED',
+                    status_changed_at = ?
+                WHERE delete_timestamp < ? """ % self.db_type,
+                (timestamp, timestamp, timestamp))
             conn.commit()
 
     @property
