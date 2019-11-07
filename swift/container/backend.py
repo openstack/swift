@@ -626,20 +626,6 @@ class ContainerBroker(DatabaseBroker):
             SET reported_put_timestamp = 0, reported_delete_timestamp = 0,
                 reported_object_count = 0, reported_bytes_used = 0''')
 
-    def _delete_db(self, conn, timestamp):
-        """
-        Mark the DB as deleted
-
-        :param conn: DB connection object
-        :param timestamp: timestamp to mark as deleted
-        """
-        conn.execute("""
-            UPDATE container_stat
-            SET delete_timestamp = ?,
-                status = 'DELETED',
-                status_changed_at = ?
-            WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
-
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
         (name, timestamp, size, content_type, etag, deleted) = entry[:6]

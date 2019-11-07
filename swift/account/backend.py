@@ -189,20 +189,6 @@ class AccountBroker(DatabaseBroker):
                 self._db_version = 1
         return self._db_version
 
-    def _delete_db(self, conn, timestamp, force=False):
-        """
-        Mark the DB as deleted.
-
-        :param conn: DB connection object
-        :param timestamp: timestamp to mark as deleted
-        """
-        conn.execute("""
-            UPDATE account_stat
-            SET delete_timestamp = ?,
-                status = 'DELETED',
-                status_changed_at = ?
-            WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
-
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
         # check to see if the update includes policy_index or not
