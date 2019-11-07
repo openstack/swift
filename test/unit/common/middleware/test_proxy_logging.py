@@ -13,20 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import mock
 import unittest
+from io import BytesIO
 from logging.handlers import SysLogHandler
 
-import mock
 import six
-from six import BytesIO
 from six.moves.urllib.parse import unquote
 
-from test.unit import FakeLogger
 from swift.common.utils import get_logger, split_path
 from swift.common.middleware import proxy_logging
 from swift.common.swob import Request, Response
 from swift.common import constraints
 from swift.common.storage_policy import StoragePolicy
+from test.unit import FakeLogger
 from test.unit import patch_policies
 from test.unit.common.middleware.helpers import FakeAppThatExcepts
 

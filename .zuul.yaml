@@ -70,7 +70,7 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
-    name: swift-tox-func
+    name: swift-tox-func-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -145,12 +145,12 @@
       tox_envlist: func-s3api-py3
 
 - job:
-    name: swift-tox-func-centos-7
-    parent: swift-tox-func
+    name: swift-tox-func-py27-centos-7
+    parent: swift-tox-func-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-encryption
+    name: swift-tox-func-encryption-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -162,12 +162,12 @@
       tox_envlist: func-encryption
 
 - job:
-    name: swift-tox-func-encryption-centos-7
-    parent: swift-tox-func-encryption
+    name: swift-tox-func-encryption-py27-centos-7
+    parent: swift-tox-func-encryption-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-ec
+    name: swift-tox-func-ec-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -179,7 +179,7 @@
       tox_envlist: func-ec
 
 - job:
-    name: swift-tox-func-losf
+    name: swift-tox-func-losf-py27
     parent: unittests
     voting: false
     nodeset: ubuntu-xenial
@@ -196,12 +196,12 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-tox-func-ec-centos-7
-    parent: swift-tox-func-ec
+    name: swift-tox-func-ec-py27-centos-7
+    parent: swift-tox-func-ec-py27
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-domain-remap-staticweb
+    name: swift-tox-func-domain-remap-staticweb-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -213,7 +213,7 @@
       tox_envlist: func-domain-remap-staticweb
 
 - job:
-    name: swift-tox-func-s3api
+    name: swift-tox-func-s3api-py27
     parent: swift-tox-base
     description: |
       Run functional tests for swift under cPython version 2.7.
@@ -393,6 +393,8 @@
     name: swift-tox-lower-constraints
     parent: openstack-tox-lower-constraints
     vars:
+      bindep_profile: test py27
+      python_version: 2.7
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
 
@@ -445,6 +447,41 @@
       pass-to-parent: true
     vars: *swift_image_vars
 
+- job:
+    name: swift-build-image-py3
+    parent: opendev-build-docker-image
+    voting: false
+    description: Build py3 SAIO docker images.
+    vars: &swift_image_vars_py3
+      docker_images:
+        - context: .
+          dockerfile: Dockerfile-py3
+          repository: openstackswift/saio
+          tags:
+           - py3
+
+- job:
+    name: swift-upload-image-py3
+    parent: opendev-upload-docker-image
+    voting: false
+    description: Build py3 SAIO docker images and upload to Docker Hub.
+    secrets:
+      name: docker_credentials
+      secret: swift-dockerhub
+      pass-to-parent: true
+    vars: *swift_image_vars_py3
+
+- job:
+    name: swift-promote-image-py3
+    parent: opendev-promote-docker-image
+    voting: false
+    description: Promote previously uploaded Docker images.
+    secrets:
+      name: docker_credentials
+      secret: swift-dockerhub
+      pass-to-parent: true
+    vars: *swift_image_vars_py3
+
 - project:
     templates:
       - publish-openstack-docs-pti
@@ -455,6 +492,10 @@
     check:
       jobs:
         - swift-build-image:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+        - swift-build-image-py3:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
@@ -474,32 +515,32 @@
               - ^test/(functional|probe)/.*$
 
         # Functional tests
-        - swift-tox-func:
+        - swift-tox-func-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-encryption:
+        - swift-tox-func-encryption-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-domain-remap-staticweb:
+        - swift-tox-func-domain-remap-staticweb-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-ec:
+        - swift-tox-func-ec-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-s3api:
+        - swift-tox-func-s3api-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-losf:
+        - swift-tox-func-losf-py27:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
@@ -599,14 +640,16 @@
         # long-running jobs, like probetests or (once they move to
         # in-tree definitions) dsvm jobs.
         - swift-upload-image
+        - swift-upload-image-py3
         - swift-tox-py27
         - swift-tox-py36
         - swift-tox-py37
-        - swift-tox-func
-        - swift-tox-func-encryption
-        - swift-tox-func-domain-remap-staticweb
-        - swift-tox-func-ec
-        - swift-tox-func-s3api
+        - swift-tox-func-py27
+        - swift-tox-func-encryption-py27
+        - swift-tox-func-domain-remap-staticweb-py27
+        - swift-tox-func-ec-py27
+        - swift-tox-func-s3api-py27
+        - swift-tox-func-losf-py27
         - swift-tox-func-py37
         - swift-tox-func-encryption
         - swift-tox-func-domain-remap-staticweb-py37
@@ -661,9 +704,9 @@
     experimental:
       jobs:
         - swift-tox-py27-centos-7
-        - swift-tox-func-centos-7
-        - swift-tox-func-encryption-centos-7
-        - swift-tox-func-ec-centos-7
+        - swift-tox-func-py27-centos-7
+        - swift-tox-func-encryption-py27-centos-7
+        - swift-tox-func-ec-py27-centos-7
         - swift-multinode-rolling-upgrade-queens
         - swift-multinode-rolling-upgrade-rocky
         - swift-multinode-rolling-upgrade-stein
@@ -674,3 +717,4 @@
     promote:
       jobs:
         - swift-promote-image
+        - swift-promote-image-py3

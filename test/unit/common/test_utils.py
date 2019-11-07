@@ -46,7 +46,7 @@ import math
 import inspect
 
 import six
-from six import BytesIO, StringIO
+from six import StringIO
 from six.moves.queue import Queue, Empty
 from six.moves import http_client
 from six.moves import range
@@ -59,6 +59,7 @@ import fcntl
 import shutil
 
 from getpass import getuser
+from io import BytesIO
 from shutil import rmtree
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
@@ -2085,11 +2086,21 @@ class TestUtils(unittest.TestCase):
             ['swift-hash-xxx'],
             ['swift_hash_path_suffix', 'swift_hash_path_prefix'], True)
 
+        # Unreadable/missing swift.conf causes IOError
+        # We mock in case the unit tests are run on a laptop with SAIO,
+        # which does have a natural /etc/swift/swift.conf.
+        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''), \
+                mock.patch('swift.common.utils.HASH_PATH_SUFFIX', b''), \
+                mock.patch('swift.common.utils.SWIFT_CONF_FILE',
+                           '/nosuchfile'), \
+                self.assertRaises(IOError):
+            utils.validate_hash_conf()
+
     def _test_validate_hash_conf(self, sections, options, should_raise_error):
 
         class FakeConfigParser(object):
-            def read(self, conf_path, encoding=None):
-                return [conf_path]
+            def readfp(self, fp):
+                pass
 
             def get(self, section, option):
                 if section not in sections:
@@ -2101,6 +2112,8 @@ class TestUtils(unittest.TestCase):
 
         with mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''), \
                 mock.patch('swift.common.utils.HASH_PATH_SUFFIX', b''), \
+                mock.patch('swift.common.utils.SWIFT_CONF_FILE',
+                           '/dev/null'), \
                 mock.patch('swift.common.utils.ConfigParser',
                            FakeConfigParser):
             try:

@@ -618,7 +618,14 @@ class InternalClient(object):
         """
 
         path = self.make_path(account, container, obj)
-        self.make_request('DELETE', path, (headers or {}), acceptable_statuses)
+        resp = self.make_request('DELETE', path, (headers or {}),
+                                 acceptable_statuses)
+
+        # Drain the response body to prevent unexpected disconnect
+        # in proxy-server
+        with closing_if_possible(resp.app_iter):
+            for iter_body in resp.app_iter:
+                pass
 
     def get_object_metadata(
             self, account, container, obj, metadata_prefix='',

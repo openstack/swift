@@ -6,16 +6,17 @@
 # Mario Cho <hephaex@gmail.com>, 2014
 # Ying Chun Guo <daisy.ycguo@gmail.com>, 2015
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
+# SeongSoo Cho <ppiyakk2@printf.kr>, 2019. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2019-10-04 06:59+0000\n"
+"POT-Creation-Date: 2019-10-17 19:11+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-04-12 06:43+0000\n"
-"Last-Translator: Copied by Zanata <copied-by-zanata@zanata.org>\n"
+"PO-Revision-Date: 2019-10-14 12:04+0000\n"
+"Last-Translator: SeongSoo Cho <ppiyakk2@printf.kr>\n"
 "Language: ko_KR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -57,12 +58,32 @@ msgstr ""
 "(%(rate).2f/초, %(remaining)s 남음) 안에 복제됨"
 
 #, python-format
+msgid "%(server)s #%(number)d not running (%(conf)s)"
+msgstr "%(server)s #%(number)d가 실행 중이 아님 (%(conf)s)"
+
+#, python-format
+msgid "%(server)s (%(pid)s) appears to have stopped"
+msgstr "%(server)s (%(pid)s) 이(가) 중지됨"
+
+#, python-format
+msgid "%(server)s running (%(pid)s - %(conf)s)"
+msgstr "%(server)s 실행 중 (%(pid)s - %(conf)s)"
+
+#, python-format
+msgid "%(server)s running (%(pid)s - %(pid_file)s)"
+msgstr "%(server)s 실행 중 (%(pid)s - %(pid_file)s)"
+
+#, python-format
 msgid "%(success)s successes, %(failure)s failures"
 msgstr "%(success)s개 성공, %(failure)s개 실패"
 
 #, python-format
 msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s에서 %(statuses)s에 대해 503을 리턴함"
+
+#, python-format
+msgid "%(type)s: %(value)s"
+msgstr "%(type)s: %(value)s"
 
 #, python-format
 msgid "%s already started..."
@@ -100,6 +121,14 @@ msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 "%(time).5f초(%(rate).5f/s)에 %(count)d개의 데이터베이스를 복제하려고 함"
+
+#, python-format
+msgid "Audit Failed for %(path)s: %(err)s"
+msgstr "%(path)s 검사 실패: %(err)s"
+
+#, python-format
+msgid "Audit passed for %s"
+msgstr "%s 검사 완료"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -176,6 +205,9 @@ msgstr ""
 msgid "Connection refused"
 msgstr "연결이 거부됨"
 
+msgid "Connection reset"
+msgstr "Connection reset"
+
 msgid "Connection timeout"
 msgstr "연결 제한시간 초과"
 
@@ -213,6 +245,10 @@ msgid ""
 msgstr ""
 "%(path)s의 컨테이너 업데이트 스윕 완료: %(elapsed).02fs, %(success)s개 성공, "
 "%(fail)s개 실패, %(no_change)s개 변경 없음"
+
+#, python-format
+msgid "Could not load %(conf)r: %(error)s"
+msgstr "%(conf)r를 로드할 수 없음: %(error)s"
 
 #, python-format
 msgid "Data download error: %s"
@@ -298,6 +334,13 @@ msgstr "%(db_file)s %(row)s 동기화 오류"
 #, python-format
 msgid "ERROR Syncing %s"
 msgstr "%s 동기화 오류"
+
+#, python-format
+msgid ""
+"ERROR There are not enough handoff nodes to reach replica count for "
+"partition %s"
+msgstr ""
+"오류 - 파티션 %s 의 복제 수 만큼 충분한 handoff 노드가 존재하지 않습니다"
 
 #, python-format
 msgid "ERROR Trying to audit %s"
@@ -393,6 +436,10 @@ msgstr "오류: 감사를 실행할 수 없음: %s"
 msgid "Error hashing suffix"
 msgstr "접미부를 해싱하는 중 오류 발생"
 
+#, python-format
+msgid "Error in %(conf)r with mtime_check_interval: %(error)s"
+msgstr "%(conf)r에서 mtime_check_interval 오류 발생: %(error)s"
+
 msgid "Error listing devices"
 msgstr "디바이스 나열 중 오류 발생"
 
@@ -414,6 +461,10 @@ msgstr "swift.conf를 읽는 중 오류 발생"
 
 msgid "Error retrieving recon data"
 msgstr "조정 데이터를 검색하는 중에 오류 발생"
+
+#, python-format
+msgid "Error sending UDP message to %(target)r: %(err)s"
+msgstr "%(target)r에 UDP 메시지 전송 중 에러 발생: %(err)s"
 
 msgid "Error syncing handoff partition"
 msgstr "핸드오프 파티션 동기화 중 오류 발생"
@@ -494,6 +545,9 @@ msgstr ""
 "X-Container-Sync-To 올바르지 않은 스키마 %r이(가) 있습니다. \"//\", \"http\" "
 "또는 \"https\"여야 합니다."
 
+msgid "Invalid swift_bytes"
+msgstr "swift_bytes 가 유효하지 않습니다."
+
 #, python-format
 msgid "Killing long-running rsync: %s"
 msgstr "장기 실행 중인 rsync 강제 종료: %s"
@@ -505,9 +559,19 @@ msgstr "잠금 발견.. 활성 coros를 강제 종료합니다."
 msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr "%(given_domain)s을(를) %(found_domain)s(으)로 맵핑함"
 
+msgid "More than one part in a single-part response?"
+msgstr "단일 파트에서 하나 이상의 응답이 존재 합니까?"
+
+msgid "Network unreachable"
+msgstr "Network unreachable"
+
 #, python-format
 msgid "No %s running"
 msgstr "%s이(가) 실행되지 않음"
+
+#, python-format
+msgid "No cluster endpoint for %(realm)r %(cluster)r"
+msgstr "%(realm)r %(cluster)r 에 대한 클러스터 엔드포인트가 없음"
 
 #, python-format
 msgid "No permission to signal PID %d"
@@ -630,6 +694,10 @@ msgid "Profiling Error: %s"
 msgstr "프로파일링 오류: %s"
 
 #, python-format
+msgid "Quarantined %(db_dir)s to %(quar_path)s due to %(reason)s"
+msgstr "%(db_dir)s을 %(quar_path)s로 격리합니다. 이유: %(reason)s"
+
+#, python-format
 msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
 msgstr "디렉토리가 아니어서 %(hsh_path)s을(를) %(quar_path)s에 격리함"
 
@@ -703,6 +771,10 @@ msgid "Running object replicator in script mode."
 msgstr "오브젝트 복제자를 스크립트 모드로 실행 중입니다."
 
 #, python-format
+msgid "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
+msgstr "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
+
+#, python-format
 msgid ""
 "Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
 "skipped, %(fail)s failed"
@@ -721,6 +793,10 @@ msgid ""
 "Since %(time)s: Container audits: %(pass)s passed audit, %(fail)s failed "
 "audit"
 msgstr "%(time)s 이후: 컨테이너 감사: %(pass)s 감사 전달, %(fail)s 감사 실패"
+
+#, python-format
+msgid "Skipping %(datadir)s because %(err)s"
+msgstr "%(datadir)s 을 건너 뜀: %(err)s"
 
 #, python-format
 msgid "Skipping %s as it is not mounted"
@@ -783,6 +859,10 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "미발견 예외"
 
 #, python-format
+msgid "Unable to find %(section)s config section in %(conf)s"
+msgstr "%(conf)s 에서 %(section)s 설정 섹션을 찾을 수 없음"
+
+#, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr "libc에서 %s을(를) 찾을 수 없습니다. no-op로 남겨 둡니다."
 
@@ -790,10 +870,18 @@ msgstr "libc에서 %s을(를) 찾을 수 없습니다. no-op로 남겨 둡니다
 msgid "Unable to locate config for %s"
 msgstr "%s의 구성을 찾을 수 없음"
 
+#, python-format
+msgid "Unable to locate config number %(number)s for %(server)s"
+msgstr "%(server)s 의 구성 번호 %(number)s를 찾을 수 없음"
+
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "libc에서 fallocate, posix_fallocate를 찾을 수 없습니다. no-op로 남겨 둡니다."
+
+#, python-format
+msgid "Unable to perform fsync() on directory %(dir)s: %(err)s"
+msgstr "디렉토리에서 fsync() 를 수행할 수 없음 %(dir)s: %(err)s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -839,6 +927,21 @@ msgstr ""
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "경고: 메모리 한계를 수정할 수 없습니다. 비루트로 실행 중인지 확인하십시오."
+
+msgid ""
+"WARNING: object-expirer.conf is deprecated. Move object-expirers' "
+"configuration into object-server.conf."
+msgstr ""
+"주의 - object-expirer.conf는 deprecate 되었습니다. object-expirer 설정을 "
+"object-server.conf 로 옮겨주시기 바랍니다."
+
+#, python-format
+msgid "Waited %(kill_wait)s seconds for %(server)s to die; giving up"
+msgstr "%(kill_wait)s초 동안 %(server)s의 종료를 대기함, 포기하는 중"
+
+#, python-format
+msgid "Waited %(kill_wait)s seconds for %(server)s to die; killing"
+msgstr "%(kill_wait)s초 동안 %(server)s을(를) 대기합니다, 강제 종료 중"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "경고: memcached 클라이언트 없이 전송률을 제한할 수 없음"

@@ -17,11 +17,12 @@ import json
 import mock
 import unittest
 import zlib
-from textwrap import dedent
 import os
 
+from io import BytesIO
+from textwrap import dedent
+
 import six
-from six import BytesIO
 from six.moves import range, zip_longest
 from six.moves.urllib.parse import quote, parse_qsl
 from test.unit import FakeLogger
@@ -1162,28 +1163,17 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(1, client.set_metadata_called)
 
     def test_delete_object(self):
-        class InternalClient(internal_client.InternalClient):
-            def __init__(self, test, path):
-                self.test = test
-                self.path = path
-                self.make_request_called = 0
-
-            def make_request(
-                    self, method, path, headers, acceptable_statuses,
-                    body_file=None):
-                self.make_request_called += 1
-                self.test.assertEqual('DELETE', method)
-                self.test.assertEqual(self.path, path)
-                self.test.assertEqual({}, headers)
-                self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertIsNone(body_file)
-
         account, container, obj = path_parts()
-        path = make_path(account, container, obj)
-
-        client = InternalClient(self, path)
+        path = make_path_info(account, container, obj)
+        client, app = get_client_app()
+        app.register('DELETE', path, swob.HTTPNoContent, {})
         client.delete_object(account, container, obj)
-        self.assertEqual(1, client.make_request_called)
+        self.assertEqual(app.unclosed_requests, {})
+        self.assertEqual(1, len(app._calls))
+        app.register('DELETE', path, swob.HTTPNotFound, {})
+        client.delete_object(account, container, obj)
+        self.assertEqual(app.unclosed_requests, {})
+        self.assertEqual(2, len(app._calls))
 
     def test_get_object_metadata(self):
         account, container, obj = path_parts()

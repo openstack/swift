@@ -177,7 +177,8 @@ class Auditor(object):
                               (path, node['ip'], node['device']))
                         break
                     if node['id'] not in responses:
-                        responses[node['id']] = dict(resp.getheaders())
+                        responses[node['id']] = {
+                            h.lower(): v for h, v in resp.getheaders()}
                     results = json.loads(resp.read())
                 except Exception:
                     self.container_exceptions += 1
@@ -251,18 +252,19 @@ class Auditor(object):
                         self.account_not_found += 1
                         consistent = False
                         print("  Bad status GETting account '%s' "
-                              " from %ss:%ss" %
+                              " from %s:%s" %
                               (account, node['ip'], node['device']))
                         break
                     results = json.loads(resp.read())
                 except Exception:
                     self.account_exceptions += 1
                     consistent = False
-                    print("  Exception GETting account '%s' on %ss:%ss" %
+                    print("  Exception GETting account '%s' on %s:%s" %
                           (account, node['ip'], node['device']))
                     break
                 if node_id not in responses:
-                    responses[node_id] = [dict(resp.getheaders()), []]
+                    responses[node_id] = [
+                        {h.lower(): v for h, v in resp.getheaders()}, []]
                 responses[node_id][1].extend(results)
                 if results:
                     marker = results[-1]['name']

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
 import json
 import unittest
 import os
@@ -22,7 +23,6 @@ import time
 import pickle
 
 import mock
-import six
 from six.moves import urllib
 
 from swift.common import direct_client
@@ -72,7 +72,7 @@ class FakeConn(object):
         return self.resp_headers.items()
 
     def read(self, amt=None):
-        if isinstance(self.body, six.BytesIO):
+        if isinstance(self.body, io.BytesIO):
             return self.body.read(amt)
         elif amt is None:
             return self.body
@@ -628,7 +628,7 @@ class TestDirectClient(unittest.TestCase):
             important_timestamp)
 
     def test_direct_get_object(self):
-        contents = six.BytesIO(b'123456')
+        contents = io.BytesIO(b'123456')
 
         with mocked_http_conn(200, body=contents) as conn:
             resp_header, obj_body = direct_client.direct_get_object(
@@ -654,7 +654,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('GET' in str(raised.exception))
 
     def test_direct_get_object_chunks(self):
-        contents = six.BytesIO(b'123456')
+        contents = io.BytesIO(b'123456')
 
         with mocked_http_conn(200, body=contents) as conn:
             resp_header, obj_body = direct_client.direct_get_object(
@@ -774,7 +774,7 @@ class TestDirectClient(unittest.TestCase):
         self._test_direct_get_suffix_hashes_fail(507)
 
     def test_direct_put_object_with_content_length(self):
-        contents = six.BytesIO(b'123456')
+        contents = io.BytesIO(b'123456')
 
         with mocked_http_conn(200) as conn:
             resp = direct_client.direct_put_object(
@@ -787,7 +787,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(md5(b'123456').hexdigest(), resp)
 
     def test_direct_put_object_fail(self):
-        contents = six.BytesIO(b'123456')
+        contents = io.BytesIO(b'123456')
 
         with mocked_http_conn(500) as conn:
             with self.assertRaises(ClientException) as raised:
@@ -801,7 +801,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(raised.exception.http_status, 500)
 
     def test_direct_put_object_chunked(self):
-        contents = six.BytesIO(b'123456')
+        contents = io.BytesIO(b'123456')
 
         with mocked_http_conn(200) as conn:
             resp = direct_client.direct_put_object(
@@ -829,7 +829,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(md5(b'0\r\n\r\n').hexdigest(), resp)
 
     def test_direct_put_object_header_content_length(self):
-        contents = six.BytesIO(b'123456')
+        contents = io.BytesIO(b'123456')
         stub_headers = HeaderKeyDict({
             'Content-Length': '6'})
 

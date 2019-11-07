@@ -1,17 +1,9 @@
 #!/bin/bash
 
-TOP_DIR=$(python -c "import os; print(os.path.dirname(os.path.realpath('$0')))")
+TOP_DIR=$(dirname $(realpath "$0"))
 
-python -c 'from distutils.version import LooseVersion as Ver; import nose, sys; sys.exit(0 if Ver(nose.__version__) >= Ver("1.2.0") else 1)'
-if [ $? != 0 ]; then
-    cover_branches=""
-else
-    # Having the HTML reports is REALLY useful for achieving 100% branch
-    # coverage.
-    cover_branches="--cover-branches --cover-html --cover-html-dir=$TOP_DIR/cover"
-fi
 cd $TOP_DIR/test/unit
-nosetests --exe --with-coverage --cover-package swift --cover-erase $cover_branches $@
+nosetests --exe --with-coverage --cover-package swift --cover-erase --cover-branches --cover-html --cover-html-dir="$TOP_DIR"/cover $@
 rvalue=$?
 rm -f .coverage
 cd -

@@ -129,7 +129,10 @@ class MockBarbicanKeyManager(object):
             raise ValueError(ERR_MESSAGE_SECRET_INCORRECTLY_SPECIFIED)
         elif key_id == TEST_KMS_NONE_KEY_ID:
             return None
-        key_str = (str(key_id[0]) * 32).encode('utf8')
+        if 'unicode' in key_id:
+            key_str = key_id[0] * 32
+        else:
+            key_str = (str(key_id[0]) * 32).encode('utf8')
         return MockBarbicanKey(key_str, key_id)
 
 
@@ -806,6 +809,8 @@ class TestKmsKeymaster(unittest.TestCase):
         config.update({
             'key_id_foo': 'foo-valid_kms_key_id-123456',
             'key_id_bar': 'bar-valid_kms_key_id-123456',
+            'key_id_baz': 'zz-valid_unicode_kms_key_id-123456',
+            'key_id_non_ascii': u'\N{SNOWMAN}_unicode_key_id',
             'active_root_secret_id': 'foo'})
 
         # Set side_effect functions.
@@ -825,7 +830,9 @@ class TestKmsKeymaster(unittest.TestCase):
         expected_secrets = {
             None: b'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv',
             'foo': b'ffffffffffffffffffffffffffffffff',
-            'bar': b'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}
+            'bar': b'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            'baz': b'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+            'non_ascii': b'\xe2\x98\x83' * 32}
         self.assertDictEqual(self.app._root_secrets, expected_secrets)
         self.assertEqual(self.app.active_secret_id, 'foo')
 

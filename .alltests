@@ -2,7 +2,7 @@
 
 set -e
 
-TOP_DIR=$(python -c "import os; print os.path.dirname(os.path.realpath('$0'))")
+TOP_DIR=$(dirname $(realpath "$0"))
 
 echo "==== Unit tests ===="
 resetswift

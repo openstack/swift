@@ -299,6 +299,36 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertSystemExit(
             EXIT_ERROR, ringbuilder._parse_set_weight_values, argv)
 
+    def test_set_region_values_no_devices(self):
+        # Test no devices
+        self.assertSystemExit(
+            EXIT_ERROR, ringbuilder._set_region_values, [], 100, {})
+
+    def test_parse_set_region_values_number_of_arguments(self):
+        # Test Number of arguments abnormal
+        argv = ["r1", "100", "r2"]
+        self.assertSystemExit(
+            EXIT_ERROR, ringbuilder._parse_set_region_values, argv)
+
+        argv = ["--region", "2"]
+        self.assertSystemExit(
+            EXIT_ERROR, ringbuilder._parse_set_region_values, argv)
+
+    def test_set_zone_values_no_devices(self):
+        # Test no devices
+        self.assertSystemExit(
+            EXIT_ERROR, ringbuilder._set_zone_values, [], 100, {})
+
+    def test_parse_set_zone_values_number_of_arguments(self):
+        # Test Number of arguments abnormal
+        argv = ["r1", "100", "r2"]
+        self.assertSystemExit(
+            EXIT_ERROR, ringbuilder._parse_set_zone_values, argv)
+
+        argv = ["--region", "2"]
+        self.assertSystemExit(
+            EXIT_ERROR, ringbuilder._parse_set_zone_values, argv)
+
     def test_set_info_values_no_devices(self):
         # Test no devices
         # _set_info_values doesn't take argv-like arguments
@@ -1003,6 +1033,288 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.create_sample_ring()
         # Test No matching devices
         argv = ["", self.tmpfile, "set_weight",
+                "--ip", "unknown"]
+        self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+
+    def _check_region(self, ring, dev_id, expected_region):
+        for dev in ring.devs:
+            if dev['id'] != dev_id:
+                self.assertNotEqual(dev['region'], expected_region)
+            else:
+                self.assertEqual(dev['region'], expected_region)
+
+        # Final check, rebalance and check ring is ok
+        ring.rebalance()
+        self.assertTrue(ring.validate())
+
+    def test_set_region(self):
+        for search_value in self.search_values:
+            self.create_sample_ring()
+
+            argv = ["", self.tmpfile, "set_region",
+                    search_value, "314"]
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+            ring = RingBuilder.load(self.tmpfile)
+            self._check_region(ring, 0, 314)
+
+    def test_set_region_ipv4_old_format(self):
+        self.create_sample_ring()
+        # Test ipv4(old format)
+        argv = ["", self.tmpfile, "set_region",
+                "d0r0z0-127.0.0.1:6200R127.0.0.1:6200/sda1_some meta data",
+                "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_region(ring, 0, 314)
+
+    def test_set_region_ipv6_old_format(self):
+        self.create_sample_ring()
+        # add IPV6
+        argv = \
+            ["", self.tmpfile, "add",
+             "--region", "2", "--zone", "3",
+             "--ip", "[2001:0000:1234:0000:0000:C1C0:ABCD:0876]",
+             "--port", "6000",
+             "--replication-ip", "[2::10]",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data",
+             "--weight", "100"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        # Test ipv6(old format)
+        argv = ["", self.tmpfile, "set_region",
+                "d4r2z3-[2001:0000:1234:0000:0000:C1C0:ABCD:0876]:6000"
+                "R[2::10]:7000/sda3_some meta data", "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_region(ring, 4, 314)
+
+    def test_set_region_ipv4_new_format(self):
+        self.create_sample_ring()
+        # Test ipv4(new format)
+        argv = \
+            ["", self.tmpfile, "set_region",
+             "--id", "0", "--region", "0", "--zone", "0",
+             "--ip", "127.0.0.1",
+             "--port", "6200",
+             "--replication-ip", "127.0.0.1",
+             "--replication-port", "6200",
+             "--device", "sda1", "--meta", "some meta data", "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_region(ring, 0, 314)
+
+    def test_set_region_ipv6_new_format(self):
+        self.create_sample_ring()
+        # add IPV6
+        argv = \
+            ["", self.tmpfile, "add",
+             "--region", "2", "--zone", "3",
+             "--ip", "[2001:0000:1234:0000:0000:C1C0:ABCD:0876]",
+             "--port", "6000",
+             "--replication-ip", "[2::10]",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data",
+             "--weight", "100"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        # Test ipv6(new format)
+        argv = \
+            ["", self.tmpfile, "set_region",
+             "--id", "4", "--region", "2", "--zone", "3",
+             "--ip", "[2001:0000:1234:0000:0000:C1C0:ABCD:0876]",
+             "--port", "6000",
+             "--replication-ip", "[2::10]",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data", "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_region(ring, 4, 314)
+
+    def test_set_region_domain_new_format(self):
+        self.create_sample_ring()
+        # add domain name
+        argv = \
+            ["", self.tmpfile, "add",
+             "--region", "2", "--zone", "3",
+             "--ip", "test.test.com",
+             "--port", "6000",
+             "--replication-ip", "r.test.com",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data",
+             "--weight", "100"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        # Test domain name
+        argv = \
+            ["", self.tmpfile, "set_region",
+             "--id", "4", "--region", "2", "--zone", "3",
+             "--ip", "test.test.com",
+             "--port", "6000",
+             "--replication-ip", "r.test.com",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data", "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_region(ring, 4, 314)
+
+    def test_set_region_number_of_arguments(self):
+        self.create_sample_ring()
+        # Test Number of arguments abnormal
+        argv = ["", self.tmpfile, "set_region"]
+        self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+
+    def test_set_region_no_matching(self):
+        self.create_sample_ring()
+        # Test No matching devices
+        argv = ["", self.tmpfile, "set_region",
+                "--ip", "unknown"]
+        self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+
+    def test_set_zone(self):
+        for search_value in self.search_values:
+            self.create_sample_ring()
+
+            argv = ["", self.tmpfile, "set_zone",
+                    search_value, "314"]
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+            ring = RingBuilder.load(self.tmpfile)
+
+            self._check_zone(ring, 0, 314)
+
+    def test_set_zone_ipv4_old_format(self):
+        self.create_sample_ring()
+        # Test ipv4(old format)
+        argv = ["", self.tmpfile, "set_zone",
+                "d0r0z0-127.0.0.1:6200R127.0.0.1:6200/sda1_some meta data",
+                "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_zone(ring, 0, 314)
+
+    def _check_zone(self, ring, dev_id, expected_zone):
+        for dev in ring.devs:
+            if dev['id'] != dev_id:
+                self.assertFalse(dev['zone'] == expected_zone)
+            else:
+                self.assertEqual(dev['zone'], expected_zone)
+
+        # Final check, rebalance and check ring is ok
+        ring.rebalance()
+        self.assertTrue(ring.validate())
+
+    def test_set_zone_ipv6_old_format(self):
+        self.create_sample_ring()
+        # add IPV6
+        argv = \
+            ["", self.tmpfile, "add",
+             "--region", "2", "--zone", "3",
+             "--ip", "[2001:0000:1234:0000:0000:C1C0:ABCD:0876]",
+             "--port", "6000",
+             "--replication-ip", "[2::10]",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data",
+             "--weight", "100"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        # Test ipv6(old format)
+        argv = ["", self.tmpfile, "set_zone",
+                "d4r2z3-[2001:0000:1234:0000:0000:C1C0:ABCD:0876]:6000"
+                "R[2::10]:7000/sda3_some meta data", "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_zone(ring, 4, 314)
+
+    def test_set_zone_ipv4_new_format(self):
+        self.create_sample_ring()
+        # Test ipv4(new format)
+        argv = \
+            ["", self.tmpfile, "set_zone",
+             "--id", "0", "--region", "0", "--zone", "0",
+             "--ip", "127.0.0.1",
+             "--port", "6200",
+             "--replication-ip", "127.0.0.1",
+             "--replication-port", "6200",
+             "--device", "sda1", "--meta", "some meta data", "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_zone(ring, 0, 314)
+
+    def test_set_zone_ipv6_new_format(self):
+        self.create_sample_ring()
+        # add IPV6
+        argv = \
+            ["", self.tmpfile, "add",
+             "--region", "2", "--zone", "3",
+             "--ip", "[2001:0000:1234:0000:0000:C1C0:ABCD:0876]",
+             "--port", "6000",
+             "--replication-ip", "[2::10]",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data",
+             "--weight", "100"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        # Test ipv6(new format)
+        argv = \
+            ["", self.tmpfile, "set_zone",
+             "--id", "4", "--region", "2",
+             "--ip", "[2001:0000:1234:0000:0000:C1C0:ABCD:0876]",
+             "--port", "6000",
+             "--replication-ip", "[2::10]",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data", "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_zone(ring, 4, 314)
+
+    def test_set_zone_domain_new_format(self):
+        self.create_sample_ring()
+        # add domain name
+        argv = \
+            ["", self.tmpfile, "add",
+             "--region", "2", "--zone", "3",
+             "--ip", "test.test.com",
+             "--port", "6000",
+             "--replication-ip", "r.test.com",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data",
+             "--weight", "100"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        # Test domain name
+        argv = \
+            ["", self.tmpfile, "set_zone",
+             "--id", "4", "--region", "2", "--zone", "3",
+             "--ip", "test.test.com",
+             "--port", "6000",
+             "--replication-ip", "r.test.com",
+             "--replication-port", "7000",
+             "--device", "sda3", "--meta", "some meta data", "314"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+
+        self._check_zone(ring, 4, 314)
+
+    def test_set_zone_number_of_arguments(self):
+        self.create_sample_ring()
+        # Test Number of arguments abnormal
+        argv = ["", self.tmpfile, "set_zone"]
+        self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+
+    def test_set_zone_no_matching(self):
+        self.create_sample_ring()
+        # Test No matching devices
+        argv = ["", self.tmpfile, "set_zone",
                 "--ip", "unknown"]
         self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
 
@@ -1846,13 +2158,13 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                 "--replication-ip", "127.0.0.5",
                 "--replication-port", "6004",
                 "--device", "sda5", "--weight", "100.0"]
-        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         argv = ["", self.tmpfile, "remove", "--id", "0"]
-        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         argv = ["", self.tmpfile, "remove", "--id", "3"]
-        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         argv = ["", self.tmpfile, "rebalance"]
-        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         argv = \
             ["", self.tmpfile, "add",
              "--region", "2", "--zone", "1",
@@ -1860,14 +2172,14 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
              "--replication-ip", "127.0.0.6",
              "--replication-port", "6005",
              "--device", "sdb6", "--weight", "100.0"]
-        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
 
         # Check the order of the devices listed the output.
         argv = ["", self.tmpfile]
         with mock.patch("sys.stdout", mock_stdout), mock.patch(
                 "sys.stderr", mock_stderr), mock.patch(
                     'swift.common.ring.builder.time', return_value=now):
-            self.assertRaises(SystemExit, ringbuilder.main, argv)
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         self.assertOutputStub(mock_stdout.getvalue(), builder_id=ring.id)
 
     def test_default_ringfile_check(self):

@@ -843,7 +843,7 @@ class File(Base):
         block_size = 4096
 
         if isinstance(data, bytes):
-            data = six.BytesIO(data)
+            data = io.BytesIO(data)
 
         checksum = hashlib.md5()
         buff = data.read(block_size)
@@ -1186,7 +1186,7 @@ class File(Base):
         if not self.write(data, hdrs=hdrs, parms=parms, cfg=cfg):
             raise ResponseError(self.conn.response, 'PUT',
                                 self.conn.make_path(self.path))
-        self.md5 = self.compute_md5sum(six.BytesIO(data))
+        self.md5 = self.compute_md5sum(io.BytesIO(data))
         return data
 
     def write_random_return_resp(self, size=None, hdrs=None, parms=None,
@@ -1203,7 +1203,7 @@ class File(Base):
                           return_resp=True)
         if not resp:
             raise ResponseError(self.conn.response)
-        self.md5 = self.compute_md5sum(six.BytesIO(data))
+        self.md5 = self.compute_md5sum(io.BytesIO(data))
         return resp
 
     def post(self, hdrs=None, parms=None, cfg=None, return_resp=False):

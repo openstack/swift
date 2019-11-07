@@ -96,6 +96,11 @@ class RingReader(object):
         line, sep, self._buffer = self._buffer.partition(b'\n')
         return line + sep
 
+    def readinto(self, buffer):
+        chunk = self.read(len(buffer))
+        buffer[:len(chunk)] = chunk
+        return len(chunk)
+
     @property
     def md5(self):
         return self._md5.hexdigest()

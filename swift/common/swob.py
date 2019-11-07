@@ -44,9 +44,9 @@ import re
 import random
 import functools
 import inspect
+from io import BytesIO
 
 import six
-from six import BytesIO
 from six import StringIO
 from six.moves import urllib
 

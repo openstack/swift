@@ -17,7 +17,7 @@ import hashlib
 from mock import patch, MagicMock
 import unittest
 
-from six import BytesIO
+from io import BytesIO
 
 from swift.common import swob
 from swift.common.swob import Request, HTTPNoContent
@@ -187,7 +187,7 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual(mock_get_resp.call_count, 2)
         args, kargs = mock_get_resp.call_args_list[0]
         get_resp_obj = args[3]
-        self.assertTrue(get_resp_obj is '')
+        self.assertEqual(get_resp_obj, '')
         self.assertEqual(m_check_permission.call_count, 1)
         args, kargs = m_check_permission.call_args
         permission = args[1]
