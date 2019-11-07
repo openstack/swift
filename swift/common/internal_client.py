@@ -384,6 +384,21 @@ class InternalClient(object):
         return self._iter_items(path, marker, end_marker, prefix,
                                 acceptable_statuses)
 
+    def delete_account(self, account, acceptable_statuses=(2, HTTP_NOT_FOUND)):
+        """
+        Deletes an account.
+
+        :param account: Account to delete.
+        :param acceptable_statuses: List of status for valid responses,
+                                    defaults to (2, HTTP_NOT_FOUND).
+        :raises UnexpectedResponse: Exception raised when requests fail
+                                    to get a response with an acceptable status
+        :raises Exception: Exception is raised when code fails in an
+                           unexpected way.
+        """
+        path = self.make_path(account)
+        self.make_request('DELETE', path, {}, acceptable_statuses)
+
     def get_account_info(
             self, account, acceptable_statuses=(2, HTTP_NOT_FOUND)):
         """

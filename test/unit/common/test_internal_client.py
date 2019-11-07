@@ -940,6 +940,14 @@ class TestInternalClient(unittest.TestCase):
             ret_items.append(container)
         self.assertEqual(items, ret_items)
 
+    def test_delete_account(self):
+        account, container, obj = path_parts()
+        path = make_path_info(account)
+        client, app = get_client_app()
+        app.register('DELETE', path, swob.HTTPNoContent, {})
+        client.delete_account(account)
+        self.assertEqual(1, len(app._calls))
+
     def test_get_account_info(self):
         class Response(object):
             def __init__(self, containers, objects):
