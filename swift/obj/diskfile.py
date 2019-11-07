@@ -1100,7 +1100,14 @@ class BaseDiskFileManager(object):
                     partition_path = dirname(path)
                     objects_path = dirname(partition_path)
                     device_path = dirname(objects_path)
-                    quar_path = quarantine_renamer(device_path, hsh_path)
+                    # The made-up filename is so that the eventual dirpath()
+                    # will result in this object directory that we care about.
+                    # Some failures will result in an object directory
+                    # becoming a file, thus causing the parent directory to
+                    # be qarantined.
+                    quar_path = quarantine_renamer(device_path,
+                                                   join(hsh_path,
+                                                        "made-up-filename"))
                     logging.exception(
                         _('Quarantined %(hsh_path)s to %(quar_path)s because '
                           'it is not a directory'), {'hsh_path': hsh_path,
@@ -1403,7 +1410,14 @@ class BaseDiskFileManager(object):
             filenames = self.cleanup_ondisk_files(object_path)['files']
         except OSError as err:
             if err.errno == errno.ENOTDIR:
-                quar_path = self.quarantine_renamer(dev_path, object_path)
+                # The made-up filename is so that the eventual dirpath()
+                # will result in this object directory that we care about.
+                # Some failures will result in an object directory
+                # becoming a file, thus causing the parent directory to
+                # be qarantined.
+                quar_path = self.quarantine_renamer(dev_path,
+                                                    join(object_path,
+                                                         "made-up-filename"))
                 logging.exception(
                     _('Quarantined %(object_path)s to %(quar_path)s because '
                       'it is not a directory'), {'object_path': object_path,
