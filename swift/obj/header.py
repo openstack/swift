@@ -24,6 +24,10 @@ PICKLE_PROTOCOL = 2
 OBJECT_HEADER_VERSION = 4
 VOLUME_HEADER_VERSION = 1
 
+# maximum serialized header length
+MAX_OBJECT_HEADER_LEN = 512
+MAX_VOLUME_HEADER_LEN = 128
+
 OBJECT_START_MARKER = b"SWIFTOBJ"
 VOLUME_START_MARKER = b"SWIFTVOL"
 
@@ -350,7 +354,7 @@ class VolumeHeader(object):
 
 # Read volume header. Expects fp to be positionned at header offset
 def read_volume_header(fp):
-    buf = fp.read(128)
+    buf = fp.read(MAX_VOLUME_HEADER_LEN)
     header = VolumeHeader.unpack(buf)
     return header
 
@@ -365,7 +369,7 @@ def read_object_header(fp):
     :param fp: opened file, positioned at header start
     :return: an ObjectHeader
     """
-    buf = fp.read(512)
+    buf = fp.read(MAX_OBJECT_HEADER_LEN)
     header = ObjectHeader.unpack(buf)
     return header
 
@@ -378,3 +382,13 @@ def write_object_header(header, fp):
     """
     fp.write(header.pack())
     fdatasync(fp.fileno())
+
+
+def erase_object_header(fd, offset):
+    """
+    Erase an object header by writing null bytes over it
+    :param fd: volume file descriptor
+    :param offset: absolute header offset
+    """
+    os.lseek(fd, offset, os.SEEK_SET)
+    os.write(fd, b"\x00" * MAX_OBJECT_HEADER_LEN)
