@@ -107,6 +107,7 @@ class TestCliInfo(TestCliInfoBase):
 
         info = {
             'account': 'acct',
+            'is_deleted': False,
             'created_at': 100.1,
             'put_timestamp': 106.3,
             'delete_timestamp': 107.9,
@@ -124,6 +125,7 @@ class TestCliInfo(TestCliInfoBase):
             print_db_info_metadata('account', info, md)
         exp_out = '''Path: /acct
   Account: acct
+  Deleted: False
   Account Hash: dc5be2aa4347a22a0fee6bc7de505b47
 Metadata:
   Created at: 1970-01-01T00:01:40.100000 (100.1)
@@ -159,9 +161,10 @@ No system metadata found in db file
             x_container_foo='bar',
             x_container_bar='goo',
             db_state=UNSHARDED,
-            is_root=True)
-        info['hash'] = 'abaddeadbeefcafe'
-        info['id'] = 'abadf100d0ddba11'
+            is_root=True,
+            is_deleted=False,
+            hash='abaddeadbeefcafe',
+            id='abadf100d0ddba11')
         md = {'x-container-sysmeta-mydata': ('swift', '0000000000.00000')}
         out = StringIO()
         with mock.patch('sys.stdout', out):
@@ -169,6 +172,7 @@ No system metadata found in db file
         exp_out = '''Path: /acct/cont
   Account: acct
   Container: cont
+  Deleted: False
   Container Hash: d49d0ecbb53be1fcc49624f2f7c7ccae
 Metadata:
   Created at: 1970-01-01T00:01:40.100000 (0000000100.10000)
@@ -191,6 +195,45 @@ No user metadata found in db file
 Sharding Metadata:
   Type: root
   State: unsharded''' % POLICIES[0].name
+        self.assertEqual(sorted(out.getvalue().strip().split('\n')),
+                         sorted(exp_out.split('\n')))
+
+        info = {
+            'account': 'acct',
+            'is_deleted': True,
+            'created_at': 100.1,
+            'put_timestamp': 106.3,
+            'delete_timestamp': 107.9,
+            'status_changed_at': 108.3,
+            'container_count': '3',
+            'object_count': '20',
+            'bytes_used': '42',
+            'hash': 'abaddeadbeefcafe',
+            'id': 'abadf100d0ddba11',
+        }
+        md = {'x-account-meta-mydata': ('swift', '0000000000.00000'),
+              'x-other-something': ('boo', '0000000000.00000')}
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_db_info_metadata('account', info, md)
+        exp_out = '''Path: /acct
+  Account: acct
+  Deleted: True
+  Account Hash: dc5be2aa4347a22a0fee6bc7de505b47
+Metadata:
+  Created at: 1970-01-01T00:01:40.100000 (100.1)
+  Put Timestamp: 1970-01-01T00:01:46.300000 (106.3)
+  Delete Timestamp: 1970-01-01T00:01:47.900000 (107.9)
+  Status Timestamp: 1970-01-01T00:01:48.300000 (108.3)
+  Container Count: 3
+  Object Count: 20
+  Bytes Used: 42
+  Chexor: abaddeadbeefcafe
+  UUID: abadf100d0ddba11
+  X-Other-Something: boo
+No system metadata found in db file
+  User Metadata: {'x-account-meta-mydata': 'swift'}'''
+
         self.assertEqual(sorted(out.getvalue().strip().split('\n')),
                          sorted(exp_out.split('\n')))
 
@@ -220,15 +263,17 @@ Sharding Metadata:
             reported_bytes_used='42',
             db_state=SHARDED,
             is_root=True,
-            shard_ranges=shard_ranges)
-        info['hash'] = 'abaddeadbeefcafe'
-        info['id'] = 'abadf100d0ddba11'
+            shard_ranges=shard_ranges,
+            is_deleted=False,
+            hash='abaddeadbeefcafe',
+            id='abadf100d0ddba11')
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_db_info_metadata('container', info, {})
         exp_out = '''Path: /acct/cont
   Account: acct
   Container: cont
+  Deleted: False
   Container Hash: d49d0ecbb53be1fcc49624f2f7c7ccae
 Metadata:
   Created at: 1970-01-01T00:01:40.100000 (0000000100.10000)
@@ -298,6 +343,7 @@ Shard Ranges (3):
             shard_ranges=shard_ranges)
         info['hash'] = 'abaddeadbeefcafe'
         info['id'] = 'abadf100d0ddba11'
+        info['is_deleted'] = False
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_db_info_metadata('container', info, {})
@@ -310,6 +356,7 @@ Shard Ranges (3):
         exp_out = '''Path: /acct/cont
   Account: acct
   Container: cont
+  Deleted: False
   Container Hash: d49d0ecbb53be1fcc49624f2f7c7ccae
 Metadata:
   Created at: 1970-01-01T00:01:40.100000 (0000000100.10000)

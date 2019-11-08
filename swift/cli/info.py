@@ -227,6 +227,7 @@ def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False):
         if db_type == 'container':
             print('  Container: %s' % container)
 
+        print('  Deleted: %s' % info['is_deleted'])
         path_hash = hash_path(account, container)
         if db_type == 'container':
             print('  Container Hash: %s' % path_hash)
@@ -442,6 +443,7 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
         raise
     account = info['account']
     container = None
+    info['is_deleted'] = broker.is_deleted()
     if db_type == 'container':
         container = info['container']
         info['is_root'] = broker.is_root_container()
