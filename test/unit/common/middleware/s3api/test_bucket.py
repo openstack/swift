@@ -16,6 +16,8 @@
 import unittest
 import cgi
 
+from six.moves.urllib.parse import quote
+
 from swift.common import swob
 from swift.common.swob import Request
 from swift.common.utils import json
@@ -160,7 +162,33 @@ class TestS3ApiBucket(S3ApiTestCase):
 
         self.assertEqual(len(names), len(self.objects))
         for i in self.objects:
-            self.assertTrue(i[0] in names)
+            self.assertIn(i[0], names)
+
+    def test_bucket_GET_url_encoded(self):
+        bucket_name = 'junk'
+        req = Request.blank('/%s?encoding-type=url' % bucket_name,
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+        elem = fromstring(body, 'ListBucketResult')
+        name = elem.find('./Name').text
+        self.assertEqual(name, bucket_name)
+
+        objects = elem.iterchildren('Contents')
+
+        names = []
+        for o in objects:
+            names.append(o.find('./Key').text)
+            self.assertEqual('2011-01-05T02:19:14.275Z',
+                             o.find('./LastModified').text)
+            self.assertEqual('"0"', o.find('./ETag').text)
+
+        self.assertEqual(len(names), len(self.objects))
+        for i in self.objects:
+            self.assertIn(quote(i[0]), names)
 
     def test_bucket_GET_subdir(self):
         bucket_name = 'junk-subdir'
