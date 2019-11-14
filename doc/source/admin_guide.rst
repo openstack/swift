@@ -1362,20 +1362,29 @@ Swift services are generally managed with ``swift-init``. the general usage is
 ``swift-init <service> <command>``, where service is the Swift service to
 manage (for example object, container, account, proxy) and command is one of:
 
-==========  ===============================================
-Command     Description
-----------  -----------------------------------------------
-start       Start the service
-stop        Stop the service
-restart     Restart the service
-shutdown    Attempt to gracefully shutdown the service
-reload      Attempt to gracefully restart the service
-==========  ===============================================
+===============  ===============================================
+Command          Description
+---------------  -----------------------------------------------
+start            Start the service
+stop             Stop the service
+restart          Restart the service
+shutdown         Attempt to gracefully shutdown the service
+reload           Attempt to gracefully restart the service
+reload-seamless  Attempt to seamlessly restart the service
+===============  ===============================================
 
-A graceful shutdown or reload will finish any current requests before
-completely stopping the old service.  There is also a special case of
-``swift-init all <command>``, which will run the command for all swift
-services.
+A graceful shutdown or reload will allow all server workers to finish any
+current requests before exiting.  The parent server process exits immediately.
+
+A seamless reload will make new configuration settings active, with no window
+where client requests fail due to there being no active listen socket.
+The parent server process will re-exec itself, retaining its existing PID.
+After the re-exec'ed parent server process binds its listen sockets, the old
+listen sockets are closed and old server workers finish any current requests
+before exiting.
+
+There is also a special case of ``swift-init all <command>``, which will run
+the command for all swift services.
 
 In cases where there are multiple configs for a service, a specific config
 can be managed with ``swift-init <service>.<config> <command>``.

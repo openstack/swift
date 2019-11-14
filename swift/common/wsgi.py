@@ -18,15 +18,18 @@
 from __future__ import print_function
 
 import errno
+import fcntl
 import os
 import signal
-import time
 from swift import gettext_ as _
+import sys
 from textwrap import dedent
+import time
 
 import eventlet
 import eventlet.debug
-from eventlet import greenio, GreenPool, sleep, wsgi, listen, Timeout
+from eventlet import greenio, GreenPool, sleep, wsgi, listen, Timeout, \
+    websocket
 from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl, os as green_os
 from io import BytesIO
@@ -42,10 +45,11 @@ from swift.common.swob import Request, wsgi_quote, wsgi_unquote, \
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
-    reiterate
+    reiterate, clean_up_daemon_hygiene
 
 SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
                   if n.startswith('SIG') and '_' not in n}
+NOTIFY_FD_ENV_KEY = '__SWIFT_SERVER_NOTIFY_FD'
 
 # Set maximum line size of message headers to be accepted.
 wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
@@ -422,6 +426,13 @@ def load_app_config(conf_file):
 class SwiftHttpProtocol(wsgi.HttpProtocol):
     default_request_version = "HTTP/1.0"
 
+    def __init__(self, *args, **kwargs):
+        # See https://github.com/eventlet/eventlet/pull/590
+        self.pre_shutdown_bugfix_eventlet = not getattr(
+            websocket.WebSocketWSGI, '_WSGI_APP_ALWAYS_IDLE', None)
+        # Note this is not a new-style class, so super() won't work
+        wsgi.HttpProtocol.__init__(self, *args, **kwargs)
+
     def log_request(self, *a):
         """
         Turn off logging requests by the underlying WSGI software.
@@ -527,6 +538,23 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
                     environ['wsgi.input'].wfile_line = \
                         b'HTTP/1.1 100 Continue\r\n'
             return environ
+
+    def _read_request_line(self):
+        # Note this is not a new-style class, so super() won't work
+        got = wsgi.HttpProtocol._read_request_line(self)
+        # See https://github.com/eventlet/eventlet/pull/590
+        if self.pre_shutdown_bugfix_eventlet:
+            self.conn_state[2] = wsgi.STATE_REQUEST
+        return got
+
+    def handle_one_request(self):
+        # Note this is not a new-style class, so super() won't work
+        got = wsgi.HttpProtocol.handle_one_request(self)
+        # See https://github.com/eventlet/eventlet/pull/590
+        if self.pre_shutdown_bugfix_eventlet:
+            if self.conn_state[2] != wsgi.STATE_CLOSE:
+                self.conn_state[2] = wsgi.STATE_IDLE
+        return got
 
 
 class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
@@ -662,7 +690,36 @@ def run_server(conf, logger, sock, global_conf=None):
     pool.waitall()
 
 
-class WorkersStrategy(object):
+class StrategyBase(object):
+    """
+    Some operations common to all strategy classes.
+    """
+
+    def shutdown_sockets(self):
+        """
+        Shutdown any listen sockets.
+        """
+
+        for sock in self.iter_sockets():
+            greenio.shutdown_safe(sock)
+            sock.close()
+
+    def set_close_on_exec_on_listen_sockets(self):
+        """
+        Set the close-on-exec flag on any listen sockets.
+        """
+
+        for sock in self.iter_sockets():
+            if six.PY2:
+                fcntl.fcntl(sock.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
+            else:
+                # Python 3.4 and later default to sockets having close-on-exec
+                # set (what PEP 0446 calls "non-inheritable").  This new method
+                # on socket objects is provided to toggle it.
+                sock.set_inheritable(False)
+
+
+class WorkersStrategy(StrategyBase):
     """
     WSGI server management strategy object for a single bind port and listen
     socket shared by a configured number of forked-off workers.
@@ -695,8 +752,7 @@ class WorkersStrategy(object):
 
     def do_bind_ports(self):
         """
-        Bind the one listen socket for this strategy and drop privileges
-        (since the parent process will never need to bind again).
+        Bind the one listen socket for this strategy.
         """
 
         try:
@@ -705,7 +761,6 @@ class WorkersStrategy(object):
             msg = 'bind_port wasn\'t properly set in the config file. ' \
                 'It must be explicitly set to a valid port number.'
             return msg
-        drop_privileges(self.conf.get('user', 'swift'))
 
     def no_fork_sock(self):
         """
@@ -766,20 +821,27 @@ class WorkersStrategy(object):
         """
         Called when a worker has exited.
 
+        NOTE: a re-exec'ed server can reap the dead worker PIDs from the old
+        server process that is being replaced as part of a service reload
+        (SIGUSR1).  So we need to be robust to getting some unknown PID here.
+
         :param int pid: The PID of the worker that exited.
         """
 
-        self.logger.error('Removing dead child %s from parent %s',
-                          pid, os.getpid())
-        self.children.remove(pid)
+        if pid in self.children:
+            self.logger.error('Removing dead child %s from parent %s',
+                              pid, os.getpid())
+            self.children.remove(pid)
+        else:
+            self.logger.info('Ignoring wait() result from unknown PID %s', pid)
 
-    def shutdown_sockets(self):
+    def iter_sockets(self):
         """
-        Shutdown any listen sockets.
+        Yields all known listen sockets.
         """
 
-        greenio.shutdown_safe(self.sock)
-        self.sock.close()
+        if self.sock:
+            yield self.sock
 
 
 class PortPidState(object):
@@ -901,7 +963,7 @@ class PortPidState(object):
         self.sock_data_by_port[dead_port]['pids'][server_idx] = None
 
 
-class ServersPerPortStrategy(object):
+class ServersPerPortStrategy(StrategyBase):
     """
     WSGI server management strategy object for an object-server with one listen
     port per unique local port in the storage policy rings.  The
@@ -948,27 +1010,12 @@ class ServersPerPortStrategy(object):
 
     def do_bind_ports(self):
         """
-        Bind one listen socket per unique local storage policy ring port.  Then
-        do all the work of drop_privileges except the actual dropping of
-        privileges (each forked-off worker will do that post-fork in
-        :py:meth:`post_fork_hook`).
+        Bind one listen socket per unique local storage policy ring port.
         """
 
         self._reload_bind_ports()
         for port in self.bind_ports:
             self._bind_port(port)
-
-        # The workers strategy drops privileges here, which we obviously cannot
-        # do if we want to support binding to low ports.  But we do want some
-        # of the actions that drop_privileges did.
-        try:
-            os.setsid()
-        except OSError:
-            pass
-        # In case you need to rmdir where you started the daemon:
-        os.chdir('/')
-        # Ensure files are created with the correct privileges:
-        os.umask(0o22)
 
     def no_fork_sock(self):
         """
@@ -1030,7 +1077,7 @@ class ServersPerPortStrategy(object):
         to drop privileges.
         """
 
-        drop_privileges(self.conf.get('user', 'swift'), call_setsid=False)
+        drop_privileges(self.conf.get('user', 'swift'))
 
     def log_sock_exit(self, sock, server_idx):
         """
@@ -1050,6 +1097,7 @@ class ServersPerPortStrategy(object):
                            :py:meth:`new_worker_socks`.
         :param int pid: The new worker process' PID
         """
+
         port = self.port_pid_state.port_for_sock(sock)
         self.logger.notice('Started child %d (PID %d) for port %d',
                            server_idx, pid, port)
@@ -1064,14 +1112,13 @@ class ServersPerPortStrategy(object):
 
         self.port_pid_state.forget_pid(pid)
 
-    def shutdown_sockets(self):
+    def iter_sockets(self):
         """
-        Shutdown any listen sockets.
+        Yields all known listen sockets.
         """
 
         for sock in self.port_pid_state.all_socks():
-            greenio.shutdown_safe(sock)
-            sock.close()
+            yield sock
 
 
 def run_wsgi(conf_path, app_section, *args, **kwargs):
@@ -1127,9 +1174,21 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         print(error_msg)
         return 1
 
+    # Do some daemonization process hygene before we fork any children or run a
+    # server without forking.
+    clean_up_daemon_hygiene()
+
     # Redirect errors to logger and close stdio. Do this *after* binding ports;
     # we use this to signal that the service is ready to accept connections.
     capture_stdio(logger)
+
+    # If necessary, signal an old copy of us that it's okay to shutdown its
+    # listen sockets now because ours are up and ready to receive connections.
+    reexec_signal_fd = os.getenv(NOTIFY_FD_ENV_KEY)
+    if reexec_signal_fd:
+        reexec_signal_fd = int(reexec_signal_fd)
+        os.write(reexec_signal_fd, str(os.getpid()).encode('utf8'))
+        os.close(reexec_signal_fd)
 
     no_fork_sock = strategy.no_fork_sock()
     if no_fork_sock:
@@ -1145,6 +1204,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     running_context = [True, None]
     signal.signal(signal.SIGTERM, stop_with_signal)
     signal.signal(signal.SIGHUP, stop_with_signal)
+    signal.signal(signal.SIGUSR1, stop_with_signal)
 
     while running_context[0]:
         for sock, sock_info in strategy.new_worker_socks():
@@ -1152,6 +1212,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             if pid == 0:
                 signal.signal(signal.SIGHUP, signal.SIG_DFL)
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                signal.signal(signal.SIGUSR1, signal.SIG_DFL)
                 strategy.post_fork_hook()
                 run_server(conf, logger, sock)
                 strategy.log_sock_exit(sock, sock_info)
@@ -1196,9 +1257,58 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             logger.error('Stopping with unexpected signal %r' %
                          running_context[1])
         else:
-            logger.error('%s received', signame)
+            logger.error('%s received (%s)', signame, os.getpid())
     if running_context[1] == signal.SIGTERM:
         os.killpg(0, signal.SIGTERM)
+    elif running_context[1] == signal.SIGUSR1:
+        # set up a pipe, fork off a child to handle cleanup later,
+        # and rexec ourselves with an environment variable set which will
+        # indicate which fd (one of the pipe ends) to write a byte to
+        # to indicate listen socket setup is complete.  That will signal
+        # the forked-off child to complete its listen socket shutdown.
+        #
+        # NOTE: all strategies will now require the parent process to retain
+        # superuser privileges so that the re'execd process can bind a new
+        # socket to the configured IP & port(s).  We can't just reuse existing
+        # listen sockets because then the bind IP couldn't be changed.
+        #
+        # NOTE: we need to set all our listen sockets close-on-exec so the only
+        # open reference to those file descriptors will be in the forked-off
+        # child here who waits to shutdown the old server's listen sockets.  If
+        # the re-exec'ed server's old listen sockets aren't closed-on-exec,
+        # then the old server can't actually ever exit.
+        strategy.set_close_on_exec_on_listen_sockets()
+        read_fd, write_fd = os.pipe()
+        orig_server_pid = os.getpid()
+        child_pid = os.fork()
+        if child_pid:
+            # parent; set env var for fds and reexec ourselves
+            os.close(read_fd)
+            os.putenv(NOTIFY_FD_ENV_KEY, str(write_fd))
+            myself = os.path.realpath(sys.argv[0])
+            logger.info("Old server PID=%d re'execing as: %r",
+                        orig_server_pid, [myself] + list(sys.argv))
+            os.execv(myself, sys.argv)
+            logger.error('Somehow lived past os.execv()?!')
+            exit('Somehow lived past os.execv()?!')
+        elif child_pid == 0:
+            # child
+            os.close(write_fd)
+            logger.info('Old server temporary child PID=%d waiting for '
+                        "re-exec'ed PID=%d to signal readiness...",
+                        os.getpid(), orig_server_pid)
+            try:
+                got_pid = os.read(read_fd, 30)
+                logger.info('Old server temporary child PID=%d notified '
+                            'to shutdown old listen sockets by PID=%s',
+                            os.getpid(), got_pid)
+            except Exception as e:
+                logger.warning('Unexpected exception while reading from '
+                               'pipe:', exc_info=True)
+            try:
+                os.close(read_fd)
+            except Exception:
+                pass
 
     strategy.shutdown_sockets()
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
