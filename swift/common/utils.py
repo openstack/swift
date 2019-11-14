@@ -3147,10 +3147,25 @@ def remove_directory(path):
 
 
 def audit_location_generator(devices, datadir, suffix='',
-                             mount_check=True, logger=None):
+                             mount_check=True, logger=None,
+                             devices_filter=None, partitions_filter=None,
+                             suffixes_filter=None, hashes_filter=None,
+                             hook_pre_device=None, hook_post_device=None,
+                             hook_pre_partition=None, hook_post_partition=None,
+                             hook_pre_suffix=None, hook_post_suffix=None,
+                             hook_pre_hash=None, hook_post_hash=None):
     """
     Given a devices path and a data directory, yield (path, device,
     partition) for all files in that directory
+
+    (devices|partitions|suffixes|hashes)_filter are meant to modify the list of
+    elements that will be iterated. eg: they can be used to exclude some
+    elements based on a custom condition defined by the caller.
+
+    hook_pre_(device|partition|suffix|hash) are called before yielding the
+    element, hook_pos_(device|partition|suffix|hash) are called after the
+    element was yielded. They are meant to do some pre/post processing.
+    eg: saving a progress status.
 
     :param devices: parent directory of the devices to be audited
     :param datadir: a directory located under self.devices. This should be
@@ -3160,11 +3175,31 @@ def audit_location_generator(devices, datadir, suffix='',
     :param mount_check: Flag to check if a mount check should be performed
                     on devices
     :param logger: a logger object
+    :devices_filter: a callable taking (devices, [list of devices]) as
+                     parameters and returning a [list of devices]
+    :partitions_filter: a callable taking (datadir_path, [list of parts]) as
+                        parameters and returning a [list of parts]
+    :suffixes_filter: a callable taking (part_path, [list of suffixes]) as
+                      parameters and returning a [list of suffixes]
+    :hashes_filter: a callable taking (suff_path, [list of hashes]) as
+                    parameters and returning a [list of hashes]
+    :hook_pre_device: a callable taking device_path as parameter
+    :hook_post_device: a callable taking device_path as parameter
+    :hook_pre_partition: a callable taking part_path as parameter
+    :hook_post_partition: a callable taking part_path as parameter
+    :hook_pre_suffix: a callable taking suff_path as parameter
+    :hook_post_suffix: a callable taking suff_path as parameter
+    :hook_pre_hash: a callable taking hash_path as parameter
+    :hook_post_hash: a callable taking hash_path as parameter
     """
     device_dir = listdir(devices)
     # randomize devices in case of process restart before sweep completed
     shuffle(device_dir)
+    if devices_filter:
+        device_dir = devices_filter(devices, device_dir)
     for device in device_dir:
+        if hook_pre_device:
+            hook_pre_device(os.path.join(devices, device))
         if mount_check and not ismount(os.path.join(devices, device)):
             if logger:
                 logger.warning(
@@ -3178,24 +3213,36 @@ def audit_location_generator(devices, datadir, suffix='',
                 logger.warning(_('Skipping %(datadir)s because %(err)s'),
                                {'datadir': datadir_path, 'err': e})
             continue
+        if partitions_filter:
+            partitions = partitions_filter(datadir_path, partitions)
         for partition in partitions:
             part_path = os.path.join(datadir_path, partition)
+            if hook_pre_partition:
+                hook_pre_partition(part_path)
             try:
                 suffixes = listdir(part_path)
             except OSError as e:
                 if e.errno != errno.ENOTDIR:
                     raise
                 continue
+            if suffixes_filter:
+                suffixes = suffixes_filter(part_path, suffixes)
             for asuffix in suffixes:
                 suff_path = os.path.join(part_path, asuffix)
+                if hook_pre_suffix:
+                    hook_pre_suffix(suff_path)
                 try:
                     hashes = listdir(suff_path)
                 except OSError as e:
                     if e.errno != errno.ENOTDIR:
                         raise
                     continue
+                if hashes_filter:
+                    hashes = hashes_filter(suff_path, hashes)
                 for hsh in hashes:
                     hash_path = os.path.join(suff_path, hsh)
+                    if hook_pre_hash:
+                        hook_pre_hash(hash_path)
                     try:
                         files = sorted(listdir(hash_path), reverse=True)
                     except OSError as e:
@@ -3207,6 +3254,14 @@ def audit_location_generator(devices, datadir, suffix='',
                             continue
                         path = os.path.join(hash_path, fname)
                         yield path, device, partition
+                    if hook_post_hash:
+                        hook_post_hash(hash_path)
+                if hook_post_suffix:
+                    hook_post_suffix(suff_path)
+            if hook_post_partition:
+                hook_post_partition(part_path)
+        if hook_post_device:
+            hook_post_device(os.path.join(devices, device))
 
 
 def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
