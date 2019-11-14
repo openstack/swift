@@ -7980,6 +7980,15 @@ class TestFallocate(unittest.TestCase):
         # work the way you'd expect with ctypes :-/
         self.assertEqual(sys_fallocate_mock.mock_calls[0][1][2].value, 0)
         self.assertEqual(sys_fallocate_mock.mock_calls[0][1][3].value, 0)
+        sys_fallocate_mock.reset_mock()
+
+        # negative size will be adjusted as 0
+        utils.fallocate(0, -1, 0)
+        self.assertEqual(
+            [mock.call(0, utils.FALLOC_FL_KEEP_SIZE, mock.ANY, mock.ANY)],
+            sys_fallocate_mock.mock_calls)
+        self.assertEqual(sys_fallocate_mock.mock_calls[0][1][2].value, 0)
+        self.assertEqual(sys_fallocate_mock.mock_calls[0][1][3].value, 0)
 
 
 @patch.object(os, 'fstatvfs')
@@ -8171,6 +8180,8 @@ class TestPunchHole(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             utils.punch_hole(0, 1, -1)
+        with self.assertRaises(ValueError):
+            utils.punch_hole(0, 1 << 64, 1)
         with self.assertRaises(ValueError):
             utils.punch_hole(0, -1, 1)
         with self.assertRaises(ValueError):

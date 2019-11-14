@@ -975,14 +975,13 @@ class _LibcWrapper(object):
                 # spurious AttributeError.
                 func_handle = load_libc_function(
                     func_name, fail_if_missing=True)
+                self._func_handle = func_handle
             except AttributeError:
                 # We pass fail_if_missing=True to load_libc_function and
                 # then ignore the error. It's weird, but otherwise we have
                 # to check if self._func_handle is noop_libc_function, and
                 # that's even weirder.
                 pass
-            else:
-                self._func_handle = func_handle
             self._loaded = True
 
     @property
