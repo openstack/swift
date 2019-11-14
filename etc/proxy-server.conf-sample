@@ -188,9 +188,6 @@ use = egg:swift#proxy
 # Prefix used when automatically creating accounts.
 # auto_create_account_prefix = .
 #
-# Depth of the proxy put queue.
-# put_queue_depth = 10
-#
 # During GET and HEAD requests, storage nodes can be chosen at random
 # (shuffle), by using timing measurements (timing), or by using an explicit
 # region/zone match (affinity). Using timing measurements may allow for lower
