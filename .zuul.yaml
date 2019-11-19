@@ -178,6 +178,10 @@
       # This tox env get run twice; once for Keystone and once for tempauth
       tox_envlist: func
       devstack_localrc:
+        # Other services are fine to run py3
+        USE_PYTHON3: true
+        # explicitly state that we want to test swift under py2
+        DISABLED_PYTHON3_PACKAGES: 'swift'
         SWIFT_HASH: changeme
         # We don't need multiple replicas to run purely functional tests.
         # In fact, devstack special cases some things when there's only
