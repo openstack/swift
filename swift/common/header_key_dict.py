@@ -16,13 +16,6 @@
 import six
 
 
-def _title(s):
-    if six.PY2:
-        return s.title()
-    else:
-        return s.encode('latin1').title().decode('latin1')
-
-
 class HeaderKeyDict(dict):
     """
     A dict that title-cases all keys on the way in, so as to be
@@ -36,35 +29,43 @@ class HeaderKeyDict(dict):
             self.update(base_headers)
         self.update(kwargs)
 
+    @staticmethod
+    def _title(s):
+        if six.PY2:
+            return s.title()
+        else:
+            return s.encode('latin1').title().decode('latin1')
+
     def update(self, other):
         if hasattr(other, 'keys'):
             for key in other.keys():
-                self[_title(key)] = other[key]
+                self[self._title(key)] = other[key]
         else:
             for key, value in other:
-                self[_title(key)] = value
+                self[self._title(key)] = value
 
     def __getitem__(self, key):
-        return dict.get(self, _title(key))
+        return dict.get(self, self._title(key))
 
     def __setitem__(self, key, value):
+        key = self._title(key)
         if value is None:
-            self.pop(_title(key), None)
+            self.pop(key, None)
         elif six.PY2 and isinstance(value, six.text_type):
-            return dict.__setitem__(self, _title(key), value.encode('utf-8'))
+            return dict.__setitem__(self, key, value.encode('utf-8'))
         elif six.PY3 and isinstance(value, six.binary_type):
-            return dict.__setitem__(self, _title(key), value.decode('latin-1'))
+            return dict.__setitem__(self, key, value.decode('latin-1'))
         else:
-            return dict.__setitem__(self, _title(key), str(value))
+            return dict.__setitem__(self, key, str(value))
 
     def __contains__(self, key):
-        return dict.__contains__(self, _title(key))
+        return dict.__contains__(self, self._title(key))
 
     def __delitem__(self, key):
-        return dict.__delitem__(self, _title(key))
+        return dict.__delitem__(self, self._title(key))
 
     def get(self, key, default=None):
-        return dict.get(self, _title(key), default)
+        return dict.get(self, self._title(key), default)
 
     def setdefault(self, key, value=None):
         if key not in self:
@@ -72,4 +73,4 @@ class HeaderKeyDict(dict):
         return self[key]
 
     def pop(self, key, default=None):
-        return dict.pop(self, _title(key), default)
+        return dict.pop(self, self._title(key), default)
