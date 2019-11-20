@@ -27,6 +27,7 @@ import uuid
 from copy import deepcopy
 import eventlet
 from swift.common.http import is_success, is_client_error
+from swift.common.swob import normalize_etag
 from email.utils import parsedate
 
 if six.PY2:
@@ -130,6 +131,13 @@ class Base(unittest.TestCase):
             self.fail(
                 'Expected header name %r not found in response.' % header_name)
         self.assertEqual(expected_value, actual_value)
+
+    def assert_etag(self, unquoted_value):
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            expected = '"%s"' % unquoted_value
+        else:
+            expected = unquoted_value
+        self.assert_header('etag', expected)
 
 
 class Base2(object):
@@ -874,7 +882,11 @@ class TestContainer(Base):
         for actual in file_list:
             name = actual['name']
             self.assertIn(name, expected)
-            self.assertEqual(expected[name]['etag'], actual['hash'])
+            if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+                self.assertEqual(expected[name]['etag'],
+                                 '"%s"' % actual['hash'])
+            else:
+                self.assertEqual(expected[name]['etag'], actual['hash'])
             self.assertEqual(
                 expected[name]['content_type'], actual['content_type'])
             self.assertEqual(
@@ -1365,6 +1377,8 @@ class TestFile(Base):
                             'x-delete-at': mock.ANY,
                             'x-trans-id': mock.ANY,
                             'x-openstack-request-id': mock.ANY}
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            expected_headers['etag'] = '"%s"' % expected_headers['etag']
         unexpected_headers = ['connection', 'x-delete-after']
         do_test(put_headers, {}, expected_headers, unexpected_headers)
 
@@ -1420,7 +1434,7 @@ class TestFile(Base):
                     self.fail('Failed to find %s in listing' % dest_filename)
 
                 self.assertEqual(file_item.size, obj['bytes'])
-                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(normalize_etag(file_item.etag), obj['hash'])
                 self.assertEqual(file_item.content_type, obj['content_type'])
 
                 file_copy = cont.file(dest_filename)
@@ -1470,7 +1484,7 @@ class TestFile(Base):
                     self.fail('Failed to find %s in listing' % dest_filename)
 
                 self.assertEqual(file_item.size, obj['bytes'])
-                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(normalize_etag(file_item.etag), obj['hash'])
                 self.assertEqual(
                     'application/test-changed', obj['content_type'])
 
@@ -1505,7 +1519,7 @@ class TestFile(Base):
                     self.fail('Failed to find %s in listing' % dest_filename)
 
                 self.assertEqual(file_item.size, obj['bytes'])
-                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(normalize_etag(file_item.etag), obj['hash'])
                 self.assertEqual(
                     'application/test-updated', obj['content_type'])
 
@@ -2088,7 +2102,7 @@ class TestFile(Base):
                 self.assertEqual(file_item.read(hdrs=hdrs), data[-i:])
                 self.assert_header('content-range', 'bytes %d-%d/%d' % (
                     file_length - i, file_length - 1, file_length))
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
             self.assert_header('accept-ranges', 'bytes')
 
             range_string = 'bytes=%d-' % (i)
@@ -2102,7 +2116,7 @@ class TestFile(Base):
         self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
         self.assert_status(416)
         self.assert_header('content-range', 'bytes */%d' % file_length)
-        self.assert_header('etag', file_item.md5)
+        self.assert_etag(file_item.md5)
         self.assert_header('accept-ranges', 'bytes')
 
         range_string = 'bytes=%d-%d' % (file_length - 1000, file_length + 2000)
@@ -2416,14 +2430,16 @@ class TestFile(Base):
         file_item.content_type = content_type
         file_item.write_random(self.env.file_size)
 
-        md5 = file_item.md5
+        expected_etag = file_item.md5
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            expected_etag = '"%s"' % expected_etag
 
         file_item = self.env.container.file(file_name)
         info = file_item.info()
 
         self.assert_status(200)
         self.assertEqual(info['content_length'], self.env.file_size)
-        self.assertEqual(info['etag'], md5)
+        self.assertEqual(info['etag'], expected_etag)
         self.assertEqual(info['content_type'], content_type)
         self.assertIn('last_modified', info)
 
@@ -2612,14 +2628,7 @@ class TestFile(Base):
         file_item = self.env.container.file(Utils.create_name())
 
         data = io.BytesIO(file_item.write_random(512))
-        etag = File.compute_md5sum(data)
-
-        headers = dict((h.lower(), v)
-                       for h, v in self.env.conn.response.getheaders())
-        self.assertIn('etag', headers.keys())
-
-        header_etag = headers['etag'].strip('"')
-        self.assertEqual(etag, header_etag)
+        self.assert_etag(File.compute_md5sum(data))
 
     def testChunkedPut(self):
         if (tf.web_front_end == 'apache2'):
@@ -2645,7 +2654,7 @@ class TestFile(Base):
             self.assertEqual(data, file_item.read())
 
             info = file_item.info()
-            self.assertEqual(etag, info['etag'])
+            self.assertEqual(normalize_etag(info['etag']), etag)
 
     def test_POST(self):
         # verify consistency between object and container listing metadata
@@ -2670,7 +2679,10 @@ class TestFile(Base):
             self.fail('Failed to find file %r in listing' % file_name)
         self.assertEqual(1024, f_dict['bytes'])
         self.assertEqual('text/foobar', f_dict['content_type'])
-        self.assertEqual(etag, f_dict['hash'])
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            self.assertEqual(etag, '"%s"' % f_dict['hash'])
+        else:
+            self.assertEqual(etag, f_dict['hash'])
         put_last_modified = f_dict['last_modified']
 
         # now POST updated content-type to each file
@@ -2697,7 +2709,10 @@ class TestFile(Base):
         self.assertEqual(1024, f_dict['bytes'])
         self.assertEqual('image/foobarbaz', f_dict['content_type'])
         self.assertLess(put_last_modified, f_dict['last_modified'])
-        self.assertEqual(etag, f_dict['hash'])
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            self.assertEqual(etag, '"%s"' % f_dict['hash'])
+        else:
+            self.assertEqual(etag, f_dict['hash'])
 
 
 class TestFileUTF8(Base2, TestFile):
@@ -2742,7 +2757,7 @@ class TestFileComparison(Base):
             hdrs = {'If-Match': 'bogus'}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
 
     def testIfMatchMultipleEtags(self):
         for file_item in self.env.files:
@@ -2752,7 +2767,7 @@ class TestFileComparison(Base):
             hdrs = {'If-Match': '"bogus1", "bogus2", "bogus3"'}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
 
     def testIfNoneMatch(self):
         for file_item in self.env.files:
@@ -2762,7 +2777,7 @@ class TestFileComparison(Base):
             hdrs = {'If-None-Match': file_item.md5}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(304)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
             self.assert_header('accept-ranges', 'bytes')
 
     def testIfNoneMatchMultipleEtags(self):
@@ -2774,7 +2789,7 @@ class TestFileComparison(Base):
                     '"bogus1", "bogus2", "%s"' % file_item.md5}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(304)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
             self.assert_header('accept-ranges', 'bytes')
 
     def testIfModifiedSince(self):
@@ -2786,11 +2801,11 @@ class TestFileComparison(Base):
             hdrs = {'If-Modified-Since': self.env.time_new}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(304)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
             self.assert_header('accept-ranges', 'bytes')
             self.assertRaises(ResponseError, file_item.info, hdrs=hdrs)
             self.assert_status(304)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
             self.assert_header('accept-ranges', 'bytes')
 
     def testIfUnmodifiedSince(self):
@@ -2802,10 +2817,10 @@ class TestFileComparison(Base):
             hdrs = {'If-Unmodified-Since': self.env.time_old_f2}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
             self.assertRaises(ResponseError, file_item.info, hdrs=hdrs)
             self.assert_status(412)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
 
     def testIfMatchAndUnmodified(self):
         for file_item in self.env.files:
@@ -2817,13 +2832,13 @@ class TestFileComparison(Base):
                     'If-Unmodified-Since': self.env.time_new}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
 
             hdrs = {'If-Match': file_item.md5,
                     'If-Unmodified-Since': self.env.time_old_f3}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
-            self.assert_header('etag', file_item.md5)
+            self.assert_etag(file_item.md5)
 
     def testLastModified(self):
         file_name = Utils.create_name()
@@ -2844,7 +2859,7 @@ class TestFileComparison(Base):
         hdrs = {'If-Modified-Since': last_modified}
         self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
         self.assert_status(304)
-        self.assert_header('etag', etag)
+        self.assert_etag(etag)
         self.assert_header('accept-ranges', 'bytes')
 
         hdrs = {'If-Unmodified-Since': last_modified}
