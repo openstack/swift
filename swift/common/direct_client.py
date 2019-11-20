@@ -29,11 +29,11 @@ from six.moves.http_client import HTTPException
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ClientException
-from swift.common.utils import Timestamp, FileLikeIter
+from swift.common.swob import normalize_etag
+from swift.common.utils import Timestamp, FileLikeIter, quote
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import quote
 
 
 class DirectClientException(ClientException):
@@ -485,7 +485,7 @@ def direct_put_object(node, part, account, container, name, contents,
     if headers is None:
         headers = {}
     if etag:
-        headers['ETag'] = etag.strip('"')
+        headers['ETag'] = normalize_etag(etag)
     if content_type is not None:
         headers['Content-Type'] = content_type
     else:
@@ -498,7 +498,7 @@ def direct_put_object(node, part, account, container, name, contents,
         'Object', conn_timeout, response_timeout, contents=contents,
         content_length=content_length, chunk_size=chunk_size)
 
-    return resp.getheader('etag').strip('"')
+    return normalize_etag(resp.getheader('etag'))
 
 
 def direct_post_object(node, part, account, container, name, headers,

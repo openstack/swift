@@ -36,6 +36,7 @@ from swift.common.internal_client import (
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
+from swift.common.swob import normalize_etag
 from swift.common.utils import (
     clean_content_type, config_true_value,
     FileLikeIter, get_logger, hash_path, quote, validate_sync_to,
@@ -607,7 +608,7 @@ class ContainerSync(Daemon):
                     if key in headers:
                         del headers[key]
                 if 'etag' in headers:
-                    headers['etag'] = headers['etag'].strip('"')
+                    headers['etag'] = normalize_etag(headers['etag'])
                 if 'content-type' in headers:
                     headers['content-type'] = clean_content_type(
                         headers['content-type'])

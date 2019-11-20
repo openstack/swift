@@ -58,7 +58,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
-    HTTPServerError, wsgi_to_bytes, wsgi_to_str
+    HTTPServerError, wsgi_to_bytes, wsgi_to_str, normalize_etag
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 from swift.obj.expirer import build_task_obj
 
@@ -942,8 +942,8 @@ class ObjectController(BaseStorageServer):
                         if (is_sys_or_user_meta('object', val[0]) or
                             is_object_transient_sysmeta(val[0])))
         # N.B. footers_metadata is a HeaderKeyDict
-        received_etag = footers_metadata.get('etag', request.headers.get(
-            'etag', '')).strip('"')
+        received_etag = normalize_etag(footers_metadata.get(
+            'etag', request.headers.get('etag', '')))
         if received_etag and received_etag != metadata['ETag']:
             raise HTTPUnprocessableEntity(request=request)
 

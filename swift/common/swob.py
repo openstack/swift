@@ -689,6 +689,12 @@ class Range(object):
         return all_ranges
 
 
+def normalize_etag(tag):
+    if tag and tag.startswith('"') and tag.endswith('"') and tag != '"':
+        return tag[1:-1]
+    return tag
+
+
 class Match(object):
     """
     Wraps a Request's If-[None-]Match header as a friendly object.
@@ -701,15 +707,10 @@ class Match(object):
             tag = tag.strip()
             if not tag:
                 continue
-            if tag.startswith('"') and tag.endswith('"'):
-                self.tags.add(tag[1:-1])
-            else:
-                self.tags.add(tag)
+            self.tags.add(normalize_etag(tag))
 
     def __contains__(self, val):
-        if val and val.startswith('"') and val.endswith('"'):
-            val = val[1:-1]
-        return '*' in self.tags or val in self.tags
+        return '*' in self.tags or normalize_etag(val) in self.tags
 
     def __repr__(self):
         return '%s(%r)' % (

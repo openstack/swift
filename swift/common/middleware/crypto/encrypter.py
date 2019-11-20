@@ -25,7 +25,7 @@ from swift.common.request_helpers import get_object_transient_sysmeta, \
     strip_user_meta_prefix, is_user_meta, update_etag_is_at_header, \
     get_container_update_override_key
 from swift.common.swob import Request, Match, HTTPException, \
-    HTTPUnprocessableEntity, wsgi_to_bytes, bytes_to_wsgi
+    HTTPUnprocessableEntity, wsgi_to_bytes, bytes_to_wsgi, normalize_etag
 from swift.common.utils import get_logger, config_true_value, \
     MD5_OF_EMPTY_STRING
 
@@ -263,7 +263,7 @@ class EncrypterObjContext(CryptoWSGIContext):
             ciphertext_etag = enc_input_proxy.ciphertext_md5.hexdigest()
             mod_resp_headers = [
                 (h, v if (h.lower() != 'etag' or
-                          v.strip('"') != ciphertext_etag)
+                          normalize_etag(v) != ciphertext_etag)
                     else plaintext_etag)
                 for h, v in mod_resp_headers]
 

@@ -128,7 +128,7 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import Request, Response, \
     HTTPRequestedRangeNotSatisfiable, HTTPBadRequest, HTTPConflict, \
-    str_to_wsgi, wsgi_to_str, wsgi_quote, wsgi_unquote
+    str_to_wsgi, wsgi_to_str, wsgi_quote, wsgi_unquote, normalize_etag
 from swift.common.utils import get_logger, \
     RateLimitedIterator, quote, close_if_possible, closing_if_possible
 from swift.common.request_helpers import SegmentedIterable
@@ -333,7 +333,7 @@ class GetContext(WSGIContext):
                                 if h.lower() != "etag"]
             etag = md5()
             for seg_dict in segments:
-                etag.update(seg_dict['hash'].strip('"').encode('utf8'))
+                etag.update(normalize_etag(seg_dict['hash']).encode('utf8'))
             response_headers.append(('Etag', '"%s"' % etag.hexdigest()))
 
         app_iter = None

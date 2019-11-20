@@ -70,7 +70,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
     HTTPUnprocessableEntity, Response, HTTPException, \
-    HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
+    HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError, \
+    normalize_etag
 from swift.common.request_helpers import update_etag_is_at_header, \
     resolve_etag_is_at_header, validate_internal_obj
 
@@ -478,7 +479,7 @@ class BaseObjectController(Controller):
                     {'status': response.status,
                      'body': body[:1024], 'path': req.path})
             elif is_success(response.status):
-                etags.add(response.getheader('etag').strip('"'))
+                etags.add(normalize_etag(response.getheader('etag')))
 
         for (putter, response) in pile:
             if response:
@@ -2638,8 +2639,8 @@ class ECObjectController(BaseObjectController):
             computed_etag = (etag_hasher.hexdigest()
                              if etag_hasher else None)
             footers = self._get_footers(req)
-            received_etag = footers.get('etag', req.headers.get(
-                'etag', '')).strip('"')
+            received_etag = normalize_etag(footers.get(
+                'etag', req.headers.get('etag', '')))
             if (computed_etag and received_etag and
                     computed_etag != received_etag):
                 raise HTTPUnprocessableEntity(request=req)

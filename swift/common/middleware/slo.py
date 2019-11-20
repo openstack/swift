@@ -331,7 +331,7 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
     HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, \
-    HTTPServiceUnavailable, Response, Range, \
+    HTTPServiceUnavailable, Response, Range, normalize_etag, \
     RESPONSE_REASONS, str_to_wsgi, wsgi_to_str, wsgi_quote
 from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
@@ -1324,8 +1324,8 @@ class StaticLargeObject(object):
                 slo_etag.update(r.encode('ascii') if six.PY3 else r)
 
             slo_etag = slo_etag.hexdigest()
-            client_etag = req.headers.get('Etag')
-            if client_etag and client_etag.strip('"') != slo_etag:
+            client_etag = normalize_etag(req.headers.get('Etag'))
+            if client_etag and client_etag != slo_etag:
                 err = HTTPUnprocessableEntity(request=req)
                 if heartbeat:
                     resp_dict = {}

@@ -232,7 +232,7 @@ class BucketController(Controller):
                     etag = o['s3_etag']
                 elif 'slo_etag' in o:
                     # SLOs may be in something *close* to the MU format
-                    etag = '"%s-N"' % o['slo_etag'].strip('"')
+                    etag = '"%s-N"' % swob.normalize_etag(o['slo_etag'])
                 else:
                     etag = o['hash']
                     if len(etag) < 2 or etag[::len(etag) - 1] != '""':

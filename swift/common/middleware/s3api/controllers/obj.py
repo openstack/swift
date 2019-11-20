@@ -15,7 +15,8 @@
 
 from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_NO_CONTENT
 from swift.common.request_helpers import update_etag_is_at_header
-from swift.common.swob import Range, content_range_header_value
+from swift.common.swob import Range, content_range_header_value, \
+    normalize_etag
 from swift.common.utils import public, list_from_csv
 
 from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
@@ -68,8 +69,7 @@ class ObjectController(Controller):
                 continue
             had_match = True
             for value in list_from_csv(req.headers[match_header]):
-                if value.startswith('"') and value.endswith('"'):
-                    value = value[1:-1]
+                value = normalize_etag(value)
                 if value.endswith('-N'):
                     # Deal with fake S3-like etags for SLOs uploaded via Swift
                     req.headers[match_header] += ', ' + value[:-2]

@@ -57,7 +57,7 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
-    status_map, wsgi_to_str, str_to_wsgi, wsgi_quote
+    status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, normalize_etag
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
@@ -1268,9 +1268,9 @@ class ResumingGetter(object):
                 close_swift_conn(possible_source)
             else:
                 if self.used_source_etag and \
-                    self.used_source_etag != src_headers.get(
+                    self.used_source_etag != normalize_etag(src_headers.get(
                         'x-object-sysmeta-ec-etag',
-                        src_headers.get('etag', '')).strip('"'):
+                        src_headers.get('etag', ''))):
                     self.statuses.append(HTTP_NOT_FOUND)
                     self.reasons.append('')
                     self.bodies.append('')
@@ -1373,9 +1373,8 @@ class ResumingGetter(object):
             # from the same object (EC). Otherwise, if the cluster has two
             # versions of the same object, we might end up switching between
             # old and new mid-stream and giving garbage to the client.
-            self.used_source_etag = src_headers.get(
-                'x-object-sysmeta-ec-etag',
-                src_headers.get('etag', '')).strip('"')
+            self.used_source_etag = normalize_etag(src_headers.get(
+                'x-object-sysmeta-ec-etag', src_headers.get('etag', '')))
             self.node = node
             return source, node
         return None, None
@@ -1922,7 +1921,7 @@ class Controller(object):
                 if headers:
                     update_headers(resp, headers[status_index])
                 if etag:
-                    resp.headers['etag'] = etag.strip('"')
+                    resp.headers['etag'] = normalize_etag(etag)
                 return resp
         return None
 

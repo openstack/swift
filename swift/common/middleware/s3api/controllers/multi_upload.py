@@ -68,7 +68,7 @@ import time
 
 import six
 
-from swift.common.swob import Range, bytes_to_wsgi
+from swift.common.swob import Range, bytes_to_wsgi, normalize_etag
 from swift.common.utils import json, public, reiterate
 from swift.common.db import utf8encode
 from swift.common.request_helpers import get_container_update_override_key
@@ -620,10 +620,7 @@ class UploadController(Controller):
                     raise InvalidPartOrder(upload_id=upload_id)
                 previous_number = part_number
 
-                etag = part_elem.find('./ETag').text
-                if len(etag) >= 2 and etag[0] == '"' and etag[-1] == '"':
-                    # strip double quotes
-                    etag = etag[1:-1]
+                etag = normalize_etag(part_elem.find('./ETag').text)
                 if len(etag) != 32 or any(c not in '0123456789abcdef'
                                           for c in etag):
                     raise InvalidPart(upload_id=upload_id,
