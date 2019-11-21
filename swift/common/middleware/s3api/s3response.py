@@ -17,6 +17,7 @@ import re
 from collections import MutableMapping
 from functools import partial
 
+from swift.common import header_key_dict
 from swift.common import swob
 from swift.common.utils import config_true_value
 from swift.common.request_helpers import is_sys_meta
@@ -26,42 +27,21 @@ from swift.common.middleware.s3api.utils import snake_to_camel, \
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
 
 
-class HeaderKey(str):
+class HeaderKeyDict(header_key_dict.HeaderKeyDict):
     """
-    A string object that normalizes string as S3 clients expect with title().
+    Similar to the Swift's normal HeaderKeyDict class, but its key name is
+    normalized as S3 clients expect.
     """
-    def title(self):
-        if self.lower() == 'etag':
+    @staticmethod
+    def _title(s):
+        s = header_key_dict.HeaderKeyDict._title(s)
+        if s.lower() == 'etag':
             # AWS Java SDK expects only 'ETag'.
             return 'ETag'
-        if self.lower().startswith('x-amz-'):
+        if s.lower().startswith('x-amz-'):
             # AWS headers returned by S3 are lowercase.
-            return self.lower()
-        return str.title(self)
-
-
-class HeaderKeyDict(swob.HeaderKeyDict):
-    """
-    Similar to the HeaderKeyDict class in Swift, but its key name is normalized
-    as S3 clients expect.
-    """
-    def __getitem__(self, key):
-        return swob.HeaderKeyDict.__getitem__(self, HeaderKey(key))
-
-    def __setitem__(self, key, value):
-        return swob.HeaderKeyDict.__setitem__(self, HeaderKey(key), value)
-
-    def __contains__(self, key):
-        return swob.HeaderKeyDict.__contains__(self, HeaderKey(key))
-
-    def __delitem__(self, key):
-        return swob.HeaderKeyDict.__delitem__(self, HeaderKey(key))
-
-    def get(self, key, default=None):
-        return swob.HeaderKeyDict.get(self, HeaderKey(key), default)
-
-    def pop(self, key, default=None):
-        return swob.HeaderKeyDict.pop(self, HeaderKey(key), default)
+            return swob.bytes_to_wsgi(swob.wsgi_to_bytes(s).lower())
+        return s
 
 
 class S3ResponseBase(object):
@@ -116,7 +96,7 @@ class S3Response(S3ResponseBase, swob.Response):
 
         # Handle swift headers
         for key, val in sw_headers.items():
-            _key = key.lower()
+            _key = swob.bytes_to_wsgi(swob.wsgi_to_bytes(key).lower())
 
             if _key.startswith('x-object-meta-'):
                 # Note that AWS ignores user-defined headers with '=' in the
