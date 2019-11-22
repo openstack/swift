@@ -79,6 +79,7 @@ ceph_s3:
   s3tests_boto3.functional.test_s3.test_bucket_header_acl_grants: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_list_objects_anonymous: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_list_objects_anonymous_fail: {status: KNOWN}
+  s3tests_boto3.functional.test_s3.test_bucket_list_prefix_unreadable: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_list_return_data: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_list_return_data_versioning: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_list_unordered: {status: KNOWN}
