@@ -217,6 +217,38 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
         for obj in objects:
             self.conn.put_object(Bucket=bucket, Key=obj, Body=b'')
 
+    def test_blank_params(self):
+        bucket = 'bucket'
+        self._prepare_test_get_bucket(bucket, ())
+
+        resp = self.conn.list_objects(
+            Bucket=bucket, Delimiter='', Marker='', Prefix='')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertNotIn('Delimiter', resp)
+        self.assertIn('Marker', resp)
+        self.assertEqual('', resp['Marker'])
+        self.assertIn('Prefix', resp)
+        self.assertEqual('', resp['Prefix'])
+
+        resp = self.conn.list_objects_v2(
+            Bucket=bucket, Delimiter='', StartAfter='', Prefix='')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertNotIn('Delimiter', resp)
+        self.assertIn('StartAfter', resp)
+        self.assertEqual('', resp['StartAfter'])
+        self.assertIn('Prefix', resp)
+        self.assertEqual('', resp['Prefix'])
+
+        resp = self.conn.list_object_versions(
+            Bucket=bucket, Delimiter='', KeyMarker='', Prefix='')
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertIn('Delimiter', resp)
+        self.assertEqual('', resp['Delimiter'])
+        self.assertIn('KeyMarker', resp)
+        self.assertEqual('', resp['KeyMarker'])
+        self.assertIn('Prefix', resp)
+        self.assertEqual('', resp['Prefix'])
+
     def test_get_bucket_with_delimiter(self):
         bucket = 'bucket'
         put_objects = ('object', 'object2', 'subdir/object', 'subdir2/object',
