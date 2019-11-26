@@ -209,7 +209,7 @@ from swift.common.request_helpers import get_sys_meta_prefix, \
     check_path_header, get_container_update_override_key
 from swift.common.swob import Request, HTTPBadRequest, HTTPTemporaryRedirect, \
     HTTPException, HTTPConflict, HTTPPreconditionFailed, wsgi_quote, \
-    wsgi_unquote
+    wsgi_unquote, status_map
 from swift.common.http import is_success, HTTP_NOT_FOUND
 from swift.common.exceptions import LinkIterError
 from swift.common.header_key_dict import HeaderKeyDict
@@ -514,11 +514,15 @@ class SymlinkObjectContext(WSGIContext):
         if self._get_status_int() == HTTP_NOT_FOUND:
             raise HTTPConflict(
                 body='X-Symlink-Target does not exist',
+                request=req,
                 headers={
                     'Content-Type': 'text/plain',
                     'Content-Location': self._last_target_path})
         if not is_success(self._get_status_int()):
-            return resp
+            with closing_if_possible(resp):
+                for chunk in resp:
+                    pass
+            raise status_map[self._get_status_int()](request=req)
         response_headers = HeaderKeyDict(self._response_headers)
         # carry forward any etag update params (e.g. "slo_etag"), we'll append
         # symlink_target_* params to this header after this method returns
@@ -563,10 +567,8 @@ class SymlinkObjectContext(WSGIContext):
 
         symlink_target_path, etag = _validate_and_prep_request_headers(req)
         if etag:
-            resp = self._validate_etag_and_update_sysmeta(
+            self._validate_etag_and_update_sysmeta(
                 req, symlink_target_path, etag)
-            if resp is not None:
-                return resp
         # N.B. TGT_ETAG_SYMLINK_HDR was converted as part of verifying it
         symlink_usermeta_to_sysmeta(req.headers)
         # Store info in container update that this object is a symlink.
