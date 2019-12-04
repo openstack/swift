@@ -75,11 +75,6 @@ ceph_s3:
   s3tests_boto3.functional.test_s3.test_bucket_create_naming_bad_long: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_create_naming_bad_punctuation: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_create_naming_bad_short_empty: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_bucket_create_naming_dns_dash_at_end: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_bucket_create_naming_dns_dash_dot: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_bucket_create_naming_dns_dot_dash: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_bucket_create_naming_dns_dot_dot: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_bucket_create_naming_dns_underscore: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_head_extended: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_header_acl_grants: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_bucket_list_delimiter_empty: {status: KNOWN}
