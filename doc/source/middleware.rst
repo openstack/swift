@@ -4,6 +4,8 @@
 Middleware
 **********
 
+.. _account-quotas:
+
 Account Quotas
 ==============
 
