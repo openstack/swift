@@ -808,3 +808,21 @@ def resolve_etag_is_at_header(req, metadata):
                 alternate_etag = metadata[name]
                 break
     return alternate_etag
+
+
+def update_ignore_range_header(req, name):
+    """
+    Helper function to update an X-Backend-Ignore-Range-If-Metadata-Present
+    header whose value is a list of header names which, if any are present
+    on an object, mean the object server should respond with a 200 instead
+    of a 206 or 416.
+
+    :param req: a swob Request
+    :param name: name of a header which, if found, indicates the proxy will
+                 want the whole object
+    """
+    if ',' in name:
+        # HTTP header names should not have commas but we'll check anyway
+        raise ValueError('Header name must not contain commas')
+    hdr = 'X-Backend-Ignore-Range-If-Metadata-Present'
+    req.headers[hdr] = csv_append(req.headers.get(hdr), name)

@@ -1070,6 +1070,14 @@ class ObjectController(BaseStorageServer):
         try:
             with disk_file.open(current_time=req_timestamp):
                 metadata = disk_file.get_metadata()
+                ignore_range_headers = set(
+                    h.strip().lower()
+                    for h in request.headers.get(
+                        'X-Backend-Ignore-Range-If-Metadata-Present',
+                        '').split(','))
+                if ignore_range_headers.intersection(
+                        h.lower() for h in metadata):
+                    request.headers.pop('Range', None)
                 obj_size = int(metadata['Content-Length'])
                 file_x_ts = Timestamp(metadata['X-Timestamp'])
                 keep_cache = (self.keep_cache_private or

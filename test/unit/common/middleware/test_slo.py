@@ -2248,6 +2248,16 @@ class TestSloGetManifest(SloTestCase):
             'bytes=3-',
             None,
             'bytes=0-2'])
+        ignore_range_headers = [
+            c[2].get('X-Backend-Ignore-Range-If-Metadata-Present')
+            for c in self.app.calls_with_headers]
+        self.assertEqual(ignore_range_headers, [
+            'X-Static-Large-Object',
+            None,
+            None,
+            None,
+            None,
+            None])
         # we set swift.source for everything but the first request
         self.assertIsNone(self.app.swift_sources[0])
         self.assertEqual(self.app.swift_sources[1:],

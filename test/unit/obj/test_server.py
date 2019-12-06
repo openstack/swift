@@ -2986,6 +2986,43 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.body, b'FY')
         self.assertEqual(resp.headers['content-length'], '2')
 
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        req.range = 'bytes=100-'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 416)
+        self.assertIn(b'Not Satisfiable', resp.body)
+
+        # Proxy (SLO in particular) can say that if some metadata's present,
+        # it wants the whole thing
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        req.range = 'bytes=1-3'
+        req.headers['X-Backend-Ignore-Range-If-Metadata-Present'] = \
+            'X-Object-Meta-1'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, b'VERIFY')
+        self.assertEqual(resp.headers['content-length'], '6')
+
+        # If it's not present, Range is still respected
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        req.range = 'bytes=1-3'
+        req.headers['X-Backend-Ignore-Range-If-Metadata-Present'] = \
+            'X-Object-Meta-5'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 206)
+        self.assertEqual(resp.body, b'ERI')
+        self.assertEqual(resp.headers['content-length'], '3')
+
+        # Works like "any", not "all"; also works where we would've 416ed
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        req.range = 'bytes=100-'
+        req.headers['X-Backend-Ignore-Range-If-Metadata-Present'] = \
+            'X-Object-Meta-1, X-Object-Meta-5'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, b'VERIFY')
+        self.assertEqual(resp.headers['content-length'], '6')
+
         objfile = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
