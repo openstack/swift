@@ -126,6 +126,7 @@ SW                      :ref:`staticweb`
 TU                      :ref:`tempurl`
 BD                      :ref:`bulk` (delete)
 EA                      :ref:`bulk` (extract)
+AQ                      :ref:`account-quotas`
 CQ                      :ref:`container-quotas`
 CS                      :ref:`container-sync`
 TA                      :ref:`common_tempauth`

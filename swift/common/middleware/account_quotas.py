@@ -107,7 +107,8 @@ class AccountQuotaMiddleware(object):
 
         content_length = (request.content_length or 0)
 
-        account_info = get_account_info(request.environ, self.app)
+        account_info = get_account_info(request.environ, self.app,
+                                        swift_source='AQ')
         if not account_info or not account_info['bytes']:
             return self.app
         try:
