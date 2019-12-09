@@ -429,7 +429,7 @@ class VersionedWritesContext(WSGIContext):
         # making any backend requests
         if 'swift.authorize' in req.environ:
             container_info = get_container_info(
-                req.environ, self.app)
+                req.environ, self.app, swift_source='VW')
             req.acl = container_info.get('write_acl')
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -570,7 +570,7 @@ class VersionedWritesContext(WSGIContext):
                 # making any backend requests
                 if 'swift.authorize' in req.environ:
                     container_info = get_container_info(
-                        req.environ, self.app)
+                        req.environ, self.app, swift_source='VW')
                     req.acl = container_info.get('write_acl')
                     aresp = req.environ['swift.authorize'](req)
                     if aresp:
@@ -773,7 +773,7 @@ class VersionedWritesMiddleware(object):
         resp = None
         is_enabled = config_true_value(allow_versioned_writes)
         container_info = get_container_info(
-            req.environ, self.app)
+            req.environ, self.app, swift_source='VW')
 
         # To maintain backwards compatibility, container version
         # location could be stored as sysmeta or not, need to check both.
