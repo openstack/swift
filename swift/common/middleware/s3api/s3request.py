@@ -1218,7 +1218,7 @@ class S3Request(swob.Request):
 
     def _bucket_put_accepted_error(self, container, app):
         sw_req = self.to_swift_req('HEAD', container, None)
-        info = get_container_info(sw_req.environ, app)
+        info = get_container_info(sw_req.environ, app, swift_source='S3')
         sysmeta = info.get('sysmeta', {})
         try:
             acl = json.loads(sysmeta.get('s3api-acl',
@@ -1429,7 +1429,7 @@ class S3Request(swob.Request):
             # if we have already authenticated, yes we can use the account
             # name like as AUTH_xxx for performance efficiency
             sw_req = self.to_swift_req(app, self.container_name, None)
-            info = get_container_info(sw_req.environ, app)
+            info = get_container_info(sw_req.environ, app, swift_source='S3')
             if is_success(info['status']):
                 return info
             elif info['status'] == 404:
