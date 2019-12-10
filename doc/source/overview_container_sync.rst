@@ -45,6 +45,12 @@ synchronization key.
     are being synced, then you should follow the instructions for
     :ref:`symlink_container_sync_client_config` to be compatible with symlinks.
 
+    Be aware that symlinks may be synced before their targets even if they are
+    in the same container and were created after the target objects. In such
+    cases, a GET for the symlink will fail with a ``404 Not Found`` error.  If
+    the target has been overwritten, a GET may produce an older version (for
+    dynamic links) or a ``409 Conflict`` error (for static links).
+
 --------------------------
 Configuring Container Sync
 --------------------------
