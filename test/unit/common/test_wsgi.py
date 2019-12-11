@@ -1284,7 +1284,17 @@ class TestProxyProtocol(unittest.TestCase):
         self.assertEqual(proxy_obj.get_environ(), expected_env)
 
 
-class TestServersPerPortStrategy(unittest.TestCase):
+class CommonTestMixin(object):
+
+    def test_post_fork_hook(self):
+        self.strategy.post_fork_hook()
+
+        self.assertEqual([
+            mock.call('bob'),
+        ], self.mock_drop_privileges.mock_calls)
+
+
+class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
     def setUp(self):
         self.logger = FakeLogger()
         self.conf = {
@@ -1495,13 +1505,6 @@ class TestServersPerPortStrategy(unittest.TestCase):
         # This is one of the workers for port 6006 that already got reaped.
         self.assertIsNone(self.strategy.register_worker_exit(89))
 
-    def test_post_fork_hook(self):
-        self.strategy.post_fork_hook()
-
-        self.assertEqual([
-            mock.call('bob'),
-        ], self.mock_drop_privileges.mock_calls)
-
     def test_shutdown_sockets(self):
         self.strategy.do_bind_ports()
 
@@ -1520,7 +1523,7 @@ class TestServersPerPortStrategy(unittest.TestCase):
         ], self.s2.mock_calls)
 
 
-class TestWorkersStrategy(unittest.TestCase):
+class TestWorkersStrategy(unittest.TestCase, CommonTestMixin):
     def setUp(self):
         self.logger = FakeLogger()
         self.conf = {
@@ -1614,10 +1617,6 @@ class TestWorkersStrategy(unittest.TestCase):
             'Started child %s from parent %s' % (89, mypid),
             'Started child %s from parent %s' % (90, mypid),
         ], self.logger.get_lines_for_level('notice'))
-
-    def test_post_fork_hook(self):
-        # Just don't crash or do something stupid
-        self.assertIsNone(self.strategy.post_fork_hook())
 
     def test_shutdown_sockets(self):
         self.mock_get_socket.return_value = mock.MagicMock()
