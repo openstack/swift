@@ -355,12 +355,6 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-multinode-rolling-upgrade-queens
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/queens
-
-- job:
     name: swift-multinode-rolling-upgrade-rocky
     parent: swift-multinode-rolling-upgrade
     vars:
@@ -371,6 +365,12 @@
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/stein
+
+- job:
+    name: swift-multinode-rolling-upgrade-train
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/train
 
 - job:
     name: swift-tox-lower-constraints
@@ -684,9 +684,9 @@
         - swift-tox-func-py27-centos-7
         - swift-tox-func-encryption-py27-centos-7
         - swift-tox-func-ec-py27-centos-7
-        - swift-multinode-rolling-upgrade-queens
         - swift-multinode-rolling-upgrade-rocky
         - swift-multinode-rolling-upgrade-stein
+        - swift-multinode-rolling-upgrade-train
 
     post:
       jobs:
