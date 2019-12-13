@@ -27,7 +27,6 @@ from uuid import uuid4
 
 from six.moves import http_client as httplib
 
-from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring
 from swift.common.manager import Manager
 
@@ -230,9 +229,9 @@ class TestObjectServerReloadBase(TestWSGIServerProcessHandling):
     PID_TIMEOUT = 35
 
     def get_ip_port(self):
-        policy = random.choice(list(POLICIES))
-        policy.load_ring('/etc/swift')
-        self.ring_node = random.choice(policy.object_ring.get_part_nodes(1))
+        self.policy.load_ring('/etc/swift')
+        self.ring_node = random.choice(
+            self.policy.object_ring.get_part_nodes(1))
         return self.ring_node['ip'], self.ring_node['port']
 
     def start_write_req(self, conn, suffix):
@@ -240,7 +239,8 @@ class TestObjectServerReloadBase(TestWSGIServerProcessHandling):
             self.ring_node['device'], self.account, self.container, suffix),
             headers={'X-Timestamp': str(time.time()),
                      'Content-Type': 'application/octet-string',
-                     'Content-Length': len(self.BODY)})
+                     'Content-Length': len(self.BODY),
+                     'X-Backend-Storage-Policy-Index': str(self.policy.idx)})
 
     def finish_write_req(self, conn):
         conn.send(self.BODY)
@@ -250,12 +250,12 @@ class TestObjectServerReloadBase(TestWSGIServerProcessHandling):
         got_body = resp.read()
         self.assertEqual(resp.status // 100, 2, 'Got status %d; %r' %
                          (resp.status, got_body))
-        self.assertEqual('', got_body)
+        self.assertEqual(b'', got_body)
         return resp
 
 
 class TestObjectServerReload(OldReloadMixin, TestObjectServerReloadBase):
-    BODY = 'test-object' * 10
+    BODY = b'test-object' * 10
 
     def test_object_reload(self):
         self._check_reload()
@@ -263,7 +263,7 @@ class TestObjectServerReload(OldReloadMixin, TestObjectServerReloadBase):
 
 class TestObjectServerReloadSeamless(SeamlessReloadMixin,
                                      TestObjectServerReloadBase):
-    BODY = 'test-object' * 10
+    BODY = b'test-object' * 10
 
     def test_object_reload_seamless(self):
         self._check_reload()
@@ -331,12 +331,12 @@ class TestProxyServerReloadBase(TestWSGIServerProcessHandling):
         got_body = resp.read()
         self.assertEqual(resp.status // 100, 2, 'Got status %d; %r' %
                          (resp.status, got_body))
-        self.assertEqual('', got_body)
+        self.assertEqual(b'', got_body)
         return resp
 
 
 class TestProxyServerReload(OldReloadMixin, TestProxyServerReloadBase):
-    BODY = 'proxy' * 10
+    BODY = b'proxy' * 10
 
     def test_proxy_reload(self):
         self._check_reload()
@@ -344,7 +344,7 @@ class TestProxyServerReload(OldReloadMixin, TestProxyServerReloadBase):
 
 class TestProxyServerReloadSeamless(SeamlessReloadMixin,
                                     TestProxyServerReloadBase):
-    BODY = 'proxy-seamless' * 10
+    BODY = b'proxy-seamless' * 10
 
     def test_proxy_reload_seamless(self):
         self._check_reload()

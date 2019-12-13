@@ -1288,6 +1288,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             myself = os.path.realpath(sys.argv[0])
             logger.info("Old server PID=%d re'execing as: %r",
                         orig_server_pid, [myself] + list(sys.argv))
+            if hasattr(os, 'set_inheritable'):
+                # See https://www.python.org/dev/peps/pep-0446/
+                os.set_inheritable(write_fd, True)
             os.execv(myself, sys.argv)
             logger.error('Somehow lived past os.execv()?!')
             exit('Somehow lived past os.execv()?!')
@@ -1299,12 +1302,19 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                         os.getpid(), orig_server_pid)
             try:
                 got_pid = os.read(read_fd, 30)
-                logger.info('Old server temporary child PID=%d notified '
-                            'to shutdown old listen sockets by PID=%s',
-                            os.getpid(), got_pid)
             except Exception as e:
                 logger.warning('Unexpected exception while reading from '
                                'pipe:', exc_info=True)
+            else:
+                got_pid = got_pid.decode('ascii')
+                if got_pid:
+                    logger.info('Old server temporary child PID=%d notified '
+                                'to shutdown old listen sockets by PID=%s',
+                                os.getpid(), got_pid)
+                else:
+                    logger.warning('Old server temporary child PID=%d *NOT* '
+                                   'notified to shutdown old listen sockets; '
+                                   'the pipe just *died*.', os.getpid())
             try:
                 os.close(read_fd)
             except Exception:
