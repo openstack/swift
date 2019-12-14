@@ -367,6 +367,47 @@ class TestFuncs(unittest.TestCase):
         info = get_container_info(req.environ, app)
         self.assertEqual(info['status'], 0)
 
+    def test_get_container_info_no_container_gets_cached(self):
+        fake_cache = FakeCache({})
+        app = FakeApp(statuses=[200, 404])
+        req = Request.blank("/v1/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_container_info(req.environ, app)
+        self.assertEqual(info['status'], 404)
+        key = get_cache_key("AUTH_account", "does_not_exist")
+        self.assertIn(key, fake_cache.store)
+        self.assertEqual(fake_cache.store[key]['status'], 404)
+
+    def test_get_container_info_bad_path(self):
+        fake_cache = FakeCache({})
+        req = Request.blank("/non-swift/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_container_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+        # *not* cached
+        key = get_cache_key("AUTH_account", "does_not_exist")
+        self.assertNotIn(key, fake_cache.store)
+        # not even the "account" is cached
+        key = get_cache_key("AUTH_account")
+        self.assertNotIn(key, fake_cache.store)
+
+        # but if for some reason the account *already was* cached...
+        fake_cache.store[key] = headers_to_account_info({}, 200)
+        req = Request.blank("/non-swift/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_container_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+        # resp *still* not cached
+        key = get_cache_key("AUTH_account", "does_not_exist")
+        self.assertNotIn(key, fake_cache.store)
+
+        # still nothing, even if the container is already cached, too
+        fake_cache.store[key] = headers_to_container_info({}, 200)
+        req = Request.blank("/non-swift/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_container_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+
     def test_get_container_info_no_auto_account(self):
         app = FakeApp(statuses=[200])
         req = Request.blank("/v1/.system_account/cont")
@@ -497,6 +538,23 @@ class TestFuncs(unittest.TestCase):
                      'swift.cache': FakeCache({})})
         resp = get_account_info(req.environ, 'xxx')
         self.assertEqual(resp['bytes'], 3867)
+
+    def test_get_account_info_bad_path(self):
+        fake_cache = FakeCache({})
+        req = Request.blank("/non-swift/AUTH_account",
+                            environ={'swift.cache': fake_cache})
+        info = get_account_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+        # *not* cached
+        key = get_cache_key("AUTH_account")
+        self.assertNotIn(key, fake_cache.store)
+
+        # but if for some reason the account *already was* cached...
+        fake_cache.store[key] = headers_to_account_info({}, 200)
+        req = Request.blank("/non-swift/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_account_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
 
     def test_get_object_info_env(self):
         cached = {'status': 200,
