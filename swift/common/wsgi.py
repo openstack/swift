@@ -695,6 +695,14 @@ class StrategyBase(object):
     Some operations common to all strategy classes.
     """
 
+    def post_fork_hook(self):
+        """
+        Called in each forked-off child process, prior to starting the actual
+        wsgi server, to perform any initialization such as drop privileges.
+        """
+
+        drop_privileges(self.conf.get('user', 'swift'))
+
     def shutdown_sockets(self):
         """
         Shutdown any listen sockets.
@@ -784,14 +792,6 @@ class WorkersStrategy(StrategyBase):
 
         while len(self.children) < self.worker_count:
             yield self.sock, None
-
-    def post_fork_hook(self):
-        """
-        Perform any initialization in a forked-off child process prior to
-        starting the wsgi server.
-        """
-
-        pass
 
     def log_sock_exit(self, sock, _unused):
         """
@@ -1070,14 +1070,6 @@ class ServersPerPortStrategy(StrategyBase):
                 # that there should be no listen socket for that port, so we
                 # can close and forget them.
                 self.port_pid_state.forget_port(orphan_pair[0])
-
-    def post_fork_hook(self):
-        """
-        Called in each child process, prior to starting the actual wsgi server,
-        to drop privileges.
-        """
-
-        drop_privileges(self.conf.get('user', 'swift'))
 
     def log_sock_exit(self, sock, server_idx):
         """
