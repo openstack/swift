@@ -361,7 +361,7 @@ class ProxyLoggingMiddleware(object):
                 while not chunk:
                     chunk = next(iterator)
             except StopIteration:
-                chunk = ''
+                chunk = b''
             for h, v in start_response_args[0][1]:
                 if h.lower() in ('content-length', 'transfer-encoding'):
                     break
