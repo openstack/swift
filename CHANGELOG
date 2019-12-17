@@ -1,3 +1,19 @@
+swift (2.23.1, train stable backports)
+
+    * On Python 3, the KMS keymaster now works with secrets stored
+      in Barbican with a text/plain payload-content-type.
+
+    * Several utility scripts now work better on Python 3:
+
+      * swift-account-audit
+
+      * swift-dispersion-populate
+
+      * swift-drive-recon
+
+      * swift-recon
+
+
 swift (2.23.0, OpenStack Train)
 
     * Python 3.6 and 3.7 are now fully supported. Several py3-related
@@ -130,6 +146,59 @@ swift (2.22.0)
       If running Swift under Python 3, eventlet must be at least 0.25.0.
 
     * Various other minor bug fixes and improvements.
+
+
+swift (2.21.1, stein stable backports)
+
+    * Sharding improvements
+
+      * The container-replicator now only attempts to fetch shard ranges if
+        the remote indicates that it has shard ranges. Further, it does so
+        with a timeout to prevent the process from hanging in certain cases.
+
+      * The container-replicator now correctly enqueues container-reconciler
+        work for sharded containers.
+
+      * Container metadata related to sharding are now removed when no
+        longer needed.
+
+    * S3 API improvements
+
+      * Unsigned payloads work with v4 signatures once more.
+
+      * Multipart upload parts may now be copied from other multipart uploads.
+
+      * CompleteMultipartUpload requests with a Content-MD5 now work.
+
+      * Content-Type can now be updated when copying an object.
+
+      * Fixed v1 listings that end with a non-ASCII object name.
+
+    * Background corruption-detection improvements
+
+      * Detect and remove invalid entries from hashes.pkl
+
+      * When object path is not a directory, just quarantine it,
+        rather than the whole suffix.
+
+    * Static Large Object sizes in listings for versioned containers are
+      now more accurate.
+
+    * When refetching Static Large Object manifests, non-manifest responses
+      are now handled better.
+
+    * Cross-account symlinks now store correct account information in
+      container listings. This was previously fixed in 2.22.0.
+
+    * Requesting multiple ranges from a Dynamic Large Object now returns the
+      entire object instead of incorrect data. This was previously fixed in
+      2.23.0.
+
+    * When making backend requests, the proxy-server now ensures query
+      parameters are always properly quoted. Previously, the proxy would
+      encounter an error on Python 2.7.17 if the client included non-ASCII
+      query parameters in object requests. This was previously fixed in
+      2.23.0.
 
 
 swift (2.21.0, OpenStack Stein)
@@ -296,6 +365,72 @@ swift (2.20.0)
     * Allow direct_client users to overwrite the X-Timestamp header.
 
     * Various other minor bug fixes and improvements.
+
+
+swift (2.19.2, rocky stable backports)
+
+    * Sharding improvements
+
+      * The container-replicator now only attempts to fetch shard ranges if
+        the remote indicates that it has shard ranges. Further, it does so
+        with a timeout to prevent the process from hanging in certain cases.
+
+      * The container-replicator now correctly enqueues container-reconciler
+        work for sharded containers.
+
+    * S3 API improvements
+
+      * Fixed an issue where v4 signatures would not be validated against
+        the body of the request, allowing a replay attack if request headers
+        were captured by a malicious third party. Note that unsigned payloads
+        still function normally.
+
+      * CompleteMultipartUpload requests with a Content-MD5 now work.
+
+      * Fixed v1 listings that end with a non-ASCII object name.
+
+      * Multipart object segments are now actually deleted when the
+        multipart object is deleted via the S3 API.
+
+      * Fixed an issue that caused Delete Multiple Objects requests with
+        large bodies to 400. This was previously fixed in 2.20.0.
+
+      * Fixed an issue where non-ASCII Keystone EC2 credentials would not get
+        mapped to the correct account. This was previously fixed in 2.20.0.
+
+    * Background corruption-detection improvements
+
+      * Detect and remove invalid entries from hashes.pkl
+
+      * When object path is not a directory, just quarantine it,
+        rather than the whole suffix.
+
+
+    * Fixed a bug where encryption would store the incorrect key
+      metadata if the object name starts with a slash.
+
+    * Fixed an issue where an object server failure during a client
+      download could leave an open socket between the proxy and
+      client.
+
+    * Static Large Object sizes in listings for versioned containers are
+      now more accurate.
+
+    * When refetching Static Large Object manifests, non-manifest responses
+      are now handled better.
+
+    * Cross-account symlinks now store correct account information in
+      container listings. This was previously fixed in 2.22.0.
+
+    * Requesting multiple ranges from a Dynamic Large Object now returns the
+      entire object instead of incorrect data. This was previously fixed in
+      2.23.0.
+
+    * When making backend requests, the proxy-server now ensures query
+      parameters are always properly quoted. Previously, the proxy would
+      encounter an error on Python 2.7.17 if the client included non-ASCII
+      query parameters in object requests. This was previously fixed in
+      2.23.0.
 
 
 swift (2.19.1, rocky stable backports)
