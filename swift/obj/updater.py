@@ -358,6 +358,7 @@ class ObjectUpdater(Daemon):
             headers_out.setdefault('X-Backend-Storage-Policy-Index',
                                    str(int(policy)))
             headers_out.setdefault('X-Backend-Accept-Redirect', 'true')
+            headers_out.setdefault('X-Backend-Accept-Quoted-Location', 'true')
             container_path = update.get('container_path')
             if container_path:
                 acct, cont = split_path('/' + container_path, minsegs=2)

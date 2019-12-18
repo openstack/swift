@@ -343,7 +343,15 @@ class BaseObjectController(Controller):
                 headers[index].get('X-Container-Device'),
                 container['device'])
             if container_path:
-                headers[index]['X-Backend-Container-Path'] = container_path
+                headers[index]['X-Backend-Quoted-Container-Path'] = quote(
+                    container_path)
+                # NB: we used to send
+                #    'X-Backend-Container-Path': container_path
+                # but that isn't safe for container names with nulls or
+                # newlines (or possibly some other characters). We consciously
+                # *don't* make any attempt to set the old meta; during an
+                # upgrade, old object-servers will talk to the root which
+                # will eat the update and move it as a misplaced object.
 
         def set_delete_at_headers(index, delete_at_node):
             headers[index]['X-Delete-At-Container'] = delete_at_container

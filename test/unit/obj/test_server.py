@@ -1066,6 +1066,7 @@ class TestObjectController(unittest.TestCase):
         # User-Agent is updated.
         expected_post_headers['User-Agent'] = 'object-updater %s' % os.getpid()
         expected_post_headers['X-Backend-Accept-Redirect'] = 'true'
+        expected_post_headers['X-Backend-Accept-Quoted-Location'] = 'true'
         self.assertDictEqual(expected_post_headers, actual_headers)
         self.assertFalse(
             os.listdir(os.path.join(
@@ -1078,7 +1079,8 @@ class TestObjectController(unittest.TestCase):
         self._test_PUT_then_POST_async_pendings(
             POLICIES[1], update_etag='override_etag')
 
-    def _check_PUT_redirected_async_pending(self, container_path=None):
+    def _check_PUT_redirected_async_pending(self, container_path=None,
+                                            old_style=False):
         # When container update is redirected verify that the redirect location
         # is persisted in the async pending file.
         policy = POLICIES[0]
@@ -1097,8 +1099,10 @@ class TestObjectController(unittest.TestCase):
             'X-Container-Device': 'cdevice'}
 
         if container_path:
-            # the proxy may include this header
-            put_headers['X-Backend-Container-Path'] = container_path
+            # the proxy may include either header
+            hdr = ('X-Backend-Container-Path' if old_style
+                   else 'X-Backend-Quoted-Container-Path')
+            put_headers[hdr] = container_path
             expected_update_path = '/cdevice/99/%s/o' % container_path
         else:
             expected_update_path = '/cdevice/99/a/c/o'
@@ -1175,6 +1179,10 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_redirected_async_pending_with_container_path(self):
         self._check_PUT_redirected_async_pending(container_path='.another/c')
+
+    def test_PUT_redirected_async_pending_with_old_style_container_path(self):
+        self._check_PUT_redirected_async_pending(
+            container_path='.another/c', old_style=True)
 
     def test_POST_quarantine_zbyte(self):
         timestamp = normalize_timestamp(time())
@@ -5379,7 +5387,7 @@ class TestObjectController(unittest.TestCase):
             'X-Backend-Container-Update-Override-Content-Type': 'ignored',
             'X-Backend-Container-Update-Override-Foo': 'ignored'})
 
-    def test_PUT_container_update_to_shard(self):
+    def test_PUT_container_update_to_old_style_shard(self):
         # verify that alternate container update path is respected when
         # included in request headers
         def do_test(container_path, expected_path, expected_container_path):
@@ -5411,6 +5419,96 @@ class TestObjectController(unittest.TestCase):
             }
             if container_path is not None:
                 headers['X-Backend-Container-Path'] = container_path
+
+            req = Request.blank('/sda1/0/a/c/o', method='PUT',
+                                headers=headers, body='')
+            with mocked_http_conn(
+                    500, give_connect=capture_updates) as fake_conn:
+                with fake_spawn():
+                    resp = req.get_response(self.object_controller)
+            with self.assertRaises(StopIteration):
+                next(fake_conn.code_iter)
+            self.assertEqual(resp.status_int, 201)
+            self.assertEqual(len(container_updates), 1)
+            # verify expected path used in update request
+            ip, port, method, path, headers = container_updates[0]
+            self.assertEqual(ip, 'chost')
+            self.assertEqual(port, 'cport')
+            self.assertEqual(method, 'PUT')
+            self.assertEqual(path, '/cdevice/cpartition/%s/o' % expected_path)
+
+            # verify that the picked update *always* has root container
+            self.assertEqual(1, len(pickle_async_update_args))
+            (objdevice, account, container, obj, data, timestamp,
+             policy) = pickle_async_update_args[0]
+            self.assertEqual(objdevice, 'sda1')
+            self.assertEqual(account, 'a')  # NB user account
+            self.assertEqual(container, 'c')  # NB root container
+            self.assertEqual(obj, 'o')
+            self.assertEqual(timestamp, ts_put.internal)
+            self.assertEqual(policy, policy)
+            expected_data = {
+                'headers': HeaderKeyDict({
+                    'X-Size': '0',
+                    'User-Agent': 'object-server %s' % os.getpid(),
+                    'X-Content-Type': 'text/plain',
+                    'X-Timestamp': ts_put.internal,
+                    'X-Trans-Id': '123',
+                    'Referer': 'PUT http://localhost/sda1/0/a/c/o',
+                    'X-Backend-Storage-Policy-Index': int(policy),
+                    'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e'}),
+                'obj': 'o',
+                'account': 'a',
+                'container': 'c',
+                'op': 'PUT'}
+            if expected_container_path:
+                expected_data['container_path'] = expected_container_path
+            self.assertEqual(expected_data, data)
+
+        do_test('a_shard/c_shard', 'a_shard/c_shard', 'a_shard/c_shard')
+        do_test('', 'a/c', None)
+        do_test(None, 'a/c', None)
+        # TODO: should these cases trigger a 400 response rather than
+        # defaulting to root path?
+        do_test('garbage', 'a/c', None)
+        do_test('/', 'a/c', None)
+        do_test('/no-acct', 'a/c', None)
+        do_test('no-cont/', 'a/c', None)
+        do_test('too/many/parts', 'a/c', None)
+        do_test('/leading/slash', 'a/c', None)
+
+    def test_PUT_container_update_to_shard(self):
+        # verify that alternate container update path is respected when
+        # included in request headers
+        def do_test(container_path, expected_path, expected_container_path):
+            policy = random.choice(list(POLICIES))
+            container_updates = []
+
+            def capture_updates(
+                    ip, port, method, path, headers, *args, **kwargs):
+                container_updates.append((ip, port, method, path, headers))
+
+            pickle_async_update_args = []
+
+            def fake_pickle_async_update(*args):
+                pickle_async_update_args.append(args)
+
+            diskfile_mgr = self.object_controller._diskfile_router[policy]
+            diskfile_mgr.pickle_async_update = fake_pickle_async_update
+
+            ts_put = next(self.ts)
+            headers = {
+                'X-Timestamp': ts_put.internal,
+                'X-Trans-Id': '123',
+                'X-Container-Host': 'chost:cport',
+                'X-Container-Partition': 'cpartition',
+                'X-Container-Device': 'cdevice',
+                'Content-Type': 'text/plain',
+                'X-Object-Sysmeta-Ec-Frag-Index': 0,
+                'X-Backend-Storage-Policy-Index': int(policy),
+            }
+            if container_path is not None:
+                headers['X-Backend-Quoted-Container-Path'] = container_path
 
             req = Request.blank('/sda1/0/a/c/o', method='PUT',
                                 headers=headers, body='')
