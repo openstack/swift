@@ -78,10 +78,25 @@ class BaseTestSharder(unittest.TestCase):
         broker.initialize()
         return broker
 
+    def _make_old_style_sharding_broker(self, account='a', container='c',
+                                        shard_bounds=(('', 'middle'),
+                                                      ('middle', ''))):
+        broker = self._make_broker(account=account, container=container)
+        broker.set_sharding_sysmeta('Root', 'a/c')
+        old_db_id = broker.get_info()['id']
+        broker.enable_sharding(next(self.ts_iter))
+        shard_ranges = self._make_shard_ranges(
+            shard_bounds, state=ShardRange.CLEAVED)
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.set_sharding_state())
+        broker = ContainerBroker(broker.db_file, account='a', container='c')
+        self.assertNotEqual(old_db_id, broker.get_info()['id'])  # sanity check
+        return broker
+
     def _make_sharding_broker(self, account='a', container='c',
                               shard_bounds=(('', 'middle'), ('middle', ''))):
         broker = self._make_broker(account=account, container=container)
-        broker.set_sharding_sysmeta('Root', 'a/c')
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         old_db_id = broker.get_info()['id']
         broker.enable_sharding(next(self.ts_iter))
         shard_ranges = self._make_shard_ranges(
@@ -2279,10 +2294,64 @@ class TestSharder(BaseTestSharder):
             '.shards_', 'shard_c', (('l', 'mid'), ('mid', 'u')))
         self.assertEqual(1, broker.get_own_shard_range().deleted)
 
-    def test_identify_sharding_candidate(self):
+    def test_identify_sharding_old_style_candidate(self):
         brokers = [self._make_broker(container='c%03d' % i) for i in range(6)]
         for broker in brokers:
             broker.set_sharding_sysmeta('Root', 'a/c')
+        node = {'index': 2}
+        # containers are all empty
+        with self._mock_sharder() as sharder:
+            for broker in brokers:
+                sharder._identify_sharding_candidate(broker, node)
+        expected_stats = {}
+        self._assert_stats(expected_stats, sharder, 'sharding_candidates')
+
+        objects = [
+            ['obj%3d' % i, next(self.ts_iter).internal, i, 'text/plain',
+             'etag%s' % i, 0] for i in range(160)]
+
+        # one container has 100 objects, which is below the sharding threshold
+        for obj in objects[:100]:
+            brokers[0].put_object(*obj)
+        conf = {'recon_cache_path': self.tempdir}
+        with self._mock_sharder(conf=conf) as sharder:
+            for broker in brokers:
+                sharder._identify_sharding_candidate(broker, node)
+        self.assertFalse(sharder.sharding_candidates)
+        expected_recon = {
+            'found': 0,
+            'top': []}
+        sharder._report_stats()
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
+
+        # reduce the sharding threshold and the container is reported
+        conf = {'shard_container_threshold': 100,
+                'recon_cache_path': self.tempdir}
+        with self._mock_sharder(conf=conf) as sharder:
+            with mock_timestamp_now() as now:
+                for broker in brokers:
+                    sharder._identify_sharding_candidate(broker, node)
+        stats_0 = {'path': brokers[0].db_file,
+                   'node_index': 2,
+                   'account': 'a',
+                   'container': 'c000',
+                   'root': 'a/c',
+                   'object_count': 100,
+                   'meta_timestamp': now.internal,
+                   'file_size': os.stat(brokers[0].db_file).st_size}
+        self.assertEqual([stats_0], sharder.sharding_candidates)
+        expected_recon = {
+            'found': 1,
+            'top': [stats_0]}
+        sharder._report_stats()
+        self._assert_recon_stats(
+            expected_recon, sharder, 'sharding_candidates')
+
+    def test_identify_sharding_candidate(self):
+        brokers = [self._make_broker(container='c%03d' % i) for i in range(6)]
+        for broker in brokers:
+            broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         node = {'index': 2}
         # containers are all empty
         with self._mock_sharder() as sharder:
@@ -3489,12 +3558,112 @@ class TestSharder(BaseTestSharder):
         self._check_objects([expected], expected_shard_dbs[0])
         self._check_objects([], broker.db_file)
 
-    def _setup_find_ranges(self, account, cont, lower, upper):
+    def _setup_old_style_find_ranges(self, account, cont, lower, upper):
         broker = self._make_broker(account=account, container=cont)
         own_sr = ShardRange('%s/%s' % (account, cont), Timestamp.now(),
                             lower, upper)
         broker.merge_shard_ranges([own_sr])
         broker.set_sharding_sysmeta('Root', 'a/c')
+        objects = [
+            # some of these are misplaced objects
+            ['obj%3d' % i, self.ts_encoded(), i, 'text/plain', 'etag%s' % i, 0]
+            for i in range(100)]
+        for obj in objects:
+            broker.put_object(*obj)
+        return broker, objects
+
+    def _check_old_style_find_shard_ranges_none_found(self, broker, objects):
+        with self._mock_sharder() as sharder:
+            num_found = sharder._find_shard_ranges(broker)
+        self.assertGreater(sharder.split_size, len(objects))
+        self.assertEqual(0, num_found)
+        self.assertFalse(broker.get_shard_ranges())
+        expected_stats = {'attempted': 1, 'success': 0, 'failure': 1,
+                          'found': 0, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self._assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+        with self._mock_sharder(
+                conf={'shard_container_threshold': 200}) as sharder:
+            num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(sharder.split_size, len(objects))
+        self.assertEqual(0, num_found)
+        self.assertFalse(broker.get_shard_ranges())
+        expected_stats = {'attempted': 1, 'success': 0, 'failure': 1,
+                          'found': 0, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self._assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+    def test_old_style_find_shard_ranges_none_found_root(self):
+        broker, objects = self._setup_old_style_find_ranges('a', 'c', '', '')
+        self._check_old_style_find_shard_ranges_none_found(broker, objects)
+
+    def test_old_style_find_shard_ranges_none_found_shard(self):
+        broker, objects = self._setup_old_style_find_ranges(
+            '.shards_a', 'c', 'lower', 'upper')
+        self._check_old_style_find_shard_ranges_none_found(broker, objects)
+
+    def _check_old_style_find_shard_ranges_finds_two(
+            self, account, cont, lower, upper):
+        def check_ranges():
+            self.assertEqual(2, len(broker.get_shard_ranges()))
+            expected_ranges = [
+                ShardRange(
+                    ShardRange.make_path('.int_shards_a', 'c', cont, now, 0),
+                    now, lower, objects[98][0], 99),
+                ShardRange(
+                    ShardRange.make_path('.int_shards_a', 'c', cont, now, 1),
+                    now, objects[98][0], upper, 1),
+            ]
+            self._assert_shard_ranges_equal(expected_ranges,
+                                            broker.get_shard_ranges())
+
+        # first invocation finds both ranges
+        broker, objects = self._setup_old_style_find_ranges(
+            account, cont, lower, upper)
+        with self._mock_sharder(conf={'shard_container_threshold': 199,
+                                      'auto_create_account_prefix': '.int_'}
+                                ) as sharder:
+            with mock_timestamp_now() as now:
+                num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(99, sharder.split_size)
+        self.assertEqual(2, num_found)
+        check_ranges()
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0,
+                          'found': 2, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self._assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+        # second invocation finds none
+        with self._mock_sharder(conf={'shard_container_threshold': 199,
+                                      'auto_create_account_prefix': '.int_'}
+                                ) as sharder:
+            num_found = sharder._find_shard_ranges(broker)
+        self.assertEqual(0, num_found)
+        self.assertEqual(2, len(broker.get_shard_ranges()))
+        check_ranges()
+        expected_stats = {'attempted': 0, 'success': 0, 'failure': 0,
+                          'found': 0, 'min_time': mock.ANY,
+                          'max_time': mock.ANY}
+        stats = self._assert_stats(expected_stats, sharder, 'scanned')
+        self.assertGreaterEqual(stats['max_time'], stats['min_time'])
+
+    def test_old_style_find_shard_ranges_finds_two_root(self):
+        self._check_old_style_find_shard_ranges_finds_two('a', 'c', '', '')
+
+    def test_old_style_find_shard_ranges_finds_two_shard(self):
+        self._check_old_style_find_shard_ranges_finds_two(
+            '.shards_a', 'c_', 'l', 'u')
+
+    def _setup_find_ranges(self, account, cont, lower, upper):
+        broker = self._make_broker(account=account, container=cont)
+        own_sr = ShardRange('%s/%s' % (account, cont), Timestamp.now(),
+                            lower, upper)
+        broker.merge_shard_ranges([own_sr])
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         objects = [
             # some of these are misplaced objects
             ['obj%3d' % i, self.ts_encoded(), i, 'text/plain', 'etag%s' % i, 0]
@@ -4144,9 +4313,147 @@ class TestSharder(BaseTestSharder):
             self._assert_stats(expected_stats, sharder, 'audit_root')
             mocked.assert_not_called()
 
-    def test_audit_shard_container(self):
+    def test_audit_old_style_shard_container(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
         broker.set_sharding_sysmeta('Root', 'a/c')
+        # include overlaps to verify correct match for updating own shard range
+        shard_bounds = (
+            ('a', 'j'), ('k', 't'), ('k', 's'), ('l', 's'), ('s', 'z'))
+        shard_ranges = self._make_shard_ranges(shard_bounds, ShardRange.ACTIVE)
+        shard_ranges[1].name = broker.path
+        expected_stats = {'attempted': 1, 'success': 0, 'failure': 1}
+
+        def call_audit_container(exc=None):
+            with self._mock_sharder() as sharder:
+                sharder.logger = debug_logger()
+                with mock.patch.object(sharder, '_audit_root_container') \
+                        as mocked, mock.patch.object(
+                            sharder, 'int_client') as mock_swift:
+                    mock_response = mock.MagicMock()
+                    mock_response.headers = {'x-backend-record-type':
+                                             'shard'}
+                    mock_response.body = json.dumps(
+                        [dict(sr) for sr in shard_ranges])
+                    mock_swift.make_request.return_value = mock_response
+                    mock_swift.make_request.side_effect = exc
+                    mock_swift.make_path = (lambda a, c:
+                                            '/v1/%s/%s' % (a, c))
+                    sharder.reclaim_age = 0
+                    sharder._audit_container(broker)
+            mocked.assert_not_called()
+            return sharder, mock_swift
+
+        # bad account name
+        broker.account = 'bad_account'
+        sharder, mock_swift = call_audit_container()
+        lines = sharder.logger.get_lines_for_level('warning')
+        self._assert_stats(expected_stats, sharder, 'audit_shard')
+        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
+        self.assertIn('account not in shards namespace', lines[0])
+        self.assertNotIn('root has no matching shard range', lines[0])
+        self.assertNotIn('unable to get shard ranges from root', lines[0])
+        self.assertIn('Audit failed for shard %s' % broker.db_file, lines[1])
+        self.assertIn('missing own shard range', lines[1])
+        self.assertFalse(lines[2:])
+        self.assertFalse(broker.is_deleted())
+
+        # missing own shard range
+        broker.get_info()
+        sharder, mock_swift = call_audit_container()
+        lines = sharder.logger.get_lines_for_level('warning')
+        self._assert_stats(expected_stats, sharder, 'audit_shard')
+        self.assertIn('Audit failed for shard %s' % broker.db_file, lines[0])
+        self.assertIn('missing own shard range', lines[0])
+        self.assertNotIn('unable to get shard ranges from root', lines[0])
+        self.assertFalse(lines[1:])
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+        self.assertFalse(broker.is_deleted())
+
+        # create own shard range, no match in root
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
+        own_shard_range = broker.get_own_shard_range()  # get the default
+        own_shard_range.lower = 'j'
+        own_shard_range.upper = 'k'
+        broker.merge_shard_ranges([own_shard_range])
+        sharder, mock_swift = call_audit_container()
+        lines = sharder.logger.get_lines_for_level('warning')
+        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[0])
+        self.assertNotIn('account not in shards namespace', lines[0])
+        self.assertNotIn('missing own shard range', lines[0])
+        self.assertIn('root has no matching shard range', lines[0])
+        self.assertNotIn('unable to get shard ranges from root', lines[0])
+        self._assert_stats(expected_stats, sharder, 'audit_shard')
+        self.assertFalse(lines[1:])
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+        self.assertFalse(broker.is_deleted())
+        expected_headers = {'X-Backend-Record-Type': 'shard',
+                            'X-Newest': 'true',
+                            'X-Backend-Include-Deleted': 'True',
+                            'X-Backend-Override-Deleted': 'true'}
+        params = {'format': 'json', 'marker': 'j', 'end_marker': 'k'}
+        mock_swift.make_request.assert_called_once_with(
+            'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+            params=params)
+
+        # create own shard range, failed response from root
+        expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
+        own_shard_range = broker.get_own_shard_range()  # get the default
+        own_shard_range.lower = 'j'
+        own_shard_range.upper = 'k'
+        broker.merge_shard_ranges([own_shard_range])
+        sharder, mock_swift = call_audit_container(
+            exc=internal_client.UnexpectedResponse('bad', 'resp'))
+        lines = sharder.logger.get_lines_for_level('warning')
+        self.assertIn('Failed to get shard ranges', lines[0])
+        self.assertIn('Audit warnings for shard %s' % broker.db_file, lines[1])
+        self.assertNotIn('account not in shards namespace', lines[1])
+        self.assertNotIn('missing own shard range', lines[1])
+        self.assertNotIn('root has no matching shard range', lines[1])
+        self.assertIn('unable to get shard ranges from root', lines[1])
+        self._assert_stats(expected_stats, sharder, 'audit_shard')
+        self.assertFalse(lines[2:])
+        self.assertFalse(sharder.logger.get_lines_for_level('error'))
+        self.assertFalse(broker.is_deleted())
+        mock_swift.make_request.assert_called_once_with(
+            'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+            params=params)
+
+        def assert_ok():
+            sharder, mock_swift = call_audit_container()
+            self.assertFalse(sharder.logger.get_lines_for_level('warning'))
+            self.assertFalse(sharder.logger.get_lines_for_level('error'))
+            self._assert_stats(expected_stats, sharder, 'audit_shard')
+            params = {'format': 'json', 'marker': 'k', 'end_marker': 't'}
+            mock_swift.make_request.assert_called_once_with(
+                'GET', '/v1/a/c', expected_headers, acceptable_statuses=(2,),
+                params=params)
+
+        # make own shard range match one in root, but different state
+        shard_ranges[1].timestamp = Timestamp.now()
+        broker.merge_shard_ranges([shard_ranges[1]])
+        now = Timestamp.now()
+        shard_ranges[1].update_state(ShardRange.SHARDING, state_timestamp=now)
+        assert_ok()
+        self.assertFalse(broker.is_deleted())
+        # own shard range state is updated from root version
+        own_shard_range = broker.get_own_shard_range()
+        self.assertEqual(ShardRange.SHARDING, own_shard_range.state)
+        self.assertEqual(now, own_shard_range.state_timestamp)
+
+        own_shard_range.update_state(ShardRange.SHARDED,
+                                     state_timestamp=Timestamp.now())
+        broker.merge_shard_ranges([own_shard_range])
+        assert_ok()
+
+        own_shard_range.deleted = 1
+        own_shard_range.timestamp = Timestamp.now()
+        broker.merge_shard_ranges([own_shard_range])
+        assert_ok()
+        self.assertTrue(broker.is_deleted())
+
+    def test_audit_shard_container(self):
+        broker = self._make_broker(account='.shards_a', container='shard_c')
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         # include overlaps to verify correct match for updating own shard range
         shard_bounds = (
             ('a', 'j'), ('k', 't'), ('k', 's'), ('l', 's'), ('s', 'z'))
@@ -4759,6 +5066,116 @@ class TestCleavingContext(BaseTestSharder):
                 break
         else:
             self.fail("Deleted context 'Context-%s' not found")
+
+    def test_store_old_style(self):
+        broker = self._make_old_style_sharding_broker()
+        old_db_id = broker.get_brokers()[0].get_info()['id']
+        last_mod = Timestamp.now()
+        ctx = CleavingContext(old_db_id, 'curs', 12, 11, 2, True, True, 2, 4)
+        with mock_timestamp_now(last_mod):
+            ctx.store(broker)
+        key = 'X-Container-Sysmeta-Shard-Context-%s' % old_db_id
+        data = json.loads(broker.metadata[key][0])
+        expected = {'ref': old_db_id,
+                    'cursor': 'curs',
+                    'max_row': 12,
+                    'cleave_to_row': 11,
+                    'last_cleave_to_row': 2,
+                    'cleaving_done': True,
+                    'misplaced_done': True,
+                    'ranges_done': 2,
+                    'ranges_todo': 4}
+        self.assertEqual(expected, data)
+        # last modified is the metadata timestamp
+        self.assertEqual(broker.metadata[key][1], last_mod.internal)
+
+    def test_store_add_row_load_old_style(self):
+        # adding row to older db changes only max_row in the context
+        broker = self._make_old_style_sharding_broker()
+        old_broker = broker.get_brokers()[0]
+        old_db_id = old_broker.get_info()['id']
+        old_broker.merge_items([old_broker._record_to_dict(
+            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+        old_max_row = old_broker.get_max_row()
+        self.assertEqual(1, old_max_row)  # sanity check
+        ctx = CleavingContext(old_db_id, 'curs', 1, 1, 0, True, True)
+        ctx.store(broker)
+
+        # adding a row changes max row
+        old_broker.merge_items([old_broker._record_to_dict(
+            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+
+        new_ctx = CleavingContext.load(broker)
+        self.assertEqual(old_db_id, new_ctx.ref)
+        self.assertEqual('curs', new_ctx.cursor)
+        self.assertEqual(2, new_ctx.max_row)
+        self.assertEqual(1, new_ctx.cleave_to_row)
+        self.assertEqual(0, new_ctx.last_cleave_to_row)
+        self.assertTrue(new_ctx.misplaced_done)
+        self.assertTrue(new_ctx.cleaving_done)
+
+    def test_store_reclaim_load_old_style(self):
+        # reclaiming rows from older db does not change context
+        broker = self._make_old_style_sharding_broker()
+        old_broker = broker.get_brokers()[0]
+        old_db_id = old_broker.get_info()['id']
+        old_broker.merge_items([old_broker._record_to_dict(
+            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+        old_max_row = old_broker.get_max_row()
+        self.assertEqual(1, old_max_row)  # sanity check
+        ctx = CleavingContext(old_db_id, 'curs', 1, 1, 0, True, True)
+        ctx.store(broker)
+
+        self.assertEqual(
+            1, len(old_broker.get_objects()))
+        now = next(self.ts_iter).internal
+        broker.get_brokers()[0].reclaim(now, now)
+        self.assertFalse(old_broker.get_objects())
+
+        new_ctx = CleavingContext.load(broker)
+        self.assertEqual(old_db_id, new_ctx.ref)
+        self.assertEqual('curs', new_ctx.cursor)
+        self.assertEqual(1, new_ctx.max_row)
+        self.assertEqual(1, new_ctx.cleave_to_row)
+        self.assertEqual(0, new_ctx.last_cleave_to_row)
+        self.assertTrue(new_ctx.misplaced_done)
+        self.assertTrue(new_ctx.cleaving_done)
+
+    def test_store_modify_db_id_load_old_style(self):
+        # changing id changes ref, so results in a fresh context
+        broker = self._make_old_style_sharding_broker()
+        old_broker = broker.get_brokers()[0]
+        old_db_id = old_broker.get_info()['id']
+        ctx = CleavingContext(old_db_id, 'curs', 12, 11, 2, True, True)
+        ctx.store(broker)
+
+        old_broker.newid('fake_remote_id')
+        new_db_id = old_broker.get_info()['id']
+        self.assertNotEqual(old_db_id, new_db_id)
+
+        new_ctx = CleavingContext.load(broker)
+        self.assertEqual(new_db_id, new_ctx.ref)
+        self.assertEqual('', new_ctx.cursor)
+        # note max_row is dynamically updated during load
+        self.assertEqual(-1, new_ctx.max_row)
+        self.assertEqual(None, new_ctx.cleave_to_row)
+        self.assertEqual(None, new_ctx.last_cleave_to_row)
+        self.assertFalse(new_ctx.misplaced_done)
+        self.assertFalse(new_ctx.cleaving_done)
+
+    def test_load_modify_store_load_old_style(self):
+        broker = self._make_old_style_sharding_broker()
+        old_db_id = broker.get_brokers()[0].get_info()['id']
+        ctx = CleavingContext.load(broker)
+        self.assertEqual(old_db_id, ctx.ref)
+        self.assertEqual('', ctx.cursor)  # sanity check
+        ctx.cursor = 'curs'
+        ctx.misplaced_done = True
+        ctx.store(broker)
+        ctx = CleavingContext.load(broker)
+        self.assertEqual(old_db_id, ctx.ref)
+        self.assertEqual('curs', ctx.cursor)
+        self.assertTrue(ctx.misplaced_done)
 
     def test_store(self):
         broker = self._make_sharding_broker()

@@ -656,7 +656,14 @@ class ContainerSharder(ContainerReplicator):
         # Get the valid info into the broker.container, etc
         shard_broker.get_info()
         shard_broker.merge_shard_ranges(shard_range)
-        shard_broker.set_sharding_sysmeta('Root', root_path)
+        shard_broker.set_sharding_sysmeta('Quoted-Root', quote(root_path))
+        # NB: we *used* to do
+        #    shard_broker.set_sharding_sysmeta('Root', root_path)
+        # but that isn't safe for container names with nulls or newlines (or
+        # possibly some other characters). We consciously *don't* make any
+        # attempt to set the old meta; during an upgrade, some shards may think
+        # they are in fact roots, but it cleans up well enough once everyone's
+        # upgraded.
         shard_broker.update_metadata({
             'X-Container-Sysmeta-Sharding':
                 ('True', Timestamp.now().internal)})
@@ -1129,8 +1136,16 @@ class ContainerSharder(ContainerReplicator):
             shard_range.update_state(ShardRange.CREATED)
             headers = {
                 'X-Backend-Storage-Policy-Index': broker.storage_policy_index,
-                'X-Container-Sysmeta-Shard-Root': broker.root_path,
+                'X-Container-Sysmeta-Shard-Quoted-Root': quote(
+                    broker.root_path),
                 'X-Container-Sysmeta-Sharding': True}
+            # NB: we *used* to send along
+            #    'X-Container-Sysmeta-Shard-Root': broker.root_path
+            # but that isn't safe for container names with nulls or newlines
+            # (or possibly some other characters). We consciously *don't* make
+            # any attempt to set the old meta; during an upgrade, some shards
+            # may think they are in fact roots, but it cleans up well enough
+            # once everyone's upgraded.
             success = self._send_shard_ranges(
                 shard_range.account, shard_range.container,
                 [shard_range], headers=headers)

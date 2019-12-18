@@ -23,6 +23,7 @@ from swift import gettext_ as _
 from eventlet import Timeout
 
 import six
+from six.moves.urllib.parse import quote
 
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
@@ -282,6 +283,11 @@ class ContainerController(BaseStorageServer):
         """
         if not config_true_value(
                 req.headers.get('x-backend-accept-redirect', False)):
+            # We want to avoid fetching shard ranges for the (more
+            # time-sensitive) object-server update, so allow some misplaced
+            # objects to land between when we've started sharding and when the
+            # proxy learns about it. Note that this path is also used by old,
+            # pre-sharding updaters during a rolling upgrade.
             return None
 
         shard_ranges = broker.get_shard_ranges(
@@ -294,7 +300,15 @@ class ContainerController(BaseStorageServer):
         # in preference to the parent, which is the desired result.
         containing_range = shard_ranges[0]
         location = "/%s/%s" % (containing_range.name, obj_name)
-        headers = {'Location': location,
+        if location != quote(location) and not config_true_value(
+                req.headers.get('x-backend-accept-quoted-location', False)):
+            # Sender expects the destination to be unquoted, but it isn't safe
+            # to send unquoted. Eat the update for now and let the sharder
+            # move it later. Should only come up during rolling upgrades.
+            return None
+
+        headers = {'Location': quote(location),
+                   'X-Backend-Location-Is-Quoted': 'true',
                    'X-Backend-Redirect-Timestamp':
                        containing_range.timestamp.internal}
 

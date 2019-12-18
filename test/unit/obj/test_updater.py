@@ -711,19 +711,24 @@ class TestObjectUpdater(unittest.TestCase):
             'X-Backend-Storage-Policy-Index': str(int(policies[0])),
             'User-Agent': 'object-updater %s' % os.getpid(),
             'X-Backend-Accept-Redirect': 'true',
+            'X-Backend-Accept-Quoted-Location': 'true',
         }
-        # always expect X-Backend-Accept-Redirect to be true
+        # always expect X-Backend-Accept-Redirect and
+        # X-Backend-Accept-Quoted-Location to be true
         do_test(headers_out, expected, container_path='.shards_a/shard_c')
         do_test(headers_out, expected)
 
-        # ...unless X-Backend-Accept-Redirect is already set
+        # ...unless they're already set
         expected['X-Backend-Accept-Redirect'] = 'false'
+        expected['X-Backend-Accept-Quoted-Location'] = 'false'
         headers_out_2 = dict(headers_out)
         headers_out_2['X-Backend-Accept-Redirect'] = 'false'
+        headers_out_2['X-Backend-Accept-Quoted-Location'] = 'false'
         do_test(headers_out_2, expected)
 
         # updater should add policy header if missing
         expected['X-Backend-Accept-Redirect'] = 'true'
+        expected['X-Backend-Accept-Quoted-Location'] = 'true'
         headers_out['X-Backend-Storage-Policy-Index'] = None
         do_test(headers_out, expected)
 
@@ -747,7 +752,8 @@ class TestObjectUpdater(unittest.TestCase):
             'X-Timestamp': timestamp.internal,
             'X-Backend-Storage-Policy-Index': str(int(policy)),
             'User-Agent': 'object-updater %s' % os.getpid(),
-            'X-Backend-Accept-Redirect': 'true'}
+            'X-Backend-Accept-Redirect': 'true',
+            'X-Backend-Accept-Quoted-Location': 'true'}
         for request in requests:
             self.assertEqual('PUT', request['method'])
             self.assertDictEqual(expected_headers, request['headers'])
@@ -954,9 +960,11 @@ class TestObjectUpdater(unittest.TestCase):
             # 1st round of redirects, newest redirect should be chosen
             (301, {'Location': '/.shards_a/c_shard_old/o',
                    'X-Backend-Redirect-Timestamp': ts_redirect_1.internal}),
-            (301, {'Location': '/.shards_a/c_shard_new/o',
+            (301, {'Location': '/.shards_a/c%5Fshard%5Fnew/o',
+                   'X-Backend-Location-Is-Quoted': 'true',
                    'X-Backend-Redirect-Timestamp': ts_redirect_2.internal}),
-            (301, {'Location': '/.shards_a/c_shard_old/o',
+            (301, {'Location': '/.shards_a/c%5Fshard%5Fold/o',
+                   'X-Backend-Location-Is-Quoted': 'true',
                    'X-Backend-Redirect-Timestamp': ts_redirect_1.internal}),
             # 2nd round of redirects
             (301, {'Location': '/.shards_a/c_shard_newer/o',

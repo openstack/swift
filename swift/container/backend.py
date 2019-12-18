@@ -22,6 +22,7 @@ from uuid import uuid4
 
 import six
 from six.moves import range
+from six.moves.urllib.parse import unquote
 import sqlite3
 from eventlet import tpool
 
@@ -2045,7 +2046,14 @@ class ContainerBroker(DatabaseBroker):
         ``container`` attributes respectively.
 
         """
-        path = self.get_sharding_sysmeta('Root')
+        path = self.get_sharding_sysmeta('Quoted-Root')
+        hdr = 'X-Container-Sysmeta-Shard-Quoted-Root'
+        if path:
+            path = unquote(path)
+        else:
+            path = self.get_sharding_sysmeta('Root')
+            hdr = 'X-Container-Sysmeta-Shard-Root'
+
         if not path:
             # Ensure account/container get populated
             self._populate_instance_cache()
@@ -2057,8 +2065,8 @@ class ContainerBroker(DatabaseBroker):
             self._root_account, self._root_container = split_path(
                 '/' + path, 2, 2)
         except ValueError:
-            raise ValueError("Expected X-Container-Sysmeta-Shard-Root to be "
-                             "of the form 'account/container', got %r" % path)
+            raise ValueError("Expected %s to be of the form "
+                             "'account/container', got %r" % (hdr, path))
 
     @property
     def root_account(self):
