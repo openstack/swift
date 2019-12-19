@@ -16,6 +16,7 @@
 # limitations under the License.
 
 import datetime
+import hashlib
 import json
 import unittest
 from uuid import uuid4
@@ -1718,6 +1719,58 @@ class TestObject(unittest.TestCase):
         self.assertEqual(len(final_status), 1)
         self.assertEqual(len(final_status[0].childNodes), 1)
         self.assertEqual(final_status[0].childNodes[0].data, '200 OK')
+
+    def test_etag_quoter(self):
+        if tf.skip:
+            raise SkipTest
+        if 'etag_quoter' not in tf.cluster_info:
+            raise SkipTest("etag-quoter middleware is not enabled")
+
+        def do_head(expect_quoted=False):
+            def head(url, token, parsed, conn):
+                conn.request('HEAD', '%s/%s/%s' % (
+                    parsed.path, self.container, self.obj), '',
+                    {'X-Auth-Token': token})
+                return check_response(conn)
+
+            resp = retry(head)
+            resp.read()
+            self.assertEqual(resp.status, 200)
+            expected_etag = hashlib.md5(b'test').hexdigest()
+            if expect_quoted:
+                expected_etag = '"%s"' % expected_etag
+            self.assertEqual(resp.headers['etag'], expected_etag)
+
+        def _post(enable_flag, container_path):
+            def post(url, token, parsed, conn):
+                if container_path:
+                    path = '%s/%s' % (parsed.path, self.container)
+                    hdr = 'X-Container-Rfc-Compliant-Etags'
+                else:
+                    path = parsed.path
+                    hdr = 'X-Account-Rfc-Compliant-Etags'
+                headers = {hdr: enable_flag, 'X-Auth-Token': token}
+                conn.request('POST', path, '', headers)
+                return check_response(conn)
+
+            resp = retry(post)
+            resp.read()
+            self.assertEqual(resp.status, 204)
+
+        def post_account(enable_flag):
+            return _post(enable_flag, False)
+
+        def post_container(enable_flag):
+            return _post(enable_flag, True)
+
+        do_head()
+        post_container('t')
+        do_head(expect_quoted=True)
+        post_account('t')
+        post_container('')
+        do_head(expect_quoted=True)
+        post_container('f')
+        do_head()
 
 
 if __name__ == '__main__':

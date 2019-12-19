@@ -141,6 +141,7 @@ SYM                     :ref:`symlink`
 SH                      :ref:`sharding_doc`
 S3                      :ref:`s3api`
 OV                      :ref:`object_versioning`
+EQ                      :ref:`etag_quoter`
 ======================= =============================
 
 

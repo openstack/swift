@@ -850,6 +850,17 @@ use = egg:swift#name_check
 # maximum_length = 255
 # forbidden_regexp = /\./|/\.\./|/\.$|/\.\.$
 
+# Note: Etag quoter should be placed just after cache in the pipeline.
+[filter:etag-quoter]
+use = egg:swift#etag_quoter
+# Historically, Swift has emitted bare MD5 hex digests as ETags, which is not
+# RFC compliant. With this middleware in the pipeline, users can opt-in to
+# RFC-compliant ETags on a per-account or per-container basis.
+#
+# Set to true to enable RFC-compliant ETags cluster-wide by default. Users
+# can still opt-out by setting appropriate account or container metadata.
+# enable_by_default = false
+
 [filter:list-endpoints]
 use = egg:swift#list_endpoints
 # list_endpoints_path = /endpoints/
