@@ -29,6 +29,7 @@ import six
 from swift.common.header_key_dict import HeaderKeyDict
 
 from swift import gettext_ as _
+from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
@@ -41,6 +42,7 @@ from swift.common.utils import split_path, validate_device_partition, \
     parse_content_range, csv_append, list_from_csv, Spliterator, quote, \
     RESERVED
 from swift.common.wsgi import make_subrequest
+from swift.container.reconciler import MISPLACED_OBJECTS_ACCOUNT
 
 
 OBJECT_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-'
@@ -121,7 +123,8 @@ def validate_internal_obj(account, container, obj):
     if not container:
         raise ValueError('Container is required')
     validate_internal_container(account, container)
-    if obj:
+    if obj and not (account.startswith(AUTO_CREATE_ACCOUNT_PREFIX) or
+                    account == MISPLACED_OBJECTS_ACCOUNT):
         _validate_internal_name(obj, 'object')
         if container.startswith(RESERVED) and not obj.startswith(RESERVED):
             raise HTTPBadRequest(body='Invalid user-namespace object '

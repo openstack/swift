@@ -19,6 +19,7 @@ import unittest
 from swift.common.swob import Request, HTTPException, HeaderKeyDict
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.common import request_helpers as rh
+from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 
 from test.unit import patch_policies
 from test.unit.common.test_utils import FakeResponse
@@ -279,6 +280,11 @@ class TestRequestHelpers(unittest.TestCase):
                 rh.validate_internal_obj(
                     'AUTH_foo', cont, 'baz')
             self.assertEqual(raised.exception.args[0], 'Container is required')
+
+    def test_invalid_names_in_system_accounts(self):
+        self.assertIsNone(rh.validate_internal_obj(
+            AUTO_CREATE_ACCOUNT_PREFIX + 'system_account', 'foo',
+            'crazy%stown' % rh.RESERVED))
 
     def test_invalid_reserved_names(self):
         with self.assertRaises(HTTPException) as raised:
