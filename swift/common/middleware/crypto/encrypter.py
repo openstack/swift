@@ -369,7 +369,10 @@ class Encrypter(object):
             return self.app(env, start_response)
         try:
             req.split_path(4, 4, True)
+            is_object_request = True
         except ValueError:
+            is_object_request = False
+        if not is_object_request:
             return self.app(env, start_response)
 
         if req.method in ('GET', 'HEAD'):
