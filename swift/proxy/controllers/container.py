@@ -159,7 +159,7 @@ class ContainerController(Controller):
             return resp
 
         objects = []
-        req_limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
+        req_limit = int(req.params.get('limit') or CONTAINER_LISTING_LIMIT)
         params = req.params.copy()
         params.pop('states', None)
         req.headers.pop('X-Backend-Record-Type', None)
