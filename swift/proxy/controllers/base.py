@@ -1294,10 +1294,11 @@ class ResumingGetter(object):
                         return True
         else:
             if 'handoff_index' in node and \
-                    possible_source.status == HTTP_NOT_FOUND and \
+                    (is_server_error(possible_source.status) or
+                     possible_source.status == HTTP_NOT_FOUND) and \
                     not Timestamp(src_headers.get('x-backend-timestamp', 0)):
-                # throw out 404s from handoff nodes unless the data is really
-                # on disk and had been DELETEd
+                # throw out 5XX and 404s from handoff nodes unless the data is
+                # really on disk and had been DELETEd
                 return False
             self.statuses.append(possible_source.status)
             self.reasons.append(possible_source.reason)

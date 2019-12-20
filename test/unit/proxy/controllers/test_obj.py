@@ -784,6 +784,23 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             self.assertEqual(req['method'], 'HEAD')
             self.assertEqual(req['path'], '/a/c/o')
 
+    def test_some_404s_and_507s(self):
+        self.policy.object_ring.max_more_nodes = (3 * self.replicas())
+        req = swob.Request.blank('/v1/a/c/o', method='HEAD')
+        responses = [StubResponse(
+            404, headers={'X-Backend-Timestamp': '2'})] * self.replicas()
+        responses += [StubResponse(507, headers={})] * (
+            self.policy.object_ring.max_more_nodes - self.replicas())
+        self.assertEqual(len(responses), 3 * self.replicas())  # sanity
+
+        def get_response(req):
+            return responses.pop(0)
+
+        with capture_http_requests(get_response):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], '2')
+
     def test_container_sync_delete(self):
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
