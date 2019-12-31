@@ -25,6 +25,7 @@ import zlib
 from time import gmtime, strftime, time
 from zlib import compressobj
 
+from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.exceptions import ClientException
 from swift.common.http import (HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES,
                                is_server_error)
@@ -158,7 +159,7 @@ class InternalClient(object):
     container_ring = pipeline_property('container_ring')
     account_ring = pipeline_property('account_ring')
     auto_create_account_prefix = pipeline_property(
-        'auto_create_account_prefix', default='.')
+        'auto_create_account_prefix', default=AUTO_CREATE_ACCOUNT_PREFIX)
 
     def make_request(
             self, method, path, headers, acceptable_statuses, body_file=None,

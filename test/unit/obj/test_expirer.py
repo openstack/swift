@@ -154,6 +154,20 @@ class TestObjectExpirer(TestCase):
         internal_client.sleep = self.old_sleep
         internal_client.loadapp = self.old_loadapp
 
+    def test_init(self):
+        x = expirer.ObjectExpirer({}, logger=self.logger)
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        self.assertEqual(x.expiring_objects_account, '.expiring_objects')
+        x = expirer.ObjectExpirer({'auto_create_account_prefix': '-'},
+                                  logger=self.logger)
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Option auto_create_account_prefix is deprecated. '
+            'Configure auto_create_account_prefix under the '
+            'swift-constraints section of swift.conf. This option '
+            'will be ignored in a future release.'
+        ])
+        self.assertEqual(x.expiring_objects_account, '-expiring_objects')
+
     def test_get_process_values_from_kwargs(self):
         x = expirer.ObjectExpirer({})
         vals = {

@@ -23,6 +23,7 @@ from swift.common.internal_client import InternalClient
 from swift.common import utils, direct_client
 from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
+from swift.container.reconciler import MISPLACED_OBJECTS_ACCOUNT
 from test.probe.brain import BrainSplitter
 from test.probe.common import (ReplProbeTest, ENABLED_POLICIES,
                                POLICIES_BY_TYPE, REPL_POLICY)
@@ -495,8 +496,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                 server.once(number=self.config_number(node))
 
         # verify entry in the queue for the "misplaced" new_policy
-        for container in int_client.iter_containers('.misplaced_objects'):
-            for obj in int_client.iter_objects('.misplaced_objects',
+        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
+            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
                                                container['name']):
                 expected = '%d:/%s/%s/%s' % (new_policy, self.account,
                                              self.container_name,
@@ -519,8 +520,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.get_to_final_state()
 
         # verify entry in the queue
-        for container in int_client.iter_containers('.misplaced_objects'):
-            for obj in int_client.iter_objects('.misplaced_objects',
+        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
+            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
                                                container['name']):
                 expected = '%d:/%s/%s/%s' % (old_policy, self.account,
                                              self.container_name,
@@ -540,8 +541,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
 
         # make sure the queue is settled
         self.get_to_final_state()
-        for container in int_client.iter_containers('.misplaced_objects'):
-            for obj in int_client.iter_objects('.misplaced_objects',
+        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
+            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
                                                container['name']):
                 self.fail('Found unexpected object %r in the queue' % obj)
 

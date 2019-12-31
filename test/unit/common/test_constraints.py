@@ -649,10 +649,15 @@ class TestConstraintsConfig(unittest.TestCase):
                 f.flush()
                 with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                     constraints.reload_constraints()
-            for key in constraints.DEFAULT_CONSTRAINTS:
+            for key, default in constraints.DEFAULT_CONSTRAINTS.items():
                 # module level attrs should all be 1
                 module_level_value = getattr(constraints, key.upper())
-                self.assertEqual(module_level_value, 1)
+                if isinstance(default, int):
+                    self.assertEqual(module_level_value, 1)
+                elif isinstance(default, str):
+                    self.assertEqual(module_level_value, '1')
+                else:
+                    self.assertEqual(module_level_value, ['1'])
                 # all keys should be in OVERRIDE
                 self.assertEqual(constraints.OVERRIDE_CONSTRAINTS[key],
                                  module_level_value)

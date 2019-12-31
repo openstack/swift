@@ -40,7 +40,8 @@ from swift.common.utils import get_logger, hash_path, public, \
     override_bytes_from_content_type, get_log_line, \
     config_fallocate_value, fs_has_free_space, list_from_csv, \
     ShardRange
-from swift.common.constraints import valid_timestamp, check_utf8, check_drive
+from swift.common.constraints import valid_timestamp, check_utf8, \
+    check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
@@ -142,8 +143,17 @@ class ContainerController(BaseStorageServer):
         self.replicator_rpc = ContainerReplicatorRpc(
             self.root, DATADIR, ContainerBroker, self.mount_check,
             logger=self.logger)
-        self.auto_create_account_prefix = \
-            conf.get('auto_create_account_prefix') or '.'
+        if conf.get('auto_create_account_prefix'):
+            self.logger.warning('Option auto_create_account_prefix is '
+                                'deprecated. Configure '
+                                'auto_create_account_prefix under the '
+                                'swift-constraints section of '
+                                'swift.conf. This option will '
+                                'be ignored in a future release.')
+            self.auto_create_account_prefix = \
+                conf['auto_create_account_prefix']
+        else:
+            self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
         if config_true_value(conf.get('allow_versions', 'f')):
             self.save_headers.append('x-versions-location')
         if 'allow_versions' in conf:

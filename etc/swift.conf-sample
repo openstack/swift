@@ -194,3 +194,8 @@ aliases = yellow, orange
 # api versions are by default excluded from /info.
 
 # valid_api_versions = v1,v1.0
+
+# The prefix used for hidden auto-created accounts, for example accounts in
+# which shard containers are created. It defaults to '.'; don't change it.
+
+# auto_create_account_prefix = .

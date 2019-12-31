@@ -223,8 +223,18 @@ class Application(object):
                        [os.path.join(swift_dir, 'mime.types')])
         self.account_autocreate = \
             config_true_value(conf.get('account_autocreate', 'no'))
-        self.auto_create_account_prefix = (
-            conf.get('auto_create_account_prefix') or '.')
+        if conf.get('auto_create_account_prefix'):
+            self.logger.warning('Option auto_create_account_prefix is '
+                                'deprecated. Configure '
+                                'auto_create_account_prefix under the '
+                                'swift-constraints section of '
+                                'swift.conf. This option will '
+                                'be ignored in a future release.')
+            self.auto_create_account_prefix = \
+                conf['auto_create_account_prefix']
+        else:
+            self.auto_create_account_prefix = \
+                constraints.AUTO_CREATE_ACCOUNT_PREFIX
         self.expiring_objects_account = self.auto_create_account_prefix + \
             (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \
@@ -295,7 +305,10 @@ class Application(object):
         self.expose_info = config_true_value(
             conf.get('expose_info', 'yes'))
         self.disallowed_sections = list_from_csv(
-            conf.get('disallowed_sections', 'swift.valid_api_versions'))
+            conf.get('disallowed_sections', ', '.join([
+                'swift.auto_create_account_prefix',
+                'swift.valid_api_versions',
+            ])))
         self.admin_key = conf.get('admin_key', None)
         register_swift_info(
             version=swift_version,

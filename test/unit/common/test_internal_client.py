@@ -25,14 +25,13 @@ from textwrap import dedent
 import six
 from six.moves import range, zip_longest
 from six.moves.urllib.parse import quote, parse_qsl
-from test.unit import FakeLogger
 from swift.common import exceptions, internal_client, swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies, \
-    DebugLogger
+    debug_logger
 from test.unit.common.middleware.helpers import FakeSwift, LeakTrackingIter
 
 if six.PY3:
@@ -256,8 +255,17 @@ class TestInternalClient(unittest.TestCase):
         write_fake_ring(container_ring_path)
         object_ring_path = os.path.join(tempdir, 'object.ring.gz')
         write_fake_ring(object_ring_path)
+        logger = debug_logger('test-ic')
+        self.assertEqual(logger.get_lines_for_level('warning'), [])
         with patch_policies([StoragePolicy(0, 'legacy', True)]):
-            client = internal_client.InternalClient(conf_path, 'test', 1)
+            with mock.patch('swift.proxy.server.get_logger',
+                            lambda *a, **kw: logger):
+                client = internal_client.InternalClient(conf_path, 'test', 1)
+            self.assertEqual(logger.get_lines_for_level('warning'), [
+                'Option auto_create_account_prefix is deprecated. '
+                'Configure auto_create_account_prefix under the '
+                'swift-constraints section of swift.conf. This option will '
+                'be ignored in a future release.'])
             self.assertEqual(client.account_ring,
                              client.app.app.app.account_ring)
             self.assertEqual(client.account_ring.serialized_path,
@@ -454,7 +462,7 @@ class TestInternalClient(unittest.TestCase):
     def test_make_request_error_case(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self):
-                self.logger = DebugLogger()
+                self.logger = debug_logger('test-ic')
                 # wrap the fake app with ProxyLoggingMiddleware
                 self.app = ProxyLoggingMiddleware(
                     self.fake_app, {}, self.logger)
@@ -484,7 +492,7 @@ class TestInternalClient(unittest.TestCase):
     def test_make_request_acceptable_status_not_2xx(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self, resp_status):
-                self.logger = DebugLogger()
+                self.logger = debug_logger('test-ic')
                 # wrap the fake app with ProxyLoggingMiddleware
                 self.app = ProxyLoggingMiddleware(
                     self.fake_app, {}, self.logger)
@@ -1408,7 +1416,7 @@ class TestSimpleClient(unittest.TestCase):
             urlopen.return_value.getcode.return_value = 200
             urlopen.return_value.info.return_value = {'content-length': '345'}
             sc = internal_client.SimpleClient(url='http://127.0.0.1')
-            logger = FakeLogger()
+            logger = debug_logger('test-ic')
             retval = sc.retry_request(
                 method, headers={'content-length': '123'}, logger=logger)
             self.assertEqual(urlopen.call_count, 1)
@@ -1417,10 +1425,11 @@ class TestSimpleClient(unittest.TestCase):
                                        data=None)
             self.assertEqual([{'content-length': '345'}, None], retval)
             self.assertEqual(method, request.return_value.get_method())
-            self.assertEqual(logger.log_dict['debug'], [(
-                ('-> 2014-05-27T20:54:11 ' + method +
-                 ' http://127.0.0.1%3Fformat%3Djson 200 '
-                 '123 345 1401224050.98 1401224051.98 1.0 -',), {})])
+            self.assertEqual(logger.get_lines_for_level('debug'), [
+                '-> 2014-05-27T20:54:11 ' + method +
+                ' http://127.0.0.1%3Fformat%3Djson 200 '
+                '123 345 1401224050.98 1401224051.98 1.0 -'
+            ])
 
             # Check if JSON is decoded
             urlopen.return_value.read.return_value = b'{}'

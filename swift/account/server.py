@@ -32,7 +32,8 @@ from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, config_true_value, \
     timing_stats, replication, get_log_line, \
     config_fallocate_value, fs_has_free_space
-from swift.common.constraints import valid_timestamp, check_utf8, check_drive
+from swift.common.constraints import valid_timestamp, check_utf8, \
+    check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common import constraints
 from swift.common.db_replicator import ReplicatorRpc
 from swift.common.base_storage_server import BaseStorageServer
@@ -85,8 +86,18 @@ class AccountController(BaseStorageServer):
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR, AccountBroker,
                                             self.mount_check,
                                             logger=self.logger)
-        self.auto_create_account_prefix = \
-            conf.get('auto_create_account_prefix') or '.'
+        if conf.get('auto_create_account_prefix'):
+            self.logger.warning('Option auto_create_account_prefix is '
+                                'deprecated. Configure '
+                                'auto_create_account_prefix under the '
+                                'swift-constraints section of '
+                                'swift.conf. This option will '
+                                'be ignored in a future release.')
+            self.auto_create_account_prefix = \
+                conf['auto_create_account_prefix']
+        else:
+            self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
+
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         swift.common.db.QUERY_LOGGING = \
