@@ -165,7 +165,7 @@ from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
     HTTPRequestEntityTooLarge, HTTPInternalServerError, HTTPNotAcceptable, \
     HTTPConflict
 from swift.common.storage_policy import POLICIES
-from swift.common.utils import get_logger, Timestamp, \
+from swift.common.utils import get_logger, Timestamp, drain_and_close, \
     config_true_value, close_if_possible, closing_if_possible, \
     FileLikeIter, split_path, parse_content_type, RESERVED_STR
 from swift.common.wsgi import WSGIContext, make_pre_authed_request
@@ -288,6 +288,8 @@ class ObjectContext(ObjectVersioningContext):
             put_req.headers['Content-Type'] += '; swift_bytes=%s' % slo_size
             put_req.environ['swift.content_type_overridden'] = True
         put_resp = put_req.get_response(self.app)
+        drain_and_close(put_resp)
+        # the PUT should have already drained source_resp
         close_if_possible(source_resp.app_iter)
         return put_resp
 
@@ -324,19 +326,16 @@ class ObjectContext(ObjectVersioningContext):
 
         # do the write
         put_resp = put_req.get_response(self.app)
+        drain_and_close(put_resp)
+        close_if_possible(put_req.environ['wsgi.input'])
 
         if put_resp.status_int == HTTP_NOT_FOUND:
-            close_if_possible(put_resp.app_iter)
             raise HTTPInternalServerError(
                 request=req, content_type='text/plain',
                 body=b'The versions container does not exist. You may '
                      b'want to re-enable object versioning.')
 
         self._check_response_error(req, put_resp)
-        with closing_if_possible(put_resp.app_iter), closing_if_possible(
-                put_req.environ['wsgi.input']):
-            for chunk in put_resp.app_iter:
-                pass
         put_bytes = byte_counter.bytes_read
         # N.B. this is essentially the same hack that symlink does in
         # _validate_etag_and_update_sysmeta to deal with SLO
@@ -390,7 +389,7 @@ class ObjectContext(ObjectVersioningContext):
         """
         if is_success(resp.status_int):
             return
-        close_if_possible(resp.app_iter)
+        drain_and_close(resp)
         if is_client_error(resp.status_int):
             # missing container or bad permissions
             if resp.status_int == 404:
@@ -429,10 +428,7 @@ class ObjectContext(ObjectVersioningContext):
 
         if get_resp.status_int == HTTP_NOT_FOUND:
             # nothing to version, proceed with original request
-            for chunk in get_resp.app_iter:
-                # Should be short; just avoiding the 499
-                pass
-            close_if_possible(get_resp.app_iter)
+            drain_and_close(get_resp)
             return get_resp
 
         # check for any other errors
@@ -440,7 +436,7 @@ class ObjectContext(ObjectVersioningContext):
 
         if get_resp.headers.get(SYSMETA_VERSIONS_SYMLINK) == 'true':
             # existing object is a VW symlink; no action required
-            close_if_possible(get_resp.app_iter)
+            drain_and_close(get_resp)
             return get_resp
 
         # if there's an existing object, then copy it to
@@ -458,15 +454,12 @@ class ObjectContext(ObjectVersioningContext):
         put_resp = self._put_versioned_obj(req, put_path_info, get_resp)
 
         if put_resp.status_int == HTTP_NOT_FOUND:
-            close_if_possible(put_resp.app_iter)
             raise HTTPInternalServerError(
                 request=req, content_type='text/plain',
                 body=b'The versions container does not exist. You may '
                      b'want to re-enable object versioning.')
 
         self._check_response_error(req, put_resp)
-        close_if_possible(put_resp.app_iter)
-        return put_resp
 
     def handle_put(self, req, versions_cont, api_version,
                    account_name, object_name, is_enabled):
@@ -553,7 +546,7 @@ class ObjectContext(ObjectVersioningContext):
         marker_req.environ['swift.content_type_overridden'] = True
         marker_resp = marker_req.get_response(self.app)
         self._check_response_error(req, marker_resp)
-        close_if_possible(marker_resp.app_iter)
+        drain_and_close(marker_resp)
 
         # successfully copied and created delete marker; safe to delete
         resp = req.get_response(self.app)
@@ -561,7 +554,7 @@ class ObjectContext(ObjectVersioningContext):
             resp.headers['X-Object-Version-Id'] = \
                 self._split_version_from_name(marker_name)[1].internal
             resp.headers['X-Backend-Content-Type'] = DELETE_MARKER_CONTENT_TYPE
-        close_if_possible(resp.app_iter)
+        drain_and_close(resp)
         return resp
 
     def handle_post(self, req, versions_cont, account):
@@ -595,7 +588,7 @@ class ObjectContext(ObjectVersioningContext):
             # Only follow if the version container matches
             if split_path(loc, 4, 4, True)[1:3] == [
                     account, versions_cont]:
-                close_if_possible(resp.app_iter)
+                drain_and_close(resp)
                 post_req.path_info = loc
                 resp = post_req.get_response(self.app)
         return resp
@@ -620,7 +613,7 @@ class ObjectContext(ObjectVersioningContext):
             self._check_response_error(req, hresp)
             if hresp.headers.get(SYSMETA_VERSIONS_SYMLINK) == 'true':
                 symlink_target = hresp.headers.get(TGT_OBJ_SYMLINK_HDR)
-        close_if_possible(hresp.app_iter)
+        drain_and_close(hresp)
         return head_is_tombstone, symlink_target
 
     def handle_delete_version(self, req, versions_cont, api_version,
@@ -656,7 +649,7 @@ class ObjectContext(ObjectVersioningContext):
             req.environ['QUERY_STRING'] = ''
             link_resp = req.get_response(self.app)
             self._check_response_error(req, link_resp)
-            close_if_possible(link_resp.app_iter)
+            drain_and_close(link_resp)
 
             # *then* the backing data
             req.path_info = "/%s/%s/%s/%s" % (
@@ -693,7 +686,7 @@ class ObjectContext(ObjectVersioningContext):
             method='HEAD', headers=obj_head_headers, swift_source='OV')
         head_resp = head_req.get_response(self.app)
         if head_resp.status_int == HTTP_NOT_FOUND:
-            close_if_possible(head_resp.app_iter)
+            drain_and_close(head_resp)
             if is_success(get_container_info(
                     head_req.environ, self.app, swift_source='OV')['status']):
                 raise HTTPNotFound(
@@ -706,7 +699,7 @@ class ObjectContext(ObjectVersioningContext):
                          b'want to re-enable object versioning.')
 
         self._check_response_error(req, head_resp)
-        close_if_possible(head_resp.app_iter)
+        drain_and_close(head_resp)
 
         put_etag = head_resp.headers['ETag']
         put_bytes = head_resp.content_length
@@ -773,7 +766,7 @@ class ObjectContext(ObjectVersioningContext):
                     raise HTTPNotFound(request=req)
                 resp.headers['X-Object-Version-Id'] = 'null'
                 if req.method == 'HEAD':
-                    close_if_possible(resp.app_iter)
+                    drain_and_close(resp)
             return resp
         else:
             # Re-write the path; most everything else goes through normally
@@ -791,7 +784,7 @@ class ObjectContext(ObjectVersioningContext):
                 'X-Backend-Content-Type', resp.headers['Content-Type'])
 
             if req.method == 'HEAD':
-                close_if_possible(resp.app_iter)
+                drain_and_close(resp)
 
             if is_del_marker:
                 hdrs = {'X-Object-Version-Id': version,
@@ -880,7 +873,7 @@ class ContainerContext(ObjectVersioningContext):
                     self._response_headers[bytes_idx] = (
                         'X-Container-Bytes-Used',
                         str(int(curr_bytes) + int(ver_bytes)))
-                close_if_possible(vresp.app_iter)
+                drain_and_close(vresp)
         elif is_success(self._get_status_int()):
             # If client is doing a version-aware listing for a container that
             # (as best we could tell) has never had versioning enabled,
@@ -972,7 +965,7 @@ class ContainerContext(ObjectVersioningContext):
                     account, str_to_wsgi(versions_cont))),
                 headers={'X-Backend-Allow-Reserved-Names': 'true'})
             vresp = versions_req.get_response(self.app)
-            close_if_possible(vresp.app_iter)
+            drain_and_close(vresp)
             if vresp.is_success and int(vresp.headers.get(
                     'X-Container-Object-Count', 0)) > 0:
                 raise HTTPConflict(
@@ -984,7 +977,7 @@ class ContainerContext(ObjectVersioningContext):
             else:
                 versions_req.method = 'DELETE'
                 resp = versions_req.get_response(self.app)
-                close_if_possible(resp.app_iter)
+                drain_and_close(resp)
                 if not is_success(resp.status_int) and resp.status_int != 404:
                     raise HTTPInternalServerError(
                         'Error deleting versioned container')
@@ -1072,9 +1065,7 @@ class ContainerContext(ObjectVersioningContext):
                 method='PUT', headers=hdrs, swift_source='OV')
             resp = ver_cont_req.get_response(self.app)
             # Should always be short; consume the body
-            for chunk in resp.app_iter:
-                pass
-            close_if_possible(resp.app_iter)
+            drain_and_close(resp)
             if is_success(resp.status_int) or resp.status_int == HTTP_CONFLICT:
                 req.headers[SYSMETA_VERSIONS_CONT] = wsgi_quote(versions_cont)
             else:
@@ -1097,7 +1088,7 @@ class ContainerContext(ObjectVersioningContext):
 
             # TODO: what if this one fails??
             resp = ver_cont_req.get_response(self.app)
-            close_if_possible(resp.app_iter)
+            drain_and_close(resp)
 
         if self._response_headers is None:
             self._response_headers = []
@@ -1202,7 +1193,7 @@ class ContainerContext(ObjectVersioningContext):
                 reverse=config_true_value(params.get('reverse', 'no')))
             self.update_content_length(len(body))
             app_resp = [body]
-            close_if_possible(versions_resp.app_iter)
+            drain_and_close(versions_resp)
         elif is_success(versions_resp.status_int):
             try:
                 listing = json.loads(versions_resp.body)
@@ -1324,9 +1315,8 @@ class AccountContext(ObjectVersioningContext):
                 try:
                     versions_listing = json.loads(versions_resp.body)
                 except ValueError:
-                    close_if_possible(versions_resp.app_iter)
                     versions_listing = []
-                else:
+                finally:
                     close_if_possible(versions_resp.app_iter)
 
                 # create a dict from versions listing to facilitate

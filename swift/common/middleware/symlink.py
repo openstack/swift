@@ -203,7 +203,7 @@ from cgi import parse_header
 
 from swift.common.utils import get_logger, register_swift_info, split_path, \
     MD5_OF_EMPTY_STRING, close_if_possible, closing_if_possible, \
-    config_true_value
+    config_true_value, drain_and_close
 from swift.common.constraints import check_account_format
 from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.request_helpers import get_sys_meta_prefix, \
@@ -468,7 +468,8 @@ class SymlinkObjectContext(WSGIContext):
         resp_etag = self._response_header_value(
             TGT_ETAG_SYSMETA_SYMLINK_HDR)
         if symlink_target and (resp_etag or follow_softlinks):
-            close_if_possible(resp)
+            # Should be a zero-byte object
+            drain_and_close(resp)
             found_etag = resp_etag or self._response_header_value('etag')
             if target_etag and target_etag != found_etag:
                 raise HTTPConflict(
@@ -491,6 +492,7 @@ class SymlinkObjectContext(WSGIContext):
         else:
             final_etag = self._response_header_value('etag')
             if final_etag and target_etag and target_etag != final_etag:
+                # do *not* drain; we don't know how big this is
                 close_if_possible(resp)
                 body = ('Object Etag %r does not match '
                         'X-Symlink-Target-Etag header %r')
@@ -538,9 +540,7 @@ class SymlinkObjectContext(WSGIContext):
                     'Content-Type': 'text/plain',
                     'Content-Location': self._last_target_path})
         if not is_success(self._get_status_int()):
-            with closing_if_possible(resp):
-                for chunk in resp:
-                    pass
+            drain_and_close(resp)
             raise status_map[self._get_status_int()](request=req)
         response_headers = HeaderKeyDict(self._response_headers)
         # carry forward any etag update params (e.g. "slo_etag"), we'll append

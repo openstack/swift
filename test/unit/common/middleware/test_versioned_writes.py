@@ -65,6 +65,7 @@ class VersionedWritesBaseTestCase(unittest.TestCase):
 
     def tearDown(self):
         self.assertEqual(self.app.unclosed_requests, {})
+        self.assertEqual(self.app.unread_requests, {})
 
     def call_app(self, req, app=None):
         if app is None:

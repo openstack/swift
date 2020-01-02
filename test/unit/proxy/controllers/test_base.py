@@ -1098,11 +1098,11 @@ class TestFuncs(unittest.TestCase):
 
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
         handler = GetOrHeadHandler(
-            self.app, req, 'Object', None, None, None, {})
+            self.app, req, 'Object', None, None, 'some-path', {})
         app_iter = handler._make_app_iter(req, node, source)
         app_iter.close()
         self.app.logger.warning.assert_called_once_with(
-            'Client disconnected on read')
+            'Client disconnected on read of %r', 'some-path')
 
         self.app.logger = mock.Mock()
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}

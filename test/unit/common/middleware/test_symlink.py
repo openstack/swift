@@ -417,6 +417,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         req_headers['User-Agent'] = 'Swift'
         self.assertEqual(req_headers, calls[1].headers)
         self.assertFalse(calls[2:])
+        self.assertFalse(self.app.unread_requests)
 
     def test_get_target_object_not_found(self):
         self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
@@ -430,6 +431,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertNotIn('X-Symlink-Target', dict(headers))
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
+        self.assertFalse(self.app.unread_requests)
 
     def test_get_target_object_range_not_satisfiable(self):
         self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
@@ -447,6 +449,7 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertNotIn('X-Symlink-Target', dict(headers))
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
+        self.assertFalse(self.app.unread_requests)
 
     def test_get_ec_symlink_range_unsatisfiable_can_redirect_to_target(self):
         self.app.register('GET', '/v1/a/c/symlink',
