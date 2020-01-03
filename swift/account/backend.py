@@ -455,7 +455,7 @@ class AccountBroker(DatabaseBroker):
                         curs.close()
                         return results
                     end = name.find(delimiter, len(prefix))
-                    if end > 0:
+                    if end >= 0:
                         if reverse:
                             end_marker = name[:end + len(delimiter)]
                         else:
