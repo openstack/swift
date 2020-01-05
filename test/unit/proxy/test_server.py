@@ -3832,7 +3832,7 @@ class TestReplicatedObjectController(
                         'Host': 'localhost:80',
                         'Referer': '%s http://localhost/v1/a/c/o' % method,
                         'X-Backend-Storage-Policy-Index': '1',
-                        'X-Backend-Container-Path': shard_range.name
+                        'X-Backend-Quoted-Container-Path': shard_range.name
                     },
                 }
                 check_request(request, **expectations)
@@ -3943,7 +3943,7 @@ class TestReplicatedObjectController(
                         'Host': 'localhost:80',
                         'Referer': '%s http://localhost/v1/a/c/o' % method,
                         'X-Backend-Storage-Policy-Index': '1',
-                        'X-Backend-Container-Path': shard_ranges[1].name
+                        'X-Backend-Quoted-Container-Path': shard_ranges[1].name
                     },
                 }
                 check_request(request, **expectations)
@@ -4045,7 +4045,7 @@ class TestReplicatedObjectController(
                         'Host': 'localhost:80',
                         'Referer': '%s http://localhost/v1/a/c/o' % method,
                         'X-Backend-Storage-Policy-Index': '1',
-                        'X-Backend-Container-Path': shard_ranges[1].name
+                        'X-Backend-Quoted-Container-Path': shard_ranges[1].name
                     },
                 }
                 check_request(request, **expectations)

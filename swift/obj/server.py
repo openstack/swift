@@ -17,6 +17,7 @@
 
 import six
 import six.moves.cPickle as pickle
+from six.moves.urllib.parse import unquote
 import json
 import os
 import multiprocessing
@@ -366,7 +367,6 @@ class ObjectController(BaseStorageServer):
         contdevices = [d.strip() for d in
                        headers_in.get('X-Container-Device', '').split(',')]
         contpartition = headers_in.get('X-Container-Partition', '')
-        contpath = headers_in.get('X-Backend-Container-Path')
 
         if len(conthosts) != len(contdevices):
             # This shouldn't happen unless there's a bug in the proxy,
@@ -378,6 +378,12 @@ class ObjectController(BaseStorageServer):
                     'hosts': headers_in.get('X-Container-Host', ''),
                     'devices': headers_in.get('X-Container-Device', '')})
             return
+
+        contpath = headers_in.get('X-Backend-Quoted-Container-Path')
+        if contpath:
+            contpath = unquote(contpath)
+        else:
+            contpath = headers_in.get('X-Backend-Container-Path')
 
         if contpath:
             try:

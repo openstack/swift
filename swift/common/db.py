@@ -59,19 +59,23 @@ def utf8encode(*args):
             for s in args]
 
 
-def native_str_keys(metadata):
+def native_str_keys_and_values(metadata):
     if six.PY2:
         uni_keys = [k for k in metadata if isinstance(k, six.text_type)]
         for k in uni_keys:
             sv = metadata[k]
             del metadata[k]
-            metadata[k.encode('utf-8')] = sv
+            metadata[k.encode('utf-8')] = [
+                x.encode('utf-8') if isinstance(x, six.text_type) else x
+                for x in sv]
     else:
         bin_keys = [k for k in metadata if isinstance(k, six.binary_type)]
         for k in bin_keys:
             sv = metadata[k]
             del metadata[k]
-            metadata[k.decode('utf-8')] = sv
+            metadata[k.decode('utf-8')] = [
+                x.decode('utf-8') if isinstance(x, six.binary_type) else x
+                for x in sv]
 
 
 ZERO_LIKE_VALUES = {None, '', 0, '0'}
@@ -878,7 +882,7 @@ class DatabaseBroker(object):
         metadata = self.get_raw_metadata()
         if metadata:
             metadata = json.loads(metadata)
-            native_str_keys(metadata)
+            native_str_keys_and_values(metadata)
         else:
             metadata = {}
         return metadata
@@ -940,7 +944,7 @@ class DatabaseBroker(object):
                                     self.db_type)
                 md = row[0]
                 md = json.loads(md) if md else {}
-                native_str_keys(md)
+                native_str_keys_and_values(md)
             except sqlite3.OperationalError as err:
                 if 'no such column: metadata' not in str(err):
                     raise

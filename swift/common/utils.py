@@ -75,7 +75,7 @@ from six.moves import cPickle as pickle
 from six.moves.configparser import (ConfigParser, NoSectionError,
                                     NoOptionError, RawConfigParser)
 from six.moves import range, http_client
-from six.moves.urllib.parse import quote as _quote
+from six.moves.urllib.parse import quote as _quote, unquote
 from six.moves.urllib.parse import urlparse
 
 from swift import gettext_ as _
@@ -5699,6 +5699,9 @@ def get_redirect_data(response):
     if 'Location' not in headers:
         return None
     location = urlparse(headers['Location']).path
+    if config_true_value(headers.get('X-Backend-Location-Is-Quoted',
+                                     'false')):
+        location = unquote(location)
     account, container, _junk = split_path(location, 2, 3, True)
     timestamp_val = headers.get('X-Backend-Redirect-Timestamp')
     try:

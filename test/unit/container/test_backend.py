@@ -339,7 +339,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertTrue(broker.empty())
 
     @with_tempdir
-    def test_empty_shard_container(self, tempdir):
+    def test_empty_old_style_shard_container(self, tempdir):
         # Test ContainerBroker.empty for a shard container where shard range
         # usage should not be considered
         db_path = os.path.join(
@@ -347,6 +347,86 @@ class TestContainerBroker(unittest.TestCase):
         broker = ContainerBroker(db_path, account='.shards_a', container='cc')
         broker.initialize(next(self.ts).internal, 0)
         broker.set_sharding_sysmeta('Root', 'a/c')
+        self.assertFalse(broker.is_root_container())
+
+        def check_object_counted(broker_to_test, broker_with_object):
+            obj = {'name': 'o', 'created_at': next(self.ts).internal,
+                   'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
+                   'deleted': 0}
+            broker_with_object.merge_items([dict(obj)])
+            self.assertFalse(broker_to_test.empty())
+            # and delete it
+            obj.update({'created_at': next(self.ts).internal, 'deleted': 1})
+            broker_with_object.merge_items([dict(obj)])
+            self.assertTrue(broker_to_test.empty())
+
+        self.assertTrue(broker.empty())
+        check_object_counted(broker, broker)
+
+        # own shard range is not considered for object count
+        own_sr = broker.get_own_shard_range()
+        self.assertEqual(0, own_sr.object_count)
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.empty())
+
+        broker.put_object('o', next(self.ts).internal, 0, 'text/plain',
+                          EMPTY_ETAG)
+        own_sr = broker.get_own_shard_range()
+        self.assertEqual(1, own_sr.object_count)
+        broker.merge_shard_ranges([own_sr])
+        self.assertFalse(broker.empty())
+        broker.delete_object('o', next(self.ts).internal)
+        self.assertTrue(broker.empty())
+
+        def check_shard_ranges_not_counted():
+            sr = ShardRange('.shards_a/shard_c', next(self.ts), object_count=0)
+            sr.update_meta(13, 99, meta_timestamp=next(self.ts))
+            for state in ShardRange.STATES:
+                sr.update_state(state, state_timestamp=next(self.ts))
+                broker.merge_shard_ranges([sr])
+                self.assertTrue(broker.empty())
+
+            # empty other shard ranges do not influence result
+            sr.update_meta(0, 0, meta_timestamp=next(self.ts))
+            for state in ShardRange.STATES:
+                sr.update_state(state, state_timestamp=next(self.ts))
+                broker.merge_shard_ranges([sr])
+                self.assertTrue(broker.empty())
+
+        check_shard_ranges_not_counted()
+
+        # move to sharding state
+        broker.enable_sharding(next(self.ts))
+        self.assertTrue(broker.set_sharding_state())
+
+        # check object in retiring db is considered
+        check_object_counted(broker, broker.get_brokers()[0])
+        self.assertTrue(broker.empty())
+        # as well as misplaced objects in fresh db
+        check_object_counted(broker, broker)
+        check_shard_ranges_not_counted()
+
+        # move to sharded state
+        self.assertTrue(broker.set_sharded_state())
+        self.assertTrue(broker.empty())
+        check_object_counted(broker, broker)
+        check_shard_ranges_not_counted()
+
+        # own shard range still has no influence
+        own_sr = broker.get_own_shard_range()
+        own_sr.update_meta(3, 4, meta_timestamp=next(self.ts))
+        broker.merge_shard_ranges([own_sr])
+        self.assertTrue(broker.empty())
+
+    @with_tempdir
+    def test_empty_shard_container(self, tempdir):
+        # Test ContainerBroker.empty for a shard container where shard range
+        # usage should not be considered
+        db_path = os.path.join(
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='.shards_a', container='cc')
+        broker.initialize(next(self.ts).internal, 0)
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         self.assertFalse(broker.is_root_container())
 
         def check_object_counted(broker_to_test, broker_with_object):
@@ -3361,7 +3441,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual('myaccount/mycontainer', broker.path)
 
     @with_tempdir
-    def test_root_account_container_path(self, tempdir):
+    def test_old_style_root_account_container_path(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
             db_path, account='root_a', container='root_c')
@@ -3432,6 +3512,88 @@ class TestContainerBroker(unittest.TestCase):
             with self.assertRaises(ValueError) as cm:
                 broker.root_account
             self.assertIn('Expected X-Container-Sysmeta-Shard-Root',
+                          str(cm.exception))
+            with self.assertRaises(ValueError):
+                broker.root_container
+
+        check_validation('root_a')
+        check_validation('/root_a')
+        check_validation('/root_a/root_c')
+        check_validation('/root_a/root_c/blah')
+        check_validation('/')
+
+    @with_tempdir
+    def test_root_account_container_path(self, tempdir):
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(
+            db_path, account='root_a', container='root_c')
+        broker.initialize(next(self.ts).internal, 1)
+        # make sure we can cope with unitialized account and container
+        broker.account = broker.container = None
+
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertTrue(broker.is_root_container())
+        self.assertEqual('root_a', broker.account)  # sanity check
+        self.assertEqual('root_c', broker.container)  # sanity check
+
+        # we don't expect root containers to have this sysmeta set but if it is
+        # the broker should still behave like a root container
+        metadata = {
+            'X-Container-Sysmeta-Shard-Quoted-Root':
+                ('root_a/root_c', next(self.ts).internal)}
+        broker = ContainerBroker(
+            db_path, account='root_a', container='root_c')
+        broker.update_metadata(metadata)
+        broker.account = broker.container = None
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertTrue(broker.is_root_container())
+
+        # if root is marked deleted, it still considers itself to be a root
+        broker.delete_db(next(self.ts).internal)
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertTrue(broker.is_root_container())
+        # check the values are not just being cached
+        broker = ContainerBroker(db_path)
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertTrue(broker.is_root_container())
+
+        # check a shard container
+        db_path = os.path.join(tempdir, 'shard_container.db')
+        broker = ContainerBroker(
+            db_path, account='.shards_root_a', container='c_shard')
+        broker.initialize(next(self.ts).internal, 1)
+        # now the metadata is significant...
+        metadata = {
+            'X-Container-Sysmeta-Shard-Quoted-Root':
+                ('root_a/root_c', next(self.ts).internal)}
+        broker.update_metadata(metadata)
+        broker.account = broker.container = None
+        broker._root_account = broker._root_container = None
+
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertFalse(broker.is_root_container())
+
+        # check validation
+        def check_validation(root_value):
+            metadata = {
+                'X-Container-Sysmeta-Shard-Quoted-Root':
+                    (root_value, next(self.ts).internal)}
+            broker.update_metadata(metadata)
+            broker.account = broker.container = None
+            broker._root_account = broker._root_container = None
+            with self.assertRaises(ValueError) as cm:
+                broker.root_account
+            self.assertIn('Expected X-Container-Sysmeta-Shard-Quoted-Root',
                           str(cm.exception))
             with self.assertRaises(ValueError):
                 broker.root_container
@@ -4422,7 +4584,8 @@ class TestContainerBroker(unittest.TestCase):
                 do_test(orig_state, ts, test_state, ts_newer, test_state,
                         ts_newer)
 
-    def _check_object_stats_when_sharded(self, a, c, root_a, root_c, tempdir):
+    def _check_object_stats_when_old_style_sharded(
+            self, a, c, root_a, root_c, tempdir):
         # common setup and assertions for root and shard containers
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
@@ -4430,6 +4593,51 @@ class TestContainerBroker(unittest.TestCase):
             db_path, account=a, container=c)
         broker.initialize(next(self.ts).internal, 0)
         broker.set_sharding_sysmeta('Root', '%s/%s' % (root_a, root_c))
+        broker.merge_items([{'name': 'obj', 'size': 14, 'etag': 'blah',
+                             'content_type': 'text/plain', 'deleted': 0,
+                             'created_at': Timestamp.now().internal}])
+        self.assertEqual(1, broker.get_info()['object_count'])
+        self.assertEqual(14, broker.get_info()['bytes_used'])
+
+        broker.enable_sharding(next(self.ts))
+        self.assertTrue(broker.set_sharding_state())
+        sr_1 = ShardRange(
+            '%s/%s1' % (root_a, root_c), Timestamp.now(), lower='', upper='m',
+            object_count=99, bytes_used=999, state=ShardRange.ACTIVE)
+        sr_2 = ShardRange(
+            '%s/%s2' % (root_a, root_c), Timestamp.now(), lower='m', upper='',
+            object_count=21, bytes_used=1000, state=ShardRange.ACTIVE)
+        broker.merge_shard_ranges([sr_1, sr_2])
+        self.assertEqual(1, broker.get_info()['object_count'])
+        self.assertEqual(14, broker.get_info()['bytes_used'])
+        return broker
+
+    @with_tempdir
+    def test_object_stats_old_style_root_container(self, tempdir):
+        broker = self._check_object_stats_when_old_style_sharded(
+            'a', 'c', 'a', 'c', tempdir)
+        self.assertTrue(broker.is_root_container())  # sanity
+        self.assertTrue(broker.set_sharded_state())
+        self.assertEqual(120, broker.get_info()['object_count'])
+        self.assertEqual(1999, broker.get_info()['bytes_used'])
+
+    @with_tempdir
+    def test_object_stats_old_style_shard_container(self, tempdir):
+        broker = self._check_object_stats_when_old_style_sharded(
+            '.shard_a', 'c-blah', 'a', 'c', tempdir)
+        self.assertFalse(broker.is_root_container())  # sanity
+        self.assertTrue(broker.set_sharded_state())
+        self.assertEqual(0, broker.get_info()['object_count'])
+        self.assertEqual(0, broker.get_info()['bytes_used'])
+
+    def _check_object_stats_when_sharded(self, a, c, root_a, root_c, tempdir):
+        # common setup and assertions for root and shard containers
+        db_path = os.path.join(
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(
+            db_path, account=a, container=c)
+        broker.initialize(next(self.ts).internal, 0)
+        broker.set_sharding_sysmeta('Quoted-Root', '%s/%s' % (root_a, root_c))
         broker.merge_items([{'name': 'obj', 'size': 14, 'etag': 'blah',
                              'content_type': 'text/plain', 'deleted': 0,
                              'created_at': Timestamp.now().internal}])

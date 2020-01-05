@@ -526,13 +526,14 @@ class TestExampleBroker(unittest.TestCase):
         # This is not obvious. The actual JSON in the database is the same:
         #  '{"test\\u062a": ["value\\u062a", "0000000001.00000"]}'
         # The only difference is what reading it produces on py2 and py3.
-        # We use native strings for metadata keys (see native_str_keys()),
-        # so keys are different.
+        # We use native strings for metadata (see native_str_keys_and_values),
+        # so types are different.
         if six.PY2:
             key = u'test\u062a'.encode('utf-8')
+            value = u'value\u062a'.encode('utf-8')
         else:
             key = u'test\u062a'
-        value = u'value\u062a'
+            value = u'value\u062a'
         metadata = {
             key: [value, Timestamp(1).internal]
         }
