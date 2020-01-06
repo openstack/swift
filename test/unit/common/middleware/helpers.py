@@ -17,6 +17,7 @@
 
 from collections import defaultdict, namedtuple
 from hashlib import md5
+from six.moves.urllib import parse
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import is_user_meta, \
@@ -28,22 +29,36 @@ from test.unit import FakeLogger, FakeRing
 
 
 class LeakTrackingIter(object):
-    def __init__(self, inner_iter, mark_closed, path):
+    def __init__(self, inner_iter, mark_closed, key):
         if isinstance(inner_iter, bytes):
             inner_iter = (inner_iter, )
         self.inner_iter = inner_iter
         self.mark_closed = mark_closed
-        self.path = path
+        self.key = key
 
     def __iter__(self):
         for x in self.inner_iter:
             yield x
 
     def close(self):
-        self.mark_closed(self.path)
+        self.mark_closed(self.key)
 
 
 FakeSwiftCall = namedtuple('FakeSwiftCall', ['method', 'path', 'headers'])
+
+
+def normalize_query_string(qs):
+    if qs.startswith('?'):
+        qs = qs[1:]
+    if not qs:
+        return ''
+    else:
+        return '?%s' % parse.urlencode(sorted(parse.parse_qsl(qs)))
+
+
+def normalize_path(path):
+    parsed = parse.urlparse(path)
+    return parsed.path + normalize_query_string(parsed.query)
 
 
 class FakeSwift(object):
@@ -55,7 +70,7 @@ class FakeSwift(object):
 
     def __init__(self):
         self._calls = []
-        self._unclosed_req_paths = defaultdict(int)
+        self._unclosed_req_keys = defaultdict(int)
         self.req_method_paths = []
         self.swift_sources = []
         self.txn_ids = []
@@ -68,6 +83,7 @@ class FakeSwift(object):
         self.get_object_ring = lambda policy_index: FakeRing()
 
     def _find_response(self, method, path):
+        path = normalize_path(path)
         resp = self._responses[(method, path)]
         if isinstance(resp, list):
             try:
@@ -88,6 +104,7 @@ class FakeSwift(object):
                                        rest_with_last=True)
         if env.get('QUERY_STRING'):
             path += '?' + env['QUERY_STRING']
+        path = normalize_path(path)
 
         if 'swift.authorize' in env:
             resp = env['swift.authorize'](swob.Request(env))
@@ -171,19 +188,19 @@ class FakeSwift(object):
                 conditional_response=req.method in ('GET', 'HEAD'),
                 conditional_etag=conditional_etag)
         wsgi_iter = resp(env, start_response)
-        self.mark_opened(path)
-        return LeakTrackingIter(wsgi_iter, self.mark_closed, path)
+        self.mark_opened((method, path))
+        return LeakTrackingIter(wsgi_iter, self.mark_closed, (method, path))
 
-    def mark_opened(self, path):
-        self._unclosed_req_paths[path] += 1
+    def mark_opened(self, key):
+        self._unclosed_req_keys[key] += 1
 
-    def mark_closed(self, path):
-        self._unclosed_req_paths[path] -= 1
+    def mark_closed(self, key):
+        self._unclosed_req_keys[key] -= 1
 
     @property
     def unclosed_requests(self):
-        return {path: count
-                for path, count in self._unclosed_req_paths.items()
+        return {key: count
+                for key, count in self._unclosed_req_keys.items()
                 if count > 0}
 
     @property
@@ -203,9 +220,11 @@ class FakeSwift(object):
         return len(self._calls)
 
     def register(self, method, path, response_class, headers, body=b''):
+        path = normalize_path(path)
         self._responses[(method, path)] = (response_class, headers, body)
 
     def register_responses(self, method, path, responses):
+        path = normalize_path(path)
         self._responses[(method, path)] = list(responses)
 
 
