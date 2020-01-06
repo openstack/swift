@@ -1988,7 +1988,7 @@ class ContainerBroker(DatabaseBroker):
 
     def set_sharding_sysmeta(self, key, value):
         """
-        Updates the broker's metadata metadata stored under the given key
+        Updates the broker's metadata stored under the given key
         prefixed with a sharding specific namespace.
 
         :param key: metadata key in the sharding metadata namespace.

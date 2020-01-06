@@ -688,7 +688,7 @@ class ObjectReconstructor(Daemon):
         handoffs.
 
         To avoid conflicts placing frags we'll skip through the handoffs and
-        only yield back those that are offset equal to to the given primary
+        only yield back those that are offset equal to the given primary
         node index.
 
         Nodes returned from this iterator will have 'backend_index' set.

@@ -28,7 +28,7 @@ The supported headers are,
 |                                                | Space separated.             |
 +------------------------------------------------+------------------------------+
 
-In addition the the values set in container metadata, some cluster-wide values
+In addition the values set in container metadata, some cluster-wide values
 may also be configured using the ``strict_cors_mode``, ``cors_allow_origin``
 and ``cors_expose_headers`` in ``proxy-server.conf``. See
 ``proxy-server.conf-sample`` for more information.

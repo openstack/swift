@@ -1748,7 +1748,7 @@ delay_reaping       0                Normally, the reaper begins deleting
                                      time for the container-updater to report
                                      to the account before the account DB is
                                      removed.
-reap_warn_after     2892000          If the account fails to be be reaped due
+reap_warn_after     2892000          If the account fails to be reaped due
                                      to a persistent error, the account reaper
                                      will log a message such as:
                                      Account <name> has not been reaped since <date>

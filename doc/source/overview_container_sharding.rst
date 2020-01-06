@@ -404,7 +404,7 @@ In summary, the DB states that any container replica may be in are:
   more shard ranges in addition to its own shard range. The retiring database
   has been unlinked.
 - COLLAPSED - There is only one database, the fresh database, which has only
-  its its own shard range and store object records.
+  its own shard range and store object records.
 
 .. note::
 
