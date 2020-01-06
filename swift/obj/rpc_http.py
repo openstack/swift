@@ -359,7 +359,7 @@ def get_stats(socket_path):
     conn = UnixHTTPConnection(socket_path)
     conn.request('POST', '/get_stats', stats_info.SerializeToString())
     response = get_rpc_reply(conn, pb.LoadObjectsResponse)
-    return response.stats
+    return response
 
 
 def get_kv_state(socket_path):
