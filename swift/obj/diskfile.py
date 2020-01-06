@@ -3317,7 +3317,7 @@ class ECDiskFileManager(BaseDiskFileManager):
         """
         Returns timestamp(s) and other info extracted from a policy specific
         file name. For EC policy the data file name includes a fragment index
-        and possibly a durable marker, both of which which must be stripped off
+        and possibly a durable marker, both of which must be stripped off
         to retrieve the timestamp.
 
         :param filename: the file name including extension

@@ -428,7 +428,7 @@ class Replicator(Daemon):
         Make an http_connection using ReplConnection
 
         :param node: node dictionary from the ring
-        :param partition: partition partition to send in the url
+        :param partition: partition to send in the url
         :param db_file: DB file
 
         :returns: ReplConnection object
