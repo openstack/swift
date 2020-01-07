@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from __future__ import print_function
+import functools
 import sys
 import itertools
 import uuid
@@ -19,10 +20,12 @@ from optparse import OptionParser
 import random
 
 import six
-from six.moves.urllib.parse import urlparse
+from six import StringIO
+from six.moves.urllib.parse import urlparse, parse_qs, quote
 
 from swift.common.manager import Manager
 from swift.common import utils, ring
+from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
 
@@ -64,13 +67,10 @@ def command(f):
     return f
 
 
-@six.add_metaclass(meta_command)
-class BrainSplitter(object):
-    def __init__(self, url, token, container_name='test', object_name='test',
-                 server_type='container', policy=None):
-        self.url = url
-        self.token = token
-        self.account = utils.split_path(urlparse(url).path, 2, 2)[1]
+class BaseBrain(object):
+    def _setup(self, account, container_name, object_name,
+               server_type, policy):
+        self.account = account
         self.container_name = container_name
         self.object_name = object_name
         server_list = ['%s-server' % server_type] if server_type else ['all']
@@ -153,35 +153,167 @@ class BrainSplitter(object):
             policy = self.policy
 
         headers = {'X-Storage-Policy': policy.name}
-        client.put_container(self.url, self.token, self.container_name,
-                             headers=headers)
+        self.client.put_container(self.container_name, headers=headers)
 
     @command
     def delete_container(self):
         """
         delete container
         """
-        client.delete_container(self.url, self.token, self.container_name)
+        self.client.delete_container(self.container_name)
 
     @command
     def put_object(self, headers=None, contents=None):
         """
         issue put for test object
         """
-        client.put_object(self.url, self.token, self.container_name,
-                          self.object_name, headers=headers, contents=contents)
+        self.client.put_object(self.container_name, self.object_name,
+                               headers=headers, contents=contents)
 
     @command
     def delete_object(self):
         """
         issue delete for test object
         """
+        self.client.delete_object(self.container_name, self.object_name)
+
+    @command
+    def get_object(self):
+        """
+        issue GET for test object
+        """
+        return self.client.get_object(self.container_name, self.object_name)
+
+
+class PublicBrainClient(object):
+    def __init__(self, url, token):
+        self.url = url
+        self.token = token
+        self.account = utils.split_path(urlparse(url).path, 2, 2)[1]
+
+    def put_container(self, container_name, headers):
+        return client.put_container(self.url, self.token, container_name,
+                                    headers=headers)
+
+    def post_container(self, container_name, headers):
+        return client.post_container(self.url, self.token, container_name,
+                                     headers)
+
+    def delete_container(self, container_name):
+        return client.delete_container(self.url, self.token, container_name)
+
+    def put_object(self, container_name, object_name, headers, contents,
+                   query_string=None):
+        return client.put_object(self.url, self.token, container_name,
+                                 object_name, headers=headers,
+                                 contents=contents, query_string=query_string)
+
+    def delete_object(self, container_name, object_name):
         try:
-            client.delete_object(self.url, self.token, self.container_name,
-                                 self.object_name)
+            client.delete_object(self.url, self.token,
+                                 container_name, object_name)
         except ClientException as err:
             if err.http_status != HTTP_NOT_FOUND:
                 raise
+
+    def head_object(self, container_name, object_name):
+        return client.head_object(self.url, self.token, container_name,
+                                  object_name)
+
+    def get_object(self, container_name, object_name, query_string=None):
+        return client.get_object(self.url, self.token,
+                                 container_name, object_name,
+                                 query_string=query_string)
+
+
+def translate_client_exception(m):
+    @functools.wraps(m)
+    def wrapper(*args, **kwargs):
+        try:
+            return m(*args, **kwargs)
+        except UnexpectedResponse as err:
+            raise ClientException(
+                err.message,
+                http_scheme=err.resp.environ['wsgi.url_scheme'],
+                http_host=err.resp.environ['SERVER_NAME'],
+                http_port=err.resp.environ['SERVER_PORT'],
+                http_path=quote(err.resp.environ['PATH_INFO']),
+                http_query=err.resp.environ['QUERY_STRING'],
+                http_status=err.resp.status_int,
+                http_reason=err.resp.explanation,
+                http_response_content=err.resp.body,
+                http_response_headers=err.resp.headers,
+            )
+    return wrapper
+
+
+class InternalBrainClient(object):
+
+    def __init__(self, conf_file, account='AUTH_test'):
+        self.swift = InternalClient(conf_file, 'probe-test', 3)
+        self.account = account
+
+    @translate_client_exception
+    def put_container(self, container_name, headers):
+        return self.swift.create_container(self.account, container_name,
+                                           headers=headers)
+
+    @translate_client_exception
+    def post_container(self, container_name, headers):
+        return self.swift.set_container_metadata(self.account, container_name,
+                                                 headers)
+
+    @translate_client_exception
+    def delete_container(self, container_name):
+        return self.swift.delete_container(self.account, container_name)
+
+    def parse_qs(self, query_string):
+        if query_string is not None:
+            return {k: v[-1] for k, v in parse_qs(query_string).items()}
+
+    @translate_client_exception
+    def put_object(self, container_name, object_name, headers, contents,
+                   query_string=None):
+        return self.swift.upload_object(StringIO(contents), self.account,
+                                        container_name, object_name,
+                                        headers=headers,
+                                        params=self.parse_qs(query_string))
+
+    @translate_client_exception
+    def delete_object(self, container_name, object_name):
+        return self.swift.delete_object(
+            self.account, container_name, object_name)
+
+    @translate_client_exception
+    def head_object(self, container_name, object_name):
+        return self.swift.get_object_metadata(
+            self.account, container_name, object_name)
+
+    @translate_client_exception
+    def get_object(self, container_name, object_name, query_string=None):
+        status, headers, resp_iter = self.swift.get_object(
+            self.account, container_name, object_name,
+            params=self.parse_qs(query_string))
+        return headers, ''.join(resp_iter)
+
+
+@six.add_metaclass(meta_command)
+class BrainSplitter(BaseBrain):
+    def __init__(self, url, token, container_name='test', object_name='test',
+                 server_type='container', policy=None):
+        self.client = PublicBrainClient(url, token)
+        self._setup(self.client.account, container_name, object_name,
+                    server_type, policy)
+
+
+@six.add_metaclass(meta_command)
+class InternalBrainSplitter(BaseBrain):
+    def __init__(self, conf, container_name='test', object_name='test',
+                 server_type='container', policy=None):
+        self.client = InternalBrainClient(conf)
+        self._setup(self.client.account, container_name, object_name,
+                    server_type, policy)
+
 
 parser = OptionParser('%prog [options] '
                       '<command>[:<args>[,<args>...]] [<command>...]')

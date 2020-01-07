@@ -1330,7 +1330,7 @@ class TestInternalClient(unittest.TestCase):
 
             def make_request(
                     self, method, path, headers, acceptable_statuses,
-                    body_file=None):
+                    body_file=None, params=None):
                 self.make_request_called += 1
                 self.test.assertEqual(self.path, path)
                 exp_headers = dict(self.headers)
@@ -1358,7 +1358,7 @@ class TestInternalClient(unittest.TestCase):
 
             def make_request(
                     self, method, path, headers, acceptable_statuses,
-                    body_file=None):
+                    body_file=None, params=None):
                 self.make_request_called += 1
                 self.test.assertEqual(self.path, path)
                 exp_headers = dict(self.headers)

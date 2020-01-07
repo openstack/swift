@@ -789,13 +789,16 @@ class InternalClient(object):
 
     def upload_object(
             self, fobj, account, container, obj, headers=None,
-            acceptable_statuses=(2,)):
+            acceptable_statuses=(2,), params=None):
         """
         :param fobj: File object to read object's content from.
         :param account: The object's account.
         :param container: The object's container.
         :param obj: The object.
         :param headers: Headers to send with request, defaults to empty dict.
+        :param acceptable_statuses: List of acceptable statuses for request.
+        :param params: A dict of params to be set in request query string,
+                       defaults to None.
 
         :raises UnexpectedResponse: Exception raised when requests fail
                                     to get a response with an acceptable status
@@ -807,7 +810,8 @@ class InternalClient(object):
         if 'Content-Length' not in headers:
             headers['Transfer-Encoding'] = 'chunked'
         path = self.make_path(account, container, obj)
-        self.make_request('PUT', path, headers, acceptable_statuses, fobj)
+        self.make_request('PUT', path, headers, acceptable_statuses, fobj,
+                          params=params)
 
 
 def get_auth(url, user, key, auth_version='1.0', **kwargs):
