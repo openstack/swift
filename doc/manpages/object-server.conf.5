@@ -216,8 +216,8 @@ On PUTs, sync data every n MB. The default is 512.
 Comma separated list of headers that can be set in metadata on an object.
 This list is in addition to X-Object-Meta-* headers and cannot include Content-Type, etag, Content-Length, or deleted.
 The default is 'Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest, X-Static-Large-Object, Cache-Control, Content-Language, Expires, X-Robots-Tag'.
-.IP "\fBauto_create_account_prefix\fR"
-The default is '.'.
+.IP "\fBauto_create_account_prefix [deprecated]\fR"
+The default is '.'. Should be configured in swift.conf instead.
 .IP "\fBreplication_server\fR"
 Configure parameter for creating specific server
 To handle all verbs, including replication verbs, do not specify
@@ -504,7 +504,7 @@ Number of updater workers to spawn. The default is 1.
 Request timeout to external services. The default is 10 seconds.
 .IP \fBobjects_per_second\fR
 Maximum objects updated per second. Should be tuned according to individual system specs. 0 is unlimited. The default is 50.
-.IP \fBslowdown\fR
+.IP "\fBslowdown [deprecated]\fR"
 Slowdown will sleep that amount between objects. The default is 0.01 seconds. Deprecated in favor of objects_per_second.
 .IP "\fBrecon_cache_path\fR"
 The recon_cache_path simply sets the directory where stats for a few items will be stored.

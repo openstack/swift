@@ -148,8 +148,9 @@ class TestObjectController(unittest.TestCase):
         mkdirs(os.path.join(self.testdir, 'sda1'))
         self.conf = {'devices': self.testdir, 'mount_check': 'false',
                      'container_update_timeout': 0.0}
+        self.logger = debug_logger()
         self.object_controller = object_server.ObjectController(
-            self.conf, logger=debug_logger())
+            self.conf, logger=self.logger)
         self.object_controller.bytes_per_sync = 1
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
@@ -173,6 +174,27 @@ class TestObjectController(unittest.TestCase):
         for policy in POLICIES:
             self.policy = policy
             yield policy
+
+    def test_init(self):
+        conf = {
+            'devices': self.testdir,
+            'mount_check': 'false',
+            'container_update_timeout': 0.0,
+        }
+        app = object_server.ObjectController(conf, logger=self.logger)
+        self.assertEqual(app.container_update_timeout, 0.0)
+        self.assertEqual(app.auto_create_account_prefix, '.')
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+
+        conf['auto_create_account_prefix'] = '-'
+        app = object_server.ObjectController(conf, logger=self.logger)
+        self.assertEqual(app.auto_create_account_prefix, '-')
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Option auto_create_account_prefix is deprecated. '
+            'Configure auto_create_account_prefix under the '
+            'swift-constraints section of swift.conf. This option '
+            'will be ignored in a future release.'
+        ])
 
     def check_all_api_methods(self, obj_name='o', alt_res=None):
         path = '/sda1/p/a/c/%s' % obj_name

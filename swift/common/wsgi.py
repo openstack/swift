@@ -402,6 +402,9 @@ def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
         func = getattr(app, 'modify_wsgi_pipeline', None)
         if func and allow_modify_pipeline:
             func(PipelineWrapper(ctx))
+        # cache the freshly created app so we con't have to redo
+        # initialization checks and log startup messages again
+        ctx.app_context.create = lambda: app
     return ctx.create()
 
 

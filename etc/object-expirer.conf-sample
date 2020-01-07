@@ -39,7 +39,6 @@
 
 [object-expirer]
 # interval = 300
-# auto_create_account_prefix = .
 # expiring_objects_account_name = expiring_objects
 # report_interval = 300
 #

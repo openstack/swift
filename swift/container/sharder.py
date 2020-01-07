@@ -25,7 +25,7 @@ from six.moves.urllib.parse import quote
 from eventlet import Timeout
 
 from swift.common import internal_client
-from swift.common.constraints import check_drive
+from swift.common.constraints import check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
 from swift.common.exceptions import DeviceUnavailable
@@ -334,8 +334,18 @@ class ContainerSharder(ContainerReplicator):
     def __init__(self, conf, logger=None):
         logger = logger or get_logger(conf, log_route='container-sharder')
         super(ContainerSharder, self).__init__(conf, logger=logger)
-        self.shards_account_prefix = (
-            (conf.get('auto_create_account_prefix') or '.') + 'shards_')
+        if conf.get('auto_create_account_prefix'):
+            self.logger.warning('Option auto_create_account_prefix is '
+                                'deprecated. Configure '
+                                'auto_create_account_prefix under the '
+                                'swift-constraints section of '
+                                'swift.conf. This option will '
+                                'be ignored in a future release.')
+            auto_create_account_prefix = \
+                self.conf['auto_create_account_prefix']
+        else:
+            auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
+        self.shards_account_prefix = (auto_create_account_prefix + 'shards_')
 
         def percent_value(key, default):
             try:

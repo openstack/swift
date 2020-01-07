@@ -51,9 +51,10 @@ class TestAccountController(unittest.TestCase):
         self.testdir_base = mkdtemp()
         self.testdir = os.path.join(self.testdir_base, 'account_server')
         mkdirs(os.path.join(self.testdir, 'sda1'))
+        self.logger = debug_logger()
         self.controller = AccountController(
             {'devices': self.testdir, 'mount_check': 'false'},
-            logger=debug_logger())
+            logger=self.logger)
         self.ts = make_timestamp_iter()
 
     def tearDown(self):
@@ -63,6 +64,22 @@ class TestAccountController(unittest.TestCase):
         except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
+
+    def test_init(self):
+        conf = {
+            'devices': self.testdir,
+            'mount_check': 'false',
+        }
+        AccountController(conf, logger=self.logger)
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        conf['auto_create_account_prefix'] = '-'
+        AccountController(conf, logger=self.logger)
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Option auto_create_account_prefix is deprecated. '
+            'Configure auto_create_account_prefix under the '
+            'swift-constraints section of swift.conf. This option '
+            'will be ignored in a future release.'
+        ])
 
     def test_OPTIONS(self):
         server_handler = AccountController(

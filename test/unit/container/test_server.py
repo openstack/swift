@@ -116,9 +116,18 @@ class TestContainerController(unittest.TestCase):
 
     def test_creation(self):
         # later config should be extended to assert more config options
-        replicator = container_server.ContainerController(
-            {'node_timeout': '3.5'})
-        self.assertEqual(replicator.node_timeout, 3.5)
+        app = container_server.ContainerController(
+            {'node_timeout': '3.5'}, logger=self.logger)
+        self.assertEqual(app.node_timeout, 3.5)
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+        app = container_server.ContainerController(
+            {'auto_create_account_prefix': '-'}, logger=self.logger)
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Option auto_create_account_prefix is deprecated. '
+            'Configure auto_create_account_prefix under the '
+            'swift-constraints section of swift.conf. This option '
+            'will be ignored in a future release.'
+        ])
 
     def test_get_and_validate_policy_index(self):
         # no policy is OK

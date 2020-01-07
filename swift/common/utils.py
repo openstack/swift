@@ -45,6 +45,7 @@ from random import random, shuffle
 from contextlib import contextmanager, closing
 import ctypes
 import ctypes.util
+from copy import deepcopy
 from optparse import OptionParser
 
 from tempfile import gettempdir, mkstemp, NamedTemporaryFile
@@ -328,7 +329,7 @@ def get_swift_info(admin=False, disallowed_sections=None):
     :returns: dictionary of information about the swift cluster.
     """
     disallowed_sections = disallowed_sections or []
-    info = dict(_swift_info)
+    info = deepcopy(_swift_info)
     for section in disallowed_sections:
         key_to_pop = None
         sub_section_dict = info

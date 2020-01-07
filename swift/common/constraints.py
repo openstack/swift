@@ -39,6 +39,7 @@ MAX_ACCOUNT_NAME_LENGTH = 256
 MAX_CONTAINER_NAME_LENGTH = 256
 VALID_API_VERSIONS = ["v1", "v1.0"]
 EXTRA_HEADER_COUNT = 0
+AUTO_CREATE_ACCOUNT_PREFIX = '.'
 
 # If adding an entry to DEFAULT_CONSTRAINTS, note that
 # these constraints are automatically published by the
@@ -58,6 +59,7 @@ DEFAULT_CONSTRAINTS = {
     'max_container_name_length': MAX_CONTAINER_NAME_LENGTH,
     'valid_api_versions': VALID_API_VERSIONS,
     'extra_header_count': EXTRA_HEADER_COUNT,
+    'auto_create_account_prefix': AUTO_CREATE_ACCOUNT_PREFIX,
 }
 
 SWIFT_CONSTRAINTS_LOADED = False
@@ -76,7 +78,7 @@ def reload_constraints():
     constraints_conf = ConfigParser()
     if constraints_conf.read(utils.SWIFT_CONF_FILE):
         SWIFT_CONSTRAINTS_LOADED = True
-        for name in DEFAULT_CONSTRAINTS:
+        for name, default in DEFAULT_CONSTRAINTS.items():
             try:
                 value = constraints_conf.get('swift-constraints', name)
             except NoOptionError:
@@ -85,9 +87,12 @@ def reload_constraints():
                 # We are never going to find the section for another option
                 break
             else:
-                try:
-                    value = int(value)
-                except ValueError:
+                if isinstance(default, int):
+                    value = int(value)  # Go ahead and let it error
+                elif isinstance(default, str):
+                    pass  # No translation needed, I guess
+                else:
+                    # Hope we want a list!
                     value = utils.list_from_csv(value)
                 OVERRIDE_CONSTRAINTS[name] = value
     for name, default in DEFAULT_CONSTRAINTS.items():

@@ -133,9 +133,6 @@ use = egg:swift#object
 # This list is in addition to X-Object-Meta-* headers and cannot include
 # Content-Type, etag, Content-Length, or deleted
 # allowed_headers = Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest, X-Static-Large-Object, Cache-Control, Content-Language, Expires, X-Robots-Tag
-#
-# auto_create_account_prefix = .
-#
 
 # The number of threads in eventlet's thread pool. Most IO will occur
 # in the object server's main thread, but certain "heavy" IO

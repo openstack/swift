@@ -25,6 +25,7 @@ import hashlib
 from eventlet import sleep, Timeout
 from eventlet.greenpool import GreenPool
 
+from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
@@ -112,8 +113,19 @@ class ObjectExpirer(Daemon):
         self.reclaim_age = int(conf.get('reclaim_age', 604800))
 
     def read_conf_for_queue_access(self, swift):
-        self.expiring_objects_account = \
-            (self.conf.get('auto_create_account_prefix') or '.') + \
+        if self.conf.get('auto_create_account_prefix'):
+            self.logger.warning('Option auto_create_account_prefix is '
+                                'deprecated. Configure '
+                                'auto_create_account_prefix under the '
+                                'swift-constraints section of '
+                                'swift.conf. This option will '
+                                'be ignored in a future release.')
+            auto_create_account_prefix = \
+                self.conf['auto_create_account_prefix']
+        else:
+            auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
+
+        self.expiring_objects_account = auto_create_account_prefix + \
             (self.conf.get('expiring_objects_account_name') or
              'expiring_objects')
 

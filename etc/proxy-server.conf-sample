@@ -16,12 +16,13 @@ bind_port = 8080
 #
 # Allows the ability to withhold sections from showing up in the public calls
 # to /info.  You can withhold subsections by separating the dict level with a
-# ".".  The following would cause the sections 'container_quotas' and 'tempurl'
-# to not be listed, and the key max_failed_deletes would be removed from
-# bulk_delete.  Default value is 'swift.valid_api_versions' which allows all
-# registered features to be listed via HTTP GET /info except
-# swift.valid_api_versions information
-# disallowed_sections = swift.valid_api_versions, container_quotas, tempurl
+# ".". Default value is 'swift.valid_api_versions, swift.auto_create_account_prefix'
+# which allows all registered features to be listed via HTTP GET /info except
+# swift.valid_api_versions and swift.auto_create_account_prefix information.
+# As an example, the following would cause the sections 'container_quotas' and
+# 'tempurl' to not be listed, and the key max_failed_deletes would be removed from
+# bulk_delete.
+# disallowed_sections = swift.valid_api_versions, container_quotas, tempurl, bulk_delete.max_failed_deletes
 
 # Use an integer to override the number of pre-forked processes that will
 # accept connections.  Should default to the number of effective cpu
@@ -184,9 +185,6 @@ use = egg:swift#proxy
 #
 # Comma separated list of Host headers to which the proxy will deny requests.
 # deny_host_headers =
-#
-# Prefix used when automatically creating accounts.
-# auto_create_account_prefix = .
 #
 # During GET and HEAD requests, storage nodes can be chosen at random
 # (shuffle), by using timing measurements (timing), or by using an explicit
