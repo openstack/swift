@@ -98,6 +98,10 @@ The bulk middleware  will handle xattrs stored by both GNU and BSD tar (2).
 Only xattrs ``user.mime_type`` and ``user.meta.*`` are processed. Other
 attributes are ignored.
 
+In addition to the extended attributes, the object metadata and the
+x-delete-at/x-delete-after headers set in the request are also assigned to the
+extracted objects.
+
 Notes:
 
 (1) The POSIX 1003.1-2001 (pax) format. The default format on GNU tar
@@ -206,6 +210,7 @@ from swift.common.utils import get_logger, register_swift_info, \
     StreamingPile
 from swift.common import constraints
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
+from swift.common.request_helpers import is_user_meta
 from swift.common.wsgi import make_subrequest
 
 
@@ -621,6 +626,12 @@ class Bulk(object):
                         'Content-Length': tar_info.size,
                         'X-Auth-Token': req.headers.get('X-Auth-Token'),
                     }
+
+                    # Copy some whitelisted headers to the subrequest
+                    for k, v in req.headers.items():
+                        if ((k.lower() in ('x-delete-at', 'x-delete-after'))
+                                or is_user_meta('object', k)):
+                            create_headers[k] = v
 
                     create_obj_req = make_subrequest(
                         req.environ, method='PUT',
