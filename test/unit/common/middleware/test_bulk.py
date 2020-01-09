@@ -41,12 +41,21 @@ class FakeApp(object):
     def __init__(self):
         self.calls = 0
         self.delete_paths = []
+        self.put_paths = []
         self.max_pathlen = 100
         self.del_cont_total_calls = 2
         self.del_cont_cur_call = 0
 
     def __call__(self, env, start_response):
         self.calls += 1
+        if env.get('swift.source') in ('EA', 'BD'):
+            assert not env.get('swift.proxy_access_log_made')
+        if not six.PY2:
+            # Check that it's valid WSGI
+            assert all(0 <= ord(c) <= 255 for c in env['PATH_INFO'])
+
+        if env['REQUEST_METHOD'] == 'PUT':
+            self.put_paths.append(env['PATH_INFO'])
         if env['PATH_INFO'].startswith('/unauth/'):
             if env['PATH_INFO'].endswith('/c/f_ok'):
                 return Response(status='204 No Content')(env, start_response)
@@ -224,8 +233,16 @@ class TestUntarMetadata(unittest.TestCase):
         req = Request.blank('/v1/a/c?extract-archive=tar')
         req.environ['REQUEST_METHOD'] = 'PUT'
         req.environ['wsgi.input'] = tar_ball
-        req.headers['transfer-encoding'] = 'chunked'
-        req.headers['accept'] = 'application/json;q=1.0'
+        # Since there should be a proxy-logging left of us...
+        req.environ['swift.proxy_access_log_made'] = True
+        req.headers.update({
+            'transfer-encoding': 'chunked',
+            'accept': 'application/json;q=1.0',
+            'X-Delete-At': '1577383915',
+            'X-Object-Meta-Dog': 'Rantanplan',
+            'X-Horse': 'Jolly Jumper',
+            'X-Object-Meta-Cat': 'tabby',
+        })
 
         resp = req.get_response(self.bulk)
         self.assertEqual(resp.status_int, 200)
@@ -244,12 +261,19 @@ class TestUntarMetadata(unittest.TestCase):
         self.assertEqual(
             put1_headers.get('X-Object-Meta-Afternoon-Snack'),
             'gigantic bucket of coffee')
+        self.assertEqual(put1_headers.get('X-Delete-At'), '1577383915')
+        self.assertEqual(put1_headers.get('X-Object-Meta-Dog'), 'Rantanplan')
+        self.assertEqual(put1_headers.get('X-Object-Meta-Cat'), 'tabby')
+        self.assertIsNone(put1_headers.get('X-Horse'))
 
         put2_headers = HeaderKeyDict(self.app.calls_with_headers[2][2])
         self.assertEqual(put2_headers.get('X-Object-Meta-Muppet'), 'bert')
         self.assertEqual(put2_headers.get('X-Object-Meta-Cat'), 'fluffy')
         self.assertIsNone(put2_headers.get('Content-Type'))
         self.assertIsNone(put2_headers.get('X-Object-Meta-Blah'))
+        self.assertEqual(put2_headers.get('X-Delete-At'), '1577383915')
+        self.assertEqual(put2_headers.get('X-Object-Meta-Dog'), 'Rantanplan')
+        self.assertIsNone(put2_headers.get('X-Horse'))
 
 
 class TestUntar(unittest.TestCase):
@@ -610,6 +634,7 @@ class TestUntar(unittest.TestCase):
     def test_extract_tar_fail_unicode(self):
         dir_tree = [{'sub_dir1': ['sub1_file1']},
                     {'sub_dir2': [b'sub2\xdefile1', 'sub2_file2']},
+                    {b'good_\xe2\x98\x83': [{'still_good': b'\xe2\x98\x83'}]},
                     {b'sub_\xdedir3': [{'sub4_dir1': 'sub4_file1'}]}]
         self.build_tar(dir_tree)
         req = Request.blank('/tar_works/acc/',
@@ -619,13 +644,18 @@ class TestUntar(unittest.TestCase):
         req.headers['transfer-encoding'] = 'chunked'
         resp_body = self.handle_extract_and_iter(req, '')
         resp_data = utils.json.loads(resp_body)
-        self.assertEqual(self.app.calls, 4)
-        self.assertEqual(resp_data['Number Files Created'], 2)
+        self.assertEqual(self.app.calls, 6)
+        self.assertEqual(resp_data['Number Files Created'], 3)
         self.assertEqual(resp_data['Response Status'], '400 Bad Request')
         self.assertEqual(
             resp_data['Errors'],
             [['sub_dir2/sub2%DEfile1', '412 Precondition Failed'],
              ['sub_%DEdir3/sub4_dir1/sub4_file1', '412 Precondition Failed']])
+        self.assertEqual(self.app.put_paths, [
+            '/tar_works/acc/sub_dir1/sub1_file1',
+            '/tar_works/acc/sub_dir2/sub2_file2',
+            '/tar_works/acc/good_\xe2\x98\x83/still_good/\xe2\x98\x83',
+        ])
 
     def test_get_response_body(self):
         txt_body = bulk.get_response_body(
@@ -1026,6 +1056,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertTrue(isinstance(
             swift_info['bulk_delete'].get('max_failed_deletes'),
             numbers.Integral))
+
 
 if __name__ == '__main__':
     unittest.main()
