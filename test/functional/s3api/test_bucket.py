@@ -15,7 +15,7 @@
 
 import botocore
 import datetime
-import unittest2
+import unittest
 import os
 
 import test.functional as tf
@@ -472,4 +472,4 @@ class TestS3ApiBucketSigV4(TestS3ApiBucket):
 
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

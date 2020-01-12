@@ -16,7 +16,7 @@
 # limitations under the License.
 
 import json
-import unittest2
+import unittest
 from uuid import uuid4
 
 from test.functional import check_response, cluster_info, retry, \
@@ -35,7 +35,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestContainer(unittest2.TestCase):
+class TestContainer(unittest.TestCase):
 
     def setUp(self):
         if tf.skip:
@@ -1652,7 +1652,7 @@ class TestContainer(unittest2.TestCase):
         self.assertEqual(body, b'0123456789')
 
 
-class BaseTestContainerACLs(unittest2.TestCase):
+class BaseTestContainerACLs(unittest.TestCase):
     # subclasses can change the account in which container
     # is created/deleted by setUp/tearDown
     account = 1
@@ -1827,4 +1827,4 @@ class TestContainerACLsAccount4(BaseTestContainerACLs):
 
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

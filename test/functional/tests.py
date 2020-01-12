@@ -22,7 +22,7 @@ import random
 import six
 from six.moves import urllib
 import time
-import unittest2
+import unittest
 import uuid
 from copy import deepcopy
 import eventlet
@@ -93,7 +93,7 @@ class BaseEnv(object):
         pass
 
 
-class Base(unittest2.TestCase):
+class Base(unittest.TestCase):
     env = BaseEnv
 
     @classmethod
@@ -2854,7 +2854,7 @@ class TestFileComparisonUTF8(Base2, TestFileComparison):
     pass
 
 
-class TestServiceToken(unittest2.TestCase):
+class TestServiceToken(unittest.TestCase):
 
     def setUp(self):
         if tf.skip_service_tokens:
@@ -3025,4 +3025,4 @@ class TestServiceToken(unittest2.TestCase):
 
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

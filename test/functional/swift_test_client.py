@@ -22,7 +22,7 @@ import sys
 import socket
 import time
 
-from unittest2 import SkipTest
+from unittest import SkipTest
 from xml.dom import minidom
 
 import six

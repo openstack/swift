@@ -17,7 +17,7 @@
 
 import datetime
 import json
-import unittest2
+import unittest
 from uuid import uuid4
 import time
 from xml.dom import minidom
@@ -38,7 +38,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestObject(unittest2.TestCase):
+class TestObject(unittest.TestCase):
 
     def setUp(self):
         if tf.skip or tf.skip2:
@@ -1698,4 +1698,4 @@ class TestObject(unittest2.TestCase):
 
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

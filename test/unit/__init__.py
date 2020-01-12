@@ -59,10 +59,9 @@ from gzip import GzipFile
 import mock as mocklib
 import inspect
 import unittest
-import unittest2
 
 
-class SkipTest(unittest2.SkipTest, unittest.SkipTest):
+class SkipTest(unittest.SkipTest):
     pass
 
 EMPTY_ETAG = md5().hexdigest()

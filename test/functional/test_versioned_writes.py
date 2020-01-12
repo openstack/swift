@@ -17,7 +17,7 @@
 from copy import deepcopy
 import json
 import time
-import unittest2
+import unittest
 import six
 from six.moves.urllib.parse import quote, unquote
 
@@ -968,7 +968,7 @@ class TestObjectVersioningHistoryModeUTF8(
     pass
 
 
-class TestSloWithVersioning(unittest2.TestCase):
+class TestSloWithVersioning(unittest.TestCase):
 
     def setUp(self):
         if 'slo' not in cluster_info:

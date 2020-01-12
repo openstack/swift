@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest2
+import unittest
 import json
 from uuid import uuid4
 from string import ascii_letters
@@ -38,7 +38,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestAccount(unittest2.TestCase):
+class TestAccount(unittest.TestCase):
     existing_metadata = None
 
     @classmethod
@@ -888,7 +888,7 @@ class TestAccount(unittest2.TestCase):
         self.assertEqual(resp.status, 400)
 
 
-class TestAccountInNonDefaultDomain(unittest2.TestCase):
+class TestAccountInNonDefaultDomain(unittest.TestCase):
     def setUp(self):
         if tf.skip or tf.skip2 or tf.skip_if_not_v3:
             raise SkipTest('AUTH VERSION 3 SPECIFIC TEST')
@@ -917,4 +917,4 @@ class TestAccountInNonDefaultDomain(unittest2.TestCase):
 
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()
