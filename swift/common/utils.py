@@ -1231,7 +1231,7 @@ class Timestamp(object):
     compatible for normalized timestamps which do not include an offset.
     """
 
-    def __init__(self, timestamp, offset=0, delta=0):
+    def __init__(self, timestamp, offset=0, delta=0, check_bounds=True):
         """
         Create a new Timestamp.
 
@@ -1275,10 +1275,11 @@ class Timestamp(object):
                 raise ValueError(
                     'delta must be greater than %d' % (-1 * self.raw))
             self.timestamp = float(self.raw * PRECISION)
-        if self.timestamp < 0:
-            raise ValueError('timestamp cannot be negative')
-        if self.timestamp >= 10000000000:
-            raise ValueError('timestamp too large')
+        if check_bounds:
+            if self.timestamp < 0:
+                raise ValueError('timestamp cannot be negative')
+            if self.timestamp >= 10000000000:
+                raise ValueError('timestamp too large')
 
     @classmethod
     def now(cls, offset=0, delta=0):
@@ -1352,21 +1353,24 @@ class Timestamp(object):
         if other is None:
             return False
         if not isinstance(other, Timestamp):
-            other = Timestamp(other)
+            try:
+                other = Timestamp(other, check_bounds=False)
+            except ValueError:
+                return False
         return self.internal == other.internal
 
     def __ne__(self, other):
-        if other is None:
-            return True
-        if not isinstance(other, Timestamp):
-            other = Timestamp(other)
-        return self.internal != other.internal
+        return not (self == other)
 
     def __lt__(self, other):
         if other is None:
             return False
         if not isinstance(other, Timestamp):
-            other = Timestamp(other)
+            other = Timestamp(other, check_bounds=False)
+        if other.timestamp < 0:
+            return False
+        if other.timestamp >= 10000000000:
+            return True
         return self.internal < other.internal
 
     def __hash__(self):

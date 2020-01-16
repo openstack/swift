@@ -858,6 +858,37 @@ class TestTimestamp(unittest.TestCase):
         self.assertIn(ts_0, d)  # sanity
         self.assertIn(ts_0_also, d)
 
+    def test_out_of_range_comparisons(self):
+        now = utils.Timestamp.now()
+
+        def check_is_later(val):
+            self.assertTrue(now != val)
+            self.assertFalse(now == val)
+            self.assertTrue(now <= val)
+            self.assertTrue(now < val)
+            self.assertTrue(val > now)
+            self.assertTrue(val >= now)
+
+        check_is_later(1e30)
+        check_is_later(1579753284000)  # someone gave us ms instead of s!
+        check_is_later('1579753284000')
+        check_is_later(b'1e15')
+        check_is_later(u'1.e+10_f')
+
+        def check_is_earlier(val):
+            self.assertTrue(now != val)
+            self.assertFalse(now == val)
+            self.assertTrue(now >= val)
+            self.assertTrue(now > val)
+            self.assertTrue(val < now)
+            self.assertTrue(val <= now)
+
+        check_is_earlier(-1)
+        check_is_earlier(-0.1)
+        check_is_earlier('-9999999')
+        check_is_earlier(b'-9999.999')
+        check_is_earlier(u'-1234_5678')
+
 
 class TestTimestampEncoding(unittest.TestCase):
 
