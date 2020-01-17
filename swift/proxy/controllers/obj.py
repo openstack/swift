@@ -520,8 +520,9 @@ class BaseObjectController(Controller):
         req = constraints.check_delete_headers(req)
 
         if 'x-delete-at' in req.headers:
-            x_delete_at = int(normalize_delete_at_timestamp(
-                int(req.headers['x-delete-at'])))
+            req.headers['x-delete-at'] = normalize_delete_at_timestamp(
+                int(req.headers['x-delete-at']))
+            x_delete_at = int(req.headers['x-delete-at'])
 
             req.environ.setdefault('swift.log_info', []).append(
                 'x-delete-at:%s' % x_delete_at)
