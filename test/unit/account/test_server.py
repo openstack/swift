@@ -1727,6 +1727,57 @@ class TestAccountController(unittest.TestCase):
                         listing.append(node2.firstChild.nodeValue)
         self.assertEqual(listing, ['sub.1.0', 'sub.1.1', 'sub.1.2'])
 
+    def test_GET_leading_delimiter(self):
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                  'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(self.controller)
+        for first in range(3):
+            req = Request.blank(
+                '/sda1/p/a/.sub.%s' % first,
+                environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Put-Timestamp': '1',
+                         'X-Delete-Timestamp': '0',
+                         'X-Object-Count': '0',
+                         'X-Bytes-Used': '0',
+                         'X-Timestamp': normalize_timestamp(0)})
+            req.get_response(self.controller)
+            for second in range(3):
+                req = Request.blank(
+                    '/sda1/p/a/.sub.%s.%s' % (first, second),
+                    environ={'REQUEST_METHOD': 'PUT'},
+                    headers={'X-Put-Timestamp': '1',
+                             'X-Delete-Timestamp': '0',
+                             'X-Object-Count': '0',
+                             'X-Bytes-Used': '0',
+                             'X-Timestamp': normalize_timestamp(0)})
+                req.get_response(self.controller)
+        req = Request.blank('/sda1/p/a?delimiter=.',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'.'])
+        req = Request.blank('/sda1/p/a?prefix=.&delimiter=.',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'.sub.'])
+        req = Request.blank('/sda1/p/a?prefix=.sub.&delimiter=.',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(
+            resp.body.strip().split(b'\n'),
+            [b'.sub.0', b'.sub.0.', b'.sub.1', b'.sub.1.',
+             b'.sub.2', b'.sub.2.'])
+        req = Request.blank('/sda1/p/a?prefix=.sub.1.&delimiter=.',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body.strip().split(b'\n'),
+                         [b'.sub.1.0', b'.sub.1.1', b'.sub.1.2'])
+
     def test_GET_multichar_delimiter(self):
         self.maxDiff = None
         req = Request.blank('/sda1/p/a', method='PUT', headers={
