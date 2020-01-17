@@ -331,6 +331,12 @@ def get_container_info(env, app, swift_source=None):
     """
     (version, wsgi_account, wsgi_container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
+
+    if not constraints.valid_api_version(version):
+        # Not a valid Swift request; return 0 like we do
+        # if there's an account failure
+        return headers_to_container_info({}, 0)
+
     account = wsgi_to_str(wsgi_account)
     container = wsgi_to_str(wsgi_container)
 
@@ -405,6 +411,10 @@ def get_account_info(env, app, swift_source=None):
     :raises ValueError: when path doesn't contain an account
     """
     (version, wsgi_account, _junk) = split_path(env['PATH_INFO'], 2, 3, True)
+
+    if not constraints.valid_api_version(version):
+        return headers_to_account_info({}, 0)
+
     account = wsgi_to_str(wsgi_account)
 
     # Check in environment cache and in memcache (in that order)
