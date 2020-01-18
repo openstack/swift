@@ -2396,6 +2396,14 @@ class TestReplicatedObjectController(
         self.assertEqual(res.status_int, 206)
         self.assertEqual(res.body, obj[10:201])
 
+        req = Request.blank(path, environ={'REQUEST_METHOD': 'GET'}, headers={
+            'Content-Type': 'application/octet-stream',
+            'X-Backend-Ignore-Range-If-Metadata-Present': 'Content-Type',
+            'Range': 'bytes=10-200'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res.body, obj)
+
         # multiple byte ranges
         req = Request.blank(
             path,
@@ -8124,19 +8132,26 @@ class TestObjectECRangedGET(unittest.TestCase):
             assert headers[:len(exp)] == exp, \
                 "object PUT failed %s" % obj_name
 
-    def _get_obj(self, range_value, obj_name=None):
+    def _get_obj(self, range_value, obj_name=None, ignore_range_if=''):
         if obj_name is None:
             obj_name = self.obj_name
+        if ignore_range_if:
+            ignore_range_if = (
+                'X-Backend-Ignore-Range-If-Metadata-Present: %s\r\n'
+                % ignore_range_if)
 
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write(('GET /v1/a/ec-con/%s HTTP/1.1\r\n'
-                  'Host: localhost\r\n'
-                  'Connection: close\r\n'
-                  'X-Storage-Token: t\r\n'
-                  'Range: %s\r\n'
-                  '\r\n' % (obj_name, range_value)).encode('ascii'))
+        fd.write((
+            'GET /v1/a/ec-con/%s HTTP/1.1\r\n'
+            'Host: localhost\r\n'
+            'Connection: close\r\n'
+            'X-Storage-Token: t\r\n'
+            'Range: %s\r\n'
+            '%s'
+            '\r\n' % (obj_name, range_value, ignore_range_if)
+        ).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
         # e.g. "HTTP/1.1 206 Partial Content\r\n..."
@@ -8243,6 +8258,16 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(headers['Content-Range'], "bytes 4096-8191/8192")
         self.assertEqual(len(gotten_obj), 4096)
         self.assertEqual(gotten_obj, self.aligned_obj[4096:8192])
+
+    def test_ignore_range_if_metadata_present(self):
+        # Ranged GET that actually wants the whole object
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=4096-8191", ignore_range_if='content-type')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Length'], str(len(self.obj)))
+        self.assertNotIn('Content-Range', headers)
+        self.assertEqual(len(gotten_obj), len(self.obj))
+        self.assertEqual(gotten_obj, self.obj)
 
     def test_byte_0(self):
         # Just the first byte, but it's index 0, so that's easy to get wrong

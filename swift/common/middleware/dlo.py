@@ -131,7 +131,8 @@ from swift.common.swob import Request, Response, \
     str_to_wsgi, wsgi_to_str, wsgi_quote, wsgi_unquote, normalize_etag
 from swift.common.utils import get_logger, \
     RateLimitedIterator, quote, close_if_possible, closing_if_possible
-from swift.common.request_helpers import SegmentedIterable
+from swift.common.request_helpers import SegmentedIterable, \
+    update_ignore_range_header
 from swift.common.wsgi import WSGIContext, make_subrequest, load_app_config
 
 
@@ -369,6 +370,7 @@ class GetContext(WSGIContext):
 
         Otherwise, simply pass it through.
         """
+        update_ignore_range_header(req, 'X-Object-Manifest')
         resp_iter = self._app_call(req.environ)
 
         # make sure this response is for a dynamic large object manifest

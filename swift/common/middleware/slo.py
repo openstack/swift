@@ -340,7 +340,7 @@ from swift.common.utils import get_logger, config_true_value, \
     Timestamp
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
-    get_container_update_override_key
+    get_container_update_override_key, update_ignore_range_header
 from swift.common.constraints import check_utf8
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
 from swift.common.wsgi import WSGIContext, make_subrequest
@@ -764,6 +764,9 @@ class SloGetContext(WSGIContext):
             # saved, we can trust the object-server to respond appropriately
             # to If-Match/If-None-Match requests.
             update_etag_is_at_header(req, SYSMETA_SLO_ETAG)
+            # Tell the object server that if it's a manifest,
+            # we want the whole thing
+            update_ignore_range_header(req, 'X-Static-Large-Object')
         resp_iter = self._app_call(req.environ)
 
         # make sure this response is for a static large object manifest
