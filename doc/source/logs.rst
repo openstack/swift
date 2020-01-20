@@ -84,6 +84,7 @@ start_time          High-resolution timestamp from the start of the request.
                     (timestamp)
 end_time            High-resolution timestamp from the end of the request.
                     (timestamp)
+ttfb                Duration between the request and the first bytes is sent.
 policy_index        The value of the storage policy index.
 account             The account part extracted from the path of the request.
                     (anonymizable)
@@ -91,6 +92,7 @@ container           The container part extracted from the path of the request.
                     (anonymizable)
 object              The object part extracted from the path of the request.
                     (anonymizable)
+pid                 PID of the process emitting the log line.
 =================== ==========================================================
 
 In one log line, all of the above fields are space-separated and url-encoded.

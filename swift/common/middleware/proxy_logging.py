@@ -71,6 +71,7 @@ if this is a middleware subrequest or not. A log processor calculating
 bandwidth usage will want to only sum up logs with no swift.source.
 """
 
+import os
 import time
 
 from swift.common.swob import Request
@@ -90,6 +91,7 @@ class ProxyLoggingMiddleware(object):
 
     def __init__(self, app, conf, logger=None):
         self.app = app
+        self.pid = os.getpid()
         self.log_formatter = LogStringFormatter(default='-', quote=True)
         self.log_msg_template = conf.get(
             'log_msg_template', (
@@ -171,7 +173,9 @@ class ProxyLoggingMiddleware(object):
             'request_time': '0.05',
             'source': '',
             'log_info': '',
-            'policy_index': ''
+            'policy_index': '',
+            'ttfb': '0.05',
+            'pid': '42'
         }
         try:
             self.log_formatter.format(self.log_msg_template, **replacements)
@@ -193,7 +197,7 @@ class ProxyLoggingMiddleware(object):
         return value
 
     def log_request(self, req, status_int, bytes_received, bytes_sent,
-                    start_time, end_time, resp_headers=None):
+                    start_time, end_time, resp_headers=None, ttfb=0):
         """
         Log a request.
 
@@ -269,6 +273,8 @@ class ProxyLoggingMiddleware(object):
             'log_info':
                 ','.join(req.environ.get('swift.log_info', '')),
             'policy_index': policy_index,
+            'ttfb': ttfb,
+            'pid': self.pid,
         }
         self.access_logger.info(
             self.log_formatter.format(self.log_msg_template,
@@ -377,18 +383,20 @@ class ProxyLoggingMiddleware(object):
 
             # Log timing information for time-to-first-byte (GET requests only)
             method = self.method_from_req(req)
+            ttfb = 0.0
             if method == 'GET':
                 status_int = status_int_for_logging()
                 policy_index = get_policy_index(req.headers, resp_headers)
                 metric_name = self.statsd_metric_name(req, status_int, method)
                 metric_name_policy = self.statsd_metric_name_policy(
                     req, status_int, method, policy_index)
+                ttfb = time.time() - start_time
                 if metric_name:
-                    self.access_logger.timing_since(
-                        metric_name + '.first-byte.timing', start_time)
+                    self.access_logger.timing(
+                        metric_name + '.first-byte.timing', ttfb * 1000)
                 if metric_name_policy:
-                    self.access_logger.timing_since(
-                        metric_name_policy + '.first-byte.timing', start_time)
+                    self.access_logger.timing(
+                        metric_name_policy + '.first-byte.timing', ttfb * 1000)
 
             bytes_sent = 0
             client_disconnect = False
@@ -406,7 +414,8 @@ class ProxyLoggingMiddleware(object):
                 status_int = status_int_for_logging(client_disconnect)
                 self.log_request(
                     req, status_int, input_proxy.bytes_received, bytes_sent,
-                    start_time, time.time(), resp_headers=resp_headers)
+                    start_time, time.time(), resp_headers=resp_headers,
+                    ttfb=ttfb)
                 close_method = getattr(iterable, 'close', None)
                 if callable(close_method):
                     close_method()
