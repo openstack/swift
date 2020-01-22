@@ -108,7 +108,6 @@ class Auditor(object):
                         consistent = False
                         print('  MD5 does not match etag for "%s" on %s/%s'
                               % (path, node['ip'], node['device']))
-                    etags.append((resp.getheader('ETag'), node))
                 else:
                     conn = http_connect(node['ip'], node['port'],
                                         node['device'], part, 'HEAD',
@@ -120,6 +119,12 @@ class Auditor(object):
                         print('  Bad status HEADing object "%s" on %s/%s'
                               % (path, node['ip'], node['device']))
                         continue
+
+                override_etag = resp.getheader(
+                    'X-Object-Sysmeta-Container-Update-Override-Etag')
+                if override_etag:
+                    etags.append((override_etag, node))
+                else:
                     etags.append((resp.getheader('ETag'), node))
             except Exception:
                 self.object_exceptions += 1
