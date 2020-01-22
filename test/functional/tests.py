@@ -694,7 +694,7 @@ class TestContainer(Base):
 
         delimiter = '-&'
         files = ['test', delimiter.join(['test', 'bar']),
-                 delimiter.join(['test', 'foo'])]
+                 delimiter.join(['test', 'foo']), "test-'baz"]
         for f in files:
             file_item = cont.file(f)
             self.assertTrue(file_item.write_random())
@@ -703,20 +703,21 @@ class TestContainer(Base):
             results = cont.files(parms={'format': format_type})
             if isinstance(results[0], dict):
                 results = [x.get('name', x.get('subdir')) for x in results]
-            self.assertEqual(results, ['test', 'test-&bar', 'test-&foo'])
+            self.assertEqual(results, ['test', 'test-&bar', 'test-&foo',
+                                       "test-'baz"])
 
             results = cont.files(parms={'delimiter': delimiter,
                                         'format': format_type})
             if isinstance(results[0], dict):
                 results = [x.get('name', x.get('subdir')) for x in results]
-            self.assertEqual(results, ['test', 'test-&'])
+            self.assertEqual(results, ['test', 'test-&', "test-'baz"])
 
             results = cont.files(parms={'delimiter': delimiter,
                                         'format': format_type,
                                         'reverse': 'yes'})
             if isinstance(results[0], dict):
                 results = [x.get('name', x.get('subdir')) for x in results]
-            self.assertEqual(results, ['test-&', 'test'])
+            self.assertEqual(results, ["test-'baz", 'test-&', 'test'])
 
     def testListDelimiterAndPrefix(self):
         cont = self.env.account.container(Utils.create_name())
