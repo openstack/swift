@@ -129,13 +129,14 @@ from time import time
 import six
 from six.moves.urllib.parse import quote
 
+from swift.common.constraints import valid_api_version
 from swift.common.exceptions import MimeInvalid
 from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
 from swift.common.utils import streq_const_time, register_swift_info, \
     parse_content_disposition, parse_mime_headers, \
     iter_multipart_mime_documents, reiterate, close_if_possible
 from swift.common.wsgi import make_pre_authed_env
-from swift.common.swob import HTTPUnauthorized, wsgi_to_str
+from swift.common.swob import HTTPUnauthorized, wsgi_to_str, str_to_wsgi
 from swift.proxy.controllers.base import get_account_info, get_container_info
 
 
@@ -365,7 +366,8 @@ class FormPost(object):
         if not subenv['PATH_INFO'].endswith('/') and \
                 subenv['PATH_INFO'].count('/') < 4:
             subenv['PATH_INFO'] += '/'
-        subenv['PATH_INFO'] += attributes['filename'] or 'filename'
+        subenv['PATH_INFO'] += str_to_wsgi(
+            attributes['filename'] or 'filename')
         if 'x_delete_at' in attributes:
             try:
                 subenv['HTTP_X_DELETE_AT'] = int(attributes['x_delete_at'])
@@ -442,8 +444,8 @@ class FormPost(object):
         :returns: list of tempurl keys
         """
         parts = env['PATH_INFO'].split('/', 4)
-        if len(parts) < 4 or parts[0] or parts[1] != 'v1' or not parts[2] or \
-                not parts[3]:
+        if len(parts) < 4 or parts[0] or not valid_api_version(parts[1]) \
+                or not parts[2] or not parts[3]:
             return []
 
         account_info = get_account_info(env, self.app, swift_source='FP')
