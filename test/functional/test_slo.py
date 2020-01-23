@@ -1098,6 +1098,12 @@ class TestSlo(Base):
         manifest = self.env.container.file("manifest-db")
         got_body = manifest.read(parms={'multipart-manifest': 'get',
                                         'format': 'raw'})
+        body_md5 = hashlib.md5(got_body).hexdigest()
+        headers = dict(
+            (h.lower(), v)
+            for h, v in manifest.conn.response.getheaders())
+        self.assertIn('etag', headers)
+        self.assertEqual(headers['etag'], body_md5)
 
         # raw format should have the actual manifest object content-type
         self.assertEqual('application/octet-stream', manifest.content_type)
