@@ -324,7 +324,12 @@ class BaseKVFile(BaseDiskFile):
 
         :param ctype_file: An on-disk .meta file
         """
-        ctype_vfr = vfile.VFileReader.get_vfile(ctype_file, self._logger)
+        try:
+            ctype_vfr = vfile.VFileReader.get_vfile(ctype_file, self._logger)
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                raise DiskFileNotExist()
+            raise
         ctypefile_metadata = ctype_vfr.metadata
         ctype_vfr.close()
         if ('Content-Type' in ctypefile_metadata
@@ -358,8 +363,10 @@ class BaseKVFile(BaseDiskFile):
         # TODO: need to catch exception, check if ENOENT (see in diskfile)
         try:
             data_vfr = vfile.VFileReader.get_vfile(data_file, self._logger)
-        except IOError:
-            pass
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                raise DiskFileNotExist()
+            raise
 
         self._datafile_metadata = data_vfr.metadata
 
