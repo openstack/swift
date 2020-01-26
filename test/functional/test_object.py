@@ -502,6 +502,29 @@ class TestObject(unittest.TestCase):
         self.assertEqual(resp.status, 400)
         self.assertEqual(body, b'X-Delete-At in past')
 
+    def test_x_delete_at_in_the_far_future(self):
+        def put(url, token, parsed, conn):
+            path = '%s/%s/%s' % (parsed.path, self.container,
+                                 'x_delete_at_in_the_far_future')
+            conn.request('PUT', path, '', {
+                'X-Auth-Token': token,
+                'Content-Length': '0',
+                'X-Delete-At': '1' * 100})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEqual(resp.status, 201, 'Got %s: %s' % (resp.status, body))
+
+        def head(url, token, parsed, conn):
+            path = '%s/%s/%s' % (parsed.path, self.container,
+                                 'x_delete_at_in_the_far_future')
+            conn.request('HEAD', path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(head)
+        body = resp.read()
+        self.assertEqual(resp.status, 200, 'Got %s: %s' % (resp.status, body))
+        self.assertEqual(resp.headers['x-delete-at'], '9' * 10)
+
     def test_copy_object(self):
         if tf.skip:
             raise SkipTest
