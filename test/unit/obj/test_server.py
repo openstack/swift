@@ -276,8 +276,7 @@ class TestObjectController(unittest.TestCase):
                    'X-Object-Meta-4': 'Four',
                    'Content-Encoding': 'gzip',
                    'Foo': 'fooheader',
-                   'Bar': 'barheader',
-                   'Content-Type': 'application/x-test'}
+                   'Bar': 'barheader'}
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers=headers)
@@ -286,6 +285,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
+            'X-Backend-Content-Type': 'application/x-test',
             'X-Object-Sysmeta-Color': 'blue',
         })
 
@@ -321,19 +321,20 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': post_timestamp,
                                      'X-Object-Sysmeta-Color': 'red',
-                                     'Content-Type': 'application/x-test'})
+                                     'Content-Type': 'application/x-test2'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
+            'X-Backend-Content-Type': 'application/x-test2',
             'X-Object-Sysmeta-Color': 'blue',
         })
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
         self.assertEqual(dict(resp.headers), {
-            'Content-Type': 'application/x-test',
+            'Content-Type': 'application/x-test2',
             'Content-Length': '6',
             'Etag': etag,
             'X-Object-Sysmeta-Color': 'blue',
@@ -403,6 +404,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
+            'X-Backend-Content-Type': 'application/x-test',
             'X-Object-Sysmeta-Color': 'red',
         })
 
@@ -436,6 +438,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
+            'X-Backend-Content-Type': 'application/x-test',
             'X-Object-Sysmeta-Color': 'red',
         })
 

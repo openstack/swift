@@ -457,7 +457,8 @@ class Bulk(object):
                         failed_files.append([wsgi_quote(str_to_wsgi(obj_name)),
                                              HTTPPreconditionFailed().status])
                         continue
-                    yield (obj_name, delete_path)
+                    yield (obj_name, delete_path,
+                           obj_to_delete.get('version_id'))
 
             def objs_then_containers(objs_to_delete):
                 # process all objects first
@@ -467,13 +468,17 @@ class Bulk(object):
                 yield delete_filter(lambda name: '/' not in name.strip('/'),
                                     objs_to_delete)
 
-            def do_delete(obj_name, delete_path):
+            def do_delete(obj_name, delete_path, version_id):
                 delete_obj_req = make_subrequest(
                     req.environ, method='DELETE',
                     path=wsgi_quote(str_to_wsgi(delete_path)),
                     headers={'X-Auth-Token': req.headers.get('X-Auth-Token')},
                     body='', agent='%(orig)s ' + user_agent,
                     swift_source=swift_source)
+                if version_id is None:
+                    delete_obj_req.params = {}
+                else:
+                    delete_obj_req.params = {'version-id': version_id}
                 return (delete_obj_req.get_response(self.app), obj_name, 0)
 
             with StreamingPile(self.delete_concurrency) as pile:

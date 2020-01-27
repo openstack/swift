@@ -202,7 +202,8 @@ import os
 from cgi import parse_header
 
 from swift.common.utils import get_logger, register_swift_info, split_path, \
-    MD5_OF_EMPTY_STRING, close_if_possible, closing_if_possible
+    MD5_OF_EMPTY_STRING, close_if_possible, closing_if_possible, \
+    config_true_value
 from swift.common.constraints import check_account_format
 from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.request_helpers import get_sys_meta_prefix, \
@@ -228,6 +229,8 @@ TGT_ETAG_SYSMETA_SYMLINK_HDR = \
     get_sys_meta_prefix('object') + 'symlink-target-etag'
 TGT_BYTES_SYSMETA_SYMLINK_HDR = \
     get_sys_meta_prefix('object') + 'symlink-target-bytes'
+SYMLOOP_EXTEND = get_sys_meta_prefix('object') + 'symloop-extend'
+ALLOW_RESERVED_NAMES = get_sys_meta_prefix('object') + 'allow-reserved-names'
 
 
 def _validate_and_prep_request_headers(req):
@@ -477,7 +480,13 @@ class SymlinkObjectContext(WSGIContext):
                 raise LinkIterError()
             # format: /<account name>/<container name>/<object name>
             new_req = build_traversal_req(symlink_target)
-            self._loop_count += 1
+            if not config_true_value(
+                    self._response_header_value(SYMLOOP_EXTEND)):
+                self._loop_count += 1
+            if config_true_value(
+                    self._response_header_value(ALLOW_RESERVED_NAMES)):
+                new_req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+
             return self._recursive_get_head(new_req, target_etag=resp_etag)
         else:
             final_etag = self._response_header_value('etag')
@@ -516,6 +525,8 @@ class SymlinkObjectContext(WSGIContext):
         new_req = make_subrequest(
             req.environ, path=wsgi_quote(symlink_target_path), method='HEAD',
             swift_source='SYM')
+        if req.allow_reserved_names:
+            new_req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
         self._last_target_path = symlink_target_path
         resp = self._recursive_get_head(new_req, target_etag=etag,
                                         follow_softlinks=False)
@@ -659,6 +670,9 @@ class SymlinkObjectContext(WSGIContext):
             req.environ['swift.leave_relative_location'] = True
             errmsg = 'The requested POST was applied to a symlink. POST ' +\
                      'directly to the target to apply requested metadata.'
+            for key, value in self._response_headers:
+                if key.lower().startswith('x-object-sysmeta-'):
+                    headers[key] = value
             raise HTTPTemporaryRedirect(
                 body=errmsg, headers=headers)
         else:

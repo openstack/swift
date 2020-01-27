@@ -1795,7 +1795,12 @@ class TestPipelineModification(unittest.TestCase):
         # anywhere other than an attribute named "app", but it works for now.
         pipe = []
         for _ in range(1000):
-            pipe.append(app.__class__.__module__)
+            if app.__class__.__module__ == \
+                    'swift.common.middleware.versioned_writes.legacy':
+                pipe.append('swift.common.middleware.versioned_writes')
+            else:
+                pipe.append(app.__class__.__module__)
+
             if not hasattr(app, 'app'):
                 break
             app = app.app

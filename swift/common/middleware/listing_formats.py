@@ -170,7 +170,12 @@ class ListingFilter(object):
         params['format'] = 'json'
         req.params = params
 
+        # Give other middlewares a chance to be in charge
+        env.setdefault('swift.format_listing', True)
         status, headers, resp_iter = req.call_application(self.app)
+        if not env.get('swift.format_listing'):
+            start_response(status, headers)
+            return resp_iter
 
         header_to_index = {}
         resp_content_type = resp_length = None

@@ -699,7 +699,7 @@ class Container(Base):
         if cfg is None:
             cfg = {}
         format_type = parms.get('format', None)
-        if format_type not in [None, 'json', 'xml']:
+        if format_type not in [None, 'plain', 'json', 'xml']:
             raise RequestError('Invalid format: %s' % format_type)
         if format_type is None and 'format' in parms:
             del parms['format']
@@ -707,12 +707,13 @@ class Container(Base):
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
                                         parms=parms, cfg=cfg)
         if status == 200:
-            if format_type == 'json':
+            if format_type == 'json' or 'versions' in parms:
                 files = json.loads(self.conn.response.read())
 
                 if six.PY2:
                     for file_item in files:
-                        for key in ('name', 'subdir', 'content_type'):
+                        for key in ('name', 'subdir', 'content_type',
+                                    'version_id'):
                             if key in file_item:
                                 file_item[key] = file_item[key].encode('utf-8')
                 return files
@@ -785,8 +786,10 @@ class Container(Base):
                 # versioning is enabled.
                 ['versions', 'x-versions-location'],
                 ['versions', 'x-history-location'],
+                ['versions_enabled', 'x-versions-enabled'],
                 ['tempurl_key', 'x-container-meta-temp-url-key'],
-                ['tempurl_key2', 'x-container-meta-temp-url-key-2']]
+                ['tempurl_key2', 'x-container-meta-temp-url-key-2'],
+                ['container_quota_bytes', 'x-container-meta-quota-bytes']]
 
             return self.header_fields(required_fields, optional_fields)
 
@@ -853,7 +856,8 @@ class File(Base):
         data.seek(0)
         return checksum.hexdigest()
 
-    def copy(self, dest_cont, dest_file, hdrs=None, parms=None, cfg=None):
+    def copy(self, dest_cont, dest_file, hdrs=None, parms=None, cfg=None,
+             return_resp=False):
         if hdrs is None:
             hdrs = {}
         if parms is None:
@@ -875,6 +879,8 @@ class File(Base):
                                   cfg=cfg, parms=parms) != 201:
             raise ResponseError(self.conn.response, 'COPY',
                                 self.conn.make_path(self.path))
+        if return_resp:
+            return self.conn.response
         return True
 
     def copy_account(self, dest_account, dest_cont, dest_file,
@@ -942,6 +948,8 @@ class File(Base):
                   ['last_modified', 'last-modified'],
                   ['etag', 'etag']]
         optional_fields = [['x_object_manifest', 'x-object-manifest'],
+                           ['x_manifest_etag', 'x-manifest-etag'],
+                           ['x_object_version_id', 'x-object-version-id'],
                            ['x_symlink_target', 'x-symlink-target']]
 
         header_fields = self.header_fields(fields,

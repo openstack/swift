@@ -319,6 +319,9 @@ class ServerSideCopyMiddleware(object):
         if 'last-modified' in source_resp.headers:
             resp_headers['X-Copied-From-Last-Modified'] = \
                 source_resp.headers['last-modified']
+        if 'X-Object-Version-Id' in source_resp.headers:
+            resp_headers['X-Copied-From-Version-Id'] = \
+                source_resp.headers['X-Object-Version-Id']
         # Existing sys and user meta of source object is added to response
         # headers in addition to the new ones.
         _copy_headers(sink_req.headers, resp_headers)
@@ -374,6 +377,8 @@ class ServerSideCopyMiddleware(object):
             sink_req.headers.update(req.headers)
 
         params = sink_req.params
+        params_updated = False
+
         if params.get('multipart-manifest') == 'get':
             if 'X-Static-Large-Object' in source_resp.headers:
                 params['multipart-manifest'] = 'put'
@@ -381,6 +386,13 @@ class ServerSideCopyMiddleware(object):
                 del params['multipart-manifest']
                 sink_req.headers['X-Object-Manifest'] = \
                     source_resp.headers['X-Object-Manifest']
+            params_updated = True
+
+        if 'version-id' in params:
+            del params['version-id']
+            params_updated = True
+
+        if params_updated:
             sink_req.params = params
 
         # Set swift.source, data source, content length and etag

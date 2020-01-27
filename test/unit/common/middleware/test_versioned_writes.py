@@ -60,7 +60,8 @@ class VersionedWritesBaseTestCase(unittest.TestCase):
     def setUp(self):
         self.app = helpers.FakeSwift()
         conf = {'allow_versioned_writes': 'true'}
-        self.vw = versioned_writes.filter_factory(conf)(self.app)
+        self.vw = versioned_writes.legacy.VersionedWritesMiddleware(
+            self.app, conf)
 
     def tearDown(self):
         self.assertEqual(self.app.unclosed_requests, {})
@@ -842,7 +843,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertTrue(path.startswith('/v1/a/ver_cont/001o/3'))
         self.assertNotIn('x-if-delete-at', [h.lower() for h in req_headers])
 
-    @mock.patch('swift.common.middleware.versioned_writes.time.time',
+    @mock.patch('swift.common.middleware.versioned_writes.legacy.time.time',
                 return_value=1234)
     def test_history_delete_marker_no_object_success(self, mock_time):
         self.app.register(
@@ -872,7 +873,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual('application/x-deleted;swift_versions_deleted=1',
                          calls[1].headers.get('Content-Type'))
 
-    @mock.patch('swift.common.middleware.versioned_writes.time.time',
+    @mock.patch('swift.common.middleware.versioned_writes.legacy.time.time',
                 return_value=123456789.54321)
     def test_history_delete_marker_over_object_success(self, mock_time):
         self.app.register(

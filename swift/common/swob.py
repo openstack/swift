@@ -1012,6 +1012,33 @@ class Request(object):
             self.query_string = urllib.parse.urlencode(param_pairs,
                                                        encoding='latin-1')
 
+    def ensure_x_timestamp(self):
+        """
+        Similar to :attr:`timestamp`, but the ``X-Timestamp`` header will be
+        set if not present.
+
+        :raises HTTPBadRequest: if X-Timestamp is already set but not a valid
+                                :class:`~swift.common.utils.Timestamp`
+        :returns: the request's X-Timestamp header,
+                  as a :class:`~swift.common.utils.Timestamp`
+        """
+        # The container sync feature includes an x-timestamp header with
+        # requests. If present this is checked and preserved, otherwise a fresh
+        # timestamp is added.
+        if 'HTTP_X_TIMESTAMP' in self.environ:
+            try:
+                self._timestamp = Timestamp(self.environ['HTTP_X_TIMESTAMP'])
+            except ValueError:
+                raise HTTPBadRequest(
+                    request=self, content_type='text/plain',
+                    body='X-Timestamp should be a UNIX timestamp float value; '
+                         'was %r' % self.environ['HTTP_X_TIMESTAMP'])
+        else:
+            self._timestamp = Timestamp.now()
+        # Always normalize it to the internal form
+        self.environ['HTTP_X_TIMESTAMP'] = self._timestamp.internal
+        return self._timestamp
+
     @property
     def timestamp(self):
         """

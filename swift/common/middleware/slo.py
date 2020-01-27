@@ -1417,6 +1417,9 @@ class StaticLargeObject(object):
         segments = [{
             'sub_slo': True,
             'name': obj_path}]
+        if 'version-id' in req.params:
+            segments[0]['version_id'] = req.params['version-id']
+
         while segments:
             # We chose not to set the limit at max_manifest_segments
             # in the case this value was decreased by operators.
@@ -1469,6 +1472,9 @@ class StaticLargeObject(object):
         new_env['REQUEST_METHOD'] = 'GET'
         del(new_env['wsgi.input'])
         new_env['QUERY_STRING'] = 'multipart-manifest=get'
+        if 'version-id' in req.params:
+            new_env['QUERY_STRING'] += \
+                '&version-id=' + req.params['version-id']
         new_env['CONTENT_LENGTH'] = 0
         new_env['HTTP_USER_AGENT'] = \
             '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')
