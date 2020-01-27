@@ -179,6 +179,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'status': status_int,
         'read_acl': headers.get('x-container-read'),
         'write_acl': headers.get('x-container-write'),
+        'sync_to': headers.get('x-container-sync-to'),
         'sync_key': headers.get('x-container-sync-key'),
         'object_count': headers.get('x-container-object-count'),
         'bytes': headers.get('x-container-bytes-used'),

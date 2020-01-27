@@ -562,6 +562,182 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
             self.url, self.token, dest_container, symlink_name)
         self.assertEqual(target_body, actual_target_body)
 
+    def test_sync_static_symlink_different_container(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        symlink_cont = 'symlink-container-%s' % uuid.uuid4()
+        client.put_container(self.url, self.token, symlink_cont)
+
+        # upload a target to symlink container
+        target_name = 'target-%s' % uuid.uuid4()
+        target_body = b'target body'
+        etag = client.put_object(
+            self.url, self.token, symlink_cont, target_name,
+            target_body)
+
+        # upload a regular object
+        regular_name = 'regular-%s' % uuid.uuid4()
+        regular_body = b'regular body'
+        client.put_object(
+            self.url, self.token, source_container, regular_name,
+            regular_body)
+
+        # static symlink
+        target_path = '%s/%s' % (symlink_cont, target_name)
+        symlink_name = 'symlink-%s' % uuid.uuid4()
+        put_headers = {'X-Symlink-Target': target_path,
+                       'X-Symlink-Target-Etag': etag}
+
+        # upload the symlink
+        client.put_object(
+            self.url, self.token, source_container, symlink_name,
+            '', headers=put_headers)
+
+        # verify object is a symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, source_container, symlink_name,
+            query_string='symlink=get')
+        self.assertEqual(b'', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+        self.assertIn('x-symlink-target-etag', resp_headers)
+
+        # verify symlink behavior
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, source_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+        self.assertIn('content-location', resp_headers)
+        content_location = resp_headers['content-location']
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # regular object should have synced
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, regular_name)
+        self.assertEqual(regular_body, actual_target_body)
+
+        # static symlink gets synced, too
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+        self.assertIn('content-location', resp_headers)
+        self.assertEqual(content_location, resp_headers['content-location'])
+
+    def test_sync_busted_static_symlink_different_container(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        symlink_cont = 'symlink-container-%s' % uuid.uuid4()
+        client.put_container(self.url, self.token, symlink_cont)
+
+        # upload a target to symlink container
+        target_name = 'target-%s' % uuid.uuid4()
+        target_body = b'target body'
+        etag = client.put_object(
+            self.url, self.token, symlink_cont, target_name,
+            target_body)
+
+        # upload a regular object
+        regular_name = 'regular-%s' % uuid.uuid4()
+        regular_body = b'regular body'
+        client.put_object(
+            self.url, self.token, source_container, regular_name,
+            regular_body)
+
+        # static symlink
+        target_path = '%s/%s' % (symlink_cont, target_name)
+        symlink_name = 'symlink-%s' % uuid.uuid4()
+        put_headers = {'X-Symlink-Target': target_path,
+                       'X-Symlink-Target-Etag': etag}
+
+        # upload the symlink
+        client.put_object(
+            self.url, self.token, source_container, symlink_name,
+            '', headers=put_headers)
+
+        # verify object is a symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, source_container, symlink_name,
+            query_string='symlink=get')
+        self.assertEqual(b'', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+        self.assertIn('x-symlink-target-etag', resp_headers)
+
+        # verify symlink behavior
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, source_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+        self.assertIn('content-location', resp_headers)
+        content_location = resp_headers['content-location']
+
+        # Break the link
+        client.put_object(
+            self.url, self.token, symlink_cont, target_name,
+            b'something else')
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # regular object should have synced
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, regular_name)
+        self.assertEqual(regular_body, actual_target_body)
+
+        # static symlink gets synced, too, even though the target's different!
+        with self.assertRaises(ClientException) as cm:
+            client.get_object(
+                self.url, self.token, dest_container, symlink_name)
+        self.assertEqual(409, cm.exception.http_status)
+        resp_headers = cm.exception.http_response_headers
+        self.assertIn('content-location', resp_headers)
+        self.assertEqual(content_location, resp_headers['content-location'])
+
+    def test_sync_static_symlink(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        # upload a target to symlink container
+        target_name = 'target-%s' % uuid.uuid4()
+        target_body = b'target body'
+        etag = client.put_object(
+            self.url, self.token, source_container, target_name,
+            target_body)
+
+        # static symlink
+        target_path = '%s/%s' % (source_container, target_name)
+        symlink_name = 'symlink-%s' % uuid.uuid4()
+        put_headers = {'X-Symlink-Target': target_path,
+                       'X-Symlink-Target-Etag': etag}
+
+        # upload the symlink
+        client.put_object(
+            self.url, self.token, source_container, symlink_name,
+            '', headers=put_headers)
+
+        # verify object is a symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, source_container, symlink_name,
+            query_string='symlink=get')
+        self.assertEqual(b'', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+        self.assertIn('x-symlink-target-etag', resp_headers)
+
+        # verify symlink behavior
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, source_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # regular object should have synced
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, target_name)
+        self.assertEqual(target_body, actual_target_body)
+
+        # and static link too
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+
 
 if __name__ == "__main__":
     unittest.main()

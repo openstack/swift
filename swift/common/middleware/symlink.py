@@ -506,6 +506,12 @@ class SymlinkObjectContext(WSGIContext):
 
     def _validate_etag_and_update_sysmeta(self, req, symlink_target_path,
                                           etag):
+        if req.environ.get('swift.symlink_override'):
+            req.headers[TGT_ETAG_SYSMETA_SYMLINK_HDR] = etag
+            req.headers[TGT_BYTES_SYSMETA_SYMLINK_HDR] = \
+                req.headers[TGT_BYTES_SYMLINK_HDR]
+            return
+
         # next we'll make sure the E-Tag matches a real object
         new_req = make_subrequest(
             req.environ, path=wsgi_quote(symlink_target_path), method='HEAD',

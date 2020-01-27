@@ -639,6 +639,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['status'], 404)
         self.assertIsNone(resp['read_acl'])
         self.assertIsNone(resp['write_acl'])
+        self.assertIsNone(resp['sync_key'])
+        self.assertIsNone(resp['sync_to'])
 
     def test_headers_to_container_info_meta(self):
         headers = {'X-Container-Meta-Whatevs': 14,
@@ -662,11 +664,14 @@ class TestFuncs(unittest.TestCase):
             'x-container-read': 'readvalue',
             'x-container-write': 'writevalue',
             'x-container-sync-key': 'keyvalue',
+            'x-container-sync-to': '//r/c/a/c',
             'x-container-meta-access-control-allow-origin': 'here',
         }
         resp = headers_to_container_info(headers.items(), 200)
         self.assertEqual(resp['read_acl'], 'readvalue')
         self.assertEqual(resp['write_acl'], 'writevalue')
+        self.assertEqual(resp['sync_key'], 'keyvalue')
+        self.assertEqual(resp['sync_to'], '//r/c/a/c')
         self.assertEqual(resp['cors']['allow_origin'], 'here')
 
         headers['x-unused-header'] = 'blahblahblah'

@@ -147,6 +147,9 @@ class TestContainerFailures(ReplProbeTest):
         def run_test(num_locks, catch_503):
             container = 'container-%s' % uuid4()
             client.put_container(self.url, self.token, container)
+            # Get the container info into memcache (so no stray
+            # get_container_info calls muck up our timings)
+            client.get_container(self.url, self.token, container)
             db_files = self._get_container_db_files(container)
             db_conns = []
             for i in range(num_locks):
