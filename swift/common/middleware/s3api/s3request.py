@@ -253,15 +253,16 @@ class SigV4Mixin(object):
                                   self.params.get('X-Amz-Algorithm'))
         try:
             cred_param = self._parse_credential(
-                self.params['X-Amz-Credential'])
-            sig = self.params['X-Amz-Signature']
+                swob.wsgi_to_str(self.params['X-Amz-Credential']))
+            sig = swob.wsgi_to_str(self.params['X-Amz-Signature'])
             if not sig:
                 raise AccessDenied()
         except KeyError:
             raise AccessDenied()
 
         try:
-            signed_headers = self.params['X-Amz-SignedHeaders']
+            signed_headers = swob.wsgi_to_str(
+                self.params['X-Amz-SignedHeaders'])
         except KeyError:
             # TODO: make sure if is it malformed request?
             raise AuthorizationHeaderMalformed()
@@ -298,7 +299,7 @@ class SigV4Mixin(object):
         :raises: AuthorizationHeaderMalformed
         """
 
-        auth_str = self.headers['Authorization']
+        auth_str = swob.wsgi_to_str(self.headers['Authorization'])
         cred_param = self._parse_credential(auth_str.partition(
             "Credential=")[2].split(',')[0])
         sig = auth_str.partition("Signature=")[2].split(',')[0]
@@ -371,7 +372,7 @@ class SigV4Mixin(object):
 
         headers_to_sign = [
             (key, value) for key, value in sorted(headers_lower_dict.items())
-            if key in self._signed_headers]
+            if swob.wsgi_to_str(key) in self._signed_headers]
 
         if len(headers_to_sign) != len(self._signed_headers):
             # NOTE: if we are missing the header suggested via
@@ -646,9 +647,9 @@ class S3Request(swob.Request):
         :raises: AccessDenied
         """
         try:
-            access = self.params['AWSAccessKeyId']
-            expires = self.params['Expires']
-            sig = self.params['Signature']
+            access = swob.wsgi_to_str(self.params['AWSAccessKeyId'])
+            expires = swob.wsgi_to_str(self.params['Expires'])
+            sig = swob.wsgi_to_str(self.params['Signature'])
         except KeyError:
             raise AccessDenied()
 
@@ -664,7 +665,7 @@ class S3Request(swob.Request):
         :returns: a tuple of access_key and signature
         :raises: AccessDenied
         """
-        auth_str = self.headers['Authorization']
+        auth_str = swob.wsgi_to_str(self.headers['Authorization'])
         if not auth_str.startswith('AWS ') or ':' not in auth_str:
             raise AccessDenied()
         # This means signature format V2
