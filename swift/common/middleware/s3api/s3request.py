@@ -34,7 +34,7 @@ from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_PARTIAL_CONTENT, HTTP_NOT_MODIFIED, HTTP_PRECONDITION_FAILED, \
     HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_LENGTH_REQUIRED, \
     HTTP_BAD_REQUEST, HTTP_REQUEST_TIMEOUT, HTTP_SERVICE_UNAVAILABLE, \
-    is_success
+    HTTP_TOO_MANY_REQUESTS, HTTP_RATE_LIMITED, is_success
 
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers.base import get_container_info, \
@@ -53,7 +53,7 @@ from swift.common.middleware.s3api.s3response import AccessDenied, \
     InternalError, NoSuchBucket, NoSuchKey, PreconditionFailed, InvalidRange, \
     MissingContentLength, InvalidStorageClass, S3NotImplemented, InvalidURI, \
     MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName, \
-    BadDigest, AuthorizationHeaderMalformed, \
+    BadDigest, AuthorizationHeaderMalformed, SlowDown, \
     AuthorizationQueryParametersError, ServiceUnavailable
 from swift.common.middleware.s3api.exception import NotS3Request, \
     BadSwiftRequest
@@ -1371,6 +1371,8 @@ class S3Request(swob.Request):
             raise AccessDenied()
         if status == HTTP_SERVICE_UNAVAILABLE:
             raise ServiceUnavailable()
+        if status in (HTTP_RATE_LIMITED, HTTP_TOO_MANY_REQUESTS):
+            raise SlowDown()
 
         raise InternalError('unexpected status code %d' % status)
 
