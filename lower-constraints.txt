@@ -85,6 +85,7 @@ stestr==2.0.0
 stevedore==1.28.0
 testtools==2.3.0
 traceback2==1.4.0
+unittest2==1.1.0
 urllib3==1.22
 voluptuous==0.11.1
 wrapt==1.10.11
