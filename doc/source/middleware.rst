@@ -207,6 +207,15 @@ Encryption middleware should be deployed in conjunction with the
     :members:
     :show-inheritance:
 
+.. _etag_quoter:
+
+Etag Quoter
+===========
+
+.. automodule:: swift.common.middleware.etag_quoter
+    :members:
+    :show-inheritance:
+
 .. _formpost:
 
 FormPost
