@@ -1,0 +1,92 @@
+---
+features:
+  - |
+    Added a new object versioning mode, with APIs for querying and
+    accessing old versions. For more information, see `the documentation
+    <https://docs.openstack.org/swift/latest/middleware.html#module-swift.common.middleware.versioned_writes.object_versioning>`__.
+
+  - |
+    Added support for S3 versioning using the above new mode.
+
+  - |
+    Added a new middleware to allow accounts and containers to opt-in to
+    RFC-compliant ETags. For more information, see `the documentation
+    <https://docs.openstack.org/swift/latest/middleware.html#module-swift.common.middleware.etag_quoter>`__.
+    Clients should be aware of the fact that ETags may be quoted for RFC
+    compliance; this may become the default behavior in some future release.
+
+  - |
+    Proxy, account, container, and object servers now support "seamless
+    reloads" via ``SIGUSR1``. This is similar to the existing graceful
+    restarts but keeps the server socket open the whole time, reducing
+    service downtime.
+
+  - |
+    New buckets created via the S3 API will now store multi-part upload
+    data in the same storage policy as other data rather than the
+    cluster's default storage policy.
+
+  - |
+    Device region and zone can now be changed via ``swift-ring-builder``.
+    Note that this may cause a lot of data movement on the next rebalance
+    as the builder tries to reach full dispersion.
+
+  - |
+    Added support for Python 3.8.
+
+
+deprecations:
+  - |
+    Per-service ``auto_create_account_prefix`` settings are now deprecated
+    and may be ignored in a future release; if you need to use this, please
+    set it in the ``[swift-constraints]`` section of ``/etc/swift/swift.conf``.
+
+fixes:
+  - |
+    The container sharder can now handle containers with special
+    characters in their names.
+
+  - |
+    Internal client no longer logs object DELETEs as status 499.
+
+  - |
+    Objects with an ``X-Delete-At`` value in the far future no longer cause
+    backend server errors.
+
+  - |
+    The bulk extract middleware once again allows clients to specify metadata
+    (including expiration timestamps) for all objects in the archive.
+
+  - |
+    Container sync now synchronizes static symlinks in a way similar to
+    static large objects.
+
+  - |
+    ``swift_source`` is set for more sub-requests in the proxy-server. See
+    `the documentation <https://docs.openstack.org/swift/latest/logs.html#swift-source>`__.
+
+  - |
+    Errors encountered while validating static symlink targets no longer
+    cause ``BadResponseLength`` errors in the proxy-server.
+
+  - |
+    On Python 3, the KMS keymaster now works with secrets stored
+    in Barbican with a ``text/plain`` payload-content-type.
+
+  - |
+    On Python 3, the formpost middleware now works with unicode file names.
+
+  - |
+    On Python 3, certain S3 API headers are now lower case as they
+    would be coming from AWS.
+
+  - |
+    Several utility scripts now work better on Python 3:
+
+    * ``swift-account-audit``
+
+    * ``swift-dispersion-populate``
+
+    * ``swift-drive-recon``
+
+    * ``swift-recon``
