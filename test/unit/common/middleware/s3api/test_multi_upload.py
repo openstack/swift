@@ -20,7 +20,7 @@ from mock import patch
 import os
 import time
 import unittest
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, quote_plus
 
 from swift.common import swob
 from swift.common.swob import Request
@@ -346,7 +346,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             query[key] = arg
         self.assertEqual(query['format'], 'json')
         self.assertEqual(query['limit'], '1001')
-        self.assertEqual(query['marker'], 'object/Y')
+        self.assertEqual(query['marker'], quote_plus('object/Y'))
 
     @s3acl
     def test_bucket_multipart_uploads_GET_with_key_marker(self):
@@ -380,7 +380,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             query[key] = arg
         self.assertEqual(query['format'], 'json')
         self.assertEqual(query['limit'], '1001')
-        self.assertEqual(query['marker'], quote('object/~'))
+        self.assertEqual(query['marker'], quote_plus('object/~'))
 
     @s3acl
     def test_bucket_multipart_uploads_GET_with_prefix(self):
@@ -550,7 +550,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             query[key] = arg
         self.assertEqual(query['format'], 'json')
         self.assertEqual(query['limit'], '1001')
-        self.assertEqual(query['prefix'], 'dir/')
+        self.assertEqual(query['prefix'], quote_plus('dir/'))
         self.assertTrue(query.get('delimiter') is None)
 
     @patch('swift.common.middleware.s3api.controllers.'

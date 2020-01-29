@@ -25,6 +25,8 @@ from swift.common.request_helpers import is_sys_meta
 from swift.common.middleware.s3api.utils import snake_to_camel, \
     sysmeta_prefix, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
+from swift.common.middleware.versioned_writes.object_versioning import \
+    DELETE_MARKER_CONTENT_TYPE
 
 
 class HeaderKeyDict(header_key_dict.HeaderKeyDict):
@@ -109,9 +111,16 @@ class S3Response(S3ResponseBase, swob.Response):
                           'etag', 'last-modified', 'x-robots-tag',
                           'cache-control', 'expires'):
                 headers[key] = val
+            elif _key == 'x-object-version-id':
+                headers['x-amz-version-id'] = val
+            elif _key == 'x-copied-from-version-id':
+                headers['x-amz-copy-source-version-id'] = val
             elif _key == 'x-static-large-object':
                 # for delete slo
                 self.is_slo = config_true_value(val)
+            elif _key == 'x-backend-content-type' and \
+                    val == DELETE_MARKER_CONTENT_TYPE:
+                headers['x-amz-delete-marker'] = 'true'
 
         # Check whether we stored the AWS-style etag on upload
         override_etag = s3_sysmeta_headers.get(
@@ -217,7 +226,7 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
 
     def _dict_to_etree(self, parent, d):
         for key, value in d.items():
-            tag = re.sub('\W', '', snake_to_camel(key))
+            tag = re.sub(r'\W', '', snake_to_camel(key))
             elem = SubElement(parent, tag)
 
             if isinstance(value, (dict, MutableMapping)):
@@ -481,7 +490,7 @@ class MalformedPOSTRequest(ErrorResponse):
 class MalformedXML(ErrorResponse):
     _status = '400 Bad Request'
     _msg = 'The XML you provided was not well-formed or did not validate ' \
-           'against our published schema.'
+           'against our published schema'
 
 
 class MaxMessageLengthExceeded(ErrorResponse):

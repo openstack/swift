@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import unittest
-import uuid
 
 from test.s3api import BaseS3TestCase, ConfigError
 
@@ -43,7 +42,7 @@ class TestGetServiceSigV4(BaseS3TestCase):
 
     def test_service_with_buckets(self):
         c = self.get_s3_client(1)
-        buckets = [str(uuid.uuid4()) for _ in range(5)]
+        buckets = [self.create_name('bucket%s' % i) for i in range(5)]
         for bucket in buckets:
             c.create_bucket(Bucket=bucket)
 
@@ -65,7 +64,7 @@ class TestGetServiceSigV4(BaseS3TestCase):
             c2 = self.get_s3_client(2)
         except ConfigError as err:
             raise unittest.SkipTest(str(err))
-        buckets2 = [str(uuid.uuid4()) for _ in range(2)]
+        buckets2 = [self.create_name('bucket%s' % i) for i in range(2)]
         for bucket in buckets2:
             c2.create_bucket(Bucket=bucket)
         self.assertEqual(sorted(buckets2), [

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 import test.functional as tf
 import boto3
@@ -25,6 +26,12 @@ import traceback
 
 
 RETRY_COUNT = 3
+
+
+if os.environ.get('SWIFT_TEST_QUIET_BOTO_LOGS'):
+    logging.getLogger('boto').setLevel(logging.INFO)
+    logging.getLogger('botocore').setLevel(logging.INFO)
+    logging.getLogger('boto3').setLevel(logging.INFO)
 
 
 def setUpModule():
@@ -88,8 +95,9 @@ class Connection(object):
                         for upload in bucket.list_multipart_uploads():
                             upload.cancel_upload()
 
-                        for obj in bucket.list():
-                            bucket.delete_key(obj.name)
+                        for obj in bucket.list_versions():
+                            bucket.delete_key(
+                                obj.name, version_id=obj.version_id)
 
                         self.conn.delete_bucket(bucket.name)
                     except S3ResponseError as e:

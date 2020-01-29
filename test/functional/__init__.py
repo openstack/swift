@@ -741,7 +741,7 @@ def get_cluster_info():
         conn = Connection(config)
         conn.authenticate()
         cluster_info.update(conn.cluster_info())
-    except (ResponseError, socket.error):
+    except (ResponseError, socket.error, SkipTest):
         # Failed to get cluster_information via /info API, so fall back on
         # test.conf data
         pass
@@ -1039,10 +1039,13 @@ def teardown_package():
     global config
 
     if config:
-        conn = Connection(config)
-        conn.authenticate()
-        account = Account(conn, config.get('account', config['username']))
-        account.delete_containers()
+        try:
+            conn = Connection(config)
+            conn.authenticate()
+            account = Account(conn, config.get('account', config['username']))
+            account.delete_containers()
+        except (SkipTest):
+            pass
 
     global in_process
     global _test_socks

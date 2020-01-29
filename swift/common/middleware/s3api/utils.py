@@ -95,8 +95,8 @@ def validate_bucket_name(name, dns_compliant_bucket_names):
     elif name.endswith('.'):
         # Bucket names must not end with dot
         return False
-    elif re.match("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.)"
-                  "{3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$",
+    elif re.match(r"^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.)"
+                  r"{3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$",
                   name):
         # Bucket names cannot be formatted as an IP Address
         return False

@@ -16,8 +16,11 @@
 import logging
 import os
 import unittest
+import uuid
+import time
 
 import boto3
+from botocore.exceptions import ClientError
 from six.moves import urllib
 
 from swift.common.utils import config_true_value
@@ -80,11 +83,14 @@ def get_s3_client(user=1, signature_version='s3v4', addressing_style='path'):
         path -- produces URLs like ``http(s)://host.domain/bucket/key``
         virtual -- produces URLs like ``http(s)://bucket.host.domain/key``
     '''
-    endpoint = get_opt_or_error('endpoint')
-    scheme = urllib.parse.urlsplit(endpoint).scheme
-    if scheme not in ('http', 'https'):
-        raise ConfigError('unexpected scheme in endpoint: %r; '
-                          'expected http or https' % scheme)
+    endpoint = get_opt('endpoint', None)
+    if endpoint:
+        scheme = urllib.parse.urlsplit(endpoint).scheme
+        if scheme not in ('http', 'https'):
+            raise ConfigError('unexpected scheme in endpoint: %r; '
+                              'expected http or https' % scheme)
+    else:
+        scheme = None
     region = get_opt('region', 'us-east-1')
     access_key = get_opt_or_error('access_key%d' % user)
     secret_key = get_opt_or_error('secret_key%d' % user)
@@ -112,6 +118,9 @@ def get_s3_client(user=1, signature_version='s3v4', addressing_style='path'):
     )
 
 
+TEST_PREFIX = 's3api-test-'
+
+
 class BaseS3TestCase(unittest.TestCase):
     # Default to v4 signatures (as aws-cli does), but subclasses can override
     signature_version = 's3v4'
@@ -121,15 +130,77 @@ class BaseS3TestCase(unittest.TestCase):
         return get_s3_client(user, cls.signature_version)
 
     @classmethod
-    def clear_bucket(cls, client, bucket):
-        for key in client.list_objects(Bucket=bucket).get('Contents', []):
-            client.delete_key(Bucket=bucket, Key=key['Name'])
+    def _remove_all_object_versions_from_bucket(cls, client, bucket_name):
+        resp = client.list_object_versions(Bucket=bucket_name)
+        objs_to_delete = (resp.get('Versions', []) +
+                          resp.get('DeleteMarkers', []))
+        while objs_to_delete:
+            multi_delete_body = {
+                'Objects': [
+                    {'Key': obj['Key'], 'VersionId': obj['VersionId']}
+                    for obj in objs_to_delete
+                ],
+                'Quiet': False,
+            }
+            del_resp = client.delete_objects(Bucket=bucket_name,
+                                             Delete=multi_delete_body)
+            if any(del_resp.get('Errors', [])):
+                raise Exception('Unable to delete %r' % del_resp['Errors'])
+            if not resp['IsTruncated']:
+                break
+            key_marker = resp['NextKeyMarker']
+            version_id_marker = resp['NextVersionIdMarker']
+            resp = client.list_object_versions(
+                Bucket=bucket_name, KeyMarker=key_marker,
+                VersionIdMarker=version_id_marker)
+            objs_to_delete = (resp.get('Versions', []) +
+                              resp.get('DeleteMarkers', []))
+
+    @classmethod
+    def clear_bucket(cls, client, bucket_name):
+        timeout = time.time() + 10
+        backoff = 0.1
+        cls._remove_all_object_versions_from_bucket(client, bucket_name)
+        try:
+            client.delete_bucket(Bucket=bucket_name)
+        except ClientError as e:
+            if 'BucketNotEmpty' not in str(e):
+                raise
+            # Something's gone sideways. Try harder
+            client.put_bucket_versioning(
+                Bucket=bucket_name,
+                VersioningConfiguration={'Status': 'Suspended'})
+            while True:
+                cls._remove_all_object_versions_from_bucket(
+                    client, bucket_name)
+                # also try some version-unaware operations...
+                for key in client.list_objects(Bucket=bucket_name).get(
+                        'Contents', []):
+                    client.delete_object(Bucket=bucket_name, Key=key['Key'])
+
+                # *then* try again
+                try:
+                    client.delete_bucket(Bucket=bucket_name)
+                except ClientError as e:
+                    if 'BucketNotEmpty' not in str(e):
+                        raise
+                    if time.time() > timeout:
+                        raise Exception('Timeout clearing %r' % bucket_name)
+                    time.sleep(backoff)
+                    backoff *= 2
+                else:
+                    break
+
+    def create_name(self, slug):
+        return '%s%s-%s' % (TEST_PREFIX, slug, uuid.uuid4().hex)
 
     @classmethod
     def clear_account(cls, client):
         for bucket in client.list_buckets()['Buckets']:
+            if not bucket['Name'].startswith(TEST_PREFIX):
+                # these tests run against real s3 accounts
+                continue
             cls.clear_bucket(client, bucket['Name'])
-            client.delete_bucket(Bucket=bucket['Name'])
 
     def tearDown(self):
         client = self.get_s3_client(1)

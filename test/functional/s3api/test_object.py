@@ -650,7 +650,8 @@ class TestS3ApiObject(S3ApiBase):
     def test_get_object_range(self):
         obj = 'object'
         content = b'abcdefghij'
-        headers = {'x-amz-meta-test': 'swift'}
+        headers = {'x-amz-meta-test': 'swift',
+                   'content-type': 'application/octet-stream'}
         self.conn.make_request(
             'PUT', self.bucket, obj, headers=headers, body=content)
 
@@ -664,6 +665,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertTrue('x-amz-meta-test' in headers)
         self.assertEqual('swift', headers['x-amz-meta-test'])
         self.assertEqual(body, b'bcdef')
+        self.assertEqual('application/octet-stream', headers['content-type'])
 
         headers = {'Range': 'bytes=5-'}
         status, headers, body = \

@@ -15,42 +15,180 @@
 
 import unittest
 
-from swift.common.swob import Request
+from mock import patch
+
+from swift.common.swob import Request, HTTPNoContent
+from swift.common.middleware.s3api.etree import fromstring, tostring, \
+    Element, SubElement
 
 from test.unit.common.middleware.s3api import S3ApiTestCase
-from swift.common.middleware.s3api.etree import fromstring
 
 
 class TestS3ApiVersioning(S3ApiTestCase):
 
-    def setUp(self):
-        super(TestS3ApiVersioning, self).setUp()
-
-    def test_object_versioning_GET(self):
-        req = Request.blank('/bucket/object?versioning',
+    def _versioning_GET(self, path):
+        req = Request.blank('%s?versioning' % path,
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
 
         status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '200')
-        fromstring(body, 'VersioningConfiguration')
+        return status, headers, body
 
-    def test_object_versioning_PUT(self):
-        req = Request.blank('/bucket/object?versioning',
+    def _versioning_GET_not_configured(self, path):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket',
+                            HTTPNoContent, {}, None)
+
+        status, headers, body = self._versioning_GET(path)
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'VersioningConfiguration')
+        self.assertEqual(elem.getchildren(), [])
+
+    def _versioning_GET_enabled(self, path):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket', HTTPNoContent, {
+            'X-Container-Sysmeta-Versions-Enabled': 'True',
+        }, None)
+
+        status, headers, body = self._versioning_GET(path)
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'VersioningConfiguration')
+        status = elem.find('./Status').text
+        self.assertEqual(status, 'Enabled')
+
+    def _versioning_GET_suspended(self, path):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket', HTTPNoContent, {
+            'X-Container-Sysmeta-Versions-Enabled': 'False',
+        }, None)
+
+        status, headers, body = self._versioning_GET('/bucket/object')
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'VersioningConfiguration')
+        status = elem.find('./Status').text
+        self.assertEqual(status, 'Suspended')
+
+    def _versioning_PUT_error(self, path):
+        # Root tag is not VersioningConfiguration
+        elem = Element('foo')
+        SubElement(elem, 'Status').text = 'Enabled'
+        xml = tostring(elem)
+
+        req = Request.blank('%s?versioning' % path,
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
+                                     'Date': self.get_date_header()},
+                            body=xml)
         status, headers, body = self.call_s3api(req)
-        self.assertEqual(self._get_error_code(body), 'NotImplemented')
+        self.assertEqual(status.split()[0], '400')
 
-    def test_bucket_versioning_GET(self):
-        req = Request.blank('/bucket?versioning',
-                            environ={'REQUEST_METHOD': 'GET'},
+        # Status is not "Enabled" or "Suspended"
+        elem = Element('VersioningConfiguration')
+        SubElement(elem, 'Status').text = 'enabled'
+        xml = tostring(elem)
+
+        req = Request.blank('%s?versioning' % path,
+                            environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
+                                     'Date': self.get_date_header()},
+                            body=xml)
         status, headers, body = self.call_s3api(req)
-        fromstring(body, 'VersioningConfiguration')
+        self.assertEqual(status.split()[0], '400')
+
+    def _versioning_PUT_enabled(self, path):
+        elem = Element('VersioningConfiguration')
+        SubElement(elem, 'Status').text = 'Enabled'
+        xml = tostring(elem)
+
+        self.swift.register('POST', '/v1/AUTH_test/bucket', HTTPNoContent,
+                            {'X-Container-Sysmeta-Versions-Enabled': 'True'},
+                            None)
+
+        req = Request.blank('%s?versioning' % path,
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()},
+                            body=xml)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+        calls = self.swift.calls_with_headers
+        self.assertEqual(calls[-1][0], 'POST')
+        self.assertIn(('X-Versions-Enabled', 'true'),
+                      list(calls[-1][2].items()))
+
+    def _versioning_PUT_suspended(self, path):
+        elem = Element('VersioningConfiguration')
+        SubElement(elem, 'Status').text = 'Suspended'
+        xml = tostring(elem)
+
+        self.swift.register('POST', '/v1/AUTH_test/bucket', HTTPNoContent,
+                            {'x-container-sysmeta-versions-enabled': 'False'},
+                            None)
+
+        req = Request.blank('%s?versioning' % path,
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()},
+                            body=xml)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+        calls = self.swift.calls_with_headers
+        self.assertEqual(calls[-1][0], 'POST')
+        self.assertIn(('X-Versions-Enabled', 'false'),
+                      list(calls[-1][2].items()))
+
+    def test_object_versioning_GET_not_configured(self):
+        self._versioning_GET_not_configured('/bucket/object')
+
+    def test_object_versioning_GET_enabled(self):
+        self._versioning_GET_enabled('/bucket/object')
+
+    def test_object_versioning_GET_suspended(self):
+        self._versioning_GET_suspended('/bucket/object')
+
+    def test_object_versioning_PUT_error(self):
+        self._versioning_PUT_error('/bucket/object')
+
+    def test_object_versioning_PUT_enabled(self):
+        self._versioning_PUT_enabled('/bucket/object')
+
+    def test_object_versioning_PUT_suspended(self):
+        self._versioning_PUT_suspended('/bucket/object')
+
+    def test_bucket_versioning_GET_not_configured(self):
+        self._versioning_GET_not_configured('/bucket')
+
+    def test_bucket_versioning_GET_enabled(self):
+        self._versioning_GET_enabled('/bucket')
+
+    def test_bucket_versioning_GET_suspended(self):
+        self._versioning_GET_suspended('/bucket')
+
+    def test_bucket_versioning_PUT_error(self):
+        self._versioning_PUT_error('/bucket')
+
+    def test_object_versioning_PUT_not_implemented(self):
+        elem = Element('VersioningConfiguration')
+        SubElement(elem, 'Status').text = 'Enabled'
+        xml = tostring(elem)
+
+        req = Request.blank('/bucket?versioning',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()},
+                            body=xml)
+
+        with patch('swift.common.middleware.s3api.controllers.versioning.'
+                   'get_swift_info', return_value={}):
+            status, headers, body = self.call_s3api(req)
+            self.assertEqual(status.split()[0], '501', body)
+
+    def test_bucket_versioning_PUT_enabled(self):
+        self._versioning_PUT_enabled('/bucket')
+
+    def test_bucket_versioning_PUT_suspended(self):
+        self._versioning_PUT_suspended('/bucket')
+
 
 if __name__ == '__main__':
     unittest.main()

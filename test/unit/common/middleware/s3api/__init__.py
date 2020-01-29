@@ -16,6 +16,7 @@
 import unittest
 from datetime import datetime
 import email
+import mock
 import time
 
 from swift.common import swob
@@ -24,8 +25,8 @@ from swift.common.middleware.s3api.s3api import filter_factory
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import Config
 
-from test.unit.common.middleware.s3api.helpers import FakeSwift
 from test.unit import debug_logger
+from test.unit.common.middleware.s3api.helpers import FakeSwift
 
 
 class FakeApp(object):
@@ -80,7 +81,7 @@ class S3ApiTestCase(unittest.TestCase):
         self.app = FakeApp()
         self.swift = self.app.swift
         self.s3api = filter_factory({}, **self.conf)(self.app)
-        self.s3api.logger = debug_logger()
+        self.s3api.logger = self.swift.logger = debug_logger()
 
         self.swift.register('HEAD', '/v1/AUTH_test',
                             swob.HTTPOk, {}, None)
@@ -99,6 +100,19 @@ class S3ApiTestCase(unittest.TestCase):
                             swob.HTTPCreated, {'etag': 'object etag'}, None)
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object',
                             swob.HTTPNoContent, {}, None)
+
+        self.mock_get_swift_info_result = {'object_versioning': {}}
+        for s3api_path in (
+            'controllers.obj',
+            'controllers.bucket',
+            'controllers.multi_delete',
+            'controllers.versioning',
+        ):
+            patcher = mock.patch(
+                'swift.common.middleware.s3api.%s.get_swift_info' % s3api_path,
+                return_value=self.mock_get_swift_info_result)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _get_error_code(self, body):
         elem = fromstring(body, 'Error')
