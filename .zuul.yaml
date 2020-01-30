@@ -70,6 +70,25 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
+    name: swift-tox-py38
+    parent: swift-tox-base
+    nodeset: ubuntu-bionic
+    description: |
+      Run unit-tests for swift under cPython version 3.8.
+
+      Uses tox with the ``py38`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py38
+      bindep_profile: test py38
+      python_version: 3.8
+      tox_environment:
+        NOSE_COVER_HTML: 1
+        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
+    post-run: tools/playbooks/common/cover-post.yaml
+
+- job:
     name: swift-tox-func-py27
     parent: swift-tox-base
     description: |
@@ -497,6 +516,10 @@
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
+        - swift-tox-py38:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
 
         # Functional tests
         - swift-tox-func-py27:
@@ -623,6 +646,7 @@
         - swift-tox-py27
         - swift-tox-py36
         - swift-tox-py37
+        - swift-tox-py38
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
         - swift-tox-func-domain-remap-staticweb-py27
