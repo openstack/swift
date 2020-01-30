@@ -187,7 +187,7 @@ def check_volume(volume_path, socket_path=None, force_full_check=False):
     try:
         rpc.get_volume(socket_path, vh.volume_idx, repair_tool=True)
     except RpcError as e:
-        if e.code() == StatusCode.NotFound:
+        if e.code == StatusCode.NotFound:
             txt = "Missing volume: {} in the KV"
             logger.warn(txt.format(vh.volume_idx))
             missing_in_kv = True
@@ -224,7 +224,7 @@ def check_volume(volume_path, socket_path=None, force_full_check=False):
                 obj = rpc.get_object(socket_path, "{}".format(objname),
                                      repair_tool=True)
             except RpcError as e:
-                if e.code() == StatusCode.NotFound:
+                if e.code == StatusCode.NotFound:
                     handle_obj_missing_in_kv(socket_path, volume_path, header,
                                              offset, args)
                     continue
