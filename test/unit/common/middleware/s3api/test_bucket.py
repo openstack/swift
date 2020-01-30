@@ -14,11 +14,10 @@
 # limitations under the License.
 
 import unittest
-import cgi
 import mock
 
 import six
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, parse_qsl
 
 from swift.common import swob
 from swift.common.middleware.versioned_writes.object_versioning import \
@@ -374,7 +373,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./MaxKeys').text, '5')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['limit'], '6')
 
         req = Request.blank('/%s?max-keys=5000' % bucket_name,
@@ -386,7 +385,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./MaxKeys').text, '5000')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['limit'], '1001')
 
     def test_bucket_GET_str_max_keys(self):
@@ -433,7 +432,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./Delimiter').text, 'a')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['delimiter'], 'a')
         self.assertEqual(args['marker'], 'b')
         self.assertEqual(args['prefix'], 'c')
@@ -452,7 +451,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./Delimiter').text, 'a')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['delimiter'], 'a')
         # "start-after" is converted to "marker"
         self.assertEqual(args['marker'], 'b')
@@ -473,7 +472,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./Delimiter').text, '\xef\xbc\xa1')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['delimiter'], '\xef\xbc\xa1')
         self.assertEqual(args['marker'], '\xef\xbc\xa2')
         self.assertEqual(args['prefix'], '\xef\xbc\xa3')
@@ -493,7 +492,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./Delimiter').text, '\xef\xbc\xa1')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['delimiter'], '\xef\xbc\xa1')
         self.assertEqual(args['marker'], '\xef\xbc\xa2')
         self.assertEqual(args['prefix'], '\xef\xbc\xa3')

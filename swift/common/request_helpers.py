@@ -50,6 +50,15 @@ OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX = \
     'x-object-sysmeta-container-update-override-'
 
 
+if six.PY2:
+    import cgi
+
+    def html_escape(s, quote=True):
+        return cgi.escape(s, quote=quote)
+else:
+    from html import escape as html_escape  # noqa: F401
+
+
 def get_param(req, name, default=None):
     """
     Get parameters from an HTTP request ensuring proper handling UTF-8
