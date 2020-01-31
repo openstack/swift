@@ -651,7 +651,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     @patch('swift.common.middleware.s3api.controllers.multi_upload.'
            'unique_id', lambda: 'X')
     def _test_object_multipart_upload_initiate_s3acl(
-            self, cache, should_head, should_put):
+            self, cache, existance_cached, should_head, should_put):
         # mostly inlining stuff from @s3acl(s3_acl_only=True)
         self.s3api.conf.s3_acl = True
         self.swift.s3_acl = True
@@ -674,11 +674,13 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         fromstring(body, 'InitiateMultipartUploadResult')
         self.assertEqual(status.split()[0], '200')
-        # Always need to check ACLs for the bucket
-        expected = [('HEAD', '/v1/AUTH_test/bucket')]
+        # This is the get_container_info existance check :'(
+        expected = []
+        if not existance_cached:
+            expected.append(('HEAD', '/v1/AUTH_test/bucket'))
         if should_head:
             expected.append(('HEAD', '/v1/AUTH_test/bucket+segments'))
-        # XXX: For some reason there's always this second HEAD (???)
+        # XXX: For some reason check ACLs always does second HEAD (???)
         expected.append(('HEAD', '/v1/AUTH_test/bucket'))
         if should_put:
             expected.append(('PUT', '/v1/AUTH_test/bucket+segments'))
@@ -702,27 +704,44 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
     def test_object_multipart_upload_initiate_s3acl_with_segment_bucket(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments',
                             swob.HTTPNoContent, {}, None)
+        kwargs = {
+            'existance_cached': False,
+            'should_head': True,
+            'should_put': False,
+        }
         self._test_object_multipart_upload_initiate_s3acl(
-            FakeMemcache(), True, False)
+            FakeMemcache(), **kwargs)
 
     def test_object_multipart_upload_initiate_s3acl_with_cached_seg_buck(self):
         fake_memcache = FakeMemcache()
         fake_memcache.store.update({
+            get_cache_key('AUTH_test', 'bucket'): {'status': 204},
             get_cache_key('AUTH_test', 'bucket+segments'): {'status': 204},
         })
+        kwargs = {
+            'existance_cached': True,
+            'should_head': False,
+            'should_put': False,
+        }
         self._test_object_multipart_upload_initiate_s3acl(
-            fake_memcache, False, False)
+            fake_memcache, **kwargs)
 
     def test_object_multipart_upload_initiate_s3acl_without_segment_bucket(
             self):
         fake_memcache = FakeMemcache()
         fake_memcache.store.update({
+            get_cache_key('AUTH_test', 'bucket'): {'status': 204},
             get_cache_key('AUTH_test', 'bucket+segments'): {'status': 404},
         })
         self.swift.register('PUT', '/v1/AUTH_test/bucket+segments',
                             swob.HTTPCreated, {}, None)
+        kwargs = {
+            'existance_cached': True,
+            'should_head': False,
+            'should_put': True,
+        }
         self._test_object_multipart_upload_initiate_s3acl(
-            fake_memcache, False, True)
+            fake_memcache, **kwargs)
 
     @s3acl(s3acl_only=True)
     @patch('swift.common.middleware.s3api.controllers.'
