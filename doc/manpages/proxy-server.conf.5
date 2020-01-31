@@ -766,10 +766,12 @@ Template used to format access logs. All words surrounded by curly brackets will
 .IP "log_info"
 .IP "start_time             (timestamp at the receiving, timestamp)"
 .IP "end_time               (timestamp at the end of the treatment, timestamp)"
+.IP "ttfb                   (duration between request and first bytes is sent)"
 .IP "policy_index"
 .IP "account                (account name, anonymizable)"
 .IP "container              (container name, anonymizable)"
 .IP "object                 (object name, anonymizable)"
+.IP "pid                    (PID of the process emitting the log line)"
 .PD
 .RE
 
