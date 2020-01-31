@@ -1705,26 +1705,29 @@ class TestSloGetRawManifest(SloTestCase):
                      'HTTP_ACCEPT': 'application/json'})
         status, headers, body = self.call_slo(req)
 
+        expected_body = json.dumps([
+            {'etag': md5hex('b' * 10), 'size_bytes': '10',
+             'path': '/gettest/b_10'},
+            {'etag': md5hex('c' * 15), 'size_bytes': '15',
+             'path': '/gettest/c_15'},
+            {'etag': md5hex(md5hex("e" * 5) + md5hex("f" * 5)),
+             'size_bytes': '10',
+             'path': '/gettest/d_10'}], sort_keys=True)
+        expected_etag = md5hex(expected_body)
+        if six.PY3:
+            expected_body = expected_body.encode('utf-8')
+
+        self.assertEqual(body, expected_body)
         self.assertEqual(status, '200 OK')
-        self.assertTrue(('Etag', self.bc_etag) in headers, headers)
+        self.assertTrue(('Etag', expected_etag) in headers, headers)
         self.assertTrue(('X-Static-Large-Object', 'true') in headers, headers)
         # raw format should return the actual manifest object content-type
         self.assertIn(('Content-Type', 'text/plain'), headers)
 
         try:
-            resp_data = json.loads(body)
+            json.loads(body)
         except ValueError:
             self.fail("Invalid JSON in manifest GET: %r" % body)
-
-        self.assertEqual(
-            resp_data,
-            [{'etag': md5hex('b' * 10), 'size_bytes': '10',
-              'path': '/gettest/b_10'},
-             {'etag': md5hex('c' * 15), 'size_bytes': '15',
-              'path': '/gettest/c_15'},
-             {'etag': md5hex(md5hex("e" * 5) + md5hex("f" * 5)),
-              'size_bytes': '10',
-              'path': '/gettest/d_10'}])
 
     def test_get_raw_manifest_passthrough_with_ranges(self):
         req = Request.blank(

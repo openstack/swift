@@ -901,7 +901,7 @@ class SloGetContext(WSGIContext):
             seg_dict['size_bytes'] = seg_dict.pop('bytes', None)
             seg_dict['etag'] = seg_dict.pop('hash', None)
 
-        json_data = json.dumps(segments)  # convert to string
+        json_data = json.dumps(segments, sort_keys=True)  # convert to string
         if six.PY3:
             json_data = json_data.encode('utf-8')
 
@@ -909,6 +909,8 @@ class SloGetContext(WSGIContext):
         for header, value in resp_headers:
             if header.lower() == 'content-length':
                 new_headers.append(('Content-Length', len(json_data)))
+            elif header.lower() == 'etag':
+                new_headers.append(('Etag', md5(json_data).hexdigest()))
             else:
                 new_headers.append((header, value))
         self._response_headers = new_headers
