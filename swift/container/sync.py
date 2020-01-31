@@ -42,7 +42,7 @@ from swift.common.utils import (
     FileLikeIter, get_logger, hash_path, quote, validate_sync_to,
     whataremyips, Timestamp, decode_timestamps)
 from swift.common.daemon import Daemon
-from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
+from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
 from swift.common.wsgi import ConfigString
 from swift.common.middleware.versioned_writes.object_versioning import (
     SYSMETA_VERSIONS_CONT, SYSMETA_VERSIONS_SYMLINK)
@@ -570,7 +570,8 @@ class ContainerSync(Daemon):
                                   logger=self.logger,
                                   timeout=self.conn_timeout)
                 except ClientException as err:
-                    if err.http_status != HTTP_NOT_FOUND:
+                    if err.http_status not in (
+                            HTTP_NOT_FOUND, HTTP_CONFLICT):
                         raise
                 self.container_deletes += 1
                 self.container_stats['deletes'] += 1

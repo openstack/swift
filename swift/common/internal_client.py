@@ -28,7 +28,7 @@ from zlib import compressobj
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.exceptions import ClientException
 from swift.common.http import (HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES,
-                               is_server_error)
+                               is_client_error, is_server_error)
 from swift.common.swob import Request, bytes_to_wsgi
 from swift.common.utils import quote, closing_if_possible
 from swift.common.wsgi import loadapp, pipeline_property
@@ -930,14 +930,17 @@ class SimpleClient(object):
             self.attempts += 1
             try:
                 return self.base_request(method, **kwargs)
+            except urllib2.HTTPError as err:
+                if is_client_error(err.getcode() or 500):
+                    raise ClientException('Client error',
+                                          http_status=err.getcode())
+                elif self.attempts > retries:
+                    raise ClientException('Raise too many retries',
+                                          http_status=err.getcode())
             except (socket.error, httplib.HTTPException, urllib2.URLError) \
                     as err:
                 if self.attempts > retries:
-                    if isinstance(err, urllib2.HTTPError):
-                        raise ClientException('Raise too many retries',
-                                              http_status=err.getcode())
-                    else:
-                        raise
+                    raise
             sleep(backoff)
             backoff = min(backoff * 2, self.max_backoff)
 
