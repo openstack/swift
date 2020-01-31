@@ -182,7 +182,7 @@ class S3Token(object):
         if self._secret_cache_duration > 0:
             try:
                 auth_plugin = keystone_loading.get_plugin_loader(
-                    conf.get('auth_type'))
+                    conf.get('auth_type', 'password'))
                 available_auth_options = auth_plugin.get_options()
                 auth_options = {}
                 for option in available_auth_options:
