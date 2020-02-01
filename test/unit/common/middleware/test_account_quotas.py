@@ -210,6 +210,34 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEqual(res.status_int, 200)
 
+    def test_exceed_quota_bytes_on_empty_account_not_authorized(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '10')]
+        app = FakeAuthFilter(
+            account_quotas.AccountQuotaMiddleware(FakeApp(headers)))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'x-auth-token': 'secret',
+                                     'content-length': '100'},
+                            environ={'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, b'Upload exceeds quota.')
+
+    def test_exceed_quota_bytes_not_authorized(self):
+        headers = [('x-account-bytes-used', '100'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = FakeAuthFilter(
+            account_quotas.AccountQuotaMiddleware(FakeApp(headers)))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'x-auth-token': 'secret',
+                                     'content-length': '901'},
+                            environ={'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, b'Upload exceeds quota.')
+
     def test_over_quota_container_create_still_works(self):
         headers = [('x-account-bytes-used', '1001'),
                    ('x-account-meta-quota-bytes', '1000')]

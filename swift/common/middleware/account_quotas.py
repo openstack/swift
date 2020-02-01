@@ -109,7 +109,7 @@ class AccountQuotaMiddleware(object):
 
         account_info = get_account_info(request.environ, self.app,
                                         swift_source='AQ')
-        if not account_info or not account_info['bytes']:
+        if not account_info:
             return self.app
         try:
             quota = int(account_info['meta'].get('quota-bytes', -1))
