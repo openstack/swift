@@ -20,6 +20,7 @@ import unittest
 from six.moves import http_client
 from six.moves.urllib.parse import urlparse
 from swiftclient import get_auth
+from test.probe import PROXY_BASE_URL
 from test.probe.common import ReplProbeTest
 
 
@@ -28,7 +29,7 @@ class TestAccountGetFakeResponsesMatch(ReplProbeTest):
     def setUp(self):
         super(TestAccountGetFakeResponsesMatch, self).setUp()
         self.url, self.token = get_auth(
-            'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
+            PROXY_BASE_URL + '/auth/v1.0', 'admin:admin', 'admin')
 
     def _account_path(self, account):
         _, _, path, _, _, _ = urlparse(self.url)
@@ -46,10 +47,15 @@ class TestAccountGetFakeResponsesMatch(ReplProbeTest):
         headers['X-Auth-Token'] = self.token
 
         scheme, netloc, path, _, _, _ = urlparse(self.url)
-        host, port = netloc.split(':')
+        host, port = netloc.partition(':')[::2]
+        if not port:
+            port = '443' if scheme == 'https' else '80'
         port = int(port)
 
-        conn = http_client.HTTPConnection(host, port)
+        if scheme == 'https':
+            conn = http_client.HTTPSConnection(host, port)
+        else:
+            conn = http_client.HTTPConnection(host, port)
         conn.request(method, self._account_path(account), headers=headers)
         resp = conn.getresponse()
         if resp.status // 100 != 2:

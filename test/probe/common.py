@@ -39,7 +39,7 @@ from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.obj.diskfile import get_data_dir
 
-from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
+from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC, PROXY_BASE_URL
 
 
 ENABLED_POLICIES = [p for p in POLICIES if not p.is_deprecated]
@@ -80,8 +80,8 @@ def _check_storage(ipport, path):
     return resp
 
 
-def _check_proxy(ipport, user, key):
-    url, token = get_auth('http://%s:%d/auth/v1.0' % ipport,
+def _check_proxy(user, key):
+    url, token = get_auth(PROXY_BASE_URL + '/auth/v1.0',
                           user, key)
     account = url.split('/')[-1]
     head_account(url, token)
@@ -118,7 +118,7 @@ def check_server(ipport, ipport2server):
         rv = _retry_timeout(_check_storage, args=(ipport, path))
     else:
         rv = _retry_timeout(_check_proxy, args=(
-            ipport, 'test:tester', 'testing'))
+            'test:tester', 'testing'))
     return rv
 
 
@@ -392,7 +392,7 @@ class ProbeTest(unittest.TestCase):
                 'url': self.url, 'token': self.token, 'account': self.account}
 
             rv = _retry_timeout(_check_proxy, args=(
-                proxy_ipport, 'test2:tester2', 'testing2'))
+                'test2:tester2', 'testing2'))
             self.account_2 = {
                 k: v for (k, v) in zip(('url', 'token', 'account'), rv)}
 

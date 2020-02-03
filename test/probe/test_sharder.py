@@ -34,6 +34,7 @@ from swiftclient import client, get_auth, ClientException
 from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.obj import num_container_updates
 from test import annotate_failure
+from test.probe import PROXY_BASE_URL
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number, \
     wait_for_server_to_hangup
@@ -115,7 +116,7 @@ class BaseTestContainerSharding(ReplProbeTest):
             client.requests.logging.WARNING)
         super(BaseTestContainerSharding, self).setUp()
         _, self.admin_token = get_auth(
-            'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
+            PROXY_BASE_URL + '/auth/v1.0', 'admin:admin', 'admin')
         self._setup_container_name()
         self.init_brain(self.container_name)
         self.sharders = Manager(['container-sharder'])

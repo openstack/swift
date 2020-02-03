@@ -26,10 +26,12 @@ import time
 from uuid import uuid4
 
 from six.moves import http_client as httplib
+from six.moves.urllib.parse import urlparse
 
 from swift.common.ring import Ring
 from swift.common.manager import Manager
 
+from test.probe import PROXY_BASE_URL
 from test.probe.common import resetswift, ReplProbeTest, client
 
 
@@ -109,7 +111,9 @@ class TestWSGIServerProcessHandling(ReplProbeTest):
             self.assertIn('Invalid path: blah', got_body)
 
     def get_conn(self):
-        ip, port = self.get_ip_port()
+        scheme, ip, port = self.get_scheme_ip_port()
+        if scheme == 'https':
+            return httplib.HTTPSConnection('%s:%s' % (ip, port))
         return httplib.HTTPConnection('%s:%s' % (ip, port))
 
     def _check_reload(self):
@@ -228,11 +232,11 @@ class TestObjectServerReloadBase(TestWSGIServerProcessHandling):
     SERVER_NAME = 'object'
     PID_TIMEOUT = 35
 
-    def get_ip_port(self):
+    def get_scheme_ip_port(self):
         self.policy.load_ring('/etc/swift')
         self.ring_node = random.choice(
             self.policy.object_ring.get_part_nodes(1))
-        return self.ring_node['ip'], self.ring_node['port']
+        return 'http', self.ring_node['ip'], self.ring_node['port']
 
     def start_write_req(self, conn, suffix):
         putrequest(conn, 'PUT', '/%s/123/%s/%s/blah-%s' % (
@@ -296,8 +300,12 @@ class TestProxyServerReloadBase(TestWSGIServerProcessHandling):
     def swap_configs(self):
         shutil.copy(self.new_swift_conf_path, self.swift_conf_path)
 
-    def get_ip_port(self):
-        return 'localhost', 8080
+    def get_scheme_ip_port(self):
+        parsed = urlparse(PROXY_BASE_URL)
+        host, port = parsed.netloc.partition(':')[::2]
+        if not port:
+            port = '443' if parsed.scheme == 'https' else '80'
+        return parsed.scheme, host, int(port)
 
     def assertMaxHeaderSize(self, resp, exp_max_header_size):
         self.assertEqual(resp.status // 100, 2)
