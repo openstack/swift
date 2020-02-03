@@ -14,13 +14,13 @@
 from __future__ import print_function
 import functools
 import sys
+from io import BytesIO
 import itertools
 import uuid
 from optparse import OptionParser
 import random
 
 import six
-from six import StringIO
 from six.moves.urllib.parse import urlparse, parse_qs, quote
 
 from swift.common.manager import Manager
@@ -233,7 +233,7 @@ def translate_client_exception(m):
             return m(*args, **kwargs)
         except UnexpectedResponse as err:
             raise ClientException(
-                err.message,
+                err.args[0],
                 http_scheme=err.resp.environ['wsgi.url_scheme'],
                 http_host=err.resp.environ['SERVER_NAME'],
                 http_port=err.resp.environ['SERVER_PORT'],
@@ -274,7 +274,7 @@ class InternalBrainClient(object):
     @translate_client_exception
     def put_object(self, container_name, object_name, headers, contents,
                    query_string=None):
-        return self.swift.upload_object(StringIO(contents), self.account,
+        return self.swift.upload_object(BytesIO(contents), self.account,
                                         container_name, object_name,
                                         headers=headers,
                                         params=self.parse_qs(query_string))
@@ -294,7 +294,7 @@ class InternalBrainClient(object):
         status, headers, resp_iter = self.swift.get_object(
             self.account, container_name, object_name,
             params=self.parse_qs(query_string))
-        return headers, ''.join(resp_iter)
+        return headers, b''.join(resp_iter)
 
 
 @six.add_metaclass(meta_command)
