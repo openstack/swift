@@ -810,6 +810,31 @@ class TestContainerController(TestRingBase):
             query_string='?end_marker=%s' % end_marker)
         self.check_response(resp, root_resp_hdrs)
 
+        # GET with prefix
+        prefix = 'hat'
+        # they're all 1-character names; the important thing
+        # is which shards we query
+        expected_objects = []
+        mock_responses = [
+            (404, '', {}),
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, [], shard_resp_hdrs[1]),
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(prefix=prefix, states='listing')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(prefix=prefix, states='listing')),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 404
+             dict(prefix=prefix, marker='', end_marker='pie\x00',
+                  states='listing', limit=str(limit))),
+        ]
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?prefix=%s' % prefix)
+        self.check_response(resp, root_resp_hdrs)
+
         # marker and end_marker and limit
         limit = 2
         expected_objects = all_objects[first_included:first_excluded]
