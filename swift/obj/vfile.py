@@ -160,8 +160,9 @@ class VFileReader(object):
                 increment(logger, 'vfile.already_renamed')
                 rpc.rename_object(socket_path, name, header_fullname)
             else:
+                increment(logger, 'vfile.wrong_object_header_name')
                 raise VIOError(errno.EIO,
-                               "Wrong header name. Header: {} Expected:\
+                               "Wrong object header name. Header: {} Expected:\
                                 {}".format(header_fullname, name))
 
         metadata = read_metadata(fp, obj.offset, header)
