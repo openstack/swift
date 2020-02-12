@@ -3222,9 +3222,10 @@ class TestReplicatedObjectController(
         fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
                  b'Host: localhost\r\n'
                  b'X-Storage-Token: t\r\n'
-                 b'Content-Type: application/octet-stream\r\n'
+                 b'Content-Type: message/rfc822\r\n'
                  b'Content-Length: 33\r\n'
                  b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d\r\n'
+                 b'X-Object-Meta-\xe2\x98\x85: \xe2\x98\x85\r\n'
                  b'Expect: 100-continue\r\n'
                  b'Transfer-Encoding: chunked\r\n\r\n')
         fd.flush()
@@ -3263,9 +3264,13 @@ class TestReplicatedObjectController(
         headers = readuntil2crlfs(fd)
         exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        self.assertIn(b'Content-Length: 33', headers.split(b'\r\n'))
+        header_lines = headers.split(b'\r\n')
+        self.assertIn(b'Content-Length: 33', header_lines)
+        self.assertIn(b'Content-Type: message/rfc822', header_lines)
         self.assertIn(b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d',
-                      headers.split(b'\r\n'))
+                      header_lines)
+        self.assertIn(b'X-Object-Meta-\xe2\x98\x85: \xe2\x98\x85',
+                      header_lines)
         self.assertEqual(b"oh say can you see by the dawns'\n", fd.read(33))
 
     @unpatch_policies
