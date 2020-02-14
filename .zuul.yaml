@@ -365,6 +365,7 @@
     description: |
       Build a 4 node swift cluster and run functional tests
     timeout: 3600
+    voting: false
     pre-run:
       - tools/playbooks/multinode_setup/pre.yaml
       - tools/playbooks/common/install_dependencies.yaml
