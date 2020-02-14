@@ -358,9 +358,10 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                                         for i in range(20)))
 
         # and regular upload should work now too
-        self.brain.client.put_object(self.container_name, self.object_name, {},
-                                     utils.json.dumps(manifest_data),
-                                     query_string='multipart-manifest=put')
+        self.brain.client.put_object(
+            self.container_name, self.object_name, {},
+            utils.json.dumps(manifest_data).encode('ascii'),
+            query_string='multipart-manifest=put')
         metadata = self.brain.client.head_object(self.container_name,
                                                  self.object_name)
         self.assertEqual(int(metadata['content-length']),
@@ -392,7 +393,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                 'X-Symlink-Target': '%s/%s' % (
                     self.container_name, target_name),
                 'Content-Type': 'application/symlink',
-            }, '')
+            }, b'')
 
         # at this point we have a broken symlink (the container_info has the
         # proxy looking for the target in the wrong policy)
