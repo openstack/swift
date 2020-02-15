@@ -1696,7 +1696,7 @@ class BaseDiskFileWriter(object):
                     msg = 'open(%s, O_TMPFILE | O_WRONLY) failed: %s \
                            Falling back to using mkstemp()' \
                            % (self._datadir, os.strerror(err.errno))
-                    self.logger.warning(msg)
+                    self.logger.debug(msg)
                     self.manager.use_linkat = False
                 else:
                     raise
