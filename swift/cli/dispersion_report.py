@@ -26,10 +26,6 @@ from eventlet import GreenPool, hubs, patcher, Timeout
 from eventlet.pools import Pool
 
 from swift.common import direct_client
-try:
-    from swiftclient import get_auth
-except ImportError:
-    from swift.common.internal_client import get_auth
 from swift.common.internal_client import SimpleClient
 from swift.common.ring import Ring
 from swift.common.exceptions import ClientException
@@ -365,6 +361,11 @@ Usage: %%prog [options] [conf_file]
 
 
 def generate_report(conf, policy_name=None):
+    try:
+        # Delay importing so urllib3 will import monkey-patched modules
+        from swiftclient import get_auth
+    except ImportError:
+        from swift.common.internal_client import get_auth
     global json_output
     json_output = config_true_value(conf.get('dump_json', 'no'))
     if policy_name is None:
