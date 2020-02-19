@@ -27,7 +27,7 @@ maximum lookup depth. If a match is found, the environment's Host header is
 rewritten and the request is passed further down the WSGI chain.
 """
 
-from six.moves import range
+import six
 
 from swift import gettext_ as _
 
@@ -41,7 +41,8 @@ else:  # executed if the try block finishes with no errors
     MODULE_DEPENDENCY_MET = True
 
 from swift.common.middleware import RewriteContext
-from swift.common.swob import Request, HTTPBadRequest
+from swift.common.swob import Request, HTTPBadRequest, \
+    str_to_wsgi, wsgi_to_str
 from swift.common.utils import cache_from_env, get_logger, is_valid_ip, \
     list_from_csv, parse_socket_string, register_swift_info
 
@@ -130,9 +131,10 @@ class CNAMELookupMiddleware(object):
         if not self.storage_domain:
             return self.app(env, start_response)
         if 'HTTP_HOST' in env:
-            requested_host = given_domain = env['HTTP_HOST']
+            requested_host = env['HTTP_HOST']
         else:
-            requested_host = given_domain = env['SERVER_NAME']
+            requested_host = env['SERVER_NAME']
+        given_domain = wsgi_to_str(requested_host)
         port = ''
         if ':' in given_domain:
             given_domain, port = given_domain.rsplit(':', 1)
@@ -148,6 +150,8 @@ class CNAMELookupMiddleware(object):
                 if self.memcache:
                     memcache_key = ''.join(['cname-', a_domain])
                     found_domain = self.memcache.get(memcache_key)
+                    if six.PY2 and found_domain:
+                        found_domain = found_domain.encode('utf-8')
                 if found_domain is None:
                     ttl, found_domain = lookup_cname(a_domain, self.resolver)
                     if self.memcache and ttl > 0:
@@ -166,9 +170,10 @@ class CNAMELookupMiddleware(object):
                         {'given_domain': given_domain,
                          'found_domain': found_domain})
                     if port:
-                        env['HTTP_HOST'] = ':'.join([found_domain, port])
+                        env['HTTP_HOST'] = ':'.join([
+                            str_to_wsgi(found_domain), port])
                     else:
-                        env['HTTP_HOST'] = found_domain
+                        env['HTTP_HOST'] = str_to_wsgi(found_domain)
                     error = False
                     break
                 else:
