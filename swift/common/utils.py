@@ -47,6 +47,7 @@ import ctypes
 import ctypes.util
 from copy import deepcopy
 from optparse import OptionParser
+import traceback
 
 from tempfile import gettempdir, mkstemp, NamedTemporaryFile
 import glob
@@ -62,7 +63,7 @@ import eventlet.semaphore
 import pkg_resources
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import socket, threading
-from eventlet.hubs import trampoline
+import eventlet.hubs
 import eventlet.queue
 import netifaces
 import codecs
@@ -3302,6 +3303,8 @@ class GreenAsyncPile(object):
         try:
             self._responses.put(func(*args, **kwargs))
         except Exception:
+            if eventlet.hubs.get_hub().debug_exceptions:
+                traceback.print_exception(*sys.exc_info())
             self._responses.put(DEAD)
         finally:
             self._inflight -= 1
@@ -5567,7 +5570,7 @@ class PipeMutex(object):
                 # Tell eventlet to suspend the current greenthread until
                 # self.rfd becomes readable. This will happen when someone
                 # else writes to self.wfd.
-                trampoline(self.rfd, read=True)
+                eventlet.hubs.trampoline(self.rfd, read=True)
 
     def release(self):
         """
