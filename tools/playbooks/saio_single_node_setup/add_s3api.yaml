@@ -21,3 +21,11 @@
           regexp: "container_sync tempauth"
           replace: "container_sync s3api tempauth"
       become: true
+
+    - name: Set s3_acl option
+      ini_file:
+          path: "/etc/swift/proxy-server.conf"
+          section: "filter:s3api"
+          option: "s3_acl"
+          value: "{{ s3_acl }}"
+      become: true

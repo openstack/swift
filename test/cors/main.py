@@ -39,6 +39,9 @@ DEFAULT_ENV = {
     'OS_USERNAME': os.environ.get('ST_USER', 'test:tester'),
     'OS_PASSWORD': os.environ.get('ST_KEY', 'testing'),
     'OS_STORAGE_URL': None,
+    'S3_ENDPOINT': 'http://localhost:8080',
+    'S3_USER': 'test:tester',
+    'S3_KEY': 'testing',
 }
 ENV = {key: os.environ.get(key, default)
        for key, default in DEFAULT_ENV.items()}

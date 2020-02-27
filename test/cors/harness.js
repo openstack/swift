@@ -14,10 +14,17 @@ function makeUrl (path) {
 
 export function MakeRequest (method, path, headers, body, params) {
   var url = makeUrl(path)
+  headers = headers || {}
   params = params || {}
-  // give each request a unique query string to avoid ever fetching from cache
-  params['cors-test-time'] = Date.now().toString()
-  params['cors-test-random'] = Math.random().toString()
+  if (!(
+    url.searchParams.has('Signature') ||
+    url.searchParams.has('X-Amz-Signature') ||
+    'Authorization' in headers
+  )) {
+    // give each Swift request a unique query string to avoid ever fetching from cache
+    params['cors-test-time'] = Date.now().toString()
+    params['cors-test-random'] = Math.random().toString()
+  }
   for (var key in params) {
       url.searchParams.append(key, params[key])
   }
