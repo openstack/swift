@@ -133,28 +133,69 @@ function makeTests (params) {
         Bucket: 'private-with-cors',
         Key: 'obj'
       })
-        .then(CorsBlocked)],  // Pre-flight failed
-    ['PUT',
-      () => MakeS3Request(service, 'putObject', {
-        Bucket: 'private-with-cors',
-        Key: 'put-target',
-        Body: 'test'
-      })
-        .then(CorsBlocked)],  // Pre-flight failed
+        .then(HasStatus(200, 'OK'))
+        .then(CheckS3Headers)
+        .then(HasHeaders(['x-amz-meta-mtime']))
+        .then(DoesNotHaveHeaders(['X-Object-Meta-Mtime']))
+        .then(HasHeaders({
+          'Content-Type': 'application/octet-stream',
+          Etag: '"0f343b0931126a20f133d67c2b018a3b"'
+        }))
+        .then(BodyHasLength(1024))],
+    ['PUT then DELETE',
+      () => Promise.resolve('put-target-' + Math.random()).then((objectName) => {
+        return MakeS3Request(service, 'putObject', {
+          Bucket: 'private-with-cors',
+          Key: objectName,
+          Body: 'test'
+        })
+          .then(HasStatus(200, 'OK'))
+          .then(CheckS3Headers)
+          .then(HasHeaders({
+            'Content-Type': 'text/html; charset=UTF-8',
+            Etag: '"098f6bcd4621d373cade4e832627b4f6"'
+          }))
+          .then(HasNoBody)
+          .then((resp) => {
+            return MakeS3Request(service, 'deleteObject', {
+              Bucket: 'private-with-cors',
+              Key: objectName
+            })
+          })
+          .then(HasStatus(204, 'No Content'))
+          .then(CheckTransactionIdHeaders)
+          .then(HasNoBody)
+      })],
     ['GET If-Match matching',
       () => MakeS3Request(service, 'getObject', {
         Bucket: 'private-with-cors',
         Key: 'obj',
         IfMatch: '0f343b0931126a20f133d67c2b018a3b'
       })
-        .then(CorsBlocked)],  // Pre-flight failed
+        .then(HasStatus(200, 'OK'))
+        .then(CheckS3Headers)
+        .then(HasHeaders(['x-amz-meta-mtime']))
+        .then(DoesNotHaveHeaders(['X-Object-Meta-Mtime']))
+        .then(HasHeaders({
+          'Content-Type': 'application/octet-stream',
+          Etag: '"0f343b0931126a20f133d67c2b018a3b"'
+        }))
+        .then(BodyHasLength(1024))],
     ['GET Range',
       () => MakeS3Request(service, 'getObject', {
         Bucket: 'private-with-cors',
         Key: 'obj',
         Range: 'bytes=100-199'
       })
-        .then(CorsBlocked)],  // Pre-flight failed
+        .then(HasStatus(206, 'Partial Content'))
+        .then(CheckS3Headers)
+        .then(HasHeaders(['x-amz-meta-mtime']))
+        .then(DoesNotHaveHeaders(['X-Object-Meta-Mtime']))
+        .then(HasHeaders({
+          'Content-Type': 'application/octet-stream',
+          Etag: '"0f343b0931126a20f133d67c2b018a3b"'
+        }))
+        .then(BodyHasLength(100))]
   ]
 }
 

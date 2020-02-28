@@ -1724,6 +1724,47 @@ class TestS3ApiObj(S3ApiTestCase):
             'test:write', 'READ', src_path='')
         self.assertEqual(status.split()[0], '400')
 
+    def test_cors_preflight(self):
+        req = Request.blank(
+            '/bucket/cors-object',
+            environ={'REQUEST_METHOD': 'OPTIONS'},
+            headers={'Origin': 'http://example.com',
+                     'Access-Control-Request-Method': 'GET',
+                     'Access-Control-Request-Headers': 'authorization'})
+        self.s3api.conf.cors_preflight_allow_origin = ['*']
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '200 OK')
+        self.assertDictEqual(headers, {
+            'Allow': 'GET, HEAD, PUT, POST, DELETE, OPTIONS',
+            'Access-Control-Allow-Origin': 'http://example.com',
+            'Access-Control-Allow-Methods': ('GET, HEAD, PUT, POST, DELETE, '
+                                             'OPTIONS'),
+            'Access-Control-Allow-Headers': 'authorization',
+            'Vary': 'Origin, Access-Control-Request-Headers',
+        })
+
+        # test more allow_origins
+        self.s3api.conf.cors_preflight_allow_origin = ['http://example.com',
+                                                       'http://other.com']
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '200 OK')
+        self.assertDictEqual(headers, {
+            'Allow': 'GET, HEAD, PUT, POST, DELETE, OPTIONS',
+            'Access-Control-Allow-Origin': 'http://example.com',
+            'Access-Control-Allow-Methods': ('GET, HEAD, PUT, POST, DELETE, '
+                                             'OPTIONS'),
+            'Access-Control-Allow-Headers': 'authorization',
+            'Vary': 'Origin, Access-Control-Request-Headers',
+        })
+
+        # Wrong protocol
+        self.s3api.conf.cors_preflight_allow_origin = ['https://example.com']
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '401 Unauthorized')
+        self.assertEqual(headers, {
+            'Allow': 'GET, HEAD, PUT, POST, DELETE, OPTIONS',
+        })
+
     def test_cors_headers(self):
         # note: Access-Control-Allow-Methods would normally be expected in
         # response to an OPTIONS request but its included here in GET/PUT tests
