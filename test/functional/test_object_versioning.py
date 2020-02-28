@@ -209,6 +209,40 @@ class TestObjectVersioning(TestObjectVersioningBase):
         self.assertTrue(
             config_true_value(self.env.container.info()['versions_enabled']))
 
+    def test_account_list_containers(self):
+        cont_listing = self.env.account.containers()
+        self.assertEqual(cont_listing, [self.env.container.name,
+                                        self.env.unversioned_container.name])
+        self.env.account.delete_containers()
+        prefix = Utils.create_name()
+
+        def get_name(i):
+            return prefix + '-%02d' % i
+
+        num_container = [15, 20]
+        for i in range(num_container[1]):
+            name = get_name(i)
+            container = self.env.account.container(name)
+            container.create()
+
+        limit = 5
+        cont_listing = self.env.account.containers(parms={'limit': limit})
+        self.assertEqual(cont_listing, [get_name(i) for i in range(limit)])
+
+        for i in range(num_container[0], num_container[1]):
+            name = get_name(i)
+            container = self.env.account.container(name)
+            container.update_metadata(
+                hdrs={self.env.versions_header_key: 'True'})
+
+        cont_listing = self.env.account.containers(parms={'limit': limit})
+        self.assertEqual(cont_listing, [get_name(i) for i in range(limit)])
+
+        # we're in charge of getting everything back to normal
+        self.env.account.delete_containers()
+        self.env.container.create()
+        self.env.unversioned_container.create()
+
     def assert_previous_version(self, object_name, version_id, content,
                                 content_type, expected_headers={},
                                 not_expected_header_keys=[],

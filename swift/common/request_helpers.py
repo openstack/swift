@@ -94,6 +94,17 @@ def get_param(req, name, default=None):
     return value
 
 
+def constrain_req_limit(req, constrained_limit):
+    given_limit = get_param(req, 'limit')
+    limit = constrained_limit
+    if given_limit and given_limit.isdigit():
+        limit = int(given_limit)
+        if limit > constrained_limit:
+            raise HTTPPreconditionFailed(
+                request=req, body='Maximum limit is %d' % constrained_limit)
+    return limit
+
+
 def _validate_internal_name(name, type_='name'):
     if RESERVED in name and not name.startswith(RESERVED):
         raise HTTPBadRequest(body='Invalid reserved-namespace %s' % (type_))

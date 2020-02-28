@@ -27,7 +27,7 @@ from swift.account.utils import account_listing_response, get_response_headers
 from swift.common.db import DatabaseConnectionError, DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, \
     split_and_validate_path, validate_internal_account, \
-    validate_internal_container
+    validate_internal_container, constrain_req_limit
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, config_true_value, \
     timing_stats, replication, get_log_line, \
@@ -247,16 +247,8 @@ class AccountController(BaseStorageServer):
         drive, part, account = get_account_name_and_placement(req)
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
-        limit = constraints.ACCOUNT_LISTING_LIMIT
-        given_limit = get_param(req, 'limit')
         reverse = config_true_value(get_param(req, 'reverse'))
-        if given_limit and given_limit.isdigit():
-            limit = int(given_limit)
-            if limit > constraints.ACCOUNT_LISTING_LIMIT:
-                return HTTPPreconditionFailed(
-                    request=req,
-                    body='Maximum limit is %d' %
-                    constraints.ACCOUNT_LISTING_LIMIT)
+        limit = constrain_req_limit(req, constraints.ACCOUNT_LISTING_LIMIT)
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
         out_content_type = listing_formats.get_listing_content_type(req)
