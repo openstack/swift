@@ -1488,17 +1488,21 @@ class NodeIter(object):
         if node_iter is None:
             node_iter = itertools.chain(
                 part_nodes, ring.get_more_nodes(partition))
-        num_primary_nodes = len(part_nodes)
-        self.nodes_left = self.app.request_node_count(num_primary_nodes)
-        self.expected_handoffs = self.nodes_left - num_primary_nodes
+        self.num_primary_nodes = len(part_nodes)
+        self.nodes_left = self.app.request_node_count(self.num_primary_nodes)
+        self.expected_handoffs = self.nodes_left - self.num_primary_nodes
 
         # Use of list() here forcibly yanks the first N nodes (the primary
         # nodes) from node_iter, so the rest of its values are handoffs.
         self.primary_nodes = self.app.sort_nodes(
-            list(itertools.islice(node_iter, num_primary_nodes)),
+            list(itertools.islice(node_iter, self.num_primary_nodes)),
             policy=policy)
         self.handoff_iter = node_iter
         self._node_provider = None
+
+    @property
+    def primaries_left(self):
+        return len(self.primary_nodes)
 
     def __iter__(self):
         self._node_iter = self._node_gen()
@@ -1523,7 +1527,7 @@ class NodeIter(object):
             self.app.logger.increment('handoff_count')
             self.app.logger.warning(
                 'Handoff requested (%d)' % handoffs)
-            if (extra_handoffs == len(self.primary_nodes)):
+            if (extra_handoffs == self.num_primary_nodes):
                 # all the primaries were skipped, and handoffs didn't help
                 self.app.logger.increment('handoff_all_count')
 
@@ -1539,7 +1543,8 @@ class NodeIter(object):
         self._node_provider = callback
 
     def _node_gen(self):
-        for node in self.primary_nodes:
+        while self.primary_nodes:
+            node = self.primary_nodes.pop(0)
             if not self.app.error_limited(node):
                 yield node
                 if not self.app.error_limited(node):
