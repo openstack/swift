@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime, timedelta
 import hashlib
 from mock import patch, MagicMock
 import unittest
@@ -476,8 +477,9 @@ class TestRequest(S3ApiTestCase):
         self.assertIn(access_denied_message, cm.exception.body)
 
         # near-future X-Amz-Date header
-        dt = self.get_v4_amz_date_header()
-        date_header = {'X-Amz-Date': '%d%s' % (int(dt[:4]) + 1, dt[4:])}
+        date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
+            datetime.utcnow() + timedelta(days=1)
+        )}
         with self.assertRaises(RequestTimeTooSkewed) as cm:
             self._test_request_timestamp_sigv4(date_header)
 
