@@ -147,8 +147,10 @@ class S3ApiTestCase(unittest.TestCase):
         # email.utils.formatdate returns utc timestamp in default
         return email.utils.formatdate(time.time())
 
-    def get_v4_amz_date_header(self):
-        return datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+    def get_v4_amz_date_header(self, when=None):
+        if when is None:
+            when = datetime.utcnow()
+        return when.strftime('%Y%m%dT%H%M%SZ')
 
     def call_app(self, req, app=None, expect_exception=False):
         if app is None:
