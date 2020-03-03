@@ -101,9 +101,12 @@ class ObjectVersioningBaseTestCase(unittest.TestCase):
         self.cache_version_off.set(
             get_cache_key('a', self.build_container_name('c')),
             {'status': 200})
+        self.expected_unread_requests = {}
 
     def tearDown(self):
         self.assertEqual(self.app.unclosed_requests, {})
+        self.assertEqual(self.app.unread_requests,
+                         self.expected_unread_requests)
 
     def call_ov(self, req):
         self.authorized = []
@@ -1949,6 +1952,9 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertEqual(1, len(self.authorized))
         self.assertEqual(1, len(self.app.calls))
         self.assertNotIn(('X-Object-Version-Id', '0000001234.00000'), headers)
+        # This will log a 499 but (at the moment, anyway)
+        # we don't have a good way to avoid it
+        self.expected_unread_requests[('GET', '/v1/a/c/o?version-id=null')] = 1
 
     def test_GET_null_id_404(self):
         self.app.register(

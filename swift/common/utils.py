@@ -4220,6 +4220,19 @@ def closing_if_possible(maybe_closable):
         close_if_possible(maybe_closable)
 
 
+def drain_and_close(response_or_app_iter):
+    """
+    Drain and close a swob or WSGI response.
+
+    This ensures we don't log a 499 in the proxy just because we realized we
+    don't care about the body of an error.
+    """
+    app_iter = getattr(response_or_app_iter, 'app_iter', response_or_app_iter)
+    for _chunk in app_iter:
+        pass
+    close_if_possible(app_iter)
+
+
 _rfc_token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'
 _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +

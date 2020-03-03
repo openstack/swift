@@ -44,7 +44,7 @@ import six
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    GreenAsyncPile, quorum_size, parse_content_type, close_if_possible, \
+    GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
     document_iters_to_http_response_body, ShardRange, find_shard_range
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
@@ -369,7 +369,7 @@ def get_container_info(env, app, swift_source=None):
         # caller to keep the result private-ish
         req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
         resp = req.get_response(app)
-        close_if_possible(resp.app_iter)
+        drain_and_close(resp)
         # Check in infocache to see if the proxy (or anyone else) already
         # populated the cache for us. If they did, just use what's there.
         #
@@ -443,7 +443,7 @@ def get_account_info(env, app, swift_source=None):
         # caller to keep the result private-ish
         req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
         resp = req.get_response(app)
-        close_if_possible(resp.app_iter)
+        drain_and_close(resp)
         # Check in infocache to see if the proxy (or anyone else) already
         # populated the cache for us. If they did, just use what's there.
         #
@@ -1226,7 +1226,8 @@ class ResumingGetter(object):
                         if end - begin + 1 == self.bytes_used_from_backend:
                             warn = False
             if not req.environ.get('swift.non_client_disconnect') and warn:
-                self.app.logger.warning(_('Client disconnected on read'))
+                self.app.logger.warning('Client disconnected on read of %r',
+                                        self.path)
             raise
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))

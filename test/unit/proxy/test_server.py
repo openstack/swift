@@ -7316,7 +7316,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                     _test_servers[0].logger.get_lines_for_level('warning'))
 
         # check for disconnect message!
-        expected = ['Client disconnected on read'] * 2
+        expected = ["Client disconnected on read of '/a/%s-discon/test'"
+                    % self.ec_policy.name] * 2
         self.assertEqual(
             _test_servers[0].logger.get_lines_for_level('warning'),
             expected)

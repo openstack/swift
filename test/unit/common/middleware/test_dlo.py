@@ -315,6 +315,7 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(body, b'useful stuff here')
         self.assertEqual(self.app.call_count, 1)
+        self.assertFalse(self.app.unread_requests)
 
     def test_get_manifest_passthrough(self):
         # reregister it with the query param
@@ -331,6 +332,7 @@ class TestDloGetManifest(DloTestCase):
         headers = HeaderKeyDict(headers)
         self.assertEqual(headers["Etag"], "manifest-etag")
         self.assertEqual(body, b'manifest-contents')
+        self.assertFalse(self.app.unread_requests)
 
     def test_error_passthrough(self):
         self.app.register(
@@ -354,6 +356,10 @@ class TestDloGetManifest(DloTestCase):
             md5hex("aaaaa") + md5hex("bbbbb") + md5hex("ccccc") +
             md5hex("ddddd") + md5hex("eeeee"))
         self.assertEqual(headers.get("Etag"), expected_etag)
+        self.assertEqual(self.app.unread_requests, {
+            # Since we don't know how big this will be, we just disconnect
+            ('GET', '/v1/AUTH_test/mancon/manifest'): 1,
+        })
 
     def test_get_range_on_segment_boundaries(self):
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',

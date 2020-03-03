@@ -230,7 +230,7 @@ import json
 import time
 
 from swift.common.utils import get_logger, Timestamp, \
-    config_true_value, close_if_possible, FileLikeIter
+    config_true_value, close_if_possible, FileLikeIter, drain_and_close
 from swift.common.request_helpers import get_sys_meta_prefix, \
     copy_header_subset
 from swift.common.wsgi import WSGIContext, make_pre_authed_request
@@ -341,7 +341,8 @@ class VersionedWritesContext(WSGIContext):
                 lreq.environ['QUERY_STRING'] += '&reverse=on'
             lresp = lreq.get_response(self.app)
             if not is_success(lresp.status_int):
-                close_if_possible(lresp.app_iter)
+                # errors should be short
+                drain_and_close(lresp)
                 if lresp.status_int == HTTP_NOT_FOUND:
                     raise ListingIterNotFound()
                 elif is_client_error(lresp.status_int):
@@ -382,6 +383,8 @@ class VersionedWritesContext(WSGIContext):
 
         if source_resp.content_length is None or \
                 source_resp.content_length > MAX_FILE_SIZE:
+            # Consciously *don't* drain the response before closing;
+            # any logged 499 is actually rather appropriate here
             close_if_possible(source_resp.app_iter)
             return HTTPRequestEntityTooLarge(request=req)
 
@@ -402,6 +405,7 @@ class VersionedWritesContext(WSGIContext):
 
         put_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
         put_resp = put_req.get_response(self.app)
+        # the PUT was responsible for draining
         close_if_possible(source_resp.app_iter)
         return put_resp
 
@@ -411,7 +415,8 @@ class VersionedWritesContext(WSGIContext):
         """
         if is_success(resp.status_int):
             return
-        close_if_possible(resp.app_iter)
+        # any error should be short
+        drain_and_close(resp)
         if is_client_error(resp.status_int):
             # missing container or bad permissions
             raise HTTPPreconditionFailed(request=req)
@@ -444,7 +449,7 @@ class VersionedWritesContext(WSGIContext):
 
         if get_resp.status_int == HTTP_NOT_FOUND:
             # nothing to version, proceed with original request
-            close_if_possible(get_resp.app_iter)
+            drain_and_close(get_resp)
             return
 
         # check for any other errors
@@ -466,7 +471,8 @@ class VersionedWritesContext(WSGIContext):
         put_resp = self._put_versioned_obj(req, put_path_info, get_resp)
 
         self._check_response_error(req, put_resp)
-        close_if_possible(put_resp.app_iter)
+        # successful PUT response should be short
+        drain_and_close(put_resp)
 
     def handle_obj_versions_put(self, req, versions_cont, api_version,
                                 account_name, object_name):
@@ -521,7 +527,7 @@ class VersionedWritesContext(WSGIContext):
         marker_req.environ['swift.content_type_overridden'] = True
         marker_resp = marker_req.get_response(self.app)
         self._check_response_error(req, marker_resp)
-        close_if_possible(marker_resp.app_iter)
+        drain_and_close(marker_resp)
 
         # successfully copied and created delete marker; safe to delete
         return self.app
@@ -535,7 +541,7 @@ class VersionedWritesContext(WSGIContext):
 
         # if the version isn't there, keep trying with previous version
         if get_resp.status_int == HTTP_NOT_FOUND:
-            close_if_possible(get_resp.app_iter)
+            drain_and_close(get_resp)
             return False
 
         self._check_response_error(req, get_resp)
@@ -545,7 +551,7 @@ class VersionedWritesContext(WSGIContext):
         put_resp = self._put_versioned_obj(req, put_path_info, get_resp)
 
         self._check_response_error(req, put_resp)
-        close_if_possible(put_resp.app_iter)
+        drain_and_close(put_resp)
         return get_path
 
     def handle_obj_versions_delete_pop(self, req, versions_cont, api_version,
@@ -591,7 +597,7 @@ class VersionedWritesContext(WSGIContext):
                     req.environ, path=wsgi_quote(req.path_info), method='HEAD',
                     headers=obj_head_headers, swift_source='VW')
                 hresp = head_req.get_response(self.app)
-                close_if_possible(hresp.app_iter)
+                drain_and_close(hresp)
 
                 if hresp.status_int != HTTP_NOT_FOUND:
                     self._check_response_error(req, hresp)
@@ -619,7 +625,7 @@ class VersionedWritesContext(WSGIContext):
                         method='DELETE', headers=auth_token_header,
                         swift_source='VW')
                     del_resp = old_del_req.get_response(self.app)
-                    close_if_possible(del_resp.app_iter)
+                    drain_and_close(del_resp)
                     if del_resp.status_int != HTTP_NOT_FOUND:
                         self._check_response_error(req, del_resp)
                         # else, well, it existed long enough to do the

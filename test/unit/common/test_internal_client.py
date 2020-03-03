@@ -500,12 +500,14 @@ class TestInternalClient(unittest.TestCase):
                 self.resp_status = resp_status
                 self.request_tries = 3
                 self.closed_paths = []
+                self.fully_read_paths = []
 
             def fake_app(self, env, start_response):
                 body = b'fake error response'
                 start_response(self.resp_status,
                                [('Content-Length', str(len(body)))])
                 return LeakTrackingIter(body, self.closed_paths.append,
+                                        self.fully_read_paths.append,
                                         env['PATH_INFO'])
 
         def do_test(resp_status):
@@ -517,14 +519,17 @@ class TestInternalClient(unittest.TestCase):
                 # correct object body with 2xx.
                 client.make_request('GET', '/cont/obj', {}, (400,))
             loglines = client.logger.get_lines_for_level('info')
-            return client.closed_paths, ctx.exception.resp, loglines
+            return (client.fully_read_paths, client.closed_paths,
+                    ctx.exception.resp, loglines)
 
-        closed_paths, resp, loglines = do_test('200 OK')
+        fully_read_paths, closed_paths, resp, loglines = do_test('200 OK')
         # Since the 200 is considered "properly handled", it won't be retried
+        self.assertEqual(fully_read_paths, [])
         self.assertEqual(closed_paths, [])
-        # ...and it'll be on us (the caller) to close (for example, by using
-        # swob.Response's body property)
+        # ...and it'll be on us (the caller) to read and close (for example,
+        # by using swob.Response's body property)
         self.assertEqual(resp.body, b'fake error response')
+        self.assertEqual(fully_read_paths, ['/cont/obj'])
         self.assertEqual(closed_paths, ['/cont/obj'])
 
         expected = (' HTTP/1.0 200 ', )
@@ -533,9 +538,11 @@ class TestInternalClient(unittest.TestCase):
                 self.fail('Unexpected extra log line: %r' % logline)
             self.assertIn(expected, logline)
 
-        closed_paths, resp, loglines = do_test('503 Service Unavailable')
+        fully_read_paths, closed_paths, resp, loglines = do_test(
+            '503 Service Unavailable')
         # But since 5xx is neither "properly handled" not likely to include
         # a large body, it will be retried and responses will already be closed
+        self.assertEqual(fully_read_paths, ['/cont/obj'] * 3)
         self.assertEqual(closed_paths, ['/cont/obj'] * 3)
 
         expected = (' HTTP/1.0 503 ', ' HTTP/1.0 503 ', ' HTTP/1.0 503 ', )
