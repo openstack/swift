@@ -22,7 +22,7 @@ from swift.common.http import HTTP_NO_CONTENT
 from swift.common.request_helpers import get_param
 from swift.common.swob import HTTPException, HTTPNotAcceptable, Request, \
     RESPONSE_REASONS, HTTPBadRequest, wsgi_quote, wsgi_to_bytes
-from swift.common.utils import RESERVED, get_logger
+from swift.common.utils import RESERVED, get_logger, list_from_csv
 
 
 #: Mapping of query string ``format=`` values to their corresponding
@@ -167,6 +167,7 @@ class ListingFilter(object):
             return err(env, start_response)
 
         params = req.params
+        can_vary = 'format' not in params
         params['format'] = 'json'
         req.params = params
 
@@ -187,10 +188,21 @@ class ListingFilter(object):
             elif header == 'content-length':
                 header_to_index[header] = i
                 resp_length = int(value)
+            elif header == 'vary':
+                header_to_index[header] = i
 
-        if not status.startswith('200 '):
+        if not status.startswith(('200 ', '204 ')):
             start_response(status, headers)
             return resp_iter
+
+        if can_vary:
+            if 'vary' in header_to_index:
+                value = headers[header_to_index['vary']][1]
+                if 'accept' not in list_from_csv(value.lower()):
+                    headers[header_to_index['vary']] = (
+                        'Vary', value + ', Accept')
+            else:
+                headers.append(('Vary', 'Accept'))
 
         if resp_content_type != 'application/json':
             start_response(status, headers)

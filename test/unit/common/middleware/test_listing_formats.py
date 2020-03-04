@@ -16,7 +16,7 @@
 import json
 import unittest
 
-from swift.common.swob import Request, HTTPOk
+from swift.common.swob import Request, HTTPOk, HTTPNoContent
 from swift.common.middleware import listing_formats
 from swift.common.request_helpers import get_reserved_name
 from test.unit import debug_logger
@@ -105,6 +105,64 @@ class TestListingFormats(unittest.TestCase):
                          'application/xml; charset=utf-8')
         self.assertEqual(self.fake_swift.calls[-1], (
             'GET', '/v1/a?format=json'))
+
+    def test_valid_content_type_on_txt_head(self):
+        self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
+            'Content-Length': str(len(self.fake_account_listing)),
+            'Content-Type': 'application/json'}, self.fake_account_listing)
+        req = Request.blank('/v1/a', method='HEAD')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertIn('Vary', resp.headers)
+        # Even though the client didn't send an Accept header, the response
+        # could change *if a subsequent request does*, so include Vary: Accept
+        self.assertEqual(resp.headers['Vary'], 'Accept')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a?format=json'))
+
+    def test_valid_content_type_on_xml_head(self):
+        self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
+            'Content-Length': str(len(self.fake_account_listing)),
+            'Content-Type': 'application/json'}, self.fake_account_listing)
+        req = Request.blank('/v1/a?format=xml', method='HEAD')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/xml; charset=utf-8')
+        # query param overrides header, so it won't vary
+        self.assertNotIn('Vary', resp.headers)
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a?format=json'))
+
+    def test_update_vary_if_present(self):
+        self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
+            'Content-Length': str(len(self.fake_account_listing)),
+            'Content-Type': 'application/json',
+            'Vary': 'Origin'}, self.fake_account_listing)
+        req = Request.blank('/v1/a', method='HEAD')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(resp.headers['Vary'], 'Origin, Accept')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a?format=json'))
+
+    def test_update_vary_does_not_duplicate(self):
+        self.fake_swift.register('HEAD', '/v1/a', HTTPNoContent, {
+            'Content-Length': str(len(self.fake_account_listing)),
+            'Content-Type': 'application/json',
+            'Vary': 'Accept'}, self.fake_account_listing)
+        req = Request.blank('/v1/a', method='HEAD')
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.body, b'')
+        self.assertEqual(resp.headers['Content-Type'],
+                         'text/plain; charset=utf-8')
+        self.assertEqual(resp.headers['Vary'], 'Accept')
+        self.assertEqual(self.fake_swift.calls[-1], (
+            'HEAD', '/v1/a?format=json'))
 
     def test_valid_account_with_reserved(self):
         body_len = len(self.fake_account_listing_with_reserved)
