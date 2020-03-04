@@ -1329,6 +1329,27 @@ class TestProxyServerLoading(unittest.TestCase):
         for policy in POLICIES:
             policy.object_ring = None
 
+    def test_float_timeouts(self):
+        conf = {
+            'node_timeout': '2.3',
+            'recoverable_node_timeout': '1.4',
+            'conn_timeout': '0.7',
+            'client_timeout': '1.7',
+            'post_quorum_timeout': '0.3',
+            'concurrency_timeout': '0.2',
+
+        }
+        for policy in POLICIES:
+            policy.object_ring = FakeRing()
+        app = proxy_server.Application(conf, FakeMemcache(), debug_logger(),
+                                       FakeRing(), FakeRing())
+        self.assertEqual(app.node_timeout, 2.3)
+        self.assertEqual(app.recoverable_node_timeout, 1.4)
+        self.assertEqual(app.conn_timeout, 0.7)
+        self.assertEqual(app.client_timeout, 1.7)
+        self.assertEqual(app.post_quorum_timeout, 0.3)
+        self.assertEqual(app.concurrency_timeout, 0.2)
+
     def test_load_policy_rings(self):
         for policy in POLICIES:
             self.assertFalse(policy.object_ring)
