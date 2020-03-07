@@ -29,6 +29,19 @@ server_types = ['account', 'container', 'object']
 
 
 class TestRequestHelpers(unittest.TestCase):
+
+    def test_constrain_req_limit(self):
+        req = Request.blank('')
+        self.assertEqual(10, rh.constrain_req_limit(req, 10))
+        req = Request.blank('', query_string='limit=1')
+        self.assertEqual(1, rh.constrain_req_limit(req, 10))
+        req = Request.blank('', query_string='limit=1.0')
+        self.assertEqual(10, rh.constrain_req_limit(req, 10))
+        req = Request.blank('', query_string='limit=11')
+        with self.assertRaises(HTTPException) as raised:
+            rh.constrain_req_limit(req, 10)
+        self.assertEqual(raised.exception.status_int, 412)
+
     def test_is_user_meta(self):
         m_type = 'meta'
         for st in server_types:

@@ -3073,6 +3073,20 @@ class ObjectVersioningTestAccountOperations(ObjectVersioningBaseTestCase):
         }]
         self.assertEqual(expected, json.loads(body))
 
+        req.query_string = 'limit=1'
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(1, len(json.loads(body)))
+
+        req.query_string = 'limit=foo'
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(2, len(json.loads(body)))
+
+        req.query_string = 'limit=100000000000000000000000'
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '412 Precondition Failed')
+
     def test_list_containers_prefix(self):
         listing_body = [{
             'bytes': 0,

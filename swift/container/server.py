@@ -34,7 +34,7 @@ from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, \
     split_and_validate_path, is_sys_or_user_meta, \
-    validate_internal_container, validate_internal_obj
+    validate_internal_container, validate_internal_obj, constrain_req_limit
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
@@ -689,16 +689,8 @@ class ContainerController(BaseStorageServer):
         delimiter = get_param(req, 'delimiter')
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
-        limit = constraints.CONTAINER_LISTING_LIMIT
-        given_limit = get_param(req, 'limit')
+        limit = constrain_req_limit(req, constraints.CONTAINER_LISTING_LIMIT)
         reverse = config_true_value(get_param(req, 'reverse'))
-        if given_limit and given_limit.isdigit():
-            limit = int(given_limit)
-            if limit > constraints.CONTAINER_LISTING_LIMIT:
-                return HTTPPreconditionFailed(
-                    request=req,
-                    body='Maximum limit is %d'
-                    % constraints.CONTAINER_LISTING_LIMIT)
         out_content_type = listing_formats.get_listing_content_type(req)
         try:
             check_drive(self.root, drive, self.mount_check)

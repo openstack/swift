@@ -151,11 +151,13 @@ import time
 from cgi import parse_header
 from six.moves.urllib.parse import unquote
 
-from swift.common.constraints import MAX_FILE_SIZE, valid_api_version
+from swift.common.constraints import MAX_FILE_SIZE, valid_api_version, \
+    ACCOUNT_LISTING_LIMIT
 from swift.common.http import is_success, is_client_error, HTTP_NOT_FOUND, \
     HTTP_CONFLICT
 from swift.common.request_helpers import get_sys_meta_prefix, \
-    copy_header_subset, get_reserved_name, split_reserved_name
+    copy_header_subset, get_reserved_name, split_reserved_name, \
+    constrain_req_limit
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     TGT_ETAG_SYSMETA_SYMLINK_HDR, SYMLOOP_EXTEND, ALLOW_RESERVED_NAMES, \
     TGT_BYTES_SYSMETA_SYMLINK_HDR, TGT_ACCT_SYMLINK_HDR
@@ -183,6 +185,7 @@ SYSMETA_VERSIONS_SYMLINK = get_sys_meta_prefix('object') + 'versions-symlink'
 
 def build_listing(*to_splice, **kwargs):
     reverse = kwargs.pop('reverse')
+    limit = kwargs.pop('limit')
     if kwargs:
         raise TypeError('Invalid keyword arguments received: %r' % kwargs)
 
@@ -195,7 +198,7 @@ def build_listing(*to_splice, **kwargs):
         itertools.chain(*to_splice),
         key=merge_key,
         reverse=reverse,
-    )).encode('ascii')
+    )[:limit]).encode('ascii')
 
 
 def non_expiry_header(header):
@@ -1188,9 +1191,11 @@ class ContainerContext(ObjectVersioningContext):
                     'hash': item['hash'],
                     'last_modified': item['last_modified'],
                 })
+            limit = constrain_req_limit(req, ACCOUNT_LISTING_LIMIT)
             body = build_listing(
                 null_listing, subdir_listing, broken_listing,
-                reverse=config_true_value(params.get('reverse', 'no')))
+                reverse=config_true_value(params.get('reverse', 'no')),
+                limit=limit)
             self.update_content_length(len(body))
             app_resp = [body]
             drain_and_close(versions_resp)
@@ -1251,10 +1256,13 @@ class ContainerContext(ObjectVersioningContext):
                         'last_modified': item['last_modified'],
                     })
 
+                limit = constrain_req_limit(req, ACCOUNT_LISTING_LIMIT)
                 body = build_listing(
                     null_listing, versions_listing,
                     subdir_listing, broken_listing,
-                    reverse=config_true_value(params.get('reverse', 'no')))
+                    reverse=config_true_value(params.get('reverse', 'no')),
+                    limit=limit,
+                )
                 self.update_content_length(len(body))
                 app_resp = [body]
         else:
@@ -1323,9 +1331,8 @@ class AccountContext(ObjectVersioningContext):
                 # look-up by name. Ignore 'subdir' items
                 for item in [item for item in versions_listing
                              if 'name' in item]:
-                    name = self._split_versions_container_name(
+                    container_name = self._split_versions_container_name(
                         item['name'])
-                    container_name = bytes_to_wsgi(name.encode('utf-8'))
                     versions_dict[container_name] = item
 
                 # update bytes from original listing with bytes from
@@ -1333,10 +1340,8 @@ class AccountContext(ObjectVersioningContext):
                 if len(versions_dict) > 0:
                     # ignore 'subdir' items
                     for item in [item for item in listing if 'name' in item]:
-                        container_name = bytes_to_wsgi(
-                            item['name'].encode('utf-8'))
-                        if container_name in versions_dict:
-                            v_info = versions_dict.pop(container_name)
+                        if item['name'] in versions_dict:
+                            v_info = versions_dict.pop(item['name'])
                             item['bytes'] = item['bytes'] + v_info['bytes']
 
                 # if there are items left in versions_dict, it indicates an
@@ -1350,9 +1355,12 @@ class AccountContext(ObjectVersioningContext):
                     item['count'] = 0  # None of these are current
                     listing.append(item)
 
+                limit = constrain_req_limit(req, ACCOUNT_LISTING_LIMIT)
                 body = build_listing(
                     listing,
-                    reverse=config_true_value(params.get('reverse', 'no')))
+                    reverse=config_true_value(params.get('reverse', 'no')),
+                    limit=limit,
+                )
                 self.update_content_length(len(body))
                 app_resp = [body]
 
