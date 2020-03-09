@@ -197,7 +197,7 @@ class DecrypterObjContext(BaseDecrypterContext):
                 result.append((new_prefix + short_name, decrypted_value))
         return result
 
-    def decrypt_resp_headers(self, put_keys, post_keys):
+    def decrypt_resp_headers(self, put_keys, post_keys, update_cors_exposed):
         """
         Find encrypted headers and replace with the decrypted versions.
 
@@ -236,11 +236,27 @@ class DecrypterObjContext(BaseDecrypterContext):
         # that map to the same x-object-meta- header names i.e. decrypted
         # headers win over unexpected, unencrypted headers.
         if post_keys:
-            mod_hdr_pairs.extend(self.decrypt_user_metadata(post_keys))
+            decrypted_meta = self.decrypt_user_metadata(post_keys)
+            mod_hdr_pairs.extend(decrypted_meta)
+        else:
+            decrypted_meta = []
 
         mod_hdr_names = {h.lower() for h, v in mod_hdr_pairs}
-        mod_hdr_pairs.extend([(h, v) for h, v in self._response_headers
-                              if h.lower() not in mod_hdr_names])
+
+        found_aceh = False
+        for header, value in self._response_headers:
+            lheader = header.lower()
+            if lheader in mod_hdr_names:
+                continue
+            if lheader == 'access-control-expose-headers':
+                found_aceh = True
+                mod_hdr_pairs.append((header, value + ', ' + ', '.join(
+                    meta.lower() for meta, _data in decrypted_meta)))
+            else:
+                mod_hdr_pairs.append((header, value))
+        if update_cors_exposed and not found_aceh:
+            mod_hdr_pairs.append(('Access-Control-Expose-Headers', ', '.join(
+                meta.lower() for meta, _data in decrypted_meta)))
         return mod_hdr_pairs
 
     def multipart_response_iter(self, resp, boundary, body_key, crypto_meta):
@@ -326,7 +342,9 @@ class DecrypterObjContext(BaseDecrypterContext):
                            self._response_exc_info)
             return app_resp
 
-        mod_resp_headers = self.decrypt_resp_headers(put_keys, post_keys)
+        mod_resp_headers = self.decrypt_resp_headers(
+            put_keys, post_keys,
+            update_cors_exposed=bool(req.headers.get('origin')))
 
         if put_crypto_meta and req.method == 'GET' and \
                 is_success(self._get_status_int()):

@@ -125,6 +125,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
             resp.headers['X-Object-Sysmeta-Container-Update-Override-Etag'])
         self.assertNotIn('X-Object-Sysmeta-Crypto-Body-Meta', resp.headers)
         self.assertNotIn('X-Object-Sysmeta-Crypto-Etag', resp.headers)
+        self.assertNotIn('Access-Control-Expose-Headers', resp.headers)
         return resp
 
     def test_GET_success(self):
@@ -226,6 +227,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual(plaintext_etag, resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
         self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
+        self.assertNotIn('Access-Control-Expose-Headers', resp.headers)
         return resp
 
     def test_GET_unencrypted_data_and_encrypted_metadata(self):
@@ -259,6 +261,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual(plaintext_etag, resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
         self.assertEqual('unencrypted', resp.headers['x-object-meta-test'])
+        self.assertNotIn('Access-Control-Expose-Headers', resp.headers)
         return resp
 
     def test_GET_encrypted_data_and_unencrypted_metadata(self):
@@ -271,7 +274,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_headers_case(self):
         body = b'fAkE ApP'
-        req = Request.blank('/v1/a/c/o', body='FaKe')
+        req = Request.blank('/v1/a/c/o', body='FaKe', headers={
+            'Origin': 'http://example.com'})
         req.environ[CRYPTO_KEY_CALLBACK] = fetch_crypto_keys
         plaintext_etag = md5hex(body)
         body_key = os.urandom(32)
@@ -281,7 +285,10 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
         hdrs.update({
             'x-Object-mEta-ignoRes-caSe': 'thIs pArt WilL bE cOol',
+            'access-control-Expose-Headers': 'x-object-meta-ignores-case',
+            'access-control-allow-origin': '*',
         })
+        self.assertNotIn('x-object-meta-test', [k.lower() for k in hdrs])
         self.app.register(
             'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
 
@@ -296,6 +303,11 @@ class TestDecrypterObjectRequests(unittest.TestCase):
             'X-Object-Meta-Ignores-Case': 'thIs pArt WilL bE cOol',
             'X-Object-Sysmeta-Test': 'do not encrypt me',
             'Content-Type': 'text/plain',
+            'Access-Control-Expose-Headers': ', '.join([
+                'x-object-meta-ignores-case',
+                'x-object-meta-test',
+            ]),
+            'Access-Control-Allow-Origin': '*',
         }
         self.assertEqual(dict(headers), expected)
         self.assertEqual(b'fAkE ApP', b''.join(app_iter))

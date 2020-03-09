@@ -1542,7 +1542,7 @@ class TestObject(unittest.TestCase):
         def put_obj(url, token, parsed, conn, obj):
             conn.request(
                 'PUT', '%s/%s/%s' % (parsed.path, self.container, obj),
-                'test', {'X-Auth-Token': token})
+                'test', {'X-Auth-Token': token, 'X-Object-Meta-Color': 'red'})
             return check_response(conn)
 
         def check_cors(url, token, parsed, conn,
@@ -1576,6 +1576,8 @@ class TestObject(unittest.TestCase):
         headers = dict((k.lower(), v) for k, v in resp.getheaders())
         self.assertEqual(headers.get('access-control-allow-origin'),
                          '*')
+        # Just a pre-flight; this doesn't show up yet
+        self.assertNotIn('access-control-expose-headers', headers)
 
         resp = retry(check_cors,
                      'GET', 'cat', {'Origin': 'http://m.com'})
@@ -1583,6 +1585,8 @@ class TestObject(unittest.TestCase):
         headers = dict((k.lower(), v) for k, v in resp.getheaders())
         self.assertEqual(headers.get('access-control-allow-origin'),
                          '*')
+        self.assertIn('x-object-meta-color', headers.get(
+            'access-control-expose-headers').split(', '))
 
         resp = retry(check_cors,
                      'GET', 'cat', {'Origin': 'http://m.com',
@@ -1591,6 +1595,8 @@ class TestObject(unittest.TestCase):
         headers = dict((k.lower(), v) for k, v in resp.getheaders())
         self.assertEqual(headers.get('access-control-allow-origin'),
                          '*')
+        self.assertIn('x-object-meta-color', headers.get(
+            'access-control-expose-headers').split(', '))
 
         ####################
 
