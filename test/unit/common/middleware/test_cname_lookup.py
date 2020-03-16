@@ -170,6 +170,10 @@ class TestCNAMELookup(unittest.TestCase):
                 return self.cache.get(key, None)
 
             def set(self, key, value, *a, **kw):
+                # real memcache client will JSON-serialize, so our mock
+                # should be sure to return unicode
+                if isinstance(value, bytes):
+                    value = value.decode('utf-8')
                 self.cache[key] = value
 
         module = 'swift.common.middleware.cname_lookup.lookup_cname'
@@ -186,6 +190,9 @@ class TestCNAMELookup(unittest.TestCase):
             self.assertEqual(m.call_count, 1)
             self.assertEqual(memcache.cache.get('cname-mysite2.com'),
                              'c.example.com')
+            self.assertIsInstance(req.environ['HTTP_HOST'], str)
+            self.assertEqual(req.environ['HTTP_HOST'], 'c.example.com')
+
             req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
                                               'swift.cache': memcache},
                                 headers={'Host': 'mysite2.com'})
@@ -194,6 +201,8 @@ class TestCNAMELookup(unittest.TestCase):
             self.assertEqual(m.call_count, 1)
             self.assertEqual(memcache.cache.get('cname-mysite2.com'),
                              'c.example.com')
+            self.assertIsInstance(req.environ['HTTP_HOST'], str)
+            self.assertEqual(req.environ['HTTP_HOST'], 'c.example.com')
 
         for exc, num in ((dns.resolver.NXDOMAIN(), 3),
                          (dns.resolver.NoAnswer(), 4)):
