@@ -83,7 +83,7 @@ from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException, HTTPBadRequest, wsgi_to_str
 from swift.common.storage_policy import StoragePolicy, POLICIES
 import swift.common.request_helpers
-from swift.common.request_helpers import get_sys_meta_prefix
+from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -571,11 +571,31 @@ class TestController(unittest.TestCase):
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestProxyServerConfiguration(unittest.TestCase):
+
+    def setUp(self):
+        self.logger = debug_logger('test-proxy-config')
+
     def _make_app(self, conf):
+        self.logger.clear()
         # helper function to instantiate a proxy server instance
         return proxy_server.Application(conf, FakeMemcache(),
                                         container_ring=FakeRing(),
-                                        account_ring=FakeRing())
+                                        account_ring=FakeRing(),
+                                        logger=self.logger)
+
+    def test_auto_create_account(self):
+        app = self._make_app({})
+        self.assertEqual(app.auto_create_account_prefix, '.')
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [])
+
+        app = self._make_app({'auto_create_account_prefix': '-'})
+        self.assertEqual(app.auto_create_account_prefix, '-')
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            'Option auto_create_account_prefix is deprecated. '
+            'Configure auto_create_account_prefix under the '
+            'swift-constraints section of swift.conf. This option '
+            'will be ignored in a future release.'
+        ])
 
     def test_node_timeout(self):
         # later config should be extended to assert more config options
@@ -697,6 +717,29 @@ class TestProxyServer(unittest.TestCase):
         self.assertEqual(resp.status, '405 Method Not Allowed')
         self.assertEqual(sorted(resp.headers['Allow'].split(', ')), [
             'DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'UPDATE'])
+
+    def test_internal_reserved_name_request(self):
+        # set account info
+        fake_cache = FakeMemcache()
+        fake_cache.store[get_cache_key('a')] = {'status': 200}
+        app = proxy_server.Application({}, fake_cache,
+                                       container_ring=FakeRing(),
+                                       account_ring=FakeRing())
+        # build internal container request
+        container = get_reserved_name('c')
+        req = Request.blank('/v1/a/%s' % container)
+        app.update_request(req)
+
+        # try client request to reserved name
+        resp = app.handle_request(req)
+        self.assertEqual(resp.status_int, 412)
+        self.assertEqual(resp.body, b'Invalid UTF8 or contains NULL')
+
+        # set backend header
+        req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+        with mocked_http_conn(200):
+            resp = app.handle_request(req)
+        self.assertEqual(resp.status_int, 200)
 
     def test_calls_authorize_allow(self):
         called = [False]
@@ -1069,9 +1112,11 @@ class TestProxyServer(unittest.TestCase):
 
         self.assertTrue(app.expose_info)
         self.assertIsInstance(app.disallowed_sections, list)
-        self.assertEqual(1, len(app.disallowed_sections))
-        self.assertEqual(['swift.valid_api_versions'],
-                         app.disallowed_sections)
+        self.assertEqual(2, len(app.disallowed_sections))
+        self.assertEqual([
+            'swift.auto_create_account_prefix',
+            'swift.valid_api_versions',
+        ], sorted(app.disallowed_sections))
         self.assertIsNone(app.admin_key)
 
     def test_get_info_controller(self):
@@ -1283,6 +1328,27 @@ class TestProxyServerLoading(unittest.TestCase):
         utils.HASH_PATH_SUFFIX = self._orig_hash_suffix
         for policy in POLICIES:
             policy.object_ring = None
+
+    def test_float_timeouts(self):
+        conf = {
+            'node_timeout': '2.3',
+            'recoverable_node_timeout': '1.4',
+            'conn_timeout': '0.7',
+            'client_timeout': '1.7',
+            'post_quorum_timeout': '0.3',
+            'concurrency_timeout': '0.2',
+
+        }
+        for policy in POLICIES:
+            policy.object_ring = FakeRing()
+        app = proxy_server.Application(conf, FakeMemcache(), debug_logger(),
+                                       FakeRing(), FakeRing())
+        self.assertEqual(app.node_timeout, 2.3)
+        self.assertEqual(app.recoverable_node_timeout, 1.4)
+        self.assertEqual(app.conn_timeout, 0.7)
+        self.assertEqual(app.client_timeout, 1.7)
+        self.assertEqual(app.post_quorum_timeout, 0.3)
+        self.assertEqual(app.concurrency_timeout, 0.2)
 
     def test_load_policy_rings(self):
         for policy in POLICIES:
@@ -2350,6 +2416,14 @@ class TestReplicatedObjectController(
         res = req.get_response(prosrv)
         self.assertEqual(res.status_int, 206)
         self.assertEqual(res.body, obj[10:201])
+
+        req = Request.blank(path, environ={'REQUEST_METHOD': 'GET'}, headers={
+            'Content-Type': 'application/octet-stream',
+            'X-Backend-Ignore-Range-If-Metadata-Present': 'Content-Type',
+            'Range': 'bytes=10-200'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res.body, obj)
 
         # multiple byte ranges
         req = Request.blank(
@@ -3809,7 +3883,7 @@ class TestReplicatedObjectController(
                         'Host': 'localhost:80',
                         'Referer': '%s http://localhost/v1/a/c/o' % method,
                         'X-Backend-Storage-Policy-Index': '1',
-                        'X-Backend-Container-Path': shard_range.name
+                        'X-Backend-Quoted-Container-Path': shard_range.name
                     },
                 }
                 check_request(request, **expectations)
@@ -3920,7 +3994,7 @@ class TestReplicatedObjectController(
                         'Host': 'localhost:80',
                         'Referer': '%s http://localhost/v1/a/c/o' % method,
                         'X-Backend-Storage-Policy-Index': '1',
-                        'X-Backend-Container-Path': shard_ranges[1].name
+                        'X-Backend-Quoted-Container-Path': shard_ranges[1].name
                     },
                 }
                 check_request(request, **expectations)
@@ -4022,7 +4096,7 @@ class TestReplicatedObjectController(
                         'Host': 'localhost:80',
                         'Referer': '%s http://localhost/v1/a/c/o' % method,
                         'X-Backend-Storage-Policy-Index': '1',
-                        'X-Backend-Container-Path': shard_ranges[1].name
+                        'X-Backend-Quoted-Container-Path': shard_ranges[1].name
                     },
                 }
                 check_request(request, **expectations)
@@ -7263,7 +7337,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                     _test_servers[0].logger.get_lines_for_level('warning'))
 
         # check for disconnect message!
-        expected = ['Client disconnected on read'] * 2
+        expected = ["Client disconnected on read of '/a/%s-discon/test'"
+                    % self.ec_policy.name] * 2
         self.assertEqual(
             _test_servers[0].logger.get_lines_for_level('warning'),
             expected)
@@ -8079,19 +8154,26 @@ class TestObjectECRangedGET(unittest.TestCase):
             assert headers[:len(exp)] == exp, \
                 "object PUT failed %s" % obj_name
 
-    def _get_obj(self, range_value, obj_name=None):
+    def _get_obj(self, range_value, obj_name=None, ignore_range_if=''):
         if obj_name is None:
             obj_name = self.obj_name
+        if ignore_range_if:
+            ignore_range_if = (
+                'X-Backend-Ignore-Range-If-Metadata-Present: %s\r\n'
+                % ignore_range_if)
 
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
-        fd.write(('GET /v1/a/ec-con/%s HTTP/1.1\r\n'
-                  'Host: localhost\r\n'
-                  'Connection: close\r\n'
-                  'X-Storage-Token: t\r\n'
-                  'Range: %s\r\n'
-                  '\r\n' % (obj_name, range_value)).encode('ascii'))
+        fd.write((
+            'GET /v1/a/ec-con/%s HTTP/1.1\r\n'
+            'Host: localhost\r\n'
+            'Connection: close\r\n'
+            'X-Storage-Token: t\r\n'
+            'Range: %s\r\n'
+            '%s'
+            '\r\n' % (obj_name, range_value, ignore_range_if)
+        ).encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
         # e.g. "HTTP/1.1 206 Partial Content\r\n..."
@@ -8198,6 +8280,16 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(headers['Content-Range'], "bytes 4096-8191/8192")
         self.assertEqual(len(gotten_obj), 4096)
         self.assertEqual(gotten_obj, self.aligned_obj[4096:8192])
+
+    def test_ignore_range_if_metadata_present(self):
+        # Ranged GET that actually wants the whole object
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=4096-8191", ignore_range_if='content-type')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Length'], str(len(self.obj)))
+        self.assertNotIn('Content-Range', headers)
+        self.assertEqual(len(gotten_obj), len(self.obj))
+        self.assertEqual(gotten_obj, self.obj)
 
     def test_byte_0(self):
         # Just the first byte, but it's index 0, so that's easy to get wrong
@@ -10405,7 +10497,8 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
         self.app = listing_formats.ListingFilter(
             proxy_server.Application(conf, FakeMemcache(),
                                      account_ring=FakeRing(),
-                                     container_ring=FakeRing()))
+                                     container_ring=FakeRing()),
+            {})
         self.app.app.memcache = FakeMemcacheReturnsNone()
 
     def test_GET_autocreate_accept_json(self):
@@ -10756,11 +10849,13 @@ class TestSwiftInfo(unittest.TestCase):
         utils._swift_admin_info = {}
 
     def test_registered_defaults(self):
-        proxy_server.Application({}, FakeMemcache(),
-                                 account_ring=FakeRing(),
-                                 container_ring=FakeRing())
+        app = proxy_server.Application({}, FakeMemcache(),
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing())
+        req = Request.blank('/info')
+        resp = req.get_response(app)
+        si = json.loads(resp.body)['swift']
 
-        si = utils.get_swift_info()['swift']
         self.assertIn('version', si)
         self.assertEqual(si['max_file_size'], constraints.MAX_FILE_SIZE)
         self.assertEqual(si['max_meta_name_length'],
@@ -10784,12 +10879,16 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertIn('strict_cors_mode', si)
         self.assertFalse(si['allow_account_management'])
         self.assertFalse(si['account_autocreate'])
-        # This setting is by default excluded by disallowed_sections
-        self.assertEqual(si['valid_api_versions'],
-                         constraints.VALID_API_VERSIONS)
         # this next test is deliberately brittle in order to alert if
         # other items are added to swift info
-        self.assertEqual(len(si), 18)
+        self.assertEqual(len(si), 17)
+
+        si = utils.get_swift_info()['swift']
+        # Tehse settings is by default excluded by disallowed_sections
+        self.assertEqual(si['valid_api_versions'],
+                         constraints.VALID_API_VERSIONS)
+        self.assertEqual(si['auto_create_account_prefix'],
+                         constraints.AUTO_CREATE_ACCOUNT_PREFIX)
 
         self.assertIn('policies', si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
@@ -10823,7 +10922,8 @@ class TestSocketObjectVersions(unittest.TestCase):
                         _test_servers[0], conf,
                         logger=_test_servers[0].logger), {}),
                 {}
-            )
+            ),
+            {}, logger=_test_servers[0].logger
         )
         self.coro = spawn(wsgi.server, prolis, prosrv, NullLogger(),
                           protocol=SwiftHttpProtocol)

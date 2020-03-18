@@ -20,11 +20,11 @@ import uuid
 
 from nose import SkipTest
 import six
+from six.moves.urllib.parse import quote
 
 from swift.common import direct_client, utils
 from swift.common.manager import Manager
 from swift.common.memcached import MemcacheRing
-from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
     quorum_size, config_true_value, Timestamp
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
@@ -57,6 +57,7 @@ class ShardCollector(object):
 
 
 class BaseTestContainerSharding(ReplProbeTest):
+    DELIM = '-'
 
     def _maybe_skip_test(self):
         try:
@@ -100,11 +101,13 @@ class BaseTestContainerSharding(ReplProbeTest):
         # perform checks for skipping test before starting services
         self._maybe_skip_test()
 
-    def _make_object_names(self, number):
-        return ['obj-%04d' % x for x in range(number)]
+    def _make_object_names(self, number, start=0):
+        return ['obj%s%04d' % (self.DELIM, x)
+                for x in range(start, start + number)]
 
     def _setup_container_name(self):
-        self.container_name = 'container-%s' % uuid.uuid4()
+        # Container where we're PUTting objects
+        self.container_name = 'container%s%s' % (self.DELIM, uuid.uuid4())
 
     def setUp(self):
         client.logger.setLevel(client.logging.WARNING)
@@ -114,12 +117,17 @@ class BaseTestContainerSharding(ReplProbeTest):
         _, self.admin_token = get_auth(
             'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
         self._setup_container_name()
-        self.brain = BrainSplitter(self.url, self.token, self.container_name,
-                                   None, 'container')
-        self.brain.put_container(policy_index=int(self.policy))
+        self.init_brain(self.container_name)
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
         self.memcache = MemcacheRing(['127.0.0.1:11211'])
+
+    def init_brain(self, container_name):
+        self.container_to_shard = container_name
+        self.brain = BrainSplitter(
+            self.url, self.token, self.container_to_shard,
+            None, 'container')
+        self.brain.put_container(policy_index=int(self.policy))
 
     def stop_container_servers(self, node_numbers=None):
         if node_numbers:
@@ -137,44 +145,34 @@ class BaseTestContainerSharding(ReplProbeTest):
             wait_for_server_to_hangup(ipport)
 
     def put_objects(self, obj_names, contents=None):
+        results = []
         for obj in obj_names:
+            rdict = {}
             client.put_object(self.url, token=self.token,
                               container=self.container_name, name=obj,
-                              contents=contents)
+                              contents=contents, response_dict=rdict)
+            results.append((obj, rdict['headers'].get('x-object-version-id')))
+        return results
 
-    def delete_objects(self, obj_names):
-        for obj in obj_names:
-            client.delete_object(
-                self.url, self.token, self.container_name, obj)
+    def delete_objects(self, obj_names_and_versions):
+        for obj in obj_names_and_versions:
+            if isinstance(obj, tuple):
+                obj, version = obj
+                client.delete_object(
+                    self.url, self.token, self.container_name, obj,
+                    query_string='version-id=%s' % version)
+            else:
+                client.delete_object(
+                    self.url, self.token, self.container_name, obj)
 
     def get_container_shard_ranges(self, account=None, container=None):
         account = account if account else self.account
-        container = container if container else self.container_name
+        container = container if container else self.container_to_shard
         path = self.internal_client.make_path(account, container)
         resp = self.internal_client.make_request(
             'GET', path + '?format=json', {'X-Backend-Record-Type': 'shard'},
             [200])
         return [ShardRange.from_dict(sr) for sr in json.loads(resp.body)]
-
-    def direct_container_op(self, func, account=None, container=None,
-                            expect_failure=False):
-        account = account if account else self.account
-        container = container if container else self.container_name
-        cpart, cnodes = self.container_ring.get_nodes(account, container)
-        unexpected_responses = []
-        results = {}
-        for cnode in cnodes:
-            try:
-                results[cnode['id']] = func(cnode, cpart, account, container)
-            except DirectClientException as err:
-                if not expect_failure:
-                    unexpected_responses.append((cnode, err))
-            else:
-                if expect_failure:
-                    unexpected_responses.append((cnode, 'success'))
-        if unexpected_responses:
-            self.fail('Unexpected responses: %s' % unexpected_responses)
-        return results
 
     def direct_get_container_shard_ranges(self, account=None, container=None,
                                           expect_failure=False):
@@ -182,21 +180,6 @@ class BaseTestContainerSharding(ReplProbeTest):
         self.direct_container_op(
             collector, account, container, expect_failure)
         return collector.ranges
-
-    def direct_delete_container(self, account=None, container=None,
-                                expect_failure=False):
-        self.direct_container_op(direct_client.direct_delete_container,
-                                 account, container, expect_failure)
-
-    def direct_head_container(self, account=None, container=None,
-                              expect_failure=False):
-        return self.direct_container_op(direct_client.direct_head_container,
-                                        account, container, expect_failure)
-
-    def direct_get_container(self, account=None, container=None,
-                             expect_failure=False):
-        return self.direct_container_op(direct_client.direct_get_container,
-                                        account, container, expect_failure)
 
     def get_storage_dir(self, part, node, account=None, container=None):
         account = account or self.brain.account
@@ -369,7 +352,7 @@ class BaseTestContainerSharding(ReplProbeTest):
 
     def assert_container_state(self, node, expected_state, num_shard_ranges):
         headers, shard_ranges = direct_client.direct_get_container(
-            node, self.brain.part, self.account, self.container_name,
+            node, self.brain.part, self.account, self.container_to_shard,
             headers={'X-Backend-Record-Type': 'shard'})
         self.assertEqual(num_shard_ranges, len(shard_ranges))
         self.assertIn('X-Backend-Sharding-State', headers)
@@ -415,7 +398,8 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
                                         self.max_shard_size // 2)]
 
         def check_listing(objects, **params):
-            qs = '&'.join(['%s=%s' % param for param in params.items()])
+            qs = '&'.join('%s=%s' % (k, quote(str(v)))
+                          for k, v in params.items())
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name, query_string=qs)
             listing = [x['name'].encode('utf-8') if six.PY2 else x['name']
@@ -468,12 +452,12 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
             # delimiter
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name,
-                query_string='delimiter=-')
-            self.assertEqual([{'subdir': 'obj-'}], listing)
+                query_string='delimiter=' + quote(self.DELIM))
+            self.assertEqual([{'subdir': 'obj' + self.DELIM}], listing)
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name,
-                query_string='delimiter=j-')
-            self.assertEqual([{'subdir': 'obj-'}], listing)
+                query_string='delimiter=j' + quote(self.DELIM))
+            self.assertEqual([{'subdir': 'obj' + self.DELIM}], listing)
 
             limit = self.cluster_info['swift']['container_listing_limit']
             exc = check_listing_fails(412, limit=limit + 1)
@@ -546,13 +530,23 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
         self.assert_container_post_ok('sharded')
 
 
-class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
+class TestContainerShardingFunkyNames(TestContainerShardingNonUTF8):
+    DELIM = '\n'
+
     def _make_object_names(self, number):
+        return ['obj\n%04d%%Ff' % x for x in range(number)]
+
+    def _setup_container_name(self):
+        self.container_name = 'container\n%%Ff\n%s' % uuid.uuid4()
+
+
+class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
+    def _make_object_names(self, number, start=0):
         # override default with names that include non-ascii chars
         name_length = self.cluster_info['swift']['max_object_name_length']
         obj_names = []
-        for x in range(number):
-            name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb-%04d' % x)
+        for x in range(start, start + number):
+            name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234-%04d' % x)
             name = name.encode('utf8').ljust(name_length, b'o')
             if not six.PY2:
                 name = name.decode('utf8')
@@ -563,10 +557,220 @@ class TestContainerShardingUTF8(TestContainerShardingNonUTF8):
         # override default with max length name that includes non-ascii chars
         super(TestContainerShardingUTF8, self)._setup_container_name()
         name_length = self.cluster_info['swift']['max_container_name_length']
-        cont_name = self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb'
-        self.conainer_name = cont_name.ljust(name_length, 'x')
-        if six.PY2:
-            self.conainer_name = self.container_name.encode('utf8')
+        cont_name = \
+            self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234'
+        self.container_name = cont_name.encode('utf8').ljust(name_length, b'x')
+        if not six.PY2:
+            self.container_name = self.container_name.decode('utf8')
+
+
+class TestContainerShardingObjectVersioning(BaseTestContainerSharding):
+    def _maybe_skip_test(self):
+        super(TestContainerShardingObjectVersioning, self)._maybe_skip_test()
+        try:
+            vw_config = utils.readconf(self.configs['proxy-server'],
+                                       'filter:versioned_writes')
+        except ValueError:
+            raise SkipTest('No [filter:versioned_writes] section found in '
+                           'proxy-server configs')
+        allow_object_versioning = config_true_value(
+            vw_config.get('allow_object_versioning', False))
+        if not allow_object_versioning:
+            raise SkipTest('allow_object_versioning must be true '
+                           'in all versioned_writes configs')
+
+    def init_brain(self, container_name):
+        client.put_container(self.url, self.token, container_name, headers={
+            'X-Storage-Policy': self.policy.name,
+            'X-Versions-Enabled': 'true',
+        })
+        self.container_to_shard = '\x00versions\x00' + container_name
+        self.brain = BrainSplitter(
+            self.url, self.token, self.container_to_shard,
+            None, 'container')
+
+    def test_sharding_listing(self):
+        # verify parameterised listing of a container during sharding
+        all_obj_names = self._make_object_names(3) * self.max_shard_size
+        all_obj_names.extend(self._make_object_names(self.max_shard_size,
+                                                     start=3))
+        obj_names = all_obj_names[::2]
+        obj_names_and_versions = self.put_objects(obj_names)
+
+        def sort_key(obj_and_ver):
+            obj, ver = obj_and_ver
+            return obj, ~Timestamp(ver)
+
+        obj_names_and_versions.sort(key=sort_key)
+        # choose some names approx in middle of each expected shard range
+        markers = [
+            obj_names_and_versions[i]
+            for i in range(self.max_shard_size // 4,
+                           2 * self.max_shard_size,
+                           self.max_shard_size // 2)]
+
+        def check_listing(objects, **params):
+            params['versions'] = ''
+            qs = '&'.join('%s=%s' % param for param in params.items())
+            headers, listing = client.get_container(
+                self.url, self.token, self.container_name, query_string=qs)
+            listing = [(x['name'].encode('utf-8') if six.PY2 else x['name'],
+                        x['version_id'])
+                       for x in listing]
+            if params.get('reverse'):
+                marker = (
+                    params.get('marker', ShardRange.MAX),
+                    ~Timestamp(params['version_marker'])
+                    if 'version_marker' in params else ~Timestamp('0'),
+                )
+                end_marker = (
+                    params.get('end_marker', ShardRange.MIN),
+                    Timestamp('0'),
+                )
+                expected = [o for o in objects
+                            if end_marker < sort_key(o) < marker]
+                expected.reverse()
+            else:
+                marker = (
+                    params.get('marker', ShardRange.MIN),
+                    ~Timestamp(params['version_marker'])
+                    if 'version_marker' in params else Timestamp('0'),
+                )
+                end_marker = (
+                    params.get('end_marker', ShardRange.MAX),
+                    ~Timestamp('0'),
+                )
+                expected = [o for o in objects
+                            if marker < sort_key(o) < end_marker]
+            if 'limit' in params:
+                expected = expected[:params['limit']]
+            self.assertEqual(expected, listing)
+
+        def check_listing_fails(exp_status, **params):
+            params['versions'] = ''
+            qs = '&'.join('%s=%s' % param for param in params.items())
+            with self.assertRaises(ClientException) as cm:
+                client.get_container(
+                    self.url, self.token, self.container_name, query_string=qs)
+            self.assertEqual(exp_status, cm.exception.http_status)
+            return cm.exception
+
+        def do_listing_checks(objects):
+            check_listing(objects)
+            check_listing(objects,
+                          marker=markers[0][0], version_marker=markers[0][1])
+            check_listing(objects,
+                          marker=markers[0][0], version_marker=markers[0][1],
+                          limit=self.max_shard_size // 10)
+            check_listing(objects,
+                          marker=markers[0][0], version_marker=markers[0][1],
+                          limit=self.max_shard_size // 4)
+            check_listing(objects,
+                          marker=markers[0][0], version_marker=markers[0][1],
+                          limit=self.max_shard_size // 2)
+            check_listing(objects,
+                          marker=markers[1][0], version_marker=markers[1][1])
+            check_listing(objects,
+                          marker=markers[1][0], version_marker=markers[1][1],
+                          limit=self.max_shard_size // 10)
+            check_listing(objects,
+                          marker=markers[2][0], version_marker=markers[2][1],
+                          limit=self.max_shard_size // 4)
+            check_listing(objects,
+                          marker=markers[2][0], version_marker=markers[2][1],
+                          limit=self.max_shard_size // 2)
+            check_listing(objects, reverse=True)
+            check_listing(objects, reverse=True,
+                          marker=markers[1][0], version_marker=markers[1][1])
+
+            check_listing(objects, prefix='obj')
+            check_listing([], prefix='zzz')
+            # delimiter
+            headers, listing = client.get_container(
+                self.url, self.token, self.container_name,
+                query_string='delimiter=-')
+            self.assertEqual([{'subdir': 'obj-'}], listing)
+            headers, listing = client.get_container(
+                self.url, self.token, self.container_name,
+                query_string='delimiter=j-')
+            self.assertEqual([{'subdir': 'obj-'}], listing)
+
+            limit = self.cluster_info['swift']['container_listing_limit']
+            exc = check_listing_fails(412, limit=limit + 1)
+            self.assertIn(b'Maximum limit', exc.http_response_content)
+            exc = check_listing_fails(400, delimiter='%ff')
+            self.assertIn(b'not valid UTF-8', exc.http_response_content)
+
+        # sanity checks
+        do_listing_checks(obj_names_and_versions)
+
+        # Shard the container. Use an internal_client so we get an implicit
+        # X-Backend-Allow-Reserved-Names header
+        self.internal_client.set_container_metadata(
+            self.account, self.container_to_shard, {
+                'X-Container-Sysmeta-Sharding': 'True',
+            })
+        # First run the 'leader' in charge of scanning, which finds all shard
+        # ranges and cleaves first two
+        self.sharders.once(number=self.brain.node_numbers[0],
+                           additional_args='--partitions=%s' % self.brain.part)
+        # Then run sharder on other nodes which will also cleave first two
+        # shard ranges
+        for n in self.brain.node_numbers[1:]:
+            self.sharders.once(
+                number=n, additional_args='--partitions=%s' % self.brain.part)
+
+        # sanity check shard range states
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'sharding', 4)
+        shard_ranges = self.get_container_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 4)
+        self.assert_shard_range_state(ShardRange.CLEAVED, shard_ranges[:2])
+        self.assert_shard_range_state(ShardRange.CREATED, shard_ranges[2:])
+
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()  # confirm no sysmeta deleted
+        self.assert_container_post_ok('sharding')
+        do_listing_checks(obj_names_and_versions)
+
+        # put some new objects spread through entire namespace
+        new_obj_names = all_obj_names[1::4]
+        new_obj_names_and_versions = self.put_objects(new_obj_names)
+
+        # new objects that fell into the first two cleaved shard ranges are
+        # reported in listing, new objects in the yet-to-be-cleaved shard
+        # ranges are not yet included in listing
+        exp_obj_names_and_versions = [
+            o for o in obj_names_and_versions + new_obj_names_and_versions
+            if '\x00' + o[0] <= shard_ranges[1].upper]
+        exp_obj_names_and_versions += [
+            o for o in obj_names_and_versions
+            if '\x00' + o[0] > shard_ranges[1].upper]
+        exp_obj_names_and_versions.sort(key=sort_key)
+        do_listing_checks(exp_obj_names_and_versions)
+
+        # run all the sharders again and the last two shard ranges get cleaved
+        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        for node in self.brain.nodes:
+            self.assert_container_state(node, 'sharded', 4)
+        shard_ranges = self.get_container_shard_ranges()
+        self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges)
+
+        exp_obj_names_and_versions = \
+            obj_names_and_versions + new_obj_names_and_versions
+        exp_obj_names_and_versions.sort(key=sort_key)
+        do_listing_checks(exp_obj_names_and_versions)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
+
+        # delete original objects
+        self.delete_objects(obj_names_and_versions)
+        new_obj_names_and_versions.sort(key=sort_key)
+        do_listing_checks(new_obj_names_and_versions)
+        self.assert_container_delete_fails()
+        self.assert_container_has_shard_sysmeta()
+        self.assert_container_post_ok('sharded')
 
 
 class TestContainerSharding(BaseTestContainerSharding):
@@ -1114,7 +1318,9 @@ class TestContainerSharding(BaseTestContainerSharding):
             shard_listings = self.direct_get_container(sr.account,
                                                        sr.container)
             for node, (hdrs, listing) in shard_listings.items():
-                shard_listing_names = [o['name'] for o in listing]
+                shard_listing_names = [
+                    o['name'].encode('utf-8') if six.PY2 else o['name']
+                    for o in listing]
                 for obj in obj_names[4::5]:
                     if obj in sr:
                         self.assertIn(obj, shard_listing_names)
@@ -1178,8 +1384,9 @@ class TestContainerSharding(BaseTestContainerSharding):
                                    expected_shards=0, exp_obj_count=0):
             # checks that shard range is consistent on all nodes
             root_path = '%s/%s' % (self.account, self.container_name)
-            exp_shard_hdrs = {'X-Container-Sysmeta-Shard-Root': root_path,
-                              'X-Backend-Sharding-State': expected_state}
+            exp_shard_hdrs = {
+                'X-Container-Sysmeta-Shard-Quoted-Root': quote(root_path),
+                'X-Backend-Sharding-State': expected_state}
             object_counts = []
             bytes_used = []
             for node_id, node_data in node_data.items():
@@ -2178,3 +2385,27 @@ class TestContainerSharding(BaseTestContainerSharding):
         self.assertEqual(2, int(metadata.get('x-account-container-count')))
         self.assertEqual(0, int(metadata.get('x-account-object-count')))
         self.assertEqual(0, int(metadata.get('x-account-bytes-used')))
+
+
+class TestContainerShardingMoreUTF8(TestContainerSharding):
+    def _make_object_names(self, number):
+        # override default with names that include non-ascii chars
+        name_length = self.cluster_info['swift']['max_object_name_length']
+        obj_names = []
+        for x in range(number):
+            name = (u'obj-\u00e4\u00ea\u00ec\u00f2\u00fb-%04d' % x)
+            name = name.encode('utf8').ljust(name_length, b'o')
+            if not six.PY2:
+                name = name.decode('utf8')
+            obj_names.append(name)
+        return obj_names
+
+    def _setup_container_name(self):
+        # override default with max length name that includes non-ascii chars
+        super(TestContainerShardingMoreUTF8, self)._setup_container_name()
+        name_length = self.cluster_info['swift']['max_container_name_length']
+        cont_name = \
+            self.container_name + u'-\u00e4\u00ea\u00ec\u00f2\u00fb\u1234'
+        self.container_name = cont_name.encode('utf8').ljust(name_length, b'x')
+        if not six.PY2:
+            self.container_name = self.container_name.decode('utf8')

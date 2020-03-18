@@ -16,7 +16,7 @@
 
 import functools
 import six
-from unittest2 import SkipTest
+from unittest import SkipTest
 from six.moves.urllib.parse import unquote
 from swift.common.utils import quote
 import test.functional as tf

@@ -31,6 +31,7 @@ from eventlet import Timeout
 import six
 from six import StringIO
 from six.moves import range
+from six.moves.urllib.parse import quote
 if six.PY2:
     from email.parser import FeedParser as EmailFeedParser
 else:
@@ -783,6 +784,23 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             self.assertEqual(req['method'], 'HEAD')
             self.assertEqual(req['path'], '/a/c/o')
 
+    def test_some_404s_and_507s(self):
+        self.policy.object_ring.max_more_nodes = (3 * self.replicas())
+        req = swob.Request.blank('/v1/a/c/o', method='HEAD')
+        responses = [StubResponse(
+            404, headers={'X-Backend-Timestamp': '2'})] * self.replicas()
+        responses += [StubResponse(507, headers={})] * (
+            self.policy.object_ring.max_more_nodes - self.replicas())
+        self.assertEqual(len(responses), 3 * self.replicas())  # sanity
+
+        def get_response(req):
+            return responses.pop(0)
+
+        with capture_http_requests(get_response):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], '2')
+
     def test_container_sync_delete(self):
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
@@ -1258,10 +1276,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertFalse(log_lines[1:])
         self.assertIn('ERROR with Object server', log_lines[0])
-        if six.PY3:
-            self.assertIn(req.swift_entity_path, log_lines[0])
-        else:
-            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(quote(req.swift_entity_path), log_lines[0])
         self.assertIn('re: Expect: 100-continue', log_lines[0])
 
     def test_PUT_get_expect_errors_with_unicode_path(self):
@@ -1305,11 +1320,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             log_lines = self.app.logger.get_lines_for_level('error')
             self.assertFalse(log_lines[1:])
             self.assertIn('ERROR with Object server', log_lines[0])
-            if six.PY3:
-                self.assertIn(req.swift_entity_path, log_lines[0])
-            else:
-                self.assertIn(req.swift_entity_path.decode('utf-8'),
-                              log_lines[0])
+            self.assertIn(quote(req.swift_entity_path), log_lines[0])
             self.assertIn('Trying to write to', log_lines[0])
 
         do_test(Exception('Exception while sending data on connection'))

@@ -42,8 +42,8 @@ don't work - or at least fail in frequently common enough scenarios to
 be considered "horribly broken". A comment in our review that says
 roughly "I ran this on my machine and observed ``description of
 behavior change is supposed to achieve``" is the most powerful defense
-we have against the terrible terrible scorn from our fellow Swift
-developers and operators when we accidentally merge bad code.
+we have against the terrible scorn from our fellow Swift developers
+and operators when we accidentally merge bad code.
 
 If you're doing a fair amount of reviews - you will participate in
 merging a change that will break my clusters - it's cool - I'll do it

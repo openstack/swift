@@ -44,7 +44,7 @@ import six
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    GreenAsyncPile, quorum_size, parse_content_type, close_if_possible, \
+    GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
     document_iters_to_http_response_body, ShardRange, find_shard_range
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
@@ -57,7 +57,8 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
-    status_map, wsgi_to_str, str_to_wsgi, wsgi_quote
+    status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, wsgi_unquote, \
+    normalize_etag
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
@@ -179,6 +180,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'status': status_int,
         'read_acl': headers.get('x-container-read'),
         'write_acl': headers.get('x-container-write'),
+        'sync_to': headers.get('x-container-sync-to'),
         'sync_key': headers.get('x-container-sync-key'),
         'object_count': headers.get('x-container-object-count'),
         'bytes': headers.get('x-container-bytes-used'),
@@ -331,6 +333,12 @@ def get_container_info(env, app, swift_source=None):
     """
     (version, wsgi_account, wsgi_container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
+
+    if not constraints.valid_api_version(version):
+        # Not a valid Swift request; return 0 like we do
+        # if there's an account failure
+        return headers_to_container_info({}, 0)
+
     account = wsgi_to_str(wsgi_account)
     container = wsgi_to_str(wsgi_container)
 
@@ -347,7 +355,8 @@ def get_container_info(env, app, swift_source=None):
         # account is successful whether the account actually has .db files
         # on disk or not.
         is_autocreate_account = account.startswith(
-            getattr(app, 'auto_create_account_prefix', '.'))
+            getattr(app, 'auto_create_account_prefix',
+                    constraints.AUTO_CREATE_ACCOUNT_PREFIX))
         if not is_autocreate_account:
             account_info = get_account_info(env, app, swift_source)
             if not account_info or not is_success(account_info['status']):
@@ -356,8 +365,11 @@ def get_container_info(env, app, swift_source=None):
         req = _prepare_pre_auth_info_request(
             env, ("/%s/%s/%s" % (version, wsgi_account, wsgi_container)),
             (swift_source or 'GET_CONTAINER_INFO'))
+        # *Always* allow reserved names for get-info requests -- it's on the
+        # caller to keep the result private-ish
+        req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
         resp = req.get_response(app)
-        close_if_possible(resp.app_iter)
+        drain_and_close(resp)
         # Check in infocache to see if the proxy (or anyone else) already
         # populated the cache for us. If they did, just use what's there.
         #
@@ -385,6 +397,17 @@ def get_container_info(env, app, swift_source=None):
     if info.get('sharding_state') is None:
         info['sharding_state'] = 'unsharded'
 
+    versions_cont = info.get('sysmeta', {}).get('versions-container', '')
+    if versions_cont:
+        versions_cont = wsgi_unquote(str_to_wsgi(
+            versions_cont)).split('/')[0]
+        versions_req = _prepare_pre_auth_info_request(
+            env, ("/%s/%s/%s" % (version, wsgi_account, versions_cont)),
+            (swift_source or 'GET_CONTAINER_INFO'))
+        versions_req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+        versions_info = get_container_info(versions_req.environ, app)
+        info['bytes'] = info['bytes'] + versions_info['bytes']
+
     return info
 
 
@@ -401,6 +424,10 @@ def get_account_info(env, app, swift_source=None):
     :raises ValueError: when path doesn't contain an account
     """
     (version, wsgi_account, _junk) = split_path(env['PATH_INFO'], 2, 3, True)
+
+    if not constraints.valid_api_version(version):
+        return headers_to_account_info({}, 0)
+
     account = wsgi_to_str(wsgi_account)
 
     # Check in environment cache and in memcache (in that order)
@@ -412,8 +439,11 @@ def get_account_info(env, app, swift_source=None):
         req = _prepare_pre_auth_info_request(
             env, "/%s/%s" % (version, wsgi_account),
             (swift_source or 'GET_ACCOUNT_INFO'))
+        # *Always* allow reserved names for get-info requests -- it's on the
+        # caller to keep the result private-ish
+        req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
         resp = req.get_response(app)
-        close_if_possible(resp.app_iter)
+        drain_and_close(resp)
         # Check in infocache to see if the proxy (or anyone else) already
         # populated the cache for us. If they did, just use what's there.
         #
@@ -739,6 +769,9 @@ def _get_object_info(app, env, account, container, obj, swift_source=None):
     # Not in cache, let's try the object servers
     path = '/v1/%s/%s/%s' % (account, container, obj)
     req = _prepare_pre_auth_info_request(env, path, swift_source)
+    # *Always* allow reserved names for get-info requests -- it's on the
+    # caller to keep the result private-ish
+    req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
     resp = req.get_response(app)
     # Unlike get_account_info() and get_container_info(), we don't save
     # things in memcache, so we can store the info without network traffic,
@@ -1193,7 +1226,8 @@ class ResumingGetter(object):
                         if end - begin + 1 == self.bytes_used_from_backend:
                             warn = False
             if not req.environ.get('swift.non_client_disconnect') and warn:
-                self.app.logger.warning(_('Client disconnected on read'))
+                self.app.logger.warning('Client disconnected on read of %r',
+                                        self.path)
             raise
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
@@ -1259,9 +1293,9 @@ class ResumingGetter(object):
                 close_swift_conn(possible_source)
             else:
                 if self.used_source_etag and \
-                    self.used_source_etag != src_headers.get(
+                    self.used_source_etag != normalize_etag(src_headers.get(
                         'x-object-sysmeta-ec-etag',
-                        src_headers.get('etag', '')).strip('"'):
+                        src_headers.get('etag', ''))):
                     self.statuses.append(HTTP_NOT_FOUND)
                     self.reasons.append('')
                     self.bodies.append('')
@@ -1285,10 +1319,11 @@ class ResumingGetter(object):
                         return True
         else:
             if 'handoff_index' in node and \
-                    possible_source.status == HTTP_NOT_FOUND and \
+                    (is_server_error(possible_source.status) or
+                     possible_source.status == HTTP_NOT_FOUND) and \
                     not Timestamp(src_headers.get('x-backend-timestamp', 0)):
-                # throw out 404s from handoff nodes unless the data is really
-                # on disk and had been DELETEd
+                # throw out 5XX and 404s from handoff nodes unless the data is
+                # really on disk and had been DELETEd
                 return False
             self.statuses.append(possible_source.status)
             self.reasons.append(possible_source.reason)
@@ -1364,9 +1399,8 @@ class ResumingGetter(object):
             # from the same object (EC). Otherwise, if the cluster has two
             # versions of the same object, we might end up switching between
             # old and new mid-stream and giving garbage to the client.
-            self.used_source_etag = src_headers.get(
-                'x-object-sysmeta-ec-etag',
-                src_headers.get('etag', '')).strip('"')
+            self.used_source_etag = normalize_etag(src_headers.get(
+                'x-object-sysmeta-ec-etag', src_headers.get('etag', '')))
             self.node = node
             return source, node
         return None, None
@@ -1913,7 +1947,7 @@ class Controller(object):
                 if headers:
                     update_headers(resp, headers[status_index])
                 if etag:
-                    resp.headers['etag'] = etag.strip('"')
+                    resp.headers['etag'] = normalize_etag(etag)
                 return resp
         return None
 

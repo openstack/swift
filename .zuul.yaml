@@ -70,6 +70,25 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
+    name: swift-tox-py38
+    parent: swift-tox-base
+    nodeset: ubuntu-bionic
+    description: |
+      Run unit-tests for swift under cPython version 3.8.
+
+      Uses tox with the ``py38`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py38
+      bindep_profile: test py38
+      python_version: 3.8
+      tox_environment:
+        NOSE_COVER_HTML: 1
+        NOSE_COVER_HTML_DIR: '{toxinidir}/cover'
+    post-run: tools/playbooks/common/cover-post.yaml
+
+- job:
     name: swift-tox-func-py27
     parent: swift-tox-base
     description: |
@@ -243,6 +262,10 @@
       # This tox env get run twice; once for Keystone and once for tempauth
       tox_envlist: func
       devstack_localrc:
+        # Other services are fine to run py3
+        USE_PYTHON3: true
+        # explicitly state that we want to test swift under py2
+        DISABLED_PYTHON3_PACKAGES: 'swift'
         SWIFT_HASH: changeme
         # We don't need multiple replicas to run purely functional tests.
         # In fact, devstack special cases some things when there's only
@@ -290,6 +313,7 @@
     nodeset: centos-7
     description: |
       Setup a SAIO dev environment and run ceph-s3tests
+    timeout: 2400
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -372,12 +396,6 @@
     post-run: tools/playbooks/probetests/post.yaml
 
 - job:
-    name: swift-multinode-rolling-upgrade-queens
-    parent: swift-multinode-rolling-upgrade
-    vars:
-      previous_swift_version: origin/stable/queens
-
-- job:
     name: swift-multinode-rolling-upgrade-rocky
     parent: swift-multinode-rolling-upgrade
     vars:
@@ -388,6 +406,12 @@
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/stein
+
+- job:
+    name: swift-multinode-rolling-upgrade-train
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/train
 
 - job:
     name: swift-tox-lower-constraints
@@ -510,6 +534,10 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
         - swift-tox-py37:
+            irrelevant-files:
+              - ^(api-ref|doc|releasenotes)/.*$
+              - ^test/(functional|probe)/.*$
+        - swift-tox-py38:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
@@ -644,6 +672,7 @@
         - swift-tox-py27
         - swift-tox-py36
         - swift-tox-py37
+        - swift-tox-py38
         - swift-tox-func-py27
         - swift-tox-func-encryption-py27
         - swift-tox-func-domain-remap-staticweb-py27
@@ -707,9 +736,9 @@
         - swift-tox-func-py27-centos-7
         - swift-tox-func-encryption-py27-centos-7
         - swift-tox-func-ec-py27-centos-7
-        - swift-multinode-rolling-upgrade-queens
         - swift-multinode-rolling-upgrade-rocky
         - swift-multinode-rolling-upgrade-stein
+        - swift-multinode-rolling-upgrade-train
 
     post:
       jobs:

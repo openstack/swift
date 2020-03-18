@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest2
+import unittest
 import os
 
 import test.functional as tf
@@ -97,4 +97,4 @@ class TestS3ApiServiceSigV4(TestS3ApiService):
         super(TestS3ApiServiceSigV4, self).setUp()
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

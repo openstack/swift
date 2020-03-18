@@ -490,6 +490,33 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                 b'/bucket/object?partNumber=1&uploadId=123456789abcdef']),
             'check_signature': mock_cs})
 
+    def test_non_ascii_user(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/'
+                                    'object/123456789abcdef',
+                            swob.HTTPOk, {}, None)
+        self.swift.register('PUT', '/v1/AUTH_test/bucket+segments/'
+                                   'object/123456789abcdef/1',
+                            swob.HTTPCreated, {}, None)
+        req = Request.blank('/bucket/object?uploadId=123456789abcdef'
+                            '&partNumber=1',
+                            environ={'REQUEST_METHOD': 'PUT'})
+        # NB: WSGI string for a snowman
+        req.headers['Authorization'] = 'AWS test:\xe2\x98\x83:sig'
+        date_header = self.get_date_header()
+        req.headers['Date'] = date_header
+        with mock.patch('swift.common.middleware.s3api.s3request.'
+                        'S3Request.check_signature') as mock_cs:
+            status, headers, body = self.call_s3api(req)
+        _, _, headers = self.swift.calls_with_headers[-1]
+        self.assertEqual(req.environ['s3api.auth_details'], {
+            'access_key': (u'test:\N{SNOWMAN}'.encode('utf-8') if six.PY2
+                           else u'test:\N{SNOWMAN}'),
+            'signature': 'sig',
+            'string_to_sign': b'\n'.join([
+                b'PUT', b'', b'', date_header.encode('ascii'),
+                b'/bucket/object?partNumber=1&uploadId=123456789abcdef']),
+            'check_signature': mock_cs})
+
     def test_invalid_uri(self):
         req = Request.blank('/bucket/invalid\xffname',
                             environ={'REQUEST_METHOD': 'GET'},

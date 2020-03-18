@@ -15,7 +15,7 @@
 
 import base64
 import binascii
-import unittest2
+import unittest
 import os
 import boto
 
@@ -84,9 +84,12 @@ class TestS3ApiMultiUpload(S3ApiBase):
         return status, headers, body
 
     def _upload_part_copy(self, src_bucket, src_obj, dst_bucket, dst_key,
-                          upload_id, part_num=1, src_range=None):
+                          upload_id, part_num=1, src_range=None,
+                          src_version_id=None):
 
         src_path = '%s/%s' % (src_bucket, src_obj)
+        if src_version_id:
+            src_path += '?versionId=%s' % src_version_id
         query = 'partNumber=%s&uploadId=%s' % (part_num, upload_id)
         req_headers = {'X-Amz-Copy-Source': src_path}
         if src_range:
@@ -877,6 +880,133 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '0')
 
+    def test_object_multi_upload_part_copy_version(self):
+        bucket = 'bucket'
+        keys = ['obj1']
+        uploads = []
+
+        results_generator = self._initiate_multi_uploads_result_generator(
+            bucket, keys)
+
+        # Initiate Multipart Upload
+        for expected_key, (status, headers, body) in \
+                zip(keys, results_generator):
+            self.assertEqual(status, 200)
+            self.assertCommonResponseHeaders(headers)
+            self.assertTrue('content-type' in headers)
+            self.assertEqual(headers['content-type'], 'application/xml')
+            self.assertTrue('content-length' in headers)
+            self.assertEqual(headers['content-length'], str(len(body)))
+            elem = fromstring(body, 'InitiateMultipartUploadResult')
+            self.assertEqual(elem.find('Bucket').text, bucket)
+            key = elem.find('Key').text
+            self.assertEqual(expected_key, key)
+            upload_id = elem.find('UploadId').text
+            self.assertTrue(upload_id is not None)
+            self.assertTrue((key, upload_id) not in uploads)
+            uploads.append((key, upload_id))
+
+        self.assertEqual(len(uploads), len(keys))  # sanity
+
+        key, upload_id = uploads[0]
+        src_bucket = 'bucket2'
+        src_obj = 'obj4'
+        src_content = b'y' * (self.min_segment_size // 2) + b'z' * \
+            self.min_segment_size
+        etags = [md5(src_content).hexdigest()]
+
+        # prepare null-version src obj
+        self.conn.make_request('PUT', src_bucket)
+        self.conn.make_request('PUT', src_bucket, src_obj, body=src_content)
+        _, headers, _ = self.conn.make_request('HEAD', src_bucket, src_obj)
+        self.assertCommonResponseHeaders(headers)
+
+        # Turn on versioning
+        elem = Element('VersioningConfiguration')
+        SubElement(elem, 'Status').text = 'Enabled'
+        xml = tostring(elem)
+        status, headers, body = self.conn.make_request(
+            'PUT', src_bucket, body=xml, query='versioning')
+        self.assertEqual(status, 200)
+
+        src_obj2 = 'obj5'
+        src_content2 = b'stub'
+        etags.append(md5(src_content2).hexdigest())
+
+        # prepare src obj w/ real version
+        self.conn.make_request('PUT', src_bucket, src_obj2, body=src_content2)
+        _, headers, _ = self.conn.make_request('HEAD', src_bucket, src_obj2)
+        self.assertCommonResponseHeaders(headers)
+        version_id2 = headers['x-amz-version-id']
+
+        status, headers, body, resp_etag = \
+            self._upload_part_copy(src_bucket, src_obj, bucket,
+                                   key, upload_id, 1,
+                                   src_version_id='null')
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self.assertTrue('content-type' in headers)
+        self.assertEqual(headers['content-type'], 'application/xml')
+        self.assertTrue('content-length' in headers)
+        self.assertEqual(headers['content-length'], str(len(body)))
+        self.assertTrue('etag' not in headers)
+        elem = fromstring(body, 'CopyPartResult')
+
+        last_modifieds = [elem.find('LastModified').text]
+        self.assertTrue(last_modifieds[0] is not None)
+
+        self.assertEqual(resp_etag, etags[0])
+
+        status, headers, body, resp_etag = \
+            self._upload_part_copy(src_bucket, src_obj2, bucket,
+                                   key, upload_id, 2,
+                                   src_version_id=version_id2)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self.assertTrue('content-type' in headers)
+        self.assertEqual(headers['content-type'], 'application/xml')
+        self.assertTrue('content-length' in headers)
+        self.assertEqual(headers['content-length'], str(len(body)))
+        self.assertTrue('etag' not in headers)
+        elem = fromstring(body, 'CopyPartResult')
+
+        last_modifieds.append(elem.find('LastModified').text)
+        self.assertTrue(last_modifieds[1] is not None)
+
+        self.assertEqual(resp_etag, etags[1])
+
+        # Check last-modified timestamp
+        key, upload_id = uploads[0]
+        query = 'uploadId=%s' % upload_id
+        status, headers, body = \
+            self.conn.make_request('GET', bucket, key, query=query)
+
+        elem = fromstring(body, 'ListPartsResult')
+
+        # FIXME: COPY result drops milli/microseconds but GET doesn't
+        last_modified_gets = [p.find('LastModified').text
+                              for p in elem.iterfind('Part')]
+        self.assertEqual(
+            [lm.rsplit('.', 1)[0] for lm in last_modified_gets],
+            [lm.rsplit('.', 1)[0] for lm in last_modifieds])
+
+        # There should be *exactly* two parts in the result
+        self.assertEqual(2, len(last_modified_gets))
+
+        # Abort Multipart Upload
+        key, upload_id = uploads[0]
+        query = 'uploadId=%s' % upload_id
+        status, headers, body = \
+            self.conn.make_request('DELETE', bucket, key, query=query)
+
+        # sanity checks
+        self.assertEqual(status, 204)
+        self.assertCommonResponseHeaders(headers)
+        self.assertTrue('content-type' in headers)
+        self.assertEqual(headers['content-type'], 'text/html; charset=UTF-8')
+        self.assertTrue('content-length' in headers)
+        self.assertEqual(headers['content-length'], '0')
+
 
 class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
     @classmethod
@@ -892,6 +1022,11 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
 
     def test_object_multi_upload_part_copy_range(self):
         if StrictVersion(boto.__version__) < StrictVersion('3.0'):
+            # boto 2 doesn't sort headers properly; see
+            # https://github.com/boto/boto/pull/3032
+            # or https://github.com/boto/boto/pull/3176
+            # or https://github.com/boto/boto/pull/3751
+            # or https://github.com/boto/boto/pull/3824
             self.skipTest('This stuff got the issue of boto<=2.x')
 
     def test_delete_bucket_multi_upload_object_exisiting(self):
@@ -971,4 +1106,4 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
         self.assertEqual(status, 204)  # sanity
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

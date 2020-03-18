@@ -59,10 +59,9 @@ from gzip import GzipFile
 import mock as mocklib
 import inspect
 import unittest
-import unittest2
 
 
-class SkipTest(unittest2.SkipTest, unittest.SkipTest):
+class SkipTest(unittest.SkipTest):
     pass
 
 EMPTY_ETAG = md5().hexdigest()
@@ -1181,6 +1180,14 @@ class StubResponse(object):
 
     def read(self, amt=0):
         return self.readable.read(amt)
+
+    def __repr__(self):
+        info = ['Status: %s' % self.status]
+        if self.headers:
+            info.append('Headers: %r' % dict(self.headers))
+        if self.body:
+            info.append('Body: %r' % self.body)
+        return '<StubResponse %s>' % ', '.join(info)
 
 
 def encode_frag_archive_bodies(policy, body):

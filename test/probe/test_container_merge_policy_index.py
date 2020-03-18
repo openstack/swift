@@ -23,11 +23,13 @@ from swift.common.internal_client import InternalClient
 from swift.common import utils, direct_client
 from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
-from test.probe.brain import BrainSplitter
+from swift.container.reconciler import MISPLACED_OBJECTS_ACCOUNT
+from test.probe.brain import BrainSplitter, InternalBrainSplitter
+from swift.common.request_helpers import get_reserved_name
 from test.probe.common import (ReplProbeTest, ENABLED_POLICIES,
                                POLICIES_BY_TYPE, REPL_POLICY)
 
-from swiftclient import client, ClientException
+from swiftclient import ClientException
 
 TIMEOUT = 60
 
@@ -47,15 +49,13 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         timeout = time.time() + TIMEOUT
         while time.time() < timeout:
             try:
-                return client.get_object(self.url, self.token,
-                                         self.container_name,
-                                         self.object_name)
+                return self.brain.get_object()
             except ClientException as err:
                 if err.http_status != HTTP_NOT_FOUND:
                     raise
                 time.sleep(1)
         else:
-            self.fail('could not HEAD /%s/%s/%s/ from policy %s '
+            self.fail('could not GET /%s/%s/%s/ from policy %s '
                       'after %s seconds.' % (
                           self.account, self.container_name, self.object_name,
                           int(policy_index), TIMEOUT))
@@ -237,6 +237,12 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                         self.account, self.container_name, self.object_name,
                         orig_policy_index, node))
 
+    def get_object_name(self, name):
+        """
+        hook for sublcass to translate object names
+        """
+        return name
+
     def test_reconcile_manifest(self):
         if 'slo' not in self.cluster_info:
             raise unittest.SkipTest(
@@ -257,14 +263,14 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
 
         def write_part(i):
             body = b'VERIFY%0.2d' % i + b'\x00' * 1048576
-            part_name = 'manifest_part_%0.2d' % i
+            part_name = self.get_object_name('manifest_part_%0.2d' % i)
             manifest_entry = {
                 "path": "/%s/%s" % (self.container_name, part_name),
                 "etag": md5(body).hexdigest(),
                 "size_bytes": len(body),
             }
-            client.put_object(self.url, self.token, self.container_name,
-                              part_name, contents=body)
+            self.brain.client.put_object(self.container_name, part_name, {},
+                                         body)
             manifest_data.append(manifest_entry)
 
         # get an old container stashed
@@ -283,10 +289,10 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
 
         # write manifest
         with self.assertRaises(ClientException) as catcher:
-            client.put_object(self.url, self.token, self.container_name,
-                              self.object_name,
-                              contents=utils.json.dumps(manifest_data),
-                              query_string='multipart-manifest=put')
+            self.brain.client.put_object(
+                self.container_name, self.object_name,
+                {}, utils.json.dumps(manifest_data),
+                query_string='multipart-manifest=put')
 
         # so as it works out, you can't really upload a multi-part
         # manifest for objects that are currently misplaced - you have to
@@ -333,18 +339,18 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.get_to_final_state()
         Manager(['container-reconciler']).once()
         # clear proxy cache
-        client.post_container(self.url, self.token, self.container_name, {})
+        self.brain.client.post_container(self.container_name, {})
 
         # let's see how that direct upload worked out...
-        metadata, body = client.get_object(
-            self.url, self.token, self.container_name, direct_manifest_name,
+        metadata, body = self.brain.client.get_object(
+            self.container_name, direct_manifest_name,
             query_string='multipart-manifest=get')
         self.assertEqual(metadata['x-static-large-object'].lower(), 'true')
         for i, entry in enumerate(utils.json.loads(body)):
             for key in ('hash', 'bytes', 'name'):
                 self.assertEqual(entry[key], direct_manifest_data[i][key])
-        metadata, body = client.get_object(
-            self.url, self.token, self.container_name, direct_manifest_name)
+        metadata, body = self.brain.client.get_object(
+            self.container_name, direct_manifest_name)
         self.assertEqual(metadata['x-static-large-object'].lower(), 'true')
         self.assertEqual(int(metadata['content-length']),
                          sum(part['size_bytes'] for part in manifest_data))
@@ -352,13 +358,12 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                                         for i in range(20)))
 
         # and regular upload should work now too
-        client.put_object(self.url, self.token, self.container_name,
-                          self.object_name,
-                          contents=utils.json.dumps(manifest_data),
-                          query_string='multipart-manifest=put')
-        metadata = client.head_object(self.url, self.token,
-                                      self.container_name,
-                                      self.object_name)
+        self.brain.client.put_object(
+            self.container_name, self.object_name, {},
+            utils.json.dumps(manifest_data).encode('ascii'),
+            query_string='multipart-manifest=put')
+        metadata = self.brain.client.head_object(self.container_name,
+                                                 self.object_name)
         self.assertEqual(int(metadata['content-length']),
                          sum(part['size_bytes'] for part in manifest_data))
 
@@ -375,66 +380,69 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.brain.put_container(int(policy))
         self.brain.start_primary_half()
         # write some target data
-        client.put_object(self.url, self.token, self.container_name, 'target',
-                          contents=b'this is the target data')
+        target_name = self.get_object_name('target')
+        self.brain.client.put_object(self.container_name, target_name, {},
+                                     b'this is the target data')
 
         # write the symlink
         self.brain.stop_handoff_half()
         self.brain.put_container(int(wrong_policy))
-        client.put_object(
-            self.url, self.token, self.container_name, 'symlink',
-            headers={
-                'X-Symlink-Target': '%s/target' % self.container_name,
+        symlink_name = self.get_object_name('symlink')
+        self.brain.client.put_object(
+            self.container_name, symlink_name, {
+                'X-Symlink-Target': '%s/%s' % (
+                    self.container_name, target_name),
                 'Content-Type': 'application/symlink',
-            })
+            }, b'')
 
         # at this point we have a broken symlink (the container_info has the
         # proxy looking for the target in the wrong policy)
         with self.assertRaises(ClientException) as ctx:
-            client.get_object(self.url, self.token, self.container_name,
-                              'symlink')
+            self.brain.client.get_object(self.container_name, symlink_name)
         self.assertEqual(ctx.exception.http_status, 404)
 
         # of course the symlink itself is fine
-        metadata, body = client.get_object(self.url, self.token,
-                                           self.container_name, 'symlink',
-                                           query_string='symlink=get')
+        metadata, body = self.brain.client.get_object(
+            self.container_name, symlink_name, query_string='symlink=get')
         self.assertEqual(metadata['x-symlink-target'],
-                         '%s/target' % self.container_name)
+                         utils.quote('%s/%s' % (
+                             self.container_name, target_name)))
         self.assertEqual(metadata['content-type'], 'application/symlink')
         self.assertEqual(body, b'')
         # ... although in the wrong policy
         object_ring = POLICIES.get_object_ring(int(wrong_policy), '/etc/swift')
         part, nodes = object_ring.get_nodes(
-            self.account, self.container_name, 'symlink')
+            self.account, self.container_name, symlink_name)
         for node in nodes:
             metadata = direct_client.direct_head_object(
-                node, part, self.account, self.container_name, 'symlink',
+                node, part, self.account, self.container_name, symlink_name,
                 headers={'X-Backend-Storage-Policy-Index': int(wrong_policy)})
             self.assertEqual(metadata['X-Object-Sysmeta-Symlink-Target'],
-                             '%s/target' % self.container_name)
+                             utils.quote('%s/%s' % (
+                                 self.container_name, target_name)))
 
         # let the reconciler run
         self.brain.start_handoff_half()
         self.get_to_final_state()
         Manager(['container-reconciler']).once()
         # clear proxy cache
-        client.post_container(self.url, self.token, self.container_name, {})
+        self.brain.client.post_container(self.container_name, {})
 
         # now the symlink works
-        metadata, body = client.get_object(self.url, self.token,
-                                           self.container_name, 'symlink')
+        metadata, body = self.brain.client.get_object(
+            self.container_name, symlink_name)
         self.assertEqual(body, b'this is the target data')
         # and it's in the correct policy
         object_ring = POLICIES.get_object_ring(int(policy), '/etc/swift')
         part, nodes = object_ring.get_nodes(
-            self.account, self.container_name, 'symlink')
+            self.account, self.container_name, symlink_name)
         for node in nodes:
             metadata = direct_client.direct_head_object(
-                node, part, self.account, self.container_name, 'symlink',
+                node, part, self.account, self.container_name, symlink_name,
                 headers={'X-Backend-Storage-Policy-Index': int(policy)})
             self.assertEqual(metadata['X-Object-Sysmeta-Symlink-Target'],
-                             '%s/target' % self.container_name)
+                             utils.quote('%s/%s' % (
+                                 self.container_name, target_name)))
 
     def test_reconciler_move_object_twice(self):
         # select some policies
@@ -495,8 +503,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                 server.once(number=self.config_number(node))
 
         # verify entry in the queue for the "misplaced" new_policy
-        for container in int_client.iter_containers('.misplaced_objects'):
-            for obj in int_client.iter_objects('.misplaced_objects',
+        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
+            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
                                                container['name']):
                 expected = '%d:/%s/%s/%s' % (new_policy, self.account,
                                              self.container_name,
@@ -519,8 +527,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.get_to_final_state()
 
         # verify entry in the queue
-        for container in int_client.iter_containers('.misplaced_objects'):
-            for obj in int_client.iter_objects('.misplaced_objects',
+        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
+            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
                                                container['name']):
                 expected = '%d:/%s/%s/%s' % (old_policy, self.account,
                                              self.container_name,
@@ -540,8 +548,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
 
         # make sure the queue is settled
         self.get_to_final_state()
-        for container in int_client.iter_containers('.misplaced_objects'):
-            for obj in int_client.iter_objects('.misplaced_objects',
+        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
+            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
                                                container['name']):
                 self.fail('Found unexpected object %r in the queue' % obj)
 
@@ -549,6 +557,25 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         headers, data = self._get_object_patiently(int(new_policy))
         self.assertEqual(b'VERIFY', data)
         self.assertEqual('custom-meta', headers['x-object-meta-test'])
+
+
+class TestReservedNamespaceMergePolicyIndex(TestContainerMergePolicyIndex):
+
+    @unittest.skipIf(len(ENABLED_POLICIES) < 2, "Need more than one policy")
+    def setUp(self):
+        super(TestReservedNamespaceMergePolicyIndex, self).setUp()
+        self.container_name = get_reserved_name('container', str(uuid.uuid4()))
+        self.object_name = get_reserved_name('object', str(uuid.uuid4()))
+        self.brain = InternalBrainSplitter('/etc/swift/internal-client.conf',
+                                           self.container_name,
+                                           self.object_name, 'container')
+
+    def get_object_name(self, name):
+        return get_reserved_name(name)
+
+    def test_reconcile_manifest(self):
+        raise unittest.SkipTest(
+            'SLO does not allow parts in the reserved namespace')
 
 
 if __name__ == "__main__":

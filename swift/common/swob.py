@@ -52,7 +52,7 @@ from six.moves import urllib
 
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import UTC, reiterate, split_path, Timestamp, pairs, \
-    close_if_possible, closing_if_possible
+    close_if_possible, closing_if_possible, config_true_value
 from swift.common.exceptions import InvalidTimestamp
 
 
@@ -689,6 +689,12 @@ class Range(object):
         return all_ranges
 
 
+def normalize_etag(tag):
+    if tag and tag.startswith('"') and tag.endswith('"') and tag != '"':
+        return tag[1:-1]
+    return tag
+
+
 class Match(object):
     """
     Wraps a Request's If-[None-]Match header as a friendly object.
@@ -701,15 +707,10 @@ class Match(object):
             tag = tag.strip()
             if not tag:
                 continue
-            if tag.startswith('"') and tag.endswith('"'):
-                self.tags.add(tag[1:-1])
-            else:
-                self.tags.add(tag)
+            self.tags.add(normalize_etag(tag))
 
     def __contains__(self, val):
-        if val and val.startswith('"') and val.endswith('"'):
-            val = val[1:-1]
-        return '*' in self.tags or val in self.tags
+        return '*' in self.tags or normalize_etag(val) in self.tags
 
     def __repr__(self):
         return '%s(%r)' % (
@@ -1011,6 +1012,33 @@ class Request(object):
             self.query_string = urllib.parse.urlencode(param_pairs,
                                                        encoding='latin-1')
 
+    def ensure_x_timestamp(self):
+        """
+        Similar to :attr:`timestamp`, but the ``X-Timestamp`` header will be
+        set if not present.
+
+        :raises HTTPBadRequest: if X-Timestamp is already set but not a valid
+                                :class:`~swift.common.utils.Timestamp`
+        :returns: the request's X-Timestamp header,
+                  as a :class:`~swift.common.utils.Timestamp`
+        """
+        # The container sync feature includes an x-timestamp header with
+        # requests. If present this is checked and preserved, otherwise a fresh
+        # timestamp is added.
+        if 'HTTP_X_TIMESTAMP' in self.environ:
+            try:
+                self._timestamp = Timestamp(self.environ['HTTP_X_TIMESTAMP'])
+            except ValueError:
+                raise HTTPBadRequest(
+                    request=self, content_type='text/plain',
+                    body='X-Timestamp should be a UNIX timestamp float value; '
+                         'was %r' % self.environ['HTTP_X_TIMESTAMP'])
+        else:
+            self._timestamp = Timestamp.now()
+        # Always normalize it to the internal form
+        self.environ['HTTP_X_TIMESTAMP'] = self._timestamp.internal
+        return self._timestamp
+
     @property
     def timestamp(self):
         """
@@ -1062,6 +1090,11 @@ class Request(object):
     def url(self):
         "Provides the full url of the request"
         return self.host_url + self.path_qs
+
+    @property
+    def allow_reserved_names(self):
+        return config_true_value(self.environ.get(
+            'HTTP_X_BACKEND_ALLOW_RESERVED_NAMES'))
 
     def as_referer(self):
         return self.method + ' ' + self.url

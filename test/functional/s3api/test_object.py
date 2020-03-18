@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest2
+import unittest
 import os
 import boto
 
@@ -650,7 +650,8 @@ class TestS3ApiObject(S3ApiBase):
     def test_get_object_range(self):
         obj = 'object'
         content = b'abcdefghij'
-        headers = {'x-amz-meta-test': 'swift'}
+        headers = {'x-amz-meta-test': 'swift',
+                   'content-type': 'application/octet-stream'}
         self.conn.make_request(
             'PUT', self.bucket, obj, headers=headers, body=content)
 
@@ -664,6 +665,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertTrue('x-amz-meta-test' in headers)
         self.assertEqual('swift', headers['x-amz-meta-test'])
         self.assertEqual(body, b'bcdef')
+        self.assertEqual('application/octet-stream', headers['content-type'])
 
         headers = {'Range': 'bytes=5-'}
         status, headers, body = \
@@ -873,35 +875,35 @@ class TestS3ApiObjectSigV4(TestS3ApiObject):
     def setUp(self):
         super(TestS3ApiObjectSigV4, self).setUp()
 
-    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                      'This stuff got the signing issue of boto<=2.x')
+    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                     'This stuff got the signing issue of boto<=2.x')
     def test_put_object_metadata(self):
         super(TestS3ApiObjectSigV4, self).test_put_object_metadata()
 
-    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                      'This stuff got the signing issue of boto<=2.x')
+    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                     'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_modified_since(self):
         super(TestS3ApiObjectSigV4, self).\
             test_put_object_copy_source_if_modified_since()
 
-    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                      'This stuff got the signing issue of boto<=2.x')
+    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                     'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_unmodified_since(self):
         super(TestS3ApiObjectSigV4, self).\
             test_put_object_copy_source_if_unmodified_since()
 
-    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                      'This stuff got the signing issue of boto<=2.x')
+    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                     'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_match(self):
         super(TestS3ApiObjectSigV4,
               self).test_put_object_copy_source_if_match()
 
-    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                      'This stuff got the signing issue of boto<=2.x')
+    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                     'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_none_match(self):
         super(TestS3ApiObjectSigV4,
               self).test_put_object_copy_source_if_none_match()
 
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

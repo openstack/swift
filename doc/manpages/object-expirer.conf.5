@@ -202,8 +202,8 @@ This is normally \fBegg:swift#proxy_logging\fR. See proxy-server.conf-sample for
 .RS 3
 .IP \fBinterval\fR
 Replaces run_pause with the more standard "interval", which means the replicator won't pause unless it takes less than the interval set. The default is 300.
-.IP "\fBauto_create_account_prefix\fR
-The default is ".".
+.IP "\fBauto_create_account_prefix [deprecated]\fR"
+The default is ".". Should be configured in swift.conf instead.
 .IP \fBexpiring_objects_account_name\fR
 The default is 'expiring_objects'.
 .IP \fBreport_interval\fR

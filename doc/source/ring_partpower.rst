@@ -78,6 +78,12 @@ on all object servers in this phase::
     services (replicators, reconstructors and reconcilers)- they have to skip
     partitions during relinking.
 
+.. note::
+
+    The relinking command must run as the same user as the daemon processes
+    (usually swift). It will create files and directories that must be
+    manipulable by the daemon processes (server, auditor, replicator, ...).
+
 Relinking might take some time; while there is no data copied or actually
 moved, the tool still needs to walk the whole file system and create new hard
 links as required.

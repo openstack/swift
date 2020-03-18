@@ -6,15 +6,16 @@
 # Andi Chandler <andi@gowling.com>, 2016. #zanata
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 # Andi Chandler <andi@gowling.com>, 2018. #zanata
+# Andi Chandler <andi@gowling.com>, 2019. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2019-10-04 06:59+0000\n"
+"POT-Creation-Date: 2019-11-14 20:48+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2018-08-08 09:56+0000\n"
+"PO-Revision-Date: 2019-11-14 11:34+0000\n"
 "Last-Translator: Andi Chandler <andi@gowling.com>\n"
 "Language: en_GB\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -608,6 +609,9 @@ msgstr "Error: unable to locate %s"
 msgid "Exception fetching fragments for %r"
 msgstr "Exception fetching fragments for %r"
 
+msgid "Exception in top-level reconstruction loop"
+msgstr "Exception in top-level reconstruction loop"
+
 #, python-format
 msgid "Exception in top-level replication loop: %s"
 msgstr "Exception in top-level replication loop: %s"
@@ -1066,6 +1070,9 @@ msgstr "Trying to get %(status_type)s status of PUT to %(path)s"
 msgid "Trying to read during GET"
 msgstr "Trying to read during GET"
 
+msgid "Trying to read object during GET (retrying)"
+msgstr "Trying to read object during GET (retrying)"
+
 msgid "Trying to send to client"
 msgstr "Trying to send to client"
 
@@ -1117,6 +1124,14 @@ msgstr "Unable to read config from %s"
 msgid "Unauth %(sync_from)r => %(sync_to)r"
 msgstr "Unauth %(sync_from)r => %(sync_to)r"
 
+#, python-format
+msgid ""
+"Unexpected fragment data type (not quarantined) %(datadir)s: %(type)s at "
+"offset 0x%(offset)x"
+msgstr ""
+"Unexpected fragment data type (not quarantined) %(datadir)s: %(type)s at "
+"offset 0x%(offset)x"
+
 msgid "Unhandled exception"
 msgstr "Unhandled exception"
 
@@ -1161,6 +1176,13 @@ msgid ""
 msgstr ""
 "WARNING: Unable to modify scheduling priority of process. Keeping unchanged! "
 "Check logs for more info. "
+
+msgid ""
+"WARNING: object-expirer.conf is deprecated. Move object-expirers' "
+"configuration into object-server.conf."
+msgstr ""
+"WARNING: object-expirer.conf is deprecated. Move object-expirers' "
+"configuration into object-server.conf."
 
 #, python-format
 msgid "Waited %(kill_wait)s seconds for %(server)s to die; giving up"

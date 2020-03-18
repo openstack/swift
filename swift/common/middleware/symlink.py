@@ -202,14 +202,16 @@ import os
 from cgi import parse_header
 
 from swift.common.utils import get_logger, register_swift_info, split_path, \
-    MD5_OF_EMPTY_STRING, close_if_possible, closing_if_possible
+    MD5_OF_EMPTY_STRING, close_if_possible, closing_if_possible, \
+    config_true_value, drain_and_close
 from swift.common.constraints import check_account_format
 from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.request_helpers import get_sys_meta_prefix, \
-    check_path_header, get_container_update_override_key
+    check_path_header, get_container_update_override_key, \
+    update_ignore_range_header
 from swift.common.swob import Request, HTTPBadRequest, HTTPTemporaryRedirect, \
     HTTPException, HTTPConflict, HTTPPreconditionFailed, wsgi_quote, \
-    wsgi_unquote
+    wsgi_unquote, status_map
 from swift.common.http import is_success, HTTP_NOT_FOUND
 from swift.common.exceptions import LinkIterError
 from swift.common.header_key_dict import HeaderKeyDict
@@ -227,6 +229,8 @@ TGT_ETAG_SYSMETA_SYMLINK_HDR = \
     get_sys_meta_prefix('object') + 'symlink-target-etag'
 TGT_BYTES_SYSMETA_SYMLINK_HDR = \
     get_sys_meta_prefix('object') + 'symlink-target-bytes'
+SYMLOOP_EXTEND = get_sys_meta_prefix('object') + 'symloop-extend'
+ALLOW_RESERVED_NAMES = get_sys_meta_prefix('object') + 'allow-reserved-names'
 
 
 def _validate_and_prep_request_headers(req):
@@ -428,6 +432,7 @@ class SymlinkObjectContext(WSGIContext):
         :param req: HTTP GET or HEAD object request
         :returns: Response Iterator
         """
+        update_ignore_range_header(req, TGT_OBJ_SYSMETA_SYMLINK_HDR)
         try:
             return self._recursive_get_head(req)
         except LinkIterError:
@@ -463,7 +468,8 @@ class SymlinkObjectContext(WSGIContext):
         resp_etag = self._response_header_value(
             TGT_ETAG_SYSMETA_SYMLINK_HDR)
         if symlink_target and (resp_etag or follow_softlinks):
-            close_if_possible(resp)
+            # Should be a zero-byte object
+            drain_and_close(resp)
             found_etag = resp_etag or self._response_header_value('etag')
             if target_etag and target_etag != found_etag:
                 raise HTTPConflict(
@@ -475,11 +481,18 @@ class SymlinkObjectContext(WSGIContext):
                 raise LinkIterError()
             # format: /<account name>/<container name>/<object name>
             new_req = build_traversal_req(symlink_target)
-            self._loop_count += 1
+            if not config_true_value(
+                    self._response_header_value(SYMLOOP_EXTEND)):
+                self._loop_count += 1
+            if config_true_value(
+                    self._response_header_value(ALLOW_RESERVED_NAMES)):
+                new_req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+
             return self._recursive_get_head(new_req, target_etag=resp_etag)
         else:
             final_etag = self._response_header_value('etag')
             if final_etag and target_etag and target_etag != final_etag:
+                # do *not* drain; we don't know how big this is
                 close_if_possible(resp)
                 body = ('Object Etag %r does not match '
                         'X-Symlink-Target-Etag header %r')
@@ -504,21 +517,31 @@ class SymlinkObjectContext(WSGIContext):
 
     def _validate_etag_and_update_sysmeta(self, req, symlink_target_path,
                                           etag):
+        if req.environ.get('swift.symlink_override'):
+            req.headers[TGT_ETAG_SYSMETA_SYMLINK_HDR] = etag
+            req.headers[TGT_BYTES_SYSMETA_SYMLINK_HDR] = \
+                req.headers[TGT_BYTES_SYMLINK_HDR]
+            return
+
         # next we'll make sure the E-Tag matches a real object
         new_req = make_subrequest(
             req.environ, path=wsgi_quote(symlink_target_path), method='HEAD',
             swift_source='SYM')
+        if req.allow_reserved_names:
+            new_req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
         self._last_target_path = symlink_target_path
         resp = self._recursive_get_head(new_req, target_etag=etag,
                                         follow_softlinks=False)
         if self._get_status_int() == HTTP_NOT_FOUND:
             raise HTTPConflict(
                 body='X-Symlink-Target does not exist',
+                request=req,
                 headers={
                     'Content-Type': 'text/plain',
                     'Content-Location': self._last_target_path})
         if not is_success(self._get_status_int()):
-            return resp
+            drain_and_close(resp)
+            raise status_map[self._get_status_int()](request=req)
         response_headers = HeaderKeyDict(self._response_headers)
         # carry forward any etag update params (e.g. "slo_etag"), we'll append
         # symlink_target_* params to this header after this method returns
@@ -563,10 +586,8 @@ class SymlinkObjectContext(WSGIContext):
 
         symlink_target_path, etag = _validate_and_prep_request_headers(req)
         if etag:
-            resp = self._validate_etag_and_update_sysmeta(
+            self._validate_etag_and_update_sysmeta(
                 req, symlink_target_path, etag)
-            if resp is not None:
-                return resp
         # N.B. TGT_ETAG_SYMLINK_HDR was converted as part of verifying it
         symlink_usermeta_to_sysmeta(req.headers)
         # Store info in container update that this object is a symlink.
@@ -649,6 +670,9 @@ class SymlinkObjectContext(WSGIContext):
             req.environ['swift.leave_relative_location'] = True
             errmsg = 'The requested POST was applied to a symlink. POST ' +\
                      'directly to the target to apply requested metadata.'
+            for key, value in self._response_headers:
+                if key.lower().startswith('x-object-sysmeta-'):
+                    headers[key] = value
             raise HTTPTemporaryRedirect(
                 body=errmsg, headers=headers)
         else:

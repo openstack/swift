@@ -17,6 +17,7 @@
 
 import six
 import six.moves.cPickle as pickle
+from six.moves.urllib.parse import unquote
 import json
 import os
 import multiprocessing
@@ -35,10 +36,11 @@ from swift.common.utils import public, get_logger, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
-    config_auto_int_value, split_path, get_redirect_data, normalize_timestamp
+    config_auto_int_value, split_path, get_redirect_data, \
+    normalize_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
-    valid_timestamp, check_utf8
+    valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
@@ -51,13 +53,13 @@ from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
-    resolve_etag_is_at_header, is_sys_meta
+    resolve_etag_is_at_header, is_sys_meta, validate_internal_obj
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
-    HTTPServerError, wsgi_to_bytes, wsgi_to_str
+    HTTPServerError, wsgi_to_bytes, wsgi_to_str, normalize_etag
 from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 from swift.obj.expirer import build_task_obj
 
@@ -87,6 +89,20 @@ def drain(file_like, read_size, timeout):
             chunk = file_like.read(read_size)
             if not chunk:
                 break
+
+
+def get_obj_name_and_placement(request):
+    """
+    Split and validate path for an object.
+
+    :param request: a swob request
+
+    :returns: a tuple of path parts and storage policy
+    """
+    device, partition, account, container, obj, policy = \
+        get_name_and_placement(request, 5, 5, True)
+    validate_internal_obj(account, container, obj)
+    return device, partition, account, container, obj, policy
 
 
 def _make_backend_fragments_header(fragments):
@@ -158,8 +174,18 @@ class ObjectController(BaseStorageServer):
         for header in extra_allowed_headers:
             if header not in RESERVED_DATAFILE_META:
                 self.allowed_headers.add(header)
-        self.auto_create_account_prefix = \
-            conf.get('auto_create_account_prefix') or '.'
+        if conf.get('auto_create_account_prefix'):
+            self.logger.warning('Option auto_create_account_prefix is '
+                                'deprecated. Configure '
+                                'auto_create_account_prefix under the '
+                                'swift-constraints section of '
+                                'swift.conf. This option will '
+                                'be ignored in a future release.')
+            self.auto_create_account_prefix = \
+                conf['auto_create_account_prefix']
+        else:
+            self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
+
         self.expiring_objects_account = self.auto_create_account_prefix + \
             (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \
@@ -351,7 +377,6 @@ class ObjectController(BaseStorageServer):
         contdevices = [d.strip() for d in
                        headers_in.get('X-Container-Device', '').split(',')]
         contpartition = headers_in.get('X-Container-Partition', '')
-        contpath = headers_in.get('X-Backend-Container-Path')
 
         if len(conthosts) != len(contdevices):
             # This shouldn't happen unless there's a bug in the proxy,
@@ -363,6 +388,12 @@ class ObjectController(BaseStorageServer):
                     'hosts': headers_in.get('X-Container-Host', ''),
                     'devices': headers_in.get('X-Container-Device', '')})
             return
+
+        contpath = headers_in.get('X-Backend-Quoted-Container-Path')
+        if contpath:
+            contpath = unquote(contpath)
+        else:
+            contpath = headers_in.get('X-Backend-Container-Path')
 
         if contpath:
             try:
@@ -603,7 +634,8 @@ class ObjectController(BaseStorageServer):
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
+
         req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
         if new_delete_at and new_delete_at < req_timestamp:
@@ -732,8 +764,9 @@ class ObjectController(BaseStorageServer):
             'PUT', account, container, obj, request, update_headers,
             device, policy)
 
-        # Add sysmeta to response
-        resp_headers = {}
+        # Add current content-type and sysmeta to response
+        resp_headers = {
+            'X-Backend-Content-Type': content_type_headers['Content-Type']}
         for key, value in orig_metadata.items():
             if is_sys_meta('object', key):
                 resp_headers[key] = value
@@ -926,8 +959,8 @@ class ObjectController(BaseStorageServer):
                         if (is_sys_or_user_meta('object', val[0]) or
                             is_object_transient_sysmeta(val[0])))
         # N.B. footers_metadata is a HeaderKeyDict
-        received_etag = footers_metadata.get('etag', request.headers.get(
-            'etag', '')).strip('"')
+        received_etag = normalize_etag(footers_metadata.get(
+            'etag', request.headers.get('etag', '')))
         if received_etag and received_etag != metadata['ETag']:
             raise HTTPUnprocessableEntity(request=request)
 
@@ -995,7 +1028,7 @@ class ObjectController(BaseStorageServer):
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
         disk_file, fsize, orig_metadata = self._pre_create_checks(
             request, device, partition, account, container, obj, policy)
         writer = disk_file.writer(size=fsize)
@@ -1037,7 +1070,7 @@ class ObjectController(BaseStorageServer):
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
         request.headers.setdefault('X-Timestamp',
                                    normalize_timestamp(time.time()))
         req_timestamp = valid_timestamp(request)
@@ -1054,6 +1087,14 @@ class ObjectController(BaseStorageServer):
         try:
             with disk_file.open(current_time=req_timestamp):
                 metadata = disk_file.get_metadata()
+                ignore_range_headers = set(
+                    h.strip().lower()
+                    for h in request.headers.get(
+                        'X-Backend-Ignore-Range-If-Metadata-Present',
+                        '').split(','))
+                if ignore_range_headers.intersection(
+                        h.lower() for h in metadata):
+                    request.headers.pop('Range', None)
                 obj_size = int(metadata['Content-Length'])
                 file_x_ts = Timestamp(metadata['X-Timestamp'])
                 keep_cache = (self.keep_cache_private or
@@ -1104,7 +1145,7 @@ class ObjectController(BaseStorageServer):
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
         request.headers.setdefault('X-Timestamp',
                                    normalize_timestamp(time.time()))
         req_timestamp = valid_timestamp(request)
@@ -1163,7 +1204,7 @@ class ObjectController(BaseStorageServer):
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
-            get_name_and_placement(request, 5, 5, True)
+            get_obj_name_and_placement(request)
         req_timestamp = valid_timestamp(request)
         next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
@@ -1236,7 +1277,9 @@ class ObjectController(BaseStorageServer):
                 device, policy)
         return response_class(
             request=request,
-            headers={'X-Backend-Timestamp': response_timestamp.internal})
+            headers={'X-Backend-Timestamp': response_timestamp.internal,
+                     'X-Backend-Content-Type': orig_metadata.get(
+                         'Content-Type', '')})
 
     @public
     @replication
@@ -1275,7 +1318,7 @@ class ObjectController(BaseStorageServer):
         req = Request(env)
         self.logger.txn_id = req.headers.get('x-trans-id', None)
 
-        if not check_utf8(wsgi_to_str(req.path_info)):
+        if not check_utf8(wsgi_to_str(req.path_info), internal=True):
             res = HTTPPreconditionFailed(body='Invalid UTF8 or contains NULL')
         else:
             try:

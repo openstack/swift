@@ -191,8 +191,8 @@ Request timeout to external services. The default is 3 seconds.
 Connection timeout to external services. The default is 0.5 seconds.
 .IP \fBallow_versions\fR
 The default is false.
-.IP \fBauto_create_account_prefix\fR
-The default is '.'.
+.IP "\fBauto_create_account_prefix [deprecated]\fR"
+The default is '.'. Should be configured in swift.conf instead.
 .IP \fBreplication_server\fR
 Configure parameter for creating specific server.
 To handle all verbs, including replication verbs, do not specify
@@ -362,7 +362,7 @@ Request timeout to external services. The default is 3 seconds.
 Connection timeout to external services. The default is 0.5 seconds.
 .IP \fBcontainers_per_second\fR
 Maximum containers updated per second. Should be tuned according to individual system specs. 0 is unlimited. The default is 50.
-.IP \fBslowdown\fR
+.IP "\fBslowdown [deprecated]\fR"
 Slowdown will sleep that amount between containers. The default is 0.01 seconds. Deprecated in favor of containers_per_second
 .IP \fBaccount_suppression_time\fR
 Seconds to suppress updating an account that has generated an error. The default is 60 seconds.

@@ -31,12 +31,13 @@ from six.moves.http_client import HTTPConnection
 from six.moves.urllib.parse import urlparse
 
 from swiftclient import get_auth, head_account, client
-from swift.common import internal_client
-from swift.obj.diskfile import get_data_dir
+from swift.common import internal_client, direct_client
+from swift.common.direct_client import DirectClientException
 from swift.common.ring import Ring
 from swift.common.utils import readconf, renamer, rsync_module_interpolation
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
+from swift.obj.diskfile import get_data_dir
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
@@ -487,6 +488,7 @@ class ProbeTest(unittest.TestCase):
 
             [app:proxy-server]
             use = egg:swift#proxy
+            allow_account_management = True
 
             [filter:copy]
             use = egg:swift#copy
@@ -554,6 +556,41 @@ class ReplProbeTest(ProbeTest):
     obj_required_replicas = 3
     obj_required_devices = 4
     policy_requirements = {'policy_type': REPL_POLICY}
+
+    def direct_container_op(self, func, account=None, container=None,
+                            expect_failure=False):
+        account = account if account else self.account
+        container = container if container else self.container_to_shard
+        cpart, cnodes = self.container_ring.get_nodes(account, container)
+        unexpected_responses = []
+        results = {}
+        for cnode in cnodes:
+            try:
+                results[cnode['id']] = func(cnode, cpart, account, container)
+            except DirectClientException as err:
+                if not expect_failure:
+                    unexpected_responses.append((cnode, err))
+            else:
+                if expect_failure:
+                    unexpected_responses.append((cnode, 'success'))
+        if unexpected_responses:
+            self.fail('Unexpected responses: %s' % unexpected_responses)
+        return results
+
+    def direct_delete_container(self, account=None, container=None,
+                                expect_failure=False):
+        self.direct_container_op(direct_client.direct_delete_container,
+                                 account, container, expect_failure)
+
+    def direct_head_container(self, account=None, container=None,
+                              expect_failure=False):
+        return self.direct_container_op(direct_client.direct_head_container,
+                                        account, container, expect_failure)
+
+    def direct_get_container(self, account=None, container=None,
+                             expect_failure=False):
+        return self.direct_container_op(direct_client.direct_get_container,
+                                        account, container, expect_failure)
 
 
 class ECProbeTest(ProbeTest):

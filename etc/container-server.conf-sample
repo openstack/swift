@@ -63,6 +63,9 @@ bind_port = 6201
 # on to preallocate disk space with SQLite databases to decrease fragmentation.
 # db_preallocation = off
 #
+# Enable this option to log all sqlite3 queries (requires python >=3.3)
+# db_query_logging = off
+#
 # eventlet_debug = false
 #
 # You can set fallocate_reserve to the number of bytes or percentage of disk
@@ -81,10 +84,6 @@ bind_port = 6201
 # Work only with ionice_class.
 # ionice_class =
 # ionice_priority =
-#
-# The prefix used for hidden auto-created accounts, for example accounts in
-# which shard containers are created. Defaults to '.'.
-# auto_create_account_prefix = .
 
 [pipeline:main]
 pipeline = healthcheck recon container-server
@@ -101,7 +100,6 @@ use = egg:swift#container
 # node_timeout = 3
 # conn_timeout = 0.5
 # allow_versions = false
-# auto_create_account_prefix = .
 #
 # Configure parameter for creating specific server
 # To handle all verbs, including replication verbs, do not specify

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest2
+import unittest
 import os
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
@@ -240,4 +240,4 @@ class TestS3ApiMultiDeleteSigV4(TestS3ApiMultiDelete):
 
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

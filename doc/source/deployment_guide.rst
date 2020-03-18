@@ -383,26 +383,28 @@ An example of common configuration file can be found at etc/swift.conf-sample
 
 The following configuration options are available:
 
-===================  ==========  =============================================
-Option               Default     Description
--------------------  ----------  ---------------------------------------------
-max_header_size      8192        max_header_size is the max number of bytes in
-                                 the utf8 encoding of each header. Using 8192
-                                 as default because eventlet use 8192 as max
-                                 size of header line. This value may need to
-                                 be increased when using identity v3 API
-                                 tokens including more than 7 catalog entries.
-                                 See also include_service_catalog in
-                                 proxy-server.conf-sample (documented in
-                                 overview_auth.rst).
-extra_header_count   0           By default the maximum number of allowed
-                                 headers depends on the number of max
-                                 allowed metadata settings plus a default
-                                 value of 32 for regular http  headers.
-                                 If for some reason this is not enough (custom
-                                 middleware for example) it can be increased
-                                 with the extra_header_count constraint.
-===================  ==========  =============================================
+==========================  ==========  =============================================
+Option                      Default     Description
+--------------------------  ----------  ---------------------------------------------
+max_header_size             8192        max_header_size is the max number of bytes in
+                                        the utf8 encoding of each header. Using 8192
+                                        as default because eventlet use 8192 as max
+                                        size of header line. This value may need to
+                                        be increased when using identity v3 API
+                                        tokens including more than 7 catalog entries.
+                                        See also include_service_catalog in
+                                        proxy-server.conf-sample (documented in
+                                        overview_auth.rst).
+extra_header_count          0           By default the maximum number of allowed
+                                        headers depends on the number of max
+                                        allowed metadata settings plus a default
+                                        value of 32 for regular http  headers.
+                                        If for some reason this is not enough (custom
+                                        middleware for example) it can be increased
+                                        with the extra_header_count constraint.
+auto_create_account_prefix  .           Prefix used when automatically creating
+                                        accounts.
+==========================  ==========  =============================================
 
 ---------------------------
 Object Server Configuration
@@ -600,8 +602,6 @@ allowed_headers                    Content-Disposition,   Comma separated list o
                                    Content-Language,
                                    Expires,
                                    X-Robots-Tag
-auto_create_account_prefix         .                      Prefix used when automatically
-                                                          creating accounts.
 replication_server                                        Configure parameter for creating
                                                           specific server. To handle all verbs,
                                                           including replication verbs, do not
@@ -1017,8 +1017,6 @@ log_address                   /dev/log                        Logging directory
 interval                      300                             Time in seconds to wait between
                                                               expirer passes
 report_interval               300                             Frequency of status logs in seconds.
-auto_create_account_prefix    .                               Prefix used when automatically
-                                                              creating accounts.
 concurrency                   1                               Level of concurrency to use to do the work,
                                                               this value must be set to at least 1
 expiring_objects_account_name expiring_objects                name for legacy expirer task queue
@@ -1196,7 +1194,6 @@ set log_address                 /dev/log          Logging directory
 node_timeout                    3                 Request timeout to external services
 conn_timeout                    0.5               Connection timeout to external services
 allow_versions                  false             Enable/Disable object versioning feature
-auto_create_account_prefix      .                 Prefix used when automatically
 replication_server                                Configure parameter for creating
                                                   specific server. To handle all verbs,
                                                   including replication verbs, do not
@@ -1551,8 +1548,6 @@ set log_level                  INFO            Logging level
 set log_requests               True            Whether or not to log each
                                                request
 set log_address                /dev/log        Logging directory
-auto_create_account_prefix     .               Prefix used when automatically
-                                               creating accounts.
 replication_server                             Configure parameter for creating
                                                specific server. To handle all verbs,
                                                including replication verbs, do not
@@ -1748,7 +1743,7 @@ delay_reaping       0                Normally, the reaper begins deleting
                                      time for the container-updater to report
                                      to the account before the account DB is
                                      removed.
-reap_warn_after     2892000          If the account fails to be be reaped due
+reap_warn_after     2892000          If the account fails to be reaped due
                                      to a persistent error, the account reaper
                                      will log a message such as:
                                      Account <name> has not been reaped since <date>

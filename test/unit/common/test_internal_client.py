@@ -25,14 +25,13 @@ from textwrap import dedent
 import six
 from six.moves import range, zip_longest
 from six.moves.urllib.parse import quote, parse_qsl
-from test.unit import FakeLogger
 from swift.common import exceptions, internal_client, swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies, \
-    DebugLogger
+    debug_logger
 from test.unit.common.middleware.helpers import FakeSwift, LeakTrackingIter
 
 if six.PY3:
@@ -256,8 +255,17 @@ class TestInternalClient(unittest.TestCase):
         write_fake_ring(container_ring_path)
         object_ring_path = os.path.join(tempdir, 'object.ring.gz')
         write_fake_ring(object_ring_path)
+        logger = debug_logger('test-ic')
+        self.assertEqual(logger.get_lines_for_level('warning'), [])
         with patch_policies([StoragePolicy(0, 'legacy', True)]):
-            client = internal_client.InternalClient(conf_path, 'test', 1)
+            with mock.patch('swift.proxy.server.get_logger',
+                            lambda *a, **kw: logger):
+                client = internal_client.InternalClient(conf_path, 'test', 1)
+            self.assertEqual(logger.get_lines_for_level('warning'), [
+                'Option auto_create_account_prefix is deprecated. '
+                'Configure auto_create_account_prefix under the '
+                'swift-constraints section of swift.conf. This option will '
+                'be ignored in a future release.'])
             self.assertEqual(client.account_ring,
                              client.app.app.app.account_ring)
             self.assertEqual(client.account_ring.serialized_path,
@@ -454,7 +462,7 @@ class TestInternalClient(unittest.TestCase):
     def test_make_request_error_case(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self):
-                self.logger = DebugLogger()
+                self.logger = debug_logger('test-ic')
                 # wrap the fake app with ProxyLoggingMiddleware
                 self.app = ProxyLoggingMiddleware(
                     self.fake_app, {}, self.logger)
@@ -484,7 +492,7 @@ class TestInternalClient(unittest.TestCase):
     def test_make_request_acceptable_status_not_2xx(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self, resp_status):
-                self.logger = DebugLogger()
+                self.logger = debug_logger('test-ic')
                 # wrap the fake app with ProxyLoggingMiddleware
                 self.app = ProxyLoggingMiddleware(
                     self.fake_app, {}, self.logger)
@@ -492,12 +500,14 @@ class TestInternalClient(unittest.TestCase):
                 self.resp_status = resp_status
                 self.request_tries = 3
                 self.closed_paths = []
+                self.fully_read_paths = []
 
             def fake_app(self, env, start_response):
                 body = b'fake error response'
                 start_response(self.resp_status,
                                [('Content-Length', str(len(body)))])
                 return LeakTrackingIter(body, self.closed_paths.append,
+                                        self.fully_read_paths.append,
                                         env['PATH_INFO'])
 
         def do_test(resp_status):
@@ -509,14 +519,17 @@ class TestInternalClient(unittest.TestCase):
                 # correct object body with 2xx.
                 client.make_request('GET', '/cont/obj', {}, (400,))
             loglines = client.logger.get_lines_for_level('info')
-            return client.closed_paths, ctx.exception.resp, loglines
+            return (client.fully_read_paths, client.closed_paths,
+                    ctx.exception.resp, loglines)
 
-        closed_paths, resp, loglines = do_test('200 OK')
+        fully_read_paths, closed_paths, resp, loglines = do_test('200 OK')
         # Since the 200 is considered "properly handled", it won't be retried
+        self.assertEqual(fully_read_paths, [])
         self.assertEqual(closed_paths, [])
-        # ...and it'll be on us (the caller) to close (for example, by using
-        # swob.Response's body property)
+        # ...and it'll be on us (the caller) to read and close (for example,
+        # by using swob.Response's body property)
         self.assertEqual(resp.body, b'fake error response')
+        self.assertEqual(fully_read_paths, ['/cont/obj'])
         self.assertEqual(closed_paths, ['/cont/obj'])
 
         expected = (' HTTP/1.0 200 ', )
@@ -525,9 +538,11 @@ class TestInternalClient(unittest.TestCase):
                 self.fail('Unexpected extra log line: %r' % logline)
             self.assertIn(expected, logline)
 
-        closed_paths, resp, loglines = do_test('503 Service Unavailable')
+        fully_read_paths, closed_paths, resp, loglines = do_test(
+            '503 Service Unavailable')
         # But since 5xx is neither "properly handled" not likely to include
         # a large body, it will be retried and responses will already be closed
+        self.assertEqual(fully_read_paths, ['/cont/obj'] * 3)
         self.assertEqual(closed_paths, ['/cont/obj'] * 3)
 
         expected = (' HTTP/1.0 503 ', ' HTTP/1.0 503 ', ' HTTP/1.0 503 ', )
@@ -940,6 +955,14 @@ class TestInternalClient(unittest.TestCase):
             ret_items.append(container)
         self.assertEqual(items, ret_items)
 
+    def test_delete_account(self):
+        account, container, obj = path_parts()
+        path = make_path_info(account)
+        client, app = get_client_app()
+        app.register('DELETE', path, swob.HTTPNoContent, {})
+        client.delete_account(account)
+        self.assertEqual(1, len(app._calls))
+
     def test_get_account_info(self):
         class Response(object):
             def __init__(self, containers, objects):
@@ -1225,7 +1248,8 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(app.call_count, 1)
         req_headers.update({
             'host': 'localhost:80',  # from swob.Request.blank
-            'user-agent': 'test',   # from InternalClient.make_request
+            'user-agent': 'test',  # from InternalClient.make_request
+            'x-backend-allow-reserved-names': 'true',  # also from IC
         })
         self.assertEqual(app.calls_with_headers, [(
             'GET', path_info + '?symlink=get', HeaderKeyDict(req_headers))])
@@ -1313,7 +1337,7 @@ class TestInternalClient(unittest.TestCase):
 
             def make_request(
                     self, method, path, headers, acceptable_statuses,
-                    body_file=None):
+                    body_file=None, params=None):
                 self.make_request_called += 1
                 self.test.assertEqual(self.path, path)
                 exp_headers = dict(self.headers)
@@ -1341,7 +1365,7 @@ class TestInternalClient(unittest.TestCase):
 
             def make_request(
                     self, method, path, headers, acceptable_statuses,
-                    body_file=None):
+                    body_file=None, params=None):
                 self.make_request_called += 1
                 self.test.assertEqual(self.path, path)
                 exp_headers = dict(self.headers)
@@ -1399,7 +1423,7 @@ class TestSimpleClient(unittest.TestCase):
             urlopen.return_value.getcode.return_value = 200
             urlopen.return_value.info.return_value = {'content-length': '345'}
             sc = internal_client.SimpleClient(url='http://127.0.0.1')
-            logger = FakeLogger()
+            logger = debug_logger('test-ic')
             retval = sc.retry_request(
                 method, headers={'content-length': '123'}, logger=logger)
             self.assertEqual(urlopen.call_count, 1)
@@ -1408,10 +1432,11 @@ class TestSimpleClient(unittest.TestCase):
                                        data=None)
             self.assertEqual([{'content-length': '345'}, None], retval)
             self.assertEqual(method, request.return_value.get_method())
-            self.assertEqual(logger.log_dict['debug'], [(
-                ('-> 2014-05-27T20:54:11 ' + method +
-                 ' http://127.0.0.1%3Fformat%3Djson 200 '
-                 '123 345 1401224050.98 1401224051.98 1.0 -',), {})])
+            self.assertEqual(logger.get_lines_for_level('debug'), [
+                '-> 2014-05-27T20:54:11 ' + method +
+                ' http://127.0.0.1%3Fformat%3Djson 200 '
+                '123 345 1401224050.98 1401224051.98 1.0 -'
+            ])
 
             # Check if JSON is decoded
             urlopen.return_value.read.return_value = b'{}'
@@ -1581,6 +1606,36 @@ class TestSimpleClient(unittest.TestCase):
                                   container='con', name='obj', retries=1)
             self.assertEqual(mock_sleep.call_count, 1)
             self.assertEqual(mock_urlopen.call_count, 2)
+
+    @mock.patch.object(urllib2, 'urlopen')
+    def test_delete_object_with_404_no_retry(self, mock_urlopen):
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = b''
+        err_args = [None, 404, None, None, None]
+        mock_urlopen.side_effect = urllib2.HTTPError(*err_args)
+
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep, \
+                self.assertRaises(exceptions.ClientException) as caught:
+            internal_client.delete_object('http://127.0.0.1',
+                                          container='con', name='obj')
+        self.assertEqual(caught.exception.http_status, 404)
+        self.assertEqual(mock_sleep.call_count, 0)
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+    @mock.patch.object(urllib2, 'urlopen')
+    def test_delete_object_with_409_no_retry(self, mock_urlopen):
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = b''
+        err_args = [None, 409, None, None, None]
+        mock_urlopen.side_effect = urllib2.HTTPError(*err_args)
+
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep, \
+                self.assertRaises(exceptions.ClientException) as caught:
+            internal_client.delete_object('http://127.0.0.1',
+                                          container='con', name='obj')
+        self.assertEqual(caught.exception.http_status, 409)
+        self.assertEqual(mock_sleep.call_count, 0)
+        self.assertEqual(mock_urlopen.call_count, 1)
 
     def test_proxy(self):
         # check that proxy arg is passed through to the urllib Request

@@ -640,7 +640,7 @@ class TestContainerController(TestRingBase):
         self.check_response(resp, root_resp_hdrs,
                             expected_objects=expected_objects)
 
-        # GET all objects in reverse
+        # GET all objects in reverse and *blank* limit
         mock_responses = [
             # status, body, headers
             (200, list(reversed(sr_dicts)), root_shard_resp_hdrs),
@@ -653,7 +653,7 @@ class TestContainerController(TestRingBase):
         expected_requests = [
             # path, headers, params
             ('a/c', {'X-Backend-Record-Type': 'auto'},
-             dict(states='listing', reverse='true')),
+             dict(states='listing', reverse='true', limit='')),
             (wsgi_quote(str_to_wsgi(shard_ranges[4].name)),
              {'X-Backend-Record-Type': 'auto'},
              dict(marker='', end_marker='\xf0\x9f\x8c\xb4', states='listing',
@@ -683,7 +683,8 @@ class TestContainerController(TestRingBase):
 
         resp = self._check_GET_shard_listing(
             mock_responses, list(reversed(expected_objects)),
-            expected_requests, query_string='?reverse=true', reverse=True)
+            expected_requests, query_string='?reverse=true&limit=',
+            reverse=True)
         # root object count will overridden by actual length of listing
         self.check_response(resp, root_resp_hdrs,
                             expected_objects=expected_objects)
@@ -809,6 +810,31 @@ class TestContainerController(TestRingBase):
             query_string='?end_marker=%s' % end_marker)
         self.check_response(resp, root_resp_hdrs)
 
+        # GET with prefix
+        prefix = 'hat'
+        # they're all 1-character names; the important thing
+        # is which shards we query
+        expected_objects = []
+        mock_responses = [
+            (404, '', {}),
+            (200, sr_dicts, root_shard_resp_hdrs),
+            (200, [], shard_resp_hdrs[1]),
+        ]
+        expected_requests = [
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(prefix=prefix, states='listing')),  # 404
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(prefix=prefix, states='listing')),  # 200
+            (wsgi_quote(str_to_wsgi(shard_ranges[1].name)),
+             {'X-Backend-Record-Type': 'auto'},  # 404
+             dict(prefix=prefix, marker='', end_marker='pie\x00',
+                  states='listing', limit=str(limit))),
+        ]
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests,
+            query_string='?prefix=%s' % prefix)
+        self.check_response(resp, root_resp_hdrs)
+
         # marker and end_marker and limit
         limit = 2
         expected_objects = all_objects[first_included:first_excluded]
@@ -831,7 +857,7 @@ class TestContainerController(TestRingBase):
             % (marker, end_marker, limit))
         self.check_response(resp, root_resp_hdrs)
 
-        # reverse with marker, end_marker
+        # reverse with marker, end_marker, and limit
         expected_objects.reverse()
         mock_responses = [
             (200, sr_dicts[3:4], root_shard_resp_hdrs),

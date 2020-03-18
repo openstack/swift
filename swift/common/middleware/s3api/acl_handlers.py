@@ -128,9 +128,14 @@ class BaseAclHandler(object):
             raise Exception('No permission to be checked exists')
 
         if resource == 'object':
+            version_id = self.req.params.get('versionId')
+            if version_id is None:
+                query = {}
+            else:
+                query = {'version-id': version_id}
             resp = self.req.get_acl_response(app, 'HEAD',
                                              container, obj,
-                                             headers)
+                                             headers, query=query)
             acl = resp.object_acl
         elif resource == 'container':
             resp = self.req.get_acl_response(app, 'HEAD',
@@ -459,5 +464,10 @@ ACL_MAP = {
     # Complete Multipart Upload, DELETE Multiple Objects,
     # Initiate Multipart Upload
     ('POST', 'HEAD', 'container'):
+    {'Permission': 'WRITE'},
+    # Versioning
+    ('PUT', 'POST', 'container'):
+    {'Permission': 'WRITE'},
+    ('DELETE', 'GET', 'container'):
     {'Permission': 'WRITE'},
 }

@@ -98,6 +98,10 @@ The bulk middleware  will handle xattrs stored by both GNU and BSD tar (2).
 Only xattrs ``user.mime_type`` and ``user.meta.*`` are processed. Other
 attributes are ignored.
 
+In addition to the extended attributes, the object metadata and the
+x-delete-at/x-delete-after headers set in the request are also assigned to the
+extracted objects.
+
 Notes:
 
 (1) The POSIX 1003.1-2001 (pax) format. The default format on GNU tar
@@ -206,6 +210,7 @@ from swift.common.utils import get_logger, register_swift_info, \
     StreamingPile
 from swift.common import constraints
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
+from swift.common.request_helpers import is_user_meta
 from swift.common.wsgi import make_subrequest
 
 
@@ -452,7 +457,8 @@ class Bulk(object):
                         failed_files.append([wsgi_quote(str_to_wsgi(obj_name)),
                                              HTTPPreconditionFailed().status])
                         continue
-                    yield (obj_name, delete_path)
+                    yield (obj_name, delete_path,
+                           obj_to_delete.get('version_id'))
 
             def objs_then_containers(objs_to_delete):
                 # process all objects first
@@ -462,13 +468,17 @@ class Bulk(object):
                 yield delete_filter(lambda name: '/' not in name.strip('/'),
                                     objs_to_delete)
 
-            def do_delete(obj_name, delete_path):
+            def do_delete(obj_name, delete_path, version_id):
                 delete_obj_req = make_subrequest(
                     req.environ, method='DELETE',
                     path=wsgi_quote(str_to_wsgi(delete_path)),
                     headers={'X-Auth-Token': req.headers.get('X-Auth-Token')},
                     body='', agent='%(orig)s ' + user_agent,
                     swift_source=swift_source)
+                if version_id is None:
+                    delete_obj_req.params = {}
+                else:
+                    delete_obj_req.params = {'version-id': version_id}
                 return (delete_obj_req.get_response(self.app), obj_name, 0)
 
             with StreamingPile(self.delete_concurrency) as pile:
@@ -621,6 +631,12 @@ class Bulk(object):
                         'Content-Length': tar_info.size,
                         'X-Auth-Token': req.headers.get('X-Auth-Token'),
                     }
+
+                    # Copy some whitelisted headers to the subrequest
+                    for k, v in req.headers.items():
+                        if ((k.lower() in ('x-delete-at', 'x-delete-after'))
+                                or is_user_meta('object', k)):
+                            create_headers[k] = v
 
                     create_obj_req = make_subrequest(
                         req.environ, method='PUT',

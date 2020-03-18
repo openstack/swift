@@ -331,7 +331,7 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
     HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, \
-    HTTPServiceUnavailable, Response, Range, \
+    HTTPServiceUnavailable, Response, Range, normalize_etag, \
     RESPONSE_REASONS, str_to_wsgi, wsgi_to_str, wsgi_quote
 from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
@@ -340,7 +340,7 @@ from swift.common.utils import get_logger, config_true_value, \
     Timestamp
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
-    get_container_update_override_key
+    get_container_update_override_key, update_ignore_range_header
 from swift.common.constraints import check_utf8
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
 from swift.common.wsgi import WSGIContext, make_subrequest
@@ -764,6 +764,9 @@ class SloGetContext(WSGIContext):
             # saved, we can trust the object-server to respond appropriately
             # to If-Match/If-None-Match requests.
             update_etag_is_at_header(req, SYSMETA_SLO_ETAG)
+            # Tell the object server that if it's a manifest,
+            # we want the whole thing
+            update_ignore_range_header(req, 'X-Static-Large-Object')
         resp_iter = self._app_call(req.environ)
 
         # make sure this response is for a static large object manifest
@@ -898,7 +901,7 @@ class SloGetContext(WSGIContext):
             seg_dict['size_bytes'] = seg_dict.pop('bytes', None)
             seg_dict['etag'] = seg_dict.pop('hash', None)
 
-        json_data = json.dumps(segments)  # convert to string
+        json_data = json.dumps(segments, sort_keys=True)  # convert to string
         if six.PY3:
             json_data = json_data.encode('utf-8')
 
@@ -906,6 +909,8 @@ class SloGetContext(WSGIContext):
         for header, value in resp_headers:
             if header.lower() == 'content-length':
                 new_headers.append(('Content-Length', len(json_data)))
+            elif header.lower() == 'etag':
+                new_headers.append(('Etag', md5(json_data).hexdigest()))
             else:
                 new_headers.append((header, value))
         self._response_headers = new_headers
@@ -1324,8 +1329,8 @@ class StaticLargeObject(object):
                 slo_etag.update(r.encode('ascii') if six.PY3 else r)
 
             slo_etag = slo_etag.hexdigest()
-            client_etag = req.headers.get('Etag')
-            if client_etag and client_etag.strip('"') != slo_etag:
+            client_etag = normalize_etag(req.headers.get('Etag'))
+            if client_etag and client_etag != slo_etag:
                 err = HTTPUnprocessableEntity(request=req)
                 if heartbeat:
                     resp_dict = {}
@@ -1414,6 +1419,9 @@ class StaticLargeObject(object):
         segments = [{
             'sub_slo': True,
             'name': obj_path}]
+        if 'version-id' in req.params:
+            segments[0]['version_id'] = req.params['version-id']
+
         while segments:
             # We chose not to set the limit at max_manifest_segments
             # in the case this value was decreased by operators.
@@ -1466,6 +1474,9 @@ class StaticLargeObject(object):
         new_env['REQUEST_METHOD'] = 'GET'
         del(new_env['wsgi.input'])
         new_env['QUERY_STRING'] = 'multipart-manifest=get'
+        if 'version-id' in req.params:
+            new_env['QUERY_STRING'] += \
+                '&version-id=' + req.params['version-id']
         new_env['CONTENT_LENGTH'] = 0
         new_env['HTTP_USER_AGENT'] = \
             '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')

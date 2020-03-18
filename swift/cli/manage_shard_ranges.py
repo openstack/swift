@@ -158,6 +158,7 @@ All three steps may be performed with one sub-command::
 from __future__ import print_function
 import argparse
 import json
+import os.path
 import sys
 import time
 
@@ -513,8 +514,8 @@ def main(args=None):
         print('\nA sub-command is required.')
         return 1
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
-    broker = ContainerBroker(args.container_db, logger=logger,
-                             skip_commits=True)
+    broker = ContainerBroker(os.path.realpath(args.container_db),
+                             logger=logger, skip_commits=True)
     try:
         broker.get_info()
     except Exception as exc:

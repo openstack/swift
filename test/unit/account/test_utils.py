@@ -14,15 +14,18 @@
 import itertools
 import time
 import unittest
+import json
 
 import mock
 
 from swift.account import utils, backend
-from swift.common.storage_policy import POLICIES
+from swift.common.storage_policy import POLICIES, StoragePolicy
+from swift.common.swob import Request
 from swift.common.utils import Timestamp
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.request_helpers import get_reserved_name
 
-from test.unit import patch_policies
+from test.unit import patch_policies, make_timestamp_iter
 
 
 class TestFakeAccountBroker(unittest.TestCase):
@@ -56,6 +59,9 @@ class TestFakeAccountBroker(unittest.TestCase):
 
 
 class TestAccountUtils(unittest.TestCase):
+
+    def setUp(self):
+        self.ts = make_timestamp_iter()
 
     def test_get_response_headers_fake_broker(self):
         broker = utils.FakeAccountBroker()
@@ -187,3 +193,77 @@ class TestAccountUtils(unittest.TestCase):
                              'value for %r was %r not %r' % (
                                  key, value, expected_value))
         self.assertFalse(expected)
+
+    def test_account_listing_response(self):
+        req = Request.blank('')
+        now = time.time()
+        with mock.patch('time.time', new=lambda: now):
+            resp = utils.account_listing_response('a', req, 'text/plain')
+        self.assertEqual(resp.status_int, 204)
+        expected = HeaderKeyDict({
+            'Content-Type': 'text/plain; charset=utf-8',
+            'X-Account-Container-Count': 0,
+            'X-Account-Object-Count': 0,
+            'X-Account-Bytes-Used': 0,
+            'X-Timestamp': Timestamp(now).normal,
+            'X-PUT-Timestamp': Timestamp(now).normal,
+        })
+        self.assertEqual(expected, resp.headers)
+        self.assertEqual(b'', resp.body)
+
+    @patch_policies([StoragePolicy(0, 'zero', is_default=True)])
+    def test_account_listing_reserved_names(self):
+        broker = backend.AccountBroker(':memory:', account='a')
+        put_timestamp = next(self.ts)
+        now = time.time()
+        with mock.patch('time.time', new=lambda: now):
+            broker.initialize(put_timestamp.internal)
+        container_timestamp = next(self.ts)
+        broker.put_container(get_reserved_name('foo'),
+                             container_timestamp.internal, 0, 10, 100, 0)
+
+        req = Request.blank('')
+        resp = utils.account_listing_response(
+            'a', req, 'application/json', broker)
+        self.assertEqual(resp.status_int, 200)
+        expected = HeaderKeyDict({
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': 2,
+            'X-Account-Container-Count': 1,
+            'X-Account-Object-Count': 10,
+            'X-Account-Bytes-Used': 100,
+            'X-Timestamp': Timestamp(now).normal,
+            'X-PUT-Timestamp': put_timestamp.normal,
+            'X-Account-Storage-Policy-Zero-Container-Count': 1,
+            'X-Account-Storage-Policy-Zero-Object-Count': 10,
+            'X-Account-Storage-Policy-Zero-Bytes-Used': 100,
+        })
+        self.assertEqual(expected, resp.headers)
+        self.assertEqual(b'[]', resp.body)
+
+        req = Request.blank('', headers={
+            'X-Backend-Allow-Reserved-Names': 'true'})
+        resp = utils.account_listing_response(
+            'a', req, 'application/json', broker)
+        self.assertEqual(resp.status_int, 200)
+        expected = HeaderKeyDict({
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': 97,
+            'X-Account-Container-Count': 1,
+            'X-Account-Object-Count': 10,
+            'X-Account-Bytes-Used': 100,
+            'X-Timestamp': Timestamp(now).normal,
+            'X-PUT-Timestamp': put_timestamp.normal,
+            'X-Account-Storage-Policy-Zero-Container-Count': 1,
+            'X-Account-Storage-Policy-Zero-Object-Count': 10,
+            'X-Account-Storage-Policy-Zero-Bytes-Used': 100,
+        })
+        self.assertEqual(expected, resp.headers)
+        expected = [{
+            "last_modified": container_timestamp.isoformat,
+            "count": 10,
+            "bytes": 100,
+            "name": get_reserved_name('foo'),
+        }]
+        self.assertEqual(sorted(json.dumps(expected).encode('ascii')),
+                         sorted(resp.body))

@@ -506,7 +506,7 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_utf8(self):
         unicode_sample = u'\uc77c\uc601'
-        unicode_with_null = u'abc\u0000def'
+        unicode_with_reserved = u'abc%sdef' % utils.RESERVED_STR
 
         # Some false-y values
         self.assertFalse(constraints.check_utf8(None))
@@ -518,14 +518,23 @@ class TestConstraints(unittest.TestCase):
         self.assertFalse(constraints.check_utf8(
             unicode_sample.encode('utf-8')[::-1]))
         # unicode with null
-        self.assertFalse(constraints.check_utf8(unicode_with_null))
+        self.assertFalse(constraints.check_utf8(unicode_with_reserved))
         # utf8 bytes with null
         self.assertFalse(constraints.check_utf8(
-            unicode_with_null.encode('utf8')))
+            unicode_with_reserved.encode('utf8')))
 
         self.assertTrue(constraints.check_utf8('this is ascii and utf-8, too'))
         self.assertTrue(constraints.check_utf8(unicode_sample))
         self.assertTrue(constraints.check_utf8(unicode_sample.encode('utf8')))
+
+    def test_check_utf8_internal(self):
+        unicode_with_reserved = u'abc%sdef' % utils.RESERVED_STR
+        # sanity
+        self.assertFalse(constraints.check_utf8(unicode_with_reserved))
+        self.assertTrue(constraints.check_utf8('foobar', internal=True))
+        # internal allows reserved names
+        self.assertTrue(constraints.check_utf8(unicode_with_reserved,
+                                               internal=True))
 
     def test_check_utf8_non_canonical(self):
         self.assertFalse(constraints.check_utf8(b'\xed\xa0\xbc\xed\xbc\xb8'))
@@ -640,10 +649,15 @@ class TestConstraintsConfig(unittest.TestCase):
                 f.flush()
                 with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                     constraints.reload_constraints()
-            for key in constraints.DEFAULT_CONSTRAINTS:
+            for key, default in constraints.DEFAULT_CONSTRAINTS.items():
                 # module level attrs should all be 1
                 module_level_value = getattr(constraints, key.upper())
-                self.assertEqual(module_level_value, 1)
+                if isinstance(default, int):
+                    self.assertEqual(module_level_value, 1)
+                elif isinstance(default, str):
+                    self.assertEqual(module_level_value, '1')
+                else:
+                    self.assertEqual(module_level_value, ['1'])
                 # all keys should be in OVERRIDE
                 self.assertEqual(constraints.OVERRIDE_CONSTRAINTS[key],
                                  module_level_value)

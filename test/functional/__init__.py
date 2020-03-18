@@ -327,6 +327,7 @@ def _load_encryption(proxy_conf_file, swift_conf_file, **kwargs):
         if not six.PY2:
             root_secret = root_secret.decode('ascii')
         conf.set('filter:keymaster', 'encryption_root_secret', root_secret)
+        conf.set('filter:versioned_writes', 'allow_object_versioning', 'true')
     except NoSectionError as err:
         msg = 'Error problem with proxy conf file %s: %s' % \
               (proxy_conf_file, err)
@@ -456,6 +457,8 @@ def _load_s3api(proxy_conf_file, swift_conf_file, **kwargs):
             "s3api tempauth")
         conf.set(section, 'pipeline', pipeline)
         conf.set('filter:s3api', 's3_acl', 'true')
+
+        conf.set('filter:versioned_writes', 'allow_object_versioning', 'true')
     except NoSectionError as err:
         msg = 'Error problem with proxy conf file %s: %s' % \
               (proxy_conf_file, err)
@@ -772,7 +775,7 @@ def get_cluster_info():
         conn = Connection(config)
         conn.authenticate()
         cluster_info.update(conn.cluster_info())
-    except (ResponseError, socket.error):
+    except (ResponseError, socket.error, SkipTest):
         # Failed to get cluster_information via /info API, so fall back on
         # test.conf data
         pass
@@ -1070,10 +1073,13 @@ def teardown_package():
     global config
 
     if config:
-        conn = Connection(config)
-        conn.authenticate()
-        account = Account(conn, config.get('account', config['username']))
-        account.delete_containers()
+        try:
+            conn = Connection(config)
+            conn.authenticate()
+            account = Account(conn, config.get('account', config['username']))
+            account.delete_containers()
+        except (SkipTest):
+            pass
 
     global in_process
     global _test_socks

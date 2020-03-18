@@ -16,8 +16,9 @@
 # limitations under the License.
 
 import datetime
+import hashlib
 import json
-import unittest2
+import unittest
 from uuid import uuid4
 import time
 from xml.dom import minidom
@@ -38,7 +39,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestObject(unittest2.TestCase):
+class TestObject(unittest.TestCase):
 
     def setUp(self):
         if tf.skip or tf.skip2:
@@ -501,6 +502,29 @@ class TestObject(unittest2.TestCase):
         body = resp.read()
         self.assertEqual(resp.status, 400)
         self.assertEqual(body, b'X-Delete-At in past')
+
+    def test_x_delete_at_in_the_far_future(self):
+        def put(url, token, parsed, conn):
+            path = '%s/%s/%s' % (parsed.path, self.container,
+                                 'x_delete_at_in_the_far_future')
+            conn.request('PUT', path, '', {
+                'X-Auth-Token': token,
+                'Content-Length': '0',
+                'X-Delete-At': '1' * 100})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEqual(resp.status, 201, 'Got %s: %s' % (resp.status, body))
+
+        def head(url, token, parsed, conn):
+            path = '%s/%s/%s' % (parsed.path, self.container,
+                                 'x_delete_at_in_the_far_future')
+            conn.request('HEAD', path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(head)
+        body = resp.read()
+        self.assertEqual(resp.status, 200, 'Got %s: %s' % (resp.status, body))
+        self.assertEqual(resp.headers['x-delete-at'], '9' * 10)
 
     def test_copy_object(self):
         if tf.skip:
@@ -1696,6 +1720,58 @@ class TestObject(unittest2.TestCase):
         self.assertEqual(len(final_status[0].childNodes), 1)
         self.assertEqual(final_status[0].childNodes[0].data, '200 OK')
 
+    def test_etag_quoter(self):
+        if tf.skip:
+            raise SkipTest
+        if 'etag_quoter' not in tf.cluster_info:
+            raise SkipTest("etag-quoter middleware is not enabled")
+
+        def do_head(expect_quoted=False):
+            def head(url, token, parsed, conn):
+                conn.request('HEAD', '%s/%s/%s' % (
+                    parsed.path, self.container, self.obj), '',
+                    {'X-Auth-Token': token})
+                return check_response(conn)
+
+            resp = retry(head)
+            resp.read()
+            self.assertEqual(resp.status, 200)
+            expected_etag = hashlib.md5(b'test').hexdigest()
+            if expect_quoted:
+                expected_etag = '"%s"' % expected_etag
+            self.assertEqual(resp.headers['etag'], expected_etag)
+
+        def _post(enable_flag, container_path):
+            def post(url, token, parsed, conn):
+                if container_path:
+                    path = '%s/%s' % (parsed.path, self.container)
+                    hdr = 'X-Container-Rfc-Compliant-Etags'
+                else:
+                    path = parsed.path
+                    hdr = 'X-Account-Rfc-Compliant-Etags'
+                headers = {hdr: enable_flag, 'X-Auth-Token': token}
+                conn.request('POST', path, '', headers)
+                return check_response(conn)
+
+            resp = retry(post)
+            resp.read()
+            self.assertEqual(resp.status, 204)
+
+        def post_account(enable_flag):
+            return _post(enable_flag, False)
+
+        def post_container(enable_flag):
+            return _post(enable_flag, True)
+
+        do_head()
+        post_container('t')
+        do_head(expect_quoted=True)
+        post_account('t')
+        post_container('')
+        do_head(expect_quoted=True)
+        post_container('f')
+        do_head()
+
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

@@ -50,7 +50,12 @@ class FakeAccountBroker(object):
                 'delete_timestamp': time.time() - 10}
         return info
 
-    def list_containers_iter(self, limit, marker, *args):
+    def list_containers_iter(self, limit, marker, *args, **kwargs):
+        if not kwargs.pop('allow_reserved'):
+            raise RuntimeError('Expected allow_reserved to be True!')
+        if kwargs:
+            raise RuntimeError('Got unexpected keyword arguments: %r' % (
+                kwargs, ))
         for cont in self.containers:
             if cont > marker:
                 yield cont, None, None, None, None
@@ -710,11 +715,16 @@ class TestReaper(unittest.TestCase):
         devices = self.prepare_data_dir()
         self.called_amount = 0
         conf = {'devices': devices}
-        r = self.init_reaper(conf, myips=['10.10.10.2'])
+        r = self.init_reaper(conf, myips=['10.10.10.2'], fakelogger=True)
 
         container_reaped = [0]
 
-        def fake_list_containers_iter(self, *args):
+        def fake_list_containers_iter(self, *args, **kwargs):
+            if not kwargs.pop('allow_reserved'):
+                raise RuntimeError('Expected allow_reserved to be True!')
+            if kwargs:
+                raise RuntimeError('Got unexpected keyword arguments: %r' % (
+                    kwargs, ))
             for container in self.containers:
                 if container in self.containers_yielded:
                     continue

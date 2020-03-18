@@ -14,13 +14,14 @@
 # limitations under the License.
 
 import unittest
-import cgi
 import mock
 
 import six
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, parse_qsl
 
 from swift.common import swob
+from swift.common.middleware.versioned_writes.object_versioning import \
+    DELETE_MARKER_CONTENT_TYPE
 from swift.common.swob import Request
 from swift.common.utils import json
 
@@ -30,6 +31,7 @@ from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
     ACLPublicRead
 from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
 
+from test.unit.common.middleware.helpers import normalize_path
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
@@ -41,25 +43,43 @@ PFS_ETAG = '"pfsv2/AUTH_test/01234567/89abcdef-32"'
 class TestS3ApiBucket(S3ApiTestCase):
     def setup_objects(self):
         self.objects = (('lily', '2011-01-05T02:19:14.275290', '0', '3909'),
-                        ('rose', '2011-01-05T02:19:14.275290', 0, 303),
-                        ('viola', '2011-01-05T02:19:14.275290', '0', 3909),
                         (u'lily-\u062a', '2011-01-05T02:19:14.275290', 0, 390),
                         ('mu', '2011-01-05T02:19:14.275290',
                          'md5-of-the-manifest; s3_etag=0', '3909'),
                         ('pfs-obj', '2011-01-05T02:19:14.275290',
                          PFS_ETAG, '3909'),
+                        ('rose', '2011-01-05T02:19:14.275290', 0, 303),
                         ('slo', '2011-01-05T02:19:14.275290',
                          'md5-of-the-manifest', '3909'),
+                        ('viola', '2011-01-05T02:19:14.275290', '0', 3909),
                         ('with space', '2011-01-05T02:19:14.275290', 0, 390),
                         ('with%20space', '2011-01-05T02:19:14.275290', 0, 390))
 
-        objects = [
+        self.objects_list = [
             {'name': item[0], 'last_modified': str(item[1]),
+             'content_type': 'application/octet-stream',
              'hash': str(item[2]), 'bytes': str(item[3])}
             for item in self.objects]
-        objects[6]['slo_etag'] = '"0"'
-        object_list = json.dumps(objects)
+        self.objects_list[5]['slo_etag'] = '"0"'
+        self.versioned_objects = [{
+            'name': 'rose',
+            'version_id': '2',
+            'hash': '0',
+            'bytes': '0',
+            'last_modified': '2010-03-01T17:09:51.510928',
+            'content_type': DELETE_MARKER_CONTENT_TYPE,
+            'is_latest': False,
+        }, {
+            'name': 'rose',
+            'version_id': '1',
+            'hash': '1234',
+            'bytes': '6',
+            'last_modified': '2010-03-01T17:09:50.510928',
+            'content_type': 'application/octet-stream',
+            'is_latest': False,
+        }]
 
+        listing_body = json.dumps(self.objects_list)
         self.prefixes = ['rose', 'viola', 'lily']
         object_list_subdir = [{"subdir": p} for p in self.prefixes]
 
@@ -79,7 +99,7 @@ class TestS3ApiBucket(S3ApiTestCase):
             json.dumps([]))
         self.swift.register(
             'GET', '/v1/AUTH_test/bucket+segments?format=json&marker=',
-            swob.HTTPOk, {'Content-Type': 'application/json'}, object_list)
+            swob.HTTPOk, {'Content-Type': 'application/json'}, listing_body)
         self.swift.register(
             'HEAD', '/v1/AUTH_test/junk', swob.HTTPNoContent, {}, None)
         self.swift.register(
@@ -89,20 +109,14 @@ class TestS3ApiBucket(S3ApiTestCase):
             {}, None)
         self.swift.register(
             'GET', '/v1/AUTH_test/junk', swob.HTTPOk,
-            {'Content-Type': 'application/json'}, object_list)
-        self.swift.register(
-            'GET',
-            '/v1/AUTH_test/junk?delimiter=a&format=json&limit=3&marker=viola',
-            swob.HTTPOk,
-            {'Content-Type': 'application/json; charset=utf-8'},
-            json.dumps(objects[2:]))
+            {'Content-Type': 'application/json'}, listing_body)
         self.swift.register(
             'GET', '/v1/AUTH_test/junk-subdir', swob.HTTPOk,
             {'Content-Type': 'application/json; charset=utf-8'},
             json.dumps(object_list_subdir))
         self.swift.register(
             'GET',
-            '/v1/AUTH_test/subdirs?delimiter=/&format=json&limit=3',
+            '/v1/AUTH_test/subdirs?delimiter=/&limit=3',
             swob.HTTPOk, {}, json.dumps([
                 {'subdir': 'nothing/'},
                 {'subdir': u'but-\u062a/'},
@@ -189,11 +203,13 @@ class TestS3ApiBucket(S3ApiTestCase):
             items.append((o.find('./Key').text, o.find('./ETag').text))
             self.assertEqual('2011-01-05T02:19:14.275Z',
                              o.find('./LastModified').text)
-        self.assertEqual(items, [
+        expected = [
             (i[0].encode('utf-8') if six.PY2 else i[0],
              PFS_ETAG if i[0] == 'pfs-obj' else
              '"0-N"' if i[0] == 'slo' else '"0"')
-            for i in self.objects])
+            for i in self.objects
+        ]
+        self.assertEqual(items, expected)
 
     def test_bucket_GET_url_encoded(self):
         bucket_name = 'junk'
@@ -357,7 +373,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./MaxKeys').text, '5')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['limit'], '6')
 
         req = Request.blank('/%s?max-keys=5000' % bucket_name,
@@ -369,7 +385,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./MaxKeys').text, '5000')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['limit'], '1001')
 
     def test_bucket_GET_str_max_keys(self):
@@ -416,7 +432,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./Delimiter').text, 'a')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['delimiter'], 'a')
         self.assertEqual(args['marker'], 'b')
         self.assertEqual(args['prefix'], 'c')
@@ -435,7 +451,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./Delimiter').text, 'a')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['delimiter'], 'a')
         # "start-after" is converted to "marker"
         self.assertEqual(args['marker'], 'b')
@@ -456,7 +472,7 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./Delimiter').text, '\xef\xbc\xa1')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['delimiter'], '\xef\xbc\xa1')
         self.assertEqual(args['marker'], '\xef\xbc\xa2')
         self.assertEqual(args['prefix'], '\xef\xbc\xa3')
@@ -476,22 +492,23 @@ class TestS3ApiBucket(S3ApiTestCase):
         self.assertEqual(elem.find('./Delimiter').text, '\xef\xbc\xa1')
         _, path = self.swift.calls[-1]
         _, query_string = path.split('?')
-        args = dict(cgi.parse_qsl(query_string))
+        args = dict(parse_qsl(query_string))
         self.assertEqual(args['delimiter'], '\xef\xbc\xa1')
         self.assertEqual(args['marker'], '\xef\xbc\xa2')
         self.assertEqual(args['prefix'], '\xef\xbc\xa3')
 
     def test_bucket_GET_with_delimiter_max_keys(self):
         bucket_name = 'junk'
-        req = Request.blank('/%s?delimiter=a&max-keys=2' % bucket_name,
+        req = Request.blank('/%s?delimiter=a&max-keys=4' % bucket_name,
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
         elem = fromstring(body, 'ListBucketResult')
-        self.assertEqual(elem.find('./NextMarker').text, 'rose')
-        self.assertEqual(elem.find('./MaxKeys').text, '2')
+        self.assertEqual(elem.find('./NextMarker').text,
+                         self.objects_list[3]['name'])
+        self.assertEqual(elem.find('./MaxKeys').text, '4')
         self.assertEqual(elem.find('./IsTruncated').text, 'true')
 
     def test_bucket_GET_v2_with_delimiter_max_keys(self):
@@ -567,6 +584,14 @@ class TestS3ApiBucket(S3ApiTestCase):
             self.assertIsNotNone(o.find('./Owner'))
 
     def test_bucket_GET_with_versions_versioning_not_configured(self):
+        for obj in self.objects:
+            self.swift.register(
+                'HEAD', '/v1/AUTH_test/junk/%s' % quote(obj[0].encode('utf8')),
+                swob.HTTPOk, {}, None)
+        # self.swift.register('HEAD', '/v1/AUTH_test/junk/viola',
+        #                     swob.HTTPOk, {}, None)
+
+        self._add_versions_request(versioned_objects=[])
         req = Request.blank('/junk?versions',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -585,11 +610,10 @@ class TestS3ApiBucket(S3ApiTestCase):
         versions = elem.findall('./Version')
         objects = list(self.objects)
         if six.PY2:
-            self.assertEqual([v.find('./Key').text for v in versions],
-                             [v[0].encode('utf-8') for v in objects])
+            expected = [v[0].encode('utf-8') for v in objects]
         else:
-            self.assertEqual([v.find('./Key').text for v in versions],
-                             [v[0] for v in objects])
+            expected = [v[0] for v in objects]
+        self.assertEqual([v.find('./Key').text for v in versions], expected)
         self.assertEqual([v.find('./IsLatest').text for v in versions],
                          ['true' for v in objects])
         self.assertEqual([v.find('./VersionId').text for v in versions],
@@ -611,6 +635,446 @@ class TestS3ApiBucket(S3ApiTestCase):
                          ['test:tester' for v in objects])
         self.assertEqual([v.find('./StorageClass').text for v in versions],
                          ['STANDARD' for v in objects])
+
+    def _add_versions_request(self, orig_objects=None, versioned_objects=None,
+                              bucket='junk'):
+        if orig_objects is None:
+            orig_objects = self.objects_list
+        if versioned_objects is None:
+            versioned_objects = self.versioned_objects
+        all_versions = versioned_objects + [
+            dict(i, version_id='null', is_latest=True)
+            for i in orig_objects]
+        all_versions.sort(key=lambda o: (
+            o['name'], '' if o['version_id'] == 'null' else o['version_id']))
+        self.swift.register(
+            'GET', '/v1/AUTH_test/%s' % bucket, swob.HTTPOk,
+            {'Content-Type': 'application/json'}, json.dumps(all_versions))
+
+    def _assert_delete_markers(self, elem):
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(len(delete_markers), 1)
+        self.assertEqual(delete_markers[0].find('./IsLatest').text, 'false')
+        self.assertEqual(delete_markers[0].find('./VersionId').text, '2')
+        self.assertEqual(delete_markers[0].find('./Key').text, 'rose')
+
+    def test_bucket_GET_with_versions(self):
+        self._add_versions_request()
+        req = Request.blank('/junk?versions',
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./Name').text, 'junk')
+        self._assert_delete_markers(elem)
+        versions = elem.findall('./Version')
+        self.assertEqual(len(versions), len(self.objects) + 1)
+
+        expected = []
+        for o in self.objects_list:
+            name = o['name']
+            if six.PY2:
+                name = name.encode('utf8')
+            expected.append((name, 'true', 'null'))
+            if name == 'rose':
+                expected.append((name, 'false', '1'))
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in versions
+        ]
+        self.assertEqual(expected, discovered)
+
+    def test_bucket_GET_with_versions_with_max_keys(self):
+        self._add_versions_request()
+        req = Request.blank('/junk?versions&max-keys=7',
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./MaxKeys').text, '7')
+        self.assertEqual(elem.find('./IsTruncated').text, 'true')
+        self._assert_delete_markers(elem)
+        versions = elem.findall('./Version')
+        self.assertEqual(len(versions), 6)
+
+        expected = []
+        for o in self.objects_list[:5]:
+            name = o['name']
+            if six.PY2:
+                name = name.encode('utf8')
+            expected.append((name, 'true', 'null'))
+            if name == 'rose':
+                expected.append((name, 'false', '1'))
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in versions
+        ]
+        self.assertEqual(expected, discovered)
+
+    def test_bucket_GET_with_versions_with_max_keys_and_key_marker(self):
+        self._add_versions_request(orig_objects=self.objects_list[4:])
+        req = Request.blank('/junk?versions&max-keys=3&key-marker=ros',
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./MaxKeys').text, '3')
+        self.assertEqual(elem.find('./IsTruncated').text, 'true')
+        self._assert_delete_markers(elem)
+        versions = elem.findall('./Version')
+        self.assertEqual(len(versions), 2)
+
+        expected = [
+            ('rose', 'true', 'null'),
+            ('rose', 'false', '1'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in versions
+        ]
+        self.assertEqual(expected, discovered)
+
+    def test_bucket_GET_versions_with_key_marker_and_version_id_marker(self):
+        container_listing = [{
+            "bytes": 8192,
+            "content_type": "binary/octet-stream",
+            "hash": "221994040b14294bdf7fbc128e66633c",
+            "last_modified": "2019-08-16T19:39:53.152780",
+            "name": "subdir/foo",
+        }]
+        versions_listing = [{
+            'bytes': 0,
+            'content_type': DELETE_MARKER_CONTENT_TYPE,
+            'hash': '0',
+            "last_modified": "2019-08-19T19:05:33.565940",
+            'name': 'subdir/bar',
+            "version_id": "1565241533.55320",
+            'is_latest': True,
+        }, {
+            "bytes": 8192,
+            "content_type": "binary/octet-stream",
+            "hash": "221994040b14294bdf7fbc128e66633c",
+            "last_modified": "2019-08-16T19:39:53.508510",
+            "name": "subdir/bar",
+            "version_id": "1564984393.68962",
+            'is_latest': False,
+        }, {
+            "bytes": 8192,
+            "content_type": "binary/octet-stream",
+            "hash": "221994040b14294bdf7fbc128e66633c",
+            "last_modified": "2019-08-16T19:39:42.673260",
+            "name": "subdir/foo",
+            "version_id": "1565984382.67326",
+            'is_latest': False,
+        }]
+        self._add_versions_request(container_listing, versions_listing,
+                                   bucket='mybucket')
+        req = Request.blank(
+            '/mybucket?versions&key-marker=subdir/bar&'
+            'version-id-marker=1566589611.065522',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'false')
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(['subdir/bar'], [
+            o.find('Key').text for o in delete_markers])
+        expected = [
+            ('subdir/bar', 'false', '1564984393.68962'),
+            ('subdir/foo', 'true', 'null'),
+            ('subdir/foo', 'false', '1565984382.67326'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+
+        self._add_versions_request(container_listing, versions_listing[1:],
+                                   bucket='mybucket')
+        req = Request.blank(
+            '/mybucket?versions&key-marker=subdir/bar&'
+            'version-id-marker=1565241533.55320',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'false')
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(0, len(delete_markers))
+        expected = [
+            ('subdir/bar', 'false', '1564984393.68962'),
+            ('subdir/foo', 'true', 'null'),
+            ('subdir/foo', 'false', '1565984382.67326'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+
+        self._add_versions_request([], versions_listing[-1:],
+                                   bucket='mybucket')
+        req = Request.blank(
+            '/mybucket?versions&key-marker=subdir/foo&'
+            'version-id-marker=null',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'false')
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(0, len(delete_markers))
+        expected = [
+            ('subdir/foo', 'false', '1565984382.67326'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+
+    def test_bucket_GET_versions_with_version_id_marker(self):
+        self._add_versions_request()
+        req = Request.blank(
+            '/junk?versions',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+        # sanity
+        elem = fromstring(body, 'ListVersionsResult')
+        expected = [('rose', 'false', '2')]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./DeleteMarker')
+        ]
+        self.assertEqual(expected, discovered)
+        expected = [
+            ('lily', 'true', 'null'),
+            (b'lily-\xd8\xaa', 'true', 'null'),
+            ('mu', 'true', 'null'),
+            ('pfs-obj', 'true', 'null'),
+            ('rose', 'true', 'null'),
+            ('rose', 'false', '1'),
+            ('slo', 'true', 'null'),
+            ('viola', 'true', 'null'),
+            ('with space', 'true', 'null'),
+            ('with%20space', 'true', 'null'),
+        ]
+        if not six.PY2:
+            item = list(expected[1])
+            item[0] = item[0].decode('utf8')
+            expected[1] = tuple(item)
+
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+
+        self._add_versions_request(self.objects_list[5:])
+        req = Request.blank(
+            '/junk?versions&key-marker=rose&version-id-marker=null',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'false')
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(len(delete_markers), 1)
+
+        expected = [
+            ('rose', 'false', '1'),
+            ('slo', 'true', 'null'),
+            ('viola', 'true', 'null'),
+            ('with space', 'true', 'null'),
+            ('with%20space', 'true', 'null'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+
+        # N.B. versions are sorted most recent to oldest
+        self._add_versions_request(self.objects_list[5:],
+                                   self.versioned_objects[1:])
+        req = Request.blank(
+            '/junk?versions&key-marker=rose&version-id-marker=2',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'false')
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(len(delete_markers), 0)
+
+        expected = [
+            ('rose', 'false', '1'),
+            ('slo', 'true', 'null'),
+            ('viola', 'true', 'null'),
+            ('with space', 'true', 'null'),
+            ('with%20space', 'true', 'null'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+
+        self._add_versions_request(self.objects_list[5:],
+                                   self.versioned_objects[2:])
+        req = Request.blank(
+            '/junk?versions&key-marker=rose&version-id-marker=1',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'false')
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(len(delete_markers), 0)
+
+        expected = [
+            ('slo', 'true', 'null'),
+            ('viola', 'true', 'null'),
+            ('with space', 'true', 'null'),
+            ('with%20space', 'true', 'null'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+
+    def test_bucket_GET_versions_non_existent_version_id_marker(self):
+        self._add_versions_request(orig_objects=self.objects_list[5:])
+        req = Request.blank(
+            '/junk?versions&key-marker=rose&'
+            'version-id-marker=null',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status.split()[0], '200', body)
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./Name').text, 'junk')
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(len(delete_markers), 1)
+
+        expected = [
+            ('rose', 'false', '1'),
+            ('slo', 'true', 'null'),
+            ('viola', 'true', 'null'),
+            ('with space', 'true', 'null'),
+            ('with%20space', 'true', 'null'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+        self.assertEqual(self.swift.calls, [
+            ('GET', normalize_path('/v1/AUTH_test/junk?'
+             'limit=1001&marker=rose&version_marker=null&versions=')),
+        ])
+
+    def test_bucket_GET_versions_prefix(self):
+        container_listing = [{
+            "bytes": 8192,
+            "content_type": "binary/octet-stream",
+            "hash": "221994040b14294bdf7fbc128e66633c",
+            "last_modified": "2019-08-16T19:39:53.152780",
+            "name": "subdir/foo",
+        }]
+        versions_listing = [{
+            "bytes": 8192,
+            "content_type": "binary/octet-stream",
+            "hash": "221994040b14294bdf7fbc128e66633c",
+            "last_modified": "2019-08-16T19:39:53.508510",
+            "name": "subdir/bar",
+            "version_id": "1565984393.68962",
+            "is_latest": True,
+        }, {
+            'bytes': 0,
+            'content_type': DELETE_MARKER_CONTENT_TYPE,
+            'hash': '0',
+            "last_modified": "2019-08-19T19:05:33.565940",
+            'name': 'subdir/bar',
+            'version_id': '1566241533.55320',
+            'is_latest': False,
+        }, {
+            "bytes": 8192,
+            "content_type": "binary/octet-stream",
+            "hash": "221994040b14294bdf7fbc128e66633c",
+            "last_modified": "2019-08-16T19:39:42.673260",
+            "name": "subdir/foo",
+            "version_id": "1565984382.67326",
+            'is_latest': False,
+        }]
+        self._add_versions_request(container_listing, versions_listing)
+        req = Request.blank(
+            '/junk?versions&prefix=subdir/',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./Name').text, 'junk')
+        delete_markers = elem.findall('./DeleteMarker')
+        self.assertEqual(len(delete_markers), 1)
+
+        expected = [
+            ('subdir/bar', 'true', '1565984393.68962'),
+            ('subdir/foo', 'true', 'null'),
+            ('subdir/foo', 'false', '1565984382.67326'),
+        ]
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in elem.findall('./Version')
+        ]
+        self.assertEqual(expected, discovered)
+
+        self.assertEqual(self.swift.calls, [
+            ('GET', normalize_path('/v1/AUTH_test/junk'
+             '?limit=1001&prefix=subdir/&versions=')),
+        ])
 
     @s3acl
     def test_bucket_PUT_error(self):
@@ -835,6 +1299,24 @@ class TestS3ApiBucket(S3ApiTestCase):
 
     @s3acl
     def test_bucket_DELETE(self):
+        # overwrite default HEAD to return x-container-object-count
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,
+            {'X-Container-Object-Count': 0}, None)
+
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '204')
+
+    @s3acl
+    def test_bucket_DELETE_with_empty_versioning(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket+versioning',
+                            swob.HTTPNoContent, {}, None)
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket+versioning',
+                            swob.HTTPNoContent, {}, None)
         # overwrite default HEAD to return x-container-object-count
         self.swift.register(
             'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent,

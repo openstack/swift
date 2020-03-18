@@ -201,6 +201,10 @@ Use a comma-separated list in case of multiple allowed versions, for example
 valid_api_versions = v0,v1,v2.
 This is only enforced for account, container and object requests. The allowed
 api versions are by default excluded from /info.
+.IP "\fBauto_create_account_prefix\fR"
+auto_create_account_prefix specifies the prefix for system accounts, such as
+those used by the object-expirer, and container-sharder.
+Default is ".".
 
 
 

@@ -5217,7 +5217,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # Once opening file with O_TMPFILE has failed,
             # failure is cached to not try again
             self.assertFalse(df.manager.use_linkat)
+            # Now that we try to use O_TMPFILE all the time, log at debug
+            # instead of warning
             log = df.manager.logger.get_lines_for_level('warning')
+            self.assertFalse(log)
+            log = df.manager.logger.get_lines_for_level('debug')
             self.assertGreater(len(log), 0)
             self.assertTrue('O_TMPFILE' in log[-1])
 

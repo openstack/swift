@@ -217,6 +217,8 @@ class Replicator(Daemon):
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
+        swift.common.db.QUERY_LOGGING = \
+            config_true_value(conf.get('db_query_logging', 'f'))
         self._zero_stats()
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
@@ -426,7 +428,7 @@ class Replicator(Daemon):
         Make an http_connection using ReplConnection
 
         :param node: node dictionary from the ring
-        :param partition: partition partition to send in the url
+        :param partition: partition to send in the url
         :param db_file: DB file
 
         :returns: ReplConnection object
@@ -579,7 +581,8 @@ class Replicator(Daemon):
         shouldbehere = True
         responses = []
         try:
-            broker = self.brokerclass(object_file, pending_timeout=30)
+            broker = self.brokerclass(object_file, pending_timeout=30,
+                                      logger=self.logger)
             broker.reclaim(now - self.reclaim_age,
                            now - (self.reclaim_age * 2))
             info = broker.get_replication_info()

@@ -190,8 +190,7 @@ class Application(object):
         self.recoverable_node_timeout = float(
             conf.get('recoverable_node_timeout', self.node_timeout))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
-        self.client_timeout = int(conf.get('client_timeout', 60))
-        self.put_queue_depth = int(conf.get('put_queue_depth', 10))
+        self.client_timeout = float(conf.get('client_timeout', 60))
         self.object_chunk_size = int(conf.get('object_chunk_size', 65536))
         self.client_chunk_size = int(conf.get('client_chunk_size', 65536))
         self.trans_id_suffix = conf.get('trans_id_suffix', '')
@@ -224,8 +223,18 @@ class Application(object):
                        [os.path.join(swift_dir, 'mime.types')])
         self.account_autocreate = \
             config_true_value(conf.get('account_autocreate', 'no'))
-        self.auto_create_account_prefix = (
-            conf.get('auto_create_account_prefix') or '.')
+        if conf.get('auto_create_account_prefix'):
+            self.logger.warning('Option auto_create_account_prefix is '
+                                'deprecated. Configure '
+                                'auto_create_account_prefix under the '
+                                'swift-constraints section of '
+                                'swift.conf. This option will '
+                                'be ignored in a future release.')
+            self.auto_create_account_prefix = \
+                conf['auto_create_account_prefix']
+        else:
+            self.auto_create_account_prefix = \
+                constraints.AUTO_CREATE_ACCOUNT_PREFIX
         self.expiring_objects_account = self.auto_create_account_prefix + \
             (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \
@@ -296,7 +305,10 @@ class Application(object):
         self.expose_info = config_true_value(
             conf.get('expose_info', 'yes'))
         self.disallowed_sections = list_from_csv(
-            conf.get('disallowed_sections', 'swift.valid_api_versions'))
+            conf.get('disallowed_sections', ', '.join([
+                'swift.auto_create_account_prefix',
+                'swift.valid_api_versions',
+            ])))
         self.admin_key = conf.get('admin_key', None)
         register_swift_info(
             version=swift_version,
@@ -481,7 +493,8 @@ class Application(object):
                                       body='Invalid Content-Length')
 
             try:
-                if not check_utf8(wsgi_to_str(req.path_info)):
+                if not check_utf8(wsgi_to_str(req.path_info),
+                                  internal=req.allow_reserved_names):
                     self.logger.increment('errors')
                     return HTTPPreconditionFailed(
                         request=req, body='Invalid UTF8 or contains NULL')

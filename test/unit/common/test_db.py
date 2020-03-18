@@ -231,6 +231,7 @@ class ExampleBroker(DatabaseBroker):
                 delete_timestamp TEXT DEFAULT '0',
                 hash TEXT default '00000000000000000000000000000000',
                 id TEXT,
+                status TEXT DEFAULT '',
                 status_changed_at TEXT DEFAULT '0',
                 metadata TEXT DEFAULT ''
             );
@@ -253,10 +254,10 @@ class ExampleBroker(DatabaseBroker):
         ''')
         conn.execute("""
         INSERT INTO test_stat (
-            account, created_at, id, put_timestamp, status_changed_at)
-        VALUES (?, ?, ?, ?, ?);
+            account, created_at, id, put_timestamp, status_changed_at, status)
+        VALUES (?, ?, ?, ?, ?, ?);
         """, (self.account, Timestamp.now().internal, str(uuid4()),
-              put_timestamp, put_timestamp))
+              put_timestamp, put_timestamp, ''))
 
     def merge_items(self, item_list):
         with self.get() as conn:
@@ -307,6 +308,7 @@ class ExampleBroker(DatabaseBroker):
         conn.execute("""
             UPDATE test_stat
             SET delete_timestamp = ?,
+                status = 'DELETED',
                 status_changed_at = ?
             WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
 
@@ -524,13 +526,14 @@ class TestExampleBroker(unittest.TestCase):
         # This is not obvious. The actual JSON in the database is the same:
         #  '{"test\\u062a": ["value\\u062a", "0000000001.00000"]}'
         # The only difference is what reading it produces on py2 and py3.
-        # We use native strings for metadata keys (see native_str_keys()),
-        # so keys are different.
+        # We use native strings for metadata (see native_str_keys_and_values),
+        # so types are different.
         if six.PY2:
             key = u'test\u062a'.encode('utf-8')
+            value = u'value\u062a'.encode('utf-8')
         else:
             key = u'test\u062a'
-        value = u'value\u062a'
+            value = u'value\u062a'
         metadata = {
             key: [value, Timestamp(1).internal]
         }
@@ -715,38 +718,47 @@ class TestDatabaseBroker(unittest.TestCase):
     def test_delete_db(self):
         def init_stub(conn, put_timestamp, **kwargs):
             conn.execute('CREATE TABLE test (one TEXT)')
-            conn.execute('CREATE TABLE test_stat (id TEXT)')
-            conn.execute('INSERT INTO test_stat (id) VALUES (?)',
-                         (str(uuid4),))
+            conn.execute('''CREATE TABLE test_stat (
+                id TEXT, put_timestamp TEXT, delete_timestamp TEXT,
+                status TEXT, status_changed_at TEXT, metadata TEXT)''')
+            meta = {'foo': ('bar', normalize_timestamp('0'))}
+            conn.execute(
+                '''INSERT INTO test_stat (
+                    id, put_timestamp, delete_timestamp, status,
+                    status_changed_at, metadata) VALUES (?, ?, ?, ?, ?, ?)''',
+                (str(uuid4), put_timestamp, '0', '', '0', json.dumps(meta)))
             conn.execute('INSERT INTO test (one) VALUES ("1")')
             conn.commit()
-        stub_called = [False]
 
-        def delete_stub(*a, **kw):
-            stub_called[0] = True
         broker = DatabaseBroker(':memory:')
         broker.db_type = 'test'
         broker._initialize = init_stub
         # Initializes a good broker for us
         broker.initialize(normalize_timestamp('1'))
+        info = broker.get_info()
+        self.assertEqual('0', info['delete_timestamp'])
+        self.assertEqual('', info['status'])
         self.assertIsNotNone(broker.conn)
-        broker._delete_db = delete_stub
-        stub_called[0] = False
-        broker.delete_db('2')
-        self.assertTrue(stub_called[0])
+        broker.delete_db(normalize_timestamp('2'))
+        info = broker.get_info()
+        self.assertEqual(normalize_timestamp('2'), info['delete_timestamp'])
+        self.assertEqual('DELETED', info['status'])
+
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
         broker.db_type = 'test'
         broker._initialize = init_stub
         broker.initialize(normalize_timestamp('1'))
-        broker._delete_db = delete_stub
-        stub_called[0] = False
-        broker.delete_db('2')
-        self.assertTrue(stub_called[0])
+        info = broker.get_info()
+        self.assertEqual('0', info['delete_timestamp'])
+        self.assertEqual('', info['status'])
+        broker.delete_db(normalize_timestamp('2'))
+        info = broker.get_info()
+        self.assertEqual(normalize_timestamp('2'), info['delete_timestamp'])
+        self.assertEqual('DELETED', info['status'])
+
         # ensure that metadata was cleared
         m2 = broker.metadata
-        self.assertTrue(not any(v[0] for v in m2.values()))
-        self.assertTrue(all(v[1] == normalize_timestamp('2')
-                            for v in m2.values()))
+        self.assertEqual(m2, {'foo': ['', normalize_timestamp('2')]})
 
     def test_get(self):
         broker = DatabaseBroker(':memory:')

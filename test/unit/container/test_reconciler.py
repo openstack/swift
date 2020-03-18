@@ -36,7 +36,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import split_path, Timestamp, encode_timestamps
 
 from test.unit import debug_logger, FakeRing, fake_http_connect
-from test.unit.common.middleware.helpers import FakeSwift
+from test.unit.common.middleware import helpers
 
 
 def timestamp_to_last_modified(timestamp):
@@ -51,7 +51,7 @@ def container_resp_headers(**kwargs):
 class FakeStoragePolicySwift(object):
 
     def __init__(self):
-        self.storage_policy = defaultdict(FakeSwift)
+        self.storage_policy = defaultdict(helpers.FakeSwift)
         self._mock_oldest_spi_map = {}
 
     def __getattribute__(self, name):
@@ -158,17 +158,17 @@ class FakeInternalClient(reconciler.InternalClient):
                 container_listing_data.sort(key=operator.itemgetter('name'))
                 # register container listing response
                 container_headers = {}
-                container_qry_string = \
-                    '?format=json&marker=&end_marker=&prefix='
+                container_qry_string = helpers.normalize_query_string(
+                    '?format=json&marker=&end_marker=&prefix=')
                 self.app.register('GET', container_path + container_qry_string,
                                   swob.HTTPOk, container_headers,
                                   json.dumps(container_listing_data))
                 if container_listing_data:
                     obj_name = container_listing_data[-1]['name']
                     # client should quote and encode marker
-                    end_qry_string = \
+                    end_qry_string = helpers.normalize_query_string(
                         '?format=json&marker=%s&end_marker=&prefix=' % (
-                            urllib.parse.quote(obj_name.encode('utf-8')))
+                            urllib.parse.quote(obj_name.encode('utf-8'))))
                     self.app.register('GET', container_path + end_qry_string,
                                       swob.HTTPOk, container_headers,
                                       json.dumps([]))
@@ -713,8 +713,9 @@ class TestReconcilerUtils(unittest.TestCase):
 
 
 def listing_qs(marker):
-    return "?format=json&marker=%s&end_marker=&prefix=" % \
-        urllib.parse.quote(marker.encode('utf-8'))
+    return helpers.normalize_query_string(
+        "?format=json&marker=%s&end_marker=&prefix=" %
+        urllib.parse.quote(marker.encode('utf-8')))
 
 
 class TestReconciler(unittest.TestCase):

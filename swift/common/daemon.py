@@ -132,6 +132,7 @@ class DaemonStrategy(object):
     def setup(self, **kwargs):
         utils.validate_configuration()
         utils.drop_privileges(self.daemon.conf.get('user', 'swift'))
+        utils.clean_up_daemon_hygiene()
         utils.capture_stdio(self.logger, **kwargs)
 
         def kill_children(*args):

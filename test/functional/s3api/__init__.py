@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest2
+import unittest
 import traceback
 import test.functional as tf
 from test.functional.s3api.s3_test_client import (
@@ -28,7 +28,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class S3ApiBase(unittest2.TestCase):
+class S3ApiBase(unittest.TestCase):
     def __init__(self, method_name):
         super(S3ApiBase, self).__init__(method_name)
         self.method_name = method_name

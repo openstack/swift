@@ -33,7 +33,7 @@ from six.moves import range
 from time import time
 
 from swift.common import exceptions
-from swift.common.ring import RingData
+from swift.common.ring.ring import RingData
 from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
     validate_and_normalize_address, validate_replicas_by_tier, pretty_dev
 

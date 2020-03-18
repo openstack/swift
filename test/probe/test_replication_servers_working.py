@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from io import BytesIO
 from unittest import main
 from uuid import uuid4
 import os
@@ -25,6 +26,7 @@ from swiftclient import client
 from swift.obj.diskfile import get_data_dir
 
 from test.probe.common import ReplProbeTest
+from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import readconf
 
 EXCLUDE_FILES = re.compile('^(hashes\.(pkl|invalid)|lock(-\d+)?)$')
@@ -80,6 +82,15 @@ class TestReplicatorFunctions(ReplProbeTest):
     different port values.
     """
 
+    def put_data(self):
+        container = 'container-%s' % uuid4()
+        client.put_container(self.url, self.token, container,
+                             headers={'X-Storage-Policy':
+                                      self.policy.name})
+
+        obj = 'object-%s' % uuid4()
+        client.put_object(self.url, self.token, container, obj, 'VERIFY')
+
     def test_main(self):
         # Create one account, container and object file.
         # Find node with account, container and object replicas.
@@ -102,13 +113,7 @@ class TestReplicatorFunctions(ReplProbeTest):
             path_list.append(os.path.join(device_path, device))
 
         # Put data to storage nodes
-        container = 'container-%s' % uuid4()
-        client.put_container(self.url, self.token, container,
-                             headers={'X-Storage-Policy':
-                                      self.policy.name})
-
-        obj = 'object-%s' % uuid4()
-        client.put_object(self.url, self.token, container, obj, 'VERIFY')
+        self.put_data()
 
         # Get all data file information
         (files_list, dir_list) = collect_info(path_list)
@@ -198,6 +203,20 @@ class TestReplicatorFunctions(ReplProbeTest):
                     time.sleep(1)
         finally:
             self.replicators.stop()
+
+
+class TestReplicatorFunctionsReservedNames(TestReplicatorFunctions):
+    def put_data(self):
+        int_client = self.make_internal_client()
+        int_client.create_account(self.account)
+        container = get_reserved_name('container', str(uuid4()))
+        int_client.create_container(self.account, container,
+                                    headers={'X-Storage-Policy':
+                                             self.policy.name})
+
+        obj = get_reserved_name('object', str(uuid4()))
+        int_client.upload_object(
+            BytesIO(b'VERIFY'), self.account, container, obj)
 
 
 if __name__ == '__main__':

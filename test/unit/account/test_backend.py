@@ -38,6 +38,7 @@ from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
 from test.unit import patch_policies, with_tempdir, make_timestamp_iter
 from swift.common.db import DatabaseConnectionError
+from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 from test.unit.common import test_db
@@ -544,6 +545,35 @@ class TestAccountBroker(unittest.TestCase):
                                               reverse=True)
         self.assertEqual([row[0] for row in listing],
                          ['c10', 'c1'])
+
+    def test_list_container_iter_with_reserved_name(self):
+        # Test ContainerBroker.list_objects_iter
+        broker = AccountBroker(':memory:', account='a')
+        broker.initialize(next(self.ts).internal, 0)
+
+        broker.put_container(
+            'foo', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+        broker.put_container(
+            get_reserved_name('foo'), next(self.ts).internal, 0, 0, 0,
+            POLICIES.default.idx)
+
+        listing = broker.list_containers_iter(100, None, None, '', '')
+        self.assertEqual([row[0] for row in listing], ['foo'])
+
+        listing = broker.list_containers_iter(100, None, None, '', '',
+                                              reverse=True)
+        self.assertEqual([row[0] for row in listing], ['foo'])
+
+        listing = broker.list_containers_iter(100, None, None, '', '',
+                                              allow_reserved=True)
+        self.assertEqual([row[0] for row in listing],
+                         [get_reserved_name('foo'), 'foo'])
+
+        listing = broker.list_containers_iter(100, None, None, '', '',
+                                              reverse=True,
+                                              allow_reserved=True)
+        self.assertEqual([row[0] for row in listing],
+                         ['foo', get_reserved_name('foo')])
 
     def test_reverse_prefix_delim(self):
         expectations = [

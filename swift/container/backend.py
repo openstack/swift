@@ -22,6 +22,7 @@ from uuid import uuid4
 
 import six
 from six.moves import range
+from six.moves.urllib.parse import unquote
 import sqlite3
 from eventlet import tpool
 
@@ -30,7 +31,8 @@ from swift.common.exceptions import LockTimeout
 from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, storage_directory, hash_path, \
     ShardRange, renamer, find_shard_range, MD5_OF_EMPTY_STRING, mkdirs, \
-    get_db_files, parse_db_filename, make_db_file_path, split_path
+    get_db_files, parse_db_filename, make_db_file_path, split_path, \
+    RESERVED_BYTE
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT, \
     zero_like, DatabaseAlreadyExists
 
@@ -626,20 +628,6 @@ class ContainerBroker(DatabaseBroker):
             SET reported_put_timestamp = 0, reported_delete_timestamp = 0,
                 reported_object_count = 0, reported_bytes_used = 0''')
 
-    def _delete_db(self, conn, timestamp):
-        """
-        Mark the DB as deleted
-
-        :param conn: DB connection object
-        :param timestamp: timestamp to mark as deleted
-        """
-        conn.execute("""
-            UPDATE container_stat
-            SET delete_timestamp = ?,
-                status = 'DELETED',
-                status_changed_at = ?
-            WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
-
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
         (name, timestamp, size, content_type, etag, deleted) = entry[:6]
@@ -1042,7 +1030,8 @@ class ContainerBroker(DatabaseBroker):
     def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
                           path=None, storage_policy_index=0, reverse=False,
                           include_deleted=False, since_row=None,
-                          transform_func=None, all_policies=False):
+                          transform_func=None, all_policies=False,
+                          allow_reserved=False):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -1068,6 +1057,8 @@ class ContainerBroker(DatabaseBroker):
             :meth:`~_transform_record`; defaults to :meth:`~_transform_record`.
         :param all_policies: if True, include objects for all storage policies
             ignoring any value given for ``storage_policy_index``
+        :param allow_reserved: exclude names with reserved-byte by default
+
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag, deleted)
         """
@@ -1124,6 +1115,9 @@ class ContainerBroker(DatabaseBroker):
                 elif prefix:
                     query_conditions.append('name >= ?')
                     query_args.append(prefix)
+                if not allow_reserved:
+                    query_conditions.append('name >= ?')
+                    query_args.append(chr(ord(RESERVED_BYTE) + 1))
                 query_conditions.append(deleted_key + deleted_arg)
                 if since_row:
                     query_conditions.append('ROWID > ?')
@@ -1242,7 +1236,7 @@ class ContainerBroker(DatabaseBroker):
             limit, marker, end_marker, prefix=None, delimiter=None, path=None,
             reverse=False, include_deleted=include_deleted,
             transform_func=self._record_to_dict, since_row=since_row,
-            all_policies=True
+            all_policies=True, allow_reserved=True
         )
 
     def _transform_record(self, record):
@@ -1995,7 +1989,7 @@ class ContainerBroker(DatabaseBroker):
 
     def set_sharding_sysmeta(self, key, value):
         """
-        Updates the broker's metadata metadata stored under the given key
+        Updates the broker's metadata stored under the given key
         prefixed with a sharding specific namespace.
 
         :param key: metadata key in the sharding metadata namespace.
@@ -2047,7 +2041,14 @@ class ContainerBroker(DatabaseBroker):
         ``container`` attributes respectively.
 
         """
-        path = self.get_sharding_sysmeta('Root')
+        path = self.get_sharding_sysmeta('Quoted-Root')
+        hdr = 'X-Container-Sysmeta-Shard-Quoted-Root'
+        if path:
+            path = unquote(path)
+        else:
+            path = self.get_sharding_sysmeta('Root')
+            hdr = 'X-Container-Sysmeta-Shard-Root'
+
         if not path:
             # Ensure account/container get populated
             self._populate_instance_cache()
@@ -2059,8 +2060,8 @@ class ContainerBroker(DatabaseBroker):
             self._root_account, self._root_container = split_path(
                 '/' + path, 2, 2)
         except ValueError:
-            raise ValueError("Expected X-Container-Sysmeta-Shard-Root to be "
-                             "of the form 'account/container', got %r" % path)
+            raise ValueError("Expected %s to be of the form "
+                             "'account/container', got %r" % (hdr, path))
 
     @property
     def root_account(self):

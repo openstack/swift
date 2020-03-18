@@ -159,13 +159,14 @@ class ContainerController(Controller):
             return resp
 
         objects = []
-        req_limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
+        req_limit = int(req.params.get('limit') or CONTAINER_LISTING_LIMIT)
         params = req.params.copy()
         params.pop('states', None)
         req.headers.pop('X-Backend-Record-Type', None)
         reverse = config_true_value(params.get('reverse'))
         marker = wsgi_to_str(params.get('marker'))
         end_marker = wsgi_to_str(params.get('end_marker'))
+        prefix = wsgi_to_str(params.get('prefix'))
 
         limit = req_limit
         for shard_range in shard_ranges:
@@ -200,6 +201,18 @@ class ContainerController(Controller):
                 headers = {'X-Backend-Record-Type': 'object'}
             else:
                 headers = None
+
+            if prefix:
+                if prefix > shard_range:
+                    continue
+                try:
+                    just_past = prefix[:-1] + chr(ord(prefix[-1]) + 1)
+                except ValueError:
+                    pass
+                else:
+                    if just_past < shard_range:
+                        continue
+
             self.app.logger.debug('Getting from %s %s with %s',
                                   shard_range, shard_range.name, headers)
             objs, shard_resp = self._get_container_listing(

@@ -367,6 +367,47 @@ class TestFuncs(unittest.TestCase):
         info = get_container_info(req.environ, app)
         self.assertEqual(info['status'], 0)
 
+    def test_get_container_info_no_container_gets_cached(self):
+        fake_cache = FakeCache({})
+        app = FakeApp(statuses=[200, 404])
+        req = Request.blank("/v1/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_container_info(req.environ, app)
+        self.assertEqual(info['status'], 404)
+        key = get_cache_key("AUTH_account", "does_not_exist")
+        self.assertIn(key, fake_cache.store)
+        self.assertEqual(fake_cache.store[key]['status'], 404)
+
+    def test_get_container_info_bad_path(self):
+        fake_cache = FakeCache({})
+        req = Request.blank("/non-swift/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_container_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+        # *not* cached
+        key = get_cache_key("AUTH_account", "does_not_exist")
+        self.assertNotIn(key, fake_cache.store)
+        # not even the "account" is cached
+        key = get_cache_key("AUTH_account")
+        self.assertNotIn(key, fake_cache.store)
+
+        # but if for some reason the account *already was* cached...
+        fake_cache.store[key] = headers_to_account_info({}, 200)
+        req = Request.blank("/non-swift/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_container_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+        # resp *still* not cached
+        key = get_cache_key("AUTH_account", "does_not_exist")
+        self.assertNotIn(key, fake_cache.store)
+
+        # still nothing, even if the container is already cached, too
+        fake_cache.store[key] = headers_to_container_info({}, 200)
+        req = Request.blank("/non-swift/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_container_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+
     def test_get_container_info_no_auto_account(self):
         app = FakeApp(statuses=[200])
         req = Request.blank("/v1/.system_account/cont")
@@ -498,6 +539,23 @@ class TestFuncs(unittest.TestCase):
         resp = get_account_info(req.environ, 'xxx')
         self.assertEqual(resp['bytes'], 3867)
 
+    def test_get_account_info_bad_path(self):
+        fake_cache = FakeCache({})
+        req = Request.blank("/non-swift/AUTH_account",
+                            environ={'swift.cache': fake_cache})
+        info = get_account_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+        # *not* cached
+        key = get_cache_key("AUTH_account")
+        self.assertNotIn(key, fake_cache.store)
+
+        # but if for some reason the account *already was* cached...
+        fake_cache.store[key] = headers_to_account_info({}, 200)
+        req = Request.blank("/non-swift/AUTH_account/does_not_exist",
+                            environ={'swift.cache': fake_cache})
+        info = get_account_info(req.environ, FakeApp(statuses=[400]))
+        self.assertEqual(info['status'], 0)
+
     def test_get_object_info_env(self):
         cached = {'status': 200,
                   'length': 3333,
@@ -581,6 +639,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['status'], 404)
         self.assertIsNone(resp['read_acl'])
         self.assertIsNone(resp['write_acl'])
+        self.assertIsNone(resp['sync_key'])
+        self.assertIsNone(resp['sync_to'])
 
     def test_headers_to_container_info_meta(self):
         headers = {'X-Container-Meta-Whatevs': 14,
@@ -604,11 +664,14 @@ class TestFuncs(unittest.TestCase):
             'x-container-read': 'readvalue',
             'x-container-write': 'writevalue',
             'x-container-sync-key': 'keyvalue',
+            'x-container-sync-to': '//r/c/a/c',
             'x-container-meta-access-control-allow-origin': 'here',
         }
         resp = headers_to_container_info(headers.items(), 200)
         self.assertEqual(resp['read_acl'], 'readvalue')
         self.assertEqual(resp['write_acl'], 'writevalue')
+        self.assertEqual(resp['sync_key'], 'keyvalue')
+        self.assertEqual(resp['sync_to'], '//r/c/a/c')
         self.assertEqual(resp['cors']['allow_origin'], 'here')
 
         headers['x-unused-header'] = 'blahblahblah'
@@ -1035,11 +1098,11 @@ class TestFuncs(unittest.TestCase):
 
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
         handler = GetOrHeadHandler(
-            self.app, req, 'Object', None, None, None, {})
+            self.app, req, 'Object', None, None, 'some-path', {})
         app_iter = handler._make_app_iter(req, node, source)
         app_iter.close()
         self.app.logger.warning.assert_called_once_with(
-            'Client disconnected on read')
+            'Client disconnected on read of %r', 'some-path')
 
         self.app.logger = mock.Mock()
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}

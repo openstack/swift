@@ -29,6 +29,7 @@ import six
 from swift.common.header_key_dict import HeaderKeyDict
 
 from swift import gettext_ as _
+from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
@@ -38,14 +39,24 @@ from swift.common.swob import HTTPBadRequest, \
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range, csv_append, list_from_csv, Spliterator, quote
-
+    parse_content_range, csv_append, list_from_csv, Spliterator, quote, \
+    RESERVED
 from swift.common.wsgi import make_subrequest
+from swift.container.reconciler import MISPLACED_OBJECTS_ACCOUNT
 
 
 OBJECT_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-'
 OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX = \
     'x-object-sysmeta-container-update-override-'
+
+
+if six.PY2:
+    import cgi
+
+    def html_escape(s, quote=True):
+        return cgi.escape(s, quote=quote)
+else:
+    from html import escape as html_escape  # noqa: F401
 
 
 def get_param(req, name, default=None):
@@ -81,6 +92,66 @@ def get_param(req, name, default=None):
                     request=req, content_type='text/plain',
                     body='"%s" parameter not valid UTF-8' % name)
     return value
+
+
+def constrain_req_limit(req, constrained_limit):
+    given_limit = get_param(req, 'limit')
+    limit = constrained_limit
+    if given_limit and given_limit.isdigit():
+        limit = int(given_limit)
+        if limit > constrained_limit:
+            raise HTTPPreconditionFailed(
+                request=req, body='Maximum limit is %d' % constrained_limit)
+    return limit
+
+
+def _validate_internal_name(name, type_='name'):
+    if RESERVED in name and not name.startswith(RESERVED):
+        raise HTTPBadRequest(body='Invalid reserved-namespace %s' % (type_))
+
+
+def validate_internal_account(account):
+    """
+    Validate internal account name.
+
+    :raises: HTTPBadRequest
+    """
+    _validate_internal_name(account, 'account')
+
+
+def validate_internal_container(account, container):
+    """
+    Validate internal account and container names.
+
+    :raises: HTTPBadRequest
+    """
+    if not account:
+        raise ValueError('Account is required')
+    validate_internal_account(account)
+    if container:
+        _validate_internal_name(container, 'container')
+
+
+def validate_internal_obj(account, container, obj):
+    """
+    Validate internal account, container and object names.
+
+    :raises: HTTPBadRequest
+    """
+    if not account:
+        raise ValueError('Account is required')
+    if not container:
+        raise ValueError('Container is required')
+    validate_internal_container(account, container)
+    if obj and not (account.startswith(AUTO_CREATE_ACCOUNT_PREFIX) or
+                    account == MISPLACED_OBJECTS_ACCOUNT):
+        _validate_internal_name(obj, 'object')
+        if container.startswith(RESERVED) and not obj.startswith(RESERVED):
+            raise HTTPBadRequest(body='Invalid user-namespace object '
+                                 'in reserved-namespace container')
+        elif obj.startswith(RESERVED) and not container.startswith(RESERVED):
+            raise HTTPBadRequest(body='Invalid reserved-namespace object '
+                                 'in user-namespace container')
 
 
 def get_name_and_placement(request, minsegs=1, maxsegs=None,
@@ -271,6 +342,28 @@ def get_container_update_override_key(key):
     """
     header = '%s%s' % (OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX, key)
     return header.title()
+
+
+def get_reserved_name(*parts):
+    """
+    Generate a valid reserved name that joins the component parts.
+
+    :returns: a string
+    """
+    if any(RESERVED in p for p in parts):
+        raise ValueError('Invalid reserved part in components')
+    return RESERVED + RESERVED.join(parts)
+
+
+def split_reserved_name(name):
+    """
+    Seperate a valid reserved name into the component parts.
+
+    :returns: a list of strings
+    """
+    if not name.startswith(RESERVED):
+        raise ValueError('Invalid reserved name')
+    return name.split(RESERVED)[1:]
 
 
 def remove_items(headers, condition):
@@ -738,3 +831,21 @@ def resolve_etag_is_at_header(req, metadata):
                 alternate_etag = metadata[name]
                 break
     return alternate_etag
+
+
+def update_ignore_range_header(req, name):
+    """
+    Helper function to update an X-Backend-Ignore-Range-If-Metadata-Present
+    header whose value is a list of header names which, if any are present
+    on an object, mean the object server should respond with a 200 instead
+    of a 206 or 416.
+
+    :param req: a swob Request
+    :param name: name of a header which, if found, indicates the proxy will
+                 want the whole object
+    """
+    if ',' in name:
+        # HTTP header names should not have commas but we'll check anyway
+        raise ValueError('Header name must not contain commas')
+    hdr = 'X-Backend-Ignore-Range-If-Metadata-Present'
+    req.headers[hdr] = csv_append(req.headers.get(hdr), name)

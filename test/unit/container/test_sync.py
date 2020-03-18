@@ -909,6 +909,24 @@ class TestContainerSync(unittest.TestCase):
             self.assertEqual(cs.container_deletes, 2)
             self.assertEqual(len(exc), 3)
             self.assertEqual(str(exc[-1]), 'test client exception: 404')
+
+            def fake_delete_object(*args, **kwargs):
+                exc.append(ClientException('test client exception',
+                                           http_status=409))
+                raise exc[-1]
+
+            sync.delete_object = fake_delete_object
+            # Success because our tombstone is out of date
+            self.assertTrue(cs.container_sync_row(
+                {'deleted': True,
+                 'name': 'object',
+                 'created_at': '1.2'}, 'http://sync/to/path',
+                'key', FakeContainerBroker('broker'),
+                {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
+                realm, realm_key))
+            self.assertEqual(cs.container_deletes, 3)
+            self.assertEqual(len(exc), 4)
+            self.assertEqual(str(exc[-1]), 'test client exception: 409')
         finally:
             sync.uuid = orig_uuid
             sync.delete_object = orig_delete_object

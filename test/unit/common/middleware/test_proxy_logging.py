@@ -128,21 +128,6 @@ class TestProxyLogging(unittest.TestCase):
             self.fail('assertTiming: %s not found in %r' % (
                 exp_metric, timing_calls))
 
-    def assertTimingSince(self, exp_metric, app, exp_start=None):
-        timing_calls = app.access_logger.log_dict['timing_since']
-        found = False
-        for timing_call in timing_calls:
-            self.assertEqual({}, timing_call[1])
-            self.assertEqual(2, len(timing_call[0]))
-            if timing_call[0][0] == exp_metric:
-                found = True
-                if exp_start is not None:
-                    self.assertAlmostEqual(exp_start, timing_call[0][1],
-                                           places=4)
-        if not found:
-            self.fail('assertTimingSince: %s not found in %r' % (
-                exp_metric, timing_calls))
-
     def assertNotTiming(self, not_exp_metric, app):
         timing_calls = app.access_logger.log_dict['timing']
         for timing_call in timing_calls:
@@ -211,15 +196,12 @@ class TestProxyLogging(unittest.TestCase):
                 req = Request.blank(path, environ={
                     'REQUEST_METHOD': 'GET',
                     'wsgi.input': BytesIO(b'4321')})
-                stub_times = [18.0, 20.71828182846]
+                stub_times = [18.0, 18.5, 20.71828182846]
                 iter_response = app(req.environ, lambda *_: None)
 
                 self.assertEqual(b'7654321', b''.join(iter_response))
                 self.assertTiming('%s.GET.321.timing' % exp_type, app,
                                   exp_timing=2.71828182846 * 1000)
-                self.assertTimingSince(
-                    '%s.GET.321.first-byte.timing' % exp_type, app,
-                    exp_start=18.0)
                 if exp_type == 'object':
                     # Object operations also return stats by policy
                     # In this case, the value needs to match the timing for GET
@@ -245,15 +227,12 @@ class TestProxyLogging(unittest.TestCase):
                     req = Request.blank(path, environ={
                         'REQUEST_METHOD': 'GET',
                         'wsgi.input': BytesIO(b'4321')})
-                    stub_times = [18.0, 20.71828182846]
+                    stub_times = [18.0, 18.5, 20.71828182846]
                     iter_response = app(req.environ, lambda *_: None)
 
                     self.assertEqual(b'7654321', b''.join(iter_response))
                     self.assertTiming('%s.GET.321.timing' % exp_type, app,
                                       exp_timing=2.71828182846 * 1000)
-                    self.assertTimingSince(
-                        '%s.GET.321.first-byte.timing' % exp_type, app,
-                        exp_start=18.0)
                     # No results returned for the non-existent policy
                     self.assertUpdateStats([('%s.GET.321.xfer' % exp_type,
                                             4 + 7)],
@@ -415,12 +394,12 @@ class TestProxyLogging(unittest.TestCase):
                 'template which can be edited in config: '
                 '{protocol} {path} {method} '
                 '{path.anonymized} {container.anonymized} '
-                '{request_time} {start_time.datetime} {end_time} ')})
+                '{request_time} {start_time.datetime} {end_time} {ttfb}')})
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         with mock.patch('time.time',
                         mock.MagicMock(
-                            side_effect=[10000000.0, 10000001.0])):
+                            side_effect=[10000000.0, 10000000.5, 10000001.0])):
                 resp = app(req.environ, start_response)
                 resp_body = b''.join(resp)
         # exhaust generator
@@ -435,6 +414,7 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(log_parts[11], '-')
         self.assertEqual(log_parts[13], '26/Apr/1970/17/46/40')
         self.assertEqual(log_parts[14], '10000001.000000000')
+        self.assertEqual(log_parts[15], '0.5')
         self.assertEqual(resp_body, b'FAKE APP')
 
     def test_invalid_log_config(self):
@@ -936,7 +916,7 @@ class TestProxyLogging(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         with mock.patch('time.time',
                         mock.MagicMock(
-                            side_effect=[10000000.0, 10000001.0])):
+                            side_effect=[10000000.0, 10000000.5, 10000001.0])):
             resp = app(req.environ, start_response)
             resp_body = b''.join(resp)
         log_parts = self._log_parts(app)

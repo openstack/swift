@@ -57,6 +57,9 @@ bind_port = 6202
 # on to preallocate disk space with SQLite databases to decrease fragmentation.
 # db_preallocation = off
 #
+# Enable this option to log all sqlite3 queries (requires python >=3.3)
+# db_query_logging = off
+#
 # eventlet_debug = false
 #
 # You can set fallocate_reserve to the number of bytes or percentage of disk
@@ -87,8 +90,6 @@ use = egg:swift#account
 # set log_level = INFO
 # set log_requests = true
 # set log_address = /dev/log
-#
-# auto_create_account_prefix = .
 #
 # Configure parameter for creating specific server
 # To handle all verbs, including replication verbs, do not specify

@@ -43,6 +43,8 @@ from swift.common.swob import HTTPBadRequest
 
 #: Whether calls will be made to preallocate disk space for database files.
 DB_PREALLOCATION = False
+#: Whether calls will be made to log queries (py3 only)
+QUERY_LOGGING = False
 #: Timeout for trying to connect to a DB
 BROKER_TIMEOUT = 25
 #: Pickle protocol to use
@@ -57,19 +59,23 @@ def utf8encode(*args):
             for s in args]
 
 
-def native_str_keys(metadata):
+def native_str_keys_and_values(metadata):
     if six.PY2:
         uni_keys = [k for k in metadata if isinstance(k, six.text_type)]
         for k in uni_keys:
             sv = metadata[k]
             del metadata[k]
-            metadata[k.encode('utf-8')] = sv
+            metadata[k.encode('utf-8')] = [
+                x.encode('utf-8') if isinstance(x, six.text_type) else x
+                for x in sv]
     else:
         bin_keys = [k for k in metadata if isinstance(k, six.binary_type)]
         for k in bin_keys:
             sv = metadata[k]
             del metadata[k]
-            metadata[k.decode('utf-8')] = sv
+            metadata[k.decode('utf-8')] = [
+                x.decode('utf-8') if isinstance(x, six.binary_type) else x
+                for x in sv]
 
 
 ZERO_LIKE_VALUES = {None, '', 0, '0'}
@@ -181,7 +187,7 @@ def chexor(old, name, timestamp):
     return '%032x' % (int(old, 16) ^ int(new, 16))
 
 
-def get_db_connection(path, timeout=30, okay_to_create=False):
+def get_db_connection(path, timeout=30, logger=None, okay_to_create=False):
     """
     Returns a properly configured SQLite database connection.
 
@@ -194,6 +200,8 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
         connect_time = time.time()
         conn = sqlite3.connect(path, check_same_thread=False,
                                factory=GreenDBConnection, timeout=timeout)
+        if QUERY_LOGGING and logger and not six.PY2:
+            conn.set_trace_callback(logger.debug)
         if path != ':memory:' and not okay_to_create:
             # attempt to detect and fail when connect creates the db file
             stat = os.stat(path)
@@ -272,13 +280,15 @@ class DatabaseBroker(object):
         """
         if self._db_file == ':memory:':
             tmp_db_file = None
-            conn = get_db_connection(self._db_file, self.timeout)
+            conn = get_db_connection(self._db_file, self.timeout, self.logger)
         else:
             mkdirs(self.db_dir)
             fd, tmp_db_file = mkstemp(suffix='.tmp', dir=self.db_dir)
             os.close(fd)
             conn = sqlite3.connect(tmp_db_file, check_same_thread=False,
                                    factory=GreenDBConnection, timeout=0)
+            if QUERY_LOGGING and not six.PY2:
+                conn.set_trace_callback(self.logger.debug)
         # creating dbs implicitly does a lot of transactions, so we
         # pick fast, unsafe options here and do a big fsync at the end.
         with closing(conn.cursor()) as cur:
@@ -339,7 +349,8 @@ class DatabaseBroker(object):
                     # of the system were "racing" each other.
                     raise DatabaseAlreadyExists(self.db_file)
                 renamer(tmp_db_file, self.db_file)
-            self.conn = get_db_connection(self.db_file, self.timeout)
+            self.conn = get_db_connection(self.db_file, self.timeout,
+                                          self.logger)
         else:
             self.conn = conn
 
@@ -356,7 +367,14 @@ class DatabaseBroker(object):
         self.update_metadata(cleared_meta)
         # then mark the db as deleted
         with self.get() as conn:
-            self._delete_db(conn, timestamp)
+            conn.execute(
+                """
+                UPDATE %s_stat
+                SET delete_timestamp = ?,
+                    status = 'DELETED',
+                    status_changed_at = ?
+                WHERE delete_timestamp < ? """ % self.db_type,
+                (timestamp, timestamp, timestamp))
             conn.commit()
 
     @property
@@ -442,7 +460,8 @@ class DatabaseBroker(object):
         if not self.conn:
             if self.db_file != ':memory:' and os.path.exists(self.db_file):
                 try:
-                    self.conn = get_db_connection(self.db_file, self.timeout)
+                    self.conn = get_db_connection(self.db_file, self.timeout,
+                                                  self.logger)
                 except (sqlite3.DatabaseError, DatabaseConnectionError):
                     self.possibly_quarantine(*sys.exc_info())
             else:
@@ -468,7 +487,8 @@ class DatabaseBroker(object):
         """Use with the "with" statement; locks a database."""
         if not self.conn:
             if self.db_file != ':memory:' and os.path.exists(self.db_file):
-                self.conn = get_db_connection(self.db_file, self.timeout)
+                self.conn = get_db_connection(self.db_file, self.timeout,
+                                              self.logger)
             else:
                 raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         conn = self.conn
@@ -862,7 +882,7 @@ class DatabaseBroker(object):
         metadata = self.get_raw_metadata()
         if metadata:
             metadata = json.loads(metadata)
-            native_str_keys(metadata)
+            native_str_keys_and_values(metadata)
         else:
             metadata = {}
         return metadata
@@ -924,7 +944,7 @@ class DatabaseBroker(object):
                                     self.db_type)
                 md = row[0]
                 md = json.loads(md) if md else {}
-                native_str_keys(md)
+                native_str_keys_and_values(md)
             except sqlite3.OperationalError as err:
                 if 'no such column: metadata' not in str(err):
                     raise

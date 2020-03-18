@@ -245,6 +245,39 @@ class TestGatekeeper(unittest.TestCase):
         self._test_location_header('/v/a/c/o2?query=path#test')
         self._test_location_header('/v/a/c/o2;whatisparam?query=path#test')
 
+    def test_allow_reserved_names(self):
+        fake_app = FakeApp()
+        app = self.get_app(fake_app, {})
+        headers = {
+            'X-Allow-Reserved-Names': 'some-value'
+        }
+
+        req = Request.blank('/v/a/c/o', method='GET', headers=headers)
+        resp = req.get_response(app)
+        self.assertEqual('200 OK', resp.status)
+        self.assertNotIn('X-Backend-Allow-Reserved-Names',
+                         fake_app.req.headers)
+        self.assertIn('X-Allow-Reserved-Names',
+                      fake_app.req.headers)
+        self.assertEqual(
+            'some-value',
+            fake_app.req.headers['X-Allow-Reserved-Names'])
+
+        app.allow_reserved_names_header = True
+        req = Request.blank('/v/a/c/o', method='GET', headers=headers)
+        resp = req.get_response(app)
+        self.assertEqual('200 OK', resp.status)
+        self.assertIn('X-Backend-Allow-Reserved-Names',
+                      fake_app.req.headers)
+        self.assertEqual(
+            'some-value',
+            fake_app.req.headers['X-Backend-Allow-Reserved-Names'])
+        self.assertEqual(
+            'some-value',
+            req.headers['X-Backend-Allow-Reserved-Names'])
+        self.assertNotIn('X-Allow-Reserved-Names', fake_app.req.headers)
+        self.assertNotIn('X-Allow-Reserved-Names', req.headers)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -15,7 +15,7 @@
 # limitations under the License.
 
 import hmac
-import unittest2
+import unittest
 import itertools
 import hashlib
 import six
@@ -2452,4 +2452,4 @@ class TestSymlinkContainerTempurl(Base):
 
 
 if __name__ == '__main__':
-    unittest2.main()
+    unittest.main()

@@ -23,6 +23,7 @@ from swift import gettext_ as _
 from eventlet import Timeout
 
 import six
+from six.moves.urllib.parse import quote
 
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
@@ -32,14 +33,16 @@ from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, \
-    split_and_validate_path, is_sys_or_user_meta
+    split_and_validate_path, is_sys_or_user_meta, \
+    validate_internal_container, validate_internal_obj, constrain_req_limit
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
     override_bytes_from_content_type, get_log_line, \
     config_fallocate_value, fs_has_free_space, list_from_csv, \
     ShardRange
-from swift.common.constraints import valid_timestamp, check_utf8, check_drive
+from swift.common.constraints import valid_timestamp, check_utf8, \
+    check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
@@ -83,6 +86,33 @@ def gen_resp_headers(info, is_deleted=False):
     return headers
 
 
+def get_container_name_and_placement(req):
+    """
+    Split and validate path for a container.
+
+    :param req: a swob request
+
+    :returns: a tuple of path parts as strings
+    """
+    drive, part, account, container = split_and_validate_path(req, 4)
+    validate_internal_container(account, container)
+    return drive, part, account, container
+
+
+def get_obj_name_and_placement(req):
+    """
+    Split and validate path for an object.
+
+    :param req: a swob request
+
+    :returns: a tuple of path parts as strings
+    """
+    drive, part, account, container, obj = split_and_validate_path(
+        req, 4, 5, True)
+    validate_internal_obj(account, container, obj)
+    return drive, part, account, container, obj
+
+
 class ContainerController(BaseStorageServer):
     """WSGI Controller for the container server."""
 
@@ -114,8 +144,17 @@ class ContainerController(BaseStorageServer):
         self.replicator_rpc = ContainerReplicatorRpc(
             self.root, DATADIR, ContainerBroker, self.mount_check,
             logger=self.logger)
-        self.auto_create_account_prefix = \
-            conf.get('auto_create_account_prefix') or '.'
+        if conf.get('auto_create_account_prefix'):
+            self.logger.warning('Option auto_create_account_prefix is '
+                                'deprecated. Configure '
+                                'auto_create_account_prefix under the '
+                                'swift-constraints section of '
+                                'swift.conf. This option will '
+                                'be ignored in a future release.')
+            self.auto_create_account_prefix = \
+                conf['auto_create_account_prefix']
+        else:
+            self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
         if config_true_value(conf.get('allow_versions', 'f')):
             self.save_headers.append('x-versions-location')
         if 'allow_versions' in conf:
@@ -125,6 +164,8 @@ class ContainerController(BaseStorageServer):
                                 'be ignored in a future release.')
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
+        swift.common.db.QUERY_LOGGING = \
+            config_true_value(conf.get('db_query_logging', 'f'))
         self.sync_store = ContainerSyncStore(self.root,
                                              self.logger,
                                              self.mount_check)
@@ -282,6 +323,11 @@ class ContainerController(BaseStorageServer):
         """
         if not config_true_value(
                 req.headers.get('x-backend-accept-redirect', False)):
+            # We want to avoid fetching shard ranges for the (more
+            # time-sensitive) object-server update, so allow some misplaced
+            # objects to land between when we've started sharding and when the
+            # proxy learns about it. Note that this path is also used by old,
+            # pre-sharding updaters during a rolling upgrade.
             return None
 
         shard_ranges = broker.get_shard_ranges(
@@ -294,7 +340,15 @@ class ContainerController(BaseStorageServer):
         # in preference to the parent, which is the desired result.
         containing_range = shard_ranges[0]
         location = "/%s/%s" % (containing_range.name, obj_name)
-        headers = {'Location': location,
+        if location != quote(location) and not config_true_value(
+                req.headers.get('x-backend-accept-quoted-location', False)):
+            # Sender expects the destination to be unquoted, but it isn't safe
+            # to send unquoted. Eat the update for now and let the sharder
+            # move it later. Should only come up during rolling upgrades.
+            return None
+
+        headers = {'Location': quote(location),
+                   'X-Backend-Location-Is-Quoted': 'true',
                    'X-Backend-Redirect-Timestamp':
                        containing_range.timestamp.internal}
 
@@ -311,8 +365,7 @@ class ContainerController(BaseStorageServer):
     @timing_stats()
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
-        drive, part, account, container, obj = split_and_validate_path(
-            req, 4, 5, True)
+        drive, part, account, container, obj = get_obj_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         try:
             check_drive(self.root, drive, self.mount_check)
@@ -433,8 +486,7 @@ class ContainerController(BaseStorageServer):
     @timing_stats()
     def PUT(self, req):
         """Handle HTTP PUT request."""
-        drive, part, account, container, obj = split_and_validate_path(
-            req, 4, 5, True)
+        drive, part, account, container, obj = get_obj_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         if 'x-container-sync-to' in req.headers:
             err, sync_to, realm, realm_key = validate_sync_to(
@@ -514,8 +566,7 @@ class ContainerController(BaseStorageServer):
     @timing_stats(sample_rate=0.1)
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
-        drive, part, account, container, obj = split_and_validate_path(
-            req, 4, 5, True)
+        drive, part, account, container, obj = get_obj_name_and_placement(req)
         out_content_type = listing_formats.get_listing_content_type(req)
         try:
             check_drive(self.root, drive, self.mount_check)
@@ -632,23 +683,14 @@ class ContainerController(BaseStorageServer):
         :param req: an instance of :class:`swift.common.swob.Request`
         :returns: an instance of :class:`swift.common.swob.Response`
         """
-        drive, part, account, container, obj = split_and_validate_path(
-            req, 4, 5, True)
+        drive, part, account, container, obj = get_obj_name_and_placement(req)
         path = get_param(req, 'path')
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
-        limit = constraints.CONTAINER_LISTING_LIMIT
-        given_limit = get_param(req, 'limit')
+        limit = constrain_req_limit(req, constraints.CONTAINER_LISTING_LIMIT)
         reverse = config_true_value(get_param(req, 'reverse'))
-        if given_limit and given_limit.isdigit():
-            limit = int(given_limit)
-            if limit > constraints.CONTAINER_LISTING_LIMIT:
-                return HTTPPreconditionFailed(
-                    request=req,
-                    body='Maximum limit is %d'
-                    % constraints.CONTAINER_LISTING_LIMIT)
         out_content_type = listing_formats.get_listing_content_type(req)
         try:
             check_drive(self.root, drive, self.mount_check)
@@ -696,7 +738,7 @@ class ContainerController(BaseStorageServer):
             container_list = src_broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],
-                reverse=reverse)
+                reverse=reverse, allow_reserved=req.allow_reserved_names)
         return self.create_listing(req, out_content_type, info, resp_headers,
                                    broker.metadata, container_list, container)
 
@@ -751,7 +793,7 @@ class ContainerController(BaseStorageServer):
         """
         Handle HTTP UPDATE request (merge_items RPCs coming from the proxy.)
         """
-        drive, part, account, container = split_and_validate_path(req, 4)
+        drive, part, account, container = get_container_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         try:
             check_drive(self.root, drive, self.mount_check)
@@ -775,7 +817,7 @@ class ContainerController(BaseStorageServer):
     @timing_stats()
     def POST(self, req):
         """Handle HTTP POST request."""
-        drive, part, account, container = split_and_validate_path(req, 4)
+        drive, part, account, container = get_container_name_and_placement(req)
         req_timestamp = valid_timestamp(req)
         if 'x-container-sync-to' in req.headers:
             err, sync_to, realm, realm_key = validate_sync_to(
@@ -800,7 +842,7 @@ class ContainerController(BaseStorageServer):
         start_time = time.time()
         req = Request(env)
         self.logger.txn_id = req.headers.get('x-trans-id', None)
-        if not check_utf8(wsgi_to_str(req.path_info)):
+        if not check_utf8(wsgi_to_str(req.path_info), internal=True):
             res = HTTPPreconditionFailed(body='Invalid UTF8 or contains NULL')
         else:
             try:

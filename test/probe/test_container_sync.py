@@ -383,6 +383,30 @@ class TestContainerSync(BaseTestContainerSync):
                                                dest_container, object_name)
         self.assertEqual(body, b'new-test-body')
 
+    def test_sync_delete_when_object_never_synced(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        # create a tombstone row
+        object_name = 'object-%s' % uuid.uuid4()
+        client.put_object(self.url, self.token, source_container,
+                          object_name, 'source-body')
+        client.delete_object(self.url, self.token, source_container,
+                             object_name)
+
+        # upload some other name, too
+        object_name = 'object-%s' % uuid.uuid4()
+        client.put_object(self.url, self.token, source_container, object_name,
+                          'other-source-body')
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # verify that the deletes (which 404ed) didn't block
+        # that last row from syncing
+        resp_headers, body = client.get_object(self.url, self.token,
+                                               dest_container, object_name)
+        self.assertEqual(body, b'other-source-body')
+
 
 class TestContainerSyncAndSymlink(BaseTestContainerSync):
 
@@ -561,6 +585,332 @@ class TestContainerSyncAndSymlink(BaseTestContainerSync):
         resp_headers, actual_target_body = client.get_object(
             self.url, self.token, dest_container, symlink_name)
         self.assertEqual(target_body, actual_target_body)
+
+    def test_sync_static_symlink_different_container(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        symlink_cont = 'symlink-container-%s' % uuid.uuid4()
+        client.put_container(self.url, self.token, symlink_cont)
+
+        # upload a target to symlink container
+        target_name = 'target-%s' % uuid.uuid4()
+        target_body = b'target body'
+        etag = client.put_object(
+            self.url, self.token, symlink_cont, target_name,
+            target_body)
+
+        # upload a regular object
+        regular_name = 'regular-%s' % uuid.uuid4()
+        regular_body = b'regular body'
+        client.put_object(
+            self.url, self.token, source_container, regular_name,
+            regular_body)
+
+        # static symlink
+        target_path = '%s/%s' % (symlink_cont, target_name)
+        symlink_name = 'symlink-%s' % uuid.uuid4()
+        put_headers = {'X-Symlink-Target': target_path,
+                       'X-Symlink-Target-Etag': etag}
+
+        # upload the symlink
+        client.put_object(
+            self.url, self.token, source_container, symlink_name,
+            '', headers=put_headers)
+
+        # verify object is a symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, source_container, symlink_name,
+            query_string='symlink=get')
+        self.assertEqual(b'', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+        self.assertIn('x-symlink-target-etag', resp_headers)
+
+        # verify symlink behavior
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, source_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+        self.assertIn('content-location', resp_headers)
+        content_location = resp_headers['content-location']
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # regular object should have synced
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, regular_name)
+        self.assertEqual(regular_body, actual_target_body)
+
+        # static symlink gets synced, too
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+        self.assertIn('content-location', resp_headers)
+        self.assertEqual(content_location, resp_headers['content-location'])
+
+    def test_sync_busted_static_symlink_different_container(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        symlink_cont = 'symlink-container-%s' % uuid.uuid4()
+        client.put_container(self.url, self.token, symlink_cont)
+
+        # upload a target to symlink container
+        target_name = 'target-%s' % uuid.uuid4()
+        target_body = b'target body'
+        etag = client.put_object(
+            self.url, self.token, symlink_cont, target_name,
+            target_body)
+
+        # upload a regular object
+        regular_name = 'regular-%s' % uuid.uuid4()
+        regular_body = b'regular body'
+        client.put_object(
+            self.url, self.token, source_container, regular_name,
+            regular_body)
+
+        # static symlink
+        target_path = '%s/%s' % (symlink_cont, target_name)
+        symlink_name = 'symlink-%s' % uuid.uuid4()
+        put_headers = {'X-Symlink-Target': target_path,
+                       'X-Symlink-Target-Etag': etag}
+
+        # upload the symlink
+        client.put_object(
+            self.url, self.token, source_container, symlink_name,
+            '', headers=put_headers)
+
+        # verify object is a symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, source_container, symlink_name,
+            query_string='symlink=get')
+        self.assertEqual(b'', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+        self.assertIn('x-symlink-target-etag', resp_headers)
+
+        # verify symlink behavior
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, source_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+        self.assertIn('content-location', resp_headers)
+        content_location = resp_headers['content-location']
+
+        # Break the link
+        client.put_object(
+            self.url, self.token, symlink_cont, target_name,
+            b'something else')
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # regular object should have synced
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, regular_name)
+        self.assertEqual(regular_body, actual_target_body)
+
+        # static symlink gets synced, too, even though the target's different!
+        with self.assertRaises(ClientException) as cm:
+            client.get_object(
+                self.url, self.token, dest_container, symlink_name)
+        self.assertEqual(409, cm.exception.http_status)
+        resp_headers = cm.exception.http_response_headers
+        self.assertIn('content-location', resp_headers)
+        self.assertEqual(content_location, resp_headers['content-location'])
+
+    def test_sync_static_symlink(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        # upload a target to symlink container
+        target_name = 'target-%s' % uuid.uuid4()
+        target_body = b'target body'
+        etag = client.put_object(
+            self.url, self.token, source_container, target_name,
+            target_body)
+
+        # static symlink
+        target_path = '%s/%s' % (source_container, target_name)
+        symlink_name = 'symlink-%s' % uuid.uuid4()
+        put_headers = {'X-Symlink-Target': target_path,
+                       'X-Symlink-Target-Etag': etag}
+
+        # upload the symlink
+        client.put_object(
+            self.url, self.token, source_container, symlink_name,
+            '', headers=put_headers)
+
+        # verify object is a symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, source_container, symlink_name,
+            query_string='symlink=get')
+        self.assertEqual(b'', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+        self.assertIn('x-symlink-target-etag', resp_headers)
+
+        # verify symlink behavior
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, source_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # regular object should have synced
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, target_name)
+        self.assertEqual(target_body, actual_target_body)
+
+        # and static link too
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+
+
+class TestContainerSyncAndVersioning(BaseTestContainerSync):
+
+    def setUp(self):
+        super(TestContainerSyncAndVersioning, self).setUp()
+        if 'object_versioning' not in self.info:
+            raise unittest.SkipTest("Object Versioning not enabled")
+
+    def _test_syncing(self, source_container, dest_container):
+        # test syncing and versioning
+        object_name = 'object-%s' % uuid.uuid4()
+        client.put_object(self.url, self.token, source_container, object_name,
+                          'version1')
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # overwrite source
+        client.put_object(self.url, self.token, source_container, object_name,
+                          'version2')
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        resp_headers, listing = client.get_container(
+            self.url, self.token, dest_container,
+            query_string='versions')
+
+        self.assertEqual(2, len(listing))
+
+    def test_enable_versioning_while_syncing_container(self):
+
+        source_container, dest_container = self._setup_synced_containers()
+        version_hdr = {'X-Versions-Enabled': 'true'}
+
+        # Cannot enable versioning on source container
+        with self.assertRaises(ClientException) as cm:
+            client.post_container(self.url, self.token, source_container,
+                                  headers=version_hdr)
+        self.assertEqual(400, cm.exception.http_status)  # sanity check
+        self.assertEqual(b'Cannot enable object versioning on a container '
+                         b'configured as source of container syncing.',
+                         cm.exception.http_response_content)
+
+        # but destination is ok!
+        client.post_container(self.url, self.token, dest_container,
+                              headers=version_hdr)
+
+        headers = client.head_container(self.url, self.token,
+                                        dest_container)
+        self.assertEqual('True', headers.get('x-versions-enabled'))
+        self.assertEqual('secret', headers.get('x-container-sync-key'))
+
+        self._test_syncing(source_container, dest_container)
+
+    def test_enable_syncing_while_versioned(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        container_name = 'versioned-%s' % uuid.uuid4()
+        version_hdr = {'X-Versions-Enabled': 'true'}
+
+        client.put_container(self.url, self.token, container_name,
+                             headers=version_hdr)
+
+        # fails to configure as a container-sync source
+        sync_headers = {'X-Container-Sync-Key': 'secret'}
+        sync_to = '//%s/%s/%s/%s' % (self.realm, self.cluster, self.account,
+                                     dest_container)
+        sync_headers['X-Container-Sync-To'] = sync_to
+        with self.assertRaises(ClientException) as cm:
+            client.post_container(self.url, self.token, container_name,
+                                  headers=sync_headers)
+        self.assertEqual(400, cm.exception.http_status)  # sanity check
+
+        # but works if it's just a container-sync destination
+        sync_headers = {'X-Container-Sync-Key': 'secret'}
+        client.post_container(self.url, self.token, container_name,
+                              headers=sync_headers)
+
+        headers = client.head_container(self.url, self.token,
+                                        container_name)
+        self.assertEqual('True', headers.get('x-versions-enabled'))
+        self.assertEqual('secret', headers.get('x-container-sync-key'))
+
+        # update source header to sync to versioned container
+        source_headers = {'X-Container-Sync-Key': 'secret'}
+        sync_to = '//%s/%s/%s/%s' % (self.realm, self.cluster, self.account,
+                                     container_name)
+        source_headers['X-Container-Sync-To'] = sync_to
+        client.post_container(self.url, self.token, source_container,
+                              headers=source_headers)
+
+        self._test_syncing(source_container, container_name)
+
+    def test_skip_sync_when_misconfigured(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        container_name = 'versioned-%s' % uuid.uuid4()
+        version_hdr = {'X-Versions-Enabled': 'true'}
+
+        client.put_container(self.url, self.token, container_name,
+                             headers=version_hdr)
+
+        # some sanity checks
+        object_name = 'object-%s' % uuid.uuid4()
+        client.put_object(self.url, self.token, container_name, object_name,
+                          'version1')
+        client.put_object(self.url, self.token, container_name, object_name,
+                          'version2')
+
+        resp_headers, listing = client.get_container(
+            self.url, self.token, container_name,
+            query_string='versions')
+
+        self.assertEqual(2, len(listing))
+
+        sync_headers = {}
+        sync_to = '//%s/%s/%s/%s' % (self.realm, self.cluster, self.account,
+                                     dest_container)
+        sync_headers['X-Container-Sync-To'] = sync_to
+        sync_headers['X-Container-Sync-Key'] = 'secret'
+
+        # use internal client to set container-sync headers
+        # since it doesn't have container_sync middleware in pipeline
+        # allowing us to bypass checks
+        int_client = self.make_internal_client()
+        # TODO: what a terrible hack, maybe we need to extend internal
+        # client to allow caller to become a swift_owner??
+        int_client.app.app.app.app.swift_owner_headers = []
+        int_client.set_container_metadata(self.account, container_name,
+                                          metadata=sync_headers)
+
+        headers = client.head_container(self.url, self.token,
+                                        container_name)
+
+        # This should never happen, but if it does because of eventual
+        # consistency or a messed up pipeline, container-sync should
+        # skip syncing container.
+        self.assertEqual('True', headers.get('x-versions-enabled'))
+        self.assertEqual('secret', headers.get('x-container-sync-key'))
+        self.assertEqual(sync_to, headers.get('x-container-sync-to'))
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        with self.assertRaises(ClientException) as cm:
+            client.get_object(
+                self.url, self.token, dest_container, object_name)
+        self.assertEqual(404, cm.exception.http_status)  # sanity check
 
 
 if __name__ == "__main__":

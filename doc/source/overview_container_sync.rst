@@ -45,6 +45,12 @@ synchronization key.
     are being synced, then you should follow the instructions for
     :ref:`symlink_container_sync_client_config` to be compatible with symlinks.
 
+    Be aware that symlinks may be synced before their targets even if they are
+    in the same container and were created after the target objects. In such
+    cases, a GET for the symlink will fail with a ``404 Not Found`` error.  If
+    the target has been overwritten, a GET may produce an older version (for
+    dynamic links) or a ``409 Conflict`` error (for static links).
+
 --------------------------
 Configuring Container Sync
 --------------------------
@@ -69,34 +75,34 @@ Each section name is the name of a sync realm. A sync realm is a set of
 clusters that have agreed to allow container syncing with each other. Realm
 names will be considered case insensitive.
 
-The key is the overall cluster-to-cluster key used in combination with the
+``key`` is the overall cluster-to-cluster key used in combination with the
 external users' key that they set on their containers'
 ``X-Container-Sync-Key`` metadata header values. These keys will be used to
 sign each request the container sync daemon makes and used to validate each
 incoming container sync request.
 
-The key2 is optional and is an additional key incoming requests will be checked
-against. This is so you can rotate keys if you wish; you move the existing key
-to key2 and make a new key value.
+``key2`` is optional and is an additional key incoming requests will be checked
+against. This is so you can rotate keys if you wish; you move the existing ``key``
+to ``key2`` and make a new ``key`` value.
 
 Any values in the realm section whose names begin with ``cluster_`` will
 indicate the name and endpoint of a cluster and will be used by external users in
 their containers' ``X-Container-Sync-To`` metadata header values with the format
-"//realm_name/cluster_name/account_name/container_name". Realm and cluster
+``//realm_name/cluster_name/account_name/container_name``. Realm and cluster
 names are considered case insensitive.
 
 The endpoint is what the container sync daemon will use when sending out
 requests to that cluster. Keep in mind this endpoint must be reachable by all
 container servers, since that is where the container sync daemon runs. Note
-that the endpoint ends with /v1/ and that the container sync daemon will then
-add the account/container/obj name after that.
+that the endpoint ends with ``/v1/`` and that the container sync daemon will then
+add the ``account/container/obj`` name after that.
 
 Distribute this ``container-sync-realms.conf`` file to all your proxy servers
 and container servers.
 
 You also need to add the container_sync middleware to your proxy pipeline. It
 needs to be after any memcache middleware and before any auth middleware. The
-container_sync section only needs the "use" item. For example::
+``[filter:container_sync]`` section only needs the ``use`` item. For example::
 
     [pipeline:main]
     pipeline = healthcheck proxy-logging cache container_sync tempauth proxy-logging proxy-server
@@ -106,9 +112,9 @@ container_sync section only needs the "use" item. For example::
 
 The container sync daemon will use an internal client to sync objects. Even if
 you don't configure the internal client, the container sync daemon will work
-with default configuration. The default configuration is as same as
+with default configuration. The default configuration is the same as
 ``internal-client.conf-sample``. If you want to configure the internal client,
-please update ``internal_client_conf_path`` of container-server.conf. The
+please update ``internal_client_conf_path`` in ``container-server.conf``. The
 configuration file at the path will be used for the internal client.
 
 -------------------------------------------------------
@@ -146,12 +152,12 @@ backend container server needs to be given this list of hosts in the
 Logging Container Sync
 ----------------------
 
-Tracking sync progress, problems, and just general activity can only be
-achieved with log processing currently for container synchronization. In that
-light, you may wish to set the above `log_` options to direct the
+Currently, log processing is the only way to track sync progress, problems,
+and even just general activity for container synchronization. In that
+light, you may wish to set the above ``log_`` options to direct the
 container-sync logs to a different file for easier monitoring. Additionally, it
-should be noted there is no way for an end user to detect sync progress or
-problems other than HEADing both containers and comparing the overall
+should be noted there is no way for an end user to monitor sync progress or
+detect problems other than HEADing both containers and comparing the overall
 information.
 
 
@@ -160,40 +166,57 @@ information.
 Container Sync Statistics
 -----------------------------
 
-Container Sync INFO level logs contains activity metrics and accounting
-information foe insightful tracking.
+Container Sync INFO level logs contain activity metrics and accounting
+information for insightful tracking.
 Currently two different statistics are collected:
 
 About once an hour or so, accumulated statistics of all operations performed
-by Container Sync are reported to the log file with the following format:
-"Since (time): (sync) synced [(delete) deletes, (put) puts], (skip) skipped,
-(fail) failed"
-time: last report time
-sync: number of containers with sync turned on that were successfully synced
-delete: number of successful DELETE object requests to the target cluster
-put: number of successful PUT object request to the target cluster
-skip: number of containers whose sync has been turned off, but are not
-yet cleared from the sync store
-fail: number of containers with failure (due to exception, timeout or other
-reason)
+by Container Sync are reported to the log file with the following format::
+
+    Since (time): (sync) synced [(delete) deletes, (put) puts], (skip) skipped, (fail) failed
+
+time
+    last report time
+sync
+    number of containers with sync turned on that were successfully synced
+delete
+    number of successful DELETE object requests to the target cluster
+put
+    number of successful PUT object request to the target cluster
+skip
+    number of containers whose sync has been turned off, but are not
+    yet cleared from the sync store
+fail
+    number of containers with failure (due to exception, timeout or other
+    reason)
 
 For each container synced, per container statistics are reported with the
-following format:
-Container sync report: (container), time window start: (start), time window
-end: %(end), puts: (puts), posts: (posts), deletes: (deletes), bytes: (bytes),
-sync_point1: (point1), sync_point2: (point2), total_rows: (total)
-container: account/container statistics are for
-start: report start time
-end: report end time
-puts: number of successful PUT object requests to the target container
-posts: N/A (0)
-deletes: number of successful DELETE object requests to the target container
-bytes: number of bytes sent over the network to the target container
-point1: progress indication - the container's x_container_sync_point1
-point2: progress indication - the container's x_container_sync_point2
-total: number of objects processed at the container
+following format::
 
-it is possible that more than one server syncs a container, therefore logfiles
+    Container sync report: (container), time window start: (start), time window end: %(end), puts: (puts), posts: (posts), deletes: (deletes), bytes: (bytes), sync_point1: (point1), sync_point2: (point2), total_rows: (total)
+
+container
+    account/container statistics are for
+start
+    report start time
+end
+    report end time
+puts
+    number of successful PUT object requests to the target container
+posts
+    N/A (0)
+deletes
+    number of successful DELETE object requests to the target container
+bytes
+    number of bytes sent over the network to the target container
+point1
+    progress indication - the container's ``x_container_sync_point1``
+point2
+    progress indication - the container's ``x_container_sync_point2``
+total
+    number of objects processed at the container
+
+It is possible that more than one server syncs a container, therefore log files
 from all servers need to be evaluated
 
 
@@ -239,11 +262,11 @@ we'll make next::
       -k 'secret' container1
 
 The ``-t`` indicates the cluster to sync to, which is the realm name of the
-section from container-sync-realms.conf, followed by the cluster name from
-that section (without the cluster\_ prefix), followed by the account and container
+section from ``container-sync-realms.conf``, followed by the cluster name from
+that section (without the ``cluster_`` prefix), followed by the account and container
 names we want to sync to. The ``-k`` specifies the secret key the two containers will share for
 synchronization; this is the user key, the cluster key in
-container-sync-realms.conf will also be used behind the scenes.
+``container-sync-realms.conf`` will also be used behind the scenes.
 
 Now, we'll do something similar for the second cluster's container::
 
@@ -268,7 +291,7 @@ as it gets synchronized over to the second::
 
 .. note::
 
-    If you're an operator running SAIO and just testing, each time you
+    If you're an operator running :ref:`saio` and just testing, each time you
     configure a container for synchronization and place objects in the
     source container you will need to ensure that container-sync runs
     before attempting to retrieve objects from the target container.
@@ -325,7 +348,7 @@ Old-Style: Using the ``swift`` tool to set up synchronized containers
     You must be the account admin on the account to set synchronization targets
     and keys.
 
-This is for the old-style of container syncing using allowed_sync_hosts.
+This is for the old-style of container syncing using ``allowed_sync_hosts``.
 
 You simply tell each container where to sync to and give it a secret
 synchronization key. First, let's get the account details for our two cluster
@@ -397,7 +420,7 @@ They'd all need to share the same secret synchronization key.
 Old-Style: Using curl (or other tools) instead
 ----------------------------------------------
 
-This is for the old-style of container syncing using allowed_sync_hosts.
+This is for the old-style of container syncing using ``allowed_sync_hosts``.
 
 So what's ``swift`` doing behind the scenes? Nothing overly complicated. It
 translates the ``-t <value>`` option into an ``X-Container-Sync-To: <value>``
@@ -441,8 +464,8 @@ is deleted from ``sync-containers``.
 In addition to the container-server, the container-replicator process does the
 job of identifying containers that should be synchronized. This is done by
 scanning the local devices for container databases and checking for
-x-container-sync-to and x-container-sync-key metadata values. If they exist
-then a symlink to the container database is created in a sync-containers
+``x-container-sync-to`` and ``x-container-sync-key`` metadata values. If they exist
+then a symlink to the container database is created in a ``sync-containers``
 sub-directory on the same device.
 
 Similarly, when the container sync metadata keys are deleted, the container
@@ -465,7 +488,7 @@ Two sync points are kept in each container database. When syncing a
 container, the container-sync process figures out which replica of the
 container it has. In a standard 3-replica scenario, the process will
 have either replica number 0, 1, or 2. This is used to figure out
-which rows are belong to this sync process and which ones don't.
+which rows belong to this sync process and which ones don't.
 
 An example may help. Assume a replica count of 3 and database row IDs
 are 1..6. Also, assume that container-sync is running on this

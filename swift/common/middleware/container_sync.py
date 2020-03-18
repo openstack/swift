@@ -15,6 +15,7 @@
 
 import os
 
+from swift.common.constraints import valid_api_version
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.swob import HTTPBadRequest, HTTPUnauthorized, wsgify
 from swift.common.utils import (
@@ -67,8 +68,35 @@ class ContainerSync(object):
 
     @wsgify
     def __call__(self, req):
+        if req.path == '/info':
+            # Ensure /info requests get the freshest results
+            self.register_info()
+            return self.app
+
+        try:
+            (version, acc, cont, obj) = req.split_path(3, 4, True)
+            bad_path = False
+        except ValueError:
+            bad_path = True
+
+        # use of bad_path bool is to avoid recursive tracebacks
+        if bad_path or not valid_api_version(version):
+            return self.app
+
+        # validate container-sync metdata update
+        info = get_container_info(
+            req.environ, self.app, swift_source='CS')
+        sync_to = req.headers.get('x-container-sync-to')
+        if req.method in ('PUT', 'POST') and cont and not obj:
+            versions_cont = info.get(
+                'sysmeta', {}).get('versions-container')
+            if sync_to and versions_cont:
+                raise HTTPBadRequest(
+                    'Cannot configure container sync on a container '
+                    'with object versioning configured.',
+                    request=req)
+
         if not self.allow_full_urls:
-            sync_to = req.headers.get('x-container-sync-to')
             if sync_to and not sync_to.startswith('//'):
                 raise HTTPBadRequest(
                     body='Full URLs are not allowed for X-Container-Sync-To '
@@ -90,8 +118,6 @@ class ContainerSync(object):
                     req.environ.setdefault('swift.log_info', []).append(
                         'cs:no-local-realm-key')
                 else:
-                    info = get_container_info(
-                        req.environ, self.app, swift_source='CS')
                     user_key = info.get('sync_key')
                     if not user_key:
                         req.environ.setdefault('swift.log_info', []).append(
@@ -134,10 +160,9 @@ class ContainerSync(object):
                 # syntax and might be synced before its segments, so stop SLO
                 # middleware from performing the usual manifest validation.
                 req.environ['swift.slo_override'] = True
+                # Similar arguments for static symlinks
+                req.environ['swift.symlink_override'] = True
 
-        if req.path == '/info':
-            # Ensure /info requests get the freshest results
-            self.register_info()
         return self.app
 
 

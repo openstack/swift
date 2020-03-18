@@ -1754,7 +1754,7 @@ class BaseDiskFileWriter(object):
                     msg = 'open(%s, O_TMPFILE | O_WRONLY) failed: %s \
                            Falling back to using mkstemp()' \
                            % (self._datadir, os.strerror(err.errno))
-                    self.logger.warning(msg)
+                    self.logger.debug(msg)
                     self.manager.use_linkat = False
                 else:
                     raise
@@ -3375,7 +3375,7 @@ class ECDiskFileManager(BaseDiskFileManager):
         """
         Returns timestamp(s) and other info extracted from a policy specific
         file name. For EC policy the data file name includes a fragment index
-        and possibly a durable marker, both of which which must be stripped off
+        and possibly a durable marker, both of which must be stripped off
         to retrieve the timestamp.
 
         :param filename: the file name including extension

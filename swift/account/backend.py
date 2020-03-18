@@ -22,7 +22,7 @@ import sqlite3
 
 import six
 
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, RESERVED_BYTE
 from swift.common.db import DatabaseBroker, utf8encode, zero_like
 
 DATADIR = 'accounts'
@@ -188,20 +188,6 @@ class AccountBroker(DatabaseBroker):
                     WHERE name = 'ix_container_deleted_name' '''):
                 self._db_version = 1
         return self._db_version
-
-    def _delete_db(self, conn, timestamp, force=False):
-        """
-        Mark the DB as deleted.
-
-        :param conn: DB connection object
-        :param timestamp: timestamp to mark as deleted
-        """
-        conn.execute("""
-            UPDATE account_stat
-            SET delete_timestamp = ?,
-                status = 'DELETED',
-                status_changed_at = ?
-            WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
 
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
@@ -369,7 +355,7 @@ class AccountBroker(DatabaseBroker):
             ''').fetchone())
 
     def list_containers_iter(self, limit, marker, end_marker, prefix,
-                             delimiter, reverse=False):
+                             delimiter, reverse=False, allow_reserved=False):
         """
         Get a list of containers sorted by name starting at marker onward, up
         to limit entries. Entries will begin with the prefix and will not have
@@ -381,6 +367,7 @@ class AccountBroker(DatabaseBroker):
         :param prefix: prefix query
         :param delimiter: delimiter for query
         :param reverse: reverse the result order.
+        :param allow_reserved: exclude names with reserved-byte by default
 
         :returns: list of tuples of (name, object_count, bytes_used,
                   put_timestamp, 0)
@@ -424,6 +411,9 @@ class AccountBroker(DatabaseBroker):
                 elif prefix:
                     query += ' name >= ? AND'
                     query_args.append(prefix)
+                if not allow_reserved:
+                    query += ' name >= ? AND'
+                    query_args.append(chr(ord(RESERVED_BYTE) + 1))
                 if self.get_db_version(conn) < 1:
                     query += ' +deleted = 0'
                 else:
@@ -455,7 +445,7 @@ class AccountBroker(DatabaseBroker):
                         curs.close()
                         return results
                     end = name.find(delimiter, len(prefix))
-                    if end > 0:
+                    if end >= 0:
                         if reverse:
                             end_marker = name[:end + len(delimiter)]
                         else:

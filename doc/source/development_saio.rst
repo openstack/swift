@@ -1,5 +1,7 @@
+.. _saio:
+
 =======================
-SAIO - Swift All In One
+SAIO (Swift All In One)
 =======================
 
 .. note::

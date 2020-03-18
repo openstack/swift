@@ -29,11 +29,11 @@ from six.moves.http_client import HTTPException
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ClientException
-from swift.common.utils import Timestamp, FileLikeIter
+from swift.common.swob import normalize_etag
+from swift.common.utils import Timestamp, FileLikeIter, quote
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import quote
 
 
 class DirectClientException(ClientException):
@@ -100,6 +100,7 @@ def _make_req(node, part, method, path, headers, stype,
         if content_length is None:
             headers['Transfer-Encoding'] = 'chunked'
 
+    headers.setdefault('X-Backend-Allow-Reserved-Names', 'true')
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                             method, path, headers=headers)
@@ -193,6 +194,7 @@ def gen_headers(hdrs_in=None, add_ts=True):
         hdrs_out['X-Timestamp'] = Timestamp.now().internal
     if 'user-agent' not in hdrs_out:
         hdrs_out['User-Agent'] = 'direct-client %s' % os.getpid()
+    hdrs_out.setdefault('X-Backend-Allow-Reserved-Names', 'true')
     return hdrs_out
 
 
@@ -483,7 +485,7 @@ def direct_put_object(node, part, account, container, name, contents,
     if headers is None:
         headers = {}
     if etag:
-        headers['ETag'] = etag.strip('"')
+        headers['ETag'] = normalize_etag(etag)
     if content_type is not None:
         headers['Content-Type'] = content_type
     else:
@@ -496,7 +498,7 @@ def direct_put_object(node, part, account, container, name, contents,
         'Object', conn_timeout, response_timeout, contents=contents,
         content_length=content_length, chunk_size=chunk_size)
 
-    return resp.getheader('etag').strip('"')
+    return normalize_etag(resp.getheader('etag'))
 
 
 def direct_post_object(node, part, account, container, name, headers,

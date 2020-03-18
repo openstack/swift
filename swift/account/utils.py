@@ -17,6 +17,7 @@ import json
 
 import six
 
+from swift.common import constraints
 from swift.common.middleware import listing_formats
 from swift.common.swob import HTTPOk, HTTPNoContent, str_to_wsgi
 from swift.common.utils import Timestamp
@@ -71,15 +72,17 @@ def get_response_headers(broker):
 
 
 def account_listing_response(account, req, response_content_type, broker=None,
-                             limit='', marker='', end_marker='', prefix='',
-                             delimiter='', reverse=False):
+                             limit=constraints.ACCOUNT_LISTING_LIMIT,
+                             marker='', end_marker='', prefix='', delimiter='',
+                             reverse=False):
     if broker is None:
         broker = FakeAccountBroker()
 
     resp_headers = get_response_headers(broker)
 
     account_list = broker.list_containers_iter(limit, marker, end_marker,
-                                               prefix, delimiter, reverse)
+                                               prefix, delimiter, reverse,
+                                               req.allow_reserved_names)
     data = []
     for (name, object_count, bytes_used, put_timestamp, is_subdir) \
             in account_list:

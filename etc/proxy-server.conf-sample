@@ -16,12 +16,13 @@ bind_port = 8080
 #
 # Allows the ability to withhold sections from showing up in the public calls
 # to /info.  You can withhold subsections by separating the dict level with a
-# ".".  The following would cause the sections 'container_quotas' and 'tempurl'
-# to not be listed, and the key max_failed_deletes would be removed from
-# bulk_delete.  Default value is 'swift.valid_api_versions' which allows all
-# registered features to be listed via HTTP GET /info except
-# swift.valid_api_versions information
-# disallowed_sections = swift.valid_api_versions, container_quotas, tempurl
+# ".". Default value is 'swift.valid_api_versions, swift.auto_create_account_prefix'
+# which allows all registered features to be listed via HTTP GET /info except
+# swift.valid_api_versions and swift.auto_create_account_prefix information.
+# As an example, the following would cause the sections 'container_quotas' and
+# 'tempurl' to not be listed, and the key max_failed_deletes would be removed from
+# bulk_delete.
+# disallowed_sections = swift.valid_api_versions, container_quotas, tempurl, bulk_delete.max_failed_deletes
 
 # Use an integer to override the number of pre-forked processes that will
 # accept connections.  Should default to the number of effective cpu
@@ -184,12 +185,6 @@ use = egg:swift#proxy
 #
 # Comma separated list of Host headers to which the proxy will deny requests.
 # deny_host_headers =
-#
-# Prefix used when automatically creating accounts.
-# auto_create_account_prefix = .
-#
-# Depth of the proxy put queue.
-# put_queue_depth = 10
 #
 # During GET and HEAD requests, storage nodes can be chosen at random
 # (shuffle), by using timing measurements (timing), or by using an explicit
@@ -603,6 +598,17 @@ auth_uri = http://keystonehost:5000/v3
 # Connect/read timeout to use when communicating with Keystone
 http_timeout = 10.0
 
+# Number of seconds to cache the S3 secret. By setting this to a positive
+# number, the S3 authorization validation checks can happen locally.
+# secret_cache_duration = 0
+
+# If S3 secret caching is enabled, Keystone auth credentials to be used to
+# validate S3 authorization must be provided here. The appropriate options
+# are the same as used in the authtoken middleware above. The values are
+# likely the same as used in the authtoken middleware.
+# Note that the Keystone auth credentials used by s3token will need to be
+# able to view all project credentials too.
+
 # SSL-related options
 # insecure = False
 # certfile =
@@ -855,6 +861,17 @@ use = egg:swift#name_check
 # maximum_length = 255
 # forbidden_regexp = /\./|/\.\./|/\.$|/\.\.$
 
+# Note: Etag quoter should be placed just after cache in the pipeline.
+[filter:etag-quoter]
+use = egg:swift#etag_quoter
+# Historically, Swift has emitted bare MD5 hex digests as ETags, which is not
+# RFC compliant. With this middleware in the pipeline, users can opt-in to
+# RFC-compliant ETags on a per-account or per-container basis.
+#
+# Set to true to enable RFC-compliant ETags cluster-wide by default. Users
+# can still opt-out by setting appropriate account or container metadata.
+# enable_by_default = false
+
 [filter:list-endpoints]
 use = egg:swift#list_endpoints
 # list_endpoints_path = /endpoints/
@@ -1011,6 +1028,11 @@ use = egg:swift#gatekeeper
 # difficult-to-delete data.
 # shunt_inbound_x_timestamp = true
 #
+# Set this to true if you want to allow clients to access and manipulate the
+# (normally internal-to-swift) null namespace by including a header like
+#    X-Allow-Reserved-Names: true
+# allow_reserved_names_header = false
+#
 # You can override the default log routing for this filter here:
 # set log_name = gatekeeper
 # set log_facility = LOG_LOCAL0
@@ -1072,6 +1094,8 @@ use = egg:swift#versioned_writes
 # in the container configuration file, which will be eventually
 # deprecated. See documentation for more details.
 # allow_versioned_writes = false
+# Enables Swift object-versioning API
+# allow_object_versioning = false
 
 # Note: Put after auth and before dlo and slo middlewares.
 # If you don't put it in the pipeline, it will be inserted for you.

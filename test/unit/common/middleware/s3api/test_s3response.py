@@ -35,6 +35,24 @@ class TestResponse(unittest.TestCase):
                 else:
                     self.assertEqual('"theetag"', s3resp.headers['ETag'])
 
+    def test_response_s3api_user_meta_headers(self):
+        resp = Response(headers={
+            'X-Object-Meta-Foo': 'Bar',
+            'X-Object-Meta-Non-\xdcnicode-Value': '\xff',
+            'X-Object-Sysmeta-Baz': 'quux',
+            'Etag': 'unquoted',
+            'Content-type': 'text/plain',
+            'content-length': '0',
+        })
+        s3resp = S3Response.from_swift_resp(resp)
+        self.assertEqual(dict(s3resp.headers), {
+            'x-amz-meta-foo': 'Bar',
+            'x-amz-meta-non-\xdcnicode-value': '\xff',
+            'ETag': '"unquoted"',
+            'Content-Type': 'text/plain',
+            'Content-Length': '0',
+        })
+
     def test_response_s3api_sysmeta_headers(self):
         for _server_type in ('object', 'container'):
             swift_headers = HeaderKeyDict(
