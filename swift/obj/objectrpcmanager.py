@@ -134,7 +134,7 @@ class ObjectRpcManager(Daemon):
         if statecheck:
             volcheck_args = [self.volcheck, '--disk_path', str(disk_path),
                              '--policy_idx', str(policy_idx),
-                             '--keepuser', '--repair']
+                             '--keepuser', '--repair', '--no_prompt']
             # sleep a bit to let the RPC server start. Otherwise it will
             # timeout and take longer to get the checks started.
             sleep(2)
