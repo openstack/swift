@@ -1682,7 +1682,6 @@ class Controller(object):
         :returns: tuple of (account partition, account nodes, container_count)
                   or (None, None, None) if it does not exist
         """
-        partition, nodes = self.app.account_ring.get_nodes(account)
         if req:
             env = getattr(req, 'environ', {})
         else:
@@ -1697,6 +1696,7 @@ class Controller(object):
                 or not info.get('account_really_exists', True)):
             return None, None, None
         container_count = info['container_count']
+        partition, nodes = self.app.account_ring.get_nodes(account)
         return partition, nodes, container_count
 
     def container_info(self, account, container, req=None):
@@ -1713,7 +1713,6 @@ class Controller(object):
                   and container sync key ('sync_key').
                   Values are set to None if the container does not exist.
         """
-        part, nodes = self.app.container_ring.get_nodes(account, container)
         if req:
             env = getattr(req, 'environ', {})
         else:
@@ -1728,6 +1727,7 @@ class Controller(object):
             info['partition'] = None
             info['nodes'] = None
         else:
+            part, nodes = self.app.container_ring.get_nodes(account, container)
             info['partition'] = part
             info['nodes'] = nodes
         return info
