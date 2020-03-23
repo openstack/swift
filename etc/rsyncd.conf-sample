@@ -2,6 +2,9 @@ uid = swift
 gid = swift
 log file = /var/log/rsyncd.log
 pid file = /var/run/rsyncd.pid
+# since rsync default for reverse lookup is true, you have to set it to false
+# here globally or after a few 100 nodes your dns team will fuss at you
+reverse lookup = false
 
 [account]
 max connections = 2
