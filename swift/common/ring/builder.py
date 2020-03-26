@@ -419,11 +419,11 @@ class RingBuilder(object):
         # Add holes to self.devs to ensure self.devs[dev['id']] will be the dev
         while dev['id'] >= len(self.devs):
             self.devs.append(None)
-        required_keys = ('ip', 'port', 'weight')
-        if any(required not in dev for required in required_keys):
-            raise ValueError(
-                '%r is missing at least one the required key %r' % (
-                    dev, required_keys))
+        required_keys = ('region', 'zone', 'ip', 'port', 'device', 'weight')
+        missing = tuple(key for key in required_keys if key not in dev)
+        if missing:
+            raise ValueError('%r is missing required key(s): %s' % (
+                dev, ', '.join(missing)))
         dev['weight'] = float(dev['weight'])
         dev['parts'] = 0
         dev.setdefault('meta', '')
