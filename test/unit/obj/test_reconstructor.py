@@ -1811,14 +1811,18 @@ class TestWorkerReconstructor(unittest.TestCase):
                 logger=self.logger)
         # file does not exist to start
         self.assertFalse(os.path.exists(self.rcache))
-        self.assertTrue(reconstructor.is_healthy())
+        with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                        return_value=10):
+            self.assertTrue(reconstructor.is_healthy())
         # ... and isn't created until _next_rcache_update
         self.assertFalse(os.path.exists(self.rcache))
         # ... but if we wait 5 mins (by default)
         orig_next_update = reconstructor._next_rcache_update
         with mock.patch('swift.obj.reconstructor.time.time',
                         return_value=now + 301):
-            self.assertTrue(reconstructor.is_healthy())
+            with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                            return_value=11):
+                self.assertTrue(reconstructor.is_healthy())
         self.assertGreater(reconstructor._next_rcache_update, orig_next_update)
         # ... it will be created
         self.assertTrue(os.path.exists(self.rcache))
@@ -1831,13 +1835,19 @@ class TestWorkerReconstructor(unittest.TestCase):
         reconstructor = object_reconstructor.ObjectReconstructor(
             {'recon_cache_path': self.recon_cache_path},
             logger=self.logger)
-        self.assertTrue(reconstructor.is_healthy())
+        with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                        return_value=10):
+            self.assertTrue(reconstructor.is_healthy())
         reconstructor.get_local_devices = lambda: {
             'sdb%d' % p for p in reconstructor.policies}
-        self.assertFalse(reconstructor.is_healthy())
+        with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                        return_value=11):
+            self.assertFalse(reconstructor.is_healthy())
         reconstructor.all_local_devices = {
             'sdb%d' % p for p in reconstructor.policies}
-        self.assertTrue(reconstructor.is_healthy())
+        with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                        return_value=12):
+            self.assertTrue(reconstructor.is_healthy())
 
     def test_is_healthy_detects_ring_change(self):
         reconstructor = object_reconstructor.ObjectReconstructor(
@@ -1850,13 +1860,26 @@ class TestWorkerReconstructor(unittest.TestCase):
         self.assertEqual(14, len(p.object_ring.devs))  # sanity check
         worker_args = list(reconstructor.get_worker_args())
         self.assertFalse(worker_args[0]['override_devices'])  # no local devs
-        self.assertTrue(reconstructor.is_healthy())
+        with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                        return_value=10):
+            self.assertTrue(reconstructor.is_healthy())
         # expand ring - now there are local devices
         p.object_ring.set_replicas(28)
         self.assertEqual(28, len(p.object_ring.devs))  # sanity check
-        self.assertFalse(reconstructor.is_healthy())
+
+        # If ring.gz mtime did not change, there is no change to detect
+        with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                        return_value=10):
+            self.assertTrue(reconstructor.is_healthy())
+        # Now, ring.gz mtime changed, so the change will be detected
+        with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                        return_value=11):
+            self.assertFalse(reconstructor.is_healthy())
+
         self.assertNotEqual(worker_args, list(reconstructor.get_worker_args()))
-        self.assertTrue(reconstructor.is_healthy())
+        with mock.patch('swift.obj.reconstructor.os.path.getmtime',
+                        return_value=12):
+            self.assertTrue(reconstructor.is_healthy())
 
     def test_final_recon_dump(self):
         reconstructor = object_reconstructor.ObjectReconstructor(
