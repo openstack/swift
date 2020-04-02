@@ -33,7 +33,7 @@
     # setting.
     - name: download golang package and unarchive
       unarchive:
-        src: https://dl.google.com/go/go1.12.4.linux-amd64.tar.gz
+        src: https://dl.google.com/go/go1.14.1.linux-amd64.tar.gz
         dest: /usr/local
         remote_src: yes
       become: true
@@ -54,6 +54,6 @@
 
     - name: download protoc
       unarchive:
-        src: https://github.com/protocolbuffers/protobuf/releases/download/v3.7.1/protoc-3.7.1-linux-x86_64.zip
+        src: https://github.com/protocolbuffers/protobuf/releases/download/v3.11.4/protoc-3.11.4-linux-x86_64.zip
         dest: "{{ ansible_env.HOME }}/protoc"
         remote_src: yes

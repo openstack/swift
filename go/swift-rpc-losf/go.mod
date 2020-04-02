@@ -1,5 +1,7 @@
 module github.com/openstack/swift-rpc-losf
 
+go 1.14
+
 // This file is auto-generated with following commands
 // GO111MODULE=on go mod init // require to run under GOPATH
 // GO111MODULE=on go get // able to run anywhare
@@ -8,7 +10,7 @@ module github.com/openstack/swift-rpc-losf
 
 require (
 	github.com/alecuyer/statsd/v2 v2.0.6
-	github.com/golang/protobuf v1.3.2
+	github.com/golang/protobuf v1.3.5
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/jmhodges/levigo v1.0.0
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
