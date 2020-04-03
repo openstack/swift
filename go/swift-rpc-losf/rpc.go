@@ -1045,88 +1045,6 @@ func ListPartitions(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, erro
 	return serializePb(response)
 }
 
-// ListPartitionRecursive returns a list of files with structured path info (suffix, object hash) within a partition
-// The response should really be streamed, but that makes eventlet hang on the python side...
-// This is used to optimize REPLICATE on the object server.
-func ListPartitionRecursive(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ListPartitionInfo{}
-	if err := proto.Unmarshal(*pbIn, in); err != nil {
-		logrus.Errorf("failed to unmarshal input: %v", err)
-		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
-	}
-
-	reqlog := log.WithFields(logrus.Fields{
-		"Function":      "ListPartitionRecursive",
-		"Partition":     in.Partition,
-		"PartitionBits": in.PartitionBits,
-	})
-	reqlog.Debug("RPC Call")
-
-	if !s.isClean {
-		reqlog.Debug("KV out of sync with volumes")
-		return nil, status.Errorf(codes.FailedPrecondition, "KV out of sync with volumes")
-	}
-
-	// Partition bits
-	pBits := int(in.PartitionBits)
-	partition := uint64(in.Partition)
-
-	firstKey, err := getEncodedObjPrefixFromPartition(partition, pBits)
-	if err != nil {
-		s.statsd_c.Increment("list_partition_recursive.fail")
-		return nil, status.Errorf(codes.Internal, "failed to calculate encoded object prefix from partition")
-	}
-
-	// Seek to first key in partition, if any
-	it := s.kv.NewIterator(objectPrefix)
-	defer it.Close()
-
-	response := &pb.PartitionContent{}
-
-	it.Seek(firstKey)
-	// No object in the KV
-	if !it.Valid() {
-		s.statsd_c.Increment("list_partition_recursive.ok")
-		return serializePb(response)
-	}
-
-	key := make([]byte, 32+len(it.Key()[16:]))
-	err = DecodeObjectKey(it.Key(), key)
-	if err != nil {
-		reqlog.Errorf("failed to decode object key: %v", err)
-		s.statsd_c.Increment("load_objects_by_prefix.fail")
-		return nil, status.Errorf(codes.Internal, "unable to decode object key")
-	}
-	currentPartition, err := getPartitionFromOhash(key, pBits)
-	if err != nil {
-		s.statsd_c.Increment("list_partition_recursive.fail")
-		return nil, status.Errorf(codes.Internal, "unable to extract partition from object hash")
-	}
-
-	// Iterate over all files within the partition
-	for currentPartition == partition {
-		entry := &pb.FullPathEntry{Suffix: key[29:32], Ohash: key[:32], Filename: key[32:]}
-		response.FileEntries = append(response.FileEntries, entry)
-
-		it.Next()
-		// Check if we're at the end of the KV
-		if !it.Valid() {
-			break
-		}
-		key = make([]byte, 32+len(it.Key()[16:]))
-		err = DecodeObjectKey(it.Key(), key)
-		if err != nil {
-			reqlog.Errorf("failed to decode object key: %v", err)
-			s.statsd_c.Increment("load_objects_by_prefix.fail")
-			return nil, status.Errorf(codes.Internal, "unable to decode object key")
-		}
-		currentPartition, err = getPartitionFromOhash(key, pBits)
-	}
-
-	s.statsd_c.Increment("list_partition_recursive.ok")
-	return serializePb(response)
-}
-
 // ListPartition returns a list of suffixes within a partition
 func ListPartition(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
 	in := &pb.ListPartitionInfo{}
@@ -1650,7 +1568,6 @@ var strToFunc = map[string]rpcFunc{
 	"/load_objects_by_prefix":   LoadObjectsByPrefix,
 	"/load_objects_by_volume":   LoadObjectsByVolume,
 	"/list_partitions":          ListPartitions,
-	"/list_partition_recursive": ListPartitionRecursive,
 	"/list_partition":           ListPartition,
 	"/list_suffix":              ListSuffix,
 	"/list_quarantined_ohashes": ListQuarantinedOHashes,

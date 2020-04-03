@@ -308,16 +308,6 @@ def list_partition(socket_path, partition, partition_bits):
     return response.entry
 
 
-def list_partition_recursive(socket_path, partition, partition_bits):
-    list_partition_info = pb.ListPartitionInfo(partition=int(partition),
-                                               partition_bits=partition_bits)
-    conn = UnixHTTPConnection(socket_path)
-    conn.request('POST', '/list_partition_recursive',
-                 list_partition_info.SerializeToString())
-    response = get_rpc_reply(conn, pb.PartitionContent)
-    return response.file_entries
-
-
 def list_suffix(socket_path, partition, suffix, partition_bits):
     suffix = str(suffix)
     list_suffix_info = pb.ListSuffixInfo(partition=partition,

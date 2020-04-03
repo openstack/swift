@@ -24,7 +24,6 @@ import fcntl
 import six
 import hashlib
 import re
-from collections import defaultdict
 from eventlet.green import os
 from swift.obj.header import ObjectHeader, VolumeHeader, ALIGNMENT, \
     read_volume_header, HeaderException, STATE_OBJ_QUARANTINED, \
@@ -831,29 +830,6 @@ def list_quarantined_ohash(quarantined_ohash_path):
             quarantined_ohash_path)
         raise VIOError(errno.EINVAL, err_msg)
     return rpc.list_quarantined_ohash(si.socket_path, si.ohash)
-
-
-def build_partition_tree(path):
-    """
-    :param path: full path to partition
-    :return: a dict of dict of the partition directory tree:
-    suffix -> object hash -> list of filenames
-    """
-    path = os.path.normpath(path)
-    si = SwiftPathInfo.from_path(path)
-
-    if not POLICIES[si.policy_idx].object_ring:
-        POLICIES[si.policy_idx].load_ring('/etc/swift')
-    part_power = 32 - POLICIES[si.policy_idx].object_ring._part_shift
-
-    partition_tree = defaultdict(lambda: defaultdict(list))
-    full_path_entries = rpc.list_partition_recursive(si.socket_path,
-                                                     si.partition, part_power)
-    for entry in full_path_entries:
-        partition_tree[str(entry.suffix)][str(entry.ohash)].append(
-            str(entry.filename))
-
-    return partition_tree
 
 
 def _list_ohash(si, part_power):
