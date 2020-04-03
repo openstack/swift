@@ -215,6 +215,7 @@ class FakeRing(Ring):
 
     def __init__(self, replicas=3, max_more_nodes=0, part_power=0,
                  base_port=1000):
+        self.serialized_path = '/foo/bar/object.ring.gz'
         self._base_port = base_port
         self.max_more_nodes = max_more_nodes
         self._part_shift = 32 - part_power

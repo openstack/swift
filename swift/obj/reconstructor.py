@@ -210,6 +210,7 @@ class ObjectReconstructor(Daemon):
             'rebuild_handoff_node_count', 2))
         self._df_router = DiskFileRouter(conf, self.logger)
         self.all_local_devices = self.get_local_devices()
+        self.rings_mtime = None
 
     def get_worker_args(self, once=False, **kwargs):
         """
@@ -263,6 +264,11 @@ class ObjectReconstructor(Daemon):
         if now > self._next_rcache_update:
             self._next_rcache_update = now + self.stats_interval
             self.aggregate_recon_update()
+        rings_mtime = [os.path.getmtime(self.load_object_ring(
+                       policy).serialized_path) for policy in self.policies]
+        if self.rings_mtime == rings_mtime:
+            return True
+        self.rings_mtime = rings_mtime
         return self.get_local_devices() == self.all_local_devices
 
     def aggregate_recon_update(self):
