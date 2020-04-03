@@ -233,5 +233,6 @@ class TestS3ApiService(S3ApiTestCase):
             self.assertTrue(i[0] in names)
         self.assertEqual(len(self.swift.calls_with_headers), 11)
 
+
 if __name__ == '__main__':
     unittest.main()

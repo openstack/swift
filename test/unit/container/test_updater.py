@@ -528,5 +528,6 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(info['reported_object_count'], 0)
         self.assertEqual(info['reported_bytes_used'], 0)
 
+
 if __name__ == '__main__':
     unittest.main()

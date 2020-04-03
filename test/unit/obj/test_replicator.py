@@ -73,6 +73,7 @@ def mock_http_connect(status):
             return
     return lambda *args, **kwargs: FakeConn(status, *args, **kwargs)
 
+
 process_errors = []
 
 

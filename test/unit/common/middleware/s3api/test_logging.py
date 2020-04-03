@@ -62,5 +62,6 @@ class TestS3ApiLogging(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'NoLoggingStatusForKey')
 
+
 if __name__ == '__main__':
     unittest.main()

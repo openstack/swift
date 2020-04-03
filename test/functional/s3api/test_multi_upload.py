@@ -1105,5 +1105,6 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
             self.conn.make_request('DELETE', bucket)
         self.assertEqual(status, 204)  # sanity
 
+
 if __name__ == '__main__':
     unittest.main()

@@ -1251,5 +1251,6 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             self.assertEqual(body, b'')
             self.assertEqual(1, mock_req.call_count)
 
+
 if __name__ == '__main__':
     unittest.main()

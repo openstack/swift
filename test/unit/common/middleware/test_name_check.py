@@ -147,5 +147,6 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(swift_info['name_check'].get('forbidden_regexp'),
                          r"/\./|/\.\./|/\.$")
 
+
 if __name__ == '__main__':
     unittest.main()

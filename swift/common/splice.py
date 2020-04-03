@@ -98,6 +98,7 @@ class Tee(object):
 
         return self._c_tee is not None
 
+
 tee = Tee()
 del Tee
 
@@ -194,6 +195,7 @@ class Splice(object):
         '''Availability of `splice`'''
 
         return self._c_splice is not None
+
 
 splice = Splice()
 del Splice
