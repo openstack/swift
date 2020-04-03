@@ -1300,7 +1300,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                         os.getpid(), orig_server_pid)
             try:
                 got_pid = os.read(read_fd, 30)
-            except Exception as e:
+            except Exception:
                 logger.warning('Unexpected exception while reading from '
                                'pipe:', exc_info=True)
             else:

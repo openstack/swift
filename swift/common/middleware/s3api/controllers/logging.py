@@ -18,7 +18,7 @@ from swift.common.utils import public
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
 from swift.common.middleware.s3api.etree import Element, tostring
-from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented, \
+from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented,\
     NoLoggingStatusForKey
 
 

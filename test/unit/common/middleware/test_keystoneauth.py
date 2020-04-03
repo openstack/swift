@@ -39,8 +39,8 @@ def operator_roles(test_auth):
 
 
 def get_account_for_tenant(test_auth, tenant_id):
-        """Convenience function reduces unit test churn"""
-        return '%s%s' % (test_auth.reseller_prefixes[0], tenant_id)
+    """Convenience function reduces unit test churn"""
+    return '%s%s' % (test_auth.reseller_prefixes[0], tenant_id)
 
 
 def get_identity_headers(status='Confirmed', tenant_id='1',

@@ -386,9 +386,9 @@ class TestRingBuilder(unittest.TestCase):
     def test_shuffled_gather(self):
         if self._shuffled_gather_helper() and \
                 self._shuffled_gather_helper():
-                raise AssertionError('It is highly likely the ring is no '
-                                     'longer shuffling the set of partitions '
-                                     'to reassign on a rebalance.')
+            raise AssertionError('It is highly likely the ring is no '
+                                 'longer shuffling the set of partitions '
+                                 'to reassign on a rebalance.')
 
     def _shuffled_gather_helper(self):
         rb = ring.RingBuilder(8, 3, 1)

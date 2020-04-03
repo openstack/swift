@@ -400,8 +400,8 @@ class TestProxyLogging(unittest.TestCase):
         with mock.patch('time.time',
                         mock.MagicMock(
                             side_effect=[10000000.0, 10000000.5, 10000001.0])):
-                resp = app(req.environ, start_response)
-                resp_body = b''.join(resp)
+            resp = app(req.environ, start_response)
+            resp_body = b''.join(resp)
         # exhaust generator
         [x for x in resp]
         log_parts = self._log_parts(app)

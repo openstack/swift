@@ -171,9 +171,9 @@ class TestAccountReaper(ReplProbeTest):
         # define reapers which are supposed to operate 3 seconds later
         account_reapers = []
         for conf_file in self.configs['account-server'].values():
-                conf = utils.readconf(conf_file, 'account-reaper')
-                conf['delay_reaping'] = '3'
-                account_reapers.append(reaper.AccountReaper(conf))
+            conf = utils.readconf(conf_file, 'account-reaper')
+            conf['delay_reaping'] = '3'
+            account_reapers.append(reaper.AccountReaper(conf))
 
         self.assertTrue(account_reapers)
 

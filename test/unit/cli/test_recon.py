@@ -438,7 +438,7 @@ aliases = %s
             self.recon_instance.quarantine_check(hosts)
 
         output = stdout.getvalue()
-        r = re.compile("\[quarantined_(.*)\](.*)")
+        r = re.compile(r"\[quarantined_(.*)\](.*)")
         for line in output.splitlines():
             m = r.match(line)
             if m:
@@ -473,7 +473,7 @@ aliases = %s
             self.recon_instance.async_check(hosts)
 
         output = stdout.getvalue()
-        r = re.compile("\[async_pending(.*)\](.*)")
+        r = re.compile(r"\[async_pending(.*)\](.*)")
         lines = output.splitlines()
         self.assertTrue(lines)
         for line in lines:
@@ -514,7 +514,7 @@ aliases = %s
             self.recon_instance.umount_check(hosts)
 
         output = stdout.getvalue()
-        r = re.compile("^Not mounted:|Device errors: .*")
+        r = re.compile(r"^Not mounted:|Device errors: .*")
         lines = output.splitlines()
         self.assertTrue(lines)
         for line in lines:
@@ -548,7 +548,7 @@ aliases = %s
             self.recon_instance.driveaudit_check(hosts)
 
         output = stdout.getvalue()
-        r = re.compile("\[drive_audit_errors(.*)\](.*)")
+        r = re.compile(r"\[drive_audit_errors(.*)\](.*)")
         lines = output.splitlines()
         self.assertTrue(lines)
         for line in lines:

@@ -21,12 +21,10 @@ enum-compat==0.0.2
 eventlet==0.25.0
 extras==1.0.0
 fixtures==3.0.0
-flake8==2.5.5
 future==0.16.0
 gitdb2==2.0.3
 GitPython==2.1.8
 greenlet==0.3.2
-hacking==0.11.0
 idna==2.6
 imagesize==1.0.0
 iso8601==0.1.12
@@ -56,12 +54,10 @@ oslo.serialization==2.25.0
 oslo.utils==3.36.0
 PasteDeploy==1.3.3
 pbr==3.1.1
-pep8==1.5.7
 prettytable==0.7.2
 pycparser==2.18
 pyeclib==1.3.1
 pykmip==0.7.0
-pyflakes==0.8.1
 Pygments==2.2.0
 pyparsing==2.2.0
 pyperclip==1.6.0

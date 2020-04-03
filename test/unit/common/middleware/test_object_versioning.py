@@ -2281,7 +2281,6 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
             'name': 'unexpected-symlink',
             'hash': 'd41d8cd98f00b204e9800998ecf8427e',
             'last_modified': '2019-07-26T15:09:54.518990',
-            'content_type': 'application/foo',
             'symlink_bytes': 9,
             'symlink_path': '/v1/a/tgt_container/tgt_obj',
             'symlink_etag': 'e55cedc11adb39c404b7365f7d6291fa',

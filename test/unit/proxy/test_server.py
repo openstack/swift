@@ -2030,7 +2030,7 @@ class BaseTestObjectController(object):
             self.app.update_request(req)
             try:
                 res = method(req)
-            except HTTPException as res:
+            except HTTPException as res:  # noqa: F841
                 pass
             self.assertEqual(res.status_int, expected)
 
@@ -2043,7 +2043,7 @@ class BaseTestObjectController(object):
             self.app.update_request(req)
             try:
                 res = method(req)
-            except HTTPException as res:
+            except HTTPException as res:  # noqa: F841
                 pass
             self.assertEqual(res.status_int, expected)
 
@@ -3591,7 +3591,7 @@ class TestReplicatedObjectController(
                 self.app.update_request(req)
                 try:
                     res = controller.PUT(req)
-                except HTTPException as res:
+                except HTTPException as res:  # noqa: F841
                     pass
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
@@ -3623,7 +3623,7 @@ class TestReplicatedObjectController(
                 self.app.update_request(req)
                 try:
                     res = controller.PUT(req)
-                except HTTPException as res:
+                except HTTPException as res:  # noqa: F841
                     pass
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
@@ -3668,7 +3668,7 @@ class TestReplicatedObjectController(
                 self.app.update_request(req)
                 try:
                     res = controller.PUT(req)
-                except HTTPException as res:
+                except HTTPException as res:  # noqa: F841
                     pass
                 expected = str(expected)
                 self.assertEqual(res.status[:len(str(expected))],
@@ -9930,7 +9930,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(3, len(timestamps))
         for timestamp in timestamps:
             self.assertEqual(timestamp, timestamps[0])
-            self.assertTrue(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
+            self.assertTrue(re.match(r'[0-9]{10}\.[0-9]{5}', timestamp))
 
     def test_DELETE_backed_x_timestamp_header(self):
         timestamps = []
@@ -9956,7 +9956,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(3, len(timestamps))
         for timestamp in timestamps:
             self.assertEqual(timestamp, timestamps[0])
-            self.assertTrue(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
+            self.assertTrue(re.match(r'[0-9]{10}\.[0-9]{5}', timestamp))
 
     def test_node_read_timeout_retry_to_container(self):
         with save_globals():

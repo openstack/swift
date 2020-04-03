@@ -19,7 +19,7 @@ from swift.common.utils import public
 
 from swift.common.middleware.s3api.exception import ACLError
 from swift.common.middleware.s3api.controllers.base import Controller
-from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented, \
+from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented,\
     MalformedACLError, UnexpectedContent, MissingSecurityHeader
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
 from swift.common.middleware.s3api.acl_utils import swift_acl_translate, \

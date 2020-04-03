@@ -185,7 +185,7 @@ F_SETPIPE_SZ = getattr(fcntl, 'F_SETPIPE_SZ', 1031)
 O_TMPFILE = getattr(os, 'O_TMPFILE', 0o20000000 | os.O_DIRECTORY)
 
 # Used by the parse_socket_string() function to validate IPv6 addresses
-IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
+IPV6_RE = re.compile(r"^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
 
 MD5_OF_EMPTY_STRING = 'd41d8cd98f00b204e9800998ecf8427e'
 RESERVED_BYTE = b'\x00'
@@ -3505,7 +3505,7 @@ def affinity_key_function(affinity_str):
     pieces = [s.strip() for s in affinity_str.split(',')]
     for piece in pieces:
         # matches r<number>=<number> or r<number>z<number>=<number>
-        match = re.match("r(\d+)(?:z(\d+))?=(\d+)$", piece)
+        match = re.match(r"r(\d+)(?:z(\d+))?=(\d+)$", piece)
         if match:
             region, zone, priority = match.groups()
             region = int(region)
@@ -3558,7 +3558,7 @@ def affinity_locality_predicate(write_affinity_str):
     pieces = [s.strip() for s in affinity_str.split(',')]
     for piece in pieces:
         # matches r<number> or r<number>z<number>
-        match = re.match("r(\d+)(?:z(\d+))?$", piece)
+        match = re.match(r"r(\d+)(?:z(\d+))?$", piece)
         if match:
             region, zone = match.groups()
             region = int(region)
