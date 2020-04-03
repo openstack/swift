@@ -558,6 +558,44 @@ class TestMemcached(unittest.TestCase):
                 None)
             self.assertFalse(not_expected in mock_stderr.getvalue())
 
+    def test_multi_delete(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211',
+                                                  '1.2.3.5:11211'])
+        mock1 = MockMemcached()
+        mock2 = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock1, mock1)] * 2)
+        memcache_client._client_cache['1.2.3.5:11211'] = MockedMemcachePool(
+            [(mock2, mock2)] * 2)
+
+        # MemcacheRing will put 'some_key0' on server 1.2.3.5:11211 and
+        # 'some_key1' and 'multi_key' on '1.2.3.4:11211'
+        memcache_client.set_multi(
+            {'some_key0': [1, 2, 3], 'some_key1': [4, 5, 6]}, 'multi_key')
+        self.assertEqual(
+            memcache_client.get_multi(('some_key1', 'some_key0'), 'multi_key'),
+            [[4, 5, 6], [1, 2, 3]])
+        for key in (b'some_key0', b'some_key1'):
+            key = md5(key).hexdigest().encode('ascii')
+            self.assertIn(key, mock1.cache)
+            _junk, cache_timeout, _junk = mock1.cache[key]
+            self.assertEqual(cache_timeout, b'0')
+
+        memcache_client.set('some_key0', [7, 8, 9])
+        self.assertEqual(memcache_client.get('some_key0'), [7, 8, 9])
+        key = md5(b'some_key0').hexdigest().encode('ascii')
+        self.assertIn(key, mock2.cache)
+
+        # Delete 'some_key0' with server_key='multi_key'
+        memcache_client.delete('some_key0', server_key='multi_key')
+        self.assertEqual(memcache_client.get_multi(
+            ('some_key0', 'some_key1'), 'multi_key'),
+            [None, [4, 5, 6]])
+
+        # 'some_key0' have to be available on 1.2.3.5:11211
+        self.assertEqual(memcache_client.get('some_key0'), [7, 8, 9])
+        self.assertIn(key, mock2.cache)
+
     def test_serialization(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
                                                  allow_pickle=True)
