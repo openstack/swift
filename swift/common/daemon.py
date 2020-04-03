@@ -45,6 +45,7 @@ class Daemon(object):
     multiple daemonized workers, they simply provide the behavior of the daemon
     and context specific knowledge about how workers should be started.
     """
+    WORKERS_HEALTHCHECK_INTERVAL = 5.0
 
     def __init__(self, conf):
         self.conf = conf
@@ -239,7 +240,7 @@ class DaemonStrategy(object):
                 if not self.spawned_pids():
                     self.logger.notice('Finished %s', os.getpid())
                     break
-            time.sleep(0.1)
+            time.sleep(self.daemon.WORKERS_HEALTHCHECK_INTERVAL)
         self.daemon.post_multiprocess_run()
         return 0
 

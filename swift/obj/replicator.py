@@ -138,6 +138,8 @@ class ObjectReplicator(Daemon):
             int(conf.get('bind_port', 6200))
         self.concurrency = int(conf.get('concurrency', 1))
         self.replicator_workers = int(conf.get('replicator_workers', 0))
+        self.policies = [policy for policy in POLICIES
+                         if policy.policy_type == REPL_POLICY]
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
@@ -186,6 +188,7 @@ class ObjectReplicator(Daemon):
         self.is_multiprocess_worker = None
         self._df_router = DiskFileRouter(conf, self.logger)
         self._child_process_reaper_queue = queue.LightQueue()
+        self.rings_mtime = None
 
     def _zero_stats(self):
         self.stats_for_dev = defaultdict(Stats)
@@ -203,7 +206,7 @@ class ObjectReplicator(Daemon):
     def _get_my_replication_ips(self):
         my_replication_ips = set()
         ips = whataremyips()
-        for policy in POLICIES:
+        for policy in self.policies:
             self.load_object_ring(policy)
             for local_dev in [dev for dev in policy.object_ring.devs
                               if dev and dev['replication_ip'] in ips and
@@ -290,6 +293,11 @@ class ObjectReplicator(Daemon):
         if time.time() >= self._next_rcache_update:
             update = self.aggregate_recon_update()
             dump_recon_cache(update, self.rcache, self.logger)
+        rings_mtime = [os.path.getmtime(self.load_object_ring(
+                       policy).serialized_path) for policy in self.policies]
+        if self.rings_mtime == rings_mtime:
+            return True
+        self.rings_mtime = rings_mtime
         return self.get_local_devices() == self.all_local_devices
 
     def get_local_devices(self):
@@ -302,9 +310,7 @@ class ObjectReplicator(Daemon):
         """
         ips = whataremyips(self.bind_ip)
         local_devices = set()
-        for policy in POLICIES:
-            if policy.policy_type != REPL_POLICY:
-                continue
+        for policy in self.policies:
             self.load_object_ring(policy)
             for device in policy.object_ring.devs:
                 if device and is_local_device(
@@ -880,7 +886,7 @@ class ObjectReplicator(Daemon):
         """
         jobs = []
         ips = whataremyips(self.bind_ip)
-        for policy in POLICIES:
+        for policy in self.policies:
             # Skip replication if next_part_power is set. In this case
             # every object is hard-linked twice, but the replicator can't
             # detect them and would create a second copy of the file if not
@@ -894,15 +900,14 @@ class ObjectReplicator(Daemon):
                     policy.name)
                 continue
 
-            if policy.policy_type == REPL_POLICY:
-                if (override_policies is not None and
-                        policy.idx not in override_policies):
-                    continue
-                # ensure rings are loaded for policy
-                self.load_object_ring(policy)
-                jobs += self.build_replication_jobs(
-                    policy, ips, override_devices=override_devices,
-                    override_partitions=override_partitions)
+            if (override_policies is not None and
+                    policy.idx not in override_policies):
+                continue
+            # ensure rings are loaded for policy
+            self.load_object_ring(policy)
+            jobs += self.build_replication_jobs(
+                policy, ips, override_devices=override_devices,
+                override_partitions=override_partitions)
         random.shuffle(jobs)
         if self.handoffs_first:
             # Move the handoff parts to the front of the list

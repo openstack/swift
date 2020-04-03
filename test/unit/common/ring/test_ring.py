@@ -559,7 +559,8 @@ class TestRing(TestRingBase):
                                 'ip': '1.2.%d.%d' % (zone, server),
                                 'port': 1234 + device,
                                 'zone': zone, 'region': 0,
-                                'weight': 1.0})
+                                'weight': 1.0,
+                                'device': "d%s" % device})
                     next_dev_id += 1
         rb.rebalance(seed=2)
         rb.get_ring().save(self.testgz)
@@ -604,7 +605,8 @@ class TestRing(TestRingBase):
         server = 0
         rb.add_dev({'id': next_dev_id,
                     'ip': '1.2.%d.%d' % (zone, server),
-                    'port': 1234, 'zone': zone, 'region': 0, 'weight': 1.0})
+                    'port': 1234, 'zone': zone, 'region': 0, 'weight': 1.0,
+                    'device': 'xd0'})
         next_dev_id += 1
         rb.pretend_min_part_hours_passed()
         num_parts_changed, _balance, _removed_dev = rb.rebalance(seed=2)
@@ -836,7 +838,8 @@ class TestRing(TestRingBase):
                         # 108.0 is the weight of all devices created prior to
                         # this test in region 0; this way all regions have
                         # equal combined weight
-                        'zone': 1, 'region': region, 'weight': 108.0})
+                        'zone': 1, 'region': region, 'weight': 108.0,
+                        'device': 'sdx'})
             next_dev_id += 1
         rb.pretend_min_part_hours_passed()
         rb.rebalance(seed=1)
