@@ -135,9 +135,13 @@ another device when creating the VM, and follow these instructions:
 
       sudo mkfs.xfs /dev/sdb1
 
+#. Find the UUID of the new partition::
+
+      sudo blkid
+
 #. Edit ``/etc/fstab`` and add::
 
-      /dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,logbufs=8 0 0
+      UUID="<UUID-from-output-above>" /mnt/sdb1 xfs noatime,nodiratime,logbufs=8 0 0
 
 #. Create the Swift data mount point and test that mounting works::
 
