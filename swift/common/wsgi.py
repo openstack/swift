@@ -501,6 +501,8 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
         def get_environ(self, *args, **kwargs):
             environ = wsgi.HttpProtocol.get_environ(self, *args, **kwargs)
             header_payload = self.headers.get_payload()
+            if isinstance(header_payload, list) and len(header_payload) == 1:
+                header_payload = header_payload[0].get_payload()
             if header_payload:
                 # This shouldn't be here. We must've bumped up against
                 # https://bugs.python.org/issue37093
