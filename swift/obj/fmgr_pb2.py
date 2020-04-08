@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='filemgr',
   syntax='proto3',
   serialized_options=None,
-  serialized_pb=b'\n\nfmgr.proto\x12\x07\x66ilemgr\",\n\x12ListPartitionsInfo\x12\x16\n\x0epartition_bits\x18\x01 \x01(\r\">\n\x11ListPartitionInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12\x16\n\x0epartition_bits\x18\x02 \x01(\r\"K\n\x0eListSuffixInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12\x0e\n\x06suffix\x18\x02 \x01(\x0c\x12\x16\n\x0epartition_bits\x18\x03 \x01(\r\"\x1b\n\nDirEntries\x12\r\n\x05\x65ntry\x18\x01 \x03(\t\"m\n\x0bVolumeIndex\x12\r\n\x05index\x18\x01 \x01(\r\x12\x13\n\x0bquarantined\x18\x02 \x01(\x08\x12\x12\n\npage_token\x18\x03 \x01(\x0c\x12\x11\n\tpage_size\x18\x04 \x01(\r\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"\x86\x01\n\x06Volume\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12(\n\x0bvolume_type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x14\n\x0cvolume_state\x18\x03 \x01(\r\x12\x11\n\tpartition\x18\x04 \x01(\r\x12\x13\n\x0bnext_offset\x18\x05 \x01(\x04\"i\n\x11GetNextOffsetInfo\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12\x13\n\x0bvolume_type\x18\x02 \x01(\r\x12\x14\n\x0cvolume_state\x18\x03 \x01(\r\x12\x13\n\x0brepair_tool\x18\x04 \x01(\x08\"\\\n\x0fListVolumesInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12!\n\x04type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"+\n\x07Volumes\x12 \n\x07volumes\x18\x01 \x03(\x0b\x32\x0f.filemgr.Volume\"\"\n\x10VolumeNextOffset\x12\x0e\n\x06offset\x18\x01 \x01(\x04\"\xa5\x01\n\rNewVolumeInfo\x12\x11\n\tpartition\x18\x01 \x01(\r\x12!\n\x04type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x14\n\x0cvolume_index\x18\x03 \x01(\r\x12\x0e\n\x06offset\x18\x04 \x01(\x04\x12#\n\x05state\x18\x05 \x01(\x0e\x32\x14.filemgr.VolumeState\x12\x13\n\x0brepair_tool\x18\x06 \x01(\x08\"`\n\x0eNewVolumeState\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12#\n\x05state\x18\x02 \x01(\x0e\x32\x14.filemgr.VolumeState\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"\x10\n\x0eNewVolumeReply\"\x10\n\x0e\x44\x65lObjectReply\"\r\n\x0bRenameReply\"m\n\rNewObjectInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\x12\x13\n\x0bnext_offset\x18\x04 \x01(\x04\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"\x10\n\x0eNewObjectReply\"%\n\x15QuarantinedObjectName\x12\x0c\n\x04name\x18\x01 \x01(\x0c\"b\n\x16QuarantinedObjectNames\x12/\n\x07objects\x18\x01 \x03(\x0b\x32\x1e.filemgr.QuarantinedObjectName\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"/\n\nObjectName\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"K\n\x0eLoadObjectInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x16\n\x0eis_quarantined\x18\x02 \x01(\x08\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"A\n\nRenameInfo\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x10\n\x08new_name\x18\x02 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"<\n\x06Object\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\"P\n\x13LoadObjectsResponse\x12 \n\x07objects\x18\x01 \x03(\x0b\x32\x0f.filemgr.Object\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"3\n\x0cObjectPrefix\x12\x0e\n\x06prefix\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"\x07\n\x05\x45mpty\"\x0e\n\x0cGetStatsInfo\"@\n\x10PartitionContent\x12,\n\x0c\x66ile_entries\x18\x01 \x03(\x0b\x32\x16.filemgr.FullPathEntry\"@\n\rFullPathEntry\x12\x0e\n\x06suffix\x18\x01 \x01(\x0c\x12\r\n\x05ohash\x18\x02 \x01(\x0c\x12\x10\n\x08\x66ilename\x18\x03 \x01(\x0c\"\x1a\n\x07KvState\x12\x0f\n\x07isClean\x18\x01 \x01(\x08\"c\n\x07KVStats\x12*\n\x05stats\x18\x01 \x03(\x0b\x32\x1b.filemgr.KVStats.StatsEntry\x1a,\n\nStatsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x04:\x02\x38\x01\"C\n\x1aListQuarantinedOHashesInfo\x12\x12\n\npage_token\x18\x01 \x01(\x0c\x12\x11\n\tpage_size\x18\x02 \x01(\r*N\n\nVolumeType\x12\x12\n\x0eVOLUME_DEFAULT\x10\x00\x12\x14\n\x10VOLUME_TOMBSTONE\x10\x01\x12\x16\n\x12VOLUME_X_DELETE_AT\x10\x02*R\n\x0bVolumeState\x12\x0c\n\x08STATE_RW\x10\x00\x12\x18\n\x14STATE_COMPACTION_SRC\x10\x01\x12\x1b\n\x17STATE_COMPACTION_TARGET\x10\x02\x62\x06proto3'
+  serialized_pb=b'\n\nfmgr.proto\x12\x07\x66ilemgr\"\xad\x01\n\x15RegisterVolumeRequest\x12\x11\n\tpartition\x18\x01 \x01(\r\x12!\n\x04type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x14\n\x0cvolume_index\x18\x03 \x01(\r\x12\x0e\n\x06offset\x18\x04 \x01(\x04\x12#\n\x05state\x18\x05 \x01(\x0e\x32\x14.filemgr.VolumeState\x12\x13\n\x0brepair_tool\x18\x06 \x01(\x08\"\x15\n\x13RegisterVolumeReply\"=\n\x17UnregisterVolumeRequest\x12\r\n\x05index\x18\x01 \x01(\r\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"\x17\n\x15UnregisterVolumeReply\"j\n\x18UpdateVolumeStateRequest\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12#\n\x05state\x18\x02 \x01(\x0e\x32\x14.filemgr.VolumeState\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"\x18\n\x16UpdateVolumeStateReply\"6\n\x10GetVolumeRequest\x12\r\n\x05index\x18\x01 \x01(\r\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"\x8e\x01\n\x0eGetVolumeReply\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12(\n\x0bvolume_type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x14\n\x0cvolume_state\x18\x03 \x01(\r\x12\x11\n\tpartition\x18\x04 \x01(\r\x12\x13\n\x0bnext_offset\x18\x05 \x01(\x04\"_\n\x12ListVolumesRequest\x12\x11\n\tpartition\x18\x01 \x01(\r\x12!\n\x04type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"4\n\x10ListVolumesReply\x12 \n\x07volumes\x18\x01 \x03(\x0b\x32\x0f.filemgr.Volume\"u\n\x15RegisterObjectRequest\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\x12\x13\n\x0bnext_offset\x18\x04 \x01(\x04\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"\x15\n\x13RegisterObjectReply\"<\n\x17UnregisterObjectRequest\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"\x17\n\x15UnregisterObjectReply\"J\n\x13RenameObjectRequest\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x10\n\x08new_name\x18\x02 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"\x13\n\x11RenameObjectReply\"N\n\x11LoadObjectRequest\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x16\n\x0eis_quarantined\x18\x02 \x01(\x08\x12\x13\n\x0brepair_tool\x18\x03 \x01(\x08\"E\n\x0fLoadObjectReply\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\"<\n\x17QuarantineObjectRequest\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"\x17\n\x15QuarantineObjectReply\">\n\x19UnquarantineObjectRequest\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"\x19\n\x17UnquarantineObjectReply\"A\n\x1aLoadObjectsByPrefixRequest\x12\x0e\n\x06prefix\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"<\n\x18LoadObjectsByPrefixReply\x12 \n\x07objects\x18\x01 \x03(\x0b\x32\x0f.filemgr.Object\"|\n\x1aLoadObjectsByVolumeRequest\x12\r\n\x05index\x18\x01 \x01(\r\x12\x13\n\x0bquarantined\x18\x02 \x01(\x08\x12\x12\n\npage_token\x18\x03 \x01(\x0c\x12\x11\n\tpage_size\x18\x04 \x01(\r\x12\x13\n\x0brepair_tool\x18\x05 \x01(\x08\"U\n\x18LoadObjectsByVolumeReply\x12 \n\x07objects\x18\x01 \x03(\x0b\x32\x0f.filemgr.Object\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"/\n\x15ListPartitionsRequest\x12\x16\n\x0epartition_bits\x18\x01 \x01(\r\"A\n\x14ListPartitionRequest\x12\x11\n\tpartition\x18\x01 \x01(\r\x12\x16\n\x0epartition_bits\x18\x02 \x01(\r\"N\n\x11ListSuffixRequest\x12\x11\n\tpartition\x18\x01 \x01(\r\x12\x0e\n\x06suffix\x18\x02 \x01(\x0c\x12\x16\n\x0epartition_bits\x18\x03 \x01(\r\"F\n\x1dListQuarantinedOHashesRequest\x12\x12\n\npage_token\x18\x01 \x01(\x0c\x12\x11\n\tpage_size\x18\x02 \x01(\r\"g\n\x1bListQuarantinedOHashesReply\x12/\n\x07objects\x18\x01 \x03(\x0b\x32\x1e.filemgr.QuarantinedObjectName\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"%\n\x15QuarantinedObjectName\x12\x0c\n\x04name\x18\x01 \x01(\x0c\"B\n\x1bListQuarantinedOHashRequest\x12\x0e\n\x06prefix\x18\x01 \x01(\x0c\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"=\n\x19ListQuarantinedOHashReply\x12 \n\x07objects\x18\x01 \x03(\x0b\x32\x0f.filemgr.Object\"A\n\x14GetNextOffsetRequest\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12\x13\n\x0brepair_tool\x18\x02 \x01(\x08\"$\n\x12GetNextOffsetReply\x12\x0e\n\x06offset\x18\x01 \x01(\x04\"\x11\n\x0fGetStatsRequest\"o\n\rGetStatsReply\x12\x30\n\x05stats\x18\x01 \x03(\x0b\x32!.filemgr.GetStatsReply.StatsEntry\x1a,\n\nStatsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x04:\x02\x38\x01\"\x11\n\x0fSetKvStateReply\"\x13\n\x11GetKvStateRequest\"\x1a\n\x07KvState\x12\x0f\n\x07isClean\x18\x01 \x01(\x08\"\x86\x01\n\x06Volume\x12\x14\n\x0cvolume_index\x18\x01 \x01(\r\x12(\n\x0bvolume_type\x18\x02 \x01(\x0e\x32\x13.filemgr.VolumeType\x12\x14\n\x0cvolume_state\x18\x03 \x01(\r\x12\x11\n\tpartition\x18\x04 \x01(\r\x12\x13\n\x0bnext_offset\x18\x05 \x01(\x04\"<\n\x06Object\x12\x0c\n\x04name\x18\x01 \x01(\x0c\x12\x14\n\x0cvolume_index\x18\x02 \x01(\r\x12\x0e\n\x06offset\x18\x03 \x01(\x04\"\x1b\n\nDirEntries\x12\r\n\x05\x65ntry\x18\x01 \x03(\t*N\n\nVolumeType\x12\x12\n\x0eVOLUME_DEFAULT\x10\x00\x12\x14\n\x10VOLUME_TOMBSTONE\x10\x01\x12\x16\n\x12VOLUME_X_DELETE_AT\x10\x02*R\n\x0bVolumeState\x12\x0c\n\x08STATE_RW\x10\x00\x12\x18\n\x14STATE_COMPACTION_SRC\x10\x01\x12\x1b\n\x17STATE_COMPACTION_TARGET\x10\x02\x62\x06proto3'
 )
 
 _VOLUMETYPE = _descriptor.EnumDescriptor(
@@ -43,8 +43,8 @@ _VOLUMETYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=2099,
-  serialized_end=2177,
+  serialized_start=2869,
+  serialized_end=2947,
 )
 _sym_db.RegisterEnumDescriptor(_VOLUMETYPE)
 
@@ -70,8 +70,8 @@ _VOLUMESTATE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=2179,
-  serialized_end=2261,
+  serialized_start=2949,
+  serialized_end=3031,
 )
 _sym_db.RegisterEnumDescriptor(_VOLUMESTATE)
 
@@ -85,103 +85,55 @@ STATE_COMPACTION_TARGET = 2
 
 
 
-_LISTPARTITIONSINFO = _descriptor.Descriptor(
-  name='ListPartitionsInfo',
-  full_name='filemgr.ListPartitionsInfo',
+_REGISTERVOLUMEREQUEST = _descriptor.Descriptor(
+  name='RegisterVolumeRequest',
+  full_name='filemgr.RegisterVolumeRequest',
   filename=None,
   file=DESCRIPTOR,
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='partition_bits', full_name='filemgr.ListPartitionsInfo.partition_bits', index=0,
-      number=1, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=23,
-  serialized_end=67,
-)
-
-
-_LISTPARTITIONINFO = _descriptor.Descriptor(
-  name='ListPartitionInfo',
-  full_name='filemgr.ListPartitionInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='partition', full_name='filemgr.ListPartitionInfo.partition', index=0,
+      name='partition', full_name='filemgr.RegisterVolumeRequest.partition', index=0,
       number=1, type=13, cpp_type=3, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='partition_bits', full_name='filemgr.ListPartitionInfo.partition_bits', index=1,
-      number=2, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=69,
-  serialized_end=131,
-)
-
-
-_LISTSUFFIXINFO = _descriptor.Descriptor(
-  name='ListSuffixInfo',
-  full_name='filemgr.ListSuffixInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='partition', full_name='filemgr.ListSuffixInfo.partition', index=0,
-      number=1, type=13, cpp_type=3, label=1,
+      name='type', full_name='filemgr.RegisterVolumeRequest.type', index=1,
+      number=2, type=14, cpp_type=8, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='suffix', full_name='filemgr.ListSuffixInfo.suffix', index=1,
-      number=2, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='partition_bits', full_name='filemgr.ListSuffixInfo.partition_bits', index=2,
+      name='volume_index', full_name='filemgr.RegisterVolumeRequest.volume_index', index=2,
       number=3, type=13, cpp_type=3, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='offset', full_name='filemgr.RegisterVolumeRequest.offset', index=3,
+      number=4, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='state', full_name='filemgr.RegisterVolumeRequest.state', index=4,
+      number=5, type=14, cpp_type=8, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.RegisterVolumeRequest.repair_tool', index=5,
+      number=6, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -194,21 +146,318 @@ _LISTSUFFIXINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=133,
-  serialized_end=208,
+  serialized_start=24,
+  serialized_end=197,
 )
 
 
-_DIRENTRIES = _descriptor.Descriptor(
-  name='DirEntries',
-  full_name='filemgr.DirEntries',
+_REGISTERVOLUMEREPLY = _descriptor.Descriptor(
+  name='RegisterVolumeReply',
+  full_name='filemgr.RegisterVolumeReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=199,
+  serialized_end=220,
+)
+
+
+_UNREGISTERVOLUMEREQUEST = _descriptor.Descriptor(
+  name='UnregisterVolumeRequest',
+  full_name='filemgr.UnregisterVolumeRequest',
   filename=None,
   file=DESCRIPTOR,
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='entry', full_name='filemgr.DirEntries.entry', index=0,
-      number=1, type=9, cpp_type=9, label=3,
+      name='index', full_name='filemgr.UnregisterVolumeRequest.index', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.UnregisterVolumeRequest.repair_tool', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=222,
+  serialized_end=283,
+)
+
+
+_UNREGISTERVOLUMEREPLY = _descriptor.Descriptor(
+  name='UnregisterVolumeReply',
+  full_name='filemgr.UnregisterVolumeReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=285,
+  serialized_end=308,
+)
+
+
+_UPDATEVOLUMESTATEREQUEST = _descriptor.Descriptor(
+  name='UpdateVolumeStateRequest',
+  full_name='filemgr.UpdateVolumeStateRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='volume_index', full_name='filemgr.UpdateVolumeStateRequest.volume_index', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='state', full_name='filemgr.UpdateVolumeStateRequest.state', index=1,
+      number=2, type=14, cpp_type=8, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.UpdateVolumeStateRequest.repair_tool', index=2,
+      number=3, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=310,
+  serialized_end=416,
+)
+
+
+_UPDATEVOLUMESTATEREPLY = _descriptor.Descriptor(
+  name='UpdateVolumeStateReply',
+  full_name='filemgr.UpdateVolumeStateReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=418,
+  serialized_end=442,
+)
+
+
+_GETVOLUMEREQUEST = _descriptor.Descriptor(
+  name='GetVolumeRequest',
+  full_name='filemgr.GetVolumeRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='index', full_name='filemgr.GetVolumeRequest.index', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.GetVolumeRequest.repair_tool', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=444,
+  serialized_end=498,
+)
+
+
+_GETVOLUMEREPLY = _descriptor.Descriptor(
+  name='GetVolumeReply',
+  full_name='filemgr.GetVolumeReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='volume_index', full_name='filemgr.GetVolumeReply.volume_index', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='volume_type', full_name='filemgr.GetVolumeReply.volume_type', index=1,
+      number=2, type=14, cpp_type=8, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='volume_state', full_name='filemgr.GetVolumeReply.volume_state', index=2,
+      number=3, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='partition', full_name='filemgr.GetVolumeReply.partition', index=3,
+      number=4, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='next_offset', full_name='filemgr.GetVolumeReply.next_offset', index=4,
+      number=5, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=501,
+  serialized_end=643,
+)
+
+
+_LISTVOLUMESREQUEST = _descriptor.Descriptor(
+  name='ListVolumesRequest',
+  full_name='filemgr.ListVolumesRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='partition', full_name='filemgr.ListVolumesRequest.partition', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='type', full_name='filemgr.ListVolumesRequest.type', index=1,
+      number=2, type=14, cpp_type=8, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.ListVolumesRequest.repair_tool', index=2,
+      number=3, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=645,
+  serialized_end=740,
+)
+
+
+_LISTVOLUMESREPLY = _descriptor.Descriptor(
+  name='ListVolumesReply',
+  full_name='filemgr.ListVolumesReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='volumes', full_name='filemgr.ListVolumesReply.volumes', index=0,
+      number=1, type=11, cpp_type=10, label=3,
       has_default_value=False, default_value=[],
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
@@ -225,48 +474,48 @@ _DIRENTRIES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=210,
-  serialized_end=237,
+  serialized_start=742,
+  serialized_end=794,
 )
 
 
-_VOLUMEINDEX = _descriptor.Descriptor(
-  name='VolumeIndex',
-  full_name='filemgr.VolumeIndex',
+_REGISTEROBJECTREQUEST = _descriptor.Descriptor(
+  name='RegisterObjectRequest',
+  full_name='filemgr.RegisterObjectRequest',
   filename=None,
   file=DESCRIPTOR,
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='index', full_name='filemgr.VolumeIndex.index', index=0,
-      number=1, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='quarantined', full_name='filemgr.VolumeIndex.quarantined', index=1,
-      number=2, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='page_token', full_name='filemgr.VolumeIndex.page_token', index=2,
-      number=3, type=12, cpp_type=9, label=1,
+      name='name', full_name='filemgr.RegisterObjectRequest.name', index=0,
+      number=1, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=b"",
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='page_size', full_name='filemgr.VolumeIndex.page_size', index=3,
-      number=4, type=13, cpp_type=3, label=1,
+      name='volume_index', full_name='filemgr.RegisterObjectRequest.volume_index', index=1,
+      number=2, type=13, cpp_type=3, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.VolumeIndex.repair_tool', index=4,
+      name='offset', full_name='filemgr.RegisterObjectRequest.offset', index=2,
+      number=3, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='next_offset', full_name='filemgr.RegisterObjectRequest.next_offset', index=3,
+      number=4, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.RegisterObjectRequest.repair_tool', index=4,
       number=5, type=8, cpp_type=7, label=1,
       has_default_value=False, default_value=False,
       message_type=None, enum_type=None, containing_type=None,
@@ -284,8 +533,1073 @@ _VOLUMEINDEX = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=239,
-  serialized_end=348,
+  serialized_start=796,
+  serialized_end=913,
+)
+
+
+_REGISTEROBJECTREPLY = _descriptor.Descriptor(
+  name='RegisterObjectReply',
+  full_name='filemgr.RegisterObjectReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=915,
+  serialized_end=936,
+)
+
+
+_UNREGISTEROBJECTREQUEST = _descriptor.Descriptor(
+  name='UnregisterObjectRequest',
+  full_name='filemgr.UnregisterObjectRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='filemgr.UnregisterObjectRequest.name', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.UnregisterObjectRequest.repair_tool', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=938,
+  serialized_end=998,
+)
+
+
+_UNREGISTEROBJECTREPLY = _descriptor.Descriptor(
+  name='UnregisterObjectReply',
+  full_name='filemgr.UnregisterObjectReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1000,
+  serialized_end=1023,
+)
+
+
+_RENAMEOBJECTREQUEST = _descriptor.Descriptor(
+  name='RenameObjectRequest',
+  full_name='filemgr.RenameObjectRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='filemgr.RenameObjectRequest.name', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='new_name', full_name='filemgr.RenameObjectRequest.new_name', index=1,
+      number=2, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.RenameObjectRequest.repair_tool', index=2,
+      number=3, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1025,
+  serialized_end=1099,
+)
+
+
+_RENAMEOBJECTREPLY = _descriptor.Descriptor(
+  name='RenameObjectReply',
+  full_name='filemgr.RenameObjectReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1101,
+  serialized_end=1120,
+)
+
+
+_LOADOBJECTREQUEST = _descriptor.Descriptor(
+  name='LoadObjectRequest',
+  full_name='filemgr.LoadObjectRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='filemgr.LoadObjectRequest.name', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='is_quarantined', full_name='filemgr.LoadObjectRequest.is_quarantined', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.LoadObjectRequest.repair_tool', index=2,
+      number=3, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1122,
+  serialized_end=1200,
+)
+
+
+_LOADOBJECTREPLY = _descriptor.Descriptor(
+  name='LoadObjectReply',
+  full_name='filemgr.LoadObjectReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='filemgr.LoadObjectReply.name', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='volume_index', full_name='filemgr.LoadObjectReply.volume_index', index=1,
+      number=2, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='offset', full_name='filemgr.LoadObjectReply.offset', index=2,
+      number=3, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1202,
+  serialized_end=1271,
+)
+
+
+_QUARANTINEOBJECTREQUEST = _descriptor.Descriptor(
+  name='QuarantineObjectRequest',
+  full_name='filemgr.QuarantineObjectRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='filemgr.QuarantineObjectRequest.name', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.QuarantineObjectRequest.repair_tool', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1273,
+  serialized_end=1333,
+)
+
+
+_QUARANTINEOBJECTREPLY = _descriptor.Descriptor(
+  name='QuarantineObjectReply',
+  full_name='filemgr.QuarantineObjectReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1335,
+  serialized_end=1358,
+)
+
+
+_UNQUARANTINEOBJECTREQUEST = _descriptor.Descriptor(
+  name='UnquarantineObjectRequest',
+  full_name='filemgr.UnquarantineObjectRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='filemgr.UnquarantineObjectRequest.name', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.UnquarantineObjectRequest.repair_tool', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1360,
+  serialized_end=1422,
+)
+
+
+_UNQUARANTINEOBJECTREPLY = _descriptor.Descriptor(
+  name='UnquarantineObjectReply',
+  full_name='filemgr.UnquarantineObjectReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1424,
+  serialized_end=1449,
+)
+
+
+_LOADOBJECTSBYPREFIXREQUEST = _descriptor.Descriptor(
+  name='LoadObjectsByPrefixRequest',
+  full_name='filemgr.LoadObjectsByPrefixRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='prefix', full_name='filemgr.LoadObjectsByPrefixRequest.prefix', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.LoadObjectsByPrefixRequest.repair_tool', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1451,
+  serialized_end=1516,
+)
+
+
+_LOADOBJECTSBYPREFIXREPLY = _descriptor.Descriptor(
+  name='LoadObjectsByPrefixReply',
+  full_name='filemgr.LoadObjectsByPrefixReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='objects', full_name='filemgr.LoadObjectsByPrefixReply.objects', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1518,
+  serialized_end=1578,
+)
+
+
+_LOADOBJECTSBYVOLUMEREQUEST = _descriptor.Descriptor(
+  name='LoadObjectsByVolumeRequest',
+  full_name='filemgr.LoadObjectsByVolumeRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='index', full_name='filemgr.LoadObjectsByVolumeRequest.index', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='quarantined', full_name='filemgr.LoadObjectsByVolumeRequest.quarantined', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='page_token', full_name='filemgr.LoadObjectsByVolumeRequest.page_token', index=2,
+      number=3, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='page_size', full_name='filemgr.LoadObjectsByVolumeRequest.page_size', index=3,
+      number=4, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.LoadObjectsByVolumeRequest.repair_tool', index=4,
+      number=5, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1580,
+  serialized_end=1704,
+)
+
+
+_LOADOBJECTSBYVOLUMEREPLY = _descriptor.Descriptor(
+  name='LoadObjectsByVolumeReply',
+  full_name='filemgr.LoadObjectsByVolumeReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='objects', full_name='filemgr.LoadObjectsByVolumeReply.objects', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='next_page_token', full_name='filemgr.LoadObjectsByVolumeReply.next_page_token', index=1,
+      number=2, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1706,
+  serialized_end=1791,
+)
+
+
+_LISTPARTITIONSREQUEST = _descriptor.Descriptor(
+  name='ListPartitionsRequest',
+  full_name='filemgr.ListPartitionsRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='partition_bits', full_name='filemgr.ListPartitionsRequest.partition_bits', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1793,
+  serialized_end=1840,
+)
+
+
+_LISTPARTITIONREQUEST = _descriptor.Descriptor(
+  name='ListPartitionRequest',
+  full_name='filemgr.ListPartitionRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='partition', full_name='filemgr.ListPartitionRequest.partition', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='partition_bits', full_name='filemgr.ListPartitionRequest.partition_bits', index=1,
+      number=2, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1842,
+  serialized_end=1907,
+)
+
+
+_LISTSUFFIXREQUEST = _descriptor.Descriptor(
+  name='ListSuffixRequest',
+  full_name='filemgr.ListSuffixRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='partition', full_name='filemgr.ListSuffixRequest.partition', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='suffix', full_name='filemgr.ListSuffixRequest.suffix', index=1,
+      number=2, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='partition_bits', full_name='filemgr.ListSuffixRequest.partition_bits', index=2,
+      number=3, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1909,
+  serialized_end=1987,
+)
+
+
+_LISTQUARANTINEDOHASHESREQUEST = _descriptor.Descriptor(
+  name='ListQuarantinedOHashesRequest',
+  full_name='filemgr.ListQuarantinedOHashesRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='page_token', full_name='filemgr.ListQuarantinedOHashesRequest.page_token', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='page_size', full_name='filemgr.ListQuarantinedOHashesRequest.page_size', index=1,
+      number=2, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1989,
+  serialized_end=2059,
+)
+
+
+_LISTQUARANTINEDOHASHESREPLY = _descriptor.Descriptor(
+  name='ListQuarantinedOHashesReply',
+  full_name='filemgr.ListQuarantinedOHashesReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='objects', full_name='filemgr.ListQuarantinedOHashesReply.objects', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='next_page_token', full_name='filemgr.ListQuarantinedOHashesReply.next_page_token', index=1,
+      number=2, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2061,
+  serialized_end=2164,
+)
+
+
+_QUARANTINEDOBJECTNAME = _descriptor.Descriptor(
+  name='QuarantinedObjectName',
+  full_name='filemgr.QuarantinedObjectName',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='name', full_name='filemgr.QuarantinedObjectName.name', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2166,
+  serialized_end=2203,
+)
+
+
+_LISTQUARANTINEDOHASHREQUEST = _descriptor.Descriptor(
+  name='ListQuarantinedOHashRequest',
+  full_name='filemgr.ListQuarantinedOHashRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='prefix', full_name='filemgr.ListQuarantinedOHashRequest.prefix', index=0,
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.ListQuarantinedOHashRequest.repair_tool', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2205,
+  serialized_end=2271,
+)
+
+
+_LISTQUARANTINEDOHASHREPLY = _descriptor.Descriptor(
+  name='ListQuarantinedOHashReply',
+  full_name='filemgr.ListQuarantinedOHashReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='objects', full_name='filemgr.ListQuarantinedOHashReply.objects', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2273,
+  serialized_end=2334,
+)
+
+
+_GETNEXTOFFSETREQUEST = _descriptor.Descriptor(
+  name='GetNextOffsetRequest',
+  full_name='filemgr.GetNextOffsetRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='volume_index', full_name='filemgr.GetNextOffsetRequest.volume_index', index=0,
+      number=1, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='repair_tool', full_name='filemgr.GetNextOffsetRequest.repair_tool', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2336,
+  serialized_end=2401,
+)
+
+
+_GETNEXTOFFSETREPLY = _descriptor.Descriptor(
+  name='GetNextOffsetReply',
+  full_name='filemgr.GetNextOffsetReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='offset', full_name='filemgr.GetNextOffsetReply.offset', index=0,
+      number=1, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2403,
+  serialized_end=2439,
+)
+
+
+_GETSTATSREQUEST = _descriptor.Descriptor(
+  name='GetStatsRequest',
+  full_name='filemgr.GetStatsRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2441,
+  serialized_end=2458,
+)
+
+
+_GETSTATSREPLY_STATSENTRY = _descriptor.Descriptor(
+  name='StatsEntry',
+  full_name='filemgr.GetStatsReply.StatsEntry',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='filemgr.GetStatsReply.StatsEntry.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"".decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='value', full_name='filemgr.GetStatsReply.StatsEntry.value', index=1,
+      number=2, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=b'8\001',
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2527,
+  serialized_end=2571,
+)
+
+_GETSTATSREPLY = _descriptor.Descriptor(
+  name='GetStatsReply',
+  full_name='filemgr.GetStatsReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='stats', full_name='filemgr.GetStatsReply.stats', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[_GETSTATSREPLY_STATSENTRY, ],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2460,
+  serialized_end=2571,
+)
+
+
+_SETKVSTATEREPLY = _descriptor.Descriptor(
+  name='SetKvStateReply',
+  full_name='filemgr.SetKvStateReply',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2573,
+  serialized_end=2590,
+)
+
+
+_GETKVSTATEREQUEST = _descriptor.Descriptor(
+  name='GetKvStateRequest',
+  full_name='filemgr.GetKvStateRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2592,
+  serialized_end=2611,
+)
+
+
+_KVSTATE = _descriptor.Descriptor(
+  name='KvState',
+  full_name='filemgr.KvState',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='isClean', full_name='filemgr.KvState.isClean', index=0,
+      number=1, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=2613,
+  serialized_end=2639,
 )
 
 
@@ -343,630 +1657,8 @@ _VOLUME = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=351,
-  serialized_end=485,
-)
-
-
-_GETNEXTOFFSETINFO = _descriptor.Descriptor(
-  name='GetNextOffsetInfo',
-  full_name='filemgr.GetNextOffsetInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='volume_index', full_name='filemgr.GetNextOffsetInfo.volume_index', index=0,
-      number=1, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='volume_type', full_name='filemgr.GetNextOffsetInfo.volume_type', index=1,
-      number=2, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='volume_state', full_name='filemgr.GetNextOffsetInfo.volume_state', index=2,
-      number=3, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.GetNextOffsetInfo.repair_tool', index=3,
-      number=4, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=487,
-  serialized_end=592,
-)
-
-
-_LISTVOLUMESINFO = _descriptor.Descriptor(
-  name='ListVolumesInfo',
-  full_name='filemgr.ListVolumesInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='partition', full_name='filemgr.ListVolumesInfo.partition', index=0,
-      number=1, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='type', full_name='filemgr.ListVolumesInfo.type', index=1,
-      number=2, type=14, cpp_type=8, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.ListVolumesInfo.repair_tool', index=2,
-      number=3, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=594,
-  serialized_end=686,
-)
-
-
-_VOLUMES = _descriptor.Descriptor(
-  name='Volumes',
-  full_name='filemgr.Volumes',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='volumes', full_name='filemgr.Volumes.volumes', index=0,
-      number=1, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=688,
-  serialized_end=731,
-)
-
-
-_VOLUMENEXTOFFSET = _descriptor.Descriptor(
-  name='VolumeNextOffset',
-  full_name='filemgr.VolumeNextOffset',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='offset', full_name='filemgr.VolumeNextOffset.offset', index=0,
-      number=1, type=4, cpp_type=4, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=733,
-  serialized_end=767,
-)
-
-
-_NEWVOLUMEINFO = _descriptor.Descriptor(
-  name='NewVolumeInfo',
-  full_name='filemgr.NewVolumeInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='partition', full_name='filemgr.NewVolumeInfo.partition', index=0,
-      number=1, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='type', full_name='filemgr.NewVolumeInfo.type', index=1,
-      number=2, type=14, cpp_type=8, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='volume_index', full_name='filemgr.NewVolumeInfo.volume_index', index=2,
-      number=3, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='offset', full_name='filemgr.NewVolumeInfo.offset', index=3,
-      number=4, type=4, cpp_type=4, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='state', full_name='filemgr.NewVolumeInfo.state', index=4,
-      number=5, type=14, cpp_type=8, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.NewVolumeInfo.repair_tool', index=5,
-      number=6, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=770,
-  serialized_end=935,
-)
-
-
-_NEWVOLUMESTATE = _descriptor.Descriptor(
-  name='NewVolumeState',
-  full_name='filemgr.NewVolumeState',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='volume_index', full_name='filemgr.NewVolumeState.volume_index', index=0,
-      number=1, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='state', full_name='filemgr.NewVolumeState.state', index=1,
-      number=2, type=14, cpp_type=8, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.NewVolumeState.repair_tool', index=2,
-      number=3, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=937,
-  serialized_end=1033,
-)
-
-
-_NEWVOLUMEREPLY = _descriptor.Descriptor(
-  name='NewVolumeReply',
-  full_name='filemgr.NewVolumeReply',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1035,
-  serialized_end=1051,
-)
-
-
-_DELOBJECTREPLY = _descriptor.Descriptor(
-  name='DelObjectReply',
-  full_name='filemgr.DelObjectReply',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1053,
-  serialized_end=1069,
-)
-
-
-_RENAMEREPLY = _descriptor.Descriptor(
-  name='RenameReply',
-  full_name='filemgr.RenameReply',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1071,
-  serialized_end=1084,
-)
-
-
-_NEWOBJECTINFO = _descriptor.Descriptor(
-  name='NewObjectInfo',
-  full_name='filemgr.NewObjectInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='name', full_name='filemgr.NewObjectInfo.name', index=0,
-      number=1, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='volume_index', full_name='filemgr.NewObjectInfo.volume_index', index=1,
-      number=2, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='offset', full_name='filemgr.NewObjectInfo.offset', index=2,
-      number=3, type=4, cpp_type=4, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='next_offset', full_name='filemgr.NewObjectInfo.next_offset', index=3,
-      number=4, type=4, cpp_type=4, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.NewObjectInfo.repair_tool', index=4,
-      number=5, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1086,
-  serialized_end=1195,
-)
-
-
-_NEWOBJECTREPLY = _descriptor.Descriptor(
-  name='NewObjectReply',
-  full_name='filemgr.NewObjectReply',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1197,
-  serialized_end=1213,
-)
-
-
-_QUARANTINEDOBJECTNAME = _descriptor.Descriptor(
-  name='QuarantinedObjectName',
-  full_name='filemgr.QuarantinedObjectName',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='name', full_name='filemgr.QuarantinedObjectName.name', index=0,
-      number=1, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1215,
-  serialized_end=1252,
-)
-
-
-_QUARANTINEDOBJECTNAMES = _descriptor.Descriptor(
-  name='QuarantinedObjectNames',
-  full_name='filemgr.QuarantinedObjectNames',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='objects', full_name='filemgr.QuarantinedObjectNames.objects', index=0,
-      number=1, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='next_page_token', full_name='filemgr.QuarantinedObjectNames.next_page_token', index=1,
-      number=2, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1254,
-  serialized_end=1352,
-)
-
-
-_OBJECTNAME = _descriptor.Descriptor(
-  name='ObjectName',
-  full_name='filemgr.ObjectName',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='name', full_name='filemgr.ObjectName.name', index=0,
-      number=1, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.ObjectName.repair_tool', index=1,
-      number=2, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1354,
-  serialized_end=1401,
-)
-
-
-_LOADOBJECTINFO = _descriptor.Descriptor(
-  name='LoadObjectInfo',
-  full_name='filemgr.LoadObjectInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='name', full_name='filemgr.LoadObjectInfo.name', index=0,
-      number=1, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='is_quarantined', full_name='filemgr.LoadObjectInfo.is_quarantined', index=1,
-      number=2, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.LoadObjectInfo.repair_tool', index=2,
-      number=5, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1403,
-  serialized_end=1478,
-)
-
-
-_RENAMEINFO = _descriptor.Descriptor(
-  name='RenameInfo',
-  full_name='filemgr.RenameInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='name', full_name='filemgr.RenameInfo.name', index=0,
-      number=1, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='new_name', full_name='filemgr.RenameInfo.new_name', index=1,
-      number=2, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.RenameInfo.repair_tool', index=2,
-      number=3, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1480,
-  serialized_end=1545,
+  serialized_start=2642,
+  serialized_end=2776,
 )
 
 
@@ -1010,145 +1702,21 @@ _OBJECT = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1547,
-  serialized_end=1607,
+  serialized_start=2778,
+  serialized_end=2838,
 )
 
 
-_LOADOBJECTSRESPONSE = _descriptor.Descriptor(
-  name='LoadObjectsResponse',
-  full_name='filemgr.LoadObjectsResponse',
+_DIRENTRIES = _descriptor.Descriptor(
+  name='DirEntries',
+  full_name='filemgr.DirEntries',
   filename=None,
   file=DESCRIPTOR,
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='objects', full_name='filemgr.LoadObjectsResponse.objects', index=0,
-      number=1, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='next_page_token', full_name='filemgr.LoadObjectsResponse.next_page_token', index=1,
-      number=2, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1609,
-  serialized_end=1689,
-)
-
-
-_OBJECTPREFIX = _descriptor.Descriptor(
-  name='ObjectPrefix',
-  full_name='filemgr.ObjectPrefix',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='prefix', full_name='filemgr.ObjectPrefix.prefix', index=0,
-      number=1, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='repair_tool', full_name='filemgr.ObjectPrefix.repair_tool', index=1,
-      number=2, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1691,
-  serialized_end=1742,
-)
-
-
-_EMPTY = _descriptor.Descriptor(
-  name='Empty',
-  full_name='filemgr.Empty',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1744,
-  serialized_end=1751,
-)
-
-
-_GETSTATSINFO = _descriptor.Descriptor(
-  name='GetStatsInfo',
-  full_name='filemgr.GetStatsInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1753,
-  serialized_end=1767,
-)
-
-
-_PARTITIONCONTENT = _descriptor.Descriptor(
-  name='PartitionContent',
-  full_name='filemgr.PartitionContent',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='file_entries', full_name='filemgr.PartitionContent.file_entries', index=0,
-      number=1, type=11, cpp_type=10, label=3,
+      name='entry', full_name='filemgr.DirEntries.entry', index=0,
+      number=1, type=9, cpp_type=9, label=3,
       has_default_value=False, default_value=[],
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
@@ -1165,357 +1733,287 @@ _PARTITIONCONTENT = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1769,
-  serialized_end=1833,
+  serialized_start=2840,
+  serialized_end=2867,
 )
 
-
-_FULLPATHENTRY = _descriptor.Descriptor(
-  name='FullPathEntry',
-  full_name='filemgr.FullPathEntry',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='suffix', full_name='filemgr.FullPathEntry.suffix', index=0,
-      number=1, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='ohash', full_name='filemgr.FullPathEntry.ohash', index=1,
-      number=2, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='filename', full_name='filemgr.FullPathEntry.filename', index=2,
-      number=3, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1835,
-  serialized_end=1899,
-)
-
-
-_KVSTATE = _descriptor.Descriptor(
-  name='KvState',
-  full_name='filemgr.KvState',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='isClean', full_name='filemgr.KvState.isClean', index=0,
-      number=1, type=8, cpp_type=7, label=1,
-      has_default_value=False, default_value=False,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1901,
-  serialized_end=1927,
-)
-
-
-_KVSTATS_STATSENTRY = _descriptor.Descriptor(
-  name='StatsEntry',
-  full_name='filemgr.KVStats.StatsEntry',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='key', full_name='filemgr.KVStats.StatsEntry.key', index=0,
-      number=1, type=9, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"".decode('utf-8'),
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='value', full_name='filemgr.KVStats.StatsEntry.value', index=1,
-      number=2, type=4, cpp_type=4, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=b'8\001',
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1984,
-  serialized_end=2028,
-)
-
-_KVSTATS = _descriptor.Descriptor(
-  name='KVStats',
-  full_name='filemgr.KVStats',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='stats', full_name='filemgr.KVStats.stats', index=0,
-      number=1, type=11, cpp_type=10, label=3,
-      has_default_value=False, default_value=[],
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[_KVSTATS_STATSENTRY, ],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=1929,
-  serialized_end=2028,
-)
-
-
-_LISTQUARANTINEDOHASHESINFO = _descriptor.Descriptor(
-  name='ListQuarantinedOHashesInfo',
-  full_name='filemgr.ListQuarantinedOHashesInfo',
-  filename=None,
-  file=DESCRIPTOR,
-  containing_type=None,
-  fields=[
-    _descriptor.FieldDescriptor(
-      name='page_token', full_name='filemgr.ListQuarantinedOHashesInfo.page_token', index=0,
-      number=1, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='page_size', full_name='filemgr.ListQuarantinedOHashesInfo.page_size', index=1,
-      number=2, type=13, cpp_type=3, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
-  ],
-  extensions=[
-  ],
-  nested_types=[],
-  enum_types=[
-  ],
-  serialized_options=None,
-  is_extendable=False,
-  syntax='proto3',
-  extension_ranges=[],
-  oneofs=[
-  ],
-  serialized_start=2030,
-  serialized_end=2097,
-)
-
+_REGISTERVOLUMEREQUEST.fields_by_name['type'].enum_type = _VOLUMETYPE
+_REGISTERVOLUMEREQUEST.fields_by_name['state'].enum_type = _VOLUMESTATE
+_UPDATEVOLUMESTATEREQUEST.fields_by_name['state'].enum_type = _VOLUMESTATE
+_GETVOLUMEREPLY.fields_by_name['volume_type'].enum_type = _VOLUMETYPE
+_LISTVOLUMESREQUEST.fields_by_name['type'].enum_type = _VOLUMETYPE
+_LISTVOLUMESREPLY.fields_by_name['volumes'].message_type = _VOLUME
+_LOADOBJECTSBYPREFIXREPLY.fields_by_name['objects'].message_type = _OBJECT
+_LOADOBJECTSBYVOLUMEREPLY.fields_by_name['objects'].message_type = _OBJECT
+_LISTQUARANTINEDOHASHESREPLY.fields_by_name['objects'].message_type = _QUARANTINEDOBJECTNAME
+_LISTQUARANTINEDOHASHREPLY.fields_by_name['objects'].message_type = _OBJECT
+_GETSTATSREPLY_STATSENTRY.containing_type = _GETSTATSREPLY
+_GETSTATSREPLY.fields_by_name['stats'].message_type = _GETSTATSREPLY_STATSENTRY
 _VOLUME.fields_by_name['volume_type'].enum_type = _VOLUMETYPE
-_LISTVOLUMESINFO.fields_by_name['type'].enum_type = _VOLUMETYPE
-_VOLUMES.fields_by_name['volumes'].message_type = _VOLUME
-_NEWVOLUMEINFO.fields_by_name['type'].enum_type = _VOLUMETYPE
-_NEWVOLUMEINFO.fields_by_name['state'].enum_type = _VOLUMESTATE
-_NEWVOLUMESTATE.fields_by_name['state'].enum_type = _VOLUMESTATE
-_QUARANTINEDOBJECTNAMES.fields_by_name['objects'].message_type = _QUARANTINEDOBJECTNAME
-_LOADOBJECTSRESPONSE.fields_by_name['objects'].message_type = _OBJECT
-_PARTITIONCONTENT.fields_by_name['file_entries'].message_type = _FULLPATHENTRY
-_KVSTATS_STATSENTRY.containing_type = _KVSTATS
-_KVSTATS.fields_by_name['stats'].message_type = _KVSTATS_STATSENTRY
-DESCRIPTOR.message_types_by_name['ListPartitionsInfo'] = _LISTPARTITIONSINFO
-DESCRIPTOR.message_types_by_name['ListPartitionInfo'] = _LISTPARTITIONINFO
-DESCRIPTOR.message_types_by_name['ListSuffixInfo'] = _LISTSUFFIXINFO
-DESCRIPTOR.message_types_by_name['DirEntries'] = _DIRENTRIES
-DESCRIPTOR.message_types_by_name['VolumeIndex'] = _VOLUMEINDEX
-DESCRIPTOR.message_types_by_name['Volume'] = _VOLUME
-DESCRIPTOR.message_types_by_name['GetNextOffsetInfo'] = _GETNEXTOFFSETINFO
-DESCRIPTOR.message_types_by_name['ListVolumesInfo'] = _LISTVOLUMESINFO
-DESCRIPTOR.message_types_by_name['Volumes'] = _VOLUMES
-DESCRIPTOR.message_types_by_name['VolumeNextOffset'] = _VOLUMENEXTOFFSET
-DESCRIPTOR.message_types_by_name['NewVolumeInfo'] = _NEWVOLUMEINFO
-DESCRIPTOR.message_types_by_name['NewVolumeState'] = _NEWVOLUMESTATE
-DESCRIPTOR.message_types_by_name['NewVolumeReply'] = _NEWVOLUMEREPLY
-DESCRIPTOR.message_types_by_name['DelObjectReply'] = _DELOBJECTREPLY
-DESCRIPTOR.message_types_by_name['RenameReply'] = _RENAMEREPLY
-DESCRIPTOR.message_types_by_name['NewObjectInfo'] = _NEWOBJECTINFO
-DESCRIPTOR.message_types_by_name['NewObjectReply'] = _NEWOBJECTREPLY
+DESCRIPTOR.message_types_by_name['RegisterVolumeRequest'] = _REGISTERVOLUMEREQUEST
+DESCRIPTOR.message_types_by_name['RegisterVolumeReply'] = _REGISTERVOLUMEREPLY
+DESCRIPTOR.message_types_by_name['UnregisterVolumeRequest'] = _UNREGISTERVOLUMEREQUEST
+DESCRIPTOR.message_types_by_name['UnregisterVolumeReply'] = _UNREGISTERVOLUMEREPLY
+DESCRIPTOR.message_types_by_name['UpdateVolumeStateRequest'] = _UPDATEVOLUMESTATEREQUEST
+DESCRIPTOR.message_types_by_name['UpdateVolumeStateReply'] = _UPDATEVOLUMESTATEREPLY
+DESCRIPTOR.message_types_by_name['GetVolumeRequest'] = _GETVOLUMEREQUEST
+DESCRIPTOR.message_types_by_name['GetVolumeReply'] = _GETVOLUMEREPLY
+DESCRIPTOR.message_types_by_name['ListVolumesRequest'] = _LISTVOLUMESREQUEST
+DESCRIPTOR.message_types_by_name['ListVolumesReply'] = _LISTVOLUMESREPLY
+DESCRIPTOR.message_types_by_name['RegisterObjectRequest'] = _REGISTEROBJECTREQUEST
+DESCRIPTOR.message_types_by_name['RegisterObjectReply'] = _REGISTEROBJECTREPLY
+DESCRIPTOR.message_types_by_name['UnregisterObjectRequest'] = _UNREGISTEROBJECTREQUEST
+DESCRIPTOR.message_types_by_name['UnregisterObjectReply'] = _UNREGISTEROBJECTREPLY
+DESCRIPTOR.message_types_by_name['RenameObjectRequest'] = _RENAMEOBJECTREQUEST
+DESCRIPTOR.message_types_by_name['RenameObjectReply'] = _RENAMEOBJECTREPLY
+DESCRIPTOR.message_types_by_name['LoadObjectRequest'] = _LOADOBJECTREQUEST
+DESCRIPTOR.message_types_by_name['LoadObjectReply'] = _LOADOBJECTREPLY
+DESCRIPTOR.message_types_by_name['QuarantineObjectRequest'] = _QUARANTINEOBJECTREQUEST
+DESCRIPTOR.message_types_by_name['QuarantineObjectReply'] = _QUARANTINEOBJECTREPLY
+DESCRIPTOR.message_types_by_name['UnquarantineObjectRequest'] = _UNQUARANTINEOBJECTREQUEST
+DESCRIPTOR.message_types_by_name['UnquarantineObjectReply'] = _UNQUARANTINEOBJECTREPLY
+DESCRIPTOR.message_types_by_name['LoadObjectsByPrefixRequest'] = _LOADOBJECTSBYPREFIXREQUEST
+DESCRIPTOR.message_types_by_name['LoadObjectsByPrefixReply'] = _LOADOBJECTSBYPREFIXREPLY
+DESCRIPTOR.message_types_by_name['LoadObjectsByVolumeRequest'] = _LOADOBJECTSBYVOLUMEREQUEST
+DESCRIPTOR.message_types_by_name['LoadObjectsByVolumeReply'] = _LOADOBJECTSBYVOLUMEREPLY
+DESCRIPTOR.message_types_by_name['ListPartitionsRequest'] = _LISTPARTITIONSREQUEST
+DESCRIPTOR.message_types_by_name['ListPartitionRequest'] = _LISTPARTITIONREQUEST
+DESCRIPTOR.message_types_by_name['ListSuffixRequest'] = _LISTSUFFIXREQUEST
+DESCRIPTOR.message_types_by_name['ListQuarantinedOHashesRequest'] = _LISTQUARANTINEDOHASHESREQUEST
+DESCRIPTOR.message_types_by_name['ListQuarantinedOHashesReply'] = _LISTQUARANTINEDOHASHESREPLY
 DESCRIPTOR.message_types_by_name['QuarantinedObjectName'] = _QUARANTINEDOBJECTNAME
-DESCRIPTOR.message_types_by_name['QuarantinedObjectNames'] = _QUARANTINEDOBJECTNAMES
-DESCRIPTOR.message_types_by_name['ObjectName'] = _OBJECTNAME
-DESCRIPTOR.message_types_by_name['LoadObjectInfo'] = _LOADOBJECTINFO
-DESCRIPTOR.message_types_by_name['RenameInfo'] = _RENAMEINFO
-DESCRIPTOR.message_types_by_name['Object'] = _OBJECT
-DESCRIPTOR.message_types_by_name['LoadObjectsResponse'] = _LOADOBJECTSRESPONSE
-DESCRIPTOR.message_types_by_name['ObjectPrefix'] = _OBJECTPREFIX
-DESCRIPTOR.message_types_by_name['Empty'] = _EMPTY
-DESCRIPTOR.message_types_by_name['GetStatsInfo'] = _GETSTATSINFO
-DESCRIPTOR.message_types_by_name['PartitionContent'] = _PARTITIONCONTENT
-DESCRIPTOR.message_types_by_name['FullPathEntry'] = _FULLPATHENTRY
+DESCRIPTOR.message_types_by_name['ListQuarantinedOHashRequest'] = _LISTQUARANTINEDOHASHREQUEST
+DESCRIPTOR.message_types_by_name['ListQuarantinedOHashReply'] = _LISTQUARANTINEDOHASHREPLY
+DESCRIPTOR.message_types_by_name['GetNextOffsetRequest'] = _GETNEXTOFFSETREQUEST
+DESCRIPTOR.message_types_by_name['GetNextOffsetReply'] = _GETNEXTOFFSETREPLY
+DESCRIPTOR.message_types_by_name['GetStatsRequest'] = _GETSTATSREQUEST
+DESCRIPTOR.message_types_by_name['GetStatsReply'] = _GETSTATSREPLY
+DESCRIPTOR.message_types_by_name['SetKvStateReply'] = _SETKVSTATEREPLY
+DESCRIPTOR.message_types_by_name['GetKvStateRequest'] = _GETKVSTATEREQUEST
 DESCRIPTOR.message_types_by_name['KvState'] = _KVSTATE
-DESCRIPTOR.message_types_by_name['KVStats'] = _KVSTATS
-DESCRIPTOR.message_types_by_name['ListQuarantinedOHashesInfo'] = _LISTQUARANTINEDOHASHESINFO
+DESCRIPTOR.message_types_by_name['Volume'] = _VOLUME
+DESCRIPTOR.message_types_by_name['Object'] = _OBJECT
+DESCRIPTOR.message_types_by_name['DirEntries'] = _DIRENTRIES
 DESCRIPTOR.enum_types_by_name['VolumeType'] = _VOLUMETYPE
 DESCRIPTOR.enum_types_by_name['VolumeState'] = _VOLUMESTATE
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
-ListPartitionsInfo = _reflection.GeneratedProtocolMessageType('ListPartitionsInfo', (_message.Message,), {
-  'DESCRIPTOR' : _LISTPARTITIONSINFO,
+RegisterVolumeRequest = _reflection.GeneratedProtocolMessageType('RegisterVolumeRequest', (_message.Message,), {
+  'DESCRIPTOR' : _REGISTERVOLUMEREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.ListPartitionsInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.RegisterVolumeRequest)
   })
-_sym_db.RegisterMessage(ListPartitionsInfo)
+_sym_db.RegisterMessage(RegisterVolumeRequest)
 
-ListPartitionInfo = _reflection.GeneratedProtocolMessageType('ListPartitionInfo', (_message.Message,), {
-  'DESCRIPTOR' : _LISTPARTITIONINFO,
+RegisterVolumeReply = _reflection.GeneratedProtocolMessageType('RegisterVolumeReply', (_message.Message,), {
+  'DESCRIPTOR' : _REGISTERVOLUMEREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.ListPartitionInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.RegisterVolumeReply)
   })
-_sym_db.RegisterMessage(ListPartitionInfo)
+_sym_db.RegisterMessage(RegisterVolumeReply)
 
-ListSuffixInfo = _reflection.GeneratedProtocolMessageType('ListSuffixInfo', (_message.Message,), {
-  'DESCRIPTOR' : _LISTSUFFIXINFO,
+UnregisterVolumeRequest = _reflection.GeneratedProtocolMessageType('UnregisterVolumeRequest', (_message.Message,), {
+  'DESCRIPTOR' : _UNREGISTERVOLUMEREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.ListSuffixInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.UnregisterVolumeRequest)
   })
-_sym_db.RegisterMessage(ListSuffixInfo)
+_sym_db.RegisterMessage(UnregisterVolumeRequest)
 
-DirEntries = _reflection.GeneratedProtocolMessageType('DirEntries', (_message.Message,), {
-  'DESCRIPTOR' : _DIRENTRIES,
+UnregisterVolumeReply = _reflection.GeneratedProtocolMessageType('UnregisterVolumeReply', (_message.Message,), {
+  'DESCRIPTOR' : _UNREGISTERVOLUMEREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.DirEntries)
+  # @@protoc_insertion_point(class_scope:filemgr.UnregisterVolumeReply)
   })
-_sym_db.RegisterMessage(DirEntries)
+_sym_db.RegisterMessage(UnregisterVolumeReply)
 
-VolumeIndex = _reflection.GeneratedProtocolMessageType('VolumeIndex', (_message.Message,), {
-  'DESCRIPTOR' : _VOLUMEINDEX,
+UpdateVolumeStateRequest = _reflection.GeneratedProtocolMessageType('UpdateVolumeStateRequest', (_message.Message,), {
+  'DESCRIPTOR' : _UPDATEVOLUMESTATEREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.VolumeIndex)
+  # @@protoc_insertion_point(class_scope:filemgr.UpdateVolumeStateRequest)
   })
-_sym_db.RegisterMessage(VolumeIndex)
+_sym_db.RegisterMessage(UpdateVolumeStateRequest)
 
-Volume = _reflection.GeneratedProtocolMessageType('Volume', (_message.Message,), {
-  'DESCRIPTOR' : _VOLUME,
+UpdateVolumeStateReply = _reflection.GeneratedProtocolMessageType('UpdateVolumeStateReply', (_message.Message,), {
+  'DESCRIPTOR' : _UPDATEVOLUMESTATEREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.Volume)
+  # @@protoc_insertion_point(class_scope:filemgr.UpdateVolumeStateReply)
   })
-_sym_db.RegisterMessage(Volume)
+_sym_db.RegisterMessage(UpdateVolumeStateReply)
 
-GetNextOffsetInfo = _reflection.GeneratedProtocolMessageType('GetNextOffsetInfo', (_message.Message,), {
-  'DESCRIPTOR' : _GETNEXTOFFSETINFO,
+GetVolumeRequest = _reflection.GeneratedProtocolMessageType('GetVolumeRequest', (_message.Message,), {
+  'DESCRIPTOR' : _GETVOLUMEREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.GetNextOffsetInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.GetVolumeRequest)
   })
-_sym_db.RegisterMessage(GetNextOffsetInfo)
+_sym_db.RegisterMessage(GetVolumeRequest)
 
-ListVolumesInfo = _reflection.GeneratedProtocolMessageType('ListVolumesInfo', (_message.Message,), {
-  'DESCRIPTOR' : _LISTVOLUMESINFO,
+GetVolumeReply = _reflection.GeneratedProtocolMessageType('GetVolumeReply', (_message.Message,), {
+  'DESCRIPTOR' : _GETVOLUMEREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.ListVolumesInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.GetVolumeReply)
   })
-_sym_db.RegisterMessage(ListVolumesInfo)
+_sym_db.RegisterMessage(GetVolumeReply)
 
-Volumes = _reflection.GeneratedProtocolMessageType('Volumes', (_message.Message,), {
-  'DESCRIPTOR' : _VOLUMES,
+ListVolumesRequest = _reflection.GeneratedProtocolMessageType('ListVolumesRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LISTVOLUMESREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.Volumes)
+  # @@protoc_insertion_point(class_scope:filemgr.ListVolumesRequest)
   })
-_sym_db.RegisterMessage(Volumes)
+_sym_db.RegisterMessage(ListVolumesRequest)
 
-VolumeNextOffset = _reflection.GeneratedProtocolMessageType('VolumeNextOffset', (_message.Message,), {
-  'DESCRIPTOR' : _VOLUMENEXTOFFSET,
+ListVolumesReply = _reflection.GeneratedProtocolMessageType('ListVolumesReply', (_message.Message,), {
+  'DESCRIPTOR' : _LISTVOLUMESREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.VolumeNextOffset)
+  # @@protoc_insertion_point(class_scope:filemgr.ListVolumesReply)
   })
-_sym_db.RegisterMessage(VolumeNextOffset)
+_sym_db.RegisterMessage(ListVolumesReply)
 
-NewVolumeInfo = _reflection.GeneratedProtocolMessageType('NewVolumeInfo', (_message.Message,), {
-  'DESCRIPTOR' : _NEWVOLUMEINFO,
+RegisterObjectRequest = _reflection.GeneratedProtocolMessageType('RegisterObjectRequest', (_message.Message,), {
+  'DESCRIPTOR' : _REGISTEROBJECTREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.NewVolumeInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.RegisterObjectRequest)
   })
-_sym_db.RegisterMessage(NewVolumeInfo)
+_sym_db.RegisterMessage(RegisterObjectRequest)
 
-NewVolumeState = _reflection.GeneratedProtocolMessageType('NewVolumeState', (_message.Message,), {
-  'DESCRIPTOR' : _NEWVOLUMESTATE,
+RegisterObjectReply = _reflection.GeneratedProtocolMessageType('RegisterObjectReply', (_message.Message,), {
+  'DESCRIPTOR' : _REGISTEROBJECTREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.NewVolumeState)
+  # @@protoc_insertion_point(class_scope:filemgr.RegisterObjectReply)
   })
-_sym_db.RegisterMessage(NewVolumeState)
+_sym_db.RegisterMessage(RegisterObjectReply)
 
-NewVolumeReply = _reflection.GeneratedProtocolMessageType('NewVolumeReply', (_message.Message,), {
-  'DESCRIPTOR' : _NEWVOLUMEREPLY,
+UnregisterObjectRequest = _reflection.GeneratedProtocolMessageType('UnregisterObjectRequest', (_message.Message,), {
+  'DESCRIPTOR' : _UNREGISTEROBJECTREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.NewVolumeReply)
+  # @@protoc_insertion_point(class_scope:filemgr.UnregisterObjectRequest)
   })
-_sym_db.RegisterMessage(NewVolumeReply)
+_sym_db.RegisterMessage(UnregisterObjectRequest)
 
-DelObjectReply = _reflection.GeneratedProtocolMessageType('DelObjectReply', (_message.Message,), {
-  'DESCRIPTOR' : _DELOBJECTREPLY,
+UnregisterObjectReply = _reflection.GeneratedProtocolMessageType('UnregisterObjectReply', (_message.Message,), {
+  'DESCRIPTOR' : _UNREGISTEROBJECTREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.DelObjectReply)
+  # @@protoc_insertion_point(class_scope:filemgr.UnregisterObjectReply)
   })
-_sym_db.RegisterMessage(DelObjectReply)
+_sym_db.RegisterMessage(UnregisterObjectReply)
 
-RenameReply = _reflection.GeneratedProtocolMessageType('RenameReply', (_message.Message,), {
-  'DESCRIPTOR' : _RENAMEREPLY,
+RenameObjectRequest = _reflection.GeneratedProtocolMessageType('RenameObjectRequest', (_message.Message,), {
+  'DESCRIPTOR' : _RENAMEOBJECTREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.RenameReply)
+  # @@protoc_insertion_point(class_scope:filemgr.RenameObjectRequest)
   })
-_sym_db.RegisterMessage(RenameReply)
+_sym_db.RegisterMessage(RenameObjectRequest)
 
-NewObjectInfo = _reflection.GeneratedProtocolMessageType('NewObjectInfo', (_message.Message,), {
-  'DESCRIPTOR' : _NEWOBJECTINFO,
+RenameObjectReply = _reflection.GeneratedProtocolMessageType('RenameObjectReply', (_message.Message,), {
+  'DESCRIPTOR' : _RENAMEOBJECTREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.NewObjectInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.RenameObjectReply)
   })
-_sym_db.RegisterMessage(NewObjectInfo)
+_sym_db.RegisterMessage(RenameObjectReply)
 
-NewObjectReply = _reflection.GeneratedProtocolMessageType('NewObjectReply', (_message.Message,), {
-  'DESCRIPTOR' : _NEWOBJECTREPLY,
+LoadObjectRequest = _reflection.GeneratedProtocolMessageType('LoadObjectRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LOADOBJECTREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.NewObjectReply)
+  # @@protoc_insertion_point(class_scope:filemgr.LoadObjectRequest)
   })
-_sym_db.RegisterMessage(NewObjectReply)
+_sym_db.RegisterMessage(LoadObjectRequest)
+
+LoadObjectReply = _reflection.GeneratedProtocolMessageType('LoadObjectReply', (_message.Message,), {
+  'DESCRIPTOR' : _LOADOBJECTREPLY,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.LoadObjectReply)
+  })
+_sym_db.RegisterMessage(LoadObjectReply)
+
+QuarantineObjectRequest = _reflection.GeneratedProtocolMessageType('QuarantineObjectRequest', (_message.Message,), {
+  'DESCRIPTOR' : _QUARANTINEOBJECTREQUEST,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.QuarantineObjectRequest)
+  })
+_sym_db.RegisterMessage(QuarantineObjectRequest)
+
+QuarantineObjectReply = _reflection.GeneratedProtocolMessageType('QuarantineObjectReply', (_message.Message,), {
+  'DESCRIPTOR' : _QUARANTINEOBJECTREPLY,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.QuarantineObjectReply)
+  })
+_sym_db.RegisterMessage(QuarantineObjectReply)
+
+UnquarantineObjectRequest = _reflection.GeneratedProtocolMessageType('UnquarantineObjectRequest', (_message.Message,), {
+  'DESCRIPTOR' : _UNQUARANTINEOBJECTREQUEST,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.UnquarantineObjectRequest)
+  })
+_sym_db.RegisterMessage(UnquarantineObjectRequest)
+
+UnquarantineObjectReply = _reflection.GeneratedProtocolMessageType('UnquarantineObjectReply', (_message.Message,), {
+  'DESCRIPTOR' : _UNQUARANTINEOBJECTREPLY,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.UnquarantineObjectReply)
+  })
+_sym_db.RegisterMessage(UnquarantineObjectReply)
+
+LoadObjectsByPrefixRequest = _reflection.GeneratedProtocolMessageType('LoadObjectsByPrefixRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LOADOBJECTSBYPREFIXREQUEST,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.LoadObjectsByPrefixRequest)
+  })
+_sym_db.RegisterMessage(LoadObjectsByPrefixRequest)
+
+LoadObjectsByPrefixReply = _reflection.GeneratedProtocolMessageType('LoadObjectsByPrefixReply', (_message.Message,), {
+  'DESCRIPTOR' : _LOADOBJECTSBYPREFIXREPLY,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.LoadObjectsByPrefixReply)
+  })
+_sym_db.RegisterMessage(LoadObjectsByPrefixReply)
+
+LoadObjectsByVolumeRequest = _reflection.GeneratedProtocolMessageType('LoadObjectsByVolumeRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LOADOBJECTSBYVOLUMEREQUEST,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.LoadObjectsByVolumeRequest)
+  })
+_sym_db.RegisterMessage(LoadObjectsByVolumeRequest)
+
+LoadObjectsByVolumeReply = _reflection.GeneratedProtocolMessageType('LoadObjectsByVolumeReply', (_message.Message,), {
+  'DESCRIPTOR' : _LOADOBJECTSBYVOLUMEREPLY,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.LoadObjectsByVolumeReply)
+  })
+_sym_db.RegisterMessage(LoadObjectsByVolumeReply)
+
+ListPartitionsRequest = _reflection.GeneratedProtocolMessageType('ListPartitionsRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LISTPARTITIONSREQUEST,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.ListPartitionsRequest)
+  })
+_sym_db.RegisterMessage(ListPartitionsRequest)
+
+ListPartitionRequest = _reflection.GeneratedProtocolMessageType('ListPartitionRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LISTPARTITIONREQUEST,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.ListPartitionRequest)
+  })
+_sym_db.RegisterMessage(ListPartitionRequest)
+
+ListSuffixRequest = _reflection.GeneratedProtocolMessageType('ListSuffixRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LISTSUFFIXREQUEST,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.ListSuffixRequest)
+  })
+_sym_db.RegisterMessage(ListSuffixRequest)
+
+ListQuarantinedOHashesRequest = _reflection.GeneratedProtocolMessageType('ListQuarantinedOHashesRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LISTQUARANTINEDOHASHESREQUEST,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.ListQuarantinedOHashesRequest)
+  })
+_sym_db.RegisterMessage(ListQuarantinedOHashesRequest)
+
+ListQuarantinedOHashesReply = _reflection.GeneratedProtocolMessageType('ListQuarantinedOHashesReply', (_message.Message,), {
+  'DESCRIPTOR' : _LISTQUARANTINEDOHASHESREPLY,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.ListQuarantinedOHashesReply)
+  })
+_sym_db.RegisterMessage(ListQuarantinedOHashesReply)
 
 QuarantinedObjectName = _reflection.GeneratedProtocolMessageType('QuarantinedObjectName', (_message.Message,), {
   'DESCRIPTOR' : _QUARANTINEDOBJECTNAME,
@@ -1524,82 +2022,69 @@ QuarantinedObjectName = _reflection.GeneratedProtocolMessageType('QuarantinedObj
   })
 _sym_db.RegisterMessage(QuarantinedObjectName)
 
-QuarantinedObjectNames = _reflection.GeneratedProtocolMessageType('QuarantinedObjectNames', (_message.Message,), {
-  'DESCRIPTOR' : _QUARANTINEDOBJECTNAMES,
+ListQuarantinedOHashRequest = _reflection.GeneratedProtocolMessageType('ListQuarantinedOHashRequest', (_message.Message,), {
+  'DESCRIPTOR' : _LISTQUARANTINEDOHASHREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.QuarantinedObjectNames)
+  # @@protoc_insertion_point(class_scope:filemgr.ListQuarantinedOHashRequest)
   })
-_sym_db.RegisterMessage(QuarantinedObjectNames)
+_sym_db.RegisterMessage(ListQuarantinedOHashRequest)
 
-ObjectName = _reflection.GeneratedProtocolMessageType('ObjectName', (_message.Message,), {
-  'DESCRIPTOR' : _OBJECTNAME,
+ListQuarantinedOHashReply = _reflection.GeneratedProtocolMessageType('ListQuarantinedOHashReply', (_message.Message,), {
+  'DESCRIPTOR' : _LISTQUARANTINEDOHASHREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.ObjectName)
+  # @@protoc_insertion_point(class_scope:filemgr.ListQuarantinedOHashReply)
   })
-_sym_db.RegisterMessage(ObjectName)
+_sym_db.RegisterMessage(ListQuarantinedOHashReply)
 
-LoadObjectInfo = _reflection.GeneratedProtocolMessageType('LoadObjectInfo', (_message.Message,), {
-  'DESCRIPTOR' : _LOADOBJECTINFO,
+GetNextOffsetRequest = _reflection.GeneratedProtocolMessageType('GetNextOffsetRequest', (_message.Message,), {
+  'DESCRIPTOR' : _GETNEXTOFFSETREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.LoadObjectInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.GetNextOffsetRequest)
   })
-_sym_db.RegisterMessage(LoadObjectInfo)
+_sym_db.RegisterMessage(GetNextOffsetRequest)
 
-RenameInfo = _reflection.GeneratedProtocolMessageType('RenameInfo', (_message.Message,), {
-  'DESCRIPTOR' : _RENAMEINFO,
+GetNextOffsetReply = _reflection.GeneratedProtocolMessageType('GetNextOffsetReply', (_message.Message,), {
+  'DESCRIPTOR' : _GETNEXTOFFSETREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.RenameInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.GetNextOffsetReply)
   })
-_sym_db.RegisterMessage(RenameInfo)
+_sym_db.RegisterMessage(GetNextOffsetReply)
 
-Object = _reflection.GeneratedProtocolMessageType('Object', (_message.Message,), {
-  'DESCRIPTOR' : _OBJECT,
+GetStatsRequest = _reflection.GeneratedProtocolMessageType('GetStatsRequest', (_message.Message,), {
+  'DESCRIPTOR' : _GETSTATSREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.Object)
+  # @@protoc_insertion_point(class_scope:filemgr.GetStatsRequest)
   })
-_sym_db.RegisterMessage(Object)
+_sym_db.RegisterMessage(GetStatsRequest)
 
-LoadObjectsResponse = _reflection.GeneratedProtocolMessageType('LoadObjectsResponse', (_message.Message,), {
-  'DESCRIPTOR' : _LOADOBJECTSRESPONSE,
-  '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.LoadObjectsResponse)
-  })
-_sym_db.RegisterMessage(LoadObjectsResponse)
+GetStatsReply = _reflection.GeneratedProtocolMessageType('GetStatsReply', (_message.Message,), {
 
-ObjectPrefix = _reflection.GeneratedProtocolMessageType('ObjectPrefix', (_message.Message,), {
-  'DESCRIPTOR' : _OBJECTPREFIX,
+  'StatsEntry' : _reflection.GeneratedProtocolMessageType('StatsEntry', (_message.Message,), {
+    'DESCRIPTOR' : _GETSTATSREPLY_STATSENTRY,
+    '__module__' : 'fmgr_pb2'
+    # @@protoc_insertion_point(class_scope:filemgr.GetStatsReply.StatsEntry)
+    })
+  ,
+  'DESCRIPTOR' : _GETSTATSREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.ObjectPrefix)
+  # @@protoc_insertion_point(class_scope:filemgr.GetStatsReply)
   })
-_sym_db.RegisterMessage(ObjectPrefix)
+_sym_db.RegisterMessage(GetStatsReply)
+_sym_db.RegisterMessage(GetStatsReply.StatsEntry)
 
-Empty = _reflection.GeneratedProtocolMessageType('Empty', (_message.Message,), {
-  'DESCRIPTOR' : _EMPTY,
+SetKvStateReply = _reflection.GeneratedProtocolMessageType('SetKvStateReply', (_message.Message,), {
+  'DESCRIPTOR' : _SETKVSTATEREPLY,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.Empty)
+  # @@protoc_insertion_point(class_scope:filemgr.SetKvStateReply)
   })
-_sym_db.RegisterMessage(Empty)
+_sym_db.RegisterMessage(SetKvStateReply)
 
-GetStatsInfo = _reflection.GeneratedProtocolMessageType('GetStatsInfo', (_message.Message,), {
-  'DESCRIPTOR' : _GETSTATSINFO,
+GetKvStateRequest = _reflection.GeneratedProtocolMessageType('GetKvStateRequest', (_message.Message,), {
+  'DESCRIPTOR' : _GETKVSTATEREQUEST,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.GetStatsInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.GetKvStateRequest)
   })
-_sym_db.RegisterMessage(GetStatsInfo)
-
-PartitionContent = _reflection.GeneratedProtocolMessageType('PartitionContent', (_message.Message,), {
-  'DESCRIPTOR' : _PARTITIONCONTENT,
-  '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.PartitionContent)
-  })
-_sym_db.RegisterMessage(PartitionContent)
-
-FullPathEntry = _reflection.GeneratedProtocolMessageType('FullPathEntry', (_message.Message,), {
-  'DESCRIPTOR' : _FULLPATHENTRY,
-  '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.FullPathEntry)
-  })
-_sym_db.RegisterMessage(FullPathEntry)
+_sym_db.RegisterMessage(GetKvStateRequest)
 
 KvState = _reflection.GeneratedProtocolMessageType('KvState', (_message.Message,), {
   'DESCRIPTOR' : _KVSTATE,
@@ -1608,28 +2093,27 @@ KvState = _reflection.GeneratedProtocolMessageType('KvState', (_message.Message,
   })
 _sym_db.RegisterMessage(KvState)
 
-KVStats = _reflection.GeneratedProtocolMessageType('KVStats', (_message.Message,), {
-
-  'StatsEntry' : _reflection.GeneratedProtocolMessageType('StatsEntry', (_message.Message,), {
-    'DESCRIPTOR' : _KVSTATS_STATSENTRY,
-    '__module__' : 'fmgr_pb2'
-    # @@protoc_insertion_point(class_scope:filemgr.KVStats.StatsEntry)
-    })
-  ,
-  'DESCRIPTOR' : _KVSTATS,
+Volume = _reflection.GeneratedProtocolMessageType('Volume', (_message.Message,), {
+  'DESCRIPTOR' : _VOLUME,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.KVStats)
+  # @@protoc_insertion_point(class_scope:filemgr.Volume)
   })
-_sym_db.RegisterMessage(KVStats)
-_sym_db.RegisterMessage(KVStats.StatsEntry)
+_sym_db.RegisterMessage(Volume)
 
-ListQuarantinedOHashesInfo = _reflection.GeneratedProtocolMessageType('ListQuarantinedOHashesInfo', (_message.Message,), {
-  'DESCRIPTOR' : _LISTQUARANTINEDOHASHESINFO,
+Object = _reflection.GeneratedProtocolMessageType('Object', (_message.Message,), {
+  'DESCRIPTOR' : _OBJECT,
   '__module__' : 'fmgr_pb2'
-  # @@protoc_insertion_point(class_scope:filemgr.ListQuarantinedOHashesInfo)
+  # @@protoc_insertion_point(class_scope:filemgr.Object)
   })
-_sym_db.RegisterMessage(ListQuarantinedOHashesInfo)
+_sym_db.RegisterMessage(Object)
+
+DirEntries = _reflection.GeneratedProtocolMessageType('DirEntries', (_message.Message,), {
+  'DESCRIPTOR' : _DIRENTRIES,
+  '__module__' : 'fmgr_pb2'
+  # @@protoc_insertion_point(class_scope:filemgr.DirEntries)
+  })
+_sym_db.RegisterMessage(DirEntries)
 
 
-_KVSTATS_STATSENTRY._options = None
+_GETSTATSREPLY_STATSENTRY._options = None
 # @@protoc_insertion_point(module_scope)

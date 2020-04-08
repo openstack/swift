@@ -85,7 +85,7 @@ type rpcFunc func(*server, context.Context, *[]byte) (*[]byte, error)
 // RegisterVolume registers a new volume (volume) to the KV, given its index number and starting offset.
 // Will return an error if the volume index already exists.
 func RegisterVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.NewVolumeInfo{}
+	in := &pb.RegisterVolumeRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("RegisterVolume failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -128,7 +128,7 @@ func RegisterVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, erro
 	}
 	s.statsd_c.Increment("register_volume.ok")
 
-	out, err := proto.Marshal(&pb.NewVolumeReply{})
+	out, err := proto.Marshal(&pb.RegisterVolumeReply{})
 	if err != nil {
 		reqlog.Errorf("failed to serialize reply for new volume entry: %v", err)
 		return nil, status.Errorf(codes.Unavailable, "unable to serialize reply for new volume entry: %v", err)
@@ -138,7 +138,7 @@ func RegisterVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, erro
 
 // UnregisterVolume will delete a volume entry from the kv.
 func UnregisterVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.VolumeIndex{}
+	in := &pb.UnregisterVolumeRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("UnregisterVolume failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -177,12 +177,12 @@ func UnregisterVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, er
 	}
 
 	s.statsd_c.Increment("unregister_volume.ok")
-	return serializePb(&pb.NewVolumeReply{})
+	return serializePb(&pb.UnregisterVolumeReply{})
 }
 
 // UpdateVolumeState will modify an existing volume state
 func UpdateVolumeState(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.NewVolumeState{}
+	in := &pb.UpdateVolumeStateRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("UpdateVolumeState failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -227,7 +227,7 @@ func UpdateVolumeState(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, e
 	}
 	s.statsd_c.Increment("update_volume_state.ok")
 
-	out, err := proto.Marshal(&pb.NewVolumeState{})
+	out, err := proto.Marshal(&pb.UpdateVolumeStateReply{})
 	if err != nil {
 		reqlog.Errorf("failed to serialize reply for update volume: %v", err)
 		return nil, status.Errorf(codes.Unavailable, "unable to serialize reply for update volume: %v", err)
@@ -237,7 +237,7 @@ func UpdateVolumeState(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, e
 
 // GetVolume will return a volume information
 func GetVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.VolumeIndex{}
+	in := &pb.GetVolumeRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("GetVolume failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -274,7 +274,7 @@ func GetVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
 
 	s.statsd_c.Increment("get_volume.ok")
 
-	pb_volume := pb.Volume{VolumeIndex: in.Index, VolumeType: pb.VolumeType(dfType), VolumeState: uint32(state),
+	pb_volume := pb.GetVolumeReply{VolumeIndex: in.Index, VolumeType: pb.VolumeType(dfType), VolumeState: uint32(state),
 		Partition: uint32(partition), NextOffset: uint64(nextOffset)}
 	out, err := proto.Marshal(&pb_volume)
 	if err != nil {
@@ -289,7 +289,7 @@ func GetVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
 // Currently this scans all volumes in the KV. Likely fast enough as long as the KV is cached.
 // If it becomes a performance issue, we may want to add an in-memory cache indexed by partition.
 func ListVolumes(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ListVolumesInfo{}
+	in := &pb.ListVolumesRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("ListVolumes failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -303,7 +303,7 @@ func ListVolumes(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) 
 		return nil, status.Errorf(codes.FailedPrecondition, "KV out of sync with volumes")
 	}
 
-	response := &pb.Volumes{}
+	response := &pb.ListVolumesReply{}
 
 	// Iterate over volumes and return the ones that match the request
 	it := s.kv.NewIterator(volumePrefix)
@@ -341,7 +341,7 @@ func ListVolumes(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) 
 
 // RegisterObject registers a new object to the kv.
 func RegisterObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.NewObjectInfo{}
+	in := &pb.RegisterObjectRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("RegisterObject failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -426,7 +426,7 @@ func RegisterObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, erro
 
 	s.statsd_c.Increment("register_object.ok")
 
-	out, err := proto.Marshal(&pb.NewObjectReply{})
+	out, err := proto.Marshal(&pb.RegisterObjectReply{})
 	if err != nil {
 		reqlog.Errorf("failed to serialize reply: %v", err)
 		return nil, status.Errorf(codes.Unavailable, "unable to serialize reply: %v", err)
@@ -436,7 +436,7 @@ func RegisterObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, erro
 
 // UnregisterObject removes an an object entry from the kv.
 func UnregisterObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ObjectName{}
+	in := &pb.UnregisterObjectRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("UnregisterObject failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -448,7 +448,7 @@ func UnregisterObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, er
 	})
 	reqlog.Debug("RPC Call")
 
-	if !s.isClean {
+	if !in.RepairTool && !s.isClean {
 		reqlog.Debug("KV out of sync with volumes")
 		return nil, status.Errorf(codes.FailedPrecondition, "KV out of sync with volumes")
 	}
@@ -482,7 +482,7 @@ func UnregisterObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, er
 	}
 
 	s.statsd_c.Increment("unregister_object.ok")
-	out, err := proto.Marshal(&pb.DelObjectReply{})
+	out, err := proto.Marshal(&pb.UnregisterObjectReply{})
 	if err != nil {
 		reqlog.Errorf("failed to serialize reply for del object reply: %v", err)
 		return nil, status.Errorf(codes.Unavailable, "unable to serialize reply for del object reply: %v", err)
@@ -492,7 +492,7 @@ func UnregisterObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, er
 
 // RenameObject changes an object key in the kv. (used for erasure code)
 func RenameObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.RenameInfo{}
+	in := &pb.RenameObjectRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -552,7 +552,7 @@ func RenameObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error)
 
 	s.statsd_c.Increment("rename_object.ok")
 
-	out, err := proto.Marshal(&pb.RenameReply{})
+	out, err := proto.Marshal(&pb.RenameObjectReply{})
 	if err != nil {
 		reqlog.Errorf("failed to serialize reply: %v", err)
 		return nil, status.Errorf(codes.Unavailable, "unable to serialize reply: %v", err)
@@ -562,7 +562,7 @@ func RenameObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error)
 
 // LoadObject returns an object information
 func LoadObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.LoadObjectInfo{}
+	in := &pb.LoadObjectRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -617,7 +617,7 @@ func LoadObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
 
 	s.statsd_c.Increment("load_object.ok")
 
-	out, err := proto.Marshal(&pb.Object{Name: in.Name, VolumeIndex: volumeIndex, Offset: offset})
+	out, err := proto.Marshal(&pb.LoadObjectReply{Name: in.Name, VolumeIndex: volumeIndex, Offset: offset})
 	if err != nil {
 		reqlog.Errorf("failed to serialize reply: %v", err)
 		return nil, status.Errorf(codes.Unavailable, "unable to serialize reply: %v", err)
@@ -627,7 +627,7 @@ func LoadObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
 
 // QuarantineObject
 func QuarantineObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ObjectName{}
+	in := &pb.QuarantineObjectRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -681,7 +681,7 @@ func QuarantineObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, er
 
 	s.statsd_c.Increment("quarantine_object.ok")
 
-	out, err := proto.Marshal(&pb.Empty{})
+	out, err := proto.Marshal(&pb.QuarantineObjectReply{})
 	if err != nil {
 		reqlog.Errorf("failed to serialize reply: %v", err)
 		return nil, status.Errorf(codes.Unavailable, "unable to serialize reply: %v", err)
@@ -691,7 +691,7 @@ func QuarantineObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, er
 
 // UnquarantineObject
 func UnquarantineObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ObjectName{}
+	in := &pb.UnquarantineObjectRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -742,7 +742,7 @@ func UnquarantineObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, 
 
 	s.statsd_c.Increment("unquarantine_object.ok")
 
-	out, err := proto.Marshal(&pb.Empty{})
+	out, err := proto.Marshal(&pb.UnquarantineObjectReply{})
 	if err != nil {
 		reqlog.Errorf("failed to serialize reply: %v", err)
 		return nil, status.Errorf(codes.Unavailable, "unable to serialize reply: %v", err)
@@ -754,7 +754,7 @@ func UnquarantineObject(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, 
 // In practice this is used to emulate the object hash directory that swift
 // would create with the regular diskfile backend.
 func LoadObjectsByPrefix(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ObjectPrefix{}
+	in := &pb.LoadObjectsByPrefixRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -789,7 +789,7 @@ func LoadObjectsByPrefix(s *server, ctx context.Context, pbIn *[]byte) (*[]byte,
 	it := s.kv.NewIterator(objectPrefix)
 	defer it.Close()
 
-	response := &pb.LoadObjectsResponse{}
+	response := &pb.LoadObjectsByPrefixReply{}
 
 	// adds one byte because of prefix. Otherwise len(prefix) would be len(prefix)-1
 	for it.Seek(prefix); it.Valid() && len(prefix) <= len(it.Key()) && bytes.Equal(prefix, it.Key()[:len(prefix)]); it.Next() {
@@ -824,7 +824,7 @@ func LoadObjectsByPrefix(s *server, ctx context.Context, pbIn *[]byte) (*[]byte,
 // PageSize is the maximum count of items to return. If zero, the server will pick a reasonnable limit.
 // func (s *server) LoadObjectsByVolume(in *pb.VolumeIndex, stream pb.FileMgr_LoadObjectsByVolumeServer) error {
 func LoadObjectsByVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.VolumeIndex{}
+	in := &pb.LoadObjectsByVolumeRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -871,7 +871,7 @@ func LoadObjectsByVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte,
 	}
 	defer it.Close()
 
-	response := &pb.LoadObjectsResponse{}
+	response := &pb.LoadObjectsByVolumeReply{}
 
 	// Objects are not indexed by volume. We have to scan the whole KV and examine each value.
 	// It shouldn't matter as this is only used for compaction, and each object will have to be copied.
@@ -929,7 +929,7 @@ func LoadObjectsByVolume(s *server, ctx context.Context, pbIn *[]byte) (*[]byte,
 // ListPartitions returns a list of partitions for which we have objects.
 // This is used to emulate a listdir() of partitions below the "objects" directory.
 func ListPartitions(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ListPartitionsInfo{}
+	in := &pb.ListPartitionsRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -1047,7 +1047,7 @@ func ListPartitions(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, erro
 
 // ListPartition returns a list of suffixes within a partition
 func ListPartition(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ListPartitionInfo{}
+	in := &pb.ListPartitionRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -1135,7 +1135,7 @@ func ListPartition(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error
 
 // ListSuffix returns a list of object hashes below the partition and suffix
 func ListSuffix(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ListSuffixInfo{}
+	in := &pb.ListSuffixRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -1242,7 +1242,7 @@ func ListSuffix(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
 // object hash. PageSize is the maximum count of items to return. If zero,
 // the server will pick a reasonnable limit.
 func ListQuarantinedOHashes(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ListQuarantinedOHashesInfo{}
+	in := &pb.ListQuarantinedOHashesRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -1287,7 +1287,7 @@ func ListQuarantinedOHashes(s *server, ctx context.Context, pbIn *[]byte) (*[]by
 	it := s.kv.NewIterator(quarantinePrefix)
 	defer it.Close()
 
-	response := &pb.QuarantinedObjectNames{}
+	response := &pb.ListQuarantinedOHashesReply{}
 	curKey := make([]byte, maxObjKeyLen)
 	lastOhash := make([]byte, 32)
 
@@ -1331,7 +1331,7 @@ func ListQuarantinedOHashes(s *server, ctx context.Context, pbIn *[]byte) (*[]by
 }
 
 func ListQuarantinedOHash(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.ObjectPrefix{}
+	in := &pb.ListQuarantinedOHashRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -1364,7 +1364,7 @@ func ListQuarantinedOHash(s *server, ctx context.Context, pbIn *[]byte) (*[]byte
 	it := s.kv.NewIterator(quarantinePrefix)
 	defer it.Close()
 
-	response := &pb.LoadObjectsResponse{}
+	response := &pb.ListQuarantinedOHashReply{}
 
 	// adds one byte because of prefix. Otherwise len(prefix) would be len(prefix)-1
 	for it.Seek(prefix); it.Valid() && len(prefix) <= len(it.Key()) && bytes.Equal(prefix, it.Key()[:len(prefix)]); it.Next() {
@@ -1392,7 +1392,7 @@ func ListQuarantinedOHash(s *server, ctx context.Context, pbIn *[]byte) (*[]byte
 }
 
 func GetNextOffset(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.GetNextOffsetInfo{}
+	in := &pb.GetNextOffsetRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
@@ -1429,18 +1429,18 @@ func GetNextOffset(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error
 	}
 
 	s.statsd_c.Increment("get_next_offset.ok")
-	return serializePb(&pb.VolumeNextOffset{Offset: uint64(nextOffset)})
+	return serializePb(&pb.GetNextOffsetReply{Offset: uint64(nextOffset)})
 }
 
 // GetStats returns stats for the KV. used for initial debugging, remove?
 func GetStats(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.GetStatsInfo{}
+	in := &pb.GetStatsRequest{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")
 	}
 
-	response := new(pb.KVStats)
+	response := new(pb.GetStatsReply)
 
 	m := CollectStats(s)
 	response.Stats = m
@@ -1460,12 +1460,12 @@ func SetKvState(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
 	reqlog.Debug("RPC Call")
 
 	s.isClean = in.IsClean
-	return serializePb(&pb.Empty{})
+	return serializePb(&pb.SetKvStateReply{})
 }
 
 // Gets KV state (is in sync with volumes, or not)
 func GetKvState(s *server, ctx context.Context, pbIn *[]byte) (*[]byte, error) {
-	in := &pb.Empty{}
+	in := &pb.KvState{}
 	if err := proto.Unmarshal(*pbIn, in); err != nil {
 		logrus.Errorf("failed to unmarshal input: %v", err)
 		return nil, status.Errorf(codes.InvalidArgument, "unable to deserialize protobuf")

@@ -945,7 +945,7 @@ class TestVFileWriter(unittest.TestCase):
         conf = {}
         logger = None
 
-        rpc_reply = fmgr_pb2.Volumes()
+        rpc_reply = fmgr_pb2.ListVolumesReply()
         volume = fmgr_pb2.Volume(volume_index=1,
                                  volume_type=fmgr_pb2.VOLUME_DEFAULT,
                                  volume_state=fmgr_pb2.STATE_COMPACTION_TARGET,
@@ -1059,7 +1059,7 @@ class TestVFileWriter(unittest.TestCase):
 
         for t in test_sets:
             # build the RPC reply
-            rpc_reply = fmgr_pb2.Volumes()
+            rpc_reply = fmgr_pb2.ListVolumesReply()
             for vol in t["volumes"]:
                 volume = fmgr_pb2.Volume(volume_index=vol["index"],
                                          volume_type=vol["type"],

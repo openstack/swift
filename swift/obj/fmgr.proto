@@ -5,39 +5,186 @@ package filemgr;
 // Python: protoc -I. --python_out=. fmgr.proto
 // Golang : protoc -I proto proto/fmgr.proto --go_out=proto
 
-message ListPartitionsInfo {
+message RegisterVolumeRequest {
+    uint32 partition = 1;  // Swift partition
+    VolumeType type = 2;
+    uint32 volume_index = 3;
+    uint64 offset = 4;  // Next available offset to use in the volume.
+    VolumeState state = 5;
+    bool repair_tool = 6;  // Request is coming from a repair tool
+}
+
+message RegisterVolumeReply {}
+
+message UnregisterVolumeRequest {
+    uint32 index = 1;
+    bool repair_tool = 2;
+}
+
+message UnregisterVolumeReply {}
+
+message UpdateVolumeStateRequest {
+    uint32 volume_index = 1;
+    VolumeState state = 2;
+    bool repair_tool = 3;
+}
+
+message UpdateVolumeStateReply {}
+
+message GetVolumeRequest {
+    uint32 index = 1;
+    bool repair_tool = 2;
+}
+
+message GetVolumeReply {
+    uint32 volume_index = 1;
+    VolumeType volume_type = 2;
+    uint32 volume_state = 3;
+    uint32 partition = 4;
+    uint64 next_offset = 5;
+}
+
+message ListVolumesRequest {
+    uint32 partition = 1;
+    VolumeType type = 2;
+    bool repair_tool = 3;
+}
+
+message ListVolumesReply {
+    repeated Volume volumes = 1;
+}
+
+message RegisterObjectRequest {
+    bytes name = 1;
+    uint32 volume_index = 2;
+    uint64 offset = 3;  // Object offset within volume
+    uint64 next_offset = 4;  // Next offset to start from in the volume
+    bool repair_tool = 5;
+}
+
+message RegisterObjectReply {}
+
+message UnregisterObjectRequest {
+    bytes name = 1;
+    bool repair_tool = 2;
+}
+
+message UnregisterObjectReply {}
+
+message RenameObjectRequest {
+    bytes name = 1;
+    bytes new_name = 2;
+    bool repair_tool = 3;
+}
+
+message RenameObjectReply {}
+
+message LoadObjectRequest {
+    bytes name = 1;
+    bool is_quarantined = 2;
+    bool repair_tool = 3;
+}
+
+message LoadObjectReply {
+    bytes name = 1;
+    uint32 volume_index = 2;
+    uint64 offset = 3;
+}
+
+message QuarantineObjectRequest {
+    bytes name = 1;
+    bool repair_tool = 2;
+}
+
+message QuarantineObjectReply {}
+
+message UnquarantineObjectRequest {
+    bytes name = 1;
+    bool repair_tool = 2;
+}
+
+message UnquarantineObjectReply {}
+
+message LoadObjectsByPrefixRequest {
+    bytes prefix = 1;
+    bool repair_tool = 2;
+}
+
+message LoadObjectsByPrefixReply {
+    repeated Object objects = 1;
+}
+
+message LoadObjectsByVolumeRequest {
+    uint32 index = 1;
+    bool quarantined = 2;  // List only quarantined files, if true
+    bytes page_token = 3;
+    uint32 page_size = 4;
+    bool repair_tool = 5;
+}
+
+message LoadObjectsByVolumeReply {
+    repeated Object objects = 1;
+    bytes next_page_token = 2;
+}
+
+message ListPartitionsRequest {
     uint32 partition_bits = 1;
 }
 
-message ListPartitionInfo {
+message ListPartitionRequest {
     uint32 partition = 1;
     uint32 partition_bits = 2;
 }
 
-message ListSuffixInfo {
+message ListSuffixRequest {
     uint32 partition = 1;
     bytes suffix = 2;
     uint32 partition_bits = 3;
 }
 
-// Generic reply message for List* functions (listdir like)
-message DirEntries {
-    repeated string entry = 1;
+message ListQuarantinedOHashesRequest {
+    bytes page_token = 1;
+    uint32 page_size = 2;
 }
 
-message VolumeIndex {
-    uint32 index = 1;
-
-    // List only quarantined files, if true
-    bool quarantined = 2;
-
-    bytes page_token = 3;
-    uint32 page_size = 4;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 5;
+message ListQuarantinedOHashesReply {
+    repeated QuarantinedObjectName objects = 1;
+    bytes next_page_token = 2;
 }
 
+message ListQuarantinedOHashRequest {
+    bytes prefix = 1;
+    bool repair_tool = 2;
+}
+
+message ListQuarantinedOHashReply {
+    repeated Object objects = 1;
+}
+
+message GetNextOffsetRequest {
+    uint32 volume_index = 1;
+    bool repair_tool = 2;
+}
+
+message GetNextOffsetReply {
+    uint64 offset = 1;
+}
+
+message GetStatsRequest {}
+
+message GetStatsReply {
+    map<string, uint64> stats = 1;
+}
+
+message SetKvStateReply {}
+
+message GetKvStateRequest {}
+
+message KvState {
+    bool isClean = 1;
+}
+
+// Generic messages
 message Volume {
     uint32 volume_index = 1;
     VolumeType volume_type = 2;
@@ -46,43 +193,28 @@ message Volume {
     uint64 next_offset = 5;
 }
 
-// Similar to volume but we don't want to require the
-// partition
-message GetNextOffsetInfo {
-    uint32 volume_index = 1;
-    uint32 volume_type = 2;
-    uint32 volume_state = 3;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 4;
+message Object {
+    bytes name = 1;
+    uint32 volume_index = 2;
+    uint64 offset = 3;
 }
 
-message ListVolumesInfo {
-    uint32 partition = 1;
-
-    VolumeType type = 2;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 3;
+message QuarantinedObjectName {
+    bytes name = 1;
 }
 
-message Volumes {
-    repeated Volume volumes = 1;
+// For listdir() like functions
+message DirEntries {
+    repeated string entry = 1;
 }
 
-// The response message to GetNextOffset
-message VolumeNextOffset {
-    uint64 offset = 1;
-}
-
-// Volume type
+// Enums
 enum VolumeType {
     VOLUME_DEFAULT = 0;
     VOLUME_TOMBSTONE = 1;
     VOLUME_X_DELETE_AT = 2;
 }
 
-// VolumeState state
 enum VolumeState {
     // Default state, volume can be read from and written to
     STATE_RW = 0;
@@ -90,158 +222,4 @@ enum VolumeState {
     STATE_COMPACTION_SRC = 1;
     // Volume is a compaction target. New objects cannot be appended
     STATE_COMPACTION_TARGET = 2;
-}
-
-// The request message for a new volume
-message NewVolumeInfo {
-    // Swift partition
-    uint32 partition = 1;
-
-    VolumeType type = 2;
-
-    // Index number of the volume. It is up to the client to map this to an actual filename.
-    uint32 volume_index = 3;
-
-    // Next available offset to use in the volume.
-    uint64 offset = 4;
-
-    VolumeState state = 5;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 6;
-}
-
-message NewVolumeState {
-    uint32 volume_index = 1;
-    VolumeState state = 2;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 3;
-}
-
-// The response message for a new volume
-message NewVolumeReply {
-}
-
-message DelObjectReply {
-}
-
-message RenameReply {
-}
-
-// The request message for a new object
-message NewObjectInfo {
-    // Object "name". Name made of (md5, timestamp, etc..)
-    bytes name = 1;
-
-    // Index number of the volume.
-    uint32 volume_index = 2;
-
-    // Start offset of the object in the volume.
-    uint64 offset = 3;
-
-    // Next available offset to use in the volume.
-    uint64 next_offset = 4;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 5;
-}
-
-// The response message for a new object
-// Currently empty, but we may want to return something in the future
-message NewObjectReply {
-}
-
-message QuarantinedObjectName {
-    bytes name = 1;
-}
-
-message QuarantinedObjectNames {
-    repeated QuarantinedObjectName objects = 1;
-    bytes next_page_token = 2;
-}
-
-message ObjectName {
-    // name of the object.
-    bytes name = 1;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 2;
-}
-
-message LoadObjectInfo {
-    // name of the object.
-    bytes name = 1;
-
-    // Is it quarantined ?
-    bool is_quarantined = 2;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 5;
-}
-
-// The request message to rename an object
-message RenameInfo {
-    // name of the object.
-    bytes name = 1;
-
-    // new name of the object
-    bytes new_name = 2;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 3;
-}
-
-message Object {
-    // name of the object.
-    bytes name = 1;
-
-    // Index number of the volume.
-    uint32 volume_index = 2;
-
-    // Start offset of the object in the volume.
-    uint64 offset = 3;
-}
-
-message LoadObjectsResponse {
-    repeated Object objects = 1;
-    bytes next_page_token = 2;
-}
-
-message ObjectPrefix {
-    bytes prefix = 1;
-
-    // Is this request coming from a repair tool ?
-    bool repair_tool = 2;
-}
-
-message Empty {
-}
-
-message GetStatsInfo {
-}
-
-message PartitionContent {
-    repeated FullPathEntry file_entries = 1;
-}
-
-message FullPathEntry {
-    // We could add the partition if needed
-    bytes suffix = 1;
-    bytes ohash = 2;    // Object hash
-    bytes filename = 3; // '.data', '.meta'.. files
-}
-
-message KvState {
-    bool isClean = 1;
-}
-
-// KV stats
-message KVStats {
-    map<string, uint64> stats = 1;
-}
-
-message ListQuarantinedOHashesInfo {
-    bytes page_token = 1;
-    uint32 page_size = 2;
 }

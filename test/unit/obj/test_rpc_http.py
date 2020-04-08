@@ -32,8 +32,8 @@ class TestRpcHttp(unittest.TestCase):
         with mock.patch("swift.obj.rpc_http.UnixHTTPConnection",
                         return_value=m_conn):
             rpc_http.list_partitions(self.socket_path, self.part_power)
-            arg = fmgr_pb2.ListPartitionsInfo(partition_bits=self.part_power)
-            # m_conn[self.socket_path].stub.ListPartitions.assert_called_once_with(arg)
+            arg = fmgr_pb2.ListPartitionsRequest(
+                partition_bits=self.part_power)
             serialized_arg = arg.SerializeToString()
             m_conn.request.assert_called_once_with('POST', '/list_partitions',
                                                    serialized_arg)
