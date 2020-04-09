@@ -248,7 +248,7 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
     try:
         ring_file_src = _in_process_find_conf_file(conf_src_dir, ring_file_src,
                                                    use_sample=False)
-    except InProcessException as e:
+    except InProcessException:
         if policy_specified:
             raise InProcessException('Failed to find ring file %s'
                                      % ring_file_src)
@@ -883,8 +883,8 @@ def setup_package():
         # and we'll skip everything later
 
         if 'service_prefix' in config:
-                swift_test_service_prefix = utils.append_underscore(
-                    config['service_prefix'])
+            swift_test_service_prefix = utils.append_underscore(
+                config['service_prefix'])
 
         if swift_test_auth_version == "1":
 

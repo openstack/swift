@@ -98,7 +98,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                         self.object_name,
                         headers={'X-Backend-Storage-Policy-Index':
                                  policy_index})
-                except direct_client.ClientException as err:
+                except direct_client.ClientException:
                     continue
                 orig_policy_index = policy_index
                 break

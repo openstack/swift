@@ -1164,7 +1164,7 @@ swift-ring-builder <builder_file> rebalance [options]
 
     @staticmethod
     def dispersion():
-        """
+        r"""
 swift-ring-builder <builder_file> dispersion <search_filter> [options]
 
     Output report on dispersion.

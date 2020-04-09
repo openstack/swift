@@ -403,7 +403,7 @@ class BaseStoragePolicy(object):
                 (self.diskfile_module, self.name, err))
         try:
             dfm_cls.check_policy(self)
-        except ValueError as err:
+        except ValueError:
             raise PolicyError(
                 'Invalid diskfile_module %s for policy %s:%s (%s)' %
                 (self.diskfile_module, int(self), self.name, self.policy_type))

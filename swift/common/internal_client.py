@@ -937,8 +937,7 @@ class SimpleClient(object):
                 elif self.attempts > retries:
                     raise ClientException('Raise too many retries',
                                           http_status=err.getcode())
-            except (socket.error, httplib.HTTPException, urllib2.URLError) \
-                    as err:
+            except (socket.error, httplib.HTTPException, urllib2.URLError):
                 if self.attempts > retries:
                     raise
             sleep(backoff)

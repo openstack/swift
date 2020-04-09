@@ -79,7 +79,7 @@ rebuilding of the composite ring.
 
     The ``id`` of each component RingBuilder is therefore stored in metadata of
     the composite and used to check for the component ordering when the same
-    composite ring is re-composed. RingBuilder ``id``\s are normally assigned
+    composite ring is re-composed. RingBuilder ``id``\\s are normally assigned
     when a RingBuilder instance is first saved. Older RingBuilder instances
     loaded from file may not have an ``id`` assigned and will need to be saved
     before they can be used as components of a composite ring. This can be

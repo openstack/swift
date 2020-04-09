@@ -5688,7 +5688,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                         'some.counter')
         self.assertStat('some-name.some.operation:4900.0|ms',
                         self.logger.timing, 'some.operation', 4.9 * 1000)
-        self.assertStatMatches('some-name\.another\.operation:\d+\.\d+\|ms',
+        self.assertStatMatches(r'some-name\.another\.operation:\d+\.\d+\|ms',
                                self.logger.timing_since, 'another.operation',
                                time.time())
         self.assertStat('some-name.another.counter:42|c',
@@ -5703,7 +5703,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('pfx.some.operation:4900.0|ms|@0.972',
                         self.logger.timing, 'some.operation', 4.9 * 1000,
                         sample_rate=0.972)
-        self.assertStatMatches('pfx\.another\.op:\d+\.\d+\|ms|@0.972',
+        self.assertStatMatches(r'pfx\.another\.op:\d+\.\d+\|ms|@0.972',
                                self.logger.timing_since, 'another.op',
                                time.time(), sample_rate=0.972)
         self.assertStat('pfx.another.counter:3|c|@0.972',
@@ -5719,7 +5719,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('some.operation:4900.0|ms|@0.939',
                         self.logger.timing, 'some.operation',
                         4.9 * 1000, 0.939)
-        self.assertStatMatches('another\.op:\d+\.\d+\|ms|@0.939',
+        self.assertStatMatches(r'another\.op:\d+\.\d+\|ms|@0.939',
                                self.logger.timing_since, 'another.op',
                                time.time(), 0.939)
         self.assertStat('another.counter:3|c|@0.939',
@@ -5737,7 +5737,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                         'some.counter')
         self.assertStat('pfx.some.operation:4760.0|ms|@0.93',
                         self.logger.timing, 'some.operation', 4.76 * 1000)
-        self.assertStatMatches('pfx\.another\.op:\d+\.\d+\|ms|@0.93',
+        self.assertStatMatches(r'pfx\.another\.op:\d+\.\d+\|ms|@0.93',
                                self.logger.timing_since, 'another.op',
                                time.time())
         self.assertStat('pfx.another.counter:3|c|@0.93',
@@ -5751,7 +5751,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('pfx.some.operation:4900.0|ms|@0.9912',
                         self.logger.timing, 'some.operation', 4.9 * 1000,
                         sample_rate=0.9912)
-        self.assertStatMatches('pfx\.another\.op:\d+\.\d+\|ms|@0.9912',
+        self.assertStatMatches(r'pfx\.another\.op:\d+\.\d+\|ms|@0.9912',
                                self.logger.timing_since, 'another.op',
                                time.time(), sample_rate=0.9912)
         self.assertStat('pfx.another.counter:3|c|@0.9912',
@@ -5767,7 +5767,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('some.operation:4900.0|ms|@0.987654',
                         self.logger.timing, 'some.operation',
                         4.9 * 1000, 0.987654)
-        self.assertStatMatches('another\.op:\d+\.\d+\|ms|@0.987654',
+        self.assertStatMatches(r'another\.op:\d+\.\d+\|ms|@0.987654',
                                self.logger.timing_since, 'another.op',
                                time.time(), 0.987654)
         self.assertStat('another.counter:3|c|@0.987654',
@@ -5787,7 +5787,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('alpha.beta.pfx.some.operation:4760.0|ms',
                         self.logger.timing, 'some.operation', 4.76 * 1000)
         self.assertStatMatches(
-            'alpha\.beta\.pfx\.another\.op:\d+\.\d+\|ms',
+            r'alpha\.beta\.pfx\.another\.op:\d+\.\d+\|ms',
             self.logger.timing_since, 'another.op', time.time())
         self.assertStat('alpha.beta.pfx.another.counter:3|c',
                         self.logger.update_stats, 'another.counter', 3)
@@ -5801,9 +5801,10 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('alpha.beta.some.operation:4900.0|ms|@0.9912',
                         self.logger.timing, 'some.operation', 4.9 * 1000,
                         sample_rate=0.9912)
-        self.assertStatMatches('alpha\.beta\.another\.op:\d+\.\d+\|ms|@0.9912',
-                               self.logger.timing_since, 'another.op',
-                               time.time(), sample_rate=0.9912)
+        self.assertStatMatches(
+            r'alpha\.beta\.another\.op:\d+\.\d+\|ms|@0.9912',
+            self.logger.timing_since, 'another.op',
+            time.time(), sample_rate=0.9912)
         self.assertStat('alpha.beta.another.counter:3|c|@0.9912',
                         self.logger.update_stats, 'another.counter', 3,
                         sample_rate=0.9912)

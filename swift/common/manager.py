@@ -614,7 +614,7 @@ class Server(object):
                             '%(signal)s') %
                           {'server': self.server, 'pid': pid, 'signal': sig})
                 safe_kill(pid, sig, 'swift-%s' % self.server)
-            except InvalidPidFileException as e:
+            except InvalidPidFileException:
                 if kwargs.get('verbose'):
                     print(_('Removing pid file %(pid_file)s with wrong pid '
                             '%(pid)d') % {'pid_file': pid_file, 'pid': pid})

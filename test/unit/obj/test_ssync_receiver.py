@@ -381,8 +381,8 @@ class TestReceiver(unittest.TestCase):
              b':UPDATES: START', b':UPDATES: END'])
         self.assertRegexpMatches(
             b''.join(body_lines2),
-            b"^:ERROR: 0 '0\.0[0-9]+ seconds: "
-            b"/.+/sda1/objects/1/.lock-replication'$")
+            br"^:ERROR: 0 '0\.0[0-9]+ seconds: "
+            br"/.+/sda1/objects/1/.lock-replication'$")
 
     def test_SSYNC_initial_path(self):
         with mock.patch.object(
@@ -1168,13 +1168,35 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(mock_wsgi_input.mock_socket.close.called)
 
     def test_UPDATES_bad_subrequest_line(self):
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'bad_subrequest_line\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
+             UNPACK_ERR])
+        self.assertEqual(resp.status_int, 200)
+        self.controller.logger.exception.assert_called_once_with(
+            'None/device/partition EXCEPTION in ssync.Receiver')
+
+        with mock.patch.object(
+                self.controller, 'DELETE',
+                return_value=swob.HTTPNoContent()):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
                 environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
-                     'bad_subrequest_line\r\n')
+                     'DELETE /a/c/o\r\n'
+                     'X-Timestamp: 1364456113.76334\r\n'
+                     '\r\n'
+                     'bad_subrequest_line2')
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -1183,152 +1205,130 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
                 'None/device/partition EXCEPTION in ssync.Receiver')
-
-            with mock.patch.object(
-                    self.controller, 'DELETE',
-                    return_value=swob.HTTPNoContent()):
-                self.controller.logger = mock.MagicMock()
-                req = swob.Request.blank(
-                    '/device/partition',
-                    environ={'REQUEST_METHOD': 'SSYNC'},
-                    body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                         ':UPDATES: START\r\n'
-                         'DELETE /a/c/o\r\n'
-                         'X-Timestamp: 1364456113.76334\r\n'
-                         '\r\n'
-                         'bad_subrequest_line2')
-                resp = req.get_response(self.controller)
-                self.assertEqual(
-                    self.body_lines(resp.body),
-                    [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                     UNPACK_ERR])
-                self.assertEqual(resp.status_int, 200)
-                self.controller.logger.exception.assert_called_once_with(
-                    'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_no_headers(self):
-            self.controller.logger = mock.MagicMock()
-            req = swob.Request.blank(
-                '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
-                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\n'
-                     'DELETE /a/c/o\r\n')
-            resp = req.get_response(self.controller)
-            self.assertEqual(
-                self.body_lines(resp.body),
-                [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                 b":ERROR: 0 'Got no headers for DELETE /a/c/o'"])
-            self.assertEqual(resp.status_int, 200)
-            self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'DELETE /a/c/o\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
+             b":ERROR: 0 'Got no headers for DELETE /a/c/o'"])
+        self.assertEqual(resp.status_int, 200)
+        self.controller.logger.exception.assert_called_once_with(
+            'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_bad_headers(self):
-            self.controller.logger = mock.MagicMock()
-            req = swob.Request.blank(
-                '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
-                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\n'
-                     'DELETE /a/c/o\r\n'
-                     'Bad-Header Test\r\n')
-            resp = req.get_response(self.controller)
-            self.assertEqual(
-                self.body_lines(resp.body),
-                [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                 UNPACK_ERR])
-            self.assertEqual(resp.status_int, 200)
-            self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'DELETE /a/c/o\r\n'
+                 'Bad-Header Test\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
+             UNPACK_ERR])
+        self.assertEqual(resp.status_int, 200)
+        self.controller.logger.exception.assert_called_once_with(
+            'None/device/partition EXCEPTION in ssync.Receiver')
 
-            self.controller.logger = mock.MagicMock()
-            req = swob.Request.blank(
-                '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
-                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\n'
-                     'DELETE /a/c/o\r\n'
-                     'Good-Header: Test\r\n'
-                     'Bad-Header Test\r\n')
-            resp = req.get_response(self.controller)
-            self.assertEqual(
-                self.body_lines(resp.body),
-                [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                 UNPACK_ERR])
-            self.assertEqual(resp.status_int, 200)
-            self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'DELETE /a/c/o\r\n'
+                 'Good-Header: Test\r\n'
+                 'Bad-Header Test\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
+             UNPACK_ERR])
+        self.assertEqual(resp.status_int, 200)
+        self.controller.logger.exception.assert_called_once_with(
+            'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_bad_content_length(self):
-            self.controller.logger = mock.MagicMock()
-            req = swob.Request.blank(
-                '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
-                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\n'
-                     'PUT /a/c/o\r\n'
-                     'Content-Length: a\r\n\r\n')
-            resp = req.get_response(self.controller)
-            self.assertEqual(
-                self.body_lines(resp.body),
-                [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                 b':ERROR: 0 "invalid literal for int() with base 10: \'a\'"'])
-            self.assertEqual(resp.status_int, 200)
-            self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'PUT /a/c/o\r\n'
+                 'Content-Length: a\r\n\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
+             b':ERROR: 0 "invalid literal for int() with base 10: \'a\'"'])
+        self.assertEqual(resp.status_int, 200)
+        self.controller.logger.exception.assert_called_once_with(
+            'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_content_length_with_DELETE(self):
-            self.controller.logger = mock.MagicMock()
-            req = swob.Request.blank(
-                '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
-                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\n'
-                     'DELETE /a/c/o\r\n'
-                     'Content-Length: 1\r\n\r\n')
-            resp = req.get_response(self.controller)
-            self.assertEqual(
-                self.body_lines(resp.body),
-                [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                 b":ERROR: 0 'DELETE subrequest with content-length /a/c/o'"])
-            self.assertEqual(resp.status_int, 200)
-            self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'DELETE /a/c/o\r\n'
+                 'Content-Length: 1\r\n\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
+             b":ERROR: 0 'DELETE subrequest with content-length /a/c/o'"])
+        self.assertEqual(resp.status_int, 200)
+        self.controller.logger.exception.assert_called_once_with(
+            'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_no_content_length_with_PUT(self):
-            self.controller.logger = mock.MagicMock()
-            req = swob.Request.blank(
-                '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
-                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\n'
-                     'PUT /a/c/o\r\n\r\n')
-            resp = req.get_response(self.controller)
-            self.assertEqual(
-                self.body_lines(resp.body),
-                [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                 b":ERROR: 0 'No content-length sent for PUT /a/c/o'"])
-            self.assertEqual(resp.status_int, 200)
-            self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'PUT /a/c/o\r\n\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
+             b":ERROR: 0 'No content-length sent for PUT /a/c/o'"])
+        self.assertEqual(resp.status_int, 200)
+        self.controller.logger.exception.assert_called_once_with(
+            'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_early_termination(self):
-            self.controller.logger = mock.MagicMock()
-            req = swob.Request.blank(
-                '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
-                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
-                     ':UPDATES: START\r\n'
-                     'PUT /a/c/o\r\n'
-                     'Content-Length: 1\r\n\r\n')
-            resp = req.get_response(self.controller)
-            self.assertEqual(
-                self.body_lines(resp.body),
-                [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-                 b":ERROR: 0 'Early termination for PUT /a/c/o'"])
-            self.assertEqual(resp.status_int, 200)
-            self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'PUT /a/c/o\r\n'
+                 'Content-Length: 1\r\n\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
+             b":ERROR: 0 'Early termination for PUT /a/c/o'"])
+        self.assertEqual(resp.status_int, 200)
+        self.controller.logger.exception.assert_called_once_with(
+            'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_failures(self):
 

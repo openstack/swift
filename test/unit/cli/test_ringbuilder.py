@@ -2192,7 +2192,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
-        ring_not_found_re = re.compile("Ring file .*\.ring\.gz not found")
+        ring_not_found_re = re.compile(r"Ring file .*\.ring\.gz not found")
         self.assertTrue(ring_not_found_re.findall(mock_stdout.getvalue()))
 
         # write ring file
@@ -2204,7 +2204,9 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
-        ring_up_to_date_re = re.compile("Ring file .*\.ring\.gz is up-to-date")
+        ring_up_to_date_re = re.compile(
+            r"Ring file .*\.ring\.gz is up-to-date"
+        )
         self.assertTrue(ring_up_to_date_re.findall(mock_stdout.getvalue()))
 
         # change builder (set weight)
@@ -2216,7 +2218,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
-        ring_obsolete_re = re.compile("Ring file .*\.ring\.gz is obsolete")
+        ring_obsolete_re = re.compile(r"Ring file .*\.ring\.gz is obsolete")
         self.assertTrue(ring_obsolete_re.findall(mock_stdout.getvalue()))
 
         # write ring file
@@ -2238,7 +2240,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
-        ring_invalid_re = re.compile("Ring file .*\.ring\.gz is invalid")
+        ring_invalid_re = re.compile(r"Ring file .*\.ring\.gz is invalid")
         self.assertTrue(ring_invalid_re.findall(mock_stdout.getvalue()))
 
     def test_default_no_device_ring_without_exception(self):

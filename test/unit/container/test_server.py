@@ -1262,7 +1262,7 @@ class TestContainerController(unittest.TestCase):
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
-        except BaseException as err:
+        except BaseException:
             got_exc = True
         finally:
             err = event.wait()
@@ -2337,7 +2337,7 @@ class TestContainerController(unittest.TestCase):
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
-        except BaseException as err:
+        except BaseException:
             got_exc = True
         finally:
             err = event.wait()
