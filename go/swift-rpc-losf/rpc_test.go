@@ -340,47 +340,6 @@ func TestListPartitions(t *testing.T) {
 	}
 }
 
-func TestListPartitionRecursive(t *testing.T) {
-	partition := uint32(428)
-	partPower := uint32(10)
-
-	lpInfo := &pb.ListPartitionInfo{Partition: partition, PartitionBits: partPower}
-	out, err := proto.Marshal(lpInfo)
-	if err != nil {
-		t.Error("failed to marshal")
-	}
-	body := bytes.NewReader(out)
-
-	expEntries := []pb.FullPathEntry{
-		{Suffix: []byte("845"), Ohash: []byte("6b08eabf5667557c72dc6570aa1fb845"), Filename: []byte("1515750801.08639#4#d.data")},
-		{Suffix: []byte("845"), Ohash: []byte("6b08eabf5667557c72dc6570aa1fb845"), Filename: []byte("1515750856.77219.meta")},
-		{Suffix: []byte("845"), Ohash: []byte("6b08eabf5667557c72dc6570abcfb845"), Filename: []byte("1515643210.72429#4#d.data")},
-	}
-
-	response, err := client.Post("http://unix/list_partition_recursive", "application/octet-stream", body)
-	if err = check_200(response, err); err != nil {
-		t.Fatalf("RPC call failed: %v", err)
-	}
-	defer response.Body.Close()
-
-	r := &pb.PartitionContent{}
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(response.Body)
-	if err = proto.Unmarshal(buf.Bytes(), r); err != nil {
-		t.Error("failed to unmarshal")
-	}
-
-	if len(r.FileEntries) != len(expEntries) {
-		t.Fatalf("\ngot: %v\nwant: %v", r.FileEntries, expEntries)
-	}
-
-	for i, e := range r.FileEntries {
-		if !bytes.Equal(e.Suffix, expEntries[i].Suffix) || !bytes.Equal(e.Ohash, expEntries[i].Ohash) || !bytes.Equal(e.Filename, expEntries[i].Filename) {
-			t.Fatalf("checking individual elements\ngot: %v\nwant: %v", r.FileEntries, expEntries)
-		}
-	}
-}
-
 // TODO: add more tests, have a suffix with multiple entries
 func TestListSuffix(t *testing.T) {
 	partition := uint32(428)
