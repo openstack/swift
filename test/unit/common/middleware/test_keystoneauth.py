@@ -1609,5 +1609,6 @@ class PrefixAccount(unittest.TestCase):
         self.assertFalse(test_auth._account_matches_tenant(
                          'PRE2_1234', '5678'))
 
+
 if __name__ == '__main__':
     unittest.main()

@@ -1691,5 +1691,6 @@ class TestSimpleClient(unittest.TestCase):
                     # See above
                     self.assertEqual('https', args[0].type)
 
+
 if __name__ == '__main__':
     unittest.main()

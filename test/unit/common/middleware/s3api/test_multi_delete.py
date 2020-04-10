@@ -531,5 +531,6 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self._test_no_body(use_transfer_encoding=True)
         self._test_no_body(use_transfer_encoding=True, string_to_md5=b'test')
 
+
 if __name__ == '__main__':
     unittest.main()

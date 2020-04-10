@@ -138,6 +138,7 @@ def NR_ioprio_set():
     raise OSError("Swift doesn't support ionice priority for %s %s" %
                   (architecture, arch_bits))
 
+
 # this syscall integer probably only works on x86_64 linux systems, you
 # can check if it's correct on yours with something like this:
 """
@@ -168,6 +169,7 @@ IOPRIO_CLASS_SHIFT = 13
 
 def IOPRIO_PRIO_VALUE(class_, data):
     return (((class_) << IOPRIO_CLASS_SHIFT) | data)
+
 
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path

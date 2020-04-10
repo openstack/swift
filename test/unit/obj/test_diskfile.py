@@ -8388,5 +8388,6 @@ class TestHashesHelpers(unittest.TestCase):
         result = diskfile.read_hashes(self.testdir)
         self.assertFalse(result['valid'])
 
+
 if __name__ == '__main__':
     unittest.main()

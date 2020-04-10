@@ -46,5 +46,6 @@ class TestExceptions(unittest.TestCase):
                                          http_response_content='content')
         self.assertEqual(str(exc), strerror)
 
+
 if __name__ == '__main__':
     unittest.main()

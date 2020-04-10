@@ -1828,5 +1828,6 @@ class TestUtilityMethods(unittest.TestCase):
         req = Request({'PATH_INFO': '/'})
         self.assertRaises(ValueError, auth_inst.account_acls, req)
 
+
 if __name__ == '__main__':
     unittest.main()
