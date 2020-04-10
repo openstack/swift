@@ -144,6 +144,33 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertEqual('application/foo',
                          self.app._calls[-1].headers['Content-Type'])
 
+    def test_symlink_simple_put_with_quoted_etag(self):
+        self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
+            'Etag': 'tgt-etag', 'Content-Length': 42,
+            'Content-Type': 'application/foo'})
+        self.app.register('PUT', '/v1/a/c/symlink', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/symlink', method='PUT',
+                            headers={
+                                'X-Symlink-Target': 'c1/o',
+                                'X-Symlink-Target-Etag': '"tgt-etag"',
+                            }, body='')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[1]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertNotIn('X-Object-Sysmeta-Symlink-Target-Account', hdrs)
+        val = hdrs.get('X-Object-Sysmeta-Container-Update-Override-Etag')
+        self.assertEqual(val, '%s; symlink_target=c1/o; '
+                         'symlink_target_etag=tgt-etag; '
+                         'symlink_target_bytes=42' % MD5_OF_EMPTY_STRING)
+        self.assertEqual([
+            ('HEAD', '/v1/a/c1/o'),
+            ('PUT', '/v1/a/c/symlink'),
+        ], self.app.calls)
+        self.assertEqual('application/foo',
+                         self.app._calls[-1].headers['Content-Type'])
+
     def test_symlink_simple_put_with_etag_target_missing_content_type(self):
         self.app.register('HEAD', '/v1/a/c1/o', swob.HTTPOk, {
             'Etag': 'tgt-etag', 'Content-Length': 42})
@@ -1094,15 +1121,14 @@ class SymlinkCopyingTestCase(TestSymlinkMiddlewareBase):
                             }, body='')
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '409 Conflict')
-        # the quoted slo-etag is just straight up invalid
+        # the quoted slo-etag is tolerated, but still doesn't match
         req = Request.blank('/v1/a/c/symlink', method='PUT',
                             headers={
                                 'X-Symlink-Target': 'c1/o',
                                 'X-Symlink-Target-Etag': '"slo-etag"',
                             }, body='')
         status, headers, body = self.call_sym(req)
-        self.assertEqual(status, '400 Bad Request')
-        self.assertEqual(b'Bad X-Symlink-Target-Etag format', body)
+        self.assertEqual(status, '409 Conflict')
 
 
 class SymlinkVersioningTestCase(TestSymlinkMiddlewareBase):
