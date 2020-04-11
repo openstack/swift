@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2019-10-04 06:59+0000\n"
+"POT-Creation-Date: 2020-04-10 12:00+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -147,9 +147,6 @@ msgstr "%s'den profil verisi yüklenemiyor."
 #, python-format
 msgid "Client did not read from proxy within %ss"
 msgstr "İstemci %ss içinde vekilden okumadı"
-
-msgid "Client disconnected on read"
-msgstr "İstemci okuma sırasında bağlantıyı kesti"
 
 msgid "Client disconnected without sending enough data"
 msgstr "İstemci yeterli veri göndermeden bağlantıyı kesti"
