@@ -996,7 +996,7 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         for p in range(before.parts):
             if ({uniqueness(dev) for dev in before._devs_for_part(p)} !=
                     {uniqueness(dev) for dev in after._devs_for_part(p)}):
-                    moved_parts.add(p)
+                moved_parts.add(p)
         return moved_parts
 
     def num_parts_can_move(self, builder):

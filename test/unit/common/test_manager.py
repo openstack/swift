@@ -2279,5 +2279,6 @@ class TestManager(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(m.cmd_was_called, True)
 
+
 if __name__ == '__main__':
     unittest.main()

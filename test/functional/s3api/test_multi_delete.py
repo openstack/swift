@@ -16,8 +16,8 @@
 import unittest
 import os
 import test.functional as tf
-from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
-    SubElement
+from swift.common.middleware.s3api.etree import fromstring, tostring, \
+    Element, SubElement
 
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection

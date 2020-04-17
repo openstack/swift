@@ -104,7 +104,7 @@ class Connection(object):
                         # 404 means NoSuchBucket, NoSuchKey, or NoSuchUpload
                         if e.status != 404:
                             raise
-            except Exception as e:
+            except Exception:
                 exceptions.append(''.join(
                     traceback.format_exception(*sys.exc_info())))
         if exceptions:
@@ -186,7 +186,7 @@ def tear_down_s3(conn):
                     # 404 means NoSuchBucket, NoSuchKey, or NoSuchUpload
                     if e.response['ResponseMetadata']['HTTPStatusCode'] != 404:
                         raise
-        except Exception as e:
+        except Exception:
             exceptions.append(''.join(
                 traceback.format_exception(*sys.exc_info())))
     if exceptions:

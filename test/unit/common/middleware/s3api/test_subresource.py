@@ -363,5 +363,6 @@ class TestS3ApiSubresource(unittest.TestCase):
         func = lambda: '' in grantee
         self.assertRaises(S3NotImplemented, func)
 
+
 if __name__ == '__main__':
     unittest.main()

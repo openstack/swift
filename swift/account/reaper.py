@@ -382,7 +382,7 @@ class AccountReaper(Daemon):
                     self.stats_return_codes.get(err.http_status // 100, 0) + 1
                 self.logger.increment(
                     'return_codes.%d' % (err.http_status // 100,))
-            except (Timeout, socket.error) as err:
+            except (Timeout, socket.error):
                 self.logger.error(
                     'Timeout Exception with %(ip)s:%(port)s/%(device)s',
                     node)
@@ -433,7 +433,7 @@ class AccountReaper(Daemon):
                     self.stats_return_codes.get(err.http_status // 100, 0) + 1
                 self.logger.increment(
                     'return_codes.%d' % (err.http_status // 100,))
-            except (Timeout, socket.error) as err:
+            except (Timeout, socket.error):
                 self.logger.error(
                     'Timeout Exception with %(ip)s:%(port)s/%(device)s',
                     node)
@@ -509,7 +509,7 @@ class AccountReaper(Daemon):
                     self.stats_return_codes.get(err.http_status // 100, 0) + 1
                 self.logger.increment(
                     'return_codes.%d' % (err.http_status // 100,))
-            except (Timeout, socket.error) as err:
+            except (Timeout, socket.error):
                 failures += 1
                 self.logger.increment('objects_failures')
                 self.logger.error(

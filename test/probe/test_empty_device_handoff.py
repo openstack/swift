@@ -172,5 +172,6 @@ class TestEmptyDevice(ReplProbeTest):
         else:
             self.fail("Expected ClientException but didn't get it")
 
+
 if __name__ == '__main__':
     main()

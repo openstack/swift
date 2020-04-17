@@ -922,5 +922,6 @@ class TestUTF8DirectClient(TestDirectClient):
         self.container = self.container.encode('utf-8')
         self.obj = self.obj.encode('utf-8')
 
+
 if __name__ == '__main__':
     unittest.main()

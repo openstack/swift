@@ -323,7 +323,7 @@ class HTMLViewer(object):
         if not fulldirs:
             stats.strip_dirs()
         stats.sort_stats(sort)
-        nfl_filter_esc = nfl_filter.replace('(', '\(').replace(')', '\)')
+        nfl_filter_esc = nfl_filter.replace(r'(', r'\(').replace(r')', r'\)')
         amount = [nfl_filter_esc, limit] if nfl_filter_esc else [limit]
         profile_html = self.generate_stats_html(stats, self.app_path,
                                                 profile_id, *amount)
@@ -371,7 +371,7 @@ class HTMLViewer(object):
         if len(log_files) == 0:
             raise NotFoundException(_('no log file found'))
         try:
-            nfl_esc = nfl_filter.replace('(', '\(').replace(')', '\)')
+            nfl_esc = nfl_filter.replace(r'(', r'\(').replace(r')', r'\)')
             # remove the slash that is intentionally added in the URL
             # to avoid failure of filtering stats data.
             if nfl_esc.startswith('/'):
@@ -454,15 +454,15 @@ class HTMLViewer(object):
                 fmt = '<span id="L%d" rel="#L%d">%' + max_width\
                     + 'd|<code>%s</code></span>'
                 for line in lines:
-                    l = html_escape(line)
+                    el = html_escape(line)
                     i = i + 1
                     if i == lineno:
                         fmt2 = '<span id="L%d" style="background-color: \
                             rgb(127,255,127)">%' + max_width +\
                             'd|<code>%s</code></span>'
-                        data.append(fmt2 % (i, i, l))
+                        data.append(fmt2 % (i, i, el))
                     else:
-                        data.append(fmt % (i, i, i, l))
+                        data.append(fmt % (i, i, i, el))
             data = ''.join(data)
         except Exception:
             return _('Can not access the file %s.') % file_path

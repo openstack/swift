@@ -79,5 +79,6 @@ class Linkat(object):
 
         return self._c_linkat(olddirfd, oldpath, newdirfd, newpath, flags)
 
+
 linkat = Linkat()
 del Linkat

@@ -48,12 +48,18 @@ storage nodes, you must prepare the storage devices.
       # mkdir -p /srv/node/sdb
       # mkdir -p /srv/node/sdc
 
+#. Find the UUID of the new partitions:
+
+   .. code-block:: console
+
+      # blkid
+
 #. Edit the ``/etc/fstab`` file and add the following to it:
 
    .. code-block:: none
 
-        /dev/sdb /srv/node/sdb xfs noatime,nodiratime,logbufs=8 0 2
-        /dev/sdc /srv/node/sdc xfs noatime,nodiratime,logbufs=8 0 2
+      UUID="<UUID-from-output-above>" /srv/node/sdb xfs noatime,nodiratime,logbufs=8 0 2
+      UUID="<UUID-from-output-above>" /srv/node/sdc xfs noatime,nodiratime,logbufs=8 0 2
 
 #. Mount the devices:
 

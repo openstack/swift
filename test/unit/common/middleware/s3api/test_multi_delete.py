@@ -26,8 +26,8 @@ from swift.common.swob import Request
 from test.unit import make_timestamp_iter
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
-from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
-    SubElement
+from swift.common.middleware.s3api.etree import fromstring, tostring, \
+    Element, SubElement
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
 
 
@@ -530,6 +530,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self._test_no_body(use_content_length=True, string_to_md5=b'test')
         self._test_no_body(use_transfer_encoding=True)
         self._test_no_body(use_transfer_encoding=True, string_to_md5=b'test')
+
 
 if __name__ == '__main__':
     unittest.main()

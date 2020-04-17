@@ -1913,8 +1913,8 @@ class TestWorkerReconstructor(unittest.TestCase):
                             return_value=now), \
                     mock.patch('swift.obj.reconstructor.os.getpid',
                                return_value='pid-1'):
-                    reconstructor.final_recon_dump(
-                        total, override_devices=override_devices)
+                reconstructor.final_recon_dump(
+                    total, override_devices=override_devices)
             with open(self.rcache) as f:
                 data = json.load(f)
             self.assertEqual({

@@ -150,7 +150,7 @@ pygments_style = 'sphinx'
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-#html_static_path = ['_static']
+# html_static_path = ['_static']
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
@@ -159,8 +159,8 @@ if 'SOURCE_DATE_EPOCH' in os.environ:
     now = float(os.environ.get('SOURCE_DATE_EPOCH'))
     html_last_updated_fmt = datetime.datetime.utcfromtimestamp(now).isoformat()
 else:
-    git_cmd = ["git", "log", "--pretty=format:'%ad, commit %h'", "--date=local",
-               "-n1"]
+    git_cmd = ["git", "log", "--pretty=format:'%ad, commit %h'",
+               "--date=local", "-n1"]
     try:
         html_last_updated_fmt = subprocess.Popen(
             git_cmd, stdout=subprocess.PIPE).communicate()[0]

@@ -512,7 +512,7 @@ class TestInternalClient(unittest.TestCase):
 
         def do_test(resp_status):
             client = InternalClient(resp_status)
-            with self.assertRaises(internal_client.UnexpectedResponse) as ctx, \
+            with self.assertRaises(internal_client.UnexpectedResponse) as ctx,\
                     mock.patch('swift.common.internal_client.sleep'):
                 # This is obvious strange tests to expect only 400 Bad Request
                 # but this test intended to avoid extra body drain if it's
@@ -1690,6 +1690,7 @@ class TestSimpleClient(unittest.TestCase):
                 else:
                     # See above
                     self.assertEqual('https', args[0].type)
+
 
 if __name__ == '__main__':
     unittest.main()

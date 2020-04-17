@@ -664,7 +664,7 @@ class ContainerSync(Daemon):
             self.container_failures += 1
             self.logger.increment('failures')
             return False
-        except (Exception, Timeout) as err:
+        except (Exception, Timeout):
             self.logger.exception(
                 _('ERROR Syncing %(db_file)s %(row)s'),
                 {'db_file': str(broker), 'row': row})

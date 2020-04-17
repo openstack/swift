@@ -1562,7 +1562,7 @@ class TestSymlinkSlo(Base):
                 self.env.container2.name, 'manifest-abcde'),
             'X-Symlink-Target-Etag': slo_etag,
         })
-        self.assert_status(400)  # no quotes allowed!
+        self.assert_status(409)  # quotes OK, but doesn't match
 
         # try the slo etag w/o the quotes
         slo_etag = slo_etag.strip('"')
@@ -1571,7 +1571,7 @@ class TestSymlinkSlo(Base):
                 self.env.container2.name, 'manifest-abcde'),
             'X-Symlink-Target-Etag': slo_etag,
         })
-        self.assert_status(409)  # that just doesn't match
+        self.assert_status(409)  # that still doesn't match
 
     def test_static_link_target_symlink_to_slo_manifest(self):
         # write symlink

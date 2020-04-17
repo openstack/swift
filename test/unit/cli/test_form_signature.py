@@ -111,5 +111,6 @@ class TestFormSignature(unittest.TestCase):
                 '-922337203685477580799999999999999', key])
         self.assertNotEqual(exitcode, 0)
 
+
 if __name__ == '__main__':
     unittest.main()

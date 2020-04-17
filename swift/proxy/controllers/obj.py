@@ -44,7 +44,7 @@ from eventlet.timeout import Timeout
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
-    GreenAsyncPile, GreenthreadSafeIterator, Timestamp,
+    GreenAsyncPile, GreenthreadSafeIterator, Timestamp, WatchdogTimeout,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads)
@@ -869,7 +869,7 @@ class ReplicatedObjectController(BaseObjectController):
     def _make_putter(self, node, part, req, headers):
         if req.environ.get('swift.callback.update_footers'):
             putter = MIMEPutter.connect(
-                node, part, req.swift_entity_path, headers,
+                node, part, req.swift_entity_path, headers, self.app.watchdog,
                 conn_timeout=self.app.conn_timeout,
                 node_timeout=self.app.node_timeout,
                 write_timeout=self.app.node_timeout,
@@ -879,7 +879,7 @@ class ReplicatedObjectController(BaseObjectController):
         else:
             te = ',' + headers.get('Transfer-Encoding', '')
             putter = Putter.connect(
-                node, part, req.swift_entity_path, headers,
+                node, part, req.swift_entity_path, headers, self.app.watchdog,
                 conn_timeout=self.app.conn_timeout,
                 node_timeout=self.app.node_timeout,
                 write_timeout=self.app.node_timeout,
@@ -897,9 +897,10 @@ class ReplicatedObjectController(BaseObjectController):
         bytes_transferred = 0
 
         def send_chunk(chunk):
+            timeout_at = time.time() + self.app.node_timeout
             for putter in list(putters):
                 if not putter.failed:
-                    putter.send_chunk(chunk)
+                    putter.send_chunk(chunk, timeout_at=timeout_at)
                 else:
                     putter.close()
                     putters.remove(putter)
@@ -911,7 +912,9 @@ class ReplicatedObjectController(BaseObjectController):
         min_conns = quorum_size(len(nodes))
         try:
             while True:
-                with ChunkReadTimeout(self.app.client_timeout):
+                with WatchdogTimeout(self.app.watchdog,
+                                     self.app.client_timeout,
+                                     ChunkReadTimeout):
                     try:
                         chunk = next(data_source)
                     except StopIteration:
@@ -1569,13 +1572,14 @@ class Putter(object):
     :param resp: an HTTPResponse instance if connect() received final response
     :param path: the object path to send to the storage node
     :param connect_duration: time taken to initiate the HTTPConnection
+    :param watchdog: a spawned Watchdog instance that will enforce timeouts
     :param write_timeout: time limit to write a chunk to the connection socket
     :param send_exception_handler: callback called when an exception occured
                                    writing to the connection socket
     :param logger: a Logger instance
     :param chunked: boolean indicating if the request encoding is chunked
     """
-    def __init__(self, conn, node, resp, path, connect_duration,
+    def __init__(self, conn, node, resp, path, connect_duration, watchdog,
                  write_timeout, send_exception_handler, logger,
                  chunked=False):
         # Note: you probably want to call Putter.connect() instead of
@@ -1585,6 +1589,7 @@ class Putter(object):
         self.resp = self.final_resp = resp
         self.path = path
         self.connect_duration = connect_duration
+        self.watchdog = watchdog
         self.write_timeout = write_timeout
         self.send_exception_handler = send_exception_handler
         # for handoff nodes node_index is None
@@ -1627,7 +1632,7 @@ class Putter(object):
         # Subclasses may implement custom behaviour
         pass
 
-    def send_chunk(self, chunk):
+    def send_chunk(self, chunk, timeout_at=None):
         if not chunk:
             # If we're not using chunked transfer-encoding, sending a 0-byte
             # chunk is just wasteful. If we *are* using chunked
@@ -1641,7 +1646,7 @@ class Putter(object):
             self._start_object_data()
             self.state = SENDING_DATA
 
-        self._send_chunk(chunk)
+        self._send_chunk(chunk, timeout_at=timeout_at)
 
     def end_of_object_data(self, **kwargs):
         """
@@ -1653,14 +1658,15 @@ class Putter(object):
         self._send_chunk(b'')
         self.state = DATA_SENT
 
-    def _send_chunk(self, chunk):
+    def _send_chunk(self, chunk, timeout_at=None):
         if not self.failed:
             if self.chunked:
                 to_send = b"%x\r\n%s\r\n" % (len(chunk), chunk)
             else:
                 to_send = chunk
             try:
-                with ChunkWriteTimeout(self.write_timeout):
+                with WatchdogTimeout(self.watchdog, self.write_timeout,
+                                     ChunkWriteTimeout, timeout_at=timeout_at):
                     self.conn.send(to_send)
             except (Exception, ChunkWriteTimeout):
                 self.failed = True
@@ -1702,9 +1708,9 @@ class Putter(object):
         return conn, resp, final_resp, connect_duration
 
     @classmethod
-    def connect(cls, node, part, path, headers, conn_timeout, node_timeout,
-                write_timeout, send_exception_handler, logger=None,
-                chunked=False, **kwargs):
+    def connect(cls, node, part, path, headers, watchdog, conn_timeout,
+                node_timeout, write_timeout, send_exception_handler,
+                logger=None, chunked=False, **kwargs):
         """
         Connect to a backend node and send the headers.
 
@@ -1717,7 +1723,7 @@ class Putter(object):
         """
         conn, expect_resp, final_resp, connect_duration = cls._make_connection(
             node, part, path, headers, conn_timeout, node_timeout)
-        return cls(conn, node, final_resp, path, connect_duration,
+        return cls(conn, node, final_resp, path, connect_duration, watchdog,
                    write_timeout, send_exception_handler, logger,
                    chunked=chunked)
 
@@ -1732,12 +1738,13 @@ class MIMEPutter(Putter):
 
     An HTTP PUT request that supports streaming.
     """
-    def __init__(self, conn, node, resp, req, connect_duration,
+    def __init__(self, conn, node, resp, req, connect_duration, watchdog,
                  write_timeout, send_exception_handler, logger, mime_boundary,
                  multiphase=False):
         super(MIMEPutter, self).__init__(conn, node, resp, req,
-                                         connect_duration, write_timeout,
-                                         send_exception_handler, logger)
+                                         connect_duration, watchdog,
+                                         write_timeout, send_exception_handler,
+                                         logger)
         # Note: you probably want to call MimePutter.connect() instead of
         # instantiating one of these directly.
         self.chunked = True  # MIME requests always send chunked body
@@ -1815,9 +1822,9 @@ class MIMEPutter(Putter):
         self.state = COMMIT_SENT
 
     @classmethod
-    def connect(cls, node, part, req, headers, conn_timeout, node_timeout,
-                write_timeout, send_exception_handler, logger=None,
-                need_multiphase=True, **kwargs):
+    def connect(cls, node, part, req, headers, watchdog, conn_timeout,
+                node_timeout, write_timeout, send_exception_handler,
+                logger=None, need_multiphase=True, **kwargs):
         """
         Connect to a backend node and send the headers.
 
@@ -1869,7 +1876,7 @@ class MIMEPutter(Putter):
             if need_multiphase and not can_handle_multiphase_put:
                 raise MultiphasePUTNotSupported()
 
-        return cls(conn, node, final_resp, req, connect_duration,
+        return cls(conn, node, final_resp, req, connect_duration, watchdog,
                    write_timeout, send_exception_handler, logger,
                    mime_boundary, multiphase=need_multiphase)
 
@@ -2502,7 +2509,7 @@ class ECObjectController(BaseObjectController):
 
     def _make_putter(self, node, part, req, headers):
         return MIMEPutter.connect(
-            node, part, req.swift_entity_path, headers,
+            node, part, req.swift_entity_path, headers, self.app.watchdog,
             conn_timeout=self.app.conn_timeout,
             node_timeout=self.app.node_timeout,
             write_timeout=self.app.node_timeout,
@@ -2603,6 +2610,7 @@ class ECObjectController(BaseObjectController):
                 return
 
             updated_frag_indexes = set()
+            timeout_at = time.time() + self.app.node_timeout
             for putter in list(putters):
                 frag_index = putter_to_frag_index[putter]
                 backend_chunk = backend_chunks[frag_index]
@@ -2613,7 +2621,7 @@ class ECObjectController(BaseObjectController):
                     if frag_index not in updated_frag_indexes:
                         frag_hashers[frag_index].update(backend_chunk)
                         updated_frag_indexes.add(frag_index)
-                    putter.send_chunk(backend_chunk)
+                    putter.send_chunk(backend_chunk, timeout_at=timeout_at)
                 else:
                     putter.close()
                     putters.remove(putter)
@@ -2629,7 +2637,9 @@ class ECObjectController(BaseObjectController):
                 putters, policy)
 
             while True:
-                with ChunkReadTimeout(self.app.client_timeout):
+                with WatchdogTimeout(self.app.watchdog,
+                                     self.app.client_timeout,
+                                     ChunkReadTimeout):
                     try:
                         chunk = next(data_source)
                     except StopIteration:

@@ -142,6 +142,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         path_info = req.environ['PATH_INFO']
         self.assertEqual(path_info, unquote(raw_path_info))
         self.assertEqual(req.path, quote(path_info))
+        self.assertIn('swift.backend_path', req.environ)
+        self.assertEqual('/v1/AUTH_test/bucket/object:1',
+                         req.environ['swift.backend_path'])
 
     def test_canonical_string_v2(self):
         """
@@ -269,6 +272,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
+        self.assertIn('swift.backend_path', req.environ)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
         for _, path, headers in self.swift.calls_with_headers:
             self.assertNotIn('Authorization', headers)
 
@@ -282,6 +288,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         # Curious! But actually S3 doesn't verify any x-amz-date/date headers
         # for signed_url access and it also doesn't check timestamp
         self.assertEqual(status.split()[0], '200')
+        self.assertIn('swift.backend_path', req.environ)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
         for _, _, headers in self.swift.calls_with_headers:
             self.assertNotIn('Authorization', headers)
 
@@ -332,6 +341,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             environ={'REQUEST_METHOD': 'GET'})
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
+        self.assertIn('swift.backend_path', req.environ)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
         self.assertEqual(status.split()[0], '200', body)
         for _, _, headers in self.swift.calls_with_headers:
             self.assertNotIn('Authorization', headers)
@@ -454,6 +466,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                             headers={'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
+        self.assertIn('swift.backend_path', req.environ)
+        self.assertEqual('/v1/AUTH_test/bucket',
+                         req.environ['swift.backend_path'])
 
     def test_object_virtual_hosted_style(self):
         req = Request.blank('/object',
@@ -464,6 +479,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                             headers={'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
+        self.assertIn('swift.backend_path', req.environ)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
 
     def test_token_generation(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/'
@@ -481,6 +499,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         with mock.patch('swift.common.middleware.s3api.s3request.'
                         'S3Request.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
+            self.assertIn('swift.backend_path', req.environ)
+            self.assertEqual('/v1/AUTH_test/bucket',
+                             req.environ['swift.backend_path'])
+
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req.environ['s3api.auth_details'], {
             'access_key': 'test:tester',
@@ -507,6 +529,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         with mock.patch('swift.common.middleware.s3api.s3request.'
                         'S3Request.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
+            self.assertIn('swift.backend_path', req.environ)
+            self.assertEqual('/v1/AUTH_test/bucket',
+                             req.environ['swift.backend_path'])
+
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req.environ['s3api.auth_details'], {
             'access_key': (u'test:\N{SNOWMAN}'.encode('utf-8') if six.PY2
@@ -623,6 +649,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status, '200 OK')
+        self.assertIn('swift.backend_path', req.environ)
+        self.assertEqual('/v1/AUTH_X/bucket/object',
+                         req.environ['swift.backend_path'])
         # ...but aws:kms continues to fail
         self._test_unsupported_header(sse_header, 'aws:kms')
 
@@ -792,6 +821,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200', body)
+        self.assertIn('swift.backend_path', req.environ)
+        self.assertEqual('/v1/AUTH_test/bucket/object',
+                         req.environ['swift.backend_path'])
         for _, _, headers in self.swift.calls_with_headers:
             self.assertEqual(authz_header, headers['Authorization'])
             self.assertNotIn('X-Auth-Token', headers)
@@ -1142,6 +1174,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             status, headers, body = self.call_s3api(req)
             self.assertEqual(body, b'')
             self.assertEqual(1, mock_req.call_count)
+            self.assertIn('swift.backend_path', req.environ)
+            self.assertEqual('/v1/AUTH_TENANT_ID/bucket',
+                             req.environ['swift.backend_path'])
 
     def test_s3api_with_only_s3_token_v3(self):
         self.swift = FakeSwift()
@@ -1169,6 +1204,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             status, headers, body = self.call_s3api(req)
             self.assertEqual(body, b'')
             self.assertEqual(1, mock_req.call_count)
+            self.assertIn('swift.backend_path', req.environ)
+            self.assertEqual('/v1/AUTH_PROJECT_ID/bucket',
+                             req.environ['swift.backend_path'])
 
     def test_s3api_with_s3_token_and_auth_token(self):
         self.swift = FakeSwift()
@@ -1214,6 +1252,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                 # sets 'X-Identity-Status: Invalid' and never contacts
                 # Keystone.
                 self.assertEqual('403 Forbidden', status)
+                self.assertIn('swift.backend_path', req.environ)
+                self.assertEqual('/v1/AUTH_TENANT_ID/bucket',
+                                 req.environ['swift.backend_path'])
                 self.assertEqual(1, mock_req.call_count)
                 # it never even tries to contact keystone
                 self.assertEqual(0, mock_fetch.call_count)
@@ -1249,7 +1290,11 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
             status, headers, body = self.call_s3api(req)
             self.assertEqual(body, b'')
+            self.assertIn('swift.backend_path', req.environ)
+            self.assertEqual('/v1/AUTH_TENANT_ID/bucket',
+                             req.environ['swift.backend_path'])
             self.assertEqual(1, mock_req.call_count)
+
 
 if __name__ == '__main__':
     unittest.main()
