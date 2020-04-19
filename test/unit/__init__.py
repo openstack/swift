@@ -64,6 +64,7 @@ import unittest
 class SkipTest(unittest.SkipTest):
     pass
 
+
 EMPTY_ETAG = md5().hexdigest()
 
 # try not to import this module from swift

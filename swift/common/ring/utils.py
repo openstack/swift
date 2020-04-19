@@ -199,7 +199,7 @@ def is_valid_hostname(hostname):
     if hostname.endswith('.'):
         # strip exactly one dot from the right, if present
         hostname = hostname[:-1]
-    allowed = re.compile("(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
+    allowed = re.compile(r"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
     return all(allowed.match(x) for x in hostname.split("."))
 
 

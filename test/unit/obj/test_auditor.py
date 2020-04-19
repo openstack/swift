@@ -899,7 +899,7 @@ class TestAuditor(unittest.TestCase):
 
         with mock.patch('swift.obj.diskfile.get_auditor_status',
                         mock_get_auditor_status):
-                self.auditor.run_audit(**kwargs)
+            self.auditor.run_audit(**kwargs)
         quarantine_path = os.path.join(self.devices,
                                        'sda', 'quarantined', 'objects')
         self.assertTrue(os.path.isdir(quarantine_path))

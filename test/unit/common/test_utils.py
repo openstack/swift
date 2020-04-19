@@ -5688,7 +5688,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                         'some.counter')
         self.assertStat('some-name.some.operation:4900.0|ms',
                         self.logger.timing, 'some.operation', 4.9 * 1000)
-        self.assertStatMatches('some-name\.another\.operation:\d+\.\d+\|ms',
+        self.assertStatMatches(r'some-name\.another\.operation:\d+\.\d+\|ms',
                                self.logger.timing_since, 'another.operation',
                                time.time())
         self.assertStat('some-name.another.counter:42|c',
@@ -5703,7 +5703,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('pfx.some.operation:4900.0|ms|@0.972',
                         self.logger.timing, 'some.operation', 4.9 * 1000,
                         sample_rate=0.972)
-        self.assertStatMatches('pfx\.another\.op:\d+\.\d+\|ms|@0.972',
+        self.assertStatMatches(r'pfx\.another\.op:\d+\.\d+\|ms|@0.972',
                                self.logger.timing_since, 'another.op',
                                time.time(), sample_rate=0.972)
         self.assertStat('pfx.another.counter:3|c|@0.972',
@@ -5719,7 +5719,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('some.operation:4900.0|ms|@0.939',
                         self.logger.timing, 'some.operation',
                         4.9 * 1000, 0.939)
-        self.assertStatMatches('another\.op:\d+\.\d+\|ms|@0.939',
+        self.assertStatMatches(r'another\.op:\d+\.\d+\|ms|@0.939',
                                self.logger.timing_since, 'another.op',
                                time.time(), 0.939)
         self.assertStat('another.counter:3|c|@0.939',
@@ -5737,7 +5737,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                         'some.counter')
         self.assertStat('pfx.some.operation:4760.0|ms|@0.93',
                         self.logger.timing, 'some.operation', 4.76 * 1000)
-        self.assertStatMatches('pfx\.another\.op:\d+\.\d+\|ms|@0.93',
+        self.assertStatMatches(r'pfx\.another\.op:\d+\.\d+\|ms|@0.93',
                                self.logger.timing_since, 'another.op',
                                time.time())
         self.assertStat('pfx.another.counter:3|c|@0.93',
@@ -5751,7 +5751,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('pfx.some.operation:4900.0|ms|@0.9912',
                         self.logger.timing, 'some.operation', 4.9 * 1000,
                         sample_rate=0.9912)
-        self.assertStatMatches('pfx\.another\.op:\d+\.\d+\|ms|@0.9912',
+        self.assertStatMatches(r'pfx\.another\.op:\d+\.\d+\|ms|@0.9912',
                                self.logger.timing_since, 'another.op',
                                time.time(), sample_rate=0.9912)
         self.assertStat('pfx.another.counter:3|c|@0.9912',
@@ -5767,7 +5767,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('some.operation:4900.0|ms|@0.987654',
                         self.logger.timing, 'some.operation',
                         4.9 * 1000, 0.987654)
-        self.assertStatMatches('another\.op:\d+\.\d+\|ms|@0.987654',
+        self.assertStatMatches(r'another\.op:\d+\.\d+\|ms|@0.987654',
                                self.logger.timing_since, 'another.op',
                                time.time(), 0.987654)
         self.assertStat('another.counter:3|c|@0.987654',
@@ -5787,7 +5787,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('alpha.beta.pfx.some.operation:4760.0|ms',
                         self.logger.timing, 'some.operation', 4.76 * 1000)
         self.assertStatMatches(
-            'alpha\.beta\.pfx\.another\.op:\d+\.\d+\|ms',
+            r'alpha\.beta\.pfx\.another\.op:\d+\.\d+\|ms',
             self.logger.timing_since, 'another.op', time.time())
         self.assertStat('alpha.beta.pfx.another.counter:3|c',
                         self.logger.update_stats, 'another.counter', 3)
@@ -5801,9 +5801,10 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('alpha.beta.some.operation:4900.0|ms|@0.9912',
                         self.logger.timing, 'some.operation', 4.9 * 1000,
                         sample_rate=0.9912)
-        self.assertStatMatches('alpha\.beta\.another\.op:\d+\.\d+\|ms|@0.9912',
-                               self.logger.timing_since, 'another.op',
-                               time.time(), sample_rate=0.9912)
+        self.assertStatMatches(
+            r'alpha\.beta\.another\.op:\d+\.\d+\|ms|@0.9912',
+            self.logger.timing_since, 'another.op',
+            time.time(), sample_rate=0.9912)
         self.assertStat('alpha.beta.another.counter:3|c|@0.9912',
                         self.logger.update_stats, 'another.counter', 3,
                         sample_rate=0.9912)
@@ -8381,3 +8382,86 @@ class Test_LibcWrapper(unittest.TestCase):
                           # 0 is SEEK_SET
                           0)
             self.assertEqual(tf.read(100), b"defgh")
+
+
+class TestWatchdog(unittest.TestCase):
+    def test_start_stop(self):
+        w = utils.Watchdog()
+        w._evt.send = mock.Mock(side_effect=w._evt.send)
+        gth = object()
+
+        with patch('eventlet.greenthread.getcurrent', return_value=gth),\
+                patch('time.time', return_value=10.0):
+            # On first call, _next_expiration is None, it should unblock
+            # greenthread that is blocked for ever
+            key = w.start(1.0, Timeout)
+            self.assertIn(key, w._timeouts)
+            self.assertEqual(w._timeouts[key], (1.0, 11.0, gth, Timeout))
+            w._evt.send.assert_called_once()
+
+            w.stop(key)
+            self.assertNotIn(key, w._timeouts)
+
+    def test_timeout_concurrency(self):
+        w = utils.Watchdog()
+        w._evt.send = mock.Mock(side_effect=w._evt.send)
+        w._evt.wait = mock.Mock()
+        gth = object()
+
+        w._run()
+        w._evt.wait.assert_called_once_with(None)
+
+        with patch('eventlet.greenthread.getcurrent', return_value=gth):
+            w._evt.send.reset_mock()
+            w._evt.wait.reset_mock()
+            with patch('time.time', return_value=10.00):
+                # On first call, _next_expiration is None, it should unblock
+                # greenthread that is blocked for ever
+                w.start(5.0, Timeout)  # Will end at 15.0
+                w._evt.send.assert_called_once()
+
+            with patch('time.time', return_value=10.01):
+                w._run()
+                self.assertEqual(15.0, w._next_expiration)
+                w._evt.wait.assert_called_once_with(15.0 - 10.01)
+
+            w._evt.send.reset_mock()
+            w._evt.wait.reset_mock()
+            with patch('time.time', return_value=12.00):
+                # Now _next_expiration is 15.0, it won't unblock greenthread
+                # because this expiration is later
+                w.start(5.0, Timeout)  # Will end at 17.0
+                w._evt.send.assert_not_called()
+
+            w._evt.send.reset_mock()
+            w._evt.wait.reset_mock()
+            with patch('time.time', return_value=14.00):
+                # Now _next_expiration is still 15.0, it will unblock
+                # greenthread because this new expiration is 14.5
+                w.start(0.5, Timeout)  # Will end at 14.5
+                w._evt.send.assert_called_once()
+
+            with patch('time.time', return_value=14.01):
+                w._run()
+                w._evt.wait.assert_called_once_with(14.5 - 14.01)
+                self.assertEqual(14.5, w._next_expiration)
+                # Should wakeup at 14.5
+
+    def test_timeout_expire(self):
+        w = utils.Watchdog()
+        w._evt.send = mock.Mock()  # To avoid it to call get_hub()
+        w._evt.wait = mock.Mock()  # To avoid it to call get_hub()
+
+        with patch('eventlet.hubs.get_hub') as m_gh:
+            with patch('time.time', return_value=10.0):
+                w.start(5.0, Timeout)  # Will end at 15.0
+
+            with patch('time.time', return_value=16.0):
+                w._run()
+                m_gh.assert_called_once()
+                m_gh.return_value.schedule_call_global.assert_called_once()
+                exc = m_gh.return_value.schedule_call_global.call_args[0][2]
+                self.assertIsInstance(exc, Timeout)
+                self.assertEqual(exc.seconds, 5.0)
+                self.assertEqual(None, w._next_expiration)
+                w._evt.wait.assert_called_once_with(None)

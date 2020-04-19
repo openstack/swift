@@ -211,7 +211,7 @@ from swift.common.request_helpers import get_sys_meta_prefix, \
     update_ignore_range_header
 from swift.common.swob import Request, HTTPBadRequest, HTTPTemporaryRedirect, \
     HTTPException, HTTPConflict, HTTPPreconditionFailed, wsgi_quote, \
-    wsgi_unquote, status_map
+    wsgi_unquote, status_map, normalize_etag
 from swift.common.http import is_success, HTTP_NOT_FOUND
 from swift.common.exceptions import LinkIterError
 from swift.common.header_key_dict import HeaderKeyDict
@@ -285,7 +285,7 @@ def _validate_and_prep_request_headers(req):
         raise HTTPBadRequest(
             body='Symlink cannot target itself',
             request=req, content_type='text/plain')
-    etag = req.headers.get(TGT_ETAG_SYMLINK_HDR, None)
+    etag = normalize_etag(req.headers.get(TGT_ETAG_SYMLINK_HDR, None))
     if etag and any(c in etag for c in ';"\\'):
         # See cgi.parse_header for why the above chars are problematic
         raise HTTPBadRequest(

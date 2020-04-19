@@ -260,12 +260,12 @@ class TestAccount(Base):
 
     def testListingLimit(self):
         limit = load_constraint('account_listing_limit')
-        for l in (1, 100, limit / 2, limit - 1, limit, limit + 1, limit * 2):
-            p = {'limit': l}
+        for lim in (1, 100, limit / 2, limit - 1, limit, limit + 1, limit * 2):
+            p = {'limit': lim}
 
-            if l <= limit:
+            if lim <= limit:
                 self.assertLessEqual(len(self.env.account.containers(parms=p)),
-                                     l)
+                                     lim)
                 self.assert_status(200)
             else:
                 self.assertRaises(ResponseError,
@@ -578,10 +578,10 @@ class TestContainer(Base):
     def testContainerNameLimit(self):
         limit = load_constraint('max_container_name_length')
 
-        for l in (limit - 100, limit - 10, limit - 1, limit,
-                  limit + 1, limit + 10, limit + 100):
-            cont = self.env.account.container('a' * l)
-            if l <= limit:
+        for lim in (limit - 100, limit - 10, limit - 1, limit,
+                    limit + 1, limit + 10, limit + 100):
+            cont = self.env.account.container('a' * lim)
+            if lim <= limit:
                 self.assertTrue(cont.create())
                 self.assert_status((201, 202))
             else:
@@ -1949,10 +1949,10 @@ class TestFile(Base):
     def testNameLimit(self):
         limit = load_constraint('max_object_name_length')
 
-        for l in (1, 10, limit // 2, limit - 1, limit, limit + 1, limit * 2):
-            file_item = self.env.container.file('a' * l)
+        for lim in (1, 10, limit // 2, limit - 1, limit, limit + 1, limit * 2):
+            file_item = self.env.container.file('a' * lim)
 
-            if l <= limit:
+            if lim <= limit:
                 self.assertTrue(file_item.write())
                 self.assert_status(201)
             else:
@@ -2946,31 +2946,31 @@ class TestServiceToken(unittest.TestCase):
         self.dbg = dbg
 
     def do_request(self, url, token, parsed, conn, service_token=''):
-            if self.use_service_account:
-                path = self._service_account(parsed.path)
-            else:
-                path = parsed.path
-            if self.container:
-                path += '/%s' % self.container
-            if self.obj:
-                path += '/%s' % self.obj
-            headers = {}
-            if self.body:
-                headers.update({'Content-Length': len(self.body)})
-            if self.x_auth_token == self.SET_TO_USERS_TOKEN:
-                headers.update({'X-Auth-Token': token})
-            elif self.x_auth_token == self.SET_TO_SERVICE_TOKEN:
-                headers.update({'X-Auth-Token': service_token})
-            if self.x_service_token == self.SET_TO_USERS_TOKEN:
-                headers.update({'X-Service-Token': token})
-            elif self.x_service_token == self.SET_TO_SERVICE_TOKEN:
-                headers.update({'X-Service-Token': service_token})
-            if self.dbg:
-                print('DEBUG: conn.request: method:%s path:%s'
-                      ' body:%s headers:%s' % (self.method, path, self.body,
-                                               headers))
-            conn.request(self.method, path, self.body, headers=headers)
-            return check_response(conn)
+        if self.use_service_account:
+            path = self._service_account(parsed.path)
+        else:
+            path = parsed.path
+        if self.container:
+            path += '/%s' % self.container
+        if self.obj:
+            path += '/%s' % self.obj
+        headers = {}
+        if self.body:
+            headers.update({'Content-Length': len(self.body)})
+        if self.x_auth_token == self.SET_TO_USERS_TOKEN:
+            headers.update({'X-Auth-Token': token})
+        elif self.x_auth_token == self.SET_TO_SERVICE_TOKEN:
+            headers.update({'X-Auth-Token': service_token})
+        if self.x_service_token == self.SET_TO_USERS_TOKEN:
+            headers.update({'X-Service-Token': token})
+        elif self.x_service_token == self.SET_TO_SERVICE_TOKEN:
+            headers.update({'X-Service-Token': service_token})
+        if self.dbg:
+            print('DEBUG: conn.request: method:%s path:%s'
+                  ' body:%s headers:%s' % (self.method, path, self.body,
+                                           headers))
+        conn.request(self.method, path, self.body, headers=headers)
+        return check_response(conn)
 
     def _service_account(self, path):
         parts = path.split('/', 3)

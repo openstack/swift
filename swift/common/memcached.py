@@ -399,14 +399,17 @@ class MemcacheRing(object):
         """
         return self.incr(key, delta=-delta, time=time)
 
-    def delete(self, key):
+    def delete(self, key, server_key=None):
         """
         Deletes a key/value pair from memcache.
 
         :param key: key to be deleted
+        :param server_key: key to use in determining which server in the ring
+                            is used
         """
         key = md5hash(key)
-        for (server, fp, sock) in self._get_conns(key):
+        server_key = md5hash(server_key) if server_key else key
+        for (server, fp, sock) in self._get_conns(server_key):
             try:
                 with Timeout(self._io_timeout):
                     sock.sendall(b'delete ' + key + b'\r\n')

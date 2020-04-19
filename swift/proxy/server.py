@@ -32,7 +32,7 @@ from swift.common import constraints
 from swift.common.http import is_server_error
 from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring
-from swift.common.utils import cache_from_env, get_logger, \
+from swift.common.utils import Watchdog, cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     register_swift_info, readconf, config_auto_int_value
@@ -317,6 +317,8 @@ class Application(object):
             allow_account_management=self.allow_account_management,
             account_autocreate=self.account_autocreate,
             **constraints.EFFECTIVE_CONSTRAINTS)
+        self.watchdog = Watchdog()
+        self.watchdog.spawn()
 
     def _make_policy_override(self, policy, conf, override_conf):
         label_for_policy = _label_for_policy(policy)

@@ -89,6 +89,7 @@ def mock_keystone_password_side_effect(auth_url, username, password,
                         user_domain_id, trust_id, domain_id, domain_name,
                         project_id, project_domain_id, reauthenticate)
 
+
 ERR_MESSAGE_SECRET_INCORRECTLY_SPECIFIED = 'Secret incorrectly specified.'
 ERR_MESSAGE_KEY_UUID_NOT_FOUND = 'Key not found, uuid: '
 

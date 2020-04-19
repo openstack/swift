@@ -501,6 +501,8 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
         def get_environ(self, *args, **kwargs):
             environ = wsgi.HttpProtocol.get_environ(self, *args, **kwargs)
             header_payload = self.headers.get_payload()
+            if isinstance(header_payload, list) and len(header_payload) == 1:
+                header_payload = header_payload[0].get_payload()
             if header_payload:
                 # This shouldn't be here. We must've bumped up against
                 # https://bugs.python.org/issue37093
@@ -1300,7 +1302,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                         os.getpid(), orig_server_pid)
             try:
                 got_pid = os.read(read_fd, 30)
-            except Exception as e:
+            except Exception:
                 logger.warning('Unexpected exception while reading from '
                                'pipe:', exc_info=True)
             else:

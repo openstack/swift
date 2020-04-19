@@ -42,7 +42,7 @@ from eventlet.timeout import Timeout
 import six
 
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
-from swift.common.utils import Timestamp, config_true_value, \
+from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
     document_iters_to_http_response_body, ShardRange, find_shard_range
@@ -1047,7 +1047,8 @@ class ResumingGetter(object):
                         # but just a 200 or a single-range 206, then this
                         # performs no IO, and either just returns source or
                         # raises StopIteration.
-                        with ChunkReadTimeout(node_timeout):
+                        with WatchdogTimeout(self.app.watchdog, node_timeout,
+                                             ChunkReadTimeout):
                             # if StopIteration is raised, it escapes and is
                             # handled elsewhere
                             start_byte, end_byte, length, headers, part = next(
@@ -1078,7 +1079,8 @@ class ResumingGetter(object):
                 part_file = ByteCountEnforcer(part_file, nbytes)
                 while True:
                     try:
-                        with ChunkReadTimeout(node_timeout):
+                        with WatchdogTimeout(self.app.watchdog, node_timeout,
+                                             ChunkReadTimeout):
                             chunk = part_file.read(self.app.object_chunk_size)
                             nchunks += 1
                             # NB: this append must be *inside* the context
@@ -1138,8 +1140,9 @@ class ResumingGetter(object):
 
                         if not chunk:
                             if buf:
-                                with ChunkWriteTimeout(
-                                        self.app.client_timeout):
+                                with WatchdogTimeout(self.app.watchdog,
+                                                     self.app.client_timeout,
+                                                     ChunkWriteTimeout):
                                     self.bytes_used_from_backend += len(buf)
                                     yield buf
                                 buf = b''
@@ -1149,13 +1152,16 @@ class ResumingGetter(object):
                             while len(buf) >= client_chunk_size:
                                 client_chunk = buf[:client_chunk_size]
                                 buf = buf[client_chunk_size:]
-                                with ChunkWriteTimeout(
-                                        self.app.client_timeout):
+                                with WatchdogTimeout(self.app.watchdog,
+                                                     self.app.client_timeout,
+                                                     ChunkWriteTimeout):
                                     self.bytes_used_from_backend += \
                                         len(client_chunk)
                                     yield client_chunk
                         else:
-                            with ChunkWriteTimeout(self.app.client_timeout):
+                            with WatchdogTimeout(self.app.watchdog,
+                                                 self.app.client_timeout,
+                                                 ChunkWriteTimeout):
                                 self.bytes_used_from_backend += len(buf)
                                 yield buf
                             buf = b''

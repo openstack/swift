@@ -62,6 +62,7 @@ import eventlet.patcher
 import eventlet.semaphore
 import pkg_resources
 from eventlet import GreenPool, sleep, Timeout
+from eventlet.event import Event
 from eventlet.green import socket, threading
 import eventlet.hubs
 import eventlet.queue
@@ -137,6 +138,7 @@ def NR_ioprio_set():
     raise OSError("Swift doesn't support ionice priority for %s %s" %
                   (architecture, arch_bits))
 
+
 # this syscall integer probably only works on x86_64 linux systems, you
 # can check if it's correct on yours with something like this:
 """
@@ -168,6 +170,7 @@ IOPRIO_CLASS_SHIFT = 13
 def IOPRIO_PRIO_VALUE(class_, data):
     return (((class_) << IOPRIO_CLASS_SHIFT) | data)
 
+
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
@@ -185,7 +188,7 @@ F_SETPIPE_SZ = getattr(fcntl, 'F_SETPIPE_SZ', 1031)
 O_TMPFILE = getattr(os, 'O_TMPFILE', 0o20000000 | os.O_DIRECTORY)
 
 # Used by the parse_socket_string() function to validate IPv6 addresses
-IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
+IPV6_RE = re.compile(r"^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
 
 MD5_OF_EMPTY_STRING = 'd41d8cd98f00b204e9800998ecf8427e'
 RESERVED_BYTE = b'\x00'
@@ -3505,7 +3508,7 @@ def affinity_key_function(affinity_str):
     pieces = [s.strip() for s in affinity_str.split(',')]
     for piece in pieces:
         # matches r<number>=<number> or r<number>z<number>=<number>
-        match = re.match("r(\d+)(?:z(\d+))?=(\d+)$", piece)
+        match = re.match(r"r(\d+)(?:z(\d+))?=(\d+)$", piece)
         if match:
             region, zone, priority = match.groups()
             region = int(region)
@@ -3558,7 +3561,7 @@ def affinity_locality_predicate(write_affinity_str):
     pieces = [s.strip() for s in affinity_str.split(',')]
     for piece in pieces:
         # matches r<number> or r<number>z<number>
-        match = re.match("r(\d+)(?:z(\d+))?$", piece)
+        match = re.match(r"r(\d+)(?:z(\d+))?$", piece)
         if match:
             region, zone = match.groups()
             region = int(region)
@@ -5847,3 +5850,132 @@ def systemd_notify(logger=None):
             except EnvironmentError:
                 if logger:
                     logger.debug("Systemd notification failed", exc_info=True)
+
+
+class Watchdog(object):
+    """
+    Implements a watchdog to efficiently manage concurrent timeouts.
+
+    Compared to eventlet.timeouts.Timeout, it reduces the number of context
+    switching in eventlet by avoiding to schedule actions (throw an Exception),
+    then unschedule them if the timeouts are cancelled.
+
+    1. at T+0, request timeout(10)
+        => wathdog greenlet sleeps 10 seconds
+    2. at T+1, request timeout(15)
+        => the timeout will expire after the current, no need to wake up the
+           watchdog greenlet
+    3. at T+2, request timeout(5)
+        => the timeout will expire before the first timeout, wake up the
+           watchdog greenlet to calculate a new sleep period
+    4. at T+7, the 3rd timeout expires
+        => the exception is raised, then the greenlet watchdog sleep(3) to
+           wake up for the 1st timeout expiration
+    """
+    def __init__(self):
+        # key => (timeout, timeout_at, caller_greenthread, exception)
+        self._timeouts = dict()
+        self._evt = Event()
+        self._next_expiration = None
+        self._run_gth = None
+
+    def start(self, timeout, exc, timeout_at=None):
+        """
+        Schedule a timeout action
+
+        :param timeout: duration before the timeout expires
+        :param exc: exception to throw when the timeout expire, must inherit
+                    from eventlet.timeouts.Timeout
+        :param timeout_at: allow to force the expiration timestamp
+        :return: id of the scheduled timeout, needed to cancel it
+        """
+        if not timeout_at:
+            timeout_at = time.time() + timeout
+        gth = eventlet.greenthread.getcurrent()
+        timeout_definition = (timeout, timeout_at, gth, exc)
+        key = id(timeout_definition)
+        self._timeouts[key] = timeout_definition
+
+        # Wake up the watchdog loop only when there is a new shorter timeout
+        if (self._next_expiration is None
+                or self._next_expiration > timeout_at):
+            # There could be concurrency on .send(), so wrap it in a try
+            try:
+                if not self._evt.ready():
+                    self._evt.send()
+            except AssertionError:
+                pass
+
+        return key
+
+    def stop(self, key):
+        """
+        Cancel a scheduled timeout
+
+        :param key: timeout id, as returned by start()
+        """
+        try:
+            if key in self._timeouts:
+                del(self._timeouts[key])
+        except KeyError:
+            pass
+
+    def spawn(self):
+        """
+        Start the watchdog greenthread.
+        """
+        if self._run_gth is None:
+            self._run_gth = eventlet.spawn(self.run)
+
+    def run(self):
+        while True:
+            self._run()
+
+    def _run(self):
+        now = time.time()
+        self._next_expiration = None
+        if self._evt.ready():
+            self._evt.reset()
+        for k, (timeout, timeout_at, gth, exc) in list(self._timeouts.items()):
+            if timeout_at <= now:
+                try:
+                    if k in self._timeouts:
+                        del(self._timeouts[k])
+                except KeyError:
+                    pass
+                e = exc()
+                e.seconds = timeout
+                eventlet.hubs.get_hub().schedule_call_global(0, gth.throw, e)
+            else:
+                if (self._next_expiration is None
+                        or self._next_expiration > timeout_at):
+                    self._next_expiration = timeout_at
+        if self._next_expiration is None:
+            sleep_duration = self._next_expiration
+        else:
+            sleep_duration = self._next_expiration - now
+        self._evt.wait(sleep_duration)
+
+
+class WatchdogTimeout(object):
+    """
+    Context manager to schedule a timeout in a Watchdog instance
+    """
+    def __init__(self, watchdog, timeout, exc, timeout_at=None):
+        """
+        Schedule a timeout in a Watchdog instance
+
+        :param watchdog: Watchdog instance
+        :param timeout: duration before the timeout expires
+        :param exc: exception to throw when the timeout expire, must inherit
+                    from eventlet.timeouts.Timeout
+        :param timeout_at: allow to force the expiration timestamp
+        """
+        self.watchdog = watchdog
+        self.key = watchdog.start(timeout, exc, timeout_at=timeout_at)
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, type, value, traceback):
+        self.watchdog.stop(self.key)

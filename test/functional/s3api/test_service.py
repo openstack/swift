@@ -96,5 +96,6 @@ class TestS3ApiServiceSigV4(TestS3ApiService):
     def setUp(self):
         super(TestS3ApiServiceSigV4, self).setUp()
 
+
 if __name__ == '__main__':
     unittest.main()

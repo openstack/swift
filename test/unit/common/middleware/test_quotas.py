@@ -356,5 +356,6 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
         res = req.get_response(self.copy_filter)
         self.assertEqual(res.status_int, 200)
 
+
 if __name__ == '__main__':
     unittest.main()

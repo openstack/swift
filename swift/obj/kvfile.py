@@ -45,7 +45,7 @@ from swift.common.storage_policy import (
 
 from swift.obj import vfile
 from swift.obj.diskfile import BaseDiskFileManager, DiskFileManager, \
-    ECDiskFileManager, BaseDiskFile, DiskFile, DiskFileReader, DiskFileWriter, \
+    ECDiskFileManager, BaseDiskFile, DiskFile, DiskFileReader, DiskFileWriter,\
     BaseDiskFileReader, BaseDiskFileWriter, ECDiskFile, ECDiskFileReader, \
     ECDiskFileWriter, AuditLocation, RESERVED_DATAFILE_META, \
     DATAFILE_SYSTEM_META, strip_self, DEFAULT_RECLAIM_AGE, _encode_metadata, \

@@ -1837,11 +1837,11 @@ class TestSharder(BaseTestSharder):
         merge_items_calls = []
         with mock.patch('swift.container.backend.ContainerBroker.merge_items',
                         mock_merge_items), self._mock_sharder() as sharder:
-                sharder._replicate_object = mock.MagicMock(
-                    side_effect=[(False, [False, True, True]),
-                                 (False, [False, False, True])])
-                sharder._audit_container = mock.MagicMock()
-                sharder._process_broker(broker, node, 99)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=[(False, [False, True, True]),
+                             (False, [False, False, True])])
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
 
         self.assertEqual(SHARDING, broker.get_db_state())
         self.assertEqual(ShardRange.SHARDING,
@@ -1934,11 +1934,11 @@ class TestSharder(BaseTestSharder):
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
                 'index': 0}
         with self._mock_sharder({'shard_replication_quorum': 3}) as sharder:
-                sharder._replicate_object = mock.MagicMock(
-                    side_effect=[(False, [False, True, True]),
-                                 (False, [False, False, True])])
-                sharder._audit_container = mock.MagicMock()
-                sharder._process_broker(broker, node, 99)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=[(False, [False, True, True]),
+                             (False, [False, False, True])])
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
         # replication of first shard range fails - no more shards attempted
         self.assertEqual(SHARDING, broker.get_db_state())
         self.assertEqual(ShardRange.SHARDING,
@@ -1951,11 +1951,11 @@ class TestSharder(BaseTestSharder):
         # and again with a chilled out quorom, so cleaving moves onto second
         # shard range which fails to reach even chilled quorum
         with self._mock_sharder({'shard_replication_quorum': 1}) as sharder:
-                sharder._replicate_object = mock.MagicMock(
-                    side_effect=[(False, [False, False, True]),
-                                 (False, [False, False, False])])
-                sharder._audit_container = mock.MagicMock()
-                sharder._process_broker(broker, node, 99)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=[(False, [False, False, True]),
+                             (False, [False, False, False])])
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
         self.assertEqual(SHARDING, broker.get_db_state())
         self.assertEqual(ShardRange.SHARDING,
                          broker.get_own_shard_range().state)
@@ -1973,10 +1973,10 @@ class TestSharder(BaseTestSharder):
         shard_ranges[1].update_state(ShardRange.CLEAVED)
         broker.merge_shard_ranges(shard_ranges[1])
         with self._mock_sharder({'shard_replication_quorum': 1}) as sharder:
-                sharder._replicate_object = mock.MagicMock(
-                    side_effect=[(False, [False, False, False])])
-                sharder._audit_container = mock.MagicMock()
-                sharder._process_broker(broker, node, 99)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=[(False, [False, False, False])])
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
         self.assertEqual(SHARDING, broker.get_db_state())
         self.assertEqual(ShardRange.SHARDING,
                          broker.get_own_shard_range().state)
@@ -1992,10 +1992,10 @@ class TestSharder(BaseTestSharder):
         with self._mock_sharder(
                 {'shard_replication_quorum': 1,
                  'existing_shard_replication_quorum': 0}) as sharder:
-                sharder._replicate_object = mock.MagicMock(
-                    side_effect=[(False, [])])  # maybe shard db was deleted
-                sharder._audit_container = mock.MagicMock()
-                sharder._process_broker(broker, node, 99)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=[(False, [])])  # maybe shard db was deleted
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
         self.assertEqual(SHARDING, broker.get_db_state())
         self.assertEqual(ShardRange.SHARDING,
                          broker.get_own_shard_range().state)
@@ -2012,11 +2012,11 @@ class TestSharder(BaseTestSharder):
         with self._mock_sharder(
                 {'shard_replication_quorum': 1,
                  'existing_shard_replication_quorum': 0}) as sharder:
-                sharder._replicate_object = mock.MagicMock(
-                    side_effect=[(False, [False, False, False]),
-                                 (False, [False, True, False])])
-                sharder._audit_container = mock.MagicMock()
-                sharder._process_broker(broker, node, 99)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=[(False, [False, False, False]),
+                             (False, [False, True, False])])
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
         self.assertEqual(SHARDING, broker.get_db_state())
         self.assertEqual(ShardRange.SHARDING,
                          broker.get_own_shard_range().state)
@@ -2033,10 +2033,10 @@ class TestSharder(BaseTestSharder):
         with self._mock_sharder(
                 {'shard_replication_quorum': 99,
                  'existing_shard_replication_quorum': 99}) as sharder:
-                sharder._replicate_object = mock.MagicMock(
-                    side_effect=[(False, [False, True, True])])
-                sharder._audit_container = mock.MagicMock()
-                sharder._process_broker(broker, node, 99)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=[(False, [False, True, True])])
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
         self.assertEqual(SHARDING, broker.get_db_state())
         self.assertEqual(ShardRange.SHARDING,
                          broker.get_own_shard_range().state)
@@ -2051,10 +2051,10 @@ class TestSharder(BaseTestSharder):
         with self._mock_sharder(
                 {'shard_replication_quorum': 99,
                  'existing_shard_replication_quorum': 99}) as sharder:
-                sharder._replicate_object = mock.MagicMock(
-                    side_effect=[(True, [True, True, True])])
-                sharder._audit_container = mock.MagicMock()
-                sharder._process_broker(broker, node, 99)
+            sharder._replicate_object = mock.MagicMock(
+                side_effect=[(True, [True, True, True])])
+            sharder._audit_container = mock.MagicMock()
+            sharder._process_broker(broker, node, 99)
         self.assertEqual(SHARDED, broker.get_db_state())
         self.assertEqual(ShardRange.SHARDED,
                          broker.get_own_shard_range().state)

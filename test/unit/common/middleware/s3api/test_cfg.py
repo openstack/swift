@@ -40,5 +40,6 @@ class TestS3ApiCfg(unittest.TestCase):
         self.assertEqual(conf['b'], 100)
         self.assertEqual(conf['c'], False)
 
+
 if __name__ == '__main__':
     unittest.main()

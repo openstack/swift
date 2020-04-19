@@ -30,7 +30,7 @@ from swift.common import utils
 
 MAX_LENGTH = 255
 FORBIDDEN_CHARS = '\'\"<>`'
-FORBIDDEN_REGEXP = "/\./|/\.\./|/\.$|/\.\.$"
+FORBIDDEN_REGEXP = r"/\./|/\.\./|/\.$|/\.\.$"
 
 
 class FakeApp(object):
@@ -94,7 +94,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
         self.assertEqual(resp.status_int, 400)
 
     def test_invalid_regexp(self):
-        for s in ['/.', '/..', '/./foo', '/../foo']:
+        for s in [r'/.', r'/..', r'/./foo', r'/../foo']:
             path = '/V1.0/' + s
             resp = Request.blank(
                 path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
@@ -107,7 +107,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
             self.assertEqual(resp.status_int, 400)
 
     def test_valid_regexp(self):
-        for s in ['/...', '/.\.', '/foo']:
+        for s in [r'/...', r'/.\.', r'/foo']:
             path = '/V1.0/' + s
             resp = Request.blank(
                 path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
@@ -137,7 +137,7 @@ class TestSwiftInfo(unittest.TestCase):
     def test_registered_configured_options(self):
         conf = {'maximum_length': 512,
                 'forbidden_chars': '\'\"`',
-                'forbidden_regexp': "/\./|/\.\./|/\.$"}
+                'forbidden_regexp': r"/\./|/\.\./|/\.$"}
         name_check.filter_factory(conf)(FakeApp())
         swift_info = utils.get_swift_info()
         self.assertTrue('name_check' in swift_info)
@@ -145,7 +145,8 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(set(swift_info['name_check'].get('forbidden_chars')),
                          set('\'\"`'))
         self.assertEqual(swift_info['name_check'].get('forbidden_regexp'),
-                         "/\./|/\.\./|/\.$")
+                         r"/\./|/\.\./|/\.$")
+
 
 if __name__ == '__main__':
     unittest.main()

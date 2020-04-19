@@ -67,7 +67,7 @@ from swift.common.middleware import proxy_logging, versioned_writes, \
     copy, listing_formats
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
-    APIVersionError, ChunkWriteTimeout, ChunkReadError
+    APIVersionError, ChunkReadError
 from swift.common import utils, constraints
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
@@ -2030,7 +2030,7 @@ class BaseTestObjectController(object):
             self.app.update_request(req)
             try:
                 res = method(req)
-            except HTTPException as res:
+            except HTTPException as res:  # noqa: F841
                 pass
             self.assertEqual(res.status_int, expected)
 
@@ -2043,7 +2043,7 @@ class BaseTestObjectController(object):
             self.app.update_request(req)
             try:
                 res = method(req)
-            except HTTPException as res:
+            except HTTPException as res:  # noqa: F841
                 pass
             self.assertEqual(res.status_int, expected)
 
@@ -3297,9 +3297,10 @@ class TestReplicatedObjectController(
         fd.write(b'PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
                  b'Host: localhost\r\n'
                  b'X-Storage-Token: t\r\n'
-                 b'Content-Type: application/octet-stream\r\n'
+                 b'Content-Type: message/rfc822\r\n'
                  b'Content-Length: 33\r\n'
                  b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d\r\n'
+                 b'X-Object-Meta-\xe2\x98\x85: \xe2\x98\x85\r\n'
                  b'Expect: 100-continue\r\n'
                  b'Transfer-Encoding: chunked\r\n\r\n')
         fd.flush()
@@ -3338,9 +3339,13 @@ class TestReplicatedObjectController(
         headers = readuntil2crlfs(fd)
         exp = b'HTTP/1.1 200'
         self.assertEqual(headers[:len(exp)], exp)
-        self.assertIn(b'Content-Length: 33', headers.split(b'\r\n'))
+        header_lines = headers.split(b'\r\n')
+        self.assertIn(b'Content-Length: 33', header_lines)
+        self.assertIn(b'Content-Type: message/rfc822', header_lines)
         self.assertIn(b'X-Object-Meta-\xf0\x9f\x8c\xb4: \xf0\x9f\x91\x8d',
-                      headers.split(b'\r\n'))
+                      header_lines)
+        self.assertIn(b'X-Object-Meta-\xe2\x98\x85: \xe2\x98\x85',
+                      header_lines)
         self.assertEqual(b"oh say can you see by the dawns'\n", fd.read(33))
 
     @unpatch_policies
@@ -3591,7 +3596,7 @@ class TestReplicatedObjectController(
                 self.app.update_request(req)
                 try:
                     res = controller.PUT(req)
-                except HTTPException as res:
+                except HTTPException as res:  # noqa: F841
                     pass
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
@@ -3623,7 +3628,7 @@ class TestReplicatedObjectController(
                 self.app.update_request(req)
                 try:
                     res = controller.PUT(req)
-                except HTTPException as res:
+                except HTTPException as res:  # noqa: F841
                     pass
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
@@ -3668,7 +3673,7 @@ class TestReplicatedObjectController(
                 self.app.update_request(req)
                 try:
                     res = controller.PUT(req)
-                except HTTPException as res:
+                except HTTPException as res:  # noqa: F841
                     pass
                 expected = str(expected)
                 self.assertEqual(res.status[:len(str(expected))],
@@ -7302,7 +7307,7 @@ class BaseTestECObjectController(BaseTestObjectController):
         exp = b'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        class WrappedTimeout(ChunkWriteTimeout):
+        class WrappedTimeout(utils.WatchdogTimeout):
             def __enter__(self):
                 timeouts[self] = traceback.extract_stack()
                 return super(WrappedTimeout, self).__enter__()
@@ -7312,7 +7317,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                 return super(WrappedTimeout, self).__exit__(typ, value, tb)
 
         timeouts = {}
-        with mock.patch('swift.proxy.controllers.base.ChunkWriteTimeout',
+        with mock.patch('swift.proxy.controllers.base.WatchdogTimeout',
                         WrappedTimeout):
             with mock.patch.object(_test_servers[0], 'client_timeout', new=5):
                 # get object
@@ -9930,7 +9935,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(3, len(timestamps))
         for timestamp in timestamps:
             self.assertEqual(timestamp, timestamps[0])
-            self.assertTrue(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
+            self.assertTrue(re.match(r'[0-9]{10}\.[0-9]{5}', timestamp))
 
     def test_DELETE_backed_x_timestamp_header(self):
         timestamps = []
@@ -9956,7 +9961,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(3, len(timestamps))
         for timestamp in timestamps:
             self.assertEqual(timestamp, timestamps[0])
-            self.assertTrue(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
+            self.assertTrue(re.match(r'[0-9]{10}\.[0-9]{5}', timestamp))
 
     def test_node_read_timeout_retry_to_container(self):
         with save_globals():

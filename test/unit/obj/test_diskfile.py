@@ -5027,7 +5027,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
             with open('/dev/null', 'w') as devnull:
                 exc_re = (r'tee\(\) failed: tried to move \d+ bytes, but only '
-                          'moved -?\d+')
+                          r'moved -?\d+')
                 try:
                     reader.zero_copy_send(devnull.fileno())
                 except Exception as e:
@@ -8387,6 +8387,7 @@ class TestHashesHelpers(unittest.TestCase):
         diskfile.write_hashes(self.testdir, corrupted_hashes)
         result = diskfile.read_hashes(self.testdir)
         self.assertFalse(result['valid'])
+
 
 if __name__ == '__main__':
     unittest.main()

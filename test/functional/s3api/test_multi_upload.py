@@ -27,8 +27,8 @@ from hashlib import md5
 from six.moves import zip, zip_longest
 
 import test.functional as tf
-from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
-    SubElement
+from swift.common.middleware.s3api.etree import fromstring, tostring, \
+    Element, SubElement
 from swift.common.middleware.s3api.utils import mktime
 
 from test.functional.s3api import S3ApiBase
@@ -1104,6 +1104,7 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
         status, headers, body = \
             self.conn.make_request('DELETE', bucket)
         self.assertEqual(status, 204)  # sanity
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -29,7 +29,7 @@ from test.probe.common import ReplProbeTest
 from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import readconf
 
-EXCLUDE_FILES = re.compile('^(hashes\.(pkl|invalid)|lock(-\d+)?)$')
+EXCLUDE_FILES = re.compile(r'^(hashes\.(pkl|invalid)|lock(-\d+)?)$')
 
 
 def collect_info(path_list):
