@@ -1766,11 +1766,15 @@ class TestObject(unittest.TestCase):
         do_head()
         post_container('t')
         do_head(expect_quoted=True)
-        post_account('t')
-        post_container('')
-        do_head(expect_quoted=True)
-        post_container('f')
-        do_head()
+        try:
+            post_account('t')
+            post_container('')
+            do_head(expect_quoted=True)
+            post_container('f')
+            do_head()
+        finally:
+            # Don't leave a dirty account
+            post_account('')
 
 
 if __name__ == '__main__':
