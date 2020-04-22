@@ -1,0 +1,54 @@
+- name: Add more middlewares to pipeline
+  replace:
+      path: "/etc/swift/proxy-server.conf"
+      regexp: "cache listing_formats"
+      replace: "cache domain_remap etag-quoter listing_formats"
+  become: true
+
+- name: Set domain_remap domain
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:domain_remap
+    option: storage_domain
+    value: example.com
+  become: true
+
+- name: Set storage_domain in test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: storage_domain
+    value: example.com
+  become: true
+
+- name: Enable object versioning
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:versioned_writes
+    option: allow_object_versioning
+    value: true
+  become: true
+
+- name: Copy ring for Policy-1
+  copy:
+    remote_src: true
+    src: /etc/swift/object.ring.gz
+    dest: /etc/swift/object-1.ring.gz
+  become: true
+
+- name: Add Policy-1 to swift.conf
+  ini_file:
+    path: /etc/swift/swift.conf
+    section: storage-policy:1
+    option: name
+    value: Policy-1
+  become: true
+
+- name: Restart service to pick up config changes
+  command: systemctl restart devstack@s-{{ item }}.service
+  become: true
+  with_items:
+    - proxy
+    - account
+    - container
+    - object

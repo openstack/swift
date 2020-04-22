@@ -293,7 +293,7 @@ class TestObjectVersioning(TestObjectVersioningBase):
 
         # swift_test_client's File API doesn't really allow for POSTing
         # arbitrary headers, so...
-        def put(url, token, parsed, conn):
+        def post(url, token, parsed, conn):
             conn.request('POST', '%s/%s/%s' % (parsed.path, container,
                                                versioned_obj2.name),
                          '', {'X-Auth-Token': token,
@@ -301,7 +301,7 @@ class TestObjectVersioning(TestObjectVersioningBase):
                               'X-Object-Meta-Color': 'red',
                               'X-Delete-After': '1'})
             return tf.check_response(conn)
-        resp = tf.retry(put)
+        resp = tf.retry(post)
         resp.read()
         self.assertEqual(resp.status, 202)
 

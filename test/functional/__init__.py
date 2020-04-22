@@ -1121,10 +1121,15 @@ def get_url_token(user_index, os_options):
                     auth_version=swift_test_auth_version,
                     os_options=os_options,
                     insecure=insecure)
-    return get_auth(swift_test_auth,
-                    swift_test_user[user_index],
-                    swift_test_key[user_index],
-                    **authargs)
+    url, token = get_auth(swift_test_auth,
+                          swift_test_user[user_index],
+                          swift_test_key[user_index],
+                          **authargs)
+    if six.PY2 and not isinstance(url, bytes):
+        url = url.encode('utf-8')
+    if six.PY2 and not isinstance(token, bytes):
+        token = token.encode('utf-8')
+    return url, token
 
 
 def retry(func, *args, **kwargs):
