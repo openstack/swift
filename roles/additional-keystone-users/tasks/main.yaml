@@ -1,0 +1,61 @@
+- name: Set S3 endpoint
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_storage_url
+    value: http://localhost:8080
+  become: true
+
+- name: Create primary S3 user
+  shell: >
+    openstack --os-auth-url http://localhost/identity
+    --os-project-domain-id default --os-project-name admin
+    --os-user-domain-id default --os-username admin
+    --os-password secretadmin
+    credential create --type ec2 --project swiftprojecttest1 swiftusertest1
+    '{"access": "s3-user1", "secret": "s3-secret1"}'
+- name: Add primary S3 user to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_access_key
+    value: s3-user1
+  become: true
+- name: Add primary S3 user secret to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_secret_key
+    value: s3-secret1
+  become: true
+
+- name: Clear secondary S3 user from test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_access_key2
+    value: ""
+  become: true
+
+- name: Create restricted S3 user
+  shell: >
+    openstack --os-auth-url http://localhost/identity
+    --os-project-domain-id default --os-project-name admin
+    --os-user-domain-id default --os-username admin
+    --os-password secretadmin
+    credential create --type ec2 --project swiftprojecttest1 swiftusertest3
+    '{"access": "s3-user3", "secret": "s3-secret3"}'
+- name: Add restricted S3 user to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_access_key3
+    value: s3-user3
+  become: true
+- name: Add restricted S3 user secret to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_secret_key3
+    value: s3-secret3
+  become: true

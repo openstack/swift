@@ -42,11 +42,15 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
             self.assertIn('ETag', obj)
             self.assertIn('Size', obj)
             self.assertEqual(obj['StorageClass'], 'STANDARD')
-            if expect_owner:
+            if not expect_owner:
+                self.assertNotIn('Owner', obj)
+            elif tf.cluster_info['s3api'].get('s3_acl'):
                 self.assertEqual(obj['Owner']['ID'], self.access_key)
                 self.assertEqual(obj['Owner']['DisplayName'], self.access_key)
             else:
-                self.assertNotIn('Owner', obj)
+                self.assertIn('Owner', obj)
+                self.assertIn('ID', obj['Owner'])
+                self.assertIn('DisplayName', obj['Owner'])
 
     def test_bucket(self):
         bucket = 'bucket'
