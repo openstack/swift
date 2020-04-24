@@ -393,6 +393,12 @@
       previous_swift_version: origin/stable/train
 
 - job:
+    name: swift-multinode-rolling-upgrade-ussuri
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/ussuri
+
+- job:
     name: swift-multinode-rolling-upgrade-master
     parent: swift-multinode-rolling-upgrade
     vars:
@@ -720,6 +726,7 @@
         - swift-multinode-rolling-upgrade-rocky
         - swift-multinode-rolling-upgrade-stein
         - swift-multinode-rolling-upgrade-train
+        - swift-multinode-rolling-upgrade-ussuri
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
