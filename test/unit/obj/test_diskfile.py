@@ -24,6 +24,7 @@ import mock
 import unittest
 import email
 import tempfile
+import threading
 import uuid
 import xattr
 import re
@@ -3704,6 +3705,91 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 writer.write(b'asdf')
             # can close again
             writer.close()
+
+    def test_disk_file_concurrent_writes(self):
+        def threadA(df, events, errors):
+            try:
+                ts = self.ts()
+                with df.create() as writer:
+                    writer.write(b'dataA')
+                    writer.put({
+                        'X-Timestamp': ts.internal,
+                        'Content-Length': 5,
+                    })
+                    events[0].set()
+                    events[1].wait()
+                    writer.commit(ts)
+            except Exception as e:
+                errors.append(e)
+                raise
+
+        def threadB(df, events, errors):
+            try:
+                events[0].wait()
+                ts = self.ts()
+                with df.create() as writer:
+                    writer.write(b'dataB')
+                    writer.put({
+                        'X-Timestamp': ts.internal,
+                        'Content-Length': 5,
+                    })
+                    writer.commit(ts)
+                events[1].set()
+            except Exception as e:
+                errors.append(e)
+                raise
+
+        df = self._simple_get_diskfile()
+        events = [threading.Event(), threading.Event()]
+        errors = []
+
+        threads = [threading.Thread(target=tgt, args=(df, events, errors))
+                   for tgt in (threadA, threadB)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertFalse(errors)
+
+        with df.open(), open(df._data_file, 'rb') as fp:
+            self.assertEqual(b'dataB', fp.read())
+
+    def test_disk_file_concurrent_delete(self):
+        def threadA(df, events, errors):
+            try:
+                ts = self.ts()
+                with df.create() as writer:
+                    writer.write(b'dataA')
+                    writer.put({'X-Timestamp': ts.internal})
+                    events[0].set()
+                    events[1].wait()
+                    writer.commit(ts)
+            except Exception as e:
+                errors.append(e)
+                raise
+
+        def threadB(df, events, errors):
+            try:
+                events[0].wait()
+                df.delete(self.ts())
+                events[1].set()
+            except Exception as e:
+                errors.append(e)
+                raise
+
+        df = self._simple_get_diskfile()
+        events = [threading.Event(), threading.Event()]
+        errors = []
+
+        threads = [threading.Thread(target=tgt, args=(df, events, errors))
+                   for tgt in (threadA, threadB)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertFalse(errors)
+
+        self.assertRaises(DiskFileDeleted, df.open)
 
     def _get_open_disk_file(self, invalid_type=None, obj_name='o', fsize=1024,
                             csize=8, mark_deleted=False, prealloc=False,

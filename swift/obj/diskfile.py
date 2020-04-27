@@ -3031,7 +3031,8 @@ class ECDiskFileReader(BaseDiskFileReader):
 
 class ECDiskFileWriter(BaseDiskFileWriter):
 
-    def _finalize_durable(self, data_file_path, durable_data_file_path):
+    def _finalize_durable(self, data_file_path, durable_data_file_path,
+                          timestamp):
         exc = None
         new_data_file_path = new_durable_data_file_path = None
         if self.next_part_power:
@@ -3055,6 +3056,21 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                             exc)
 
             except (OSError, IOError) as err:
+                if err.errno == errno.ENOENT:
+                    files = os.listdir(self._datadir)
+                    results = self.manager.get_ondisk_files(
+                        files, self._datadir,
+                        frag_index=self._diskfile._frag_index,
+                        policy=self._diskfile.policy)
+                    # We "succeeded" if another writer cleaned up our data
+                    ts_info = results.get('ts_info')
+                    durables = results.get('durable_frag_set', [])
+                    if ts_info and ts_info['timestamp'] > timestamp:
+                        return
+                    elif any(frag_set['timestamp'] > timestamp
+                             for frag_set in durables):
+                        return
+
                 if err.errno not in (errno.ENOSPC, errno.EDQUOT):
                     # re-raise to catch all handler
                     raise
@@ -3102,7 +3118,8 @@ class ECDiskFileWriter(BaseDiskFileWriter):
             self._datadir, self.manager.make_on_disk_filename(
                 timestamp, '.data', self._diskfile._frag_index, durable=True))
         tpool.execute(
-            self._finalize_durable, data_file_path, durable_data_file_path)
+            self._finalize_durable, data_file_path, durable_data_file_path,
+            timestamp)
 
     def put(self, metadata):
         """
