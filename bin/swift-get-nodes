@@ -52,6 +52,8 @@ if __name__ == '__main__':
                       help='Specify which policy to use')
     parser.add_option('-d', '--swift-dir', default='/etc/swift',
                       dest='swift_dir', help='Path to swift directory')
+    parser.add_option('-Q', '--quoted', action='store_true',
+                      help='Assume swift paths are quoted')
     options, args = parser.parse_args()
 
     if set_swift_dir(options.swift_dir):
