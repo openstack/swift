@@ -56,7 +56,7 @@ if [[ $MY_STORAGE_TYPE == "internal_devices" ]] || [[ $MY_STORAGE_TYPE == "exter
     # echo "created storage device /dev/swift-d$i of $DEV_SIZE";
     mkfs.xfs -f -L D$i -i size=512 /dev/$device;
     echo "  created XFS file system on device /dev/$device";
-    mount -t xfs -o noatime,nodiratime,logbufs=8 /dev/$device /srv/node/$device;
+    mount -t xfs -o noatime /dev/$device /srv/node/$device;
     echo "  mounted /dev/$device as /srv/node/$device";
   done
 fi

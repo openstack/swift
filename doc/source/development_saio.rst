@@ -141,7 +141,7 @@ another device when creating the VM, and follow these instructions:
 
 #. Edit ``/etc/fstab`` and add::
 
-      UUID="<UUID-from-output-above>" /mnt/sdb1 xfs noatime,nodiratime,logbufs=8 0 0
+      UUID="<UUID-from-output-above>" /mnt/sdb1 xfs noatime 0 0
 
 #. Create the Swift data mount point and test that mounting works::
 
@@ -169,7 +169,7 @@ these instructions:
 
 #. Edit `/etc/fstab` and add::
 
-      /srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,logbufs=8 0 0
+      /srv/swift-disk /mnt/sdb1 xfs loop,noatime 0 0
 
 #. Create the Swift data mount point and test that mounting works::
 
@@ -258,23 +258,23 @@ environment variable.
 
 * To mount the tmp loopback device at ``/tmp``, do the following::
 
-      sudo mount -o loop,noatime,nodiratime /srv/swift-tmp /tmp
+      sudo mount -o loop,noatime /srv/swift-tmp /tmp
       sudo chmod -R 1777 /tmp
 
   * To persist this, edit and add the following to ``/etc/fstab``::
 
-        /srv/swift-tmp /tmp xfs rw,noatime,nodiratime,attr2,inode64,noquota 0 0
+        /srv/swift-tmp /tmp xfs rw,noatime,attr2,inode64,noquota 0 0
 
 * To mount the tmp loopback at an alternate location (for example, ``/mnt/tmp``),
   do the following::
 
       sudo mkdir -p /mnt/tmp
-      sudo mount -o loop,noatime,nodiratime /srv/swift-tmp /mnt/tmp
+      sudo mount -o loop,noatime /srv/swift-tmp /mnt/tmp
       sudo chown ${USER}:${USER} /mnt/tmp
 
   * To persist this, edit and add the following to ``/etc/fstab``::
 
-        /srv/swift-tmp /mnt/tmp xfs rw,noatime,nodiratime,attr2,inode64,noquota 0 0
+        /srv/swift-tmp /mnt/tmp xfs rw,noatime,attr2,inode64,noquota 0 0
 
   * Set your ``TMPDIR`` environment dir so that Swift looks in the right location::
 
