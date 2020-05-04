@@ -632,7 +632,7 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - grenade-py3:
+        - grenade:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
@@ -700,7 +700,7 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - grenade-py3:
+        - grenade:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
