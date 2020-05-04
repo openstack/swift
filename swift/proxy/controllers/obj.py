@@ -2441,10 +2441,12 @@ class ECObjectController(BaseObjectController):
             headers = []
             for getter, _parts_iter in bad_bucket.get_responses():
                 if best_bucket and best_bucket.durable:
-                    headers = HeaderKeyDict(getter.last_headers)
-                    t_data_file = headers.get('X-Backend-Data-Timestamp')
-                    t_obj = headers.get('X-Backend-Timestamp',
-                                        headers.get('X-Timestamp'))
+                    bad_resp_headers = HeaderKeyDict(getter.last_headers)
+                    t_data_file = bad_resp_headers.get(
+                        'X-Backend-Data-Timestamp')
+                    t_obj = bad_resp_headers.get(
+                        'X-Backend-Timestamp',
+                        bad_resp_headers.get('X-Timestamp'))
                     bad_ts = Timestamp(t_data_file or t_obj or '0')
                     if bad_ts <= Timestamp(best_bucket.timestamp_str):
                         # We have reason to believe there's still good data
