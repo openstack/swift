@@ -31,6 +31,7 @@ from swift.common.http import HTTP_NOT_FOUND
 
 from swiftclient import client, get_auth, ClientException
 
+from test.probe import PROXY_BASE_URL
 from test.probe.common import ENABLED_POLICIES
 
 TIMEOUT = 60
@@ -340,7 +341,7 @@ def main():
         if cmd not in BrainSplitter.__commands__:
             parser.print_help()
             return 'ERROR: unknown command %s' % cmd
-    url, token = get_auth('http://127.0.0.1:8080/auth/v1.0',
+    url, token = get_auth(PROXY_BASE_URL + '/auth/v1.0',
                           'test:tester', 'testing')
     if options.server_type == 'object' and not options.policy_name:
         options.policy_name = POLICIES.default.name
