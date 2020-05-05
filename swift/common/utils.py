@@ -46,6 +46,7 @@ from contextlib import contextmanager, closing
 import ctypes
 import ctypes.util
 from optparse import OptionParser
+import warnings
 
 from tempfile import gettempdir, mkstemp, NamedTemporaryFile
 import glob
@@ -4975,8 +4976,10 @@ class ShardRange(object):
 
     @lower.setter
     def lower(self, value):
-        if value in (None, b'', u''):
-            value = ShardRange.MIN
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UnicodeWarning)
+            if value in (None, b'', u''):
+                value = ShardRange.MIN
         try:
             value = self._encode_bound(value)
         except TypeError as err:
@@ -5001,8 +5004,10 @@ class ShardRange(object):
 
     @upper.setter
     def upper(self, value):
-        if value in (None, b'', u''):
-            value = ShardRange.MAX
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UnicodeWarning)
+            if value in (None, b'', u''):
+                value = ShardRange.MAX
         try:
             value = self._encode_bound(value)
         except TypeError as err:
