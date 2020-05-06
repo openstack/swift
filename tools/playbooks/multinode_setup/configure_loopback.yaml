@@ -31,7 +31,7 @@
         state: directory
 
     - name: mount /mnt/sdb1
-      mount: name=/mnt/sdb1 src=/srv/swift-disk fstype=xfs opts="loop,noatime,nodiratime,logbufs=8" dump=0 passno=0 state=mounted
+      mount: name=/mnt/sdb1 src=/srv/swift-disk fstype=xfs opts="loop,noatime" dump=0 passno=0 state=mounted
 
     - name: create sub-partitions
       file:

@@ -59,8 +59,8 @@ storage nodes, you must prepare the storage devices.
 
    .. code-block:: none
 
-      UUID="<UUID-from-output-above>" /srv/node/sdb xfs noatime,nodiratime,logbufs=8 0 2
-      UUID="<UUID-from-output-above>" /srv/node/sdc xfs noatime,nodiratime,logbufs=8 0 2
+      UUID="<UUID-from-output-above>" /srv/node/sdb xfs noatime 0 2
+      UUID="<UUID-from-output-above>" /srv/node/sdc xfs noatime 0 2
 
 #. Mount the devices:
 
