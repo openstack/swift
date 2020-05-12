@@ -66,6 +66,15 @@ Overview and Concepts
     ring_partpower
     associated_projects
 
+Contributor Documentation
+=========================
+
+.. toctree::
+    :maxdepth: 2
+
+    contributor/contributing
+    contributor/review_guidelines
+
 Developer Documentation
 =======================
 
