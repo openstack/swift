@@ -2113,7 +2113,7 @@ class TestRingBuilder(unittest.TestCase):
         orig_rb = ring.RingBuilder(8, 3, 1)
         copy_rb = ring.RingBuilder(8, 3, 1)
         copy_rb.copy_from(orig_rb)
-        for rb in(orig_rb, copy_rb):
+        for rb in (orig_rb, copy_rb):
             with self.assertRaises(AttributeError) as cm:
                 rb.id
             self.assertIn('id attribute has not been initialised',
