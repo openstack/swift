@@ -14,12 +14,13 @@
 # limitations under the License.
 - hosts: all
   become: true
+  roles:
+    - ensure-pip
   tasks:
     - name: installing dependencies
       yum: name={{ item }} state=present
       with_items:
         - python-pyeclib
-        - python-pip
         - python-nose
         - python-swiftclient
 
