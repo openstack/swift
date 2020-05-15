@@ -152,7 +152,7 @@ from cgi import parse_header
 from six.moves.urllib.parse import unquote
 
 from swift.common.constraints import MAX_FILE_SIZE, valid_api_version, \
-    ACCOUNT_LISTING_LIMIT
+    ACCOUNT_LISTING_LIMIT, CONTAINER_LISTING_LIMIT
 from swift.common.http import is_success, is_client_error, HTTP_NOT_FOUND, \
     HTTP_CONFLICT
 from swift.common.request_helpers import get_sys_meta_prefix, \
@@ -1191,7 +1191,7 @@ class ContainerContext(ObjectVersioningContext):
                     'hash': item['hash'],
                     'last_modified': item['last_modified'],
                 })
-            limit = constrain_req_limit(req, ACCOUNT_LISTING_LIMIT)
+            limit = constrain_req_limit(req, CONTAINER_LISTING_LIMIT)
             body = build_listing(
                 null_listing, subdir_listing, broken_listing,
                 reverse=config_true_value(params.get('reverse', 'no')),
@@ -1256,7 +1256,7 @@ class ContainerContext(ObjectVersioningContext):
                         'last_modified': item['last_modified'],
                     })
 
-                limit = constrain_req_limit(req, ACCOUNT_LISTING_LIMIT)
+                limit = constrain_req_limit(req, CONTAINER_LISTING_LIMIT)
                 body = build_listing(
                     null_listing, versions_listing,
                     subdir_listing, broken_listing,
