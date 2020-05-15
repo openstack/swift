@@ -78,9 +78,9 @@ class TestS3ApiMultiUpload(S3ApiBase):
     def _upload_part(self, bucket, key, upload_id, content=None, part_num=1):
         query = 'partNumber=%s&uploadId=%s' % (part_num, upload_id)
         content = content if content else b'a' * self.min_segment_size
-        status, headers, body = \
-            self.conn.make_request('PUT', bucket, key, body=content,
-                                   query=query)
+        with self.quiet_boto_logging():
+            status, headers, body = self.conn.make_request(
+                'PUT', bucket, key, body=content, query=query)
         return status, headers, body
 
     def _upload_part_copy(self, src_bucket, src_obj, dst_bucket, dst_key,
@@ -113,7 +113,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         bucket = 'bucket'
         keys = ['obj1', 'obj2', 'obj3']
         bad_content_md5 = base64.b64encode(b'a' * 16).strip().decode('ascii')
-        headers = [None,
+        headers = [{'Content-Type': 'foo/bar', 'x-amz-meta-baz': 'quux'},
                    {'Content-MD5': bad_content_md5},
                    {'Etag': 'nonsense'}]
         uploads = []
@@ -293,7 +293,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
             self._complete_multi_upload(bucket, key, upload_id, xml)
         self.assertEqual(status, 200)
         self.assertCommonResponseHeaders(headers)
-        self.assertTrue('content-type' in headers)
+        self.assertIn('content-type', headers)
         self.assertEqual(headers['content-type'], 'application/xml')
         if 'content-length' in headers:
             self.assertEqual(headers['content-length'], str(len(body)))
@@ -317,8 +317,45 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(etag, exp_etag)
 
         exp_size = self.min_segment_size * len(etags)
+        status, headers, body = \
+            self.conn.make_request('HEAD', bucket, key)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['content-length'], str(exp_size))
+        self.assertEqual(headers['content-type'], 'foo/bar')
+        self.assertEqual(headers['x-amz-meta-baz'], 'quux')
+
         swift_etag = '"%s"' % md5(concatted_etags).hexdigest()
         # TODO: GET via swift api, check against swift_etag
+
+        # Should be safe to retry
+        status, headers, body = \
+            self._complete_multi_upload(bucket, key, upload_id, xml)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self.assertIn('content-type', headers)
+        self.assertEqual(headers['content-type'], 'application/xml')
+        if 'content-length' in headers:
+            self.assertEqual(headers['content-length'], str(len(body)))
+        else:
+            self.assertIn('transfer-encoding', headers)
+            self.assertEqual(headers['transfer-encoding'], 'chunked')
+        lines = body.split(b'\n')
+        self.assertTrue(lines[0].startswith(b'<?xml'), body)
+        self.assertTrue(lines[0].endswith(b'?>'), body)
+        elem = fromstring(body, 'CompleteMultipartUploadResult')
+        self.assertEqual(
+            '%s/bucket/obj1' % tf.config['s3_storage_url'].rstrip('/'),
+            elem.find('Location').text)
+        self.assertEqual(elem.find('Bucket').text, bucket)
+        self.assertEqual(elem.find('Key').text, key)
+        self.assertEqual(elem.find('ETag').text, exp_etag)
+
+        status, headers, body = \
+            self.conn.make_request('HEAD', bucket, key)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['content-length'], str(exp_size))
+        self.assertEqual(headers['content-type'], 'foo/bar')
+        self.assertEqual(headers['x-amz-meta-baz'], 'quux')
 
         # Upload Part Copy -- MU as source
         key, upload_id = uploads[1]
