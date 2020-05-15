@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import uuid
 
 from nose import SkipTest
@@ -34,6 +35,7 @@ from swiftclient import client, get_auth, ClientException
 from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.obj import num_container_updates
 from test import annotate_failure
+from test.probe import PROXY_BASE_URL
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number, \
     wait_for_server_to_hangup
@@ -115,7 +117,7 @@ class BaseTestContainerSharding(ReplProbeTest):
             client.requests.logging.WARNING)
         super(BaseTestContainerSharding, self).setUp()
         _, self.admin_token = get_auth(
-            'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
+            PROXY_BASE_URL + '/auth/v1.0', 'admin:admin', 'admin')
         self._setup_container_name()
         self.init_brain(self.container_name)
         self.sharders = Manager(['container-sharder'])
@@ -195,12 +197,16 @@ class BaseTestContainerSharding(ReplProbeTest):
         return (utils.storage_directory(datadir, part, container_hash),
                 container_hash)
 
-    def get_broker(self, part, node, account=None, container=None):
+    def get_db_file(self, part, node, account=None, container=None):
         container_dir, container_hash = self.get_storage_dir(
             part, node, account=account, container=container)
         db_file = os.path.join(container_dir, container_hash + '.db')
         self.assertTrue(get_db_files(db_file))  # sanity check
-        return ContainerBroker(db_file)
+        return db_file
+
+    def get_broker(self, part, node, account=None, container=None):
+        return ContainerBroker(
+            self.get_db_file(part, node, account, container))
 
     def categorize_container_dir_content(self, account=None, container=None):
         account = account or self.brain.account
@@ -2409,3 +2415,87 @@ class TestContainerShardingMoreUTF8(TestContainerSharding):
         self.container_name = cont_name.encode('utf8').ljust(name_length, b'x')
         if not six.PY2:
             self.container_name = self.container_name.decode('utf8')
+
+
+class TestManagedContainerSharding(BaseTestContainerSharding):
+    '''Test sharding using swift-manage-shard-ranges'''
+    def test_manage_shard_ranges(self):
+        obj_names = self._make_object_names(4)
+        self.put_objects(obj_names)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+
+        # run replicators first time to get sync points set
+        self.replicators.once()
+
+        # sanity check: we don't have nearly enough objects for this to shard
+        # automatically
+        self.sharders.once(number=self.brain.node_numbers[0],
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 0)
+
+        subprocess.check_output([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'find_and_replace', '2', '--enable'], stderr=subprocess.STDOUT)
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 2)
+
+        # "Run container-replicator to replicate them to other nodes."
+        self.replicators.once()
+        # "Run container-sharder on all nodes to shard the container."
+        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+
+        # Everybody's settled
+        self.assert_container_state(self.brain.nodes[0], 'sharded', 2)
+        self.assert_container_state(self.brain.nodes[1], 'sharded', 2)
+        self.assert_container_state(self.brain.nodes[2], 'sharded', 2)
+        self.assert_container_listing(obj_names)
+
+    def test_manage_shard_ranges_used_poorly(self):
+        obj_names = self._make_object_names(8)
+        self.put_objects(obj_names)
+
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+
+        # run replicators first time to get sync points set
+        self.replicators.once()
+
+        subprocess.check_output([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[0]),
+            'find_and_replace', '2', '--enable'], stderr=subprocess.STDOUT)
+        self.assert_container_state(self.brain.nodes[0], 'unsharded', 4)
+
+        # *Also* go find shard ranges on *another node*, like a dumb-dumb
+        subprocess.check_output([
+            'swift-manage-shard-ranges',
+            self.get_db_file(self.brain.part, self.brain.nodes[1]),
+            'find_and_replace', '3', '--enable'], stderr=subprocess.STDOUT)
+        self.assert_container_state(self.brain.nodes[1], 'unsharded', 3)
+
+        # Run things out of order (they were likely running as daemons anyway)
+        self.sharders.once(number=self.brain.node_numbers[0],
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.sharders.once(number=self.brain.node_numbers[1],
+                           additional_args='--partitions=%s' % self.brain.part)
+        self.replicators.once()
+
+        # Uh-oh
+        self.assert_container_state(self.brain.nodes[0], 'sharding', 7)
+        self.assert_container_state(self.brain.nodes[1], 'sharding', 7)
+        # There's a race: the third replica may be sharding, may be unsharded
+
+        # Try it again a few times
+        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        self.replicators.once()
+        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+
+        # It's not really fixing itself...
+        self.assert_container_state(self.brain.nodes[0], 'sharding', 7)
+        self.assert_container_state(self.brain.nodes[1], 'sharding', 7)
+
+        # But hey, at least listings still work! They're just going to get
+        # horribly out of date as more objects are added
+        self.assert_container_listing(obj_names)

@@ -1658,7 +1658,7 @@ def main(arguments=None):
         print(msg)
         exit(EXIT_ERROR)
     except (exceptions.FileNotFoundError, exceptions.PermissionError) as e:
-        if len(argv) < 3 or argv[2] not in('create', 'write_builder'):
+        if len(argv) < 3 or argv[2] not in ('create', 'write_builder'):
             print(e)
             exit(EXIT_ERROR)
     except Exception as e:

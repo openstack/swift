@@ -44,6 +44,7 @@ import sys
 import json
 import math
 import inspect
+import warnings
 
 import six
 from six import StringIO
@@ -7585,8 +7586,10 @@ class TestShardRange(unittest.TestCase):
         expected = u'\N{SNOWMAN}'
         if six.PY2:
             expected = expected.encode('utf-8')
-        do_test(u'\N{SNOWMAN}', expected)
-        do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
+        with warnings.catch_warnings(record=True) as captured_warnings:
+            do_test(u'\N{SNOWMAN}', expected)
+            do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
+        self.assertFalse(captured_warnings)
 
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
         sr.lower = ''
@@ -7633,8 +7636,10 @@ class TestShardRange(unittest.TestCase):
         expected = u'\N{SNOWMAN}'
         if six.PY2:
             expected = expected.encode('utf-8')
-        do_test(u'\N{SNOWMAN}', expected)
-        do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
+        with warnings.catch_warnings(record=True) as captured_warnings:
+            do_test(u'\N{SNOWMAN}', expected)
+            do_test(u'\N{SNOWMAN}'.encode('utf-8'), expected)
+        self.assertFalse(captured_warnings)
 
         sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
         sr.upper = ''

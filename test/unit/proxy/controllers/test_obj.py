@@ -2280,6 +2280,18 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
 
+    def test_GET_not_found_when_404_newer(self):
+        # if proxy receives a 404, it keeps waiting for other connections until
+        # max number of nodes in hopes of finding an object, but if 404 is
+        # more recent than a 200, then it should ignore 200 and return 404
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        rest = 2 * self.policy.object_ring.replica_count - 2
+        codes = [200, 404] + [200] * rest
+        ts_iter = iter([1, 2] + [1] * rest)
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+
     def _test_if_match(self, method):
         num_responses = self.policy.ec_ndata if method == 'GET' else 1
 

@@ -105,11 +105,11 @@ class EtagQuoterMiddleware(object):
 
         status, headers, resp_iter = req.call_application(self.app)
 
-        for i, (header, value) in enumerate(headers):
-            if header.lower() == 'etag':
-                if not value.startswith(('"', 'W/"')) or \
-                        not value.endswith('"'):
-                    headers[i] = (header, '"%s"' % value)
+        headers = [
+            (header, value) if header.lower() != 'etag' or (
+                value.startswith(('"', 'W/"')) and value.endswith('"'))
+            else (header, '"%s"' % value)
+            for header, value in headers]
 
         start_response(status, headers)
         return resp_iter

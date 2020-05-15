@@ -225,6 +225,9 @@ class Connection(object):
 
     @storage_url.setter
     def storage_url(self, value):
+        if six.PY2 and not isinstance(value, bytes):
+            value = value.encode('utf-8')
+
         url = urllib.parse.urlparse(value)
 
         if url.scheme == 'http':

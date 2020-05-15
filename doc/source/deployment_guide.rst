@@ -2331,7 +2331,7 @@ headroom.
 
 The following example mount options are recommended when using XFS::
 
-    mount -t xfs -o noatime,nodiratime,logbufs=8 -L D1 /srv/node/d1
+    mount -t xfs -o noatime -L D1 /srv/node/d1
 
 We do not recommend running Swift on RAID, but if you are using
 RAID it is also important to make sure that the proper sunit and swidth

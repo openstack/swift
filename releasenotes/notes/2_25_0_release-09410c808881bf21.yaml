@@ -1,0 +1,65 @@
+---
+features:
+  - |
+    WSGI server processes can now notify systemd when they are ready.
+
+  - |
+    Added a new middleware that allows users and operators to configure
+    accounts and containers to use RFC-compliant (i.e., double-quoted)
+    ETags. This may be useful when using Swift as an origin for some content
+    delivery networks. For more information, see `the middleware documentation
+    <https://docs.openstack.org/swift/latest/middleware.html#etag-quoter>`__.
+
+  - |
+    Added ``ttfb`` (Time to First Byte) and ``pid`` (Process ID) to the set
+    of available proxy-server log fields. For more information, see
+    `the documentation <https://docs.openstack.org/swift/latest/logs.html>`__.
+
+fixes:
+  - |
+    Improved proxy-server performance by reducing unnecessary locking,
+    memory copies, and eventlet scheduling.
+
+  - |
+    Reduced object-replicator and object-reconstructor CPU usage by only
+    checking that the device list is current when rings change.
+
+  - |
+    Improved performance of sharded container listings when performing
+    prefix listings.
+
+  - |
+    Improved container-sync performance when data has already been
+    deleted or overwritten.
+
+  - |
+    Account quotas are now enforced even on empty accounts.
+
+  - |
+    Getting an SLO manifest with ``?format=raw`` now responds with an ETag
+    that matches the MD5 of the generated body rather than the MD5 of
+    the manifest stored on disk.
+
+  - |
+    Provide useful status codes in logs for some versioning and symlink
+    subrequests that were previously logged as 499.
+
+  - |
+    Fixed 500 from cname_lookup middleware. Previously, if the looked-up
+    domain was used by domain_remap to update the request path, the
+    server would respond Internal Error.
+
+  - |
+    On Python 3, fixed an issue when reading or writing objects with a content
+    type like ``message/*``. Previously, Swift would fail to respond.
+
+  - |
+    On Python 3, fixed a RecursionError in swift-dispersion-report when
+    using TLS.
+
+  - |
+    Fixed a bug in the new object versioning API that would cause more
+    than ``limit`` results to be returned when listing.
+
+  - |
+    Various other minor bug fixes and improvements.

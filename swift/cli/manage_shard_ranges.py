@@ -343,7 +343,9 @@ def _replace_shard_ranges(broker, args, shard_data, timeout=0):
 
     # Crank up the timeout in an effort to *make sure* this succeeds
     with broker.updated_timeout(max(timeout, args.replace_timeout)):
-        delete_shard_ranges(broker, args)
+        delete_status = delete_shard_ranges(broker, args)
+        if delete_status != 0:
+            return delete_status
         broker.merge_shard_ranges(shard_ranges)
 
     print('Injected %d shard ranges.' % len(shard_ranges))
