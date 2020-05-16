@@ -19,7 +19,7 @@ import signal
 import sys
 import time
 from swift import gettext_ as _
-from random import random
+from random import random, shuffle
 
 from eventlet import spawn, Timeout
 
@@ -230,7 +230,9 @@ class ObjectUpdater(Daemon):
                                       'to a valid policy (%(error)s)') % {
                                     'directory': asyncdir, 'error': e})
                 continue
-            for prefix in self._listdir(async_pending):
+            prefix_dirs = self._listdir(async_pending)
+            shuffle(prefix_dirs)
+            for prefix in prefix_dirs:
                 prefix_path = os.path.join(async_pending, prefix)
                 if not os.path.isdir(prefix_path):
                     continue
