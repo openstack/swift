@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import six.moves.cPickle as pickle
+import errno
 import os
 import signal
 import sys
@@ -273,7 +274,11 @@ class ObjectUpdater(Daemon):
                     if obj_hash == last_obj_hash:
                         self.stats.unlinks += 1
                         self.logger.increment('unlinks')
-                        os.unlink(update_path)
+                        try:
+                            os.unlink(update_path)
+                        except OSError as e:
+                            if e.errno != errno.ENOENT:
+                                raise
                     else:
                         last_obj_hash = obj_hash
                         yield {'device': device, 'policy': policy,
