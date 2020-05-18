@@ -242,6 +242,10 @@ class RateLimitMiddleware(object):
         if not self.memcache_client:
             return None
 
+        if req.environ.get('swift.ratelimit.handled'):
+            return None
+        req.environ['swift.ratelimit.handled'] = True
+
         try:
             account_info = get_account_info(req.environ, self.app,
                                             swift_source='RL')
