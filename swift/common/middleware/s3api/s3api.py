@@ -280,15 +280,12 @@ class S3ApiMiddleware(object):
             conf, log_route=conf.get('log_name', 's3api'))
         self.slo_enabled = self.conf.allow_multipart_uploads
         self.check_pipeline(self.conf)
+        self.conf.slo_enabled = self.slo_enabled
 
     def __call__(self, env, start_response):
         try:
             req_class = get_request_class(env, self.conf.s3_acl)
-            req = req_class(
-                env, self.app, self.slo_enabled, self.conf.storage_domain,
-                self.conf.location, self.conf.force_swift_request_proxy_log,
-                self.conf.dns_compliant_bucket_names,
-                self.conf.allow_multipart_uploads, self.conf.allow_no_owner)
+            req = req_class(env, self.conf, self.app)
             resp = self.handle_request(req)
         except NotS3Request:
             resp = self.app

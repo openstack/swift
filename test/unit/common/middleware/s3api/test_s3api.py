@@ -25,6 +25,7 @@ import six
 from six.moves.urllib.parse import unquote, quote
 
 import swift.common.middleware.s3api
+from swift.common.middleware.s3api.utils import Config
 from swift.common.middleware.keystoneauth import KeystoneAuth
 from swift.common import swob, utils
 from swift.common.swob import Request
@@ -172,7 +173,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                        'S3Request._validate_headers'), \
                     patch('swift.common.middleware.s3api.s3request.'
                           'S3Request._validate_dates'):
-                req = S3Request(env)
+                req = S3Request(env, Config())
             return req.environ['s3api.auth_details']['string_to_sign']
 
         def verify(hash, path, headers):
@@ -986,7 +987,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                        'S3Request._validate_headers'), \
                     patch('swift.common.middleware.s3api.utils.time.time',
                           return_value=fake_time):
-                req = SigV4Request(env, location=self.conf.location)
+                req = SigV4Request(env, self.conf, app=None)
             return req
 
         def canonical_string(path, environ):
