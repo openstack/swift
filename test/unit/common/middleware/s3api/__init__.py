@@ -135,7 +135,8 @@ class S3ApiTestCase(unittest.TestCase):
         return elem.find('./Message').text
 
     def _test_method_error(self, method, path, response_class, headers={},
-                           env={}, expected_xml_tags=None):
+                           env={}, expected_xml_tags=None,
+                           expected_status=None):
         if not path.startswith('/'):
             path = '/' + path  # add a missing slash before the path
 
@@ -149,6 +150,8 @@ class S3ApiTestCase(unittest.TestCase):
         env.update({'REQUEST_METHOD': method})
         req = swob.Request.blank(path, environ=env, headers=headers)
         status, headers, body = self.call_s3api(req)
+        if expected_status is not None:
+            self.assertEqual(status, expected_status)
         if expected_xml_tags is not None:
             elem = fromstring(body, 'Error')
             self.assertEqual(set(expected_xml_tags),

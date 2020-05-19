@@ -1400,6 +1400,8 @@ class S3Request(swob.Request):
         if status == HTTP_SERVICE_UNAVAILABLE:
             raise ServiceUnavailable()
         if status in (HTTP_RATE_LIMITED, HTTP_TOO_MANY_REQUESTS):
+            if self.conf.ratelimit_as_client_error:
+                raise SlowDown(status='429 Slow Down')
             raise SlowDown()
 
         raise InternalError('unexpected status code %d' % status)

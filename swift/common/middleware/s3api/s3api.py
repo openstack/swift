@@ -283,6 +283,8 @@ class S3ApiMiddleware(object):
                 len(self.conf.cors_preflight_allow_origin) > 1:
             raise ValueError('if cors_preflight_allow_origin should include '
                              'all domains, * must be the only entry')
+        self.conf.ratelimit_as_client_error = config_true_value(
+            wsgi_conf.get('ratelimit_as_client_error', False))
 
         self.logger = get_logger(
             wsgi_conf, log_route=wsgi_conf.get('log_name', 's3api'))

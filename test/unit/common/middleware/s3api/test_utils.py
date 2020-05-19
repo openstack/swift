@@ -140,6 +140,7 @@ class TestConfig(unittest.TestCase):
         self.assertTrue(conf.allow_multipart_uploads)
         self.assertFalse(conf.allow_no_owner)
         self.assertEqual(900, conf.allowable_clock_skew)
+        self.assertFalse(conf.ratelimit_as_client_error)
 
     def test_defaults(self):
         # deliberately brittle so new defaults will need to be added to test
@@ -152,6 +153,7 @@ class TestConfig(unittest.TestCase):
         del conf.allow_multipart_uploads
         del conf.allow_no_owner
         del conf.allowable_clock_skew
+        del conf.ratelimit_as_client_error
         self.assertEqual({}, conf)
 
     def test_update(self):
