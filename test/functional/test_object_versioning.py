@@ -331,6 +331,30 @@ class TestObjectVersioning(TestObjectVersioningBase):
         # listing, though, we'll only ever have the two entries.
         self.assertTotalVersions(container, 2)
 
+    def test_get_if_match(self):
+        body = b'data'
+        oname = Utils.create_name()
+        obj = self.env.unversioned_container.file(oname)
+        resp = obj.write(body, return_resp=True)
+        etag = resp.getheader('etag')
+        self.assertEqual(md5(body).hexdigest(), etag)
+
+        # un-versioned object is cool with with if-match
+        self.assertEqual(body, obj.read(hdrs={'if-match': etag}))
+        with self.assertRaises(ResponseError) as cm:
+            obj.read(hdrs={'if-match': 'not-the-etag'})
+        self.assertEqual(412, cm.exception.status)
+
+        v_obj = self.env.container.file(oname)
+        resp = v_obj.write(body, return_resp=True)
+        self.assertEqual(resp.getheader('etag'), etag)
+
+        # versioned object is too with with if-match
+        self.assertEqual(body, v_obj.read(hdrs={'if-match': etag}))
+        with self.assertRaises(ResponseError) as cm:
+            v_obj.read(hdrs={'if-match': 'not-the-etag'})
+        self.assertEqual(412, cm.exception.status)
+
     def _test_overwriting_setup(self, obj_name=None):
         # sanity
         container = self.env.container
