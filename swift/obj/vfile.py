@@ -1190,4 +1190,12 @@ def rename_vfile(filepath, newfilepath, logger):
     os.close(vol_fd)
 
     # Update the KV (async)
-    rpc.rename_object(si.socket_path, full_name, new_full_name)
+    try:
+        rpc.rename_object(si.socket_path, full_name, new_full_name,
+                          si.partition)
+    except RpcError as e:
+        if e.code == StatusCode.NotFound:
+            raise VIOError(errno.ENOENT,
+                           "No such file or directory: {}".format(full_name))
+        else:
+            raise

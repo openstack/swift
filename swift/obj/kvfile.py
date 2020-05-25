@@ -1137,13 +1137,29 @@ class ECKVFileReader(BaseKVFileReader, ECDiskFileReader):
 class ECKVFileWriter(BaseKVFileWriter, ECDiskFileWriter):
     # TODO: this needs to be updated wrt. next_part_power, and other changes
     # in diskfile.py
-    def _finalize_durable(self, data_file_path, durable_data_file_path):
+    def _finalize_durable(self, data_file_path, durable_data_file_path,
+                          timestamp):
         exc = None
         try:
             try:
                 vfile.rename_vfile(data_file_path, durable_data_file_path,
                                    self._diskfile._logger)
             except (OSError, IOError) as err:
+                if err.errno == errno.ENOENT:
+                    files = vfile.listdir(self._datadir)
+                    results = self.manager.get_ondisk_files(
+                        files, self._datadir,
+                        frag_index=self._diskfile._frag_index,
+                        policy=self._diskfile.policy)
+                    # We "succeeded" if another writer cleaned up our data
+                    ts_info = results.get('ts_info')
+                    durables = results.get('durable_frag_set', [])
+                    if ts_info and ts_info['timestamp'] > timestamp:
+                        return
+                    elif any(frag_set['timestamp'] > timestamp
+                             for frag_set in durables):
+                        return
+
                 if err.errno not in (errno.ENOSPC, errno.EDQUOT):
                     # re-raise to catch all handler
                     raise
