@@ -19,7 +19,10 @@ from six.moves.urllib.parse import urlparse, urlunparse
 import uuid
 from random import shuffle
 
-from keystoneclient.v3 import client
+try:
+    from keystoneclient.v3 import ksc
+except ImportError:
+    ksc = None
 from swiftclient import get_auth, http_connection
 
 import test.functional as tf
@@ -3034,7 +3037,7 @@ class KeystoneClient(BaseClient):
 
     def _get_id(self, user_name):
         info = self.users.get(user_name)
-        keystone_client = client.Client(
+        keystone_client = ksc.Client(
             auth_url=self.auth_url,
             version=(self.auth_version,),
             username=user_name,
@@ -3092,6 +3095,8 @@ class SwiftClient(BaseClient):
 
 class BaseTestAC(unittest.TestCase):
     def setUp(self):
+        if ksc is None:
+            raise unittest.SkipTest('keystoneclient is not available')
         self.reseller_admin = tf.swift_test_user[5]
         self.client = SwiftClient()
 
