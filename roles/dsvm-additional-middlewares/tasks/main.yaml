@@ -5,13 +5,6 @@
     replace: "cache domain_remap etag-quoter listing_formats"
   become: true
 
-- name: Add s3api and s3token to pipeline
-  replace:
-    path: "/etc/swift/proxy-server.conf"
-    regexp: "authtoken keystoneauth tempauth"
-    replace: "authtoken s3api s3token keystoneauth tempauth"
-  become: true
-
 - name: Set domain_remap domain
   ini_file:
     path: /etc/swift/proxy-server.conf
@@ -41,22 +34,6 @@
     path: /etc/swift/proxy-server.conf
     section: filter:s3api
     option: force_swift_request_proxy_log
-    value: true
-  become: true
-
-- name: Configure s3token auth_uri
-  ini_file:
-    path: /etc/swift/proxy-server.conf
-    section: filter:s3token
-    option: auth_uri
-    value: http://localhost/identity/v3
-  become: true
-
-- name: Configure s3token delay_auth_decision
-  ini_file:
-    path: /etc/swift/proxy-server.conf
-    section: filter:s3token
-    option: delay_auth_decision
     value: true
   become: true
 
