@@ -34,9 +34,7 @@ from swift.common.utils import Timestamp, encode_timestamps, \
     get_db_files, parse_db_filename, make_db_file_path, split_path, \
     RESERVED_BYTE
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT, \
-    zero_like, DatabaseAlreadyExists
-
-SQLITE_ARG_LIMIT = 999
+    zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT
 
 DATADIR = 'containers'
 
@@ -1581,9 +1579,9 @@ class ContainerBroker(DatabaseBroker):
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
 
-    def _reclaim(self, conn, age_timestamp, sync_timestamp):
-        super(ContainerBroker, self)._reclaim(conn, age_timestamp,
-                                              sync_timestamp)
+    def _reclaim_other_stuff(self, conn, age_timestamp, sync_timestamp):
+        super(ContainerBroker, self)._reclaim_other_stuff(
+            conn, age_timestamp, sync_timestamp)
         # populate instance cache, but use existing conn to avoid deadlock
         # when it has a pending update
         self._populate_instance_cache(conn=conn)
