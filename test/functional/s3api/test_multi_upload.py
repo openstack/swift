@@ -880,6 +880,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(headers['content-length'], '0')
 
     def test_object_multi_upload_part_copy_version(self):
+        if 'object_versioning' not in tf.cluster_info:
+            self.skipTest('Object Versioning not enabled')
         bucket = 'bucket'
         keys = ['obj1']
         uploads = []
