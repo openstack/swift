@@ -241,10 +241,6 @@
       # This tox env get run twice; once for Keystone and once for tempauth
       tox_envlist: func
       devstack_localrc:
-        # Other services are fine to run py3
-        USE_PYTHON3: true
-        # explicitly state that we want to test swift under py2
-        DISABLED_PYTHON3_PACKAGES: 'swift'
         SWIFT_HASH: changeme
         # We don't need multiple replicas to run purely functional tests.
         # In fact, devstack special cases some things when there's only
@@ -262,20 +258,6 @@
     pre-run: tools/playbooks/dsvm/pre.yaml
     run: tools/playbooks/dsvm/run.yaml
     post-run: tools/playbooks/dsvm/post.yaml
-
-- job:
-    name: swift-dsvm-functional-py3
-    parent: swift-dsvm-functional
-    description: |
-      Setup a Swift/Keystone environment under py3 and run Swift's func tests
-      (also under py3).
-    vars:
-      # This tox env get run twice; once for Keystone and once for tempauth
-      tox_envlist: func-py3
-      devstack_localrc:
-        USE_PYTHON3: true
-        # explicitly clear swift's default-disabled status
-        DISABLED_PYTHON3_PACKAGES: ''
 
 - job:
     name: swift-dsvm-functional-ipv6
@@ -608,11 +590,6 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-dsvm-functional-py3:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-dsvm-functional-ipv6:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
@@ -679,11 +656,6 @@
               - ^test/(unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-dsvm-functional:
-            irrelevant-files:
-              - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - swift-dsvm-functional-py3:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
