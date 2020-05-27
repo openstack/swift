@@ -355,6 +355,52 @@ class TestObjectVersioning(TestObjectVersioningBase):
             v_obj.read(hdrs={'if-match': 'not-the-etag'})
         self.assertEqual(412, cm.exception.status)
 
+    def test_container_acls(self):
+        if tf.skip3:
+            raise SkipTest('Username3 not set')
+
+        obj = self.env.container.file(Utils.create_name())
+        resp = obj.write(b"data", return_resp=True)
+        version_id = resp.getheader('x-object-version-id')
+        self.assertIsNotNone(version_id)
+
+        with self.assertRaises(ResponseError) as cm:
+            obj.read(hdrs={'X-Auth-Token': self.env.conn3.storage_token})
+        self.assertEqual(403, cm.exception.status)
+
+        # Container ACLs work more or less like they always have
+        self.env.container.update_metadata(
+            hdrs={'X-Container-Read': self.env.conn3.user_acl})
+        self.assertEqual(b"data", obj.read(hdrs={
+            'X-Auth-Token': self.env.conn3.storage_token}))
+
+        # But the version-specifc GET still requires a swift owner
+        with self.assertRaises(ResponseError) as cm:
+            obj.read(hdrs={'X-Auth-Token': self.env.conn3.storage_token},
+                     parms={'version-id': version_id})
+        self.assertEqual(403, cm.exception.status)
+
+        # If it's pointing to a symlink that points elsewhere, that still needs
+        # to be authed
+        tgt_name = Utils.create_name()
+        self.env.unversioned_container.file(tgt_name).write(b'link')
+        sym_tgt_header = quote(unquote('%s/%s' % (
+            self.env.unversioned_container.name, tgt_name)))
+        obj.write(hdrs={'X-Symlink-Target': sym_tgt_header})
+
+        # So, user1's good...
+        self.assertEqual(b'link', obj.read())
+        # ...but user3 can't
+        with self.assertRaises(ResponseError) as cm:
+            obj.read(hdrs={'X-Auth-Token': self.env.conn3.storage_token})
+        self.assertEqual(403, cm.exception.status)
+
+        # unless we add the acl to the unversioned_container
+        self.env.unversioned_container.update_metadata(
+            hdrs={'X-Container-Read': self.env.conn3.user_acl})
+        self.assertEqual(b'link', obj.read(
+            hdrs={'X-Auth-Token': self.env.conn3.storage_token}))
+
     def _test_overwriting_setup(self, obj_name=None):
         # sanity
         container = self.env.container
@@ -2712,16 +2758,11 @@ class TestVersioningContainerTempurl(TestObjectVersioningBase):
         obj.write(b"version2")
 
         # get v2 object (reading from versions container)
-        # cross container tempurl does not work for container tempurl key
-        try:
-            obj.read(parms=get_parms, cfg={'no_auth_token': True})
-        except ResponseError as e:
-            self.assertEqual(e.status, 401)
-        else:
-            self.fail('request did not error')
-        try:
-            obj.info(parms=get_parms, cfg={'no_auth_token': True})
-        except ResponseError as e:
-            self.assertEqual(e.status, 401)
-        else:
-            self.fail('request did not error')
+        # versioning symlink allows us to bypass the normal
+        # container-tempurl-key scoping
+        contents = obj.read(parms=get_parms, cfg={'no_auth_token': True})
+        self.assert_status([200])
+        self.assertEqual(contents, b"version2")
+        # HEAD works, too
+        obj.info(parms=get_parms, cfg={'no_auth_token': True})
+        self.assert_status([200])
