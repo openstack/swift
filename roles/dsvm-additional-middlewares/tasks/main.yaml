@@ -20,9 +20,17 @@
     value: example.com
   become: true
 
-- name: Set storage_domain in test.conf
+- name: Set storage_domain in test.conf (for Keystone tests)
   ini_file:
     path: /etc/swift/test.conf
+    section: func_test
+    option: storage_domain
+    value: example.com
+  become: true
+
+- name: Set storage_domain in test/sample.conf (for tempauth tests)
+  ini_file:
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
     section: func_test
     option: storage_domain
     value: example.com
