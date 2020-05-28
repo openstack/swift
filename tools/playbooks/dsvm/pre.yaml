@@ -8,3 +8,4 @@
     - test-setup
     - ensure-tox
     - dsvm-additional-middlewares
+    - additional-keystone-users
