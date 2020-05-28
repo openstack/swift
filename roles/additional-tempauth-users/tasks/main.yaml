@@ -1,0 +1,47 @@
+- name: Configure service auth prefix for tempauth tests
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:tempauth
+    option: reseller_prefix
+    value: TEMPAUTH, SERVICE_TA
+  become: true
+
+- name: Configure service group for tempauth tests
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:tempauth
+    option: SERVICE_TA_require_group
+    value: service
+  become: true
+
+- name: Configure service account for tempauth tests
+  ini_file:
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
+    section: func_test
+    option: account5
+    value: test5
+  become: true
+
+- name: Configure service username for tempauth tests
+  ini_file:
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
+    section: func_test
+    option: username5
+    value: tester5
+  become: true
+
+- name: Configure service user password for tempauth tests
+  ini_file:
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
+    section: func_test
+    option: password5
+    value: testing5
+  become: true
+
+- name: Configure service prefix for tempauth tests
+  ini_file:
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
+    section: func_test
+    option: service_prefix
+    value: SERVICE_TA
+  become: true
