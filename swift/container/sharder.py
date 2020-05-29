@@ -1148,7 +1148,8 @@ class ContainerSharder(ContainerReplicator):
                 'X-Backend-Storage-Policy-Index': broker.storage_policy_index,
                 'X-Container-Sysmeta-Shard-Quoted-Root': quote(
                     broker.root_path),
-                'X-Container-Sysmeta-Sharding': True}
+                'X-Container-Sysmeta-Sharding': 'True',
+                'X-Backend-Auto-Create': 'True'}
             # NB: we *used* to send along
             #    'X-Container-Sysmeta-Shard-Root': broker.root_path
             # but that isn't safe for container names with nulls or newlines
