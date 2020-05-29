@@ -155,6 +155,8 @@ class ContainerController(BaseStorageServer):
                 conf['auto_create_account_prefix']
         else:
             self.auto_create_account_prefix = AUTO_CREATE_ACCOUNT_PREFIX
+        self.shards_account_prefix = (
+            self.auto_create_account_prefix + 'shards_')
         if config_true_value(conf.get('allow_versions', 'f')):
             self.save_headers.append('x-versions-location')
         if 'allow_versions' in conf:
@@ -375,14 +377,12 @@ class ContainerController(BaseStorageServer):
         # auto create accounts)
         obj_policy_index = self.get_and_validate_policy_index(req) or 0
         broker = self._get_container_broker(drive, part, account, container)
-        if account.startswith(self.auto_create_account_prefix) and obj and \
-                not os.path.exists(broker.db_file):
-            try:
-                broker.initialize(req_timestamp.internal, obj_policy_index)
-            except DatabaseAlreadyExists:
-                pass
-        if not os.path.exists(broker.db_file):
+        if obj:
+            self._maybe_autocreate(broker, req_timestamp, account,
+                                   obj_policy_index, req)
+        elif not os.path.exists(broker.db_file):
             return HTTPNotFound()
+
         if obj:     # delete object
             # redirect if a shard range exists for the object name
             redirect = self._redirect_to_shard(req, broker, obj)
@@ -449,11 +449,25 @@ class ContainerController(BaseStorageServer):
             broker.update_status_changed_at(timestamp)
         return recreated
 
+    def _should_autocreate(self, account, req):
+        auto_create_header = req.headers.get('X-Backend-Auto-Create')
+        if auto_create_header:
+            # If the caller included an explicit X-Backend-Auto-Create header,
+            # assume they know the behavior they want
+            return config_true_value(auto_create_header)
+        if account.startswith(self.shards_account_prefix):
+            # we have to specical case this subset of the
+            # auto_create_account_prefix because we don't want the updater
+            # accidently auto-creating shards; only the sharder creates
+            # shards and it will explicitly tell the server to do so
+            return False
+        return account.startswith(self.auto_create_account_prefix)
+
     def _maybe_autocreate(self, broker, req_timestamp, account,
-                          policy_index):
+                          policy_index, req):
         created = False
-        if account.startswith(self.auto_create_account_prefix) and \
-                not os.path.exists(broker.db_file):
+        should_autocreate = self._should_autocreate(account, req)
+        if should_autocreate and not os.path.exists(broker.db_file):
             if policy_index is None:
                 raise HTTPBadRequest(
                     'X-Backend-Storage-Policy-Index header is required')
@@ -506,8 +520,8 @@ class ContainerController(BaseStorageServer):
             # obj put expects the policy_index header, default is for
             # legacy support during upgrade.
             obj_policy_index = requested_policy_index or 0
-            self._maybe_autocreate(broker, req_timestamp, account,
-                                   obj_policy_index)
+            self._maybe_autocreate(
+                broker, req_timestamp, account, obj_policy_index, req)
             # redirect if a shard exists for this object name
             response = self._redirect_to_shard(req, broker, obj)
             if response:
@@ -531,8 +545,8 @@ class ContainerController(BaseStorageServer):
                                 for sr in json.loads(req.body)]
             except (ValueError, KeyError, TypeError) as err:
                 return HTTPBadRequest('Invalid body: %r' % err)
-            created = self._maybe_autocreate(broker, req_timestamp, account,
-                                             requested_policy_index)
+            created = self._maybe_autocreate(
+                broker, req_timestamp, account, requested_policy_index, req)
             self._update_metadata(req, broker, req_timestamp, 'PUT')
             if shard_ranges:
                 # TODO: consider writing the shard ranges into the pending
@@ -805,7 +819,7 @@ class ContainerController(BaseStorageServer):
         requested_policy_index = self.get_and_validate_policy_index(req)
         broker = self._get_container_broker(drive, part, account, container)
         self._maybe_autocreate(broker, req_timestamp, account,
-                               requested_policy_index)
+                               requested_policy_index, req)
         try:
             objs = json.load(req.environ['wsgi.input'])
         except ValueError as err:
