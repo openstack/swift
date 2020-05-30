@@ -21,6 +21,16 @@ Swift is nothing without the community behind it. We'd love to welcome you to
 our community. Come find us in #openstack-swift on freenode IRC or on the
 OpenStack dev mailing list.
 
+For general information on contributing to OpenStack, please check out the
+`contributor guide <https://docs.openstack.org/contributors/>`_ to get started.
+It covers all the basics that are common to all OpenStack projects: the accounts
+you need, the basics of interacting with our Gerrit review system, how we
+communicate as a community, etc.
+
+If you want more Swift related project documentation make sure you checkout
+the Swift developer (contributor) documentation at
+https://docs.openstack.org/swift/latest/
+
 Filing a Bug
 ~~~~~~~~~~~~
 

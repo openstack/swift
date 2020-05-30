@@ -369,7 +369,7 @@ Endeavor to leave a positive or negative score on every change you review.
 Use your best judgment.
 
 A note on Swift Core Maintainers
-================================
+--------------------------------
 
 Swift Core maintainers may provide positive reviews scores that *look*
 different from your reviews - a "+2" instead of a "+1".
