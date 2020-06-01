@@ -72,10 +72,18 @@ class FakeMemcache(object):
 
 
 class FakeApp(object):
+    skip_handled_check = False
 
     def __call__(self, env, start_response):
+        assert self.skip_handled_check or env.get('swift.ratelimit.handled')
         start_response('200 OK', [])
         return [b'Some Content']
+
+
+class FakeReq(object):
+    def __init__(self, method, env=None):
+        self.method = method
+        self.environ = env or {}
 
 
 def start_response(*args):
@@ -160,36 +168,29 @@ class TestRateLimit(unittest.TestCase):
             {'object_count': '5'}
         the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
-        req = lambda: None
-        req.environ = {'swift.cache': fake_memcache, 'PATH_INFO': '/v1/a/c/o'}
+        environ = {'swift.cache': fake_memcache, 'PATH_INFO': '/v1/a/c/o'}
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
                         lambda *args, **kwargs: {}):
-            req.method = 'DELETE'
             self.assertEqual(len(the_app.get_ratelimitable_key_tuples(
-                req, 'a', None, None)), 0)
-            req.method = 'PUT'
+                FakeReq('DELETE', environ), 'a', None, None)), 0)
             self.assertEqual(len(the_app.get_ratelimitable_key_tuples(
-                req, 'a', 'c', None)), 1)
-            req.method = 'DELETE'
+                FakeReq('PUT', environ), 'a', 'c', None)), 1)
             self.assertEqual(len(the_app.get_ratelimitable_key_tuples(
-                req, 'a', 'c', None)), 1)
-            req.method = 'GET'
+                FakeReq('DELETE', environ), 'a', 'c', None)), 1)
             self.assertEqual(len(the_app.get_ratelimitable_key_tuples(
-                req, 'a', 'c', 'o')), 0)
-            req.method = 'PUT'
+                FakeReq('GET', environ), 'a', 'c', 'o')), 0)
             self.assertEqual(len(the_app.get_ratelimitable_key_tuples(
-                req, 'a', 'c', 'o')), 1)
+                FakeReq('PUT', environ), 'a', 'c', 'o')), 1)
 
-        req.method = 'PUT'
         self.assertEqual(len(the_app.get_ratelimitable_key_tuples(
-            req, 'a', 'c', None, global_ratelimit=10)), 2)
+            FakeReq('PUT', environ), 'a', 'c', None, global_ratelimit=10)), 2)
         self.assertEqual(the_app.get_ratelimitable_key_tuples(
-            req, 'a', 'c', None, global_ratelimit=10)[1],
+            FakeReq('PUT', environ), 'a', 'c', None, global_ratelimit=10)[1],
             ('ratelimit/global-write/a', 10))
 
-        req.method = 'PUT'
         self.assertEqual(len(the_app.get_ratelimitable_key_tuples(
-            req, 'a', 'c', None, global_ratelimit='notafloat')), 1)
+            FakeReq('PUT', environ), 'a', 'c', None,
+            global_ratelimit='notafloat')), 1)
 
     def test_memcached_container_info_dict(self):
         mdict = headers_to_container_info({'x-container-object-count': '45'})
@@ -204,9 +205,8 @@ class TestRateLimit(unittest.TestCase):
             {'container_size': 5}
         the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
-        req = lambda: None
-        req.method = 'PUT'
-        req.environ = {'PATH_INFO': '/v1/a/c/o', 'swift.cache': fake_memcache}
+        req = FakeReq('PUT', {
+            'PATH_INFO': '/v1/a/c/o', 'swift.cache': fake_memcache})
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
                         lambda *args, **kwargs: {}):
             tuples = the_app.get_ratelimitable_key_tuples(req, 'a', 'c', 'o')
@@ -227,8 +227,8 @@ class TestRateLimit(unittest.TestCase):
                     req = Request.blank('/v1/a%s/c' % meth)
                     req.method = meth
                     req.environ['swift.cache'] = FakeMemcache()
-                    make_app_call = lambda: self.test_ratelimit(req.environ,
-                                                                start_response)
+                    make_app_call = lambda: self.test_ratelimit(
+                        req.environ.copy(), start_response)
                     begin = time.time()
                     self._run(make_app_call, num_calls, current_rate,
                               check_time=bool(exp_time))
@@ -244,7 +244,7 @@ class TestRateLimit(unittest.TestCase):
         req.method = 'PUT'
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].init_incr_return_neg = True
-        make_app_call = lambda: self.test_ratelimit(req.environ,
+        make_app_call = lambda: self.test_ratelimit(req.environ.copy(),
                                                     start_response)
         begin = time.time()
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
@@ -260,15 +260,15 @@ class TestRateLimit(unittest.TestCase):
                      'account_whitelist': 'a',
                      'account_blacklist': 'b'}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
-        req = Request.blank('/')
         with mock.patch.object(self.test_ratelimit,
                                'memcache_client', FakeMemcache()):
             self.assertEqual(
-                self.test_ratelimit.handle_ratelimit(req, 'a', 'c', 'o'),
+                self.test_ratelimit.handle_ratelimit(
+                    Request.blank('/'), 'a', 'c', 'o'),
                 None)
             self.assertEqual(
                 self.test_ratelimit.handle_ratelimit(
-                    req, 'b', 'c', 'o').status_int,
+                    Request.blank('/'), 'b', 'c', 'o').status_int,
                 497)
 
     def test_ratelimit_whitelist_sysmeta(self):
@@ -331,7 +331,7 @@ class TestRateLimit(unittest.TestCase):
                 self.parent = parent
 
             def run(self):
-                self.result = self.parent.test_ratelimit(req.environ,
+                self.result = self.parent.test_ratelimit(req.environ.copy(),
                                                          start_response)
 
         def get_fake_ratelimit(*args, **kwargs):
@@ -370,18 +370,17 @@ class TestRateLimit(unittest.TestCase):
         # simulates 4 requests coming in at same time, then sleeping
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
                         lambda *args, **kwargs: {}):
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
-            print(repr(r))
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Some Content')
 
     def test_ratelimit_max_rate_double_container(self):
@@ -404,17 +403,17 @@ class TestRateLimit(unittest.TestCase):
         # simulates 4 requests coming in at same time, then sleeping
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
                         lambda *args, **kwargs: {}):
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Some Content')
 
     def test_ratelimit_max_rate_double_container_listing(self):
@@ -437,17 +436,17 @@ class TestRateLimit(unittest.TestCase):
                         lambda *args, **kwargs: {}):
             time_override = [0, 0, 0, 0, None]
             # simulates 4 requests coming in at same time, then sleeping
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Slow down')
             mock_sleep(.1)
-            r = self.test_ratelimit(req.environ, start_response)
+            r = self.test_ratelimit(req.environ.copy(), start_response)
             self.assertEqual(r[0], b'Some Content')
             mc = self.test_ratelimit.memcache_client
             try:
@@ -466,9 +465,6 @@ class TestRateLimit(unittest.TestCase):
 
         the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
-        req = lambda: None
-        req.method = 'PUT'
-        req.environ = {}
 
         class rate_caller(threading.Thread):
 
@@ -478,8 +474,8 @@ class TestRateLimit(unittest.TestCase):
 
             def run(self):
                 for j in range(num_calls):
-                    self.result = the_app.handle_ratelimit(req, self.myname,
-                                                           'c', None)
+                    self.result = the_app.handle_ratelimit(
+                        FakeReq('PUT'), self.myname, 'c', None)
 
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
                         lambda *args, **kwargs: {}):
@@ -541,9 +537,29 @@ class TestRateLimit(unittest.TestCase):
         current_rate = 13
         num_calls = 5
         conf_dict = {'account_ratelimit': current_rate}
-        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
+        fake_app = FakeApp()
+        fake_app.skip_handled_check = True
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(fake_app)
         req = Request.blank('/v1/a')
         req.environ['swift.cache'] = None
+        make_app_call = lambda: self.test_ratelimit(req.environ,
+                                                    start_response)
+        begin = time.time()
+        self._run(make_app_call, num_calls, current_rate, check_time=False)
+        time_took = time.time() - begin
+        self.assertEqual(round(time_took, 1), 0)  # no memcache, no limiting
+
+    def test_already_handled(self):
+        current_rate = 13
+        num_calls = 5
+        conf_dict = {'container_listing_ratelimit_0': current_rate}
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
+        fake_cache = FakeMemcache()
+        fake_cache.set(
+            get_cache_key('a', 'c'),
+            {'object_count': 1})
+        req = Request.blank('/v1/a/c', environ={'swift.cache': fake_cache})
+        req.environ['swift.ratelimit.handled'] = True
         make_app_call = lambda: self.test_ratelimit(req.environ,
                                                     start_response)
         begin = time.time()
