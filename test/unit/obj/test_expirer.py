@@ -1007,6 +1007,18 @@ class TestObjectExpirer(TestCase):
         args = (ts, a, c, o)
         self.assertEqual(args, expirer.parse_task_obj(
             expirer.build_task_obj(ts, a, c, o)))
+        self.assertEqual(args, expirer.parse_task_obj(
+            expirer.build_task_obj(ts, a, c, o, high_precision=True)))
+
+        ts = Timestamp(next(self.ts), delta=1234)
+        a = u'\N{SNOWMAN}'
+        c = u'\N{SNOWFLAKE}'
+        o = u'\U0001F334'
+        args = (ts, a, c, o)
+        self.assertNotEqual(args, expirer.parse_task_obj(
+            expirer.build_task_obj(ts, a, c, o)))
+        self.assertEqual(args, expirer.parse_task_obj(
+            expirer.build_task_obj(ts, a, c, o, high_precision=True)))
 
 
 if __name__ == '__main__':
