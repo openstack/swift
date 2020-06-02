@@ -43,7 +43,6 @@ from email.utils import parsedate
 import re
 import random
 import functools
-import inspect
 from io import BytesIO
 
 import six
@@ -1563,23 +1562,15 @@ def wsgify(func):
     return a Response object into WSGI callables.  Also catches any raised
     HTTPExceptions and treats them as a returned Response.
     """
-    argspec = inspect.getargspec(func)
-    if argspec.args and argspec.args[0] == 'self':
-        @functools.wraps(func)
-        def _wsgify_self(self, env, start_response):
-            try:
-                return func(self, Request(env))(env, start_response)
-            except HTTPException as err_resp:
-                return err_resp(env, start_response)
-        return _wsgify_self
-    else:
-        @functools.wraps(func)
-        def _wsgify_bare(env, start_response):
-            try:
-                return func(Request(env))(env, start_response)
-            except HTTPException as err_resp:
-                return err_resp(env, start_response)
-        return _wsgify_bare
+    @functools.wraps(func)
+    def _wsgify(*args):
+        env, start_response = args[-2:]
+        new_args = args[:-2] + (Request(env), )
+        try:
+            return func(*new_args)(env, start_response)
+        except HTTPException as err_resp:
+            return err_resp(env, start_response)
+    return _wsgify
 
 
 class StatusMap(object):
