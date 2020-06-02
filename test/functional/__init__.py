@@ -479,8 +479,6 @@ def _load_s3api(proxy_conf_file, swift_conf_file, **kwargs):
 conf_loaders = {
     'encryption': _load_encryption,
     'ec': _load_ec_as_default_policy,
-    'domain_remap_staticweb': _load_domain_remap_staticweb,
-    's3api': _load_s3api,
 }
 
 
@@ -517,6 +515,11 @@ def in_process_setup(the_object_server=object_server):
 
     swift_conf = _in_process_setup_swift_conf(swift_conf_src, _testdir)
     _info('prepared swift.conf: %s' % swift_conf)
+
+    # load s3api and staticweb configs
+    proxy_conf, swift_conf = _load_s3api(proxy_conf, swift_conf)
+    proxy_conf, swift_conf = _load_domain_remap_staticweb(proxy_conf,
+                                                          swift_conf)
 
     # Call the associated method for the value of
     # 'SWIFT_TEST_IN_PROCESS_CONF_LOADER', if one exists
