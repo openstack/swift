@@ -2,7 +2,6 @@
 # of appearance. Changing the order has an impact on the overall integration
 # process, which may cause wedges in the gate later.
 
-dnspython>=1.15.0;python_version=='2.7' # http://www.dnspython.org/LICENSE
 eventlet>=0.25.0                        # MIT
 greenlet>=0.3.2
 netifaces>=0.8,!=0.10.0,!=0.10.1
@@ -13,4 +12,12 @@ six>=1.10.0
 xattr>=0.4;sys_platform!='win32'        # MIT
 PyECLib>=1.3.1                          # BSD
 cryptography>=2.0.2                     # BSD/Apache-2.0
-ipaddress>=1.0.16;python_version<'3.3'  # PSF
+
+# For python 2.7, the following requirements are needed; they are not
+# included since the requirments-check check will fail otherwise since
+# global requirements do not support these anymore.
+# Fortunately, these packages come in as dependencies from others and
+# thus the py27 jobs still work.
+#
+# dnspython>=1.15.0;python_version=='2.7' # http://www.dnspython.org/LICENSE
+# ipaddress>=1.0.16;python_version<'3.3'  # PSF
