@@ -23,6 +23,8 @@ from copy import deepcopy
 
 import six
 
+from swift.common.swob import normalize_etag
+
 import test.functional as tf
 from test.functional import cluster_info, SkipTest
 from test.functional.tests import Utils, Base, Base2, BaseEnv
@@ -299,8 +301,14 @@ class TestSlo(Base):
         # a POST.
         file_item.initialize(parms={'multipart-manifest': 'get'})
         manifest_etag = file_item.etag
-        self.assertFalse(manifest_etag.startswith('"'))
-        self.assertFalse(manifest_etag.endswith('"'))
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            self.assertTrue(manifest_etag.startswith('"'))
+            self.assertTrue(manifest_etag.endswith('"'))
+            # ...but in the listing, it'll be stripped
+            manifest_etag = manifest_etag[1:-1]
+        else:
+            self.assertFalse(manifest_etag.startswith('"'))
+            self.assertFalse(manifest_etag.endswith('"'))
 
         file_item.initialize()
         slo_etag = file_item.etag
@@ -715,6 +723,8 @@ class TestSlo(Base):
         source_contents = source.read(parms={'multipart-manifest': 'get'})
         source_json = json.loads(source_contents)
         manifest_etag = hashlib.md5(source_contents).hexdigest()
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            manifest_etag = '"%s"' % manifest_etag
         self.assertEqual(manifest_etag, source.etag)
 
         source.initialize()
@@ -752,14 +762,14 @@ class TestSlo(Base):
         actual = names['manifest-abcde']
         self.assertEqual(4 * 1024 * 1024 + 1, actual['bytes'])
         self.assertEqual('application/octet-stream', actual['content_type'])
-        self.assertEqual(manifest_etag, actual['hash'])
+        self.assertEqual(normalize_etag(manifest_etag), actual['hash'])
         self.assertEqual(slo_etag, actual['slo_etag'])
 
         self.assertIn('copied-abcde-manifest-only', names)
         actual = names['copied-abcde-manifest-only']
         self.assertEqual(4 * 1024 * 1024 + 1, actual['bytes'])
         self.assertEqual('application/octet-stream', actual['content_type'])
-        self.assertEqual(manifest_etag, actual['hash'])
+        self.assertEqual(normalize_etag(manifest_etag), actual['hash'])
         self.assertEqual(slo_etag, actual['slo_etag'])
 
         # Test copy manifest including data segments
@@ -789,6 +799,8 @@ class TestSlo(Base):
         source_contents = source.read(parms={'multipart-manifest': 'get'})
         source_json = json.loads(source_contents)
         manifest_etag = hashlib.md5(source_contents).hexdigest()
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            manifest_etag = '"%s"' % manifest_etag
         self.assertEqual(manifest_etag, source.etag)
 
         source.initialize()
@@ -831,14 +843,14 @@ class TestSlo(Base):
         self.assertEqual(4 * 1024 * 1024 + 1, actual['bytes'])
         self.assertEqual('application/octet-stream', actual['content_type'])
         # the container listing should have the etag of the manifest contents
-        self.assertEqual(manifest_etag, actual['hash'])
+        self.assertEqual(normalize_etag(manifest_etag), actual['hash'])
         self.assertEqual(slo_etag, actual['slo_etag'])
 
         self.assertIn('copied-abcde-manifest-only', names)
         actual = names['copied-abcde-manifest-only']
         self.assertEqual(4 * 1024 * 1024 + 1, actual['bytes'])
         self.assertEqual('image/jpeg', actual['content_type'])
-        self.assertEqual(manifest_etag, actual['hash'])
+        self.assertEqual(normalize_etag(manifest_etag), actual['hash'])
         self.assertEqual(slo_etag, actual['slo_etag'])
 
     def test_slo_copy_the_manifest_account(self):
@@ -1098,12 +1110,7 @@ class TestSlo(Base):
         manifest = self.env.container.file("manifest-db")
         got_body = manifest.read(parms={'multipart-manifest': 'get',
                                         'format': 'raw'})
-        body_md5 = hashlib.md5(got_body).hexdigest()
-        headers = dict(
-            (h.lower(), v)
-            for h, v in manifest.conn.response.getheaders())
-        self.assertIn('etag', headers)
-        self.assertEqual(headers['etag'], body_md5)
+        self.assert_etag(hashlib.md5(got_body).hexdigest())
 
         # raw format should have the actual manifest object content-type
         self.assertEqual('application/octet-stream', manifest.content_type)

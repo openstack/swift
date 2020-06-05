@@ -22,6 +22,7 @@ import uuid
 from swift.common.direct_client import direct_get_suffix_hashes
 from swift.common.exceptions import DiskFileDeleted
 from swift.common.internal_client import UnexpectedResponse
+from swift.common.swob import normalize_etag
 from swift.container.backend import ContainerBroker
 from swift.common import utils
 from swiftclient import client
@@ -129,7 +130,7 @@ class Test(ReplProbeTest):
 
     def _assert_object_metadata_matches_listing(self, listing, metadata):
         self.assertEqual(listing['bytes'], int(metadata['content-length']))
-        self.assertEqual(listing['hash'], metadata['etag'])
+        self.assertEqual(listing['hash'], normalize_etag(metadata['etag']))
         self.assertEqual(listing['content_type'], metadata['content-type'])
         modified = Timestamp(metadata['x-timestamp']).isoformat
         self.assertEqual(listing['last_modified'], modified)

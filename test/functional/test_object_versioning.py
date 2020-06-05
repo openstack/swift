@@ -26,6 +26,7 @@ from six.moves.urllib.parse import quote, unquote
 
 import test.functional as tf
 
+from swift.common.swob import normalize_etag
 from swift.common.utils import MD5_OF_EMPTY_STRING, config_true_value
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
@@ -337,7 +338,7 @@ class TestObjectVersioning(TestObjectVersioningBase):
         obj = self.env.unversioned_container.file(oname)
         resp = obj.write(body, return_resp=True)
         etag = resp.getheader('etag')
-        self.assertEqual(md5(body).hexdigest(), etag)
+        self.assertEqual(md5(body).hexdigest(), normalize_etag(etag))
 
         # un-versioned object is cool with with if-match
         self.assertEqual(body, obj.read(hdrs={'if-match': etag}))
@@ -350,7 +351,11 @@ class TestObjectVersioning(TestObjectVersioningBase):
         self.assertEqual(resp.getheader('etag'), etag)
 
         # versioned object is too with with if-match
-        self.assertEqual(body, v_obj.read(hdrs={'if-match': etag}))
+        self.assertEqual(body, v_obj.read(hdrs={
+            'if-match': normalize_etag(etag)}))
+        # works quoted, too
+        self.assertEqual(body, v_obj.read(hdrs={
+            'if-match': '"%s"' % normalize_etag(etag)}))
         with self.assertRaises(ResponseError) as cm:
             v_obj.read(hdrs={'if-match': 'not-the-etag'})
         self.assertEqual(412, cm.exception.status)
@@ -989,13 +994,13 @@ class TestObjectVersioning(TestObjectVersioningBase):
             'Content-Type': 'text/jibberish32'
         }, return_resp=True)
         v1_version_id = resp.getheader('x-object-version-id')
-        v1_etag = resp.getheader('etag')
+        v1_etag = normalize_etag(resp.getheader('etag'))
 
         resp = obj.write(b'version2', hdrs={
             'Content-Type': 'text/jibberish33'
         }, return_resp=True)
         v2_version_id = resp.getheader('x-object-version-id')
-        v2_etag = resp.getheader('etag')
+        v2_etag = normalize_etag(resp.getheader('etag'))
 
         # sanity
         self.assertEqual(b'version2', obj.read())
@@ -1062,7 +1067,7 @@ class TestObjectVersioning(TestObjectVersioningBase):
         self.assertEqual(b'version1', obj.read())
         obj_info = obj.info()
         self.assertEqual('text/jibberish32', obj_info['content_type'])
-        self.assertEqual(v1_etag, obj_info['etag'])
+        self.assertEqual(v1_etag, normalize_etag(obj_info['etag']))
 
     def test_delete_with_version_api_old_object(self):
         versioned_obj_name = Utils.create_name()
@@ -2378,7 +2383,7 @@ class TestSloWithVersioning(TestObjectVersioningBase):
         expected = {
             'bytes': file_info['content_length'],
             'content_type': 'application/octet-stream',
-            'hash': manifest_info['etag'],
+            'hash': normalize_etag(manifest_info['etag']),
             'name': 'my-slo-manifest',
             'slo_etag': file_info['etag'],
             'version_symlink': True,
@@ -2410,7 +2415,7 @@ class TestSloWithVersioning(TestObjectVersioningBase):
         expected = {
             'bytes': file_info['content_length'],
             'content_type': 'application/octet-stream',
-            'hash': manifest_info['etag'],
+            'hash': normalize_etag(manifest_info['etag']),
             'name': 'my-slo-manifest',
             'slo_etag': file_info['etag'],
             'version_symlink': True,

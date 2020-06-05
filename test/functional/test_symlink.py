@@ -25,6 +25,7 @@ from six.moves import urllib
 from uuid import uuid4
 
 from swift.common.http import is_success
+from swift.common.swob import normalize_etag
 from swift.common.utils import json, MD5_OF_EMPTY_STRING
 from swift.common.middleware.slo import SloGetContext
 from test.functional import check_response, retry, requires_acls, \
@@ -1135,7 +1136,7 @@ class TestSymlink(Base):
                                          etag=self.env.tgt_etag)
 
         # overwrite tgt object
-        old_tgt_etag = self.env.tgt_etag
+        old_tgt_etag = normalize_etag(self.env.tgt_etag)
         self.env._create_tgt_object(body='updated target body')
 
         # sanity
@@ -1380,7 +1381,7 @@ class TestSymlink(Base):
                          object_list[0]['symlink_path'])
         obj_info = object_list[0]
         self.assertIn('symlink_etag', obj_info)
-        self.assertEqual(self.env.tgt_etag,
+        self.assertEqual(normalize_etag(self.env.tgt_etag),
                          obj_info['symlink_etag'])
         self.assertEqual(int(self.env.tgt_length),
                          obj_info['symlink_bytes'])
@@ -1550,7 +1551,7 @@ class TestSymlinkSlo(Base):
             'symlink_path': '/v1/%s/%s/manifest-abcde' % (
                 self.account_name, self.env.container2.name),
             'symlink_bytes': 4 * 2 ** 20 + 1,
-            'symlink_etag': manifest_etag,
+            'symlink_etag': normalize_etag(manifest_etag),
         })
 
     def test_static_link_target_slo_manifest_wrong_etag(self):
@@ -1740,7 +1741,11 @@ class TestSymlinkToSloSegments(Base):
                 self.assertEqual(1024 * 1024, f_dict['bytes'])
                 self.assertEqual('application/octet-stream',
                                  f_dict['content_type'])
-                self.assertEqual(manifest_etag, f_dict['hash'])
+                if tf.cluster_info.get('etag_quoter', {}).get(
+                        'enable_by_default'):
+                    self.assertEqual(manifest_etag, '"%s"' % f_dict['hash'])
+                else:
+                    self.assertEqual(manifest_etag, f_dict['hash'])
                 self.assertEqual(slo_etag, f_dict['slo_etag'])
                 break
         else:
@@ -1759,7 +1764,11 @@ class TestSymlinkToSloSegments(Base):
                 self.assertEqual(1024 * 1024, f_dict['bytes'])
                 self.assertEqual(file_item.content_type,
                                  f_dict['content_type'])
-                self.assertEqual(manifest_etag, f_dict['hash'])
+                if tf.cluster_info.get('etag_quoter', {}).get(
+                        'enable_by_default'):
+                    self.assertEqual(manifest_etag, '"%s"' % f_dict['hash'])
+                else:
+                    self.assertEqual(manifest_etag, f_dict['hash'])
                 self.assertEqual(slo_etag, f_dict['slo_etag'])
                 break
         else:
@@ -1778,7 +1787,11 @@ class TestSymlinkToSloSegments(Base):
                 self.assertEqual(1024 * 1024, f_dict['bytes'])
                 self.assertEqual(file_item.content_type,
                                  f_dict['content_type'])
-                self.assertEqual(manifest_etag, f_dict['hash'])
+                if tf.cluster_info.get('etag_quoter', {}).get(
+                        'enable_by_default'):
+                    self.assertEqual(manifest_etag, '"%s"' % f_dict['hash'])
+                else:
+                    self.assertEqual(manifest_etag, f_dict['hash'])
                 self.assertEqual(slo_etag, f_dict['slo_etag'])
                 break
         else:
@@ -1811,6 +1824,8 @@ class TestSymlinkToSloSegments(Base):
         source_contents = source.read(parms={'multipart-manifest': 'get'})
         source_json = json.loads(source_contents)
         manifest_etag = hashlib.md5(source_contents).hexdigest()
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            manifest_etag = '"%s"' % manifest_etag
 
         source.initialize()
         slo_etag = source.etag
@@ -1857,14 +1872,20 @@ class TestSymlinkToSloSegments(Base):
         actual = names['manifest-linkto-ab']
         self.assertEqual(2 * 1024 * 1024, actual['bytes'])
         self.assertEqual('application/octet-stream', actual['content_type'])
-        self.assertEqual(manifest_etag, actual['hash'])
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            self.assertEqual(manifest_etag, '"%s"' % actual['hash'])
+        else:
+            self.assertEqual(manifest_etag, actual['hash'])
         self.assertEqual(slo_etag, actual['slo_etag'])
 
         self.assertIn('copied-ab-manifest-only', names)
         actual = names['copied-ab-manifest-only']
         self.assertEqual(2 * 1024 * 1024, actual['bytes'])
         self.assertEqual('application/octet-stream', actual['content_type'])
-        self.assertEqual(manifest_etag, actual['hash'])
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            self.assertEqual(manifest_etag, '"%s"' % actual['hash'])
+        else:
+            self.assertEqual(manifest_etag, actual['hash'])
         self.assertEqual(slo_etag, actual['slo_etag'])
 
 
@@ -2000,13 +2021,13 @@ class TestSymlinkTargetObjectComparison(Base):
             else:
                 self.assertEqual(b'', body)
             self.assert_status(200)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
             hdrs = {'If-Match': 'bogus'}
             self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(412)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
     def testIfMatchMultipleEtags(self):
         for file_item in self.env.files:
@@ -2022,13 +2043,13 @@ class TestSymlinkTargetObjectComparison(Base):
             else:
                 self.assertEqual(b'', body)
             self.assert_status(200)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
             hdrs = {'If-Match': '"bogus1", "bogus2", "bogus3"'}
             self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(412)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
     def testIfNoneMatch(self):
         for file_item in self.env.files:
@@ -2044,13 +2065,13 @@ class TestSymlinkTargetObjectComparison(Base):
             else:
                 self.assertEqual(b'', body)
             self.assert_status(200)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
             hdrs = {'If-None-Match': md5}
             self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(304)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
             self.assert_header('accept-ranges', 'bytes')
 
     def testIfNoneMatchMultipleEtags(self):
@@ -2067,14 +2088,14 @@ class TestSymlinkTargetObjectComparison(Base):
             else:
                 self.assertEqual(b'', body)
             self.assert_status(200)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
             hdrs = {'If-None-Match':
                     '"bogus1", "bogus2", "%s"' % md5}
             self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(304)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
             self.assert_header('accept-ranges', 'bytes')
 
     def testIfModifiedSince(self):
@@ -2091,19 +2112,19 @@ class TestSymlinkTargetObjectComparison(Base):
             else:
                 self.assertEqual(b'', body)
             self.assert_status(200)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
             self.assertTrue(file_symlink.info(hdrs=hdrs, parms=self.env.parms))
 
             hdrs = {'If-Modified-Since': self.env.time_new}
             self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(304)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
             self.assert_header('accept-ranges', 'bytes')
             self.assertRaises(ResponseError, file_symlink.info, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(304)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
             self.assert_header('accept-ranges', 'bytes')
 
     def testIfUnmodifiedSince(self):
@@ -2120,18 +2141,18 @@ class TestSymlinkTargetObjectComparison(Base):
             else:
                 self.assertEqual(b'', body)
             self.assert_status(200)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
             self.assertTrue(file_symlink.info(hdrs=hdrs, parms=self.env.parms))
 
             hdrs = {'If-Unmodified-Since': self.env.time_old_f2}
             self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(412)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
             self.assertRaises(ResponseError, file_symlink.info, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(412)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
     def testIfMatchAndUnmodified(self):
         for file_item in self.env.files:
@@ -2148,21 +2169,21 @@ class TestSymlinkTargetObjectComparison(Base):
             else:
                 self.assertEqual(b'', body)
             self.assert_status(200)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
             hdrs = {'If-Match': 'bogus',
                     'If-Unmodified-Since': self.env.time_new}
             self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(412)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
             hdrs = {'If-Match': md5,
                     'If-Unmodified-Since': self.env.time_old_f3}
             self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                               parms=self.env.parms)
             self.assert_status(412)
-            self.assert_header('etag', md5)
+            self.assert_etag(md5)
 
     def testLastModified(self):
         file_item = self.env.container.file(Utils.create_name())
@@ -2186,7 +2207,7 @@ class TestSymlinkTargetObjectComparison(Base):
         hdrs = {'If-Modified-Since': last_modified}
         self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs)
         self.assert_status(304)
-        self.assert_header('etag', md5)
+        self.assert_etag(md5)
         self.assert_header('accept-ranges', 'bytes')
 
         hdrs = {'If-Unmodified-Since': last_modified}
@@ -2227,20 +2248,20 @@ class TestSymlinkComparison(TestSymlinkTargetObjectComparison):
         body = file_symlink.read(hdrs=hdrs, parms=self.env.parms)
         self.assertEqual(b'', body)
         self.assert_status(200)
-        self.assert_header('etag', md5)
+        self.assert_etag(md5)
 
         hdrs = {'If-Modified-Since': last_modified}
         self.assertRaises(ResponseError, file_symlink.read, hdrs=hdrs,
                           parms=self.env.parms)
         self.assert_status(304)
-        self.assert_header('etag', md5)
+        self.assert_etag(md5)
         self.assert_header('accept-ranges', 'bytes')
 
         hdrs = {'If-Unmodified-Since': last_modified}
         body = file_symlink.read(hdrs=hdrs, parms=self.env.parms)
         self.assertEqual(b'', body)
         self.assert_status(200)
-        self.assert_header('etag', md5)
+        self.assert_etag(md5)
 
 
 class TestSymlinkAccountTempurl(Base):

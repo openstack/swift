@@ -322,12 +322,16 @@ def _load_encryption(proxy_conf_file, swift_conf_file, **kwargs):
         pipeline = pipeline.replace(
             "proxy-logging proxy-server",
             "keymaster encryption proxy-logging proxy-server")
+        pipeline = pipeline.replace(
+            "cache listing_formats",
+            "cache etag-quoter listing_formats")
         conf.set(section, 'pipeline', pipeline)
         root_secret = base64.b64encode(os.urandom(32))
         if not six.PY2:
             root_secret = root_secret.decode('ascii')
         conf.set('filter:keymaster', 'encryption_root_secret', root_secret)
         conf.set('filter:versioned_writes', 'allow_object_versioning', 'true')
+        conf.set('filter:etag-quoter', 'enable_by_default', 'true')
     except NoSectionError as err:
         msg = 'Error problem with proxy conf file %s: %s' % \
               (proxy_conf_file, err)
