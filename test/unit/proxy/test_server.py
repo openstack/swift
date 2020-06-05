@@ -7297,7 +7297,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                 return super(WrappedTimeout, self).__exit__(typ, value, tb)
 
         timeouts = {}
-        with mock.patch('swift.proxy.controllers.base.WatchdogTimeout',
+        with mock.patch('swift.proxy.controllers.obj.WatchdogTimeout',
                         WrappedTimeout):
             with mock.patch.object(_test_servers[0], 'client_timeout', new=5):
                 # get object

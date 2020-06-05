@@ -854,10 +854,10 @@ class ByteCountEnforcer(object):
             return chunk
 
 
-class ResumingGetter(object):
+class GetOrHeadHandler(object):
     def __init__(self, app, req, server_type, node_iter, partition, path,
                  backend_headers, concurrency=1, client_chunk_size=None,
-                 newest=None, header_provider=None):
+                 newest=None):
         self.app = app
         self.node_iter = node_iter
         self.server_type = server_type
@@ -871,7 +871,6 @@ class ResumingGetter(object):
         self.used_source_etag = ''
         self.concurrency = concurrency
         self.node = None
-        self.header_provider = header_provider
         self.latest_404_timestamp = Timestamp(0)
 
         # stuff from request
@@ -1010,13 +1009,6 @@ class ResumingGetter(object):
         if self.server_type == 'Object' and src.status == 416:
             return True
         return is_success(src.status) or is_redirection(src.status)
-
-    def response_parts_iter(self, req):
-        source, node = self._get_source_and_node()
-        it = None
-        if source:
-            it = self._get_response_parts_iter(req, node, source)
-        return it
 
     def _get_response_parts_iter(self, req, node, source):
         # Someday we can replace this [mess] with python 3's "nonlocal"
@@ -1261,10 +1253,6 @@ class ResumingGetter(object):
         if node in self.used_nodes:
             return False
         req_headers = dict(self.backend_headers)
-        # a request may be specialised with specific backend headers
-        if self.header_provider:
-            req_headers.update(self.header_provider())
-
         ip, port = get_ip_port(node, req_headers)
         start_node_timing = time.time()
         try:
@@ -1300,9 +1288,8 @@ class ResumingGetter(object):
                 close_swift_conn(possible_source)
             else:
                 if self.used_source_etag and \
-                    self.used_source_etag != normalize_etag(src_headers.get(
-                        'x-object-sysmeta-ec-etag',
-                        src_headers.get('etag', ''))):
+                        self.used_source_etag != normalize_etag(
+                            src_headers.get('etag', '')):
                     self.statuses.append(HTTP_NOT_FOUND)
                     self.reasons.append('')
                     self.bodies.append('')
@@ -1402,18 +1389,14 @@ class ResumingGetter(object):
 
             # Save off the source etag so that, if we lose the connection
             # and have to resume from a different node, we can be sure that
-            # we have the same object (replication) or a fragment archive
-            # from the same object (EC). Otherwise, if the cluster has two
-            # versions of the same object, we might end up switching between
-            # old and new mid-stream and giving garbage to the client.
-            self.used_source_etag = normalize_etag(src_headers.get(
-                'x-object-sysmeta-ec-etag', src_headers.get('etag', '')))
+            # we have the same object (replication). Otherwise, if the cluster
+            # has two versions of the same object, we might end up switching
+            # between old and new mid-stream and giving garbage to the client.
+            self.used_source_etag = normalize_etag(src_headers.get('etag', ''))
             self.node = node
             return source, node
         return None, None
 
-
-class GetOrHeadHandler(ResumingGetter):
     def _make_app_iter(self, req, node, source):
         """
         Returns an iterator over the contents of the source (via its read
