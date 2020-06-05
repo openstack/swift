@@ -6080,6 +6080,136 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertEqual(list(locations),
                              [(obj_path, "drive", "partition2")])
 
+    def test_hooks(self):
+        with temptree([]) as tmpdir:
+            logger = FakeLogger()
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            partition = os.path.join(data, "partition1")
+            os.makedirs(partition)
+            suffix = os.path.join(partition, "suffix1")
+            os.makedirs(suffix)
+            hash_path = os.path.join(suffix, "hash1")
+            os.makedirs(hash_path)
+            obj_path = os.path.join(hash_path, "obj1.dat")
+            with open(obj_path, "w"):
+                pass
+            meta_path = os.path.join(hash_path, "obj1.meta")
+            with open(meta_path, "w"):
+                pass
+            hook_pre_device = MagicMock()
+            hook_post_device = MagicMock()
+            hook_pre_partition = MagicMock()
+            hook_post_partition = MagicMock()
+            hook_pre_suffix = MagicMock()
+            hook_post_suffix = MagicMock()
+            hook_pre_hash = MagicMock()
+            hook_post_hash = MagicMock()
+            locations = utils.audit_location_generator(
+                tmpdir, "data", ".dat", mount_check=False, logger=logger,
+                hook_pre_device=hook_pre_device,
+                hook_post_device=hook_post_device,
+                hook_pre_partition=hook_pre_partition,
+                hook_post_partition=hook_post_partition,
+                hook_pre_suffix=hook_pre_suffix,
+                hook_post_suffix=hook_post_suffix,
+                hook_pre_hash=hook_pre_hash,
+                hook_post_hash=hook_post_hash
+            )
+            list(locations)
+            hook_pre_device.assert_called_once_with(os.path.join(tmpdir,
+                                                                 "drive"))
+            hook_post_device.assert_called_once_with(os.path.join(tmpdir,
+                                                                  "drive"))
+            hook_pre_partition.assert_called_once_with(partition)
+            hook_post_partition.assert_called_once_with(partition)
+            hook_pre_suffix.assert_called_once_with(suffix)
+            hook_post_suffix.assert_called_once_with(suffix)
+            hook_pre_hash.assert_called_once_with(hash_path)
+            hook_post_hash.assert_called_once_with(hash_path)
+
+    def test_filters(self):
+        with temptree([]) as tmpdir:
+            logger = FakeLogger()
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            partition = os.path.join(data, "partition1")
+            os.makedirs(partition)
+            suffix = os.path.join(partition, "suffix1")
+            os.makedirs(suffix)
+            hash_path = os.path.join(suffix, "hash1")
+            os.makedirs(hash_path)
+            obj_path = os.path.join(hash_path, "obj1.dat")
+            with open(obj_path, "w"):
+                pass
+            meta_path = os.path.join(hash_path, "obj1.meta")
+            with open(meta_path, "w"):
+                pass
+
+            def audit_location_generator(**kwargs):
+                return utils.audit_location_generator(
+                    tmpdir, "data", ".dat", mount_check=False, logger=logger,
+                    **kwargs)
+
+            # Return the list of devices
+
+            with patch('os.listdir', side_effect=os.listdir) as m_listdir:
+                # devices_filter
+                m_listdir.reset_mock()
+                devices_filter = MagicMock(return_value=["drive"])
+                list(audit_location_generator(devices_filter=devices_filter))
+                devices_filter.assert_called_once_with(tmpdir, ["drive"])
+                self.assertIn(((data,),), m_listdir.call_args_list)
+
+                m_listdir.reset_mock()
+                devices_filter = MagicMock(return_value=[])
+                list(audit_location_generator(devices_filter=devices_filter))
+                devices_filter.assert_called_once_with(tmpdir, ["drive"])
+                self.assertNotIn(((data,),), m_listdir.call_args_list)
+
+                # partitions_filter
+                m_listdir.reset_mock()
+                partitions_filter = MagicMock(return_value=["partition1"])
+                list(audit_location_generator(
+                    partitions_filter=partitions_filter))
+                partitions_filter.assert_called_once_with(data,
+                                                          ["partition1"])
+                self.assertIn(((partition,),), m_listdir.call_args_list)
+
+                m_listdir.reset_mock()
+                partitions_filter = MagicMock(return_value=[])
+                list(audit_location_generator(
+                    partitions_filter=partitions_filter))
+                partitions_filter.assert_called_once_with(data,
+                                                          ["partition1"])
+                self.assertNotIn(((partition,),), m_listdir.call_args_list)
+
+                # suffixes_filter
+                m_listdir.reset_mock()
+                suffixes_filter = MagicMock(return_value=["suffix1"])
+                list(audit_location_generator(suffixes_filter=suffixes_filter))
+                suffixes_filter.assert_called_once_with(partition, ["suffix1"])
+                self.assertIn(((suffix,),), m_listdir.call_args_list)
+
+                m_listdir.reset_mock()
+                suffixes_filter = MagicMock(return_value=[])
+                list(audit_location_generator(suffixes_filter=suffixes_filter))
+                suffixes_filter.assert_called_once_with(partition, ["suffix1"])
+                self.assertNotIn(((suffix,),), m_listdir.call_args_list)
+
+                # hashes_filter
+                m_listdir.reset_mock()
+                hashes_filter = MagicMock(return_value=["hash1"])
+                list(audit_location_generator(hashes_filter=hashes_filter))
+                hashes_filter.assert_called_once_with(suffix, ["hash1"])
+                self.assertIn(((hash_path,),), m_listdir.call_args_list)
+
+                m_listdir.reset_mock()
+                hashes_filter = MagicMock(return_value=[])
+                list(audit_location_generator(hashes_filter=hashes_filter))
+                hashes_filter.assert_called_once_with(suffix, ["hash1"])
+                self.assertNotIn(((hash_path,),), m_listdir.call_args_list)
+
 
 class TestGreenAsyncPile(unittest.TestCase):
 

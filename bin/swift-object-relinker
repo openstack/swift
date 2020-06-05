@@ -28,6 +28,8 @@ if __name__ == '__main__':
                         dest='swift_dir', help='Path to swift directory')
     parser.add_argument('--devices', default='/srv/node',
                         dest='devices', help='Path to swift device directory')
+    parser.add_argument('--device', default=None, dest='device',
+                        help='Device name to relink (default: all)')
     parser.add_argument('--skip-mount-check', default=False,
                         help='Don\'t test if disk is mounted',
                         action="store_true", dest='skip_mount_check')
