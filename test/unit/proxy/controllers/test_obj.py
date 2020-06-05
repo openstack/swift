@@ -51,7 +51,8 @@ from swift.common.storage_policy import POLICIES, ECDriverError, \
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
     debug_logger, patch_policies, SlowBody, FakeStatus, \
     DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub, \
-    fake_ec_node_response, StubResponse, mocked_http_conn
+    fake_ec_node_response, StubResponse, mocked_http_conn, \
+    quiet_eventlet_exceptions
 from test.unit.proxy.test_server import node_error_count
 
 
@@ -1617,7 +1618,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         # to the next node rather than hang the request
         headers = [{'X-Backend-Timestamp': 'not-a-timestamp'}, {}]
         codes = [200, 200]
-        with set_http_connect(*codes, headers=headers):
+        with quiet_eventlet_exceptions(), set_http_connect(
+                *codes, headers=headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
 
