@@ -2,12 +2,6 @@ swift (2.25.0, OpenStack Ussuri)
 
     * WSGI server processes can now notify systemd when they are ready.
 
-    * Added a new middleware that allows users and operators to configure
-      accounts and containers to use RFC-compliant (i.e., double-quoted)
-      ETags. This may be useful when using Swift as an origin for some
-      content delivery networks. For more information, see
-      https://docs.openstack.org/swift/latest/middleware.html#etag-quoter
-
     * Added `ttfb` (Time to First Byte) and `pid` (Process ID) to the set
       of available proxy-server log fields. For more information, see
       https://docs.openstack.org/swift/latest/logs.html
@@ -58,8 +52,9 @@ swift (2.24.0)
     * Added support for S3 versioning using the above new mode.
 
     * Added a new middleware to allow accounts and containers to opt-in to
-      RFC-compliant ETags. For more information, see the documentation at
-      https://docs.openstack.org/swift/latest/middleware.html#module-swift.common.middleware.etag_quoter
+      RFC-compliant ETags. This may be useful when using Swift as an origin
+      for some content delivery networks. For more information, see the
+      documentation at https://docs.openstack.org/swift/latest/middleware.html#module-swift.common.middleware.etag_quoter
       Clients should be aware of the fact that ETags may be quoted for RFC
       compliance; this may become the default behavior in some future release.
 
