@@ -6,7 +6,7 @@
 
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    timeout: 2400
+    timeout: 3600
     vars:
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
