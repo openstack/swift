@@ -26,7 +26,7 @@ from swift.common.middleware.versioned_writes.object_versioning import \
 from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
-    InvalidRange, NoSuchKey, InvalidArgument, HTTPNoContent, \
+    InvalidRange, NoSuchKey, NoSuchVersion, InvalidArgument, HTTPNoContent, \
     PreconditionFailed
 
 
@@ -88,7 +88,15 @@ class ObjectController(Controller):
         if version_id not in ('null', None) and \
                 'object_versioning' not in get_swift_info():
             raise S3NotImplemented()
+
         query = {} if version_id is None else {'version-id': version_id}
+        if version_id not in ('null', None):
+            container_info = req.get_container_info(self.app)
+            if not container_info.get(
+                    'sysmeta', {}).get('versions-container', ''):
+                # Versioning has never been enabled
+                raise NoSuchVersion(object_name, version_id)
+
         resp = req.get_response(self.app, query=query)
 
         if req.method == 'HEAD':
@@ -193,17 +201,25 @@ class ObjectController(Controller):
                 'object_versioning' not in get_swift_info():
             raise S3NotImplemented()
 
+        version_id = req.params.get('versionId')
+        if version_id not in ('null', None):
+            container_info = req.get_container_info(self.app)
+            if not container_info.get(
+                    'sysmeta', {}).get('versions-container', ''):
+                # Versioning has never been enabled
+                return HTTPNoContent(headers={'x-amz-version-id': version_id})
+
         try:
             try:
                 query = req.gen_multipart_manifest_delete_query(
-                    self.app, version=req.params.get('versionId'))
+                    self.app, version=version_id)
             except NoSuchKey:
                 query = {}
 
             req.headers['Content-Type'] = None  # Ignore client content-type
 
-            if 'versionId' in req.params:
-                query['version-id'] = req.params['versionId']
+            if version_id is not None:
+                query['version-id'] = version_id
                 query['symlink'] = 'get'
 
             resp = req.get_response(self.app, query=query)
