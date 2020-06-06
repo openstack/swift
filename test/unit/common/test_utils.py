@@ -7354,7 +7354,8 @@ class TestShardRange(unittest.TestCase):
                       upper='', object_count=0, bytes_used=0,
                       meta_timestamp=ts_1.internal, deleted=0,
                       state=utils.ShardRange.FOUND,
-                      state_timestamp=ts_1.internal, epoch=None)
+                      state_timestamp=ts_1.internal, epoch=None,
+                      reported=0)
         assert_initialisation_ok(dict(empty_run, name='a/c', timestamp=ts_1),
                                  expect)
         assert_initialisation_ok(dict(name='a/c', timestamp=ts_1), expect)
@@ -7363,11 +7364,13 @@ class TestShardRange(unittest.TestCase):
                         upper='u', object_count=2, bytes_used=10,
                         meta_timestamp=ts_2, deleted=0,
                         state=utils.ShardRange.CREATED,
-                        state_timestamp=ts_3.internal, epoch=ts_4)
+                        state_timestamp=ts_3.internal, epoch=ts_4,
+                        reported=0)
         expect.update({'lower': 'l', 'upper': 'u', 'object_count': 2,
                        'bytes_used': 10, 'meta_timestamp': ts_2.internal,
                        'state': utils.ShardRange.CREATED,
-                       'state_timestamp': ts_3.internal, 'epoch': ts_4})
+                       'state_timestamp': ts_3.internal, 'epoch': ts_4,
+                       'reported': 0})
         assert_initialisation_ok(good_run.copy(), expect)
 
         # obj count and bytes used as int strings
@@ -7384,6 +7387,11 @@ class TestShardRange(unittest.TestCase):
         good_deleted['deleted'] = 1
         assert_initialisation_ok(good_deleted,
                                  dict(expect, deleted=1))
+
+        good_reported = good_run.copy()
+        good_reported['reported'] = 1
+        assert_initialisation_ok(good_reported,
+                                 dict(expect, reported=1))
 
         assert_initialisation_fails(dict(good_run, timestamp='water balloon'))
 
@@ -7423,7 +7431,7 @@ class TestShardRange(unittest.TestCase):
             'upper': upper, 'object_count': 10, 'bytes_used': 100,
             'meta_timestamp': ts_2.internal, 'deleted': 0,
             'state': utils.ShardRange.FOUND, 'state_timestamp': ts_3.internal,
-            'epoch': ts_4}
+            'epoch': ts_4, 'reported': 0}
         self.assertEqual(expected, sr_dict)
         self.assertIsInstance(sr_dict['lower'], six.string_types)
         self.assertIsInstance(sr_dict['upper'], six.string_types)
@@ -7438,6 +7446,14 @@ class TestShardRange(unittest.TestCase):
         for key in sr_dict:
             bad_dict = dict(sr_dict)
             bad_dict.pop(key)
+            if key == 'reported':
+                # This was added after the fact, and we need to be able to eat
+                # data from old servers
+                utils.ShardRange.from_dict(bad_dict)
+                utils.ShardRange(**bad_dict)
+                continue
+
+            # The rest were present from the beginning
             with self.assertRaises(KeyError):
                 utils.ShardRange.from_dict(bad_dict)
             # But __init__ still (generally) works!

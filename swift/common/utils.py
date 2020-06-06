@@ -4869,6 +4869,8 @@ class ShardRange(object):
         value.
     :param epoch: optional epoch timestamp which represents the time at which
         sharding was enabled for a container.
+    :param reported: optional indicator that this shard and its stats have
+        been reported to the root container.
     """
     FOUND = 10
     CREATED = 20
@@ -4919,7 +4921,8 @@ class ShardRange(object):
 
     def __init__(self, name, timestamp, lower=MIN, upper=MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
-                 deleted=False, state=None, state_timestamp=None, epoch=None):
+                 deleted=False, state=None, state_timestamp=None, epoch=None,
+                 reported=False):
         self.account = self.container = self._timestamp = \
             self._meta_timestamp = self._state_timestamp = self._epoch = None
         self._lower = ShardRange.MIN
@@ -4938,6 +4941,7 @@ class ShardRange(object):
         self.state = self.FOUND if state is None else state
         self.state_timestamp = state_timestamp
         self.epoch = epoch
+        self.reported = reported
 
     @classmethod
     def _encode(cls, value):
@@ -5118,8 +5122,14 @@ class ShardRange(object):
             cast to an int, or if meta_timestamp is neither None nor can be
             cast to a :class:`~swift.common.utils.Timestamp`.
         """
-        self.object_count = int(object_count)
-        self.bytes_used = int(bytes_used)
+        if self.object_count != int(object_count):
+            self.object_count = int(object_count)
+            self.reported = False
+
+        if self.bytes_used != int(bytes_used):
+            self.bytes_used = int(bytes_used)
+            self.reported = False
+
         if meta_timestamp is None:
             self.meta_timestamp = Timestamp.now()
         else:
@@ -5200,6 +5210,14 @@ class ShardRange(object):
     def epoch(self, epoch):
         self._epoch = self._to_timestamp(epoch)
 
+    @property
+    def reported(self):
+        return self._reported
+
+    @reported.setter
+    def reported(self, value):
+        self._reported = bool(value)
+
     def update_state(self, state, state_timestamp=None):
         """
         Set state to the given value and optionally update the state_timestamp
@@ -5216,6 +5234,7 @@ class ShardRange(object):
         self.state = state
         if state_timestamp is not None:
             self.state_timestamp = state_timestamp
+        self.reported = False
         return True
 
     @property
@@ -5338,6 +5357,7 @@ class ShardRange(object):
         yield 'state', self.state
         yield 'state_timestamp', self.state_timestamp.internal
         yield 'epoch', self.epoch.internal if self.epoch is not None else None
+        yield 'reported', 1 if self.reported else 0
 
     def copy(self, timestamp=None, **kwargs):
         """
@@ -5369,7 +5389,8 @@ class ShardRange(object):
             params['name'], params['timestamp'], params['lower'],
             params['upper'], params['object_count'], params['bytes_used'],
             params['meta_timestamp'], params['deleted'], params['state'],
-            params['state_timestamp'], params['epoch'])
+            params['state_timestamp'], params['epoch'],
+            params.get('reported', 0))
 
 
 def find_shard_range(item, ranges):

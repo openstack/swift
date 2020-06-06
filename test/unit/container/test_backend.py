@@ -735,10 +735,12 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['put_timestamp'], start.internal)
         self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], '0')
-        if self.__class__ in (TestContainerBrokerBeforeMetadata,
-                              TestContainerBrokerBeforeXSync,
-                              TestContainerBrokerBeforeSPI,
-                              TestContainerBrokerBeforeShardRanges):
+        if self.__class__ in (
+                TestContainerBrokerBeforeMetadata,
+                TestContainerBrokerBeforeXSync,
+                TestContainerBrokerBeforeSPI,
+                TestContainerBrokerBeforeShardRanges,
+                TestContainerBrokerBeforeShardRangeReportedColumn):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
@@ -1025,6 +1027,8 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT object_count FROM shard_range").fetchone()[0], 0)
             self.assertEqual(conn.execute(
                 "SELECT bytes_used FROM shard_range").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT reported FROM shard_range").fetchone()[0], 0)
 
         # Reput same event
         broker.merge_shard_ranges(
@@ -1050,6 +1054,64 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT object_count FROM shard_range").fetchone()[0], 0)
             self.assertEqual(conn.execute(
                 "SELECT bytes_used FROM shard_range").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT reported FROM shard_range").fetchone()[0], 0)
+
+        # Mark it as reported
+        broker.merge_shard_ranges(
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
+                       'low', 'up', meta_timestamp=meta_timestamp,
+                       reported=True))
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM shard_range").fetchone()[0],
+                '"a/{<shardrange \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT timestamp FROM shard_range").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM shard_range").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM shard_range").fetchone()[0], 'low')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM shard_range").fetchone()[0], 'up')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM shard_range").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM shard_range").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM shard_range").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT reported FROM shard_range").fetchone()[0], 1)
+
+        # Reporting latches it
+        broker.merge_shard_ranges(
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
+                       'low', 'up', meta_timestamp=meta_timestamp,
+                       reported=False))
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM shard_range").fetchone()[0],
+                '"a/{<shardrange \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT timestamp FROM shard_range").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM shard_range").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM shard_range").fetchone()[0], 'low')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM shard_range").fetchone()[0], 'up')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM shard_range").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM shard_range").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM shard_range").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT reported FROM shard_range").fetchone()[0], 1)
 
         # Put new event
         timestamp = next(self.ts).internal
@@ -1077,11 +1139,14 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT object_count FROM shard_range").fetchone()[0], 1)
             self.assertEqual(conn.execute(
                 "SELECT bytes_used FROM shard_range").fetchone()[0], 2)
+            self.assertEqual(conn.execute(
+                "SELECT reported FROM shard_range").fetchone()[0], 0)
 
         # Put old event
         broker.merge_shard_ranges(
             ShardRange('"a/{<shardrange \'&\' name>}"', old_put_timestamp,
-                       'lower', 'upper', 1, 2, meta_timestamp=meta_timestamp))
+                       'lower', 'upper', 1, 2, meta_timestamp=meta_timestamp,
+                       reported=True))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_range").fetchone()[0],
@@ -1102,6 +1167,8 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT object_count FROM shard_range").fetchone()[0], 1)
             self.assertEqual(conn.execute(
                 "SELECT bytes_used FROM shard_range").fetchone()[0], 2)
+            self.assertEqual(conn.execute(
+                "SELECT reported FROM shard_range").fetchone()[0], 0)
 
         # Put old delete event
         broker.merge_shard_ranges(
@@ -1978,10 +2045,12 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['hash'], '00000000000000000000000000000000')
         self.assertEqual(info['put_timestamp'], Timestamp(1).internal)
         self.assertEqual(info['delete_timestamp'], '0')
-        if self.__class__ in (TestContainerBrokerBeforeMetadata,
-                              TestContainerBrokerBeforeXSync,
-                              TestContainerBrokerBeforeSPI,
-                              TestContainerBrokerBeforeShardRanges):
+        if self.__class__ in (
+                TestContainerBrokerBeforeMetadata,
+                TestContainerBrokerBeforeXSync,
+                TestContainerBrokerBeforeSPI,
+                TestContainerBrokerBeforeShardRanges,
+                TestContainerBrokerBeforeShardRangeReportedColumn):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
@@ -3275,10 +3344,12 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(0, info['storage_policy_index'])  # sanity check
         self.assertEqual(0, info['object_count'])
         self.assertEqual(0, info['bytes_used'])
-        if self.__class__ in (TestContainerBrokerBeforeMetadata,
-                              TestContainerBrokerBeforeXSync,
-                              TestContainerBrokerBeforeSPI,
-                              TestContainerBrokerBeforeShardRanges):
+        if self.__class__ in (
+                TestContainerBrokerBeforeMetadata,
+                TestContainerBrokerBeforeXSync,
+                TestContainerBrokerBeforeSPI,
+                TestContainerBrokerBeforeShardRanges,
+                TestContainerBrokerBeforeShardRangeReportedColumn):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(timestamp.internal, info['status_changed_at'])
@@ -5312,6 +5383,75 @@ class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('''SELECT *
+                            FROM shard_range''')
+
+
+def pre_reported_create_shard_range_table(self, conn):
+    """
+    Copied from ContainerBroker before the
+    reported column was added; used for testing with
+    TestContainerBrokerBeforeShardRangeReportedColumn.
+
+    Create a shard_range table with no 'reported' column.
+
+    :param conn: DB connection object
+    """
+    conn.execute("""
+        CREATE TABLE shard_range (
+            ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            timestamp TEXT,
+            lower TEXT,
+            upper TEXT,
+            object_count INTEGER DEFAULT 0,
+            bytes_used INTEGER DEFAULT 0,
+            meta_timestamp TEXT,
+            deleted INTEGER DEFAULT 0,
+            state INTEGER,
+            state_timestamp TEXT,
+            epoch TEXT
+        );
+    """)
+
+    conn.execute("""
+        CREATE TRIGGER shard_range_update BEFORE UPDATE ON shard_range
+        BEGIN
+            SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+        END;
+    """)
+
+
+class TestContainerBrokerBeforeShardRangeReportedColumn(
+        ContainerBrokerMigrationMixin, TestContainerBroker):
+    """
+    Tests for ContainerBroker against databases created
+    before the shard_ranges table was added.
+    """
+    # *grumble grumble* This should include container_info/policy_stat :-/
+    expected_db_tables = {'outgoing_sync', 'incoming_sync', 'object',
+                          'sqlite_sequence', 'container_stat', 'shard_range'}
+
+    def setUp(self):
+        super(TestContainerBrokerBeforeShardRangeReportedColumn,
+              self).setUp()
+        ContainerBroker.create_shard_range_table = \
+            pre_reported_create_shard_range_table
+
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                broker.get() as conn:
+            conn.execute('''SELECT reported
+                            FROM shard_range''')
+        self.assertIn('no such column: reported', str(raised.exception))
+
+    def tearDown(self):
+        super(TestContainerBrokerBeforeShardRangeReportedColumn,
+              self).tearDown()
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        with broker.get() as conn:
+            conn.execute('''SELECT reported
                             FROM shard_range''')
 
 

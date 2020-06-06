@@ -618,7 +618,8 @@ class ContainerSharder(ContainerReplicator):
 
     def _send_shard_ranges(self, account, container, shard_ranges,
                            headers=None):
-        body = json.dumps([dict(sr) for sr in shard_ranges]).encode('ascii')
+        body = json.dumps([dict(sr, reported=0)
+                           for sr in shard_ranges]).encode('ascii')
         part, nodes = self.ring.get_nodes(account, container)
         headers = headers or {}
         headers.update({'X-Backend-Record-Type': RECORD_TYPE_SHARD,
@@ -1469,7 +1470,7 @@ class ContainerSharder(ContainerReplicator):
 
     def _update_root_container(self, broker):
         own_shard_range = broker.get_own_shard_range(no_default=True)
-        if not own_shard_range:
+        if not own_shard_range or own_shard_range.reported:
             return
 
         # persist the reported shard metadata
@@ -1479,9 +1480,12 @@ class ContainerSharder(ContainerReplicator):
             include_own=True,
             include_deleted=True)
         # send everything
-        self._send_shard_ranges(
-            broker.root_account, broker.root_container,
-            shard_ranges)
+        if self._send_shard_ranges(
+                broker.root_account, broker.root_container, shard_ranges):
+            # on success, mark ourselves as reported so we don't keep
+            # hammering the root
+            own_shard_range.reported = True
+            broker.merge_shard_ranges(own_shard_range)
 
     def _process_broker(self, broker, node, part):
         broker.get_info()  # make sure account/container are populated
