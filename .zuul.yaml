@@ -206,6 +206,7 @@
       devstack_services:
         keystone: true
         swift: true
+        s3api: true
       zuul_work_dir: src/opendev.org/openstack/swift
     pre-run: tools/playbooks/dsvm/pre.yaml
     run: tools/playbooks/dsvm/run.yaml
