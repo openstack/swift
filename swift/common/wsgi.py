@@ -36,7 +36,6 @@ from io import BytesIO
 
 import six
 from six import StringIO
-from six.moves import configparser
 
 from swift.common import utils, constraints
 from swift.common.storage_policy import BindPortsCache
@@ -45,7 +44,7 @@ from swift.common.swob import Request, wsgi_quote, wsgi_unquote, \
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
-    reiterate, clean_up_daemon_hygiene, systemd_notify
+    reiterate, clean_up_daemon_hygiene, systemd_notify, NicerInterpolation
 
 SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
                   if n.startswith('SIG') and '_' not in n}
@@ -61,23 +60,6 @@ except (ImportError, NotImplementedError):
     CPU_COUNT = 1
 
 
-if not six.PY2:
-    # In general, we haven't really thought much about interpolation in
-    # configs. Python's default ConfigParser has always supported it, though,
-    # so *we* got it "for free". Unfortunatley, since we "supported"
-    # interpolation, we have to assume there are deployments in the wild that
-    # use it, and try not to break them. So, do what we can to mimic the py2
-    # behavior of passing through values like "1%" (which we want to support
-    # for fallocate_reserve).
-    class NicerInterpolation(configparser.BasicInterpolation):
-        def before_get(self, parser, section, option, value, defaults):
-            if '%(' not in value:
-                return value
-            return super(NicerInterpolation, self).before_get(
-                parser, section, option, value, defaults)
-    configparser.ConfigParser._DEFAULT_INTERPOLATION = NicerInterpolation()
-
-
 class NamedConfigLoader(loadwsgi.ConfigLoader):
     """
     Patch paste.deploy's ConfigLoader so each context object will know what
@@ -85,6 +67,8 @@ class NamedConfigLoader(loadwsgi.ConfigLoader):
     """
 
     def get_context(self, object_type, name=None, global_conf=None):
+        if not six.PY2:
+            self.parser._interpolation = NicerInterpolation()
         context = super(NamedConfigLoader, self).get_context(
             object_type, name=name, global_conf=global_conf)
         context.name = name

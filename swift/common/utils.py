@@ -75,6 +75,7 @@ if not six.PY2:
     utf16_decoder = codecs.getdecoder('utf-16')
     utf16_encoder = codecs.getencoder('utf-16')
 from six.moves import cPickle as pickle
+from six.moves import configparser
 from six.moves.configparser import (ConfigParser, NoSectionError,
                                     NoOptionError, RawConfigParser)
 from six.moves import range, http_client
@@ -2984,6 +2985,17 @@ def read_conf_dir(parser, conf_dir):
     return parser.read(sorted(conf_files))
 
 
+if six.PY2:
+    NicerInterpolation = None  # just don't cause ImportErrors over in wsgi.py
+else:
+    class NicerInterpolation(configparser.BasicInterpolation):
+        def before_get(self, parser, section, option, value, defaults):
+            if '%(' not in value:
+                return value
+            return super(NicerInterpolation, self).before_get(
+                parser, section, option, value, defaults)
+
+
 def readconf(conf_path, section_name=None, log_name=None, defaults=None,
              raw=False):
     """
@@ -3005,7 +3017,19 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
     if raw:
         c = RawConfigParser(defaults)
     else:
-        c = ConfigParser(defaults)
+        if six.PY2:
+            c = ConfigParser(defaults)
+        else:
+            # In general, we haven't really thought much about interpolation
+            # in configs. Python's default ConfigParser has always supported
+            # it, though, so *we* got it "for free". Unfortunatley, since we
+            # "supported" interpolation, we have to assume there are
+            # deployments in the wild that use it, and try not to break them.
+            # So, do what we can to mimic the py2 behavior of passing through
+            # values like "1%" (which we want to support for
+            # fallocate_reserve).
+            c = ConfigParser(defaults, interpolation=NicerInterpolation())
+
     if hasattr(conf_path, 'readline'):
         if hasattr(conf_path, 'seek'):
             conf_path.seek(0)
