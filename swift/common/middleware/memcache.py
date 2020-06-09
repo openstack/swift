@@ -19,6 +19,7 @@ from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 
 from swift.common.memcached import (MemcacheRing, CONN_TIMEOUT, POOL_TIMEOUT,
                                     IO_TIMEOUT, TRY_COUNT)
+from swift.common.utils import get_logger
 
 
 class MemcacheMiddleware(object):
@@ -28,6 +29,7 @@ class MemcacheMiddleware(object):
 
     def __init__(self, app, conf):
         self.app = app
+        self.logger = get_logger(conf, log_route='memcache')
         self.memcache_servers = conf.get('memcache_servers')
         serialization_format = conf.get('memcache_serialization_support')
         try:
@@ -102,7 +104,8 @@ class MemcacheMiddleware(object):
             io_timeout=io_timeout,
             allow_pickle=(serialization_format == 0),
             allow_unpickle=(serialization_format <= 1),
-            max_conns=max_conns)
+            max_conns=max_conns,
+            logger=self.logger)
 
     def __call__(self, env, start_response):
         env['swift.cache'] = self.memcache

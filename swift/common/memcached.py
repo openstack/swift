@@ -160,7 +160,7 @@ class MemcacheRing(object):
     def __init__(self, servers, connect_timeout=CONN_TIMEOUT,
                  io_timeout=IO_TIMEOUT, pool_timeout=POOL_TIMEOUT,
                  tries=TRY_COUNT, allow_pickle=False, allow_unpickle=False,
-                 max_conns=2):
+                 max_conns=2, logger=None):
         self._ring = {}
         self._errors = dict(((serv, []) for serv in servers))
         self._error_limited = dict(((serv, 0) for serv in servers))
@@ -178,18 +178,23 @@ class MemcacheRing(object):
         self._pool_timeout = pool_timeout
         self._allow_pickle = allow_pickle
         self._allow_unpickle = allow_unpickle or allow_pickle
+        if logger is None:
+            self.logger = logging.getLogger()
+        else:
+            self.logger = logger
 
     def _exception_occurred(self, server, e, action='talking',
                             sock=None, fp=None, got_connection=True):
         if isinstance(e, Timeout):
-            logging.error("Timeout %(action)s to memcached: %(server)s",
-                          {'action': action, 'server': server})
-        elif isinstance(e, (socket.error, MemcacheConnectionError)):
-            logging.error("Error %(action)s to memcached: %(server)s: %(err)s",
-                          {'action': action, 'server': server, 'err': e})
-        else:
-            logging.exception("Error %(action)s to memcached: %(server)s",
+            self.logger.error("Timeout %(action)s to memcached: %(server)s",
                               {'action': action, 'server': server})
+        elif isinstance(e, (socket.error, MemcacheConnectionError)):
+            self.logger.error(
+                "Error %(action)s to memcached: %(server)s: %(err)s",
+                {'action': action, 'server': server, 'err': e})
+        else:
+            self.logger.exception("Error %(action)s to memcached: %(server)s",
+                                  {'action': action, 'server': server})
         try:
             if fp:
                 fp.close()
@@ -213,7 +218,7 @@ class MemcacheRing(object):
                                     if err > now - ERROR_LIMIT_TIME]
             if len(self._errors[server]) > ERROR_LIMIT_COUNT:
                 self._error_limited[server] = now + ERROR_LIMIT_DURATION
-                logging.error('Error limiting server %s', server)
+                self.logger.error('Error limiting server %s', server)
 
     def _get_conns(self, key):
         """
