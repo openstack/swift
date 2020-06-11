@@ -887,6 +887,10 @@ use = egg:swift#proxy_logging
 # access_log_level = INFO
 # access_log_address = /dev/log
 #
+# Log route for this filter. Useful if you want to have different configs for
+# the two proxy-logging filters.
+# access_log_route = proxy-server
+#
 # If set, access_log_udp_host will override access_log_address
 # access_log_udp_host =
 # access_log_udp_port = 514

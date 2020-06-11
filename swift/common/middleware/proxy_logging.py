@@ -129,8 +129,9 @@ class ProxyLoggingMiddleware(object):
             value = conf.get('access_' + key, conf.get(key, None))
             if value:
                 access_log_conf[key] = value
-        self.access_logger = logger or get_logger(access_log_conf,
-                                                  log_route='proxy-access')
+        self.access_logger = logger or get_logger(
+            access_log_conf,
+            log_route=conf.get('access_log_route', 'proxy-access'))
         self.access_logger.set_statsd_prefix('proxy-server')
         self.reveal_sensitive_prefix = int(
             conf.get('reveal_sensitive_prefix', 16))
