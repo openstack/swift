@@ -1336,10 +1336,8 @@ class S3Request(swob.Request):
                                             2, 3, True)
             # Propagate swift.backend_path in environ for middleware
             # in pipeline that need Swift PATH_INFO like ceilometermiddleware.
-            # Store PATH_INFO only the first time to ignore multipart requests.
-            if 'swift.backend_path' not in self.environ:
-                self.environ['swift.backend_path'] = \
-                    sw_resp.environ['PATH_INFO']
+            self.environ['s3api.backend_path'] = \
+                sw_resp.environ['PATH_INFO']
 
         resp = S3Response.from_swift_resp(sw_resp)
         status = resp.status_int  # pylint: disable-msg=E1101
