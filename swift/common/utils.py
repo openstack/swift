@@ -4312,7 +4312,7 @@ def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
     """
     shard_int = int(hash_path(acc, cont, obj), 16) % 100
     return normalize_delete_at_timestamp(
-        int(x_delete_at) / expirer_divisor * expirer_divisor - shard_int)
+        int(x_delete_at) // expirer_divisor * expirer_divisor - shard_int)
 
 
 class _MultipartMimeFileLikeObject(object):
