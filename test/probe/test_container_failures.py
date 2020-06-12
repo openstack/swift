@@ -125,6 +125,35 @@ class TestContainerFailures(ReplProbeTest):
         self.assertEqual(headers['x-account-object-count'], '0')
         self.assertEqual(headers['x-account-bytes-used'], '0')
 
+    def test_all_nodes_fail(self):
+        # Create container1
+        container1 = 'container-%s' % uuid4()
+        cpart, cnodes = self.container_ring.get_nodes(self.account, container1)
+        client.put_container(self.url, self.token, container1)
+        client.put_object(self.url, self.token, container1, 'obj1', 'data1')
+
+        # All primaries go down
+        for cnode in cnodes:
+            kill_server((cnode['ip'], cnode['port']), self.ipport2server)
+
+        # Can't GET the container
+        with self.assertRaises(client.ClientException) as caught:
+            client.get_container(self.url, self.token, container1)
+        self.assertEqual(caught.exception.http_status, 503)
+
+        # But we can still write objects! The old info is still in memcache
+        client.put_object(self.url, self.token, container1, 'obj2', 'data2')
+
+        # Can't POST the container, either
+        with self.assertRaises(client.ClientException) as caught:
+            client.post_container(self.url, self.token, container1, {})
+        self.assertEqual(caught.exception.http_status, 503)
+
+        # Though it *does* evict the cache
+        with self.assertRaises(client.ClientException) as caught:
+            client.put_object(self.url, self.token, container1, 'obj3', 'x')
+        self.assertEqual(caught.exception.http_status, 503)
+
     def _get_container_db_files(self, container):
         opart, onodes = self.container_ring.get_nodes(self.account, container)
         onode = onodes[0]

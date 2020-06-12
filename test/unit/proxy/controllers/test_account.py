@@ -69,10 +69,21 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/v1/AUTH_bob', {'PATH_INFO': '/v1/AUTH_bob'})
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
-        self.assertIn('account/AUTH_bob', resp.environ['swift.infocache'])
-        self.assertEqual(
-            headers_to_account_info(resp.headers),
-            resp.environ['swift.infocache']['account/AUTH_bob'])
+        info_cache = resp.environ['swift.infocache']
+        self.assertIn('account/AUTH_bob', info_cache)
+        header_info = headers_to_account_info(resp.headers)
+        self.assertEqual(header_info, info_cache['account/AUTH_bob'])
+
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(500, body='')):
+            req = Request.blank('/v1/AUTH_bob', {
+                'PATH_INFO': '/v1/AUTH_bob', 'swift.infocache': info_cache})
+            resp = controller.HEAD(req)
+        self.assertEqual(5, resp.status_int // 100)
+        self.assertIs(info_cache, resp.environ['swift.infocache'])
+        # The *old* header info is all still there
+        self.assertIn('account/AUTH_bob', info_cache)
+        self.assertEqual(header_info, info_cache['account/AUTH_bob'])
 
     def test_swift_owner(self):
         owner_headers = {

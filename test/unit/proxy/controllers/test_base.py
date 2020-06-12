@@ -24,7 +24,8 @@ import six
 from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_cache_key, get_account_info, get_info, get_object_info, \
-    Controller, GetOrHeadHandler, bytes_to_skip
+    Controller, GetOrHeadHandler, bytes_to_skip, clear_info_cache, \
+    set_info_cache
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
     bytes_to_wsgi
 from swift.common import exceptions
@@ -470,6 +471,36 @@ class TestFuncs(unittest.TestCase):
         resp = get_container_info(req.environ, 'xxx')
         self.assertEqual(resp['bytes'], 3867)
 
+    def test_info_clearing(self):
+        def check_in_cache(req, cache_key):
+            self.assertIn(cache_key, req.environ['swift.infocache'])
+            self.assertIn(cache_key, req.environ['swift.cache'].store)
+
+        def check_not_in_cache(req, cache_key):
+            self.assertNotIn(cache_key, req.environ['swift.infocache'])
+            self.assertNotIn(cache_key, req.environ['swift.cache'].store)
+
+        app = FakeApp(statuses=[200, 200])
+        acct_cache_key = get_cache_key("account")
+        cont_cache_key = get_cache_key("account", "cont")
+        req = Request.blank(
+            "/v1/account/cont", environ={"swift.cache": FakeCache()})
+        # populate caches
+        info = get_container_info(req.environ, app)
+        self.assertEqual(info['status'], 200)
+
+        check_in_cache(req, acct_cache_key)
+        check_in_cache(req, cont_cache_key)
+
+        clear_info_cache('app-is-unused', req.environ, 'account', 'cont')
+        check_in_cache(req, acct_cache_key)
+        check_not_in_cache(req, cont_cache_key)
+
+        # Can also use set_info_cache interface
+        set_info_cache('app-is-unused', req.environ, 'account', None, None)
+        check_not_in_cache(req, acct_cache_key)
+        check_not_in_cache(req, cont_cache_key)
+
     def test_get_account_info_swift_source(self):
         app = FakeApp()
         req = Request.blank("/v1/a", environ={'swift.cache': FakeCache()})
@@ -684,9 +715,11 @@ class TestFuncs(unittest.TestCase):
         base.account_name = 'a'
         base.container_name = 'c'
 
-        container_info = \
-            base.container_info(base.account_name,
-                                base.container_name)
+        with mock.patch('swift.proxy.controllers.base.'
+                        'http_connect', fake_http_connect(200)):
+            container_info = \
+                base.container_info(base.account_name,
+                                    base.container_name)
         self.assertEqual(container_info['status'], 0)
 
     def test_headers_to_account_info_missing(self):
