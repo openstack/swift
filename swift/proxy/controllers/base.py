@@ -45,7 +45,8 @@ from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, WatchdogTimeout, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, drain_and_close, \
-    document_iters_to_http_response_body, ShardRange, find_shard_range
+    document_iters_to_http_response_body, ShardRange, find_shard_range, \
+    cache_from_env
 from swift.common.bufferedhttp import http_connect
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
@@ -541,8 +542,7 @@ def set_info_cache(app, env, account, container, resp):
     """
     cache_key = get_cache_key(account, container)
     infocache = env.setdefault('swift.infocache', {})
-    memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
-
+    memcache = cache_from_env(env, True)
     if resp is None:
         infocache.pop(cache_key, None)
         if memcache:
@@ -645,7 +645,7 @@ def _get_info_from_memcache(app, env, account, container=None):
       returns None if memcache is not in use.
     """
     cache_key = get_cache_key(account, container)
-    memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
+    memcache = cache_from_env(env, True)
     if memcache:
         info = memcache.get(cache_key)
         if info and six.PY2:
@@ -1678,12 +1678,12 @@ class Controller(object):
         headers['referer'] = referer
         return headers
 
-    def account_info(self, account, req=None):
+    def account_info(self, account, req):
         """
         Get account information, and also verify that the account exists.
 
         :param account: native str name of the account to get the info for
-        :param req: caller's HTTP request context object (optional)
+        :param req: caller's HTTP request context object
         :returns: tuple of (account partition, account nodes, container_count)
                   or (None, None, None) if it does not exist
         """
@@ -1704,14 +1704,14 @@ class Controller(object):
         partition, nodes = self.app.account_ring.get_nodes(account)
         return partition, nodes, container_count
 
-    def container_info(self, account, container, req=None):
+    def container_info(self, account, container, req):
         """
         Get container information and thusly verify container existence.
         This will also verify account existence.
 
         :param account: native-str account name for the container
         :param container: native-str container name to look up
-        :param req: caller's HTTP request context object (optional)
+        :param req: caller's HTTP request context object
         :returns: dict containing at least container partition ('partition'),
                   container nodes ('containers'), container read
                   acl ('read_acl'), container write acl ('write_acl'),
@@ -2268,8 +2268,7 @@ class Controller(object):
 
         cache_key = get_cache_key(account, container, shard='updating')
         infocache = req.environ.setdefault('swift.infocache', {})
-        memcache = getattr(self.app, 'memcache', None) or req.environ.get(
-            'swift.cache')
+        memcache = cache_from_env(req.environ, True)
 
         cached_ranges = infocache.get(cache_key)
         if cached_ranges is None and memcache:

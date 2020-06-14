@@ -21,8 +21,7 @@ from swift.common.middleware.acl import format_acl
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_account_info
 from swift.common import constraints
-from test.unit import fake_http_connect, FakeRing, FakeMemcache, \
-    mocked_http_conn
+from test.unit import fake_http_connect, FakeRing, mocked_http_conn
 from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
 import swift.proxy.controllers.base
@@ -38,7 +37,7 @@ class TestAccountController(unittest.TestCase):
 
     def setUp(self):
         self.app = proxy_server.Application(
-            None, FakeMemcache(),
+            None,
             account_ring=FakeRing(), container_ring=FakeRing())
 
     def _make_callback_func(self, context):
@@ -344,7 +343,6 @@ class TestAccountController4Replicas(TestAccountController):
     def setUp(self):
         self.app = proxy_server.Application(
             None,
-            FakeMemcache(),
             account_ring=FakeRing(replicas=4),
             container_ring=FakeRing(replicas=4))
 
@@ -413,7 +411,7 @@ class TestAccountController4Replicas(TestAccountController):
 class TestGetAccountInfo(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(
-            None, FakeMemcache(),
+            None,
             account_ring=FakeRing(), container_ring=FakeRing())
 
     def test_get_deleted_account_410(self):

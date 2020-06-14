@@ -48,7 +48,7 @@ from swift.proxy.controllers.base import \
 from swift.common.storage_policy import POLICIES, ECDriverError, \
     StoragePolicy, ECStoragePolicy
 
-from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
+from test.unit import FakeRing, fake_http_connect, \
     debug_logger, patch_policies, SlowBody, FakeStatus, \
     DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub, \
     fake_ec_node_response, StubResponse, mocked_http_conn, \
@@ -179,7 +179,7 @@ class BaseObjectControllerMixin(object):
         # increase connection timeout to avoid intermittent failures
         conf = {'conn_timeout': 1.0}
         self.app = PatchedObjControllerApp(
-            conf, FakeMemcache(), account_ring=FakeRing(),
+            conf, account_ring=FakeRing(),
             container_ring=FakeRing(), logger=self.logger)
 
         # you can over-ride the container_info just by setting it on the app
@@ -969,7 +969,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             self, conf, policy_conf, policy, affinity_regions, affinity_count):
         conf['policy_config'] = policy_conf
         app = PatchedObjControllerApp(
-            conf, FakeMemcache(), account_ring=FakeRing(),
+            conf, account_ring=FakeRing(),
             container_ring=FakeRing(), logger=self.logger)
 
         controller = self.controller_cls(app, 'a', 'c', 'o')
