@@ -21,7 +21,8 @@ from swift.common.middleware.acl import format_acl
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_account_info
 from swift.common import constraints
-from test.unit import fake_http_connect, FakeRing, FakeMemcache
+from test.unit import fake_http_connect, FakeRing, FakeMemcache, \
+    mocked_http_conn
 from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
 import swift.proxy.controllers.base
@@ -32,6 +33,9 @@ from test.unit import patch_policies
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestAccountController(unittest.TestCase):
+
+    ACCOUNT_REPLICAS = 3
+
     def setUp(self):
         self.app = proxy_server.Application(
             None, FakeMemcache(),
@@ -64,22 +68,28 @@ class TestAccountController(unittest.TestCase):
 
     def test_account_info_in_response_env(self):
         controller = proxy_server.AccountController(self.app, 'AUTH_bob')
-        with mock.patch('swift.proxy.controllers.base.http_connect',
-                        fake_http_connect(200, body='')):
-            req = Request.blank('/v1/AUTH_bob', {'PATH_INFO': '/v1/AUTH_bob'})
+        with mocked_http_conn(200) as mock_conn:
+            req = Request.blank('/v1/AUTH_bob')
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
+        self.assertEqual(['/AUTH_bob'],
+                         # requests are like /sdX/0/..
+                         [r['path'][6:] for r in mock_conn.requests])
         info_cache = resp.environ['swift.infocache']
         self.assertIn('account/AUTH_bob', info_cache)
         header_info = headers_to_account_info(resp.headers)
         self.assertEqual(header_info, info_cache['account/AUTH_bob'])
 
-        with mock.patch('swift.proxy.controllers.base.http_connect',
-                        fake_http_connect(500, body='')):
+        # The failure doesn't lead to cache eviction
+        errors = [500] * self.ACCOUNT_REPLICAS
+        with mocked_http_conn(*errors) as mock_conn:
             req = Request.blank('/v1/AUTH_bob', {
                 'PATH_INFO': '/v1/AUTH_bob', 'swift.infocache': info_cache})
             resp = controller.HEAD(req)
         self.assertEqual(5, resp.status_int // 100)
+        self.assertEqual(['/AUTH_bob'] * self.ACCOUNT_REPLICAS,
+                         # requests are like /sdX/0/..
+                         [r['path'][6:] for r in mock_conn.requests])
         self.assertIs(info_cache, resp.environ['swift.infocache'])
         # The *old* header info is all still there
         self.assertIn('account/AUTH_bob', info_cache)
@@ -328,6 +338,9 @@ class TestAccountController(unittest.TestCase):
 @patch_policies(
     [StoragePolicy(0, 'zero', True, object_ring=FakeRing(replicas=4))])
 class TestAccountController4Replicas(TestAccountController):
+
+    ACCOUNT_REPLICAS = 4
+
     def setUp(self):
         self.app = proxy_server.Application(
             None,

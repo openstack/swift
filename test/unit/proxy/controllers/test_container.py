@@ -107,11 +107,13 @@ class TestContainerController(TestRingBase):
 
     def test_container_info_got_cached(self):
         controller = proxy_server.ContainerController(self.app, 'a', 'c')
-        with mock.patch('swift.proxy.controllers.base.http_connect',
-                        fake_http_connect(200, 200, body='')):
-            req = Request.blank('/v1/a/c', {'PATH_INFO': '/v1/a/c'})
+        with mocked_http_conn(200, 200) as mock_conn:
+            req = Request.blank('/v1/a/c')
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
+        self.assertEqual(['/a', '/a/c'],
+                         # requests are like /sdX/0/..
+                         [r['path'][6:] for r in mock_conn.requests])
         # Make sure it's in both swift.infocache and memcache
         header_info = headers_to_container_info(resp.headers)
         info_cache = resp.environ['swift.infocache']
@@ -119,14 +121,15 @@ class TestContainerController(TestRingBase):
         self.assertEqual(header_info, info_cache['container/a/c'])
         self.assertEqual(header_info, self.app.memcache.get('container/a/c'))
 
-        controller = proxy_server.ContainerController(self.app, 'a', 'c')
-        with mock.patch('swift.proxy.controllers.base.http_connect',
-                        fake_http_connect(500, body='')):
-            req = Request.blank('/v1/a/c', {
-                'PATH_INFO': '/v1/a/c', 'swift.infocache': info_cache})
+        # The failure doesn't lead to cache eviction
+        errors = [500] * self.CONTAINER_REPLICAS * 2
+        with mocked_http_conn(*errors) as mock_conn:
+            req = Request.blank('/v1/a/c', {'swift.infocache': info_cache})
             resp = controller.HEAD(req)
         self.assertEqual(5, resp.status_int // 100)
-        # The failure doesn't lead to cache eviction
+        self.assertEqual(['/a/c'] * self.CONTAINER_REPLICAS * 2,
+                         # requests are like /sdX/0/..
+                         [r['path'][6:] for r in mock_conn.requests])
         self.assertIs(info_cache, resp.environ['swift.infocache'])
         self.assertIn("container/a/c", resp.environ['swift.infocache'])
         # NB: this is the *old* header_info, from the good req
