@@ -500,8 +500,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                         'S3Request.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
             self.assertIn('swift.backend_path', req.environ)
-            self.assertEqual('/v1/AUTH_test/bucket',
-                             req.environ['swift.backend_path'])
+            self.assertEqual(
+                '/v1/AUTH_test/bucket+segments/object/123456789abcdef',
+                req.environ['swift.backend_path'])
 
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req.environ['s3api.auth_details'], {
@@ -530,8 +531,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                         'S3Request.check_signature') as mock_cs:
             status, headers, body = self.call_s3api(req)
             self.assertIn('swift.backend_path', req.environ)
-            self.assertEqual('/v1/AUTH_test/bucket',
-                             req.environ['swift.backend_path'])
+            self.assertEqual(
+                '/v1/AUTH_test/bucket+segments/object/123456789abcdef',
+                req.environ['swift.backend_path'])
 
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEqual(req.environ['s3api.auth_details'], {

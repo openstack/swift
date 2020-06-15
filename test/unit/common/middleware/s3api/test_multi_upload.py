@@ -137,6 +137,22 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidRequest')
+        self.assertEqual([], self.swift.calls)
+
+    def test_bucket_upload_part_success(self):
+        req = Request.blank('/bucket/object?partNumber=1&uploadId=X',
+                            method='PUT',
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        with patch('swift.common.middleware.s3api.s3request.'
+                   'get_container_info',
+                   lambda env, app, swift_source: {'status': 204}):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual([
+            ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
+            ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
+        ], self.swift.calls)
 
     @s3acl
     def test_object_multipart_uploads_list(self):
@@ -577,12 +593,10 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertNotIn('Content-MD5', req_headers)
         if bucket_exists:
             self.assertEqual([
-                ('HEAD', '/v1/AUTH_test/bucket'),
                 ('PUT', '/v1/AUTH_test/bucket+segments/object/X'),
             ], self.swift.calls)
         else:
             self.assertEqual([
-                ('HEAD', '/v1/AUTH_test/bucket'),
                 ('PUT', '/v1/AUTH_test/bucket+segments'),
                 ('PUT', '/v1/AUTH_test/bucket+segments/object/X'),
             ], self.swift.calls)
@@ -596,6 +610,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         fake_memcache = FakeMemcache()
         fake_memcache.store[get_cache_key(
             'AUTH_test', 'bucket+segments')] = {'status': 204}
+        fake_memcache.store[get_cache_key(
+            'AUTH_test', 'bucket')] = {'status': 204}
         self._test_object_multipart_upload_initiate({}, fake_memcache)
         self._test_object_multipart_upload_initiate({'Etag': 'blahblahblah'},
                                                     fake_memcache)
@@ -826,6 +842,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
         self.assertEqual(self.swift.calls, [
             # Bucket exists
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             # Upload marker exists
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
@@ -872,6 +889,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
         self.assertEqual(self.swift.calls, [
             # Bucket exists
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             # Upload marker does not exist
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
@@ -907,6 +925,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
         self.assertEqual(self.swift.calls, [
             # Bucket exists
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             # Upload marker does not exist
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
@@ -954,6 +973,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
         self.assertEqual(self.swift.calls, [
             # Bucket exists
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             # Upload marker does not exist
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
@@ -1019,6 +1039,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         # NB: S3_ETAG includes quotes
         self.assertIn(('<ETag>%s</ETag>' % S3_ETAG).encode('ascii'), body)
         self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/heartbeat-ok/X'),
             ('PUT', '/v1/AUTH_test/bucket/heartbeat-ok?'
@@ -1069,6 +1090,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_message(body),
                          'some/object: 403 Forbidden')
         self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/heartbeat-fail/X'),
             ('PUT', '/v1/AUTH_test/bucket/heartbeat-fail?'
@@ -1118,6 +1140,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertIn('One or more of the specified parts could not be found',
                       self._get_error_message(body))
         self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/heartbeat-fail/X'),
             ('PUT', '/v1/AUTH_test/bucket/heartbeat-fail?'
@@ -1208,8 +1231,13 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'EntityTooSmall')
         self.assertEqual(self._get_error_message(body), msg)
         # We punt to SLO to do the validation
-        self.assertEqual([method for method, _ in self.swift.calls],
-                         ['HEAD', 'HEAD', 'PUT'])
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
+            ('PUT', '/v1/AUTH_test/bucket/object'
+             '?heartbeat=on&multipart-manifest=put'),
+        ])
 
         self.swift.clear_calls()
         self.s3api.conf.min_segment_size = 5242880
@@ -1229,8 +1257,13 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'EntityTooSmall')
         self.assertEqual(self._get_error_message(body), msg)
         # Again, we punt to SLO to do the validation
-        self.assertEqual([method for method, _ in self.swift.calls],
-                         ['HEAD', 'HEAD', 'PUT'])
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
+            ('PUT', '/v1/AUTH_test/bucket/object'
+             '?heartbeat=on&multipart-manifest=put'),
+        ])
 
     def test_object_multipart_upload_complete_zero_segments(self):
         segment_bucket = '/v1/AUTH_test/empty-bucket+segments'
@@ -1268,6 +1301,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         fromstring(body, 'Error')
 
         self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/empty-bucket'),
             ('HEAD', '/v1/AUTH_test/empty-bucket+segments/object/X'),
         ])
@@ -1314,6 +1348,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
 
         self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/empty-bucket'),
             ('HEAD', '/v1/AUTH_test/empty-bucket+segments/object/X'),
             ('PUT', '/v1/AUTH_test/empty-bucket/object?'
@@ -1383,6 +1418,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(elem.find('ETag').text, expected_etag)
 
         self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
             ('PUT', '/v1/AUTH_test/bucket/object?'
@@ -2023,7 +2059,13 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
         self.assertEqual(status.split()[0], '200')
 
-        self.assertEqual(len(self.swift.calls_with_headers), 4)
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
+            ('HEAD', '/v1/AUTH_test/src_bucket/src_obj'),
+            ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
+        ])
         _, _, headers = self.swift.calls_with_headers[-2]
         self.assertEqual(headers['If-Match'], etag)
         self.assertEqual(headers['If-Modified-Since'], last_modified_since)
@@ -2074,7 +2116,13 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
             self._test_copy_for_s3acl(account, put_header=header)
 
         self.assertEqual(status.split()[0], '200')
-        self.assertEqual(len(self.swift.calls_with_headers), 4)
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
+            ('HEAD', '/v1/AUTH_test/src_bucket/src_obj'),
+            ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
+        ])
         _, _, headers = self.swift.calls_with_headers[-2]
         self.assertEqual(headers['If-None-Match'], etag)
         self.assertEqual(headers['If-Unmodified-Since'], last_modified_since)
@@ -2126,6 +2174,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
                       b'source object of size: 10', body)
 
         self.assertEqual([
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
             ('HEAD', '/v1/AUTH_test/src_bucket/src_obj'),
@@ -2156,6 +2205,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200', body)
 
         self.assertEqual([
+            ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X'),
             ('HEAD', '/v1/AUTH_test/src_bucket/src_obj'),

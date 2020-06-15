@@ -50,6 +50,18 @@ class FakeApp(object):
         if 's3api.auth_details' in env:
             self._update_s3_path_info(env)
 
+        if env['REQUEST_METHOD'] == 'TEST':
+
+            def authorize_cb(req):
+                # Assume swift owner, if not yet set
+                req.environ.setdefault('REMOTE_USER', 'authorized')
+                req.environ.setdefault('swift_owner', True)
+                # But then default to blocking authz, to ensure we've replaced
+                # the default auth system
+                return swob.HTTPForbidden(request=req)
+
+            env['swift.authorize'] = authorize_cb
+
         return self.swift(env, start_response)
 
 

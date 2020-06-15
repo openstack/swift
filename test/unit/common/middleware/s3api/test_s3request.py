@@ -312,7 +312,7 @@ class TestRequest(S3ApiTestCase):
             '[{"Grantee":"owner","Permission":"FULL_CONTROL"}]}'
         self.swift.register('HEAD', '/v1/AUTH_test/bucket', HTTPNoContent,
                             {'x-container-read': 'foo',
-                             'X-container-object-count': 5,
+                             'X-container-object-count': '5',
                              'x-container-sysmeta-versions-location':
                                 'bucket2',
                              'x-container-sysmeta-s3api-acl': s3api_acl,
@@ -326,7 +326,7 @@ class TestRequest(S3ApiTestCase):
         self.assertTrue('status' in info)  # sanity
         self.assertEqual(204, info['status'])  # sanity
         self.assertEqual('foo', info['read_acl'])  # sanity
-        self.assertEqual('5', info['object_count'])  # sanity
+        self.assertEqual(5, info['object_count'])  # sanity
         self.assertEqual(
             'bucket2', info['sysmeta']['versions-location'])  # sanity
         self.assertEqual(s3api_acl, info['sysmeta']['s3api-acl'])  # sanity
