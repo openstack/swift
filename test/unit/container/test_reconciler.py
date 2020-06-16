@@ -95,6 +95,7 @@ class FakeInternalClient(reconciler.InternalClient):
         self.app = FakeStoragePolicySwift()
         self.user_agent = 'fake-internal-client'
         self.request_tries = 1
+        self.use_replication_network = True
         self.parse(listings)
 
     def parse(self, listings):

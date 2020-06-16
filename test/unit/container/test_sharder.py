@@ -171,7 +171,8 @@ class TestSharder(BaseTestSharder):
             'container-sharder', sharder.logger.logger.name)
         mock_ic.assert_called_once_with(
             '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3,
-            allow_modify_pipeline=False)
+            allow_modify_pipeline=False,
+            use_replication_network=True)
 
         conf = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'bind_port': 62010,
@@ -221,7 +222,8 @@ class TestSharder(BaseTestSharder):
         sharder, mock_ic = do_test(conf, expected)
         mock_ic.assert_called_once_with(
             '/etc/swift/my-sharder-ic.conf', 'Swift Container Sharder', 2,
-            allow_modify_pipeline=False)
+            allow_modify_pipeline=False,
+            use_replication_network=True)
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
             'Option auto_create_account_prefix is deprecated. '
             'Configure auto_create_account_prefix under the '
@@ -731,11 +733,12 @@ class TestSharder(BaseTestSharder):
         self.logger.clear()
         conf = conf or {}
         conf['devices'] = self.tempdir
+        fake_ring = FakeRing(replicas=replicas, separate_replication=True)
         with mock.patch(
                 'swift.container.sharder.internal_client.InternalClient'):
             with mock.patch(
                     'swift.common.db_replicator.ring.Ring',
-                    lambda *args, **kwargs: FakeRing(replicas=replicas)):
+                    return_value=fake_ring):
                 sharder = ContainerSharder(conf, logger=self.logger)
                 sharder._local_device_ids = {0, 1, 2}
                 sharder._replicate_object = mock.MagicMock(
@@ -4185,20 +4188,31 @@ class TestSharder(BaseTestSharder):
 
     def check_shard_ranges_sent(self, broker, expected_sent):
         bodies = []
+        servers = []
 
         def capture_send(conn, data):
             bodies.append(data)
 
+        def capture_connect(host, port, *a, **kw):
+            servers.append((host, port))
+
         self.assertFalse(broker.get_own_shard_range().reported)  # sanity
         with self._mock_sharder() as sharder:
             with mocked_http_conn(204, 204, 204,
-                                  give_send=capture_send) as mock_conn:
+                                  give_send=capture_send,
+                                  give_connect=capture_connect) as mock_conn:
                 sharder._update_root_container(broker)
 
         for req in mock_conn.requests:
             self.assertEqual('PUT', req['method'])
         self.assertEqual([expected_sent] * 3,
                          [json.loads(b) for b in bodies])
+        self.assertEqual(servers, [
+            # NB: replication interfaces
+            ('10.0.1.0', 1100),
+            ('10.0.1.1', 1101),
+            ('10.0.1.2', 1102),
+        ])
         self.assertTrue(broker.get_own_shard_range().reported)
 
     def test_update_root_container_own_range(self):

@@ -27,11 +27,12 @@ from swift.common.direct_client import (
     direct_head_container, direct_delete_container_object,
     direct_put_container_object, ClientException)
 from swift.common.internal_client import InternalClient, UnexpectedResponse
+from swift.common.request_helpers import MISPLACED_OBJECTS_ACCOUNT, \
+    USE_REPLICATION_NETWORK_HEADER
 from swift.common.utils import get_logger, split_path, majority_size, \
     FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
     LRUCache, decode_timestamps
 
-MISPLACED_OBJECTS_ACCOUNT = '.misplaced_objects'
 MISPLACED_OBJECTS_CONTAINER_DIVISOR = 3600  # 1 hour
 CONTAINER_POLICY_TTL = 30
 
@@ -224,6 +225,7 @@ def add_to_reconciler_queue(container_ring, account, container, obj,
         'X-Etag': obj_timestamp,
         'X-Timestamp': x_timestamp,
         'X-Content-Type': q_op_type,
+        USE_REPLICATION_NETWORK_HEADER: 'true',
     }
 
     def _check_success(*args, **kwargs):
@@ -307,7 +309,8 @@ def direct_get_container_policy_index(container_ring, account_name,
     """
     def _eat_client_exception(*args):
         try:
-            return direct_head_container(*args)
+            return direct_head_container(*args, headers={
+                USE_REPLICATION_NETWORK_HEADER: 'true'})
         except ClientException as err:
             if err.http_status == 404:
                 return err.http_headers
@@ -333,6 +336,10 @@ def direct_delete_container_entry(container_ring, account_name, container_name,
     object listing. Does not talk to object servers; use this only when a
     container entry does not actually have a corresponding object.
     """
+    if headers is None:
+        headers = {}
+    headers[USE_REPLICATION_NETWORK_HEADER] = 'true'
+
     pool = GreenPool()
     part, nodes = container_ring.get_nodes(account_name, container_name)
     for node in nodes:
@@ -360,9 +367,11 @@ class ContainerReconciler(Daemon):
             '/etc/swift/container-reconciler.conf'
         self.logger = get_logger(conf, log_route='container-reconciler')
         request_tries = int(conf.get('request_tries') or 3)
-        self.swift = InternalClient(conf_path,
-                                    'Swift Container Reconciler',
-                                    request_tries)
+        self.swift = InternalClient(
+            conf_path,
+            'Swift Container Reconciler',
+            request_tries,
+            use_replication_network=True)
         self.stats = defaultdict(int)
         self.last_stat_time = time.time()
 

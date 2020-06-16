@@ -215,12 +215,13 @@ class PatchPolicies(object):
 class FakeRing(Ring):
 
     def __init__(self, replicas=3, max_more_nodes=0, part_power=0,
-                 base_port=1000):
+                 base_port=1000, separate_replication=False):
         self.serialized_path = '/foo/bar/object.ring.gz'
         self._base_port = base_port
         self.max_more_nodes = max_more_nodes
         self._part_shift = 32 - part_power
         self._init_device_char()
+        self.separate_replication = separate_replication
         # 9 total nodes (6 more past the initial 3) is the cap, no matter if
         # this is set higher, or R^2 for R replicas
         self.set_replicas(replicas)
@@ -256,11 +257,16 @@ class FakeRing(Ring):
         for x in range(self.replicas):
             ip = '10.0.0.%s' % x
             port = self._base_port + x
+            if self.separate_replication:
+                repl_ip = '10.0.1.%s' % x
+                repl_port = port + 100
+            else:
+                repl_ip, repl_port = ip, port
             dev = {
                 'ip': ip,
-                'replication_ip': ip,
+                'replication_ip': repl_ip,
                 'port': port,
-                'replication_port': port,
+                'replication_port': repl_port,
                 'device': self.device_char,
                 'zone': x % 3,
                 'region': x % 2,
@@ -278,10 +284,17 @@ class FakeRing(Ring):
     def get_more_nodes(self, part):
         index_counter = itertools.count()
         for x in range(self.replicas, (self.replicas + self.max_more_nodes)):
-            yield {'ip': '10.0.0.%s' % x,
-                   'replication_ip': '10.0.0.%s' % x,
-                   'port': self._base_port + x,
-                   'replication_port': self._base_port + x,
+            ip = '10.0.0.%s' % x
+            port = self._base_port + x
+            if self.separate_replication:
+                repl_ip = '10.0.1.%s' % x
+                repl_port = port + 100
+            else:
+                repl_ip, repl_port = ip, port
+            yield {'ip': ip,
+                   'replication_ip': repl_ip,
+                   'port': port,
+                   'replication_port': repl_port,
                    'device': 'sda',
                    'zone': x % 3,
                    'region': x % 2,
@@ -1265,12 +1278,11 @@ def fake_ec_node_response(node_frags, policy):
     call_count = {}  # maps node index to get_response call count for node
 
     def _build_node_map(req, policy):
-        node_key = lambda n: (n['ip'], n['port'])
         part = utils.split_path(req['path'], 5, 5, True)[1]
         all_nodes.extend(policy.object_ring.get_part_nodes(part))
         all_nodes.extend(policy.object_ring.get_more_nodes(part))
         for i, node in enumerate(all_nodes):
-            node_map[node_key(node)] = i
+            node_map[(node['ip'], node['port'])] = i
             call_count[i] = 0
 
     # normalize node_frags to a list of fragments for each node even

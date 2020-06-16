@@ -134,7 +134,8 @@ class ObjectExpirer(Daemon):
 
         request_tries = int(self.conf.get('request_tries') or 3)
         self.swift = swift or InternalClient(
-            self.ic_conf_path, 'Swift Object Expirer', request_tries)
+            self.ic_conf_path, 'Swift Object Expirer', request_tries,
+            use_replication_network=True)
 
         self.processes = int(self.conf.get('processes', 0))
         self.process = int(self.conf.get('process', 0))

@@ -29,6 +29,7 @@ from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.exceptions import ClientException
 from swift.common.http import (HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES,
                                is_client_error, is_server_error)
+from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.swob import Request, bytes_to_wsgi
 from swift.common.utils import quote, closing_if_possible
 from swift.common.wsgi import loadapp, pipeline_property
@@ -147,13 +148,14 @@ class InternalClient(object):
     """
 
     def __init__(self, conf_path, user_agent, request_tries,
-                 allow_modify_pipeline=False):
+                 allow_modify_pipeline=False, use_replication_network=False):
         if request_tries < 1:
             raise ValueError('request_tries must be positive')
         self.app = loadapp(conf_path,
                            allow_modify_pipeline=allow_modify_pipeline)
         self.user_agent = user_agent
         self.request_tries = request_tries
+        self.use_replication_network = use_replication_network
 
     get_object_ring = pipeline_property('get_object_ring')
     container_ring = pipeline_property('container_ring')
@@ -186,6 +188,9 @@ class InternalClient(object):
         headers = dict(headers)
         headers['user-agent'] = self.user_agent
         headers.setdefault('x-backend-allow-reserved-names', 'true')
+        if self.use_replication_network:
+            headers.setdefault(USE_REPLICATION_NETWORK_HEADER, 'true')
+
         for attempt in range(self.request_tries):
             resp = exc_type = exc_value = exc_traceback = None
             req = Request.blank(

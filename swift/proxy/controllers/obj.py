@@ -73,7 +73,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError, \
     normalize_etag
 from swift.common.request_helpers import update_etag_is_at_header, \
-    resolve_etag_is_at_header, validate_internal_obj
+    resolve_etag_is_at_header, validate_internal_obj, get_ip_port
 
 
 def check_content_type(req):
@@ -1683,9 +1683,10 @@ class Putter(object):
     @classmethod
     def _make_connection(cls, node, part, path, headers, conn_timeout,
                          node_timeout):
+        ip, port = get_ip_port(node, headers)
         start_time = time.time()
         with ConnectionTimeout(conn_timeout):
-            conn = http_connect(node['ip'], node['port'], node['device'],
+            conn = http_connect(ip, port, node['device'],
                                 part, 'PUT', path, headers)
         connect_duration = time.time() - start_time
 

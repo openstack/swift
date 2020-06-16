@@ -318,7 +318,7 @@ class TestController(unittest.TestCase):
                 self.controller.account_info(self.account, self.request)
             set_http_connect(201, raise_timeout_exc=True)
             self.controller._make_request(
-                nodes, partition, 'POST', '/', '', '', None,
+                nodes, partition, 'POST', '/', {}, '', None,
                 self.controller.app.logger.thread_locals)
 
     # tests if 200 is cached and used

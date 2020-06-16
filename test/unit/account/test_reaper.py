@@ -322,7 +322,8 @@ class TestReaper(unittest.TestCase):
                             'X-Container-Partition': 'partition',
                             'X-Container-Device': device,
                             'X-Backend-Storage-Policy-Index': policy.idx,
-                            'X-Timestamp': '1429117638.86767'
+                            'X-Timestamp': '1429117638.86767',
+                            'x-backend-use-replication-network': 'true',
                         }
                         ring = r.get_object_ring(policy.idx)
                         expected = call(dict(ring.devs[i], index=i), 0,
@@ -442,7 +443,8 @@ class TestReaper(unittest.TestCase):
                     'X-Account-Partition': 'partition',
                     'X-Account-Device': device,
                     'X-Account-Override-Deleted': 'yes',
-                    'X-Timestamp': '1429117639.67676'
+                    'X-Timestamp': '1429117639.67676',
+                    'x-backend-use-replication-network': 'true',
                 }
                 ring = r.get_object_ring(policy.idx)
                 expected = call(dict(ring.devs[i], index=i), 0, 'a', 'c',

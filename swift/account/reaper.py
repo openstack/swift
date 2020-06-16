@@ -31,6 +31,7 @@ from swift.common.constraints import check_drive
 from swift.common.direct_client import direct_delete_container, \
     direct_delete_object, direct_get_container
 from swift.common.exceptions import ClientException
+from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, whataremyips, config_true_value, \
@@ -370,7 +371,8 @@ class AccountReaper(Daemon):
                     node, part, account, container,
                     marker=marker,
                     conn_timeout=self.conn_timeout,
-                    response_timeout=self.node_timeout)
+                    response_timeout=self.node_timeout,
+                    headers={USE_REPLICATION_NETWORK_HEADER: 'true'})
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1
                 self.logger.increment('return_codes.2')
@@ -418,7 +420,8 @@ class AccountReaper(Daemon):
                              'X-Account-Partition': str(account_partition),
                              'X-Account-Device': anode['device'],
                              'X-Account-Override-Deleted': 'yes',
-                             'X-Timestamp': timestamp.internal})
+                             'X-Timestamp': timestamp.internal,
+                             USE_REPLICATION_NETWORK_HEADER: 'true'})
                 successes += 1
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1
@@ -494,7 +497,8 @@ class AccountReaper(Daemon):
                              'X-Container-Partition': str(container_partition),
                              'X-Container-Device': cnode['device'],
                              'X-Backend-Storage-Policy-Index': policy_index,
-                             'X-Timestamp': timestamp.internal})
+                             'X-Timestamp': timestamp.internal,
+                             USE_REPLICATION_NETWORK_HEADER: 'true'})
                 successes += 1
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1

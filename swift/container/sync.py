@@ -241,7 +241,8 @@ class ContainerSync(Daemon):
             internal_client_conf = internal_client_conf_path
         try:
             self.swift = InternalClient(
-                internal_client_conf, 'Swift Container Sync', request_tries)
+                internal_client_conf, 'Swift Container Sync', request_tries,
+                use_replication_network=True)
         except (OSError, IOError) as err:
             if err.errno != errno.ENOENT and \
                     not str(err).endswith(' not found'):

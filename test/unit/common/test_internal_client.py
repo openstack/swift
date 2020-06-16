@@ -25,7 +25,7 @@ from textwrap import dedent
 import six
 from six.moves import range, zip_longest
 from six.moves.urllib.parse import quote, parse_qsl
-from swift.common import exceptions, internal_client, swob
+from swift.common import exceptions, internal_client, request_helpers, swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
@@ -303,7 +303,7 @@ class TestInternalClient(unittest.TestCase):
         with mock.patch.object(internal_client, 'loadapp', app.load), \
                 self.assertRaises(ValueError):
             # First try with a bad arg
-            client = internal_client.InternalClient(
+            internal_client.InternalClient(
                 conf_path, user_agent, request_tries=0)
         self.assertEqual(0, app.load_called)
 
@@ -315,6 +315,18 @@ class TestInternalClient(unittest.TestCase):
         self.assertEqual(app, client.app)
         self.assertEqual(user_agent, client.user_agent)
         self.assertEqual(request_tries, client.request_tries)
+        self.assertFalse(client.use_replication_network)
+
+        with mock.patch.object(internal_client, 'loadapp', app.load):
+            client = internal_client.InternalClient(
+                conf_path, user_agent, request_tries,
+                use_replication_network=True)
+
+        self.assertEqual(2, app.load_called)
+        self.assertEqual(app, client.app)
+        self.assertEqual(user_agent, client.user_agent)
+        self.assertEqual(request_tries, client.request_tries)
+        self.assertTrue(client.use_replication_network)
 
     def test_make_request_sets_user_agent(self):
         class InternalClient(internal_client.InternalClient):
@@ -323,14 +335,58 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 1
+                self.use_replication_network = False
 
             def fake_app(self, env, start_response):
+                self.test.assertNotIn(
+                    'HTTP_X_BACKEND_USE_REPLICATION_NETWORK', env)
                 self.test.assertEqual(self.user_agent, env['HTTP_USER_AGENT'])
                 start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
         client = InternalClient(self)
         client.make_request('GET', '/', {}, (200,))
+
+    def test_make_request_defaults_replication_network_header(self):
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, test):
+                self.test = test
+                self.app = self.fake_app
+                self.user_agent = 'some_agent'
+                self.request_tries = 1
+                self.use_replication_network = False
+                self.expected_header_value = None
+
+            def fake_app(self, env, start_response):
+                if self.expected_header_value is None:
+                    self.test.assertNotIn(
+                        'HTTP_X_BACKEND_USE_REPLICATION_NETWORK', env)
+                else:
+                    hdr_val = env['HTTP_X_BACKEND_USE_REPLICATION_NETWORK']
+                    self.test.assertEqual(self.expected_header_value, hdr_val)
+                start_response('200 Ok', [('Content-Length', '0')])
+                return []
+
+        client = InternalClient(self)
+        client.make_request('GET', '/', {}, (200,))
+        # Caller can still override
+        client.expected_header_value = 'false'
+        client.make_request('GET', '/', {
+            request_helpers.USE_REPLICATION_NETWORK_HEADER: 'false'}, (200,))
+        client.expected_header_value = 'true'
+        client.make_request('GET', '/', {
+            request_helpers.USE_REPLICATION_NETWORK_HEADER: 'true'}, (200,))
+
+        # Switch default behavior
+        client.use_replication_network = True
+
+        client.make_request('GET', '/', {}, (200,))
+        client.expected_header_value = 'false'
+        client.make_request('GET', '/', {
+            request_helpers.USE_REPLICATION_NETWORK_HEADER: 'false'}, (200,))
+        client.expected_header_value = 'on'
+        client.make_request('GET', '/', {
+            request_helpers.USE_REPLICATION_NETWORK_HEADER: 'on'}, (200,))
 
     def test_make_request_sets_query_string(self):
         captured_envs = []
@@ -341,6 +397,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 1
+                self.use_replication_network = False
 
             def fake_app(self, env, start_response):
                 captured_envs.append(env)
@@ -362,6 +419,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 4
+                self.use_replication_network = False
                 self.tries = 0
                 self.sleep_called = 0
 
@@ -441,6 +499,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.use_replication_network = False
                 self.env = None
 
             def fake_app(self, env, start_response):
@@ -468,6 +527,7 @@ class TestInternalClient(unittest.TestCase):
                     self.fake_app, {}, self.logger)
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.use_replication_network = False
 
             def fake_app(self, env, start_response):
                 body = b'fake error response'
@@ -499,6 +559,7 @@ class TestInternalClient(unittest.TestCase):
                 self.user_agent = 'some_agent'
                 self.resp_status = resp_status
                 self.request_tries = 3
+                self.use_replication_network = False
                 self.closed_paths = []
                 self.fully_read_paths = []
 
@@ -557,6 +618,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.use_replication_network = False
 
             def fake_app(self, env, start_response):
                 start_response('200 Ok', [('Content-Length', '0')])
@@ -607,6 +669,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.use_replication_network = False
                 self.status = status
                 self.call_count = 0
 
@@ -698,6 +761,7 @@ class TestInternalClient(unittest.TestCase):
             def __init__(self):
                 self.user_agent = 'test'
                 self.request_tries = 1
+                self.use_replication_network = False
                 self.app = self.fake_app
 
             def fake_app(self, environ, start_response):
@@ -1217,6 +1281,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.use_replication_network = False
 
             def fake_app(self, env, start_response):
                 self.req_env = env
@@ -1261,6 +1326,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.use_replication_network = False
 
             def fake_app(self, env, start_response):
                 start_response('200 Ok', [('Content-Length', '0')])
@@ -1280,6 +1346,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.use_replication_network = False
 
             def fake_app(self, env, start_response):
                 start_response('200 Ok', [('Content-Length', '0')])
@@ -1300,6 +1367,7 @@ class TestInternalClient(unittest.TestCase):
                 self.app = self.fake_app
                 self.user_agent = 'some_agent'
                 self.request_tries = 3
+                self.use_replication_network = False
 
             def fake_app(self, env, start_response):
                 start_response('404 Not Found', [])
@@ -1330,6 +1398,7 @@ class TestInternalClient(unittest.TestCase):
         class InternalClient(internal_client.InternalClient):
             def __init__(self, test, path, headers, fobj):
                 self.test = test
+                self.use_replication_network = False
                 self.path = path
                 self.headers = headers
                 self.fobj = fobj

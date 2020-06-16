@@ -316,6 +316,31 @@ class TestDirectClient(unittest.TestCase):
             self.assertIn('X-Timestamp', headers)
             self.assertIn('User-Agent', headers)
 
+    def test_direct_delete_account_replication_net(self):
+        part = '0'
+        account = 'a'
+
+        mock_path = 'swift.common.bufferedhttp.http_connect_raw'
+        with mock.patch(mock_path) as fake_connect:
+            fake_connect.return_value.getresponse.return_value.status = 200
+            direct_client.direct_delete_account(
+                self.node, part, account,
+                headers={'X-Backend-Use-Replication-Network': 't'})
+            args, kwargs = fake_connect.call_args
+            ip = args[0]
+            self.assertEqual(self.node['replication_ip'], ip)
+            self.assertNotEqual(self.node['ip'], ip)
+            port = args[1]
+            self.assertEqual(self.node['replication_port'], port)
+            self.assertNotEqual(self.node['port'], port)
+            method = args[2]
+            self.assertEqual('DELETE', method)
+            path = args[3]
+            self.assertEqual('/sda/0/a', path)
+            headers = args[4]
+            self.assertIn('X-Timestamp', headers)
+            self.assertIn('User-Agent', headers)
+
     def test_direct_delete_account_failure(self):
         part = '0'
         account = 'a'
@@ -339,6 +364,24 @@ class TestDirectClient(unittest.TestCase):
                 self.node, self.part, self.account, self.container)
             self.assertEqual(conn.host, self.node['ip'])
             self.assertEqual(conn.port, self.node['port'])
+            self.assertEqual(conn.method, 'HEAD')
+            self.assertEqual(conn.path, self.container_path)
+
+        self.assertEqual(conn.req_headers['user-agent'],
+                         self.user_agent)
+        self.assertEqual(headers, resp)
+
+    def test_direct_head_container_replication_net(self):
+        headers = HeaderKeyDict(key='value')
+
+        with mocked_http_conn(200, headers) as conn:
+            resp = direct_client.direct_head_container(
+                self.node, self.part, self.account, self.container,
+                headers={'X-Backend-Use-Replication-Network': 'on'})
+            self.assertEqual(conn.host, self.node['replication_ip'])
+            self.assertEqual(conn.port, self.node['replication_port'])
+            self.assertNotEqual(conn.host, self.node['ip'])
+            self.assertNotEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'HEAD')
             self.assertEqual(conn.path, self.container_path)
 
@@ -438,6 +481,18 @@ class TestDirectClient(unittest.TestCase):
                 self.node, self.part, self.account, self.container)
             self.assertEqual(conn.host, self.node['ip'])
             self.assertEqual(conn.port, self.node['port'])
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.container_path)
+
+    def test_direct_delete_container_replication_net(self):
+        with mocked_http_conn(200) as conn:
+            direct_client.direct_delete_container(
+                self.node, self.part, self.account, self.container,
+                headers={'X-Backend-Use-Replication-Network': '1'})
+            self.assertEqual(conn.host, self.node['replication_ip'])
+            self.assertEqual(conn.port, self.node['replication_port'])
+            self.assertNotEqual(conn.host, self.node['ip'])
+            self.assertNotEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.container_path)
 

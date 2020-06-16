@@ -40,14 +40,15 @@ from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
     parse_content_range, csv_append, list_from_csv, Spliterator, quote, \
-    RESERVED
+    RESERVED, config_true_value
 from swift.common.wsgi import make_subrequest
-from swift.container.reconciler import MISPLACED_OBJECTS_ACCOUNT
 
 
 OBJECT_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-'
 OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX = \
     'x-object-sysmeta-container-update-override-'
+USE_REPLICATION_NETWORK_HEADER = 'x-backend-use-replication-network'
+MISPLACED_OBJECTS_ACCOUNT = '.misplaced_objects'
 
 
 if six.PY2:
@@ -849,3 +850,15 @@ def update_ignore_range_header(req, name):
         raise ValueError('Header name must not contain commas')
     hdr = 'X-Backend-Ignore-Range-If-Metadata-Present'
     req.headers[hdr] = csv_append(req.headers.get(hdr), name)
+
+
+def get_ip_port(node, headers):
+    use_replication_network = False
+    for h, v in headers.items():
+        if h.lower() == USE_REPLICATION_NETWORK_HEADER:
+            use_replication_network = config_true_value(v)
+            break
+    if use_replication_network:
+        return node['replication_ip'], node['replication_port']
+    else:
+        return node['ip'], node['port']

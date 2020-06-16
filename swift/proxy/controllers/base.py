@@ -63,7 +63,7 @@ from swift.common.swob import Request, Response, Range, \
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
-    strip_object_transient_sysmeta_prefix
+    strip_object_transient_sysmeta_prefix, get_ip_port
 from swift.common.storage_policy import POLICIES
 
 
@@ -1264,11 +1264,13 @@ class ResumingGetter(object):
         # a request may be specialised with specific backend headers
         if self.header_provider:
             req_headers.update(self.header_provider())
+
+        ip, port = get_ip_port(node, req_headers)
         start_node_timing = time.time()
         try:
             with ConnectionTimeout(self.app.conn_timeout):
                 conn = http_connect(
-                    node['ip'], node['port'], node['device'],
+                    ip, port, node['device'],
                     self.partition, self.req_method, self.path,
                     headers=req_headers,
                     query_string=self.req_query_string)
@@ -1766,11 +1768,12 @@ class Controller(object):
             headers['Content-Length'] = str(len(body))
         for node in nodes:
             try:
+                ip, port = get_ip_port(node, headers)
                 start_node_timing = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                                        node['device'], part, method, path,
-                                        headers=headers, query_string=query)
+                    conn = http_connect(
+                        ip, port, node['device'], part, method, path,
+                        headers=headers, query_string=query)
                     conn.node = node
                 self.app.set_node_timing(node, time.time() - start_node_timing)
                 if body:

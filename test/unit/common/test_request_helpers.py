@@ -124,6 +124,19 @@ class TestRequestHelpers(unittest.TestCase):
         self.assertFalse('c' in to_req.headers)
         self.assertFalse('C' in to_req.headers)
 
+    def test_get_ip_port(self):
+        node = {
+            'ip': '1.2.3.4',
+            'port': 6000,
+            'replication_ip': '5.6.7.8',
+            'replication_port': 7000,
+        }
+        self.assertEqual(('1.2.3.4', 6000), rh.get_ip_port(node, {}))
+        self.assertEqual(('5.6.7.8', 7000), rh.get_ip_port(node, {
+            rh.USE_REPLICATION_NETWORK_HEADER: 'true'}))
+        self.assertEqual(('1.2.3.4', 6000), rh.get_ip_port(node, {
+            rh.USE_REPLICATION_NETWORK_HEADER: 'false'}))
+
     @patch_policies(with_ec_default=True)
     def test_get_name_and_placement_object_req(self):
         path = '/device/part/account/container/object'

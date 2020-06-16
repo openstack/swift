@@ -29,6 +29,7 @@ from swift.common.constraints import check_drive, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.direct_client import (direct_put_container,
                                         DirectClientException)
 from swift.common.exceptions import DeviceUnavailable
+from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring.utils import is_local_device
 from swift.common.swob import str_to_wsgi
 from swift.common.utils import get_logger, config_true_value, \
@@ -409,7 +410,8 @@ class ContainerSharder(ContainerReplicator):
                 internal_client_conf_path,
                 'Swift Container Sharder',
                 request_tries,
-                allow_modify_pipeline=False)
+                allow_modify_pipeline=False,
+                use_replication_network=True)
         except (OSError, IOError) as err:
             if err.errno != errno.ENOENT and \
                     not str(err).endswith(' not found'):
@@ -623,6 +625,7 @@ class ContainerSharder(ContainerReplicator):
         part, nodes = self.ring.get_nodes(account, container)
         headers = headers or {}
         headers.update({'X-Backend-Record-Type': RECORD_TYPE_SHARD,
+                        USE_REPLICATION_NETWORK_HEADER: 'True',
                         'User-Agent': 'container-sharder %s' % os.getpid(),
                         'X-Timestamp': Timestamp.now().normal,
                         'Content-Length': len(body),
