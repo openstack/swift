@@ -17,10 +17,11 @@
   tasks:
     - name: install swift
       become: true
-      shell:
-        cmd: python setup.py develop
-        executable: /bin/bash
+      pip:
+        state: present
+        name: .
         chdir: '{{ zuul.project.src_dir }}'
+        editable: true
 
     - name: make rings
       shell:

@@ -14,17 +14,28 @@
 # limitations under the License.
 - hosts: all
   become: true
+  roles:
+    - ensure-pip
   tasks:
+    - name: upgrade pip, but not too far
+      pip:
+        # 20.* works on both py2 and py3, and the pip for centos7 in EPEL
+        # isn't smart enough to prevent us upgrading to 21+
+        name: pip<21
+        extra_args: --upgrade
+
     - name: installing dependencies
       yum: name={{ item }} state=present
       with_items:
         - python-pyeclib
-        - python-pip
         - python-nose
         - python-swiftclient
 
     - name: install python modules with pip
       pip: name={{ item }} state=present extra_args='--upgrade'
       with_items:
-        - crudini
+        # crudini pulls in iniparse which can conflict with distro-installed
+        # packages on centos7
+        - 'crudini<0.9.4'
+        # Order matters; install constrained versions *first*, then unconstrained
         - eventlet
