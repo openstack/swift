@@ -93,7 +93,7 @@ class TestS3Acl(S3ApiBase):
 
     def test_put_bucket_acl_error(self):
         req_headers = {'x-amz-acl': 'public-read'}
-        aws_error_conn = Connection(aws_secret_key='invalid')
+        aws_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             aws_error_conn.make_request('PUT', self.bucket,
                                         headers=req_headers, query='acl')
@@ -110,7 +110,7 @@ class TestS3Acl(S3ApiBase):
         self.assertEqual(get_error_code(body), 'AccessDenied')
 
     def test_get_bucket_acl_error(self):
-        aws_error_conn = Connection(aws_secret_key='invalid')
+        aws_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             aws_error_conn.make_request('GET', self.bucket, query='acl')
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
@@ -126,7 +126,7 @@ class TestS3Acl(S3ApiBase):
     def test_get_object_acl_error(self):
         self.conn.make_request('PUT', self.bucket, self.obj)
 
-        aws_error_conn = Connection(aws_secret_key='invalid')
+        aws_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             aws_error_conn.make_request('GET', self.bucket, self.obj,
                                         query='acl')

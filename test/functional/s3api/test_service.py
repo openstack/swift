@@ -69,7 +69,7 @@ class TestS3ApiService(S3ApiBase):
             self.assertTrue(b.find('CreationDate') is not None)
 
     def test_service_error_signature_not_match(self):
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = auth_error_conn.make_request('GET')
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
         self.assertEqual(headers['content-type'], 'application/xml')

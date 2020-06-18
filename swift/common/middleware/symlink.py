@@ -205,7 +205,8 @@ from swift.common.utils import get_logger, register_swift_info, split_path, \
     MD5_OF_EMPTY_STRING, close_if_possible, closing_if_possible, \
     config_true_value, drain_and_close
 from swift.common.constraints import check_account_format
-from swift.common.wsgi import WSGIContext, make_subrequest
+from swift.common.wsgi import WSGIContext, make_subrequest, \
+    make_pre_authed_request
 from swift.common.request_helpers import get_sys_meta_prefix, \
     check_path_header, get_container_update_override_key, \
     update_ignore_range_header
@@ -442,7 +443,9 @@ class SymlinkObjectContext(WSGIContext):
                                content_type='text/plain')
 
     def _recursive_get_head(self, req, target_etag=None,
-                            follow_softlinks=True):
+                            follow_softlinks=True, orig_req=None):
+        if not orig_req:
+            orig_req = req
         resp = self._app_call(req.environ)
 
         def build_traversal_req(symlink_target):
@@ -457,9 +460,20 @@ class SymlinkObjectContext(WSGIContext):
                 '/', version, account,
                 symlink_target.lstrip('/'))
             self._last_target_path = target_path
-            new_req = make_subrequest(
-                req.environ, path=target_path, method=req.method,
-                headers=req.headers, swift_source='SYM')
+
+            subreq_headers = dict(req.headers)
+            if self._response_header_value(ALLOW_RESERVED_NAMES):
+                # this symlink's sysmeta says it can point to reserved names,
+                # we're infering that some piece of middleware had previously
+                # authorized this request because users can't access reserved
+                # names directly
+                subreq_meth = make_pre_authed_request
+                subreq_headers['X-Backend-Allow-Reserved-Names'] = 'true'
+            else:
+                subreq_meth = make_subrequest
+            new_req = subreq_meth(orig_req.environ, path=target_path,
+                                  method=req.method, headers=subreq_headers,
+                                  swift_source='SYM')
             new_req.headers.pop('X-Backend-Storage-Policy-Index', None)
             return new_req
 
@@ -484,11 +498,8 @@ class SymlinkObjectContext(WSGIContext):
             if not config_true_value(
                     self._response_header_value(SYMLOOP_EXTEND)):
                 self._loop_count += 1
-            if config_true_value(
-                    self._response_header_value(ALLOW_RESERVED_NAMES)):
-                new_req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
-
-            return self._recursive_get_head(new_req, target_etag=resp_etag)
+            return self._recursive_get_head(new_req, target_etag=resp_etag,
+                                            orig_req=req)
         else:
             final_etag = self._response_header_value('etag')
             if final_etag and target_etag and target_etag != final_etag:

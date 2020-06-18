@@ -914,6 +914,22 @@ class TestRequest(unittest.TestCase):
         self.assertEqual(used_req[0].path, '/hi/there')
         self.assertEqual(resp.status_int, 200)
 
+    def test_wsgify_method(self):
+        class _wsgi_class(object):
+            def __init__(self):
+                self.used_req = []
+
+            @swob.wsgify
+            def __call__(self, req):
+                self.used_req.append(req)
+                return swob.Response(b'200 OK')
+
+        req = swob.Request.blank('/hi/there')
+        handler = _wsgi_class()
+        resp = req.get_response(handler)
+        self.assertIs(handler.used_req[0].environ, req.environ)
+        self.assertEqual(resp.status_int, 200)
+
     def test_wsgify_raise(self):
         used_req = []
 

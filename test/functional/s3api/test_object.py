@@ -147,7 +147,7 @@ class TestS3ApiObject(S3ApiBase):
         self.assertCommonResponseHeaders(headers)
 
     def test_put_object_error(self):
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('PUT', self.bucket, 'object')
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
@@ -166,7 +166,7 @@ class TestS3ApiObject(S3ApiBase):
         dst_obj = 'dst_object'
 
         headers = {'x-amz-copy-source': '/%s/%s' % (self.bucket, obj)}
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('PUT', dst_bucket, dst_obj, headers)
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
@@ -197,7 +197,7 @@ class TestS3ApiObject(S3ApiBase):
         obj = 'object'
         self.conn.make_request('PUT', self.bucket, obj)
 
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('GET', self.bucket, obj)
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
@@ -216,7 +216,7 @@ class TestS3ApiObject(S3ApiBase):
         obj = 'object'
         self.conn.make_request('PUT', self.bucket, obj)
 
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('HEAD', self.bucket, obj)
         self.assertEqual(status, 403)
@@ -239,7 +239,7 @@ class TestS3ApiObject(S3ApiBase):
         obj = 'object'
         self.conn.make_request('PUT', self.bucket, obj)
 
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('DELETE', self.bucket, obj)
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')

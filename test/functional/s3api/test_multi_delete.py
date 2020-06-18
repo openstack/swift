@@ -134,7 +134,7 @@ class TestS3ApiMultiDelete(S3ApiBase):
         content_md5 = calculate_md5(xml)
         query = 'delete'
 
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('POST', bucket, body=xml,
                                          headers={

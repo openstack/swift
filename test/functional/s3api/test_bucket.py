@@ -42,11 +42,15 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
             self.assertIn('ETag', obj)
             self.assertIn('Size', obj)
             self.assertEqual(obj['StorageClass'], 'STANDARD')
-            if expect_owner:
+            if not expect_owner:
+                self.assertNotIn('Owner', obj)
+            elif tf.cluster_info['s3api'].get('s3_acl'):
                 self.assertEqual(obj['Owner']['ID'], self.access_key)
                 self.assertEqual(obj['Owner']['DisplayName'], self.access_key)
             else:
-                self.assertNotIn('Owner', obj)
+                self.assertIn('Owner', obj)
+                self.assertIn('ID', obj['Owner'])
+                self.assertIn('DisplayName', obj['Owner'])
 
     def test_bucket(self):
         bucket = 'bucket'
@@ -128,7 +132,7 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
         self.assertEqual(
             ctx.exception.response['Error']['Code'], 'InvalidBucketName')
 
-        auth_error_conn = get_boto3_conn(aws_secret_key='invalid')
+        auth_error_conn = get_boto3_conn(tf.config['s3_access_key'], 'invalid')
         with self.assertRaises(botocore.exceptions.ClientError) as ctx:
             auth_error_conn.create_bucket(Bucket='bucket')
         self.assertEqual(
@@ -201,7 +205,7 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
         self.assertEqual(
             ctx.exception.response['Error']['Code'], 'InvalidBucketName')
 
-        auth_error_conn = get_boto3_conn(aws_secret_key='invalid')
+        auth_error_conn = get_boto3_conn(tf.config['s3_access_key'], 'invalid')
         with self.assertRaises(botocore.exceptions.ClientError) as ctx:
             auth_error_conn.list_objects(Bucket='bucket')
         self.assertEqual(
@@ -388,7 +392,7 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
             ctx.exception.response[
                 'ResponseMetadata']['HTTPHeaders']['content-length'], '0')
 
-        auth_error_conn = get_boto3_conn(aws_secret_key='invalid')
+        auth_error_conn = get_boto3_conn(tf.config['s3_access_key'], 'invalid')
         with self.assertRaises(botocore.exceptions.ClientError) as ctx:
             auth_error_conn.head_bucket(Bucket='bucket')
         self.assertEqual(
@@ -419,7 +423,7 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
         self.assertEqual(
             ctx.exception.response['Error']['Code'], 'InvalidBucketName')
 
-        auth_error_conn = get_boto3_conn(aws_secret_key='invalid')
+        auth_error_conn = get_boto3_conn(tf.config['s3_access_key'], 'invalid')
         with self.assertRaises(botocore.exceptions.ClientError) as ctx:
             auth_error_conn.delete_bucket(Bucket='bucket')
         self.assertEqual(

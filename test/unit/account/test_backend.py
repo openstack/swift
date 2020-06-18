@@ -180,6 +180,72 @@ class TestAccountBroker(unittest.TestCase):
         broker.delete_db(Timestamp.now().internal)
         broker.reclaim(Timestamp.now().internal, time())
 
+    def test_batched_reclaim(self):
+        num_of_containers = 60
+        container_specs = []
+        now = time()
+        top_of_the_minute = now - (now % 60)
+        c = itertools.cycle([True, False])
+        for m, is_deleted in six.moves.zip(range(num_of_containers), c):
+            offset = top_of_the_minute - (m * 60)
+            container_specs.append((Timestamp(offset), is_deleted))
+        random.seed(now)
+        random.shuffle(container_specs)
+        policy_indexes = list(p.idx for p in POLICIES)
+        broker = AccountBroker(':memory:', account='test_account')
+        broker.initialize(Timestamp('1').internal)
+        for i, container_spec in enumerate(container_specs):
+            # with container12 before container2 and shuffled ts.internal we
+            # shouldn't be able to accidently rely on any implicit ordering
+            name = 'container%s' % i
+            pidx = random.choice(policy_indexes)
+            ts, is_deleted = container_spec
+            if is_deleted:
+                broker.put_container(name, 0, ts.internal, 0, 0, pidx)
+            else:
+                broker.put_container(name, ts.internal, 0, 0, 0, pidx)
+
+        def count_reclaimable(conn, reclaim_age):
+            return conn.execute(
+                "SELECT count(*) FROM container "
+                "WHERE deleted = 1 AND delete_timestamp < ?", (reclaim_age,)
+            ).fetchone()[0]
+
+        # This is intended to divide the set of timestamps exactly in half
+        # regardless of the value of now
+        reclaim_age = top_of_the_minute + 1 - (num_of_containers / 2 * 60)
+        with broker.get() as conn:
+            self.assertEqual(count_reclaimable(conn, reclaim_age),
+                             num_of_containers / 4)
+
+        orig__reclaim = broker._reclaim
+        trace = []
+
+        def tracing_reclaim(conn, age_timestamp, marker):
+            trace.append((age_timestamp, marker,
+                          count_reclaimable(conn, age_timestamp)))
+            return orig__reclaim(conn, age_timestamp, marker)
+
+        with mock.patch.object(broker, '_reclaim', new=tracing_reclaim), \
+                mock.patch('swift.common.db.RECLAIM_PAGE_SIZE', 10):
+            broker.reclaim(reclaim_age, reclaim_age)
+        with broker.get() as conn:
+            self.assertEqual(count_reclaimable(conn, reclaim_age), 0)
+        self.assertEqual(3, len(trace), trace)
+        self.assertEqual([age for age, marker, reclaimable in trace],
+                         [reclaim_age] * 3)
+        # markers are in-order
+        self.assertLess(trace[0][1], trace[1][1])
+        self.assertLess(trace[1][1], trace[2][1])
+        # reclaimable count gradually decreases
+        # generally, count1 > count2 > count3, but because of the randomness
+        # we may occassionally have count1 == count2 or count2 == count3
+        self.assertGreaterEqual(trace[0][2], trace[1][2])
+        self.assertGreaterEqual(trace[1][2], trace[2][2])
+        # technically, this might happen occasionally, but *really* rarely
+        self.assertTrue(trace[0][2] > trace[1][2] or
+                        trace[1][2] > trace[2][2])
+
     def test_delete_db_status(self):
         start = next(self.ts)
         broker = AccountBroker(':memory:', account='a')

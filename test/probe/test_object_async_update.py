@@ -23,6 +23,7 @@ from swiftclient.exceptions import ClientException
 
 from swift.common import direct_client
 from swift.common.manager import Manager
+from swift.common.swob import normalize_etag
 from test.probe.common import kill_nonprimary_server, \
     kill_server, ReplProbeTest, start_server, ECProbeTest
 
@@ -210,7 +211,7 @@ class TestUpdateOverridesEC(ECProbeTest):
         self.assertEqual(1, len(listing))
         self.assertEqual('o1', listing[0]['name'])
         self.assertEqual(len(content), listing[0]['bytes'])
-        self.assertEqual(meta['etag'], listing[0]['hash'])
+        self.assertEqual(normalize_etag(meta['etag']), listing[0]['hash'])
         self.assertEqual('test/ctype', listing[0]['content_type'])
 
     def test_update_during_POST_only(self):
@@ -261,7 +262,7 @@ class TestUpdateOverridesEC(ECProbeTest):
         self.assertEqual(1, len(listing))
         self.assertEqual('o1', listing[0]['name'])
         self.assertEqual(len(content), listing[0]['bytes'])
-        self.assertEqual(meta['etag'], listing[0]['hash'])
+        self.assertEqual(normalize_etag(meta['etag']), listing[0]['hash'])
         self.assertEqual('test/ctype', listing[0]['content_type'])
 
         # Run the object-updaters to send the async pending from the PUT
@@ -328,7 +329,7 @@ class TestUpdateOverridesEC(ECProbeTest):
         self.assertEqual(1, len(listing))
         self.assertEqual('o1', listing[0]['name'])
         self.assertEqual(len(content), listing[0]['bytes'])
-        self.assertEqual(meta['etag'], listing[0]['hash'])
+        self.assertEqual(normalize_etag(meta['etag']), listing[0]['hash'])
         self.assertEqual('test/ctype', listing[0]['content_type'])
 
 

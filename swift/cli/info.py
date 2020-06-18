@@ -57,6 +57,8 @@ def parse_get_node_args(options, args):
         else:
             raise InfoSystemExit('Ring file does not exist')
 
+    if options.quoted:
+        args = [urllib.parse.unquote(arg) for arg in args]
     if len(args) == 1:
         args = args[0].strip('/').split('/', 2)
 
@@ -614,15 +616,15 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
         ring = POLICIES.get_object_ring(policy_index, swift_dir)
         ring_name = (POLICIES.get_by_name(policy_name)).ring_name
 
-    if account is None and (container is not None or obj is not None):
+    if (container or obj) and not account:
         print('No account specified')
         raise InfoSystemExit()
 
-    if container is None and obj is not None:
+    if obj and not container:
         print('No container specified')
         raise InfoSystemExit()
 
-    if account is None and part is None:
+    if not account and not part:
         print('No target specified')
         raise InfoSystemExit()
 
@@ -654,8 +656,11 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
                 print('Warning: account specified ' +
                       'but ring not named "account"')
 
-    print('\nAccount  \t%s' % account)
-    print('Container\t%s' % container)
-    print('Object   \t%s\n\n' % obj)
+    if account:
+        print('\nAccount  \t%s' % urllib.parse.quote(account))
+    if container:
+        print('Container\t%s' % urllib.parse.quote(container))
+    if obj:
+        print('Object   \t%s\n\n' % urllib.parse.quote(obj))
     print_ring_locations(ring, loc, account, container, obj, part, all_nodes,
                          policy_index=policy_index)

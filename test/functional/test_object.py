@@ -1726,7 +1726,7 @@ class TestObject(unittest.TestCase):
         if 'etag_quoter' not in tf.cluster_info:
             raise SkipTest("etag-quoter middleware is not enabled")
 
-        def do_head(expect_quoted=False):
+        def do_head(expect_quoted=None):
             def head(url, token, parsed, conn):
                 conn.request('HEAD', '%s/%s/%s' % (
                     parsed.path, self.container, self.obj), '',
@@ -1736,6 +1736,11 @@ class TestObject(unittest.TestCase):
             resp = retry(head)
             resp.read()
             self.assertEqual(resp.status, 200)
+
+            if expect_quoted is None:
+                expect_quoted = tf.cluster_info.get('etag_quoter', {}).get(
+                    'enable_by_default', False)
+
             expected_etag = hashlib.md5(b'test').hexdigest()
             if expect_quoted:
                 expected_etag = '"%s"' % expected_etag
@@ -1771,7 +1776,7 @@ class TestObject(unittest.TestCase):
             post_container('')
             do_head(expect_quoted=True)
             post_container('f')
-            do_head()
+            do_head(expect_quoted=False)
         finally:
             # Don't leave a dirty account
             post_account('')

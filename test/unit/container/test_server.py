@@ -2380,15 +2380,17 @@ class TestContainerController(unittest.TestCase):
                    'X-Container-Sysmeta-Test': 'set',
                    'X-Container-Meta-Test': 'persisted'}
 
-        # PUT shard range to non-existent container with non-autocreate prefix
-        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
-                            body=json.dumps([dict(shard_range)]))
+        # PUT shard range to non-existent container without autocreate flag
+        req = Request.blank(
+            '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
+            body=json.dumps([dict(shard_range)]))
         resp = req.get_response(self.controller)
         self.assertEqual(404, resp.status_int)
 
-        # PUT shard range to non-existent container with autocreate prefix,
+        # PUT shard range to non-existent container with autocreate flag,
         # missing storage policy
         headers['X-Timestamp'] = next(ts_iter).internal
+        headers['X-Backend-Auto-Create'] = 't'
         req = Request.blank(
             '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
             body=json.dumps([dict(shard_range)]))
@@ -2397,7 +2399,7 @@ class TestContainerController(unittest.TestCase):
         self.assertIn(b'X-Backend-Storage-Policy-Index header is required',
                       resp.body)
 
-        # PUT shard range to non-existent container with autocreate prefix
+        # PUT shard range to non-existent container with autocreate flag
         headers['X-Timestamp'] = next(ts_iter).internal
         policy_index = random.choice(POLICIES).idx
         headers['X-Backend-Storage-Policy-Index'] = str(policy_index)
@@ -2407,7 +2409,7 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(201, resp.status_int)
 
-        # repeat PUT of shard range to autocreated container - 204 response
+        # repeat PUT of shard range to autocreated container - 202 response
         headers['X-Timestamp'] = next(ts_iter).internal
         headers.pop('X-Backend-Storage-Policy-Index')  # no longer required
         req = Request.blank(
@@ -2416,7 +2418,7 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(202, resp.status_int)
 
-        # regular PUT to autocreated container - 204 response
+        # regular PUT to autocreated container - 202 response
         headers['X-Timestamp'] = next(ts_iter).internal
         req = Request.blank(
             '/sda1/p/.shards_a/shard_c', method='PUT',
@@ -4649,61 +4651,53 @@ class TestContainerController(unittest.TestCase):
                              "%d on param %s" % (resp.status_int, param))
 
     def test_put_auto_create(self):
-        headers = {'x-timestamp': Timestamp(1).internal,
-                   'x-size': '0',
-                   'x-content-type': 'text/plain',
-                   'x-etag': 'd41d8cd98f00b204e9800998ecf8427e'}
+        def do_test(expected_status, path, extra_headers=None, body=None):
+            headers = {'x-timestamp': Timestamp(1).internal,
+                       'x-size': '0',
+                       'x-content-type': 'text/plain',
+                       'x-etag': 'd41d8cd98f00b204e9800998ecf8427e'}
+            if extra_headers:
+                headers.update(extra_headers)
+            req = Request.blank('/sda1/p/' + path,
+                                environ={'REQUEST_METHOD': 'PUT'},
+                                headers=headers, body=body)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, expected_status)
 
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers=dict(headers))
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 404)
+        do_test(404, 'a/c/o')
+        do_test(404, '.a/c/o', {'X-Backend-Auto-Create': 'no'})
+        do_test(201, '.a/c/o')
+        do_test(404, 'a/.c/o')
+        do_test(404, 'a/c/.o')
+        do_test(201, 'a/c/o', {'X-Backend-Auto-Create': 'yes'})
 
-        req = Request.blank('/sda1/p/.a/c/o',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers=dict(headers))
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 201)
-
-        req = Request.blank('/sda1/p/a/.c/o',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers=dict(headers))
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 404)
-
-        req = Request.blank('/sda1/p/a/c/.o',
-                            environ={'REQUEST_METHOD': 'PUT'},
-                            headers=dict(headers))
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 404)
+        do_test(404, '.shards_a/c/o')
+        create_shard_headers = {
+            'X-Backend-Record-Type': 'shard',
+            'X-Backend-Storage-Policy-Index': '0'}
+        do_test(404, '.shards_a/c', create_shard_headers, '[]')
+        create_shard_headers['X-Backend-Auto-Create'] = 't'
+        do_test(201, '.shards_a/c', create_shard_headers, '[]')
 
     def test_delete_auto_create(self):
-        headers = {'x-timestamp': Timestamp(1).internal}
+        def do_test(expected_status, path, extra_headers=None):
+            headers = {'x-timestamp': Timestamp(1).internal}
+            if extra_headers:
+                headers.update(extra_headers)
+            req = Request.blank('/sda1/p/' + path,
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers=headers)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, expected_status)
 
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers=dict(headers))
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 404)
-
-        req = Request.blank('/sda1/p/.a/c/o',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers=dict(headers))
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 204)
-
-        req = Request.blank('/sda1/p/a/.c/o',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers=dict(headers))
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 404)
-
-        req = Request.blank('/sda1/p/a/.c/.o',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers=dict(headers))
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 404)
+        do_test(404, 'a/c/o')
+        do_test(404, '.a/c/o', {'X-Backend-Auto-Create': 'false'})
+        do_test(204, '.a/c/o')
+        do_test(404, 'a/.c/o')
+        do_test(404, 'a/.c/.o')
+        do_test(404, '.shards_a/c/o')
+        do_test(204, 'a/c/o', {'X-Backend-Auto-Create': 'true'})
+        do_test(204, '.shards_a/c/o', {'X-Backend-Auto-Create': 'true'})
 
     def test_content_type_on_HEAD(self):
         Request.blank('/sda1/p/a/o',

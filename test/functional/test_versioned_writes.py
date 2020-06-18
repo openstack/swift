@@ -684,7 +684,11 @@ class TestObjectVersioning(Base):
         prev_version = versions_container.file(versioned_obj_name)
         prev_version_info = prev_version.info(parms={'symlink': 'get'})
         self.assertEqual(b"aaaaa", prev_version.read())
-        self.assertEqual(MD5_OF_EMPTY_STRING, prev_version_info['etag'])
+        symlink_etag = prev_version_info['etag']
+        if symlink_etag.startswith('"') and symlink_etag.endswith('"') and \
+                symlink_etag[1:-1]:
+            symlink_etag = symlink_etag[1:-1]
+        self.assertEqual(MD5_OF_EMPTY_STRING, symlink_etag)
         self.assertEqual(sym_tgt_header,
                          prev_version_info['x_symlink_target'])
         return symlink, tgt_a
@@ -698,7 +702,10 @@ class TestObjectVersioning(Base):
         symlink.delete()
         sym_info = symlink.info(parms={'symlink': 'get'})
         self.assertEqual(b"aaaaa", symlink.read())
-        self.assertEqual(MD5_OF_EMPTY_STRING, sym_info['etag'])
+        if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
+            self.assertEqual('"%s"' % MD5_OF_EMPTY_STRING, sym_info['etag'])
+        else:
+            self.assertEqual(MD5_OF_EMPTY_STRING, sym_info['etag'])
         self.assertEqual(
             quote(unquote('%s/%s' % (self.env.container.name, target.name))),
             sym_info['x_symlink_target'])

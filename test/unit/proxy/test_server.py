@@ -7982,7 +7982,7 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
                 continue
             device_path = os.path.join(_testdir, dev)
             for datadir in os.listdir(device_path):
-                if 'object' not in datadir:
+                if any(p in datadir for p in ('account', 'container')):
                     continue
                 data_path = os.path.join(device_path, datadir)
                 rmtree(data_path, ignore_errors=True)

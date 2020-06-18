@@ -24,6 +24,7 @@ from swift.common import swob
 from swift.common.middleware import symlink, copy, versioned_writes, \
     listing_formats
 from swift.common.swob import Request
+from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import MD5_OF_EMPTY_STRING, get_swift_info
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.common.middleware.test_versioned_writes import FakeCache
@@ -617,6 +618,55 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         req_headers['User-Agent'] = 'Swift'
         self.assertEqual(req_headers, calls[1].headers)
         self.assertFalse(calls[2:])
+
+    def test_get_symlink_to_reserved_object(self):
+        cont = get_reserved_name('versioned')
+        obj = get_reserved_name('symlink', '9999998765.99999')
+        symlink_target = "%s/%s" % (cont, obj)
+        version_path = '/v1/a/%s' % symlink_target
+        self.app.register('GET', '/v1/a/versioned/symlink', swob.HTTPOk, {
+            symlink.TGT_OBJ_SYSMETA_SYMLINK_HDR: symlink_target,
+            symlink.ALLOW_RESERVED_NAMES: 'true',
+            'x-object-sysmeta-symlink-target-etag': MD5_OF_EMPTY_STRING,
+            'x-object-sysmeta-symlink-target-bytes': '0',
+        })
+        self.app.register('GET', version_path, swob.HTTPOk, {})
+        req = Request.blank('/v1/a/versioned/symlink', headers={
+            'Range': 'foo', 'If-Match': 'bar'})
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '200 OK')
+        self.assertIn(('Content-Location', version_path), headers)
+        self.assertEqual(len(self.authorized), 1)
+        self.assertNotIn('X-Backend-Allow-Reserved-Names',
+                         self.app.calls_with_headers[0])
+        call_headers = self.app.calls_with_headers[1].headers
+        self.assertEqual('true', call_headers[
+            'X-Backend-Allow-Reserved-Names'])
+        self.assertEqual('foo', call_headers['Range'])
+        self.assertEqual('bar', call_headers['If-Match'])
+
+    def test_get_symlink_to_reserved_symlink(self):
+        cont = get_reserved_name('versioned')
+        obj = get_reserved_name('symlink', '9999998765.99999')
+        symlink_target = "%s/%s" % (cont, obj)
+        version_path = '/v1/a/%s' % symlink_target
+        self.app.register('GET', '/v1/a/versioned/symlink', swob.HTTPOk, {
+            symlink.TGT_OBJ_SYSMETA_SYMLINK_HDR: symlink_target,
+            symlink.ALLOW_RESERVED_NAMES: 'true',
+            'x-object-sysmeta-symlink-target-etag': MD5_OF_EMPTY_STRING,
+            'x-object-sysmeta-symlink-target-bytes': '0',
+        })
+        self.app.register('GET', version_path, swob.HTTPOk, {
+            symlink.TGT_OBJ_SYSMETA_SYMLINK_HDR: 'unversioned/obj',
+            'ETag': MD5_OF_EMPTY_STRING,
+        })
+        self.app.register('GET', '/v1/a/unversioned/obj', swob.HTTPOk, {
+        })
+        req = Request.blank('/v1/a/versioned/symlink')
+        status, headers, body = self.call_sym(req)
+        self.assertEqual(status, '200 OK')
+        self.assertIn(('Content-Location', '/v1/a/unversioned/obj'), headers)
+        self.assertEqual(len(self.authorized), 2)
 
     def test_symlink_too_deep(self):
         self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,

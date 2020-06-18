@@ -1,8 +1,8 @@
-- name: Add more middlewares to pipeline
+- name: Add domain_remap and etag-quoter to pipeline
   replace:
-      path: "/etc/swift/proxy-server.conf"
-      regexp: "cache listing_formats"
-      replace: "cache domain_remap etag-quoter listing_formats"
+    path: "/etc/swift/proxy-server.conf"
+    regexp: "cache listing_formats"
+    replace: "cache domain_remap etag-quoter listing_formats"
   become: true
 
 - name: Set domain_remap domain
@@ -13,9 +13,17 @@
     value: example.com
   become: true
 
-- name: Set storage_domain in test.conf
+- name: Set storage_domain in test.conf (for Keystone tests)
   ini_file:
     path: /etc/swift/test.conf
+    section: func_test
+    option: storage_domain
+    value: example.com
+  become: true
+
+- name: Set storage_domain in test/sample.conf (for tempauth tests)
+  ini_file:
+    path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/sample.conf"
     section: func_test
     option: storage_domain
     value: example.com
@@ -26,6 +34,14 @@
     path: /etc/swift/proxy-server.conf
     section: filter:versioned_writes
     option: allow_object_versioning
+    value: true
+  become: true
+
+- name: Configure s3api force_swift_request_proxy_log
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3api
+    option: force_swift_request_proxy_log
     value: true
   become: true
 

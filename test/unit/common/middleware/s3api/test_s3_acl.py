@@ -34,13 +34,16 @@ from test.unit.common.middleware.s3api import FakeSwift
 XMLNS_XSI = 'http://www.w3.org/2001/XMLSchema-instance'
 
 
-def s3acl(func=None, s3acl_only=False):
+def s3acl(func=None, s3acl_only=False, versioning_enabled=True):
     """
     NOTE: s3acl decorator needs an instance of s3api testing framework.
           (i.e. An instance for first argument is necessary)
     """
     if func is None:
-        return functools.partial(s3acl, s3acl_only=s3acl_only)
+        return functools.partial(
+            s3acl,
+            s3acl_only=s3acl_only,
+            versioning_enabled=versioning_enabled)
 
     @functools.wraps(func)
     def s3acl_decorator(*args, **kwargs):
@@ -57,9 +60,14 @@ def s3acl(func=None, s3acl_only=False):
                 #  @patch(xxx)
                 #  def test_xxxx(self)
 
+                fake_info = {'status': 204}
+                if versioning_enabled:
+                    fake_info['sysmeta'] = {
+                        'versions-container': '\x00versions\x00bucket',
+                    }
+
                 with patch('swift.common.middleware.s3api.s3request.'
-                           'get_container_info',
-                           return_value={'status': 204}):
+                           'get_container_info', return_value=fake_info):
                     func(*args, **kwargs)
             except AssertionError:
                 # Make traceback message to clarify the assertion

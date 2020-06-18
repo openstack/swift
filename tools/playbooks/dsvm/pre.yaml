@@ -7,4 +7,6 @@
       bindep_dir: "{{ zuul_work_dir }}"
     - test-setup
     - ensure-tox
+    - additional-tempauth-users
+    - additional-keystone-users
     - dsvm-additional-middlewares

@@ -34,9 +34,7 @@ from swift.common.utils import Timestamp, encode_timestamps, \
     get_db_files, parse_db_filename, make_db_file_path, split_path, \
     RESERVED_BYTE
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT, \
-    zero_like, DatabaseAlreadyExists
-
-SQLITE_ARG_LIMIT = 999
+    zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT
 
 DATADIR = 'containers'
 
@@ -62,7 +60,7 @@ SHARD_UPDATE_STATES = [ShardRange.CREATED, ShardRange.CLEAVED,
 # tuples and vice-versa
 SHARD_RANGE_KEYS = ('name', 'timestamp', 'lower', 'upper', 'object_count',
                     'bytes_used', 'meta_timestamp', 'deleted', 'state',
-                    'state_timestamp', 'epoch')
+                    'state_timestamp', 'epoch', 'reported')
 
 POLICY_STAT_TABLE_CREATE = '''
     CREATE TABLE policy_stat (
@@ -269,6 +267,7 @@ def merge_shards(shard_data, existing):
     if existing['timestamp'] < shard_data['timestamp']:
         # note that currently we do not roll forward any meta or state from
         # an item that was created at older time, newer created time trumps
+        shard_data['reported'] = 0  # reset the latch
         return True
     elif existing['timestamp'] > shard_data['timestamp']:
         return False
@@ -284,6 +283,18 @@ def merge_shards(shard_data, existing):
             shard_data[k] = existing[k]
     else:
         new_content = True
+
+    # We can latch the reported flag
+    if existing['reported'] and \
+            existing['object_count'] == shard_data['object_count'] and \
+            existing['bytes_used'] == shard_data['bytes_used'] and \
+            existing['state'] == shard_data['state'] and \
+            existing['epoch'] == shard_data['epoch']:
+        shard_data['reported'] = 1
+    else:
+        shard_data.setdefault('reported', 0)
+        if shard_data['reported'] and not existing['reported']:
+            new_content = True
 
     if (existing['state_timestamp'] == shard_data['state_timestamp']
             and shard_data['state'] > existing['state']):
@@ -597,7 +608,8 @@ class ContainerBroker(DatabaseBroker):
                 deleted INTEGER DEFAULT 0,
                 state INTEGER,
                 state_timestamp TEXT,
-                epoch TEXT
+                epoch TEXT,
+                reported INTEGER DEFAULT 0
             );
         """ % SHARD_RANGE_TABLE)
 
@@ -1430,10 +1442,13 @@ class ContainerBroker(DatabaseBroker):
                 #   sqlite3.OperationalError: cannot start a transaction
                 #   within a transaction
                 conn.rollback()
-                if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
-                    raise
-                self.create_shard_range_table(conn)
-                return _really_merge_items(conn)
+                if 'no such column: reported' in str(err):
+                    self._migrate_add_shard_range_reported(conn)
+                    return _really_merge_items(conn)
+                if ('no such table: %s' % SHARD_RANGE_TABLE) in str(err):
+                    self.create_shard_range_table(conn)
+                    return _really_merge_items(conn)
+                raise
 
     def get_reconciler_sync(self):
         with self.get() as conn:
@@ -1581,9 +1596,20 @@ class ContainerBroker(DatabaseBroker):
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
 
-    def _reclaim(self, conn, age_timestamp, sync_timestamp):
-        super(ContainerBroker, self)._reclaim(conn, age_timestamp,
-                                              sync_timestamp)
+    def _migrate_add_shard_range_reported(self, conn):
+        """
+        Add the reported column to the 'shard_range' table.
+        """
+        conn.executescript('''
+            BEGIN;
+            ALTER TABLE %s
+            ADD COLUMN reported INTEGER DEFAULT 0;
+            COMMIT;
+        ''' % SHARD_RANGE_TABLE)
+
+    def _reclaim_other_stuff(self, conn, age_timestamp, sync_timestamp):
+        super(ContainerBroker, self)._reclaim_other_stuff(
+            conn, age_timestamp, sync_timestamp)
         # populate instance cache, but use existing conn to avoid deadlock
         # when it has a pending update
         self._populate_instance_cache(conn=conn)
@@ -1630,7 +1656,7 @@ class ContainerBroker(DatabaseBroker):
         elif states is not None:
             included_states.add(states)
 
-        def do_query(conn):
+        def do_query(conn, use_reported_column=True):
             condition = ''
             conditions = []
             params = []
@@ -1648,21 +1674,27 @@ class ContainerBroker(DatabaseBroker):
                 params.append(self.path)
             if conditions:
                 condition = ' WHERE ' + ' AND '.join(conditions)
+            if use_reported_column:
+                columns = SHARD_RANGE_KEYS
+            else:
+                columns = SHARD_RANGE_KEYS[:-1] + ('0 as reported', )
             sql = '''
             SELECT %s
             FROM %s%s;
-            ''' % (', '.join(SHARD_RANGE_KEYS), SHARD_RANGE_TABLE, condition)
+            ''' % (', '.join(columns), SHARD_RANGE_TABLE, condition)
             data = conn.execute(sql, params)
             data.row_factory = None
             return [row for row in data]
 
-        try:
-            with self.maybe_get(connection) as conn:
+        with self.maybe_get(connection) as conn:
+            try:
                 return do_query(conn)
-        except sqlite3.OperationalError as err:
-            if ('no such table: %s' % SHARD_RANGE_TABLE) not in str(err):
+            except sqlite3.OperationalError as err:
+                if ('no such table: %s' % SHARD_RANGE_TABLE) in str(err):
+                    return []
+                if 'no such column: reported' in str(err):
+                    return do_query(conn, use_reported_column=False)
                 raise
-            return []
 
     @classmethod
     def resolve_shard_range_states(cls, states):

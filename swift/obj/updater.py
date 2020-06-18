@@ -14,12 +14,13 @@
 # limitations under the License.
 
 import six.moves.cPickle as pickle
+import errno
 import os
 import signal
 import sys
 import time
 from swift import gettext_ as _
-from random import random
+from random import random, shuffle
 
 from eventlet import spawn, Timeout
 
@@ -230,7 +231,9 @@ class ObjectUpdater(Daemon):
                                       'to a valid policy (%(error)s)') % {
                                     'directory': asyncdir, 'error': e})
                 continue
-            for prefix in self._listdir(async_pending):
+            prefix_dirs = self._listdir(async_pending)
+            shuffle(prefix_dirs)
+            for prefix in prefix_dirs:
                 prefix_path = os.path.join(async_pending, prefix)
                 if not os.path.isdir(prefix_path):
                     continue
@@ -271,7 +274,11 @@ class ObjectUpdater(Daemon):
                     if obj_hash == last_obj_hash:
                         self.stats.unlinks += 1
                         self.logger.increment('unlinks')
-                        os.unlink(update_path)
+                        try:
+                            os.unlink(update_path)
+                        except OSError as e:
+                            if e.errno != errno.ENOENT:
+                                raise
                     else:
                         last_obj_hash = obj_hash
                         yield {'device': device, 'policy': policy,

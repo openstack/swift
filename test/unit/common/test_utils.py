@@ -6080,6 +6080,136 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertEqual(list(locations),
                              [(obj_path, "drive", "partition2")])
 
+    def test_hooks(self):
+        with temptree([]) as tmpdir:
+            logger = FakeLogger()
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            partition = os.path.join(data, "partition1")
+            os.makedirs(partition)
+            suffix = os.path.join(partition, "suffix1")
+            os.makedirs(suffix)
+            hash_path = os.path.join(suffix, "hash1")
+            os.makedirs(hash_path)
+            obj_path = os.path.join(hash_path, "obj1.dat")
+            with open(obj_path, "w"):
+                pass
+            meta_path = os.path.join(hash_path, "obj1.meta")
+            with open(meta_path, "w"):
+                pass
+            hook_pre_device = MagicMock()
+            hook_post_device = MagicMock()
+            hook_pre_partition = MagicMock()
+            hook_post_partition = MagicMock()
+            hook_pre_suffix = MagicMock()
+            hook_post_suffix = MagicMock()
+            hook_pre_hash = MagicMock()
+            hook_post_hash = MagicMock()
+            locations = utils.audit_location_generator(
+                tmpdir, "data", ".dat", mount_check=False, logger=logger,
+                hook_pre_device=hook_pre_device,
+                hook_post_device=hook_post_device,
+                hook_pre_partition=hook_pre_partition,
+                hook_post_partition=hook_post_partition,
+                hook_pre_suffix=hook_pre_suffix,
+                hook_post_suffix=hook_post_suffix,
+                hook_pre_hash=hook_pre_hash,
+                hook_post_hash=hook_post_hash
+            )
+            list(locations)
+            hook_pre_device.assert_called_once_with(os.path.join(tmpdir,
+                                                                 "drive"))
+            hook_post_device.assert_called_once_with(os.path.join(tmpdir,
+                                                                  "drive"))
+            hook_pre_partition.assert_called_once_with(partition)
+            hook_post_partition.assert_called_once_with(partition)
+            hook_pre_suffix.assert_called_once_with(suffix)
+            hook_post_suffix.assert_called_once_with(suffix)
+            hook_pre_hash.assert_called_once_with(hash_path)
+            hook_post_hash.assert_called_once_with(hash_path)
+
+    def test_filters(self):
+        with temptree([]) as tmpdir:
+            logger = FakeLogger()
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            partition = os.path.join(data, "partition1")
+            os.makedirs(partition)
+            suffix = os.path.join(partition, "suffix1")
+            os.makedirs(suffix)
+            hash_path = os.path.join(suffix, "hash1")
+            os.makedirs(hash_path)
+            obj_path = os.path.join(hash_path, "obj1.dat")
+            with open(obj_path, "w"):
+                pass
+            meta_path = os.path.join(hash_path, "obj1.meta")
+            with open(meta_path, "w"):
+                pass
+
+            def audit_location_generator(**kwargs):
+                return utils.audit_location_generator(
+                    tmpdir, "data", ".dat", mount_check=False, logger=logger,
+                    **kwargs)
+
+            # Return the list of devices
+
+            with patch('os.listdir', side_effect=os.listdir) as m_listdir:
+                # devices_filter
+                m_listdir.reset_mock()
+                devices_filter = MagicMock(return_value=["drive"])
+                list(audit_location_generator(devices_filter=devices_filter))
+                devices_filter.assert_called_once_with(tmpdir, ["drive"])
+                self.assertIn(((data,),), m_listdir.call_args_list)
+
+                m_listdir.reset_mock()
+                devices_filter = MagicMock(return_value=[])
+                list(audit_location_generator(devices_filter=devices_filter))
+                devices_filter.assert_called_once_with(tmpdir, ["drive"])
+                self.assertNotIn(((data,),), m_listdir.call_args_list)
+
+                # partitions_filter
+                m_listdir.reset_mock()
+                partitions_filter = MagicMock(return_value=["partition1"])
+                list(audit_location_generator(
+                    partitions_filter=partitions_filter))
+                partitions_filter.assert_called_once_with(data,
+                                                          ["partition1"])
+                self.assertIn(((partition,),), m_listdir.call_args_list)
+
+                m_listdir.reset_mock()
+                partitions_filter = MagicMock(return_value=[])
+                list(audit_location_generator(
+                    partitions_filter=partitions_filter))
+                partitions_filter.assert_called_once_with(data,
+                                                          ["partition1"])
+                self.assertNotIn(((partition,),), m_listdir.call_args_list)
+
+                # suffixes_filter
+                m_listdir.reset_mock()
+                suffixes_filter = MagicMock(return_value=["suffix1"])
+                list(audit_location_generator(suffixes_filter=suffixes_filter))
+                suffixes_filter.assert_called_once_with(partition, ["suffix1"])
+                self.assertIn(((suffix,),), m_listdir.call_args_list)
+
+                m_listdir.reset_mock()
+                suffixes_filter = MagicMock(return_value=[])
+                list(audit_location_generator(suffixes_filter=suffixes_filter))
+                suffixes_filter.assert_called_once_with(partition, ["suffix1"])
+                self.assertNotIn(((suffix,),), m_listdir.call_args_list)
+
+                # hashes_filter
+                m_listdir.reset_mock()
+                hashes_filter = MagicMock(return_value=["hash1"])
+                list(audit_location_generator(hashes_filter=hashes_filter))
+                hashes_filter.assert_called_once_with(suffix, ["hash1"])
+                self.assertIn(((hash_path,),), m_listdir.call_args_list)
+
+                m_listdir.reset_mock()
+                hashes_filter = MagicMock(return_value=[])
+                list(audit_location_generator(hashes_filter=hashes_filter))
+                hashes_filter.assert_called_once_with(suffix, ["hash1"])
+                self.assertNotIn(((hash_path,),), m_listdir.call_args_list)
+
 
 class TestGreenAsyncPile(unittest.TestCase):
 
@@ -7224,7 +7354,8 @@ class TestShardRange(unittest.TestCase):
                       upper='', object_count=0, bytes_used=0,
                       meta_timestamp=ts_1.internal, deleted=0,
                       state=utils.ShardRange.FOUND,
-                      state_timestamp=ts_1.internal, epoch=None)
+                      state_timestamp=ts_1.internal, epoch=None,
+                      reported=0)
         assert_initialisation_ok(dict(empty_run, name='a/c', timestamp=ts_1),
                                  expect)
         assert_initialisation_ok(dict(name='a/c', timestamp=ts_1), expect)
@@ -7233,11 +7364,13 @@ class TestShardRange(unittest.TestCase):
                         upper='u', object_count=2, bytes_used=10,
                         meta_timestamp=ts_2, deleted=0,
                         state=utils.ShardRange.CREATED,
-                        state_timestamp=ts_3.internal, epoch=ts_4)
+                        state_timestamp=ts_3.internal, epoch=ts_4,
+                        reported=0)
         expect.update({'lower': 'l', 'upper': 'u', 'object_count': 2,
                        'bytes_used': 10, 'meta_timestamp': ts_2.internal,
                        'state': utils.ShardRange.CREATED,
-                       'state_timestamp': ts_3.internal, 'epoch': ts_4})
+                       'state_timestamp': ts_3.internal, 'epoch': ts_4,
+                       'reported': 0})
         assert_initialisation_ok(good_run.copy(), expect)
 
         # obj count and bytes used as int strings
@@ -7254,6 +7387,11 @@ class TestShardRange(unittest.TestCase):
         good_deleted['deleted'] = 1
         assert_initialisation_ok(good_deleted,
                                  dict(expect, deleted=1))
+
+        good_reported = good_run.copy()
+        good_reported['reported'] = 1
+        assert_initialisation_ok(good_reported,
+                                 dict(expect, reported=1))
 
         assert_initialisation_fails(dict(good_run, timestamp='water balloon'))
 
@@ -7293,7 +7431,7 @@ class TestShardRange(unittest.TestCase):
             'upper': upper, 'object_count': 10, 'bytes_used': 100,
             'meta_timestamp': ts_2.internal, 'deleted': 0,
             'state': utils.ShardRange.FOUND, 'state_timestamp': ts_3.internal,
-            'epoch': ts_4}
+            'epoch': ts_4, 'reported': 0}
         self.assertEqual(expected, sr_dict)
         self.assertIsInstance(sr_dict['lower'], six.string_types)
         self.assertIsInstance(sr_dict['upper'], six.string_types)
@@ -7308,6 +7446,14 @@ class TestShardRange(unittest.TestCase):
         for key in sr_dict:
             bad_dict = dict(sr_dict)
             bad_dict.pop(key)
+            if key == 'reported':
+                # This was added after the fact, and we need to be able to eat
+                # data from old servers
+                utils.ShardRange.from_dict(bad_dict)
+                utils.ShardRange(**bad_dict)
+                continue
+
+            # The rest were present from the beginning
             with self.assertRaises(KeyError):
                 utils.ShardRange.from_dict(bad_dict)
             # But __init__ still (generally) works!

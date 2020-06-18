@@ -1,0 +1,134 @@
+- name: Set S3 endpoint
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_storage_url
+    value: http://localhost:8080
+  become: true
+
+- name: Create primary S3 user
+  shell: >
+    openstack --os-auth-url http://localhost/identity
+    --os-project-domain-id default --os-project-name admin
+    --os-user-domain-id default --os-username admin
+    --os-password secretadmin
+    credential create --type ec2 --project swiftprojecttest1 swiftusertest1
+    '{"access": "s3-user1", "secret": "s3-secret1"}'
+- name: Add primary S3 user to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_access_key
+    value: s3-user1
+  become: true
+- name: Add primary S3 user secret to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_secret_key
+    value: s3-secret1
+  become: true
+
+- name: Clear secondary S3 user from test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_access_key2
+    value: ""
+  become: true
+
+- name: Create restricted S3 user
+  shell: >
+    openstack --os-auth-url http://localhost/identity
+    --os-project-domain-id default --os-project-name admin
+    --os-user-domain-id default --os-username admin
+    --os-password secretadmin
+    credential create --type ec2 --project swiftprojecttest1 swiftusertest3
+    '{"access": "s3-user3", "secret": "s3-secret3"}'
+- name: Add restricted S3 user to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_access_key3
+    value: s3-user3
+  become: true
+- name: Add restricted S3 user secret to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: s3_secret_key3
+    value: s3-secret3
+  become: true
+
+- name: Create service role
+  shell: >
+    openstack --os-auth-url http://localhost/identity
+    --os-project-domain-id default --os-project-name admin
+    --os-user-domain-id default --os-username admin
+    --os-password secretadmin
+    role create swift_service
+- name: Create service project
+  shell: >
+    openstack --os-auth-url http://localhost/identity
+    --os-project-domain-id default --os-project-name admin
+    --os-user-domain-id default --os-username admin
+    --os-password secretadmin
+    project create swiftprojecttest5
+- name: Create service user
+  shell: >
+    openstack --os-auth-url http://localhost/identity
+    --os-project-domain-id default --os-project-name admin
+    --os-user-domain-id default --os-username admin
+    --os-password secretadmin
+    user create --project swiftprojecttest5 swiftusertest5 --password testing5
+- name: Assign service role
+  shell: >
+    openstack --os-auth-url http://localhost/identity
+    --os-project-domain-id default --os-project-name admin
+    --os-user-domain-id default --os-username admin
+    --os-password secretadmin
+    role add --project swiftprojecttest5 --user swiftusertest5 swift_service
+
+- name: Add service_roles to proxy-server.conf
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:keystoneauth
+    option: SERVICE_KEY_service_roles
+    value: swift_service
+  become: true
+- name: Update reseller prefixes in proxy-server.conf
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:keystoneauth
+    option: reseller_prefix
+    value: AUTH, SERVICE_KEY
+  become: true
+
+- name: Add service account to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: account5
+    value: swiftprojecttest5
+  become: true
+- name: Add service user to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: username5
+    value: swiftusertest5
+  become: true
+- name: Add service password to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: password5
+    value: testing5
+  become: true
+- name: Add service prefix to test.conf
+  ini_file:
+    path: /etc/swift/test.conf
+    section: func_test
+    option: service_prefix
+    value: SERVICE_KEY
+  become: true

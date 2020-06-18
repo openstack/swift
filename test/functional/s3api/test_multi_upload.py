@@ -304,9 +304,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertTrue(lines[0].startswith(b'<?xml'), body)
         self.assertTrue(lines[0].endswith(b'?>'), body)
         elem = fromstring(body, 'CompleteMultipartUploadResult')
-        # TODO: use tf.config value
         self.assertEqual(
-            'http://%s:%s/bucket/obj1' % (self.conn.host, self.conn.port),
+            '%s/bucket/obj1' % tf.config['s3_storage_url'].rstrip('/'),
             elem.find('Location').text)
         self.assertEqual(elem.find('Bucket').text, bucket)
         self.assertEqual(elem.find('Key').text, key)
@@ -428,7 +427,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.conn.make_request('PUT', bucket)
         query = 'uploads'
 
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('POST', bucket, key, query=query)
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
@@ -442,7 +441,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.conn.make_request('PUT', bucket)
         query = 'uploads'
 
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('GET', bucket, query=query)
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
@@ -462,7 +461,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         upload_id = elem.find('UploadId').text
 
         query = 'partNumber=%s&uploadId=%s' % (1, upload_id)
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('PUT', bucket, key, query=query)
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
@@ -500,7 +499,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         upload_id = elem.find('UploadId').text
 
         query = 'partNumber=%s&uploadId=%s' % (1, upload_id)
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('PUT', bucket, key,
                                          headers={
@@ -541,7 +540,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         upload_id = elem.find('UploadId').text
 
         query = 'uploadId=%s' % upload_id
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
 
         status, headers, body = \
             auth_error_conn.make_request('GET', bucket, key, query=query)
@@ -568,7 +567,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self._upload_part(bucket, key, upload_id)
 
         query = 'uploadId=%s' % upload_id
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('DELETE', bucket, key, query=query)
         self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
@@ -612,7 +611,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(get_error_code(body), 'EntityTooSmall')
 
         # invalid credentials
-        auth_error_conn = Connection(aws_secret_key='invalid')
+        auth_error_conn = Connection(tf.config['s3_access_key'], 'invalid')
         status, headers, body = \
             auth_error_conn.make_request('POST', bucket, keys[0], body=xml,
                                          query=query)
@@ -881,6 +880,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(headers['content-length'], '0')
 
     def test_object_multi_upload_part_copy_version(self):
+        if 'object_versioning' not in tf.cluster_info:
+            self.skipTest('Object Versioning not enabled')
         bucket = 'bucket'
         keys = ['obj1']
         uploads = []

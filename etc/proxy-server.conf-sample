@@ -470,7 +470,10 @@ use = egg:swift#s3api
 # With either tempauth or your custom auth:
 # - Put s3api just before your auth filter(s) in the pipeline
 # With keystone:
-# - Put s3api and s3token before keystoneauth in the pipeline
+# - Put s3api and s3token before keystoneauth in the pipeline, but after
+#   auth_token
+# If you have ratelimit enabled for Swift requests, you may want to place a
+# second copy after auth to also ratelimit S3 requests.
 #
 # Swift has no concept of the S3's resource owner; the resources
 # (i.e. containers and objects) created via the Swift API have no owner
