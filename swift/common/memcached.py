@@ -45,7 +45,6 @@ http://github.com/memcached/memcached/blob/1.4.2/doc/protocol.txt
 """
 
 import six
-import six.moves.cPickle as pickle
 import json
 import logging
 import time
@@ -66,7 +65,6 @@ IO_TIMEOUT = 2.0
 PICKLE_FLAG = 1
 JSON_FLAG = 2
 NODE_WEIGHT = 50
-PICKLE_PROTOCOL = 2
 TRY_COUNT = 3
 
 # if ERROR_LIMIT_COUNT errors occur in ERROR_LIMIT_TIME seconds, the server
@@ -176,7 +174,7 @@ class MemcacheRing(object):
     def __init__(
             self, servers, connect_timeout=CONN_TIMEOUT,
             io_timeout=IO_TIMEOUT, pool_timeout=POOL_TIMEOUT,
-            tries=TRY_COUNT, allow_pickle=False, allow_unpickle=False,
+            tries=TRY_COUNT,
             max_conns=2, tls_context=None, logger=None,
             error_limit_count=ERROR_LIMIT_COUNT,
             error_limit_time=ERROR_LIMIT_TIME,
@@ -200,8 +198,6 @@ class MemcacheRing(object):
         self._connect_timeout = connect_timeout
         self._io_timeout = io_timeout
         self._pool_timeout = pool_timeout
-        self._allow_pickle = allow_pickle
-        self._allow_unpickle = allow_unpickle or allow_pickle
         if logger is None:
             self.logger = logging.getLogger()
         else:
@@ -294,8 +290,7 @@ class MemcacheRing(object):
         :param key: key
         :param value: value
         :param serialize: if True, value is serialized with JSON before sending
-                          to memcache, or with pickle if configured to use
-                          pickle instead of JSON (to avoid cache poisoning)
+                          to memcache
         :param time: the time to live
         :param min_compress_len: minimum compress length, this parameter was
                                  added to keep the signature compatible with
@@ -305,10 +300,7 @@ class MemcacheRing(object):
         key = md5hash(key)
         timeout = sanitize_timeout(time)
         flags = 0
-        if serialize and self._allow_pickle:
-            value = pickle.dumps(value, PICKLE_PROTOCOL)
-            flags |= PICKLE_FLAG
-        elif serialize:
+        if serialize:
             if isinstance(value, bytes):
                 value = value.decode('utf8')
             value = json.dumps(value).encode('ascii')
@@ -344,8 +336,7 @@ class MemcacheRing(object):
     def get(self, key):
         """
         Gets the object specified by key.  It will also unserialize the object
-        before returning if it is serialized in memcache with JSON, or if it
-        is pickled and unpickling is allowed.
+        before returning if it is serialized in memcache with JSON.
 
         :param key: key
         :returns: value of the key in memcache
@@ -366,11 +357,8 @@ class MemcacheRing(object):
                             size = int(line[3])
                             value = fp.read(size)
                             if int(line[2]) & PICKLE_FLAG:
-                                if self._allow_unpickle:
-                                    value = pickle.loads(value)
-                                else:
-                                    value = None
-                            elif int(line[2]) & JSON_FLAG:
+                                value = None
+                            if int(line[2]) & JSON_FLAG:
                                 value = json.loads(value)
                             fp.readline()
                         line = fp.readline().strip().split()
@@ -479,8 +467,7 @@ class MemcacheRing(object):
         :param server_key: key to use in determining which server in the ring
                             is used
         :param serialize: if True, value is serialized with JSON before sending
-                          to memcache, or with pickle if configured to use
-                          pickle instead of JSON (to avoid cache poisoning)
+                          to memcache.
         :param time: the time to live
         :min_compress_len: minimum compress length, this parameter was added
                            to keep the signature compatible with
@@ -493,10 +480,7 @@ class MemcacheRing(object):
         for key, value in mapping.items():
             key = md5hash(key)
             flags = 0
-            if serialize and self._allow_pickle:
-                value = pickle.dumps(value, PICKLE_PROTOCOL)
-                flags |= PICKLE_FLAG
-            elif serialize:
+            if serialize:
                 if isinstance(value, bytes):
                     value = value.decode('utf8')
                 value = json.dumps(value).encode('ascii')
@@ -540,10 +524,7 @@ class MemcacheRing(object):
                             size = int(line[3])
                             value = fp.read(size)
                             if int(line[2]) & PICKLE_FLAG:
-                                if self._allow_unpickle:
-                                    value = pickle.loads(value)
-                                else:
-                                    value = None
+                                value = None
                             elif int(line[2]) & JSON_FLAG:
                                 value = json.loads(value)
                             responses[line[1]] = value
