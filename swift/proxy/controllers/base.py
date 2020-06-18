@@ -33,6 +33,7 @@ import functools
 import inspect
 import itertools
 import operator
+import random
 from copy import deepcopy
 from sys import exc_info
 
@@ -2384,9 +2385,14 @@ class Controller(object):
 
         cached_ranges = infocache.get(cache_key)
         if cached_ranges is None and memcache:
-            cached_ranges = memcache.get(cache_key)
-            self.app.logger.increment('shard_updating.cache.%s'
-                                      % ('hit' if cached_ranges else 'miss'))
+            skip_chance = \
+                self.app.container_updating_shard_ranges_skip_cache
+            if skip_chance and random.random() < skip_chance:
+                self.app.logger.increment('shard_updating.cache.skip')
+            else:
+                cached_ranges = memcache.get(cache_key)
+                self.app.logger.increment('shard_updating.cache.%s' % (
+                    'hit' if cached_ranges else 'miss'))
 
         if cached_ranges:
             shard_ranges = [

@@ -144,6 +144,15 @@ use = egg:swift#proxy
 # so this value should be set less than recheck_updating_shard_ranges.
 # recheck_listing_shard_ranges = 600
 #
+# For particularly active containers, having information age out of cache can
+# be quite painful: suddenly thousands of requests per second all miss and
+# have to go to disk. By (rarely) going direct to disk regardless of whether
+# data is present in memcache, we can periodically refresh the data in memcache
+# without causing a thundering herd. Values around 0.0 - 0.1 (i.e., one in
+# every thousand requests skips cache, or fewer) are recommended.
+# container_updating_shard_ranges_skip_cache_pct = 0.0
+# container_listing_shard_ranges_skip_cache_pct = 0.0
+#
 # object_chunk_size = 65536
 # client_chunk_size = 65536
 #
