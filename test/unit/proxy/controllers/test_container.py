@@ -113,12 +113,25 @@ class TestContainerController(TestRingBase):
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
         # Make sure it's in both swift.infocache and memcache
+        header_info = headers_to_container_info(resp.headers)
+        info_cache = resp.environ['swift.infocache']
         self.assertIn("container/a/c", resp.environ['swift.infocache'])
-        self.assertEqual(
-            headers_to_container_info(resp.headers),
-            resp.environ['swift.infocache']['container/a/c'])
-        from_memcache = self.app.memcache.get('container/a/c')
-        self.assertTrue(from_memcache)
+        self.assertEqual(header_info, info_cache['container/a/c'])
+        self.assertEqual(header_info, self.app.memcache.get('container/a/c'))
+
+        controller = proxy_server.ContainerController(self.app, 'a', 'c')
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(500, body='')):
+            req = Request.blank('/v1/a/c', {
+                'PATH_INFO': '/v1/a/c', 'swift.infocache': info_cache})
+            resp = controller.HEAD(req)
+        self.assertEqual(5, resp.status_int // 100)
+        # The failure doesn't lead to cache eviction
+        self.assertIs(info_cache, resp.environ['swift.infocache'])
+        self.assertIn("container/a/c", resp.environ['swift.infocache'])
+        # NB: this is the *old* header_info, from the good req
+        self.assertEqual(header_info, info_cache['container/a/c'])
+        self.assertEqual(header_info, self.app.memcache.get('container/a/c'))
 
     @mock.patch('swift.proxy.controllers.container.clear_info_cache')
     @mock.patch.object(Controller, 'make_requests')

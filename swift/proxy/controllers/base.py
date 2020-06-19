@@ -539,31 +539,30 @@ def set_info_cache(app, env, account, container, resp):
     :returns: the info that was placed into the cache, or None if the
               request status was not in (404, 410, 2xx).
     """
-    infocache = env.setdefault('swift.infocache', {})
-
-    cache_time = None
-    if container and resp:
-        cache_time = int(resp.headers.get(
-            'X-Backend-Recheck-Container-Existence',
-            DEFAULT_RECHECK_CONTAINER_EXISTENCE))
-    elif resp:
-        cache_time = int(resp.headers.get(
-            'X-Backend-Recheck-Account-Existence',
-            DEFAULT_RECHECK_ACCOUNT_EXISTENCE))
     cache_key = get_cache_key(account, container)
-
-    if resp:
-        if resp.status_int in (HTTP_NOT_FOUND, HTTP_GONE):
-            cache_time *= 0.1
-        elif not is_success(resp.status_int):
-            cache_time = None
-
-    # Next actually set both memcache and the env cache
+    infocache = env.setdefault('swift.infocache', {})
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
-    if cache_time is None:
+
+    if resp is None:
         infocache.pop(cache_key, None)
         if memcache:
             memcache.delete(cache_key)
+        return
+
+    if container:
+        cache_time = int(resp.headers.get(
+            'X-Backend-Recheck-Container-Existence',
+            DEFAULT_RECHECK_CONTAINER_EXISTENCE))
+    else:
+        cache_time = int(resp.headers.get(
+            'X-Backend-Recheck-Account-Existence',
+            DEFAULT_RECHECK_ACCOUNT_EXISTENCE))
+
+    if resp.status_int in (HTTP_NOT_FOUND, HTTP_GONE):
+        cache_time *= 0.1
+    elif not is_success(resp.status_int):
+        # If we got a response, it was unsuccessful, and it wasn't an
+        # "authoritative" failure, bail without touching caches.
         return
 
     if container:
