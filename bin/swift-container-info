@@ -42,6 +42,10 @@ if __name__ == '__main__':
     parser.add_option(
         '--drop-prefixes', default=False, action="store_true",
         help="When outputting metadata, drop the per-section common prefixes")
+    parser.add_option(
+        '-v', '--verbose', default=False, action="store_true",
+        help="Show all shard ranges. By default, only the number of shard "
+             "ranges is displayed if there are many shards.")
 
     options, args = parser.parse_args()
 
