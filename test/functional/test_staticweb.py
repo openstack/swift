@@ -235,7 +235,7 @@ class TestStaticWeb(Base):
         if title is None:
             title = unquote(path)
         expected_in = ['Listing of %s' % title] + [
-            '<a href="{0}">{1}</a>'.format(quote(link), link)
+            '<a href="./{0}">{1}</a>'.format(quote(link), link)
             for link in links]
         expected_not_in = notins
         if css:
@@ -517,7 +517,7 @@ class TestStaticWebTempurl(Base):
         if parms is None:
             parms = self.whole_container_parms
         return (
-            '<a href="%s?temp_url_prefix=%s&amp;temp_url_expires=%s&amp;'
+            '<a href="./%s?temp_url_prefix=%s&amp;temp_url_expires=%s&amp;'
             'temp_url_sig=%s%s">%s</a>' % (
                 name,
                 parms['temp_url_prefix'],
