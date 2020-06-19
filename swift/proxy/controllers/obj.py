@@ -864,10 +864,10 @@ class ReplicatedObjectController(BaseObjectController):
 
     def _get_or_head_response(self, req, node_iter, partition, policy):
         concurrency = self.app.get_object_ring(policy.idx).replica_count \
-            if self.app.concurrent_gets else 1
+            if self.app.get_policy_options(policy).concurrent_gets else 1
         resp = self.GETorHEAD_base(
             req, _('Object'), node_iter, partition,
-            req.swift_entity_path, concurrency)
+            req.swift_entity_path, concurrency, policy)
         return resp
 
     def _make_putter(self, node, part, req, headers):
@@ -2847,9 +2847,10 @@ class ECObjectController(BaseObjectController):
 
     def feed_remaining_primaries(self, safe_iter, pile, req, partition, policy,
                                  buckets, feeder_q):
+        timeout = self.app.get_policy_options(policy).concurrency_timeout
         while True:
             try:
-                feeder_q.get(timeout=self.app.concurrency_timeout)
+                feeder_q.get(timeout=timeout)
             except Empty:
                 if safe_iter.unsafe_iter.primaries_left:
                     # this will run async, if it ends up taking the last
@@ -2871,10 +2872,11 @@ class ECObjectController(BaseObjectController):
             # no fancy EC decoding here, just one plain old HEAD request to
             # one object server because all fragments hold all metadata
             # information about the object.
-            concurrency = policy.ec_ndata if self.app.concurrent_gets else 1
+            concurrency = policy.ec_ndata \
+                if self.app.get_policy_options(policy).concurrent_gets else 1
             resp = self.GETorHEAD_base(
                 req, _('Object'), node_iter, partition,
-                req.swift_entity_path, concurrency)
+                req.swift_entity_path, concurrency, policy)
             self._fix_response(req, resp)
             return resp
 
@@ -2887,8 +2889,8 @@ class ECObjectController(BaseObjectController):
 
         safe_iter = GreenthreadSafeIterator(node_iter)
 
-        ec_request_count = policy.ec_ndata + \
-            self.app.concurrent_ec_extra_requests
+        ec_request_count = policy.ec_ndata + self.app.get_policy_options(
+            policy).concurrent_ec_extra_requests
         with ContextPool(ec_request_count) as pool:
             pile = GreenAsyncPile(pool)
             buckets = ECGetResponseCollection(policy)
@@ -2900,7 +2902,7 @@ class ECObjectController(BaseObjectController):
                            policy, buckets.get_extra_headers)
 
             feeder_q = None
-            if self.app.concurrent_gets:
+            if self.app.get_policy_options(policy).concurrent_gets:
                 feeder_q = Queue()
                 pool.spawn(self.feed_remaining_primaries, safe_iter, pile, req,
                            partition, policy, buckets, feeder_q)

@@ -2438,8 +2438,11 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             raise Empty
         feeder_q.get.side_effect = feeder_timeout
         controller.feed_remaining_primaries(
-            safe_iter, pile, req, 0, self.policy, mock.MagicMock(), feeder_q)
-        expected_call = mock.call(timeout=self.app.concurrency_timeout)
+            safe_iter, pile, req, 0, self.policy,
+            mock.MagicMock(), feeder_q)
+        expected_timeout = self.app.get_policy_options(
+            self.policy).concurrency_timeout
+        expected_call = mock.call(timeout=expected_timeout)
         expected_num_calls = self.policy.ec_nparity + 1
         self.assertEqual(feeder_q.get.call_args_list,
                          [expected_call] * expected_num_calls)
@@ -2475,8 +2478,10 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         req = swift.common.swob.Request.blank('/v1/a/c/o')
 
-        self.app.concurrent_gets = True
-        self.app.concurrency_timeout = 0.01
+        policy_opts = self.app.get_policy_options(self.policy)
+        policy_opts.concurrent_gets = True
+        policy_opts.concurrency_timeout = 0.1
+
         status_codes = ([
             FakeStatus(200, response_sleep=2.0),
         ] * self.policy.ec_nparity) + ([
@@ -2511,8 +2516,10 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         req = swift.common.swob.Request.blank('/v1/a/c/o')
 
-        self.app.concurrent_gets = True
-        self.app.concurrency_timeout = 0.01
+        policy_opts = self.app.get_policy_options(self.policy)
+        policy_opts.concurrent_gets = True
+        policy_opts.concurrency_timeout = 0.1
+
         slow_count = self.policy.ec_nparity
         status_codes = ([
             FakeStatus(200, response_sleep=2.0),
@@ -2552,8 +2559,10 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         req = swift.common.swob.Request.blank('/v1/a/c/o')
 
-        self.app.concurrent_gets = True
-        self.app.concurrency_timeout = 0.01
+        policy_opts = self.app.get_policy_options(self.policy)
+        policy_opts.concurrent_gets = True
+        policy_opts.concurrency_timeout = 0.1
+
         unused_resp = [
             FakeStatus(200, response_sleep=2.0),
             FakeStatus(200, response_sleep=2.0),
@@ -2604,8 +2613,10 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         req = swift.common.swob.Request.blank('/v1/a/c/o')
 
-        self.app.concurrent_gets = True
-        self.app.concurrency_timeout = 0.01
+        policy_opts = self.app.get_policy_options(self.policy)
+        policy_opts.concurrent_gets = True
+        policy_opts.concurrency_timeout = 0.1
+
         status_codes = [
             FakeStatus(200, response_sleep=2.0),
         ] + ([
@@ -2644,7 +2655,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
                 'X-Backend-Durable-Timestamp': ts.internal,
                 'X-Backend-Data-Timestamp': ts.internal,
             })
-        self.app.concurrent_ec_extra_requests = self.policy.ec_nparity - 1
+        policy_opts = self.app.get_policy_options(self.policy)
+        policy_opts.concurrent_ec_extra_requests = self.policy.ec_nparity - 1
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         status_codes = [200] * (self.policy.object_ring.replicas - 1)
         with mocked_http_conn(*status_codes, body_iter=ec_archive_bodies,
