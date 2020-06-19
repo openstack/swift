@@ -139,8 +139,8 @@ Metadata:
 No system metadata found in db file
   User Metadata: {'x-account-meta-mydata': 'swift'}'''
 
-        self.assertEqual(sorted(out.getvalue().strip().split('\n')),
-                         sorted(exp_out.split('\n')))
+        self.assertEqual(out.getvalue().strip().split('\n'),
+                         exp_out.split('\n'))
 
         info = dict(
             account='acct',
@@ -225,7 +225,7 @@ Sharding Metadata:
         info['id'] = 'abadf100d0ddba11'
         out = StringIO()
         with mock.patch('sys.stdout', out):
-            print_db_info_metadata('container', info, {})
+            print_db_info_metadata('container', info, {}, verbose=True)
         exp_out = '''Path: /acct/cont
   Account: acct
   Container: cont
@@ -250,6 +250,10 @@ Sharding Metadata:
   Type: root
   State: sharded
 Shard Ranges (3):
+  States:
+        found: 1
+      created: 1
+      cleaved: 1
   Name: .sharded_a/shard_range_1
     lower: '1a', upper: '1z'
     Object Count: 1, Bytes Used: 1, State: cleaved (30)
@@ -266,8 +270,76 @@ Shard Ranges (3):
     Created at: 1970-01-01T00:00:03.000000 (0000000003.00000)
     Meta Timestamp: 1970-01-01T00:00:03.000000 (0000000003.00000)''' %\
                   POLICIES[0].name
-        self.assertEqual(sorted(out.getvalue().strip().split('\n')),
-                         sorted(exp_out.strip().split('\n')))
+        self.assertEqual(out.getvalue().strip().split('\n'),
+                         exp_out.strip().split('\n'))
+
+    def test_print_db_info_metadata_with_many_shard_ranges(self):
+
+        shard_ranges = [utils.ShardRange(
+            name='.sharded_a/shard_range_%s' % i,
+            timestamp=utils.Timestamp(i), lower='%02da' % i,
+            upper='%02dz' % i, object_count=i, bytes_used=i,
+            meta_timestamp=utils.Timestamp(i)) for i in range(1, 20)]
+        shard_ranges[0].state = utils.ShardRange.CLEAVED
+        shard_ranges[1].state = utils.ShardRange.CREATED
+
+        info = dict(
+            account='acct',
+            container='cont',
+            storage_policy_index=0,
+            created_at='0000000100.10000',
+            put_timestamp='0000000106.30000',
+            delete_timestamp='0000000107.90000',
+            status_changed_at='0000000108.30000',
+            object_count='20',
+            bytes_used='42',
+            reported_put_timestamp='0000010106.30000',
+            reported_delete_timestamp='0000010107.90000',
+            reported_object_count='20',
+            reported_bytes_used='42',
+            db_state=SHARDED,
+            is_root=True,
+            shard_ranges=shard_ranges,
+            is_deleted=False,
+            hash='abaddeadbeefcafe',
+            id='abadf100d0ddba11')
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_db_info_metadata('container', info, {})
+        exp_out = '''
+Path: /acct/cont
+  Account: acct
+  Container: cont
+  Container Hash: d49d0ecbb53be1fcc49624f2f7c7ccae
+Metadata:
+  Created at: 1970-01-01T00:01:40.100000 (0000000100.10000)
+  Put Timestamp: 1970-01-01T00:01:46.300000 (0000000106.30000)
+  Delete Timestamp: 1970-01-01T00:01:47.900000 (0000000107.90000)
+  Status Timestamp: 1970-01-01T00:01:48.300000 (0000000108.30000)
+  Object Count: 20
+  Bytes Used: 42
+  Storage Policy: %s (0)
+  Reported Put Timestamp: 1970-01-01T02:48:26.300000 (0000010106.30000)
+  Reported Delete Timestamp: 1970-01-01T02:48:27.900000 (0000010107.90000)
+  Reported Object Count: 20
+  Reported Bytes Used: 42
+  Chexor: abaddeadbeefcafe
+  UUID: abadf100d0ddba11
+No system metadata found in db file
+No user metadata found in db file
+Sharding Metadata:
+  Type: root
+  State: sharded
+Shard Ranges (19):
+  States:
+        found: 17
+      created: 1
+      cleaved: 1
+(Use -v/--verbose to show more Shard Ranges details)
+''' %\
+                  POLICIES[0].name
+        self.assertEqual(out.getvalue().strip().split('\n'),
+                         exp_out.strip().split('\n'))
 
     def test_print_db_info_metadata_with_shard_ranges_bis(self):
 
@@ -300,7 +372,7 @@ Shard Ranges (3):
         info['id'] = 'abadf100d0ddba11'
         out = StringIO()
         with mock.patch('sys.stdout', out):
-            print_db_info_metadata('container', info, {})
+            print_db_info_metadata('container', info, {}, verbose=True)
         if six.PY2:
             s_a = '\\xe3\\x82\\xa2'
             s_ya = '\\xe3\\x83\\xa4'
@@ -331,6 +403,10 @@ Sharding Metadata:
   Type: root
   State: sharded
 Shard Ranges (3):
+  States:
+        found: 1
+      created: 1
+      cleaved: 1
   Name: .sharded_a/shard_range_1
     lower: '1%s', upper: '1%s'
     Object Count: 1, Bytes Used: 1, State: cleaved (30)
