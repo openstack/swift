@@ -6476,6 +6476,16 @@ class TestParseContentDisposition(unittest.TestCase):
         self.assertEqual(attrs, {'name': 'somefile', 'filename': 'test.html'})
 
 
+class TestGetExpirerContainer(unittest.TestCase):
+
+    @mock.patch.object(utils, 'hash_path', return_value=hex(101)[2:])
+    def test_get_expirer_container(self, mock_hash_path):
+        container = utils.get_expirer_container(1234, 20, 'a', 'c', 'o')
+        self.assertEqual(container, '0000001219')
+        container = utils.get_expirer_container(1234, 200, 'a', 'c', 'o')
+        self.assertEqual(container, '0000001199')
+
+
 class TestIterMultipartMimeDocuments(unittest.TestCase):
 
     def test_bad_start(self):
