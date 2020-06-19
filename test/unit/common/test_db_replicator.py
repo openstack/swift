@@ -324,7 +324,11 @@ class TestDBReplicator(unittest.TestCase):
         # later config should be extended to assert more config options
         replicator = TestReplicator({'node_timeout': '3.5'})
         self.assertEqual(replicator.node_timeout, 3.5)
-        self.assertEqual(replicator.databases_per_second, 50)
+        self.assertEqual(replicator.databases_per_second, 50.0)
+
+        replicator = TestReplicator({'databases_per_second': '0.1'})
+        self.assertEqual(replicator.node_timeout, 10)
+        self.assertEqual(replicator.databases_per_second, 0.1)
 
     def test_repl_connection(self):
         node = {'replication_ip': '127.0.0.1', 'replication_port': 80,

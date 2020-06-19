@@ -205,7 +205,7 @@ class Replicator(Daemon):
                                 ' to use option %(type)s-replicator/'
                                 'interval.'
                                 % {'type': self.server_type})
-        self.databases_per_second = int(
+        self.databases_per_second = float(
             conf.get('databases_per_second', 50))
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
