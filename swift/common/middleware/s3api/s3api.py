@@ -452,13 +452,15 @@ def filter_factory(global_conf, **local_conf):
     register_swift_info(
         's3api',
         # TODO: make default values as variables
-        max_bucket_listing=conf.get('max_bucket_listing', 1000),
-        max_parts_listing=conf.get('max_parts_listing', 1000),
-        max_upload_part_num=conf.get('max_upload_part_num', 1000),
-        max_multi_delete_objects=conf.get('max_multi_delete_objects', 1000),
-        allow_multipart_uploads=conf.get('allow_multipart_uploads', True),
-        min_segment_size=conf.get('min_segment_size', 5242880),
-        s3_acl=conf.get('s3_acl', False)
+        max_bucket_listing=int(conf.get('max_bucket_listing', 1000)),
+        max_parts_listing=int(conf.get('max_parts_listing', 1000)),
+        max_upload_part_num=int(conf.get('max_upload_part_num', 1000)),
+        max_multi_delete_objects=int(
+            conf.get('max_multi_delete_objects', 1000)),
+        allow_multipart_uploads=config_true_value(
+            conf.get('allow_multipart_uploads', True)),
+        min_segment_size=int(conf.get('min_segment_size', 5242880)),
+        s3_acl=config_true_value(conf.get('s3_acl', False)),
     )
 
     def s3api_filter(app):

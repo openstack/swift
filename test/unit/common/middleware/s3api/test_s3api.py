@@ -868,7 +868,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(elem.find('./ResourceType').text, 'ACL')
 
     def test_registered_defaults(self):
-        filter_factory(self.conf)
+        conf_from_file = {k: str(v) for k, v in self.conf.items()}
+        filter_factory(conf_from_file)
         swift_info = utils.get_swift_info()
         self.assertTrue('s3api' in swift_info)
         self.assertEqual(swift_info['s3api'].get('max_bucket_listing'),
