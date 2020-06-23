@@ -42,7 +42,7 @@ class TestS3ApiVersioning(S3ApiTestCase):
         status, headers, body = self._versioning_GET(path)
         self.assertEqual(status.split()[0], '200')
         elem = fromstring(body, 'VersioningConfiguration')
-        self.assertEqual(elem.getchildren(), [])
+        self.assertEqual(list(elem), [])
 
     def _versioning_GET_enabled(self, path):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket', HTTPNoContent, {

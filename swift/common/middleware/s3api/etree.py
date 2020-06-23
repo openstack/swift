@@ -92,7 +92,7 @@ def tostring(tree, use_s3ns=True, xml_declaration=True):
 
         root = Element(tree.tag, attrib=tree.attrib, nsmap=nsmap)
         root.text = tree.text
-        root.extend(deepcopy(tree.getchildren()))
+        root.extend(deepcopy(list(tree)))
         tree = root
 
     return lxml.etree.tostring(tree, xml_declaration=xml_declaration,

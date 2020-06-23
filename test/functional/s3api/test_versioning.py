@@ -58,7 +58,7 @@ class TestS3ApiVersioning(S3ApiBase):
             'GET', 'bucket', query='versioning')
         self.assertEqual(status, 200)
         elem = fromstring(body)
-        self.assertEqual(elem.getchildren(), [])
+        self.assertEqual(list(elem), [])
 
         # Enable versioning
         elem = Element('VersioningConfiguration')
@@ -108,7 +108,7 @@ class TestS3ApiVersioning(S3ApiBase):
             'GET', 'bucket', query='versioning')
         self.assertEqual(status, 200)
         elem = fromstring(body)
-        self.assertEqual(elem.getchildren(), [])
+        self.assertEqual(list(elem), [])
 
         # Suspend versioning
         elem = Element('VersioningConfiguration')
