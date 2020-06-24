@@ -40,7 +40,7 @@ import swift.proxy.server
 import swift.obj.server as obj_server
 import swift.container.server as container_server
 import swift.account.server as account_server
-from swift.common.swob import Request
+from swift.common.swob import Request, wsgi_to_bytes
 from swift.common import wsgi, utils
 from swift.common.storage_policy import POLICIES
 
@@ -1081,8 +1081,8 @@ class TestSwiftHttpProtocol(unittest.TestCase):
                 b'POST /?and+it=fixes+params&PALMTREE=%F0%9F%8C%B4 HTTP/1.1')
 
 
-class TestProxyProtocol(unittest.TestCase):
-    def _run_bytes_through_protocol(self, bytes_from_client, protocol_class):
+class ProtocolTest(unittest.TestCase):
+    def _run_bytes_through_protocol(self, bytes_from_client):
         rfile = BytesIO(bytes_from_client)
         wfile = BytesIO()
 
@@ -1105,21 +1105,6 @@ class TestProxyProtocol(unittest.TestCase):
             def waitall(self):
                 pass
 
-        def dinky_app(env, start_response):
-            start_response("200 OK", [])
-            body = '\r\n'.join([
-                'got addr: %s %s' % (
-                    env.get("REMOTE_ADDR", "<missing>"),
-                    env.get("REMOTE_PORT", "<missing>")),
-                'on addr: %s %s' % (
-                    env.get("SERVER_ADDR", "<missing>"),
-                    env.get("SERVER_PORT", "<missing>")),
-                'https is %s (scheme %s)' % (
-                    env.get("HTTPS", "<missing>"),
-                    env.get("wsgi.url_scheme", "<missing>")),
-            ]) + '\r\n'
-            return [body.encode("utf-8")]
-
         addr = ('127.0.0.1', 8359)
         fake_tcp_socket = mock.Mock(
             setsockopt=lambda *a: None,
@@ -1140,12 +1125,73 @@ class TestProxyProtocol(unittest.TestCase):
         with mock.patch.object(wfile, 'close', lambda: None), \
                 mock.patch.object(rfile, 'close', lambda: None):
             eventlet.wsgi.server(
-                fake_listen_socket, dinky_app,
-                protocol=protocol_class,
+                fake_listen_socket, self.app,
+                protocol=self.protocol_class,
                 custom_pool=FakePool(),
                 log_output=False,  # quiet the test run
             )
         return wfile.getvalue()
+
+
+class TestSwiftHttpProtocolSomeMore(ProtocolTest):
+    protocol_class = wsgi.SwiftHttpProtocol
+
+    @staticmethod
+    def app(env, start_response):
+        start_response("200 OK", [])
+        return [wsgi_to_bytes(env['RAW_PATH_INFO'])]
+
+    def test_simple(self):
+        bytes_out = self._run_bytes_through_protocol((
+            b"GET /someurl HTTP/1.0\r\n"
+            b"User-Agent: something or other\r\n"
+            b"\r\n"
+        ))
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[0], b"HTTP/1.1 200 OK")  # sanity check
+        self.assertEqual(lines[-1], b'/someurl')
+
+    def test_quoted(self):
+        bytes_out = self._run_bytes_through_protocol((
+            b"GET /some%fFpath%D8%AA HTTP/1.0\r\n"
+            b"User-Agent: something or other\r\n"
+            b"\r\n"
+        ))
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[0], b"HTTP/1.1 200 OK")  # sanity check
+        self.assertEqual(lines[-1], b'/some%fFpath%D8%AA')
+
+    def test_messy(self):
+        bytes_out = self._run_bytes_through_protocol((
+            b"GET /oh\xffboy%what$now%E2%80%bd HTTP/1.0\r\n"
+            b"User-Agent: something or other\r\n"
+            b"\r\n"
+        ))
+
+        lines = [l for l in bytes_out.split(b"\r\n") if l]
+        self.assertEqual(lines[-1], b'/oh\xffboy%what$now%E2%80%bd')
+
+
+class TestProxyProtocol(ProtocolTest):
+    protocol_class = wsgi.SwiftHttpProxiedProtocol
+
+    @staticmethod
+    def app(env, start_response):
+        start_response("200 OK", [])
+        body = '\r\n'.join([
+            'got addr: %s %s' % (
+                env.get("REMOTE_ADDR", "<missing>"),
+                env.get("REMOTE_PORT", "<missing>")),
+            'on addr: %s %s' % (
+                env.get("SERVER_ADDR", "<missing>"),
+                env.get("SERVER_PORT", "<missing>")),
+            'https is %s (scheme %s)' % (
+                env.get("HTTPS", "<missing>"),
+                env.get("wsgi.url_scheme", "<missing>")),
+        ]) + '\r\n'
+        return [body.encode("utf-8")]
 
     def test_request_with_proxy(self):
         bytes_out = self._run_bytes_through_protocol((
@@ -1153,7 +1199,7 @@ class TestProxyProtocol(unittest.TestCase):
             b"GET /someurl HTTP/1.0\r\n"
             b"User-Agent: something or other\r\n"
             b"\r\n"
-        ), wsgi.SwiftHttpProxiedProtocol)
+        ))
 
         lines = [l for l in bytes_out.split(b"\r\n") if l]
         self.assertEqual(lines[0], b"HTTP/1.1 200 OK")  # sanity check
@@ -1169,7 +1215,7 @@ class TestProxyProtocol(unittest.TestCase):
             b"GET /someurl HTTP/1.0\r\n"
             b"User-Agent: something or other\r\n"
             b"\r\n"
-        ), wsgi.SwiftHttpProxiedProtocol)
+        ))
 
         lines = [l for l in bytes_out.split(b"\r\n") if l]
         self.assertEqual(lines[0], b"HTTP/1.1 200 OK")  # sanity check
@@ -1189,7 +1235,7 @@ class TestProxyProtocol(unittest.TestCase):
             b"User-Agent: something or other\r\n"
             b"Connection: close\r\n"
             b"\r\n"
-        ), wsgi.SwiftHttpProxiedProtocol)
+        ))
 
         lines = bytes_out.split(b"\r\n")
         self.assertEqual(lines[0], b"HTTP/1.1 200 OK")  # sanity check
@@ -1208,7 +1254,7 @@ class TestProxyProtocol(unittest.TestCase):
             b"GET /someurl HTTP/1.0\r\n"
             b"User-Agent: something or other\r\n"
             b"\r\n"
-        ), wsgi.SwiftHttpProxiedProtocol)
+        ))
 
         lines = [l for l in bytes_out.split(b"\r\n") if l]
         self.assertIn(b"400 Invalid PROXY line", lines[0])
@@ -1218,8 +1264,7 @@ class TestProxyProtocol(unittest.TestCase):
                          b'PROXYjojo a b c d e',
                          b'PROXY a b c d e',  # bad INET protocol and family
                          ]:
-            bytes_out = self._run_bytes_through_protocol(
-                bad_line, wsgi.SwiftHttpProxiedProtocol)
+            bytes_out = self._run_bytes_through_protocol(bad_line)
             lines = [l for l in bytes_out.split(b"\r\n") if l]
             self.assertIn(b"400 Invalid PROXY line", lines[0])
 
@@ -1235,7 +1280,7 @@ class TestProxyProtocol(unittest.TestCase):
                                 b"GET /someurl HTTP/1.0\r\n"
                                 b"User-Agent: something or other\r\n"
                                 b"\r\n")
-            ), wsgi.SwiftHttpProxiedProtocol)
+            ))
             lines = [l for l in bytes_out.split(b"\r\n") if l]
             self.assertIn(b"200 OK", lines[0])
 
