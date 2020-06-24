@@ -244,7 +244,7 @@
     nodeset: centos-7
     description: |
       Setup a SAIO dev environment and run Swift's probe tests
-    timeout: 3600
+    timeout: 5400
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
