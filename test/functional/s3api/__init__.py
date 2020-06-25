@@ -15,6 +15,8 @@
 
 import unittest
 import traceback
+from contextlib import contextmanager
+import logging
 import test.functional as tf
 from test.functional.s3api.s3_test_client import (
     Connection, get_boto3_conn, tear_down_s3)
@@ -32,6 +34,14 @@ class S3ApiBase(unittest.TestCase):
     def __init__(self, method_name):
         super(S3ApiBase, self).__init__(method_name)
         self.method_name = method_name
+
+    @contextmanager
+    def quiet_boto_logging(self):
+        try:
+            logging.getLogger('boto').setLevel(logging.INFO)
+            yield
+        finally:
+            logging.getLogger('boto').setLevel(logging.DEBUG)
 
     def setUp(self):
         if 's3api' not in tf.cluster_info:

@@ -120,10 +120,6 @@ class S3Timestamp(utils.Timestamp):
         return self.isoformat.replace(
             '-', '').replace(':', '')[:-7] + 'Z'
 
-    @classmethod
-    def now(cls):
-        return cls(time.time())
-
 
 def mktime(timestamp_str, time_format='%Y-%m-%dT%H:%M:%S'):
     """
