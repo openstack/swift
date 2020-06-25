@@ -2068,6 +2068,21 @@ class ContainerBroker(DatabaseBroker):
         else:
             return {k: v[0] for k, v in info.items()}
 
+    def _get_root_meta(self):
+        """
+        Get the (unquoted) root path, plus the header the info came from.
+        If no info available, returns ``(None, None)``
+        """
+        path = self.get_sharding_sysmeta('Quoted-Root')
+        if path:
+            return 'X-Container-Sysmeta-Shard-Quoted-Root', unquote(path)
+
+        path = self.get_sharding_sysmeta('Root')
+        if path:
+            return 'X-Container-Sysmeta-Shard-Root', path
+
+        return None, None
+
     def _load_root_info(self):
         """
         Load the root container name and account for the container represented
@@ -2080,13 +2095,7 @@ class ContainerBroker(DatabaseBroker):
         ``container`` attributes respectively.
 
         """
-        path = self.get_sharding_sysmeta('Quoted-Root')
-        hdr = 'X-Container-Sysmeta-Shard-Quoted-Root'
-        if path:
-            path = unquote(path)
-        else:
-            path = self.get_sharding_sysmeta('Root')
-            hdr = 'X-Container-Sysmeta-Shard-Root'
+        hdr, path = self._get_root_meta()
 
         if not path:
             # Ensure account/container get populated
@@ -2125,9 +2134,25 @@ class ContainerBroker(DatabaseBroker):
         A root container is a container that is not a shard of another
         container.
         """
-        self._populate_instance_cache()
-        return (self.root_account == self.account and
-                self.root_container == self.container)
+        _, path = self._get_root_meta()
+        if path is not None:
+            # We have metadata telling us where the root is; it's authoritative
+            return self.path == path
+
+        # Else, we're either a root or a deleted shard.
+
+        # Use internal method so we don't try to update stats.
+        own_shard_range = self._own_shard_range(no_default=True)
+        if not own_shard_range:
+            return True  # Never been sharded
+
+        if own_shard_range.deleted:
+            # When shard ranges shrink, they get marked deleted
+            return False
+        else:
+            # But even when a root collapses, empties, and gets deleted, its
+            # own_shard_range is left alive
+            return True
 
     def _get_next_shard_range_upper(self, shard_size, last_upper=None):
         """

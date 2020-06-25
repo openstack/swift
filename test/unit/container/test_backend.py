@@ -445,6 +445,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertTrue(broker_to_test.empty())
 
         self.assertTrue(broker.empty())
+        self.assertFalse(broker.is_root_container())
         check_object_counted(broker, broker)
 
         # own shard range is not considered for object count
@@ -501,6 +502,20 @@ class TestContainerBroker(unittest.TestCase):
         own_sr.update_meta(3, 4, meta_timestamp=next(self.ts))
         broker.merge_shard_ranges([own_sr])
         self.assertTrue(broker.empty())
+        self.assertFalse(broker.is_deleted())
+        self.assertFalse(broker.is_root_container())
+
+        # sharder won't call delete_db() unless own_shard_range is deleted
+        own_sr.deleted = True
+        own_sr.timestamp = next(self.ts)
+        broker.merge_shard_ranges([own_sr])
+        broker.delete_db(next(self.ts).internal)
+
+        # Get a fresh broker, with instance cache unset
+        broker = ContainerBroker(db_path, account='.shards_a', container='cc')
+        self.assertTrue(broker.empty())
+        self.assertTrue(broker.is_deleted())
+        self.assertFalse(broker.is_root_container())
 
     def test_reclaim(self):
         broker = ContainerBroker(':memory:', account='test_account',
