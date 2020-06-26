@@ -1200,7 +1200,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             os.chdir(cwd)
 
         exp_curl = (
-            'curl -g -I -XHEAD '
+            'curl --path-as-is -g -I -XHEAD '
             '"http://{host}:{port}/{device}/{part}/AUTH_admin/c/obj" '
             '-H "X-Backend-Storage-Policy-Index: 2"').format(
                 host=node['ip'],
@@ -1241,7 +1241,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             os.chdir(cwd)
 
         exp_curl = (
-            'curl -g -I -XHEAD '
+            'curl --path-as-is -g -I -XHEAD '
             '"http://[{host}]:{port}'
             '/{device}/{part}/AUTH_admin/c/obj" ').format(
                 host=node['ip'],
