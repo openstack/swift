@@ -3666,10 +3666,8 @@ class TestObjectController(unittest.TestCase):
 
     def _create_ondisk_fragments(self, policy):
         # Create some on disk files...
-        ts_iter = make_timestamp_iter()
-
         # PUT at ts_0
-        ts_0 = next(ts_iter)
+        ts_0 = next(self.ts)
         body = b'OLDER'
         headers = {'X-Timestamp': ts_0.internal,
                    'Content-Length': '5',
@@ -3689,7 +3687,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
 
         # POST at ts_1
-        ts_1 = next(ts_iter)
+        ts_1 = next(self.ts)
         headers = {'X-Timestamp': ts_1.internal,
                    'X-Backend-Storage-Policy-Index': int(policy)}
         headers['X-Object-Meta-Test'] = 'abc'
@@ -3700,7 +3698,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 202)
 
         # PUT again at ts_2 but without making the data file durable
-        ts_2 = next(ts_iter)
+        ts_2 = next(self.ts)
         body = b'NEWER'
         headers = {'X-Timestamp': ts_2.internal,
                    'Content-Length': '5',
@@ -7165,8 +7163,8 @@ class TestObjectController(unittest.TestCase):
     def test_serv_reserv(self):
         # Test replication_server flag was set from configuration file.
         conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertEqual(
-            object_server.ObjectController(conf).replication_server, None)
+        self.assertTrue(
+            object_server.ObjectController(conf).replication_server)
         for val in [True, '1', 'True', 'true']:
             conf['replication_server'] = val
             self.assertTrue(
@@ -7276,8 +7274,8 @@ class TestObjectController(unittest.TestCase):
                          ' /sda1/p/a/c/o" 405 91 "-" "-" "-" 1.0000 "-"'
                          ' 1234 -'])
 
-    def test_call_incorrect_replication_method(self):
-        inbuf = StringIO()
+    def test_replication_server_call_all_methods(self):
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -7288,14 +7286,16 @@ class TestObjectController(unittest.TestCase):
             """Sends args to outbuf"""
             outbuf.write(args[0])
 
-        obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST', 'OPTIONS']
+        obj_methods = ['PUT', 'HEAD', 'GET', 'POST', 'DELETE', 'OPTIONS']
         for method in obj_methods:
             env = {'REQUEST_METHOD': method,
+                   'HTTP_X_TIMESTAMP': next(self.ts).internal,
                    'SCRIPT_NAME': '',
-                   'PATH_INFO': '/sda1/p/a/c',
+                   'PATH_INFO': '/sda1/p/a/c/o',
                    'SERVER_NAME': '127.0.0.1',
                    'SERVER_PORT': '8080',
                    'SERVER_PROTOCOL': 'HTTP/1.0',
+                   'CONTENT_TYPE': 'text/plain',
                    'CONTENT_LENGTH': '0',
                    'wsgi.version': (1, 0),
                    'wsgi.url_scheme': 'http',
@@ -7306,7 +7306,7 @@ class TestObjectController(unittest.TestCase):
                    'wsgi.run_once': False}
             self.object_controller(env, start_response)
             self.assertEqual(errbuf.getvalue(), '')
-            self.assertEqual(outbuf.getvalue()[:4], '405 ')
+            self.assertIn(outbuf.getvalue()[:4], ('201 ', '204 ', '200 '))
 
     def test_create_reserved_namespace_object(self):
         path = '/sda1/p/a/%sc/%so' % (utils.RESERVED_STR, utils.RESERVED_STR)

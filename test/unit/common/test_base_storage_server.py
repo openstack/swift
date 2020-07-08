@@ -20,7 +20,7 @@ from swift.common.base_storage_server import BaseStorageServer
 from tempfile import mkdtemp
 from swift import __version__ as swift_version
 from swift.common.swob import Request
-from swift.common.utils import get_logger, public
+from swift.common.utils import get_logger, public, replication
 from shutil import rmtree
 
 
@@ -38,6 +38,18 @@ class FakeANOTHER(FakeOPTIONS):
     @public
     def ANOTHER(self):
         """this is to test adding to allowed_methods"""
+        pass
+
+    @replication
+    @public
+    def REPLICATE(self):
+        """this is to test replication_server"""
+        pass
+
+    @public
+    @replication
+    def REPLICATE2(self):
+        """this is to test replication_server"""
         pass
 
 
@@ -73,18 +85,20 @@ class TestBaseStorageServer(unittest.TestCase):
         # test that a subclass can add allowed methods
         allowed_methods_test = FakeANOTHER(conf).allowed_methods
         allowed_methods_test.sort()
-        self.assertEqual(allowed_methods_test, ['ANOTHER', 'OPTIONS'])
+        self.assertEqual(allowed_methods_test, [
+            'ANOTHER', 'OPTIONS'])
 
         conf = {'devices': self.testdir, 'mount_check': 'false',
                 'replication_server': 'true'}
 
         # test what's available in the base class
         allowed_methods_test = FakeOPTIONS(conf).allowed_methods
-        self.assertEqual(allowed_methods_test, [])
+        self.assertEqual(allowed_methods_test, ['OPTIONS'])
 
         # test that a subclass can add allowed methods
         allowed_methods_test = FakeANOTHER(conf).allowed_methods
-        self.assertEqual(allowed_methods_test, [])
+        self.assertEqual(allowed_methods_test, [
+            'ANOTHER', 'OPTIONS', 'REPLICATE', 'REPLICATE2'])
 
         conf = {'devices': self.testdir, 'mount_check': 'false'}
 
@@ -95,7 +109,8 @@ class TestBaseStorageServer(unittest.TestCase):
         # test that a subclass can add allowed methods
         allowed_methods_test = FakeANOTHER(conf).allowed_methods
         allowed_methods_test.sort()
-        self.assertEqual(allowed_methods_test, ['ANOTHER', 'OPTIONS'])
+        self.assertEqual(allowed_methods_test, [
+            'ANOTHER', 'OPTIONS', 'REPLICATE', 'REPLICATE2'])
 
     def test_OPTIONS_error(self):
         msg = 'Storage nodes have not implemented the Server type.'

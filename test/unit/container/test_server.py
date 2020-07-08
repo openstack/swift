@@ -4819,7 +4819,7 @@ class TestContainerController(unittest.TestCase):
         # Test replication_server flag was set from configuration file.
         container_controller = container_server.ContainerController
         conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertIsNone(container_controller(conf).replication_server)
+        self.assertTrue(container_controller(conf).replication_server)
         for val in [True, '1', 'True', 'true']:
             conf['replication_server'] = val
             self.assertTrue(container_controller(conf).replication_server)
@@ -4917,7 +4917,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(response, answer)
             self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
-    def test_call_incorrect_replication_method(self):
+    def test_replication_server_call_all_methods(self):
         inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
@@ -4929,7 +4929,7 @@ class TestContainerController(unittest.TestCase):
             """Sends args to outbuf"""
             outbuf.writelines(status)
 
-        obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST', 'OPTIONS']
+        obj_methods = ['PUT', 'HEAD', 'GET', 'POST', 'DELETE', 'OPTIONS']
         for method in obj_methods:
             env = {'REQUEST_METHOD': method,
                    'SCRIPT_NAME': '',
@@ -4937,6 +4937,7 @@ class TestContainerController(unittest.TestCase):
                    'SERVER_NAME': '127.0.0.1',
                    'SERVER_PORT': '8080',
                    'SERVER_PROTOCOL': 'HTTP/1.0',
+                   'HTTP_X_TIMESTAMP': next(self.ts).internal,
                    'CONTENT_LENGTH': '0',
                    'wsgi.version': (1, 0),
                    'wsgi.url_scheme': 'http',
@@ -4947,7 +4948,7 @@ class TestContainerController(unittest.TestCase):
                    'wsgi.run_once': False}
             self.controller(env, start_response)
             self.assertEqual(errbuf.getvalue(), '')
-            self.assertEqual(outbuf.getvalue()[:4], '405 ')
+            self.assertIn(outbuf.getvalue()[:4], ('200 ', '201 ', '204 '))
 
     def test__call__raise_timeout(self):
         inbuf = WsgiBytesIO()

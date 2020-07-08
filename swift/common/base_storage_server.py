@@ -27,10 +27,8 @@ class BaseStorageServer(object):
 
     def __init__(self, conf, **kwargs):
         self._allowed_methods = None
-        replication_server = conf.get('replication_server', None)
-        if replication_server is not None:
-            replication_server = config_true_value(replication_server)
-        self.replication_server = replication_server
+        self.replication_server = config_true_value(
+            conf.get('replication_server', 'true'))
         self.log_format = conf.get('log_format', LOG_LINE_DEFAULT_FORMAT)
         self.anonymization_method = conf.get('log_anonymization_method', 'md5')
         self.anonymization_salt = conf.get('log_anonymization_salt', '')
@@ -45,22 +43,13 @@ class BaseStorageServer(object):
         if self._allowed_methods is None:
             self._allowed_methods = []
             all_methods = inspect.getmembers(self, predicate=callable)
-
-            if self.replication_server is True:
-                for name, m in all_methods:
-                    if (getattr(m, 'publicly_accessible', False) and
-                            getattr(m, 'replication', False)):
-                        self._allowed_methods.append(name)
-            elif self.replication_server is False:
-                for name, m in all_methods:
-                    if (getattr(m, 'publicly_accessible', False) and not
-                            getattr(m, 'replication', False)):
-                        self._allowed_methods.append(name)
-            elif self.replication_server is None:
-                for name, m in all_methods:
-                    if getattr(m, 'publicly_accessible', False):
-                        self._allowed_methods.append(name)
-
+            for name, m in all_methods:
+                if not getattr(m, 'publicly_accessible', False):
+                    continue
+                if getattr(m, 'replication', False) and \
+                        not self.replication_server:
+                    continue
+                self._allowed_methods.append(name)
             self._allowed_methods.sort()
         return self._allowed_methods
 

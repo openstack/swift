@@ -156,13 +156,13 @@ use = egg:swift#object
 #
 # eventlet_tpool_num_threads = auto
 
-# Configure parameter for creating specific server
-# To handle all verbs, including replication verbs, do not specify
-# "replication_server" (this is the default). To only handle replication,
-# set to a True value (e.g. "True" or "1"). To handle only non-replication
-# verbs, set to "False". Unless you have a separate replication network, you
-# should not specify any value for "replication_server".
-# replication_server = false
+# You can disable REPLICATE and SSYNC handling (default is to allow it). When
+# deploying a cluster with a separate replication network, you'll want multiple
+# object-server processes running: one for client-driven traffic and another
+# for replication traffic. The server handling client-driven traffic may set
+# this to false. If there is only one object-server process, leave this as
+# true.
+# replication_server = true
 #
 # Set to restrict the number of concurrent incoming SSYNC requests
 # Set to 0 for unlimited
