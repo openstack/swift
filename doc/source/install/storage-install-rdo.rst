@@ -159,3 +159,14 @@ Install and configure components
       # mkdir -p /var/cache/swift
       # chown -R root:swift /var/cache/swift
       # chmod -R 775 /var/cache/swift
+
+8. Enable necessary access in the firewall
+
+   .. code-block:: console
+
+      # firewall-cmd --permanent --add-port=6200/tcp
+      # firewall-cmd --permanent --add-port=6201/tcp
+      # firewall-cmd --permanent --add-port=6202/tcp
+
+   The rsync service includes its own firewall configuration.
+   Connect from one node to another to ensure that access is allowed.
