@@ -27,7 +27,7 @@ from swift.common.swob import Request, bytes_to_wsgi, str_to_wsgi, wsgi_quote
 from swift.common.utils import ShardRange, Timestamp
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info, \
-    Controller, get_container_info
+    Controller, get_container_info, get_cache_key
 from test import annotate_failure
 from test.unit import fake_http_connect, FakeRing, FakeMemcache, \
     make_timestamp_iter
@@ -49,7 +49,7 @@ class TestContainerController(TestRingBase):
         self.logger = debug_logger()
         self.container_ring = FakeRing(replicas=self.CONTAINER_REPLICAS,
                                        max_more_nodes=9)
-        self.app = proxy_server.Application(None, FakeMemcache(),
+        self.app = proxy_server.Application(None,
                                             logger=self.logger,
                                             account_ring=FakeRing(),
                                             container_ring=self.container_ring)
@@ -97,7 +97,9 @@ class TestContainerController(TestRingBase):
             with mock.patch(
                     'swift.proxy.controllers.base.http_connect',
                     fake_http_connect(*responses)):
-                req = Request.blank('/v1/a/c')
+                cache = FakeMemcache()
+                cache.set(get_cache_key('a'), {'status': 204})
+                req = Request.blank('/v1/a/c', environ={'swift.cache': cache})
                 resp = getattr(controller, method)(req)
 
             self.assertEqual(expected,
@@ -106,9 +108,10 @@ class TestContainerController(TestRingBase):
                              (expected, resp.status_int, str(responses)))
 
     def test_container_info_got_cached(self):
+        memcache = FakeMemcache()
         controller = proxy_server.ContainerController(self.app, 'a', 'c')
         with mocked_http_conn(200, 200) as mock_conn:
-            req = Request.blank('/v1/a/c')
+            req = Request.blank('/v1/a/c', {'swift.cache': memcache})
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
         self.assertEqual(['/a', '/a/c'],
@@ -119,12 +122,13 @@ class TestContainerController(TestRingBase):
         info_cache = resp.environ['swift.infocache']
         self.assertIn("container/a/c", resp.environ['swift.infocache'])
         self.assertEqual(header_info, info_cache['container/a/c'])
-        self.assertEqual(header_info, self.app.memcache.get('container/a/c'))
+        self.assertEqual(header_info, memcache.get('container/a/c'))
 
         # The failure doesn't lead to cache eviction
         errors = [500] * self.CONTAINER_REPLICAS * 2
         with mocked_http_conn(*errors) as mock_conn:
-            req = Request.blank('/v1/a/c', {'swift.infocache': info_cache})
+            req = Request.blank('/v1/a/c', {'swift.infocache': info_cache,
+                                            'swift.cache': memcache})
             resp = controller.HEAD(req)
         self.assertEqual(5, resp.status_int // 100)
         self.assertEqual(['/a/c'] * self.CONTAINER_REPLICAS * 2,
@@ -134,7 +138,7 @@ class TestContainerController(TestRingBase):
         self.assertIn("container/a/c", resp.environ['swift.infocache'])
         # NB: this is the *old* header_info, from the good req
         self.assertEqual(header_info, info_cache['container/a/c'])
-        self.assertEqual(header_info, self.app.memcache.get('container/a/c'))
+        self.assertEqual(header_info, memcache.get('container/a/c'))
 
     @mock.patch('swift.proxy.controllers.container.clear_info_cache')
     @mock.patch.object(Controller, 'make_requests')

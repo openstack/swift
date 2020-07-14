@@ -182,7 +182,7 @@ class FakeCache(FakeMemcache):
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestFuncs(unittest.TestCase):
     def setUp(self):
-        self.app = proxy_server.Application(None, FakeMemcache(),
+        self.app = proxy_server.Application(None,
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
                                             logger=FakeLogger())
@@ -710,7 +710,7 @@ class TestFuncs(unittest.TestCase):
             resp,
             headers_to_container_info(headers.items(), 200))
 
-    def test_container_info_without_req(self):
+    def test_container_info_needs_req(self):
         base = Controller(self.app)
         base.account_name = 'a'
         base.container_name = 'c'
@@ -719,7 +719,7 @@ class TestFuncs(unittest.TestCase):
                         'http_connect', fake_http_connect(200)):
             container_info = \
                 base.container_info(base.account_name,
-                                    base.container_name)
+                                    base.container_name, Request.blank('/'))
         self.assertEqual(container_info['status'], 0)
 
     def test_headers_to_account_info_missing(self):

@@ -24,7 +24,7 @@ from swift.common.middleware import copy
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPException
 from swift.common.utils import closing_if_possible
-from test.unit import patch_policies, debug_logger, FakeMemcache, FakeRing
+from test.unit import patch_policies, debug_logger, FakeRing
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.proxy.controllers.test_obj import set_http_connect, \
     PatchedObjControllerApp
@@ -1316,7 +1316,7 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
         self.logger = debug_logger('proxy-server')
         self.logger.thread_locals = ('txn1', '127.0.0.2')
         self.app = PatchedObjControllerApp(
-            None, FakeMemcache(), account_ring=FakeRing(),
+            None, account_ring=FakeRing(),
             container_ring=FakeRing(), logger=self.logger)
         self.ssc = copy.filter_factory({})(self.app)
         self.ssc.logger = self.app.logger

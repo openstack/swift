@@ -32,7 +32,7 @@ from swift.common import constraints
 from swift.common.http import is_server_error
 from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring
-from swift.common.utils import Watchdog, cache_from_env, get_logger, \
+from swift.common.utils import Watchdog, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     register_swift_info, readconf, config_auto_int_value
@@ -170,7 +170,7 @@ class ProxyOverrideOptions(object):
 class Application(object):
     """WSGI application for the proxy server."""
 
-    def __init__(self, conf, memcache=None, logger=None, account_ring=None,
+    def __init__(self, conf, logger=None, account_ring=None,
                  container_ring=None):
         if conf is None:
             conf = {}
@@ -218,7 +218,6 @@ class Application(object):
         for policy in POLICIES:
             policy.load_ring(swift_dir)
         self.obj_controller_router = ObjectControllerRouter()
-        self.memcache = memcache
         mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
         self.account_autocreate = \
@@ -454,8 +453,6 @@ class Application(object):
         :param start_response: WSGI callable
         """
         try:
-            if self.memcache is None:
-                self.memcache = cache_from_env(env, True)
             req = self.update_request(Request(env))
             return self.handle_request(req)(env, start_response)
         except UnicodeError:
