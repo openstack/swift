@@ -149,7 +149,7 @@ class TestReconstructorRebuild(ECProbeTest):
         # delete partitions on the failed nodes and remove durable marker from
         # non-durable nodes
         for i, node in enumerate(self.onodes):
-            part_dir = self.storage_dir('object', node, part=self.opart)
+            part_dir = self.storage_dir(node, part=self.opart)
             if i in failed:
                 shutil.rmtree(part_dir, True)
                 try:
@@ -312,7 +312,7 @@ class TestReconstructorRebuild(ECProbeTest):
             partner_node, self.opart)
 
         # and 507 the failed partner device
-        device_path = self.device_dir('object', partner_node)
+        device_path = self.device_dir(partner_node)
         self.kill_drive(device_path)
 
         # reconstruct from the primary, while one of it's partners is 507'd
@@ -412,7 +412,7 @@ class TestReconstructorRebuild(ECProbeTest):
                           self.object_name, headers=headers, contents=contents)
         # fail a primary
         post_fail_node = random.choice(onodes)
-        post_fail_path = self.device_dir('object', post_fail_node)
+        post_fail_path = self.device_dir(post_fail_node)
         self.kill_drive(post_fail_path)
         # post over w/o x-delete-at
         client.post_object(self.url, self.token, self.container_name,

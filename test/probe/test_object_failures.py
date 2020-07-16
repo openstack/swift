@@ -233,7 +233,7 @@ class TestECObjectFailures(ECProbeTest):
 
         # make all fragments non-durable
         for node in onodes:
-            part_dir = self.storage_dir('object', node, part=opart)
+            part_dir = self.storage_dir(node, part=opart)
             for dirs, subdirs, files in os.walk(part_dir):
                 for fname in files:
                     if fname.endswith('.data'):

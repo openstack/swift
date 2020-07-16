@@ -79,8 +79,8 @@ class TestReconstructorRevert(ECProbeTest):
         # kill 2 a parity count number of primary nodes so we can
         # force data onto handoffs, we do that by renaming dev dirs
         # to induce 507
-        p_dev1 = self.device_dir('object', onodes[0])
-        p_dev2 = self.device_dir('object', onodes[1])
+        p_dev1 = self.device_dir(onodes[0])
+        p_dev2 = self.device_dir(onodes[1])
         self.kill_drive(p_dev1)
         self.kill_drive(p_dev2)
 
@@ -108,7 +108,7 @@ class TestReconstructorRevert(ECProbeTest):
                           (onode,))
 
         # now take out another primary
-        p_dev3 = self.device_dir('object', onodes[2])
+        p_dev3 = self.device_dir(onodes[2])
         self.kill_drive(p_dev3)
 
         # this node can't servce the data any more
@@ -177,7 +177,7 @@ class TestReconstructorRevert(ECProbeTest):
         # now lets shut down a couple of primaries
         failed_nodes = random.sample(onodes, 2)
         for node in failed_nodes:
-            self.kill_drive(self.device_dir('object', node))
+            self.kill_drive(self.device_dir(node))
 
         # Write tombstones over the nodes that are still online
         client.delete_object(self.url, self.token,
@@ -228,8 +228,8 @@ class TestReconstructorRevert(ECProbeTest):
             self.fail('Found obj data on %r' % hnodes[1])
 
         # repair the primaries
-        self.revive_drive(self.device_dir('object', failed_nodes[0]))
-        self.revive_drive(self.device_dir('object', failed_nodes[1]))
+        self.revive_drive(self.device_dir(failed_nodes[0]))
+        self.revive_drive(self.device_dir(failed_nodes[1]))
 
         # run reconstructor on second handoff
         self.reconstructor.once(number=self.config_number(hnodes[1]))
@@ -274,7 +274,7 @@ class TestReconstructorRevert(ECProbeTest):
         primary_node = node_list[0]
 
         # ... and 507 it's device
-        primary_device = self.device_dir('object', primary_node)
+        primary_device = self.device_dir(primary_node)
         self.kill_drive(primary_device)
 
         # PUT object
@@ -316,7 +316,7 @@ class TestReconstructorRevert(ECProbeTest):
                     # machine as the primary!
                     continue
                 # use the primary nodes device - not the hnode device
-                part_dir = self.storage_dir('object', node, part=opart)
+                part_dir = self.storage_dir(node, part=opart)
                 shutil.rmtree(part_dir, True)
 
         # revert from handoff device with reconstructor
@@ -343,7 +343,7 @@ class TestReconstructorRevert(ECProbeTest):
             else:
                 # I wonder what happened?
                 self.fail('Partner inexplicably missing fragment!')
-        part_dir = self.storage_dir('object', partner, part=opart)
+        part_dir = self.storage_dir(partner, part=opart)
         shutil.rmtree(part_dir, True)
 
         # sanity, it's gone

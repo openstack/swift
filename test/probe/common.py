@@ -416,7 +416,7 @@ class ProbeTest(unittest.TestCase):
     def tearDown(self):
         Manager(['all']).kill()
 
-    def device_dir(self, server, node):
+    def device_dir(self, node):
         server_type, config_number = get_server_number(
             (node['ip'], node['port']), self.ipport2server)
         repl_server = '%s-replicator' % server_type
@@ -424,9 +424,9 @@ class ProbeTest(unittest.TestCase):
                         section_name=repl_server)
         return os.path.join(conf['devices'], node['device'])
 
-    def storage_dir(self, server, node, part=None, policy=None):
+    def storage_dir(self, node, part=None, policy=None):
         policy = policy or self.policy
-        device_path = self.device_dir(server, node)
+        device_path = self.device_dir(node)
         path_parts = [device_path, get_data_dir(policy)]
         if part is not None:
             path_parts.append(str(part))
@@ -526,7 +526,7 @@ class ProbeTest(unittest.TestCase):
         """
         async_pendings = []
         for onode in onodes:
-            device_dir = self.device_dir('', onode)
+            device_dir = self.device_dir(onode)
             for ap_pol_dir in os.listdir(device_dir):
                 if not ap_pol_dir.startswith('async_pending'):
                     # skip 'objects', 'containers', etc.

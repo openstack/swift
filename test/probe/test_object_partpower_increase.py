@@ -50,7 +50,7 @@ class TestPartPowerIncrease(ProbeTest):
         self.data = ' ' * getattr(self.policy, 'ec_segment_size', 1)
 
         self.devices = [
-            self.device_dir('object', {'ip': ip, 'port': port, 'device': ''})
+            self.device_dir({'ip': ip, 'port': port, 'device': ''})
             for ip, port in {(dev['ip'], dev['port'])
                              for dev in self.object_ring.devs}]
 
@@ -80,7 +80,7 @@ class TestPartPowerIncrease(ProbeTest):
             self.account, container, obj)
         for node in onodes:
             start_dir = os.path.join(
-                self.device_dir('object', node),
+                self.device_dir(node),
                 get_data_dir(self.policy),
                 str(opart))
             for root, dirs, files in os.walk(start_dir):
