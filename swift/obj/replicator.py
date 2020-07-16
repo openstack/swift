@@ -687,6 +687,9 @@ class ObjectReplicator(Daemon):
                     suffixes = [suffix for suffix in local_hash if
                                 local_hash[suffix] !=
                                 remote_hash.get(suffix, -1)]
+                    if not suffixes:
+                        stats.hashmatch += 1
+                        continue
                     stats.rsync += 1
                     success, _junk = self.sync(node, job, suffixes)
                     with Timeout(self.http_timeout):
