@@ -221,7 +221,7 @@ class SwiftRecon(object):
         Compare ring md5sum's with those on remote host
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         :param swift_dir: The local directory with the ring files.
         """
         matches = 0
@@ -275,7 +275,7 @@ class SwiftRecon(object):
         Compare swift.conf md5sum with that on remote hosts
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         :param printfn: function to print text; defaults to print()
         """
         matches = 0
@@ -307,7 +307,7 @@ class SwiftRecon(object):
         Obtain and print async pending statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         scan = {}
         recon = Scout("async", self.verbose, self.suppress_errors,
@@ -329,7 +329,7 @@ class SwiftRecon(object):
         Obtain and print drive audit error statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)]
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)]
         """
         scan = {}
         recon = Scout("driveaudit", self.verbose, self.suppress_errors,
@@ -351,7 +351,7 @@ class SwiftRecon(object):
         Check for and print unmounted drives
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         unmounted = {}
         errors = {}
@@ -384,7 +384,7 @@ class SwiftRecon(object):
         Check for server types on the ring
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         errors = {}
         recon = Scout("server_type_check", self.verbose, self.suppress_errors,
@@ -407,7 +407,7 @@ class SwiftRecon(object):
         Obtain and print expirer statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         stats = {'object_expiration_pass': [], 'expired_last_pass': []}
         recon = Scout("expirer/%s" % self.server_type, self.verbose,
@@ -436,7 +436,7 @@ class SwiftRecon(object):
         Obtain and print replication statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         stats = {'replication_time': [], 'failure': [], 'success': [],
                  'attempted': []}
@@ -504,7 +504,7 @@ class SwiftRecon(object):
         Obtain and print updater statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         stats = []
         recon = Scout("updater/%s" % self.server_type, self.verbose,
@@ -531,7 +531,7 @@ class SwiftRecon(object):
         Obtain and print obj auditor statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         scan = {}
         adone = '%s_auditor_pass_completed' % self.server_type
@@ -603,7 +603,7 @@ class SwiftRecon(object):
         Obtain and print obj auditor statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         all_scan = {}
         zbf_scan = {}
@@ -679,7 +679,7 @@ class SwiftRecon(object):
         Obtain and print load average statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         load1 = {}
         load5 = {}
@@ -708,7 +708,7 @@ class SwiftRecon(object):
         Obtain and print quarantine statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         objq = {}
         conq = {}
@@ -742,7 +742,7 @@ class SwiftRecon(object):
         Obtain and print /proc/net/sockstat statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         inuse4 = {}
         mem = {}
@@ -776,7 +776,7 @@ class SwiftRecon(object):
         Obtain and print disk usage statistics
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         stats = {}
         highs = []
@@ -875,7 +875,7 @@ class SwiftRecon(object):
         Check a time synchronization of hosts with current time
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         :param jitter: Maximal allowed time jitter
         """
 
@@ -914,7 +914,7 @@ class SwiftRecon(object):
         Check OS Swift version of hosts. Inform if differs.
 
         :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+            set([('127.0.0.1', 6220), ('127.0.0.2', 6230)])
         """
         versions = set()
         errors = 0

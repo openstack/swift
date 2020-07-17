@@ -385,18 +385,18 @@ Setting up rsync
 
    You should see the following output from the above command::
 
-      account6012
-      account6022
-      account6032
-      account6042
-      container6011
-      container6021
-      container6031
-      container6041
-      object6010
-      object6020
-      object6030
-      object6040
+      account6212
+      account6222
+      account6232
+      account6242
+      container6211
+      container6221
+      container6231
+      container6241
+      object6210
+      object6220
+      object6230
+      object6240
 
 ------------------
 Starting memcached
@@ -670,34 +670,34 @@ Constructing initial rings
 
    .. code-block:: console
 
-      Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
-      Device d1r1z2-127.0.0.2:6020R127.0.0.2:6020/sdb2_"" with 1.0 weight got id 1
-      Device d2r1z3-127.0.0.3:6030R127.0.0.3:6030/sdb3_"" with 1.0 weight got id 2
-      Device d3r1z4-127.0.0.4:6040R127.0.0.4:6040/sdb4_"" with 1.0 weight got id 3
+      Device d0r1z1-127.0.0.1:6210R127.0.0.1:6210/sdb1_"" with 1.0 weight got id 0
+      Device d1r1z2-127.0.0.2:6220R127.0.0.2:6220/sdb2_"" with 1.0 weight got id 1
+      Device d2r1z3-127.0.0.3:6230R127.0.0.3:6230/sdb3_"" with 1.0 weight got id 2
+      Device d3r1z4-127.0.0.4:6240R127.0.0.4:6240/sdb4_"" with 1.0 weight got id 3
       Reassigned 3072 (300.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
-      Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
-      Device d1r1z2-127.0.0.2:6020R127.0.0.2:6020/sdb2_"" with 1.0 weight got id 1
-      Device d2r1z3-127.0.0.3:6030R127.0.0.3:6030/sdb3_"" with 1.0 weight got id 2
-      Device d3r1z4-127.0.0.4:6040R127.0.0.4:6040/sdb4_"" with 1.0 weight got id 3
+      Device d0r1z1-127.0.0.1:6210R127.0.0.1:6210/sdb1_"" with 1.0 weight got id 0
+      Device d1r1z2-127.0.0.2:6220R127.0.0.2:6220/sdb2_"" with 1.0 weight got id 1
+      Device d2r1z3-127.0.0.3:6230R127.0.0.3:6230/sdb3_"" with 1.0 weight got id 2
+      Device d3r1z4-127.0.0.4:6240R127.0.0.4:6240/sdb4_"" with 1.0 weight got id 3
       Reassigned 2048 (200.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
-      Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
-      Device d1r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb5_"" with 1.0 weight got id 1
-      Device d2r1z2-127.0.0.2:6020R127.0.0.2:6020/sdb2_"" with 1.0 weight got id 2
-      Device d3r1z2-127.0.0.2:6020R127.0.0.2:6020/sdb6_"" with 1.0 weight got id 3
-      Device d4r1z3-127.0.0.3:6030R127.0.0.3:6030/sdb3_"" with 1.0 weight got id 4
-      Device d5r1z3-127.0.0.3:6030R127.0.0.3:6030/sdb7_"" with 1.0 weight got id 5
-      Device d6r1z4-127.0.0.4:6040R127.0.0.4:6040/sdb4_"" with 1.0 weight got id 6
-      Device d7r1z4-127.0.0.4:6040R127.0.0.4:6040/sdb8_"" with 1.0 weight got id 7
+      Device d0r1z1-127.0.0.1:6210R127.0.0.1:6210/sdb1_"" with 1.0 weight got id 0
+      Device d1r1z1-127.0.0.1:6210R127.0.0.1:6210/sdb5_"" with 1.0 weight got id 1
+      Device d2r1z2-127.0.0.2:6220R127.0.0.2:6220/sdb2_"" with 1.0 weight got id 2
+      Device d3r1z2-127.0.0.2:6220R127.0.0.2:6220/sdb6_"" with 1.0 weight got id 3
+      Device d4r1z3-127.0.0.3:6230R127.0.0.3:6230/sdb3_"" with 1.0 weight got id 4
+      Device d5r1z3-127.0.0.3:6230R127.0.0.3:6230/sdb7_"" with 1.0 weight got id 5
+      Device d6r1z4-127.0.0.4:6240R127.0.0.4:6240/sdb4_"" with 1.0 weight got id 6
+      Device d7r1z4-127.0.0.4:6240R127.0.0.4:6240/sdb8_"" with 1.0 weight got id 7
       Reassigned 6144 (600.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
-      Device d0r1z1-127.0.0.1:6011R127.0.0.1:6011/sdb1_"" with 1.0 weight got id 0
-      Device d1r1z2-127.0.0.2:6021R127.0.0.2:6021/sdb2_"" with 1.0 weight got id 1
-      Device d2r1z3-127.0.0.3:6031R127.0.0.3:6031/sdb3_"" with 1.0 weight got id 2
-      Device d3r1z4-127.0.0.4:6041R127.0.0.4:6041/sdb4_"" with 1.0 weight got id 3
+      Device d0r1z1-127.0.0.1:6211R127.0.0.1:6211/sdb1_"" with 1.0 weight got id 0
+      Device d1r1z2-127.0.0.2:6221R127.0.0.2:6221/sdb2_"" with 1.0 weight got id 1
+      Device d2r1z3-127.0.0.3:6231R127.0.0.3:6231/sdb3_"" with 1.0 weight got id 2
+      Device d3r1z4-127.0.0.4:6241R127.0.0.4:6241/sdb4_"" with 1.0 weight got id 3
       Reassigned 3072 (300.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
-      Device d0r1z1-127.0.0.1:6012R127.0.0.1:6012/sdb1_"" with 1.0 weight got id 0
-      Device d1r1z2-127.0.0.2:6022R127.0.0.2:6022/sdb2_"" with 1.0 weight got id 1
-      Device d2r1z3-127.0.0.3:6032R127.0.0.3:6032/sdb3_"" with 1.0 weight got id 2
-      Device d3r1z4-127.0.0.4:6042R127.0.0.4:6042/sdb4_"" with 1.0 weight got id 3
+      Device d0r1z1-127.0.0.1:6212R127.0.0.1:6212/sdb1_"" with 1.0 weight got id 0
+      Device d1r1z2-127.0.0.2:6222R127.0.0.2:6222/sdb2_"" with 1.0 weight got id 1
+      Device d2r1z3-127.0.0.3:6232R127.0.0.3:6232/sdb3_"" with 1.0 weight got id 2
+      Device d3r1z4-127.0.0.4:6242R127.0.0.4:6242/sdb4_"" with 1.0 weight got id 3
       Reassigned 3072 (300.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
 
 

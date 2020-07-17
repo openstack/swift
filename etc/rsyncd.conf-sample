@@ -56,26 +56,26 @@ lock file = /var/lock/object.lock
 #
 # So, on your SAIO, you have to set the following rsyncd configuration:
 #
-#[object6010]
+#[object6210]
 #max connections = 25
 #path = /srv/1/node/
 #read only = false
-#lock file = /var/lock/object6010.lock
+#lock file = /var/lock/object6210.lock
 #
-#[object6020]
+#[object6220]
 #max connections = 25
 #path = /srv/2/node/
 #read only = false
-#lock file = /var/lock/object6020.lock
+#lock file = /var/lock/object6220.lock
 #
-#[object6030]
+#[object6230]
 #max connections = 25
 #path = /srv/3/node/
 #read only = false
-#lock file = /var/lock/object6030.lock
+#lock file = /var/lock/object6230.lock
 #
-#[object6040]
+#[object6240]
 #max connections = 25
 #path = /srv/4/node/
 #read only = false
-#lock file = /var/lock/object6040.lock
+#lock file = /var/lock/object6240.lock
