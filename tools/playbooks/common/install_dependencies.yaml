@@ -17,6 +17,11 @@
   roles:
     - ensure-pip
   tasks:
+    - name: upgrade pip
+      pip:
+        name: pip
+        extra_args: --upgrade
+
     - name: installing dependencies
       yum: name={{ item }} state=present
       with_items:
