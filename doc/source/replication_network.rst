@@ -31,24 +31,41 @@ node's standard IP and port will be used for replication.
 For SAIO replication
 --------------------
 
-#. Create new script in ~/bin/ (for example: remakerings_new)::
+#. Create new script in ``~/bin/`` (for example: ``remakerings_new``)::
 
         #!/bin/bash
+        set -e
         cd /etc/swift
         rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
-        swift-ring-builder object.builder create 18 3 1
+        swift-ring-builder object.builder create 10 3 1
         swift-ring-builder object.builder add z1-127.0.0.1:6010R127.0.0.1:6050/sdb1 1
         swift-ring-builder object.builder add z2-127.0.0.1:6020R127.0.0.1:6060/sdb2 1
         swift-ring-builder object.builder add z3-127.0.0.1:6030R127.0.0.1:6070/sdb3 1
         swift-ring-builder object.builder add z4-127.0.0.1:6040R127.0.0.1:6080/sdb4 1
         swift-ring-builder object.builder rebalance
-        swift-ring-builder container.builder create 18 3 1
+        swift-ring-builder object-1.builder create 10 2 1
+        swift-ring-builder object-1.builder add z1-127.0.0.1:6010R127.0.0.1:6050/sdb1 1
+        swift-ring-builder object-1.builder add z2-127.0.0.1:6020R127.0.0.1:6060/sdb2 1
+        swift-ring-builder object-1.builder add z3-127.0.0.1:6030R127.0.0.1:6070/sdb3 1
+        swift-ring-builder object-1.builder add z4-127.0.0.1:6040R127.0.0.1:6080/sdb4 1
+        swift-ring-builder object-1.builder rebalance
+        swift-ring-builder object-2.builder create 10 6 1
+        swift-ring-builder object-2.builder add z1-127.0.0.1:6010R127.0.0.1:6050/sdb1 1
+        swift-ring-builder object-2.builder add z1-127.0.0.1:6010R127.0.0.1:6050/sdb5 1
+        swift-ring-builder object-2.builder add z2-127.0.0.1:6020R127.0.0.1:6060/sdb2 1
+        swift-ring-builder object-2.builder add z2-127.0.0.1:6020R127.0.0.1:6060/sdb6 1
+        swift-ring-builder object-2.builder add z3-127.0.0.1:6030R127.0.0.1:6070/sdb3 1
+        swift-ring-builder object-2.builder add z3-127.0.0.1:6030R127.0.0.1:6070/sdb7 1
+        swift-ring-builder object-2.builder add z4-127.0.0.1:6040R127.0.0.1:6080/sdb4 1
+        swift-ring-builder object-2.builder add z4-127.0.0.1:6040R127.0.0.1:6080/sdb8 1
+        swift-ring-builder object-2.builder rebalance
+        swift-ring-builder container.builder create 10 3 1
         swift-ring-builder container.builder add z1-127.0.0.1:6011R127.0.0.1:6051/sdb1 1
         swift-ring-builder container.builder add z2-127.0.0.1:6021R127.0.0.1:6061/sdb2 1
         swift-ring-builder container.builder add z3-127.0.0.1:6031R127.0.0.1:6071/sdb3 1
         swift-ring-builder container.builder add z4-127.0.0.1:6041R127.0.0.1:6081/sdb4 1
         swift-ring-builder container.builder rebalance
-        swift-ring-builder account.builder create 18 3 1
+        swift-ring-builder account.builder create 10 3 1
         swift-ring-builder account.builder add z1-127.0.0.1:6012R127.0.0.1:6052/sdb1 1
         swift-ring-builder account.builder add z2-127.0.0.1:6022R127.0.0.1:6062/sdb2 1
         swift-ring-builder account.builder add z3-127.0.0.1:6032R127.0.0.1:6072/sdb3 1
@@ -56,9 +73,11 @@ For SAIO replication
         swift-ring-builder account.builder rebalance
 
    .. note::
-      Syntax of adding device has been changed: R<ip_replication>:<port_replication> was added between z<zone>-<ip>:<port> and /<device_name>_<meta> <weight>. Added devices will use <ip_replication> and <port_replication> for replication activities.
+      Syntax of adding device has been changed: ``R<ip_replication>:<port_replication>``
+      was added between ``z<zone>-<ip>:<port>`` and ``/<device_name>_<meta> <weight>``.
+      Added devices will use <ip_replication> and <port_replication> for replication activities.
 
-#. Add next rows in /etc/rsyncd.conf::
+#. Add next rows in ``/etc/rsyncd.conf``::
 
         [account6052]
         max connections = 25
@@ -138,15 +157,15 @@ For SAIO replication
 
         service rsync restart
 
-#. Add changes in configuration files in directories:
+#. Update configuration files in directories:
 
    * /etc/swift/object-server(files: 1.conf, 2.conf, 3.conf, 4.conf)
    * /etc/swift/container-server(files: 1.conf, 2.conf, 3.conf, 4.conf)
    * /etc/swift/account-server(files: 1.conf, 2.conf, 3.conf, 4.conf)
 
-   delete all configuration options in section [<*>-replicator]
+   delete all configuration options in section ``[<*>-replicator]``
 
-#. Add configuration files for object-server, in /etc/swift/object-server/
+#. Add configuration files for object-server, in ``/etc/swift/object-server/``
 
    * 5.conf::
 
@@ -244,7 +263,7 @@ For SAIO replication
         [object-replicator]
         rsync_module = {replication_ip}::object{replication_port}
 
-#. Add configuration files for container-server, in /etc/swift/container-server/
+#. Add configuration files for container-server, in ``/etc/swift/container-server/``
 
    * 5.conf::
 
@@ -342,7 +361,7 @@ For SAIO replication
         [container-replicator]
         rsync_module = {replication_ip}::container{replication_port}
 
-#. Add configuration files for account-server, in /etc/swift/account-server/
+#. Add configuration files for account-server, in ``/etc/swift/account-server/``
 
    * 5.conf::
 
