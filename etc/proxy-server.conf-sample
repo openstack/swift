@@ -1110,6 +1110,18 @@ use = egg:swift#copy
 [filter:keymaster]
 use = egg:swift#keymaster
 
+# Over time, the format of crypto metadata on disk may change slightly to resolve
+# ambiguities. In general, you want to be writing the newest version, but to
+# ensure that all writes can still be read during rolling upgrades, there's the
+# option to write older formats as well.
+# Before upgrading from Swift 2.20.0 or Swift 2.19.1 or earlier, ensure this is set to 1
+# Before upgrading from Swift 2.25.0 or earlier, ensure this is set to at most 2
+# After upgrading all proxy servers, set this to 3 (currently the highest version)
+#
+# The default is currently 2 to support upgrades with no configuration changes,
+# but may change to 3 in the future.
+meta_version_to_write = 2
+
 # Sets the root secret from which encryption keys are derived. This must be set
 # before first use to a value that is a base64 encoding of at least 32 bytes.
 # The security of all encrypted data critically depends on this key, therefore
