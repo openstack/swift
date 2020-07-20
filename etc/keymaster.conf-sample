@@ -1,4 +1,13 @@
 [keymaster]
+# Over time, the format of crypto metadata on disk may change slightly to resolve
+# ambiguities. In general, you want to be writing the newest version, but to
+# ensure that all writes can still be read during rolling upgrades, there's the
+# option to write older formats as well.
+# Before upgrading from Swift 2.20.0 or earlier, ensure this is set to 1
+# Before upgrading from Swift 2.25.0 or earlier, ensure this is set to at most 2
+# After upgrading all proxy servers, set this to 3 (currently the highest version)
+# meta_version_to_write = 3
+
 # Sets the root secret from which encryption keys are derived. This must be set
 # before first use to a value that is a base64 encoding of at least 32 bytes.
 # The security of all encrypted data critically depends on this key, therefore
@@ -15,6 +24,15 @@
 # using the Castellan abstraction layer. Castellan can support various kms
 # backends that use Keystone for authentication. Currently, the only
 # implemented backend is for Barbican.
+
+# Over time, the format of crypto metadata on disk may change slightly to resolve
+# ambiguities. In general, you want to be writing the newest version, but to
+# ensure that all writes can still be read during rolling upgrades, there's the
+# option to write older formats as well.
+# Before upgrading from Swift 2.20.0 or earlier, ensure this is set to 1
+# Before upgrading from Swift 2.25.0 or earlier, ensure this is set to at most 2
+# After upgrading all proxy servers, set this to 3 (currently the highest version)
+# meta_version_to_write = 3
 
 # The api_class tells Castellan which key manager to use to access the external
 # key management system. The default value that accesses Barbican is
@@ -78,6 +96,15 @@
 [kmip_keymaster]
 # The kmip_keymaster section is used to configure a keymaster that fetches an
 # encryption root secret from a KMIP service.
+
+# Over time, the format of crypto metadata on disk may change slightly to resolve
+# ambiguities. In general, you want to be writing the newest version, but to
+# ensure that all writes can still be read during rolling upgrades, there's the
+# option to write older formats as well.
+# Before upgrading from Swift 2.20.0 or earlier, ensure this is set to 1
+# Before upgrading from Swift 2.25.0 or earlier, ensure this is set to at most 2
+# After upgrading all proxy servers, set this to 3 (currently the highest version)
+# meta_version_to_write = 3
 
 # The value of the ``key_id`` option should be the unique identifier for a
 # secret that will be retrieved from the KMIP service. The secret should be an

@@ -33,7 +33,8 @@ class KeyMasterContext(WSGIContext):
 
       <path_key> = HMAC_SHA256(<root_secret>, <path>)
     """
-    def __init__(self, keymaster, account, container, obj):
+    def __init__(self, keymaster, account, container, obj,
+                 meta_version_to_write='2'):
         """
         :param keymaster: a Keymaster instance
         :param account: account name
@@ -46,6 +47,7 @@ class KeyMasterContext(WSGIContext):
         self.container = container
         self.obj = obj
         self._keys = {}
+        self.meta_version_to_write = meta_version_to_write
 
     def _make_key_id(self, path, secret_id, version):
         key_id = {'v': version, 'path': path}
@@ -75,8 +77,9 @@ class KeyMasterContext(WSGIContext):
         if key_id:
             secret_id = key_id.get('secret_id')
             version = key_id['v']
-            if version not in ('1', '2'):
+            if version not in ('1', '2', '3'):
                 raise ValueError('Unknown key_id version: %s' % version)
+
             if version == '1' and not key_id['path'].startswith(
                     '/' + self.account + '/'):
                 # Well shoot. This was the bug that made us notice we needed
@@ -89,7 +92,27 @@ class KeyMasterContext(WSGIContext):
 
             check_path = (
                 self.account, self.container or key_cont, self.obj or key_obj)
+            if version in ('1', '2') and (
+                    key_acct, key_cont, key_obj) != check_path:
+                # Older py3 proxies may have written down crypto meta as WSGI
+                # strings; we still need to be able to read that
+                try:
+                    alt_path = tuple(
+                        part.decode('utf-8').encode('latin1')
+                        for part in (key_acct, key_cont, key_obj))
+                except UnicodeError:
+                    # Well, it was worth a shot
+                    pass
+                else:
+                    if check_path == alt_path or (
+                            check_path[:2] == alt_path[:2] and not self.obj):
+                        # This object is affected by bug #1888037
+                        key_acct, key_cont, key_obj = alt_path
+
             if (key_acct, key_cont, key_obj) != check_path:
+                # Pipeline may have been misconfigured, with copy right of
+                # encryption. In that case, path in meta may not be the
+                # request path.
                 self.keymaster.logger.info(
                     "Path stored in meta (%r) does not match path from "
                     "request (%r)! Using path from meta.",
@@ -99,9 +122,11 @@ class KeyMasterContext(WSGIContext):
         else:
             secret_id = self.keymaster.active_secret_id
             # v1 had a bug where we would claim the path was just the object
-            # name if the object started with a slash. Bump versions to
-            # establish that we can trust the path.
-            version = '2'
+            # name if the object started with a slash.
+            # v1 and v2 had a bug on py3 where we'd write the path in meta as
+            # a WSGI string (ie, as Latin-1 chars decoded from UTF-8 bytes).
+            # Bump versions to establish that we can trust the path.
+            version = self.meta_version_to_write
             key_acct, key_cont, key_obj = (
                 self.account, self.container, self.obj)
 
@@ -193,6 +218,11 @@ class KeyMaster(object):
             raise ValueError('No secret loaded for active_root_secret_id %s' %
                              self.active_secret_id)
 
+        self.meta_version_to_write = conf.get('meta_version_to_write') or '2'
+        if self.meta_version_to_write not in ('1', '2', '3'):
+            raise ValueError('Unknown/unsupported metadata version: %r' %
+                             self.meta_version_to_write)
+
     @property
     def root_secret(self):
         # Returns the default root secret; this is here for historical reasons
@@ -276,7 +306,9 @@ class KeyMaster(object):
 
         if req.method in ('PUT', 'POST', 'GET', 'HEAD'):
             # handle only those request methods that may require keys
-            km_context = KeyMasterContext(self, *parts[1:])
+            km_context = KeyMasterContext(
+                self, *parts[1:],
+                meta_version_to_write=self.meta_version_to_write)
             try:
                 return km_context.handle_request(req, start_response)
             except HTTPException as err_resp:
