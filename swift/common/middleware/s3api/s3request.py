@@ -283,6 +283,12 @@ class SigV4Mixin(object):
             if cred_param[key] != self.scope[key]:
                 kwargs = {}
                 if key == 'region':
+                    # Allow lowercase region name
+                    # for AWS .NET SDK compatibility
+                    if not self.scope[key].islower() and \
+                            cred_param[key] == self.scope[key].lower():
+                        self.location = self.location.lower()
+                        continue
                     kwargs = {'region': self.scope['region']}
                 raise AuthorizationQueryParametersError(
                     invalid_messages[key] % (cred_param[key], self.scope[key]),
@@ -325,6 +331,12 @@ class SigV4Mixin(object):
             if cred_param[key] != self.scope[key]:
                 kwargs = {}
                 if key == 'region':
+                    # Allow lowercase region name
+                    # for AWS .NET SDK compatibility
+                    if not self.scope[key].islower() and \
+                            cred_param[key] == self.scope[key].lower():
+                        self.location = self.location.lower()
+                        continue
                     kwargs = {'region': self.scope['region']}
                 raise AuthorizationHeaderMalformed(
                     invalid_messages[key] % (cred_param[key], self.scope[key]),
