@@ -240,6 +240,7 @@ class TestController(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
+        _test_servers[0]._error_limiting = {}  # clear out errors
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
         self.memcache = FakeMemcache()
@@ -1426,6 +1427,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
+        _test_servers[0]._error_limiting = {}  # clear out errors
         self.tempdir = mkdtemp()
         account_ring_path = os.path.join(self.tempdir, 'account.ring.gz')
         write_fake_ring(account_ring_path)
@@ -2154,6 +2156,7 @@ class TestReplicatedObjectController(
     """
     def setUp(self):
         skip_if_no_xattrs()
+        _test_servers[0]._error_limiting = {}  # clear out errors
         self.app = proxy_server.Application(
             None,
             logger=debug_logger('proxy-ut'),
@@ -7969,10 +7972,12 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
         skip_if_no_xattrs()
         debug.hub_exceptions(False)
         self._cleanup_devices()
+        _test_servers[0]._error_limiting = {}  # clear out errors
 
     def tearDown(self):
         debug.hub_exceptions(True)
         self._cleanup_devices()
+        _test_servers[0]._error_limiting = {}  # clear out errors
 
     def _check_disconnect_cleans_up(self, policy_name, is_chunked=False):
         proxy_port = _test_sockets[0].getsockname()[1]
@@ -8065,6 +8070,7 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
 class TestObjectECRangedGET(unittest.TestCase):
     def setUp(self):
         _test_servers[0].logger._clear()
+        _test_servers[0]._error_limiting = {}  # clear out errors
         self.app = proxy_server.Application(
             None,
             logger=debug_logger('proxy-ut'),
@@ -8075,6 +8081,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         prosrv = _test_servers[0]
         self.assertFalse(prosrv.logger.get_lines_for_level('error'))
         self.assertFalse(prosrv.logger.get_lines_for_level('warning'))
+        prosrv._error_limiting = {}  # clear out errors
 
     @classmethod
     def setUpClass(cls):
@@ -10747,6 +10754,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
         # various data paths between the proxy server and the object
         # server. Used as a play ground to debug buffer sizes for sockets.
         skip_if_no_xattrs()
+        _test_servers[0]._error_limiting = {}  # clear out errors
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         # Client is transmitting in 2 MB chunks
@@ -10867,6 +10875,7 @@ class TestSocketObjectVersions(unittest.TestCase):
     def setUp(self):
         global _test_sockets
         skip_if_no_xattrs()
+        _test_servers[0]._error_limiting = {}  # clear out errors
         self.prolis = prolis = listen_zero()
         self._orig_prolis = _test_sockets[0]
         allowed_headers = ', '.join([
@@ -10901,6 +10910,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         global _test_sockets
         self.sockets[0] = self._orig_prolis
         _test_sockets = tuple(self.sockets)
+        _test_servers[0]._error_limiting = {}  # clear out errors
 
     def test_version_manifest(self, oc=b'versions', vc=b'vers', o=b'name'):
         versions_to_create = 3
