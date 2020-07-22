@@ -26,6 +26,7 @@ import random
 from collections import defaultdict
 from contextlib import contextmanager
 import sqlite3
+import string
 import pickle
 import json
 import itertools
@@ -3912,6 +3913,45 @@ class TestContainerBroker(unittest.TestCase):
         actual = broker.get_shard_ranges(
             include_own=False, exclude_others=True)
         self.assertFalse(actual)
+
+    @with_tempdir
+    def test_overloap_shard_range_order(self, tempdir):
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+
+        epoch0 = next(self.ts)
+        epoch1 = next(self.ts)
+        shard_ranges = [
+            ShardRange('.shard_a/shard_%d-%d' % (e, s), epoch, l, u,
+                       state=ShardRange.ACTIVE)
+            for s, (l, u) in enumerate(zip(string.ascii_letters[:7],
+                                           string.ascii_letters[1:]))
+            for e, epoch in enumerate((epoch0, epoch1))
+        ]
+
+        random.shuffle(shard_ranges)
+        for sr in shard_ranges:
+            broker.merge_shard_ranges([sr])
+
+        expected = [
+            '.shard_a/shard_0-0',
+            '.shard_a/shard_1-0',
+            '.shard_a/shard_0-1',
+            '.shard_a/shard_1-1',
+            '.shard_a/shard_0-2',
+            '.shard_a/shard_1-2',
+            '.shard_a/shard_0-3',
+            '.shard_a/shard_1-3',
+            '.shard_a/shard_0-4',
+            '.shard_a/shard_1-4',
+            '.shard_a/shard_0-5',
+            '.shard_a/shard_1-5',
+            '.shard_a/shard_0-6',
+            '.shard_a/shard_1-6',
+        ]
+        self.assertEqual(expected, [
+            sr.name for sr in broker.get_shard_ranges()])
 
     @with_tempdir
     def test_get_shard_ranges_with_sharding_overlaps(self, tempdir):
