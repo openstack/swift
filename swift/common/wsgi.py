@@ -452,17 +452,21 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
             return ''
 
     def parse_request(self):
+        # Need to track the bytes-on-the-wire for S3 signatures -- eventlet
+        # would do it for us, but since we rewrite the path on py3, we need to
+        # fix it ourselves later.
+        self.__raw_path_info = None
+
         if not six.PY2:
             # request lines *should* be ascii per the RFC, but historically
             # we've allowed (and even have func tests that use) arbitrary
             # bytes. This breaks on py3 (see https://bugs.python.org/issue33973
             # ) but the work-around is simple: munge the request line to be
-            # properly quoted. py2 will do the right thing without this, but it
-            # doesn't hurt to re-write the request line like this and it
-            # simplifies testing.
+            # properly quoted.
             if self.raw_requestline.count(b' ') >= 2:
                 parts = self.raw_requestline.split(b' ', 2)
                 path, q, query = parts[1].partition(b'?')
+                self.__raw_path_info = path
                 # unquote first, so we don't over-quote something
                 # that was *correctly* quoted
                 path = wsgi_to_bytes(wsgi_quote(wsgi_unquote(
@@ -484,6 +488,8 @@ class SwiftHttpProtocol(wsgi.HttpProtocol):
     if not six.PY2:
         def get_environ(self, *args, **kwargs):
             environ = wsgi.HttpProtocol.get_environ(self, *args, **kwargs)
+            environ['RAW_PATH_INFO'] = bytes_to_wsgi(
+                self.__raw_path_info)
             header_payload = self.headers.get_payload()
             if isinstance(header_payload, list) and len(header_payload) == 1:
                 header_payload = header_payload[0].get_payload()
