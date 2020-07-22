@@ -1919,7 +1919,7 @@ class TestObjectReplicator(unittest.TestCase):
         # Check successful http_connection and exception with
         # incorrect pickle.loads(resp.read())
         resp.status = 200
-        resp.read.return_value = 'garbage'
+        resp.read.return_value = b'garbage'
         expect = 'Error syncing with node: %r: '
         for job in jobs:
             set_default(self)
@@ -1969,6 +1969,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEqual(stats.suffix_sync, 2)
         self.assertEqual(stats.suffix_hash, 1)
         self.assertEqual(stats.suffix_count, 1)
+        self.assertEqual(stats.hashmatch, 0)
 
         # Efficient Replication Case
         set_default(self)
@@ -1989,6 +1990,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEqual(stats.suffix_sync, 1)
         self.assertEqual(stats.suffix_hash, 1)
         self.assertEqual(stats.suffix_count, 1)
+        self.assertEqual(stats.hashmatch, 0)
 
         mock_http.reset_mock()
         self.logger.clear()
@@ -2014,6 +2016,39 @@ class TestObjectReplicator(unittest.TestCase):
                                   repl_job['partition'], 'REPLICATE',
                                   '/a83', headers=self.headers))
         mock_http.assert_has_calls(reqs, any_order=True)
+
+    @mock.patch('swift.obj.replicator.tpool.execute')
+    @mock.patch('swift.obj.replicator.http_connect', autospec=True)
+    @mock.patch('swift.obj.replicator._do_listdir')
+    def test_update_local_hash_changes_during_replication(
+            self, mock_do_listdir, mock_http, mock_tpool_execute):
+        mock_http.return_value = answer = mock.MagicMock()
+        answer.getresponse.return_value = resp = mock.MagicMock()
+        resp.status = 200
+        resp.read.return_value = pickle.dumps({
+            'a83': 'c130a2c17ed45102aada0f4eee69494ff'})
+
+        self.replicator.sync = fake_sync = \
+            mock.MagicMock(return_value=(True, []))
+        local_job = [
+            job for job in self.replicator.collect_jobs()
+            if not job['delete']
+            and job['partition'] == '0' and int(job['policy']) == 0
+        ][0]
+
+        mock_tpool_execute.side_effect = [
+            (1, {'a83': 'ba47fd314242ec8c7efb91f5d57336e4'}),
+            (1, {'a83': 'c130a2c17ed45102aada0f4eee69494ff'}),
+        ]
+        self.replicator.update(local_job)
+        self.assertEqual(fake_sync.call_count, 0)
+        self.assertEqual(mock_http.call_count, 2)
+        stats = self.replicator.total_stats
+        self.assertEqual(stats.attempted, 1)
+        self.assertEqual(stats.suffix_sync, 0)
+        self.assertEqual(stats.suffix_hash, 1)
+        self.assertEqual(stats.suffix_count, 1)
+        self.assertEqual(stats.hashmatch, 2)
 
     def test_rsync_compress_different_region(self):
         self.assertEqual(self.replicator.sync_method, self.replicator.rsync)
