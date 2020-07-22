@@ -619,8 +619,8 @@ class ContainerSync(Daemon):
                     if exc:
                         raise exc
                     raise Exception(
-                        _('Unknown exception trying to GET: '
-                          '%(account)r %(container)r %(object)r'),
+                        'Unknown exception trying to GET: '
+                        '%(account)r %(container)r %(object)r' %
                         {'account': info['account'],
                          'container': info['container'],
                          'object': row['name']})
