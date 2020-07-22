@@ -28,6 +28,7 @@ from contextlib import contextmanager
 import sqlite3
 import pickle
 import json
+import itertools
 
 import six
 
@@ -557,6 +558,98 @@ class TestContainerBroker(unittest.TestCase):
         # Test before deletion
         broker.reclaim(Timestamp.now().internal, time())
         broker.delete_db(Timestamp.now().internal)
+
+    def test_batch_reclaim(self):
+        num_of_objects = 60
+        obj_specs = []
+        now = time()
+        top_of_the_minute = now - (now % 60)
+        c = itertools.cycle([True, False])
+        for m, is_deleted in six.moves.zip(range(num_of_objects), c):
+            offset = top_of_the_minute - (m * 60)
+            obj_specs.append((Timestamp(offset), is_deleted))
+        random.seed(now)
+        random.shuffle(obj_specs)
+        policy_indexes = list(p.idx for p in POLICIES)
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        broker.initialize(Timestamp('1').internal, 0)
+        for i, obj_spec in enumerate(obj_specs):
+            # with object12 before object2 and shuffled ts.internal we
+            # shouldn't be able to accidently rely on any implicit ordering
+            obj_name = 'object%s' % i
+            pidx = random.choice(policy_indexes)
+            ts, is_deleted = obj_spec
+            if is_deleted:
+                broker.delete_object(obj_name, ts.internal, pidx)
+            else:
+                broker.put_object(obj_name, ts.internal, 0, 'text/plain',
+                                  'etag', storage_policy_index=pidx)
+
+        def count_reclaimable(conn, reclaim_age):
+            return conn.execute(
+                "SELECT count(*) FROM object "
+                "WHERE deleted = 1 AND created_at < ?", (reclaim_age,)
+            ).fetchone()[0]
+
+        # This is intended to divide the set of timestamps exactly in half
+        # regardless of the value of now
+        reclaim_age = top_of_the_minute + 1 - (num_of_objects / 2 * 60)
+        with broker.get() as conn:
+            self.assertEqual(count_reclaimable(conn, reclaim_age),
+                             num_of_objects / 4)
+
+        orig__reclaim = broker._reclaim
+        trace = []
+
+        def tracing_reclaim(conn, age_timestamp, marker):
+            trace.append((age_timestamp, marker,
+                          count_reclaimable(conn, age_timestamp)))
+            return orig__reclaim(conn, age_timestamp, marker)
+
+        with mock.patch.object(broker, '_reclaim', new=tracing_reclaim), \
+                mock.patch('swift.common.db.RECLAIM_PAGE_SIZE', 10):
+            broker.reclaim(reclaim_age, reclaim_age)
+
+        with broker.get() as conn:
+            self.assertEqual(count_reclaimable(conn, reclaim_age), 0)
+        self.assertEqual(3, len(trace), trace)
+        self.assertEqual([age for age, marker, reclaimable in trace],
+                         [reclaim_age] * 3)
+        # markers are in-order
+        self.assertLess(trace[0][1], trace[1][1])
+        self.assertLess(trace[1][1], trace[2][1])
+        # reclaimable count gradually decreases
+        # generally, count1 > count2 > count3, but because of the randomness
+        # we may occassionally have count1 == count2 or count2 == count3
+        self.assertGreaterEqual(trace[0][2], trace[1][2])
+        self.assertGreaterEqual(trace[1][2], trace[2][2])
+        # technically, this might happen occasionally, but *really* rarely
+        self.assertTrue(trace[0][2] > trace[1][2] or
+                        trace[1][2] > trace[2][2])
+
+    def test_reclaim_with_duplicate_names(self):
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        broker.initialize(Timestamp('1').internal, 0)
+        now = time()
+        ages_ago = Timestamp(now - (3 * 7 * 24 * 60 * 60))
+        for i in range(10):
+            for spidx in range(10):
+                obj_name = 'object%s' % i
+                broker.delete_object(obj_name, ages_ago.internal, spidx)
+        reclaim_age = now - (2 * 7 * 24 * 60 * 60)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM object "
+                "WHERE created_at < ?", (reclaim_age,)
+            ).fetchone()[0], 100)
+        with mock.patch('swift.common.db.RECLAIM_PAGE_SIZE', 10):
+            broker.reclaim(reclaim_age, reclaim_age)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM object "
+            ).fetchone()[0], 0)
 
     @with_tempdir
     def test_reclaim_deadlock(self, tempdir):
