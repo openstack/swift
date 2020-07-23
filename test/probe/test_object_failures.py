@@ -63,7 +63,7 @@ class TestObjectFailures(ReplProbeTest):
         opart, onodes = self.object_ring.get_nodes(
             self.account, container, obj)
         onode = onodes[0]
-        node_id = (onode['port'] % 100) / 10
+        node_id = (onode['port'] % 100) // 10
         device = onode['device']
         hash_str = hash_path(self.account, container, obj)
         obj_server_conf = readconf(self.configs['object-server'][node_id])

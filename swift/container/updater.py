@@ -271,9 +271,13 @@ class ContainerUpdater(Daemon):
                             info['storage_policy_index'])
                       for node in nodes]
             successes = 0
+            stub404s = 0
             for event in events:
-                if is_success(event.wait()):
+                result = event.wait()
+                if is_success(result):
                     successes += 1
+                if result == 404:
+                    stub404s += 1
             if successes >= majority_size(len(events)):
                 self.logger.increment('successes')
                 self.successes += 1
@@ -283,6 +287,15 @@ class ContainerUpdater(Daemon):
                 broker.reported(info['put_timestamp'],
                                 info['delete_timestamp'], info['object_count'],
                                 info['bytes_used'])
+            elif stub404s == len(events):
+                self.logger.increment('failures')
+                self.failures += 1
+                self.logger.debug(
+                    _('Update report stub for %(container)s %(dbfile)s'),
+                    {'container': container, 'dbfile': dbfile})
+                broker.quarantine('no account replicas exist')
+                # All that's left at this point is a few sacks of Gnocchi,
+                # easily collected by the dark data watcher in object auditor.
             else:
                 self.logger.increment('failures')
                 self.failures += 1
