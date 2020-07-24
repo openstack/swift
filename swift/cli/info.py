@@ -16,6 +16,7 @@ import json
 import os
 import sqlite3
 from hashlib import md5
+from collections import defaultdict
 
 from six.moves import urllib
 
@@ -195,7 +196,8 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
           'real value is set in the config file on each storage node.')
 
 
-def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False):
+def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False,
+                           verbose=False):
     """
     print out data base info/metadata based on its type
 
@@ -309,20 +311,31 @@ def print_db_info_metadata(db_type, info, metadata, drop_prefixes=False):
         print('  Type: %s' % shard_type)
         print('  State: %s' % info['db_state'])
     if info.get('shard_ranges'):
-        print('Shard Ranges (%d):' % len(info['shard_ranges']))
+        num_shards = len(info['shard_ranges'])
+        print('Shard Ranges (%d):' % num_shards)
+        count_by_state = defaultdict(int)
         for srange in info['shard_ranges']:
-            srange = dict(srange, state_text=srange.state_text)
-            print('  Name: %(name)s' % srange)
-            print('    lower: %(lower)r, upper: %(upper)r' % srange)
-            print('    Object Count: %(object_count)d, Bytes Used: '
-                  '%(bytes_used)d, State: %(state_text)s (%(state)d)'
-                  % srange)
-            print('    Created at: %s (%s)'
-                  % (Timestamp(srange['timestamp']).isoformat,
-                     srange['timestamp']))
-            print('    Meta Timestamp: %s (%s)'
-                  % (Timestamp(srange['meta_timestamp']).isoformat,
-                     srange['meta_timestamp']))
+            count_by_state[(srange.state, srange.state_text)] += 1
+        print('  States:')
+        for key_state, count in sorted(count_by_state.items()):
+            key, state = key_state
+            print('    %9s: %s' % (state, count))
+        if verbose:
+            for srange in info['shard_ranges']:
+                srange = dict(srange, state_text=srange.state_text)
+                print('  Name: %(name)s' % srange)
+                print('    lower: %(lower)r, upper: %(upper)r' % srange)
+                print('    Object Count: %(object_count)d, Bytes Used: '
+                      '%(bytes_used)d, State: %(state_text)s (%(state)d)'
+                      % srange)
+                print('    Created at: %s (%s)'
+                      % (Timestamp(srange['timestamp']).isoformat,
+                         srange['timestamp']))
+                print('    Meta Timestamp: %s (%s)'
+                      % (Timestamp(srange['meta_timestamp']).isoformat,
+                         srange['meta_timestamp']))
+        else:
+            print('(Use -v/--verbose to show more Shard Ranges details)')
 
 
 def print_obj_metadata(metadata, drop_prefixes=False):
@@ -420,7 +433,7 @@ def print_obj_metadata(metadata, drop_prefixes=False):
 
 
 def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
-               drop_prefixes=False):
+               drop_prefixes=False, verbose=False):
     if db_type not in ('account', 'container'):
         print("Unrecognized DB type: internal error")
         raise InfoSystemExit()
@@ -452,7 +465,8 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
         sranges = broker.get_shard_ranges()
         if sranges:
             info['shard_ranges'] = sranges
-    print_db_info_metadata(db_type, info, broker.metadata, drop_prefixes)
+    print_db_info_metadata(
+        db_type, info, broker.metadata, drop_prefixes, verbose)
     try:
         ring = Ring(swift_dir, ring_name=db_type)
     except Exception:
