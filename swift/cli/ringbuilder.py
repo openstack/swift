@@ -777,7 +777,7 @@ swift-ring-builder <builder_file> add
         if builder.next_part_power:
             print('Partition power increase in progress. You need ')
             print('to finish the increase first before adding devices.')
-            exit(EXIT_WARNING)
+            exit(EXIT_ERROR)
 
         try:
             for new_dev in _parse_add_values(argv[3:]):
@@ -996,7 +996,7 @@ swift-ring-builder <builder_file> remove
         if builder.next_part_power:
             print('Partition power increase in progress. You need ')
             print('to finish the increase first before removing devices.')
-            exit(EXIT_WARNING)
+            exit(EXIT_ERROR)
 
         devs, opts = _parse_remove_values(argv[3:])
 
@@ -1063,7 +1063,7 @@ swift-ring-builder <builder_file> rebalance [options]
         if builder.next_part_power:
             print('Partition power increase in progress.')
             print('You need to finish the increase first before rebalancing.')
-            exit(EXIT_WARNING)
+            exit(EXIT_ERROR)
 
         devs_changed = builder.devs_changed
         min_part_seconds_left = builder.min_part_seconds_left
