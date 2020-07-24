@@ -177,7 +177,8 @@ user_agent          The value of the HTTP User-Agent header. Swift services
                     the process ID, such as ``"proxy-server <pid of the
                     proxy>"`` or ``"object-updater <pid of the object
                     updater>"``.
-request_time        The duration of the request.
+request_time        The time between request received and response started.
+                    **Note**: This includes transfer time on PUT, but not GET.
 additional_info     Additional useful information.
 server_pid          The process id of the server
 policy_index        The value of the storage policy index.
