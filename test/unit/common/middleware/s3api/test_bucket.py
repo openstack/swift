@@ -1220,6 +1220,29 @@ class TestS3ApiBucket(S3ApiTestCase):
         # Even crazier: it doesn't seem to matter
         self._test_bucket_PUT_with_location('foo')
 
+    def test_bucket_PUT_with_mixed_case_location(self):
+        self.s3api.conf.location = 'RegionOne'
+        elem = Element('CreateBucketConfiguration')
+        # We've observed some clients (like aws-sdk-net) shift regions
+        # to lower case
+        SubElement(elem, 'LocationConstraint').text = 'regionone'
+        headers = {
+            'Authorization': 'AWS4-HMAC-SHA256 ' + ', '.join([
+                'Credential=test:tester/%s/regionone/s3/aws4_request' %
+                self.get_v4_amz_date_header().split('T', 1)[0],
+                'SignedHeaders=host',
+                'Signature=X',
+            ]),
+            'Date': self.get_date_header(),
+            'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+        }
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers,
+                            body=tostring(elem))
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200', body)
+
     def test_bucket_PUT_with_canned_acl(self):
         req = Request.blank('/bucket',
                             environ={'REQUEST_METHOD': 'PUT'},

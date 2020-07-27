@@ -344,7 +344,8 @@ class BucketController(Controller):
                 self.logger.error(e)
                 raise
 
-            if location != self.conf.location:
+            if location not in (self.conf.location,
+                                self.conf.location.lower()):
                 # s3api cannot support multiple regions currently.
                 raise InvalidLocationConstraint()
 
