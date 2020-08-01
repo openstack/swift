@@ -9,12 +9,12 @@ done
 
 
 for drive in `ls /srv/node/ | grep 'swift-d'`; do
-  echo "swift-ring-builder object.builder add r1z1-127.0.0.1:6000/$drive 1" >> /etc/swift/remakerings.object
-  echo "pushed command to add r1z1-127.0.0.1:6000/$drive to /etc/swift/remakerings.object"
-  echo "swift-ring-builder container.builder add r1z1-127.0.0.1:6001/$drive 1" >> /etc/swift/remakerings.container
-  echo "pushed command to add r1z1-127.0.0.1:6001/$drive to /etc/swift/remakerings.container"
-  echo "swift-ring-builder account.builder add r1z1-127.0.0.1:6002/$drive 1" >> /etc/swift/remakerings.account
-  echo "pushed command to add r1z1-127.0.0.1:6002/$drive to /etc/swift/remakerings.account"
+  echo "swift-ring-builder object.builder add r1z1-127.0.0.1:6200/$drive 1" >> /etc/swift/remakerings.object
+  echo "pushed command to add r1z1-127.0.0.1:6200/$drive to /etc/swift/remakerings.object"
+  echo "swift-ring-builder container.builder add r1z1-127.0.0.1:6201/$drive 1" >> /etc/swift/remakerings.container
+  echo "pushed command to add r1z1-127.0.0.1:6201/$drive to /etc/swift/remakerings.container"
+  echo "swift-ring-builder account.builder add r1z1-127.0.0.1:6202/$drive 1" >> /etc/swift/remakerings.account
+  echo "pushed command to add r1z1-127.0.0.1:6202/$drive to /etc/swift/remakerings.account"
 done
 
 for p in $POLICIES; do

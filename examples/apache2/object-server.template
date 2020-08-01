@@ -6,7 +6,7 @@
 # Change the debug level as you see fit
 #
 # For example:
-#     Replace %PORT% by 6010
+#     Replace %PORT% by 6210
 #     Replace %SERVICENAME% by object-server-1
 #     Replace %USER% with apache (or remove it for default)
 

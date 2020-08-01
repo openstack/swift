@@ -38,38 +38,38 @@ For SAIO replication
         cd /etc/swift
         rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
         swift-ring-builder object.builder create 10 3 1
-        swift-ring-builder object.builder add z1-127.0.0.1:6010R127.0.0.1:6050/sdb1 1
-        swift-ring-builder object.builder add z2-127.0.0.1:6020R127.0.0.1:6060/sdb2 1
-        swift-ring-builder object.builder add z3-127.0.0.1:6030R127.0.0.1:6070/sdb3 1
-        swift-ring-builder object.builder add z4-127.0.0.1:6040R127.0.0.1:6080/sdb4 1
+        swift-ring-builder object.builder add z1-127.0.0.1:6210R127.0.0.1:6250/sdb1 1
+        swift-ring-builder object.builder add z2-127.0.0.1:6220R127.0.0.1:6260/sdb2 1
+        swift-ring-builder object.builder add z3-127.0.0.1:6230R127.0.0.1:6270/sdb3 1
+        swift-ring-builder object.builder add z4-127.0.0.1:6240R127.0.0.1:6280/sdb4 1
         swift-ring-builder object.builder rebalance
         swift-ring-builder object-1.builder create 10 2 1
-        swift-ring-builder object-1.builder add z1-127.0.0.1:6010R127.0.0.1:6050/sdb1 1
-        swift-ring-builder object-1.builder add z2-127.0.0.1:6020R127.0.0.1:6060/sdb2 1
-        swift-ring-builder object-1.builder add z3-127.0.0.1:6030R127.0.0.1:6070/sdb3 1
-        swift-ring-builder object-1.builder add z4-127.0.0.1:6040R127.0.0.1:6080/sdb4 1
+        swift-ring-builder object-1.builder add z1-127.0.0.1:6210R127.0.0.1:6250/sdb1 1
+        swift-ring-builder object-1.builder add z2-127.0.0.1:6220R127.0.0.1:6260/sdb2 1
+        swift-ring-builder object-1.builder add z3-127.0.0.1:6230R127.0.0.1:6270/sdb3 1
+        swift-ring-builder object-1.builder add z4-127.0.0.1:6240R127.0.0.1:6280/sdb4 1
         swift-ring-builder object-1.builder rebalance
         swift-ring-builder object-2.builder create 10 6 1
-        swift-ring-builder object-2.builder add z1-127.0.0.1:6010R127.0.0.1:6050/sdb1 1
-        swift-ring-builder object-2.builder add z1-127.0.0.1:6010R127.0.0.1:6050/sdb5 1
-        swift-ring-builder object-2.builder add z2-127.0.0.1:6020R127.0.0.1:6060/sdb2 1
-        swift-ring-builder object-2.builder add z2-127.0.0.1:6020R127.0.0.1:6060/sdb6 1
-        swift-ring-builder object-2.builder add z3-127.0.0.1:6030R127.0.0.1:6070/sdb3 1
-        swift-ring-builder object-2.builder add z3-127.0.0.1:6030R127.0.0.1:6070/sdb7 1
-        swift-ring-builder object-2.builder add z4-127.0.0.1:6040R127.0.0.1:6080/sdb4 1
-        swift-ring-builder object-2.builder add z4-127.0.0.1:6040R127.0.0.1:6080/sdb8 1
+        swift-ring-builder object-2.builder add z1-127.0.0.1:6210R127.0.0.1:6250/sdb1 1
+        swift-ring-builder object-2.builder add z1-127.0.0.1:6210R127.0.0.1:6250/sdb5 1
+        swift-ring-builder object-2.builder add z2-127.0.0.1:6220R127.0.0.1:6260/sdb2 1
+        swift-ring-builder object-2.builder add z2-127.0.0.1:6220R127.0.0.1:6260/sdb6 1
+        swift-ring-builder object-2.builder add z3-127.0.0.1:6230R127.0.0.1:6270/sdb3 1
+        swift-ring-builder object-2.builder add z3-127.0.0.1:6230R127.0.0.1:6270/sdb7 1
+        swift-ring-builder object-2.builder add z4-127.0.0.1:6240R127.0.0.1:6280/sdb4 1
+        swift-ring-builder object-2.builder add z4-127.0.0.1:6240R127.0.0.1:6280/sdb8 1
         swift-ring-builder object-2.builder rebalance
         swift-ring-builder container.builder create 10 3 1
-        swift-ring-builder container.builder add z1-127.0.0.1:6011R127.0.0.1:6051/sdb1 1
-        swift-ring-builder container.builder add z2-127.0.0.1:6021R127.0.0.1:6061/sdb2 1
-        swift-ring-builder container.builder add z3-127.0.0.1:6031R127.0.0.1:6071/sdb3 1
-        swift-ring-builder container.builder add z4-127.0.0.1:6041R127.0.0.1:6081/sdb4 1
+        swift-ring-builder container.builder add z1-127.0.0.1:6211R127.0.0.1:6251/sdb1 1
+        swift-ring-builder container.builder add z2-127.0.0.1:6221R127.0.0.1:6261/sdb2 1
+        swift-ring-builder container.builder add z3-127.0.0.1:6231R127.0.0.1:6271/sdb3 1
+        swift-ring-builder container.builder add z4-127.0.0.1:6241R127.0.0.1:6281/sdb4 1
         swift-ring-builder container.builder rebalance
         swift-ring-builder account.builder create 10 3 1
-        swift-ring-builder account.builder add z1-127.0.0.1:6012R127.0.0.1:6052/sdb1 1
-        swift-ring-builder account.builder add z2-127.0.0.1:6022R127.0.0.1:6062/sdb2 1
-        swift-ring-builder account.builder add z3-127.0.0.1:6032R127.0.0.1:6072/sdb3 1
-        swift-ring-builder account.builder add z4-127.0.0.1:6042R127.0.0.1:6082/sdb4 1
+        swift-ring-builder account.builder add z1-127.0.0.1:6212R127.0.0.1:6252/sdb1 1
+        swift-ring-builder account.builder add z2-127.0.0.1:6222R127.0.0.1:6262/sdb2 1
+        swift-ring-builder account.builder add z3-127.0.0.1:6232R127.0.0.1:6272/sdb3 1
+        swift-ring-builder account.builder add z4-127.0.0.1:6242R127.0.0.1:6282/sdb4 1
         swift-ring-builder account.builder rebalance
 
    .. note::
@@ -79,79 +79,79 @@ For SAIO replication
 
 #. Add next rows in ``/etc/rsyncd.conf``::
 
-        [account6052]
+        [account6252]
         max connections = 25
         path = /srv/1/node/
         read only = false
-        lock file = /var/lock/account6052.lock
+        lock file = /var/lock/account6252.lock
 
-        [account6062]
+        [account6262]
         max connections = 25
         path = /srv/2/node/
         read only = false
-        lock file = /var/lock/account6062.lock
+        lock file = /var/lock/account6262.lock
 
-        [account6072]
+        [account6272]
         max connections = 25
         path = /srv/3/node/
         read only = false
-        lock file = /var/lock/account6072.lock
+        lock file = /var/lock/account6272.lock
 
-        [account6082]
+        [account6282]
         max connections = 25
         path = /srv/4/node/
         read only = false
-        lock file = /var/lock/account6082.lock
+        lock file = /var/lock/account6282.lock
 
 
-        [container6051]
+        [container6251]
         max connections = 25
         path = /srv/1/node/
         read only = false
-        lock file = /var/lock/container6051.lock
+        lock file = /var/lock/container6251.lock
 
-        [container6061]
+        [container6261]
         max connections = 25
         path = /srv/2/node/
         read only = false
-        lock file = /var/lock/container6061.lock
+        lock file = /var/lock/container6261.lock
 
-        [container6071]
+        [container6271]
         max connections = 25
         path = /srv/3/node/
         read only = false
-        lock file = /var/lock/container6071.lock
+        lock file = /var/lock/container6271.lock
 
-        [container6081]
+        [container6281]
         max connections = 25
         path = /srv/4/node/
         read only = false
-        lock file = /var/lock/container6081.lock
+        lock file = /var/lock/container6281.lock
 
 
-        [object6050]
+        [object6250]
         max connections = 25
         path = /srv/1/node/
         read only = false
-        lock file = /var/lock/object6050.lock
+        lock file = /var/lock/object6250.lock
 
-        [object6060]
+        [object6260]
         max connections = 25
         path = /srv/2/node/
         read only = false
-        lock file = /var/lock/object6060.lock
+        lock file = /var/lock/object6260.lock
 
-        [object6070]
+        [object6270]
         max connections = 25
         path = /srv/3/node/
         read only = false
-        lock file = /var/lock/object6070.lock
+        lock file = /var/lock/object6270.lock
 
-        [object6080]
+        [object6280]
         max connections = 25
         path = /srv/4/node/
         read only = false
-        lock file = /var/lock/object6080.lock
+        lock file = /var/lock/object6280.lock
 
 #. Restart rsync daemon::
 
@@ -173,7 +173,7 @@ For SAIO replication
         devices = /srv/1/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6050
+        bind_port = 6250
         user = swift
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
@@ -197,7 +197,7 @@ For SAIO replication
         devices = /srv/2/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6060
+        bind_port = 6260
         user = swift
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
@@ -221,7 +221,7 @@ For SAIO replication
         devices = /srv/3/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6070
+        bind_port = 6270
         user = swift
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
@@ -245,7 +245,7 @@ For SAIO replication
         devices = /srv/4/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6080
+        bind_port = 6280
         user = swift
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4
@@ -271,7 +271,7 @@ For SAIO replication
         devices = /srv/1/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6051
+        bind_port = 6251
         user = swift
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
@@ -295,7 +295,7 @@ For SAIO replication
         devices = /srv/2/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6061
+        bind_port = 6261
         user = swift
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
@@ -319,7 +319,7 @@ For SAIO replication
         devices = /srv/3/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6071
+        bind_port = 6271
         user = swift
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
@@ -343,7 +343,7 @@ For SAIO replication
         devices = /srv/4/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6081
+        bind_port = 6281
         user = swift
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4
@@ -369,7 +369,7 @@ For SAIO replication
         devices = /srv/1/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6052
+        bind_port = 6252
         user = swift
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
@@ -393,7 +393,7 @@ For SAIO replication
         devices = /srv/2/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6062
+        bind_port = 6262
         user = swift
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
@@ -417,7 +417,7 @@ For SAIO replication
         devices = /srv/3/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6072
+        bind_port = 6272
         user = swift
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
@@ -441,7 +441,7 @@ For SAIO replication
         devices = /srv/4/node
         mount_check = false
         disable_fallocate = true
-        bind_port = 6082
+        bind_port = 6282
         user = swift
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4

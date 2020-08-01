@@ -52,9 +52,9 @@ of endpoints having the same form as described above, and a key 'headers' that
 maps to a dictionary of headers that should be sent with a request made to
 the endpoints, e.g.::
 
-    { "endpoints": {"http://10.1.1.1:6010/sda1/2/a/c3/o1",
-                    "http://10.1.1.1:6030/sda3/2/a/c3/o1",
-                    "http://10.1.1.1:6040/sda4/2/a/c3/o1"},
+    { "endpoints": {"http://10.1.1.1:6210/sda1/2/a/c3/o1",
+                    "http://10.1.1.1:6230/sda3/2/a/c3/o1",
+                    "http://10.1.1.1:6240/sda4/2/a/c3/o1"},
       "headers": {"X-Backend-Storage-Policy-Index": "1"}}
 
 In this example, the 'headers' dictionary indicates that requests to the

@@ -40,10 +40,10 @@ to implement a usable set of policies.
    these changes)::
 
         swift-ring-builder object-1.builder create 10 2 1
-        swift-ring-builder object-1.builder add r1z1-127.0.0.1:6010/sdb1 1
-        swift-ring-builder object-1.builder add r1z2-127.0.0.1:6020/sdb2 1
-        swift-ring-builder object-1.builder add r1z3-127.0.0.1:6030/sdb3 1
-        swift-ring-builder object-1.builder add r1z4-127.0.0.1:6040/sdb4 1
+        swift-ring-builder object-1.builder add r1z1-127.0.0.1:6210/sdb1 1
+        swift-ring-builder object-1.builder add r1z2-127.0.0.1:6220/sdb2 1
+        swift-ring-builder object-1.builder add r1z3-127.0.0.1:6230/sdb3 1
+        swift-ring-builder object-1.builder add r1z4-127.0.0.1:6240/sdb4 1
         swift-ring-builder object-1.builder rebalance
 
   Note that the reduced replication of the silver policy is only a function
@@ -101,9 +101,9 @@ Storage Policies effect placement of data in Swift.
 
   You should see this: (note placement on expected devices)::
 
-        ["http://127.0.0.1:6030/sdb3/761/AUTH_test/myCont0/file0.txt",
-        "http://127.0.0.1:6010/sdb1/761/AUTH_test/myCont0/file0.txt",
-        "http://127.0.0.1:6020/sdb2/761/AUTH_test/myCont0/file0.txt"]
+        ["http://127.0.0.1:6230/sdb3/761/AUTH_test/myCont0/file0.txt",
+        "http://127.0.0.1:6210/sdb1/761/AUTH_test/myCont0/file0.txt",
+        "http://127.0.0.1:6220/sdb2/761/AUTH_test/myCont0/file0.txt"]
 
 5. Create a container using policy 'silver' and put a different file in it::
 
@@ -119,8 +119,8 @@ Storage Policies effect placement of data in Swift.
 
   You should see this: (note placement on expected devices)::
 
-        ["http://127.0.0.1:6010/sdb1/32/AUTH_test/myCont1/file1.txt",
-         "http://127.0.0.1:6040/sdb4/32/AUTH_test/myCont1/file1.txt"]
+        ["http://127.0.0.1:6210/sdb1/32/AUTH_test/myCont1/file1.txt",
+         "http://127.0.0.1:6240/sdb4/32/AUTH_test/myCont1/file1.txt"]
 
 7. Confirm account information with HEAD, make sure that your container-updater
    service is running and has executed once since you performed the PUTs or the

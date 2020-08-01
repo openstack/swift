@@ -717,7 +717,7 @@ Once the recon middleware is enabled, a GET request for
 "/recon/<metric>" to the backend object server will return a
 JSON-formatted response::
 
-    fhines@ubuntu:~$ curl -i http://localhost:6030/recon/async
+    fhines@ubuntu:~$ curl -i http://localhost:6230/recon/async
     HTTP/1.1 200 OK
     Content-Type: application/json
     Content-Length: 20
@@ -727,7 +727,7 @@ JSON-formatted response::
 
 
 Note that the default port for the object server is 6200, except on a
-Swift All-In-One installation, which uses 6010, 6020, 6030, and 6040.
+Swift All-In-One installation, which uses 6210, 6220, 6230, and 6240.
 
 The following metrics and telemetry are currently exposed:
 

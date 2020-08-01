@@ -6,7 +6,7 @@
 # Change the debug level as you see fit
 #
 # For example:
-#     Replace %PORT% by 6011
+#     Replace %PORT% by 6211
 #     Replace %SERVICENAME% by container-server-1
 #     Replace %USER% with apache (or remove it for default)
 

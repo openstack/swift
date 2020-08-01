@@ -7,36 +7,36 @@ cd /etc/swift
 rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
 
 swift-ring-builder object.builder create 10 3 1
-swift-ring-builder object.builder add r1z1-127.0.0.1:6010/sdb1 1
-swift-ring-builder object.builder add r1z2-127.0.0.2:6020/sdb2 1
-swift-ring-builder object.builder add r1z3-127.0.0.3:6030/sdb3 1
-swift-ring-builder object.builder add r1z4-127.0.0.4:6040/sdb4 1
+swift-ring-builder object.builder add r1z1-127.0.0.1:6210/sdb1 1
+swift-ring-builder object.builder add r1z2-127.0.0.2:6220/sdb2 1
+swift-ring-builder object.builder add r1z3-127.0.0.3:6230/sdb3 1
+swift-ring-builder object.builder add r1z4-127.0.0.4:6240/sdb4 1
 swift-ring-builder object.builder rebalance
 swift-ring-builder object-1.builder create 10 2 1
-swift-ring-builder object-1.builder add r1z1-127.0.0.1:6010/sdb1 1
-swift-ring-builder object-1.builder add r1z2-127.0.0.2:6020/sdb2 1
-swift-ring-builder object-1.builder add r1z3-127.0.0.3:6030/sdb3 1
-swift-ring-builder object-1.builder add r1z4-127.0.0.4:6040/sdb4 1
+swift-ring-builder object-1.builder add r1z1-127.0.0.1:6210/sdb1 1
+swift-ring-builder object-1.builder add r1z2-127.0.0.2:6220/sdb2 1
+swift-ring-builder object-1.builder add r1z3-127.0.0.3:6230/sdb3 1
+swift-ring-builder object-1.builder add r1z4-127.0.0.4:6240/sdb4 1
 swift-ring-builder object-1.builder rebalance
 swift-ring-builder object-2.builder create 10 6 1
-swift-ring-builder object-2.builder add r1z1-127.0.0.1:6010/sdb1 1
-swift-ring-builder object-2.builder add r1z1-127.0.0.1:6010/sdb5 1
-swift-ring-builder object-2.builder add r1z2-127.0.0.2:6020/sdb2 1
-swift-ring-builder object-2.builder add r1z2-127.0.0.2:6020/sdb6 1
-swift-ring-builder object-2.builder add r1z3-127.0.0.3:6030/sdb3 1
-swift-ring-builder object-2.builder add r1z3-127.0.0.3:6030/sdb7 1
-swift-ring-builder object-2.builder add r1z4-127.0.0.4:6040/sdb4 1
-swift-ring-builder object-2.builder add r1z4-127.0.0.4:6040/sdb8 1
+swift-ring-builder object-2.builder add r1z1-127.0.0.1:6210/sdb1 1
+swift-ring-builder object-2.builder add r1z1-127.0.0.1:6210/sdb5 1
+swift-ring-builder object-2.builder add r1z2-127.0.0.2:6220/sdb2 1
+swift-ring-builder object-2.builder add r1z2-127.0.0.2:6220/sdb6 1
+swift-ring-builder object-2.builder add r1z3-127.0.0.3:6230/sdb3 1
+swift-ring-builder object-2.builder add r1z3-127.0.0.3:6230/sdb7 1
+swift-ring-builder object-2.builder add r1z4-127.0.0.4:6240/sdb4 1
+swift-ring-builder object-2.builder add r1z4-127.0.0.4:6240/sdb8 1
 swift-ring-builder object-2.builder rebalance
 swift-ring-builder container.builder create 10 3 1
-swift-ring-builder container.builder add r1z1-127.0.0.1:6011/sdb1 1
-swift-ring-builder container.builder add r1z2-127.0.0.2:6021/sdb2 1
-swift-ring-builder container.builder add r1z3-127.0.0.3:6031/sdb3 1
-swift-ring-builder container.builder add r1z4-127.0.0.4:6041/sdb4 1
+swift-ring-builder container.builder add r1z1-127.0.0.1:6211/sdb1 1
+swift-ring-builder container.builder add r1z2-127.0.0.2:6221/sdb2 1
+swift-ring-builder container.builder add r1z3-127.0.0.3:6231/sdb3 1
+swift-ring-builder container.builder add r1z4-127.0.0.4:6241/sdb4 1
 swift-ring-builder container.builder rebalance
 swift-ring-builder account.builder create 10 3 1
-swift-ring-builder account.builder add r1z1-127.0.0.1:6012/sdb1 1
-swift-ring-builder account.builder add r1z2-127.0.0.2:6022/sdb2 1
-swift-ring-builder account.builder add r1z3-127.0.0.3:6032/sdb3 1
-swift-ring-builder account.builder add r1z4-127.0.0.4:6042/sdb4 1
+swift-ring-builder account.builder add r1z1-127.0.0.1:6212/sdb1 1
+swift-ring-builder account.builder add r1z2-127.0.0.2:6222/sdb2 1
+swift-ring-builder account.builder add r1z3-127.0.0.3:6232/sdb3 1
+swift-ring-builder account.builder add r1z4-127.0.0.4:6242/sdb4 1
 swift-ring-builder account.builder rebalance
