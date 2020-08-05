@@ -118,6 +118,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_get_deleted_account(self):
         resp_headers = {
+            'x-backend-timestamp': '123.456',
             'x-account-status': 'deleted',
         }
         controller = proxy_server.AccountController(self.app, 'a')
@@ -415,7 +416,8 @@ class TestGetAccountInfo(unittest.TestCase):
             account_ring=FakeRing(), container_ring=FakeRing())
 
     def test_get_deleted_account_410(self):
-        resp_headers = {'x-account-status': 'deleted'}
+        resp_headers = {'x-account-status': 'deleted',
+                        'x-backend-timestamp': '123.456'}
 
         req = Request.blank('/v1/a')
         with mock.patch('swift.proxy.controllers.base.http_connect',

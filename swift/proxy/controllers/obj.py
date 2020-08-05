@@ -2905,8 +2905,9 @@ class ECObjectController(BaseObjectController):
 
         safe_iter = GreenthreadSafeIterator(node_iter)
 
-        ec_request_count = policy.ec_ndata + self.app.get_policy_options(
-            policy).concurrent_ec_extra_requests
+        policy_options = self.app.get_policy_options(policy)
+        ec_request_count = policy.ec_ndata + \
+            policy_options.concurrent_ec_extra_requests
         with ContextPool(ec_request_count) as pool:
             pile = GreenAsyncPile(pool)
             buckets = ECGetResponseCollection(policy)
@@ -2998,6 +2999,9 @@ class ECObjectController(BaseObjectController):
             bodies = []
             headers = []
             best_bucket.close_conns()
+            rebalance_missing_suppression_count = min(
+                policy_options.rebalance_missing_suppression_count,
+                node_iter.num_primary_nodes - 1)
             for status, bad_bucket in buckets.bad_buckets.items():
                 for getter, _parts_iter in bad_bucket.get_responses():
                     if best_bucket.durable:
@@ -3013,6 +3017,14 @@ class ECObjectController(BaseObjectController):
                             # out there, it's just currently unavailable
                             continue
                     if getter.status:
+                        timestamp = Timestamp(getter.last_headers.get(
+                            'X-Backend-Timestamp',
+                            getter.last_headers.get('X-Timestamp', 0)))
+                        if (rebalance_missing_suppression_count > 0 and
+                                getter.status == HTTP_NOT_FOUND and
+                                not timestamp):
+                            rebalance_missing_suppression_count -= 1
+                            continue
                         statuses.append(getter.status)
                         reasons.append(getter.reason)
                         bodies.append(getter.body)

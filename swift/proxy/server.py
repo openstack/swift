@@ -148,6 +148,8 @@ class ProxyOverrideOptions(object):
             get('write_affinity_handoff_delete_count', 'auto'), None
         )
 
+        self.rebalance_missing_suppression_count = int(get(
+            'rebalance_missing_suppression_count', 1))
         self.concurrent_gets = config_true_value(get('concurrent_gets', False))
         self.concurrency_timeout = float(get(
             'concurrency_timeout', app.conn_timeout))
@@ -163,6 +165,7 @@ class ProxyOverrideOptions(object):
                     'write_affinity',
                     'write_affinity_node_count',
                     'write_affinity_handoff_delete_count',
+                    'rebalance_missing_suppression_count',
                     'concurrent_gets',
                     'concurrency_timeout',
                     'concurrent_ec_extra_requests',
@@ -177,6 +180,7 @@ class ProxyOverrideOptions(object):
             'write_affinity',
             'write_affinity_node_count',
             'write_affinity_handoff_delete_count',
+            'rebalance_missing_suppression_count',
             'concurrent_gets',
             'concurrency_timeout',
             'concurrent_ec_extra_requests',

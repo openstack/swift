@@ -200,6 +200,12 @@ use = egg:swift#proxy
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
 #
+# Normally, you should only be moving one replica's worth of data at a time
+# when rebalancing. If you're rebalancing more aggressively, increase this
+# to avoid erroneously returning a 404 when the primary assignments that
+# *didn't* change get overloaded.
+# rebalance_missing_suppression_count = 1
+#
 # By default on a GET/HEAD swift will connect to a minimum number storage nodes
 # in a minimum number of threads - for replicated data just a single request to
 # a single node one at a time.  When enabled concurrent_gets allows the proxy
@@ -307,6 +313,7 @@ use = egg:swift#proxy
 # write_affinity =
 # write_affinity_node_count =
 # write_affinity_handoff_delete_count =
+# rebalance_missing_suppression_count = 1
 # concurrent_gets = off
 # concurrency_timeout = 0.5
 # concurrent_ec_extra_requests = 0

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from argparse import Namespace
 import itertools
 import json
 from collections import defaultdict
@@ -876,12 +877,15 @@ class TestFuncs(BaseTest):
 
     def test_range_fast_forward(self):
         req = Request.blank('/')
-        handler = GetOrHeadHandler(None, req, None, None, None, None, {})
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {})
         handler.fast_forward(50)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=50-')
 
-        handler = GetOrHeadHandler(None, req, None, None, None, None,
-                                   {'Range': 'bytes=23-50'})
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=23-50'})
         handler.fast_forward(20)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=43-50')
         self.assertRaises(HTTPException,
@@ -889,13 +893,15 @@ class TestFuncs(BaseTest):
         self.assertRaises(exceptions.RangeAlreadyComplete,
                           handler.fast_forward, 8)
 
-        handler = GetOrHeadHandler(None, req, None, None, None, None,
-                                   {'Range': 'bytes=23-'})
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=23-'})
         handler.fast_forward(20)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=43-')
 
-        handler = GetOrHeadHandler(None, req, None, None, None, None,
-                                   {'Range': 'bytes=-100'})
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=-100'})
         handler.fast_forward(20)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=-80')
         self.assertRaises(HTTPException,
@@ -903,8 +909,9 @@ class TestFuncs(BaseTest):
         self.assertRaises(exceptions.RangeAlreadyComplete,
                           handler.fast_forward, 80)
 
-        handler = GetOrHeadHandler(None, req, None, None, None, None,
-                                   {'Range': 'bytes=0-0'})
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=0-0'})
         self.assertRaises(exceptions.RangeAlreadyComplete,
                           handler.fast_forward, 1)
 
@@ -915,21 +922,26 @@ class TestFuncs(BaseTest):
         # bytes of data, so then we get a new node, fast_forward(0), and
         # send out a new request. That new request must be for all 1000
         # bytes.
-        handler = GetOrHeadHandler(None, req, None, None, None, None, {})
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {})
         handler.learn_size_from_content_range(0, 999, 1000)
         handler.fast_forward(0)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=0-999')
 
         # Same story as above, but a 1-byte object so we can have our byte
         # indices be 0.
-        handler = GetOrHeadHandler(None, req, None, None, None, None, {})
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {})
         handler.learn_size_from_content_range(0, 0, 1)
         handler.fast_forward(0)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=0-0')
 
         # last 100 bytes
-        handler = GetOrHeadHandler(None, req, None, None, None, None,
-                                   {'Range': 'bytes=-100'})
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {'Range': 'bytes=-100'})
         handler.learn_size_from_content_range(900, 999, 1000)
         handler.fast_forward(0)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=900-999')
@@ -1013,8 +1025,9 @@ class TestFuncs(BaseTest):
             b'abcd', b'1234', b'abc', b'd1', b'234abcd1234abcd1', b'2'))
         req = Request.blank('/v1/a/c/o')
         node = {}
-        handler = GetOrHeadHandler(self.app, req, None, None, None, None, {},
-                                   client_chunk_size=8)
+        handler = GetOrHeadHandler(
+            self.app, req, None, Namespace(num_primary_nodes=3), None, None,
+            {}, client_chunk_size=8)
 
         app_iter = handler._make_app_iter(req, node, source)
         client_chunks = list(app_iter)
@@ -1057,8 +1070,8 @@ class TestFuncs(BaseTest):
         source3 = TestSource([b'lots', b'more', b'data'])
         req = Request.blank('/v1/a/c/o')
         handler = GetOrHeadHandler(
-            self.app, req, 'Object', None, None, None, {},
-            client_chunk_size=8)
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            None, {}, client_chunk_size=8)
 
         range_headers = []
         sources = [(source2, node), (source3, node)]
@@ -1106,8 +1119,8 @@ class TestFuncs(BaseTest):
         source2 = TestChunkedSource([b'efgh5678'])
         req = Request.blank('/v1/a/c/o')
         handler = GetOrHeadHandler(
-            self.app, req, 'Object', None, None, None, {},
-            client_chunk_size=8)
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            None, {}, client_chunk_size=8)
 
         app_iter = handler._make_app_iter(req, node, source1)
         with mock.patch.object(handler, '_get_source_and_node',
@@ -1138,7 +1151,8 @@ class TestFuncs(BaseTest):
 
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
         handler = GetOrHeadHandler(
-            self.app, req, 'Object', None, None, 'some-path', {})
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            'some-path', {})
         app_iter = handler._make_app_iter(req, node, source)
         app_iter.close()
         self.app.logger.warning.assert_called_once_with(
@@ -1147,7 +1161,8 @@ class TestFuncs(BaseTest):
         self.app.logger = mock.Mock()
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
         handler = GetOrHeadHandler(
-            self.app, req, 'Object', None, None, None, {})
+            self.app, req, 'Object', Namespace(num_primary_nodes=1), None,
+            None, {})
         app_iter = handler._make_app_iter(req, node, source)
         next(app_iter)
         app_iter.close()

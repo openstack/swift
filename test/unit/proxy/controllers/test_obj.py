@@ -1600,6 +1600,32 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
 
+    def test_GET_primaries_error_during_rebalance(self):
+        def do_test(primary_codes, expected, include_timestamp=False):
+            random.shuffle(primary_codes)
+            handoff_codes = [404] * self.obj_ring.max_more_nodes
+            headers = None
+            if include_timestamp:
+                headers = [{'X-Backend-Timestamp': '123.456'}] * 3
+                headers.extend({} for _ in handoff_codes)
+            with set_http_connect(*primary_codes + handoff_codes,
+                                  headers=headers):
+                req = swift.common.swob.Request.blank('/v1/a/c/o')
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, expected)
+
+        # with two of out three backend errors a client should retry
+        do_test([Timeout(), Exception('kaboom!'), 404], 503)
+        # unless there's a timestamp associated
+        do_test([Timeout(), Exception('kaboom!'), 404], 404,
+                include_timestamp=True)
+        # when there's more 404s, we trust it more
+        do_test([Timeout(), 404, 404], 404)
+        # unless we explicitly *don't* want to trust it
+        policy_opts = self.app.get_policy_options(None)
+        policy_opts.rebalance_missing_suppression_count = 2
+        do_test([Timeout(), 404, 404], 503)
+
     def test_GET_primaries_mixed_explode_and_timeout(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         primaries = []
@@ -2296,6 +2322,31 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         codes = [200, 404] + [200] * rest
         ts_iter = iter([1, 2] + [1] * rest)
         with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+
+    def test_GET_primaries_error_during_rebalance(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        codes = [404] * (2 * self.policy.object_ring.replica_count)
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+        for i in range(self.policy.object_ring.replica_count - 2):
+            codes[i] = Timeout()
+            with mocked_http_conn(*codes):
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 404)
+            self.app._error_limiting = {}  # Reset error limiting
+
+        # one more timeout is past the tipping point
+        codes[self.policy.object_ring.replica_count - 2] = Timeout()
+        with mocked_http_conn(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+        self.app._error_limiting = {}  # Reset error limiting
+
+        # unless we have tombstones
+        with mocked_http_conn(*codes, headers={'X-Backend-Timestamp': '1'}):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 404)
 

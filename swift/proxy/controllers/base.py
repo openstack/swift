@@ -873,6 +873,10 @@ class GetOrHeadHandler(object):
         self.policy = policy
         self.node = None
         self.latest_404_timestamp = Timestamp(0)
+        policy_options = self.app.get_policy_options(self.policy)
+        self.rebalance_missing_suppression_count = min(
+            policy_options.rebalance_missing_suppression_count,
+            node_iter.num_primary_nodes - 1)
 
         # stuff from request
         self.req_method = req.method
@@ -1320,6 +1324,13 @@ class GetOrHeadHandler(object):
                 # throw out 5XX and 404s from handoff nodes unless the data is
                 # really on disk and had been DELETEd
                 return False
+
+            if self.rebalance_missing_suppression_count > 0 and \
+                    possible_source.status == HTTP_NOT_FOUND and \
+                    not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                self.rebalance_missing_suppression_count -= 1
+                return False
+
             self.statuses.append(possible_source.status)
             self.reasons.append(possible_source.reason)
             self.bodies.append(possible_source.read())

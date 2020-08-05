@@ -1020,7 +1020,13 @@ class TestProxyServer(unittest.TestCase):
         req = Request.blank('/v1/account', environ={'REQUEST_METHOD': 'GET'})
 
         def fake_iter_nodes(*arg, **karg):
-            return iter(nodes)
+            class FakeNodeIter(object):
+                num_primary_nodes = 3
+
+                def __iter__(self):
+                    return iter(nodes)
+
+            return FakeNodeIter()
 
         class FakeConn(object):
             def __init__(self, ip, *args, **kargs):
@@ -1535,18 +1541,21 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         write_affinity = r1
         write_affinity_node_count = 1 * replicas
         write_affinity_handoff_delete_count = 4
+        rebalance_missing_suppression_count = 2
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "shuffle",
                             "write_affinity": "",
                             "write_affinity_node_count_fn": 6,
-                            "write_affinity_handoff_delete_count": None}
+                            "write_affinity_handoff_delete_count": None,
+                            "rebalance_missing_suppression_count": 1}
         exp_options = {None: expected_default,
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
                                      "write_affinity": "r1",
                                      "write_affinity_node_count_fn": 3,
-                                     "write_affinity_handoff_delete_count": 4},
+                                     "write_affinity_handoff_delete_count": 4,
+                                     "rebalance_missing_suppression_count": 2},
                        POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
@@ -1560,6 +1569,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             "'read_affinity': '', 'write_affinity': '', "
             "'write_affinity_node_count': '2 * replicas', "
             "'write_affinity_handoff_delete_count': None, "
+            "'rebalance_missing_suppression_count': 1, "
             "'concurrent_gets': False, 'concurrency_timeout': 0.5, "
             "'concurrent_ec_extra_requests': 0"
             "}, app)",
@@ -1573,6 +1583,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             "'read_affinity': 'r1=100', 'write_affinity': 'r1', "
             "'write_affinity_node_count': '1 * replicas', "
             "'write_affinity_handoff_delete_count': 4, "
+            "'rebalance_missing_suppression_count': 2, "
             "'concurrent_gets': False, 'concurrency_timeout': 0.5, "
             "'concurrent_ec_extra_requests': 0"
             "}, app)",

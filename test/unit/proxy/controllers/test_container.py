@@ -368,7 +368,8 @@ class TestContainerController(TestRingBase):
             ([Timeout()] * nodes + [404] * handoffs, 503),
             ([Timeout()] * (nodes + handoffs), 503),
             ([Timeout()] * (nodes + handoffs - 1) + [404], 503),
-            ([Timeout()] * (nodes - 1) + [404] * (handoffs + 1), 404),
+            ([Timeout()] * (nodes - 1) + [404] * (handoffs + 1), 503),
+            ([Timeout()] * (nodes - 2) + [404] * (handoffs + 2), 404),
             ([500] * (nodes - 1) + [404] * (handoffs + 1), 503),
             ([503, 200], 200),
             ([507, 200], 200),
@@ -394,8 +395,14 @@ class TestContainerController(TestRingBase):
                       '\n'.join(failures))
 
         # One more test, simulating all nodes being error-limited
+        class FakeIter(object):
+            num_primary_nodes = 3
+
+            def __iter__(self):
+                return iter([])
+
         with mocked_http_conn(), mock.patch.object(self.app, 'iter_nodes',
-                                                   return_value=[]):
+                                                   return_value=FakeIter()):
             req = Request.blank('/v1/a/c')
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 503)
