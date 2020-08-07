@@ -749,8 +749,9 @@ class ContainerSharder(ContainerReplicator):
                     # root may not yet know about this shard container
                     warnings.append('root has no matching shard range')
                     shard_range = None
-            else:
+            elif not own_shard_range.deleted:
                 warnings.append('unable to get shard ranges from root')
+            # else, our shard range is deleted, so root may have reclaimed it
         else:
             errors.append('missing own shard range')
 
@@ -770,14 +771,16 @@ class ContainerSharder(ContainerReplicator):
             self.logger.debug('Updating shard from root %s', dict(shard_range))
             broker.merge_shard_ranges(shard_range)
             own_shard_range = broker.get_own_shard_range()
-            delete_age = time.time() - self.reclaim_age
-            if (own_shard_range.state == ShardRange.SHARDED and
-                    own_shard_range.deleted and
-                    own_shard_range.timestamp < delete_age and
-                    broker.empty()):
-                broker.delete_db(Timestamp.now().internal)
-                self.logger.debug('Deleted shard container %s (%s)',
-                                  broker.db_file, quote(broker.path))
+
+        delete_age = time.time() - self.reclaim_age
+        if (own_shard_range.state == ShardRange.SHARDED and
+                own_shard_range.deleted and
+                own_shard_range.timestamp < delete_age and
+                broker.empty()):
+            broker.delete_db(Timestamp.now().internal)
+            self.logger.debug('Deleted shard container %s (%s)',
+                              broker.db_file, quote(broker.path))
+
         self._increment_stat('audit_shard', 'success', statsd=True)
         return True
 

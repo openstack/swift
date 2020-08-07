@@ -4640,6 +4640,7 @@ class TestSharder(BaseTestSharder):
         own_shard_range.deleted = 1
         own_shard_range.timestamp = Timestamp.now()
         broker.merge_shard_ranges([own_shard_range])
+        del shard_ranges[:]  # root responds with no shard ranges
         assert_ok()
         self.assertTrue(broker.is_deleted())
 
