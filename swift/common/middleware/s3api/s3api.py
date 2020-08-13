@@ -306,6 +306,8 @@ class S3ApiMiddleware(object):
             resp.headers['x-amz-id-2'] = env['swift.trans_id']
             resp.headers['x-amz-request-id'] = env['swift.trans_id']
 
+        if 's3api.backend_path' in env and 'swift.backend_path' not in env:
+            env['swift.backend_path'] = env['s3api.backend_path']
         return resp(env, start_response)
 
     def handle_request(self, req):

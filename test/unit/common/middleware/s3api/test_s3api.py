@@ -501,7 +501,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             status, headers, body = self.call_s3api(req)
             self.assertIn('swift.backend_path', req.environ)
             self.assertEqual(
-                '/v1/AUTH_test/bucket+segments/object/123456789abcdef',
+                '/v1/AUTH_test/bucket+segments/object/123456789abcdef/1',
                 req.environ['swift.backend_path'])
 
         _, _, headers = self.swift.calls_with_headers[-1]
@@ -532,7 +532,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             status, headers, body = self.call_s3api(req)
             self.assertIn('swift.backend_path', req.environ)
             self.assertEqual(
-                '/v1/AUTH_test/bucket+segments/object/123456789abcdef',
+                '/v1/AUTH_test/bucket+segments/object/123456789abcdef/1',
                 req.environ['swift.backend_path'])
 
         _, _, headers = self.swift.calls_with_headers[-1]

@@ -401,9 +401,8 @@ class TestProxyLogging(unittest.TestCase):
                         mock.MagicMock(
                             side_effect=[10000000.0, 10000000.5, 10000001.0])):
             resp = app(req.environ, start_response)
+            # exhaust generator
             resp_body = b''.join(resp)
-        # exhaust generator
-        [x for x in resp]
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[0], 'template')
         self.assertEqual(log_parts[7], 'HTTP/1.0')
@@ -416,6 +415,38 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEqual(log_parts[14], '10000001.000000000')
         self.assertEqual(log_parts[15], '0.5')
         self.assertEqual(resp_body, b'FAKE APP')
+
+    def test_log_msg_template_s3api(self):
+        # Access logs configuration should override the default one
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+            'log_msg_template': (
+                '{protocol} {path} {method} '
+                '{account} {container} {object}')})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/bucket/path/to/key', environ={
+            'REQUEST_METHOD': 'GET',
+            # This would actually get set in the app, but w/e
+            'swift.backend_path': '/v1/AUTH_test/bucket/path/to/key'})
+        with mock.patch("time.time", side_effect=[
+                18.0, 18.5, 20.71828182846]):
+            resp = app(req.environ, start_response)
+            # exhaust generator
+            resp_body = b''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts, [
+            'HTTP/1.0',
+            '/bucket/path/to/key',
+            'GET',
+            'AUTH_test',
+            'bucket',
+            'path/to/key',
+        ])
+        self.assertEqual(resp_body, b'FAKE APP')
+        self.assertTiming('object.policy.0.GET.200.timing',
+                          app, exp_timing=2.71828182846 * 1000)
+        self.assertUpdateStats([('object.GET.200.xfer', 8),
+                                ('object.policy.0.GET.200.xfer', 8)],
+                               app)
 
     def test_invalid_log_config(self):
         with self.assertRaises(ValueError):

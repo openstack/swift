@@ -225,8 +225,9 @@ class ProxyLoggingMiddleware(object):
         policy_index = get_policy_index(req.headers, resp_headers)
 
         acc, cont, obj = None, None, None
-        if req.path.startswith('/v1/'):
-            _, acc, cont, obj = split_path(req.path, 1, 4, True)
+        swift_path = req.environ.get('swift.backend_path', req.path)
+        if swift_path.startswith('/v1/'):
+            _, acc, cont, obj = split_path(swift_path, 1, 4, True)
 
         replacements = {
             # Time information
@@ -300,10 +301,11 @@ class ProxyLoggingMiddleware(object):
                                             bytes_received + bytes_sent)
 
     def get_metric_name_type(self, req):
-        if req.path.startswith('/v1/'):
+        swift_path = req.environ.get('swift.backend_path', req.path)
+        if swift_path.startswith('/v1/'):
             try:
                 stat_type = [None, 'account', 'container',
-                             'object'][req.path.strip('/').count('/')]
+                             'object'][swift_path.strip('/').count('/')]
             except IndexError:
                 stat_type = 'object'
         else:
