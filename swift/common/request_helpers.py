@@ -358,7 +358,7 @@ def get_reserved_name(*parts):
 
 def split_reserved_name(name):
     """
-    Seperate a valid reserved name into the component parts.
+    Separate a valid reserved name into the component parts.
 
     :returns: a list of strings
     """
