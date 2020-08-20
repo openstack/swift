@@ -1029,6 +1029,10 @@ def fake_http_connect(*code_iter, **kwargs):
         def getheader(self, name, default=None):
             return HeaderKeyDict(self.getheaders()).get(name, default)
 
+        def nuke_from_orbit(self):
+            # wrapped connections from buffered_http have this helper
+            self.close()
+
         def close(self):
             self.closed = True
 
@@ -1091,10 +1095,13 @@ def fake_http_connect(*code_iter, **kwargs):
             body = static_body or b''
         else:
             body = next(body_iter)
-        return FakeConn(status, etag, body=body, timestamp=timestamp,
+        conn = FakeConn(status, etag, body=body, timestamp=timestamp,
                         headers=headers, expect_headers=expect_headers,
                         connection_id=i, give_send=kwargs.get('give_send'),
                         give_expect=kwargs.get('give_expect'))
+        if 'capture_connections' in kwargs:
+            kwargs['capture_connections'].append(conn)
+        return conn
 
     connect.unexpected_requests = unexpected_requests
     connect.code_iter = code_iter
@@ -1105,6 +1112,7 @@ def fake_http_connect(*code_iter, **kwargs):
 @contextmanager
 def mocked_http_conn(*args, **kwargs):
     requests = []
+    responses = []
 
     def capture_requests(ip, port, method, path, headers, qs, ssl):
         if six.PY2 and not isinstance(ip, bytes):
@@ -1120,8 +1128,10 @@ def mocked_http_conn(*args, **kwargs):
         }
         requests.append(req)
     kwargs.setdefault('give_connect', capture_requests)
+    kwargs['capture_connections'] = responses
     fake_conn = fake_http_connect(*args, **kwargs)
     fake_conn.requests = requests
+    fake_conn.responses = responses
     with mocklib.patch('swift.common.bufferedhttp.http_connect_raw',
                        new=fake_conn):
         yield fake_conn
@@ -1184,6 +1194,10 @@ class StubResponse(object):
             self.headers['X-Object-Sysmeta-Ec-Frag-Index'] = frag_index
         fake_reason = ('Fake', 'This response is a lie.')
         self.reason = swob.RESPONSE_REASONS.get(status, fake_reason)[0]
+
+    def nuke_from_orbit(self):
+        if hasattr(self, 'swift_conn'):
+            self.swift_conn.close()
 
     def getheader(self, header_name, default=None):
         return self.headers.get(header_name, default)

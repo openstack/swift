@@ -2061,6 +2061,7 @@ def capture_http_requests(get_response):
             self.req = req
             self.resp = None
             self.path = "/"
+            self.closed = False
 
         def getresponse(self):
             self.resp = get_response(self.req)
@@ -2074,6 +2075,9 @@ def capture_http_requests(get_response):
 
         def endheaders(self):
             pass
+
+        def close(self):
+            self.closed = True
 
     class ConnectionLog(object):
 
@@ -2826,7 +2830,16 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['etag'], obj2['etag'])
+        closed_conn = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            closed_conn[etag].add(conn.closed)
+        self.assertEqual({
+            obj1['etag']: {True},
+            obj2['etag']: {False},
+        }, closed_conn)
         self.assertEqual(md5(resp.body).hexdigest(), obj2['etag'])
+        self.assertEqual({True}, {conn.closed for conn in log})
 
         collected_responses = defaultdict(set)
         for conn in log:
@@ -2999,6 +3012,15 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         with capture_http_requests(fake_response) as log:
             resp = req.get_response(self.app)
 
+        closed_conn = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+            closed_conn[etag].add(conn.closed)
+        self.assertEqual({
+            obj1['etag']: {True},
+            obj2['etag']: {True},
+            None: {True},
+        }, dict(closed_conn))
         self.assertEqual(resp.status_int, 503)
 
         collected_responses = defaultdict(set)
@@ -3148,10 +3170,12 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         collected_etags = set()
         collected_status = set()
+        closed_conn = defaultdict(set)
         for conn in log:
             etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
             collected_etags.add(etag)
             collected_status.add(conn.resp.status)
+            closed_conn[etag].add(conn.closed)
 
         # default node_iter will exhaust at 2 * replicas
         self.assertEqual(len(log), 2 * self.replicas())
@@ -3159,6 +3183,12 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             {obj1['etag'], obj2['etag'], obj3['etag'], obj4['etag']},
             collected_etags)
         self.assertEqual({200}, collected_status)
+        self.assertEqual({
+            obj1['etag']: {True},
+            obj2['etag']: {True},
+            obj3['etag']: {True},
+            obj4['etag']: {True},
+        }, closed_conn)
 
     def test_GET_with_mixed_durable_and_nondurable_frags_will_503(self):
         # all nodes have a frag but there is no one set that reaches quorum,
@@ -3208,12 +3238,14 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         self.assertEqual(resp.status_int, 503)
 
+        closed_conn = defaultdict(set)
         collected_etags = set()
         collected_status = set()
         for conn in log:
             etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
             collected_etags.add(etag)
             collected_status.add(conn.resp.status)
+            closed_conn[etag].add(conn.closed)
 
         # default node_iter will exhaust at 2 * replicas
         self.assertEqual(len(log), 2 * self.replicas())
@@ -3221,6 +3253,12 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             {obj1['etag'], obj2['etag'], obj3['etag'], obj4['etag']},
             collected_etags)
         self.assertEqual({200}, collected_status)
+        self.assertEqual({
+            obj1['etag']: {True},
+            obj2['etag']: {True},
+            obj3['etag']: {True},
+            obj4['etag']: {True},
+        }, closed_conn)
 
     def test_GET_with_mixed_durable_frags_and_no_quorum_will_503(self):
         # all nodes have a frag but there is no one set that reaches quorum,
@@ -3270,12 +3308,17 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
 
         self.assertEqual(resp.status_int, 503)
 
+        for conn in log:
+            etag = conn.resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+
         collected_etags = set()
         collected_status = set()
+        closed_conn = defaultdict(set)
         for conn in log:
             etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
             collected_etags.add(etag)
             collected_status.add(conn.resp.status)
+            closed_conn[etag].add(conn.closed)
 
         # default node_iter will exhaust at 2 * replicas
         self.assertEqual(len(log), 2 * self.replicas())
@@ -3283,6 +3326,12 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             {obj1['etag'], obj2['etag'], obj3['etag'], obj4['etag']},
             collected_etags)
         self.assertEqual({200}, collected_status)
+        self.assertEqual({
+            obj1['etag']: {True},
+            obj2['etag']: {True},
+            obj3['etag']: {True},
+            obj4['etag']: {True},
+        }, closed_conn)
 
     def test_GET_with_quorum_durable_files(self):
         # verify that only (ec_nparity + 1) nodes need to be durable for a GET
@@ -3436,8 +3485,17 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         fake_response = self._fake_ec_node_response(list(node_frags))
 
         req = swob.Request.blank('/v1/a/c/o')
-        with capture_http_requests(fake_response):
+        with capture_http_requests(fake_response) as log:
             resp = req.get_response(self.app)
+
+        closed_conn = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+            closed_conn[etag].add(conn.closed)
+        self.assertEqual({
+            obj1['etag']: {False},
+            obj2['etag']: {True},
+        }, closed_conn)
 
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['etag'], obj1['etag'])
@@ -3529,6 +3587,15 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         req = swob.Request.blank('/v1/a/c/o')
         with capture_http_requests(fake_response) as log:
             resp = req.get_response(self.app)
+
+        closed_conn = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+            closed_conn[etag].add(conn.closed)
+        self.assertEqual({
+            obj1['etag']: {True},
+            obj2['etag']: {False},
+        }, closed_conn)
 
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['etag'], obj2['etag'])
@@ -3922,6 +3989,16 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         with capture_http_requests(get_response) as log:
             resp = req.get_response(self.app)
 
+        closed_conn = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+            closed_conn[etag].add(conn.closed)
+        self.assertEqual({
+            old_etag: {True},
+            new_etag: {False},
+            None: {True},
+        }, dict(closed_conn))
+
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.body, new_data[:segment_size])
         self.assertEqual(len(log), self.policy.ec_ndata + 10)
@@ -4134,8 +4211,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.app.recoverable_node_timeout = 0.01
         req = swob.Request.blank('/v1/a/c/o')
         status_codes, body_iter, headers = zip(*responses)
-        with set_http_connect(*status_codes, body_iter=body_iter,
-                              headers=headers):
+        with mocked_http_conn(*status_codes, body_iter=body_iter,
+                              headers=headers) as log:
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(md5(resp.body).hexdigest(), etag1)
@@ -4143,6 +4220,13 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(2, len(error_lines))
         for line in error_lines:
             self.assertIn('retrying', line)
+        etag2_conns = []
+        for conn in log.responses:
+            if conn.headers.get('X-Object-Sysmeta-Ec-Etag') == etag2:
+                etag2_conns.append(conn)
+        self.assertEqual(
+            ([True] * 8) + [False],  # the resumed etag2 doesn't get closed
+            [conn.closed for conn in etag2_conns])
 
     def test_fix_response_HEAD(self):
         headers = {'X-Object-Sysmeta-Ec-Content-Length': '10',
