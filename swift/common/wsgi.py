@@ -1111,9 +1111,13 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             pid = os.fork()
             if pid == 0:
                 os.close(read_fd)
-                signal.signal(signal.SIGHUP, signal.SIG_DFL)
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                signal.signal(signal.SIGUSR1, signal.SIG_DFL)
+
+                def shutdown_my_listen_sock(signum, *args):
+                    greenio.shutdown_safe(sock)
+
+                signal.signal(signal.SIGHUP, shutdown_my_listen_sock)
+                signal.signal(signal.SIGUSR1, shutdown_my_listen_sock)
                 strategy.post_fork_hook()
 
                 def notify():

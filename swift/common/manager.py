@@ -382,6 +382,17 @@ class Manager(object):
         return status
 
     @command
+    def kill_child_pids(self, **kwargs):
+        """kill child pids, optionally servicing accepted connections"""
+        status = 0
+        for server in self.servers:
+            signaled_pids = server.kill_child_pids(**kwargs)
+            if not signaled_pids:
+                print(_('No %s running') % server)
+                status += 1
+        return status
+
+    @command
     def force_reload(self, **kwargs):
         """alias for reload
         """
@@ -594,6 +605,32 @@ class Server(object):
                 pid = None
             yield pid_file, pid
 
+    def _signal_pid(self, sig, pid, pid_file, verbose):
+        try:
+            if sig != signal.SIG_DFL:
+                print(_('Signal %(server)s  pid: %(pid)s  signal: '
+                        '%(signal)s') %
+                      {'server': self.server, 'pid': pid, 'signal': sig})
+            safe_kill(pid, sig, 'swift-%s' % self.server)
+        except InvalidPidFileException:
+            if verbose:
+                print(_('Removing pid file %(pid_file)s with wrong pid '
+                        '%(pid)d') % {'pid_file': pid_file, 'pid': pid})
+            remove_file(pid_file)
+            return False
+        except OSError as e:
+            if e.errno == errno.ESRCH:
+                # pid does not exist
+                if verbose:
+                    print(_("Removing stale pid file %s") % pid_file)
+                remove_file(pid_file)
+            elif e.errno == errno.EPERM:
+                print(_("No permission to signal PID %d") % pid)
+            return False
+        else:
+            # process exists
+            return True
+
     def signal_pids(self, sig, **kwargs):
         """Send a signal to pids for this server
 
@@ -608,28 +645,29 @@ class Server(object):
                 print(_('Removing pid file %s with invalid pid') % pid_file)
                 remove_file(pid_file)
                 continue
-            try:
-                if sig != signal.SIG_DFL:
-                    print(_('Signal %(server)s  pid: %(pid)s  signal: '
-                            '%(signal)s') %
-                          {'server': self.server, 'pid': pid, 'signal': sig})
-                safe_kill(pid, sig, 'swift-%s' % self.server)
-            except InvalidPidFileException:
-                if kwargs.get('verbose'):
-                    print(_('Removing pid file %(pid_file)s with wrong pid '
-                            '%(pid)d') % {'pid_file': pid_file, 'pid': pid})
-                remove_file(pid_file)
-            except OSError as e:
-                if e.errno == errno.ESRCH:
-                    # pid does not exist
-                    if kwargs.get('verbose'):
-                        print(_("Removing stale pid file %s") % pid_file)
-                    remove_file(pid_file)
-                elif e.errno == errno.EPERM:
-                    print(_("No permission to signal PID %d") % pid)
-            else:
-                # process exists
+            if self._signal_pid(sig, pid, pid_file, kwargs.get('verbose')):
                 pids[pid] = pid_file
+        return pids
+
+    def signal_children(self, sig, **kwargs):
+        """Send a signal to child pids for this server
+
+        :param sig: signal to send
+
+        :returns: a dict mapping pids (ints) to pid_files (paths)
+
+        """
+        pids = {}
+        for pid_file, pid in self.iter_pid_files(**kwargs):
+            if not pid:  # Catches None and 0
+                print(_('Removing pid file %s with invalid pid') % pid_file)
+                remove_file(pid_file)
+                continue
+            ps_cmd = ['ps', '--ppid', str(pid), '--no-headers', '-o', 'pid']
+            for pid in subprocess.check_output(ps_cmd).split():
+                pid = int(pid)
+                if self._signal_pid(sig, pid, pid_file, kwargs.get('verbose')):
+                    pids[pid] = pid_file
         return pids
 
     def get_running_pids(self, **kwargs):
@@ -658,6 +696,25 @@ class Server(object):
         else:
             sig = signal.SIGTERM
         return self.signal_pids(sig, **kwargs)
+
+    def kill_child_pids(self, **kwargs):
+        """Kill child pids, leaving server overseer to respawn them
+
+        :param graceful: if True, attempt SIGHUP on supporting servers
+        :param seamless: if True, attempt SIGUSR1 on supporting servers
+
+        :returns: a dict mapping pids (ints) to pid_files (paths)
+
+        """
+        graceful = kwargs.get('graceful')
+        seamless = kwargs.get('seamless')
+        if graceful and self.server in GRACEFUL_SHUTDOWN_SERVERS:
+            sig = signal.SIGHUP
+        elif seamless and self.server in SEAMLESS_SHUTDOWN_SERVERS:
+            sig = signal.SIGUSR1
+        else:
+            sig = signal.SIGTERM
+        return self.signal_children(sig, **kwargs)
 
     def status(self, pids=None, **kwargs):
         """Display status of server
