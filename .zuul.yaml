@@ -72,7 +72,7 @@
 - job:
     name: swift-tox-py38
     parent: swift-tox-base
-    nodeset: ubuntu-bionic
+    nodeset: ubuntu-focal
     description: |
       Run unit-tests for swift under cPython version 3.8.
 
