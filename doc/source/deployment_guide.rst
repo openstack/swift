@@ -179,7 +179,7 @@ each)::
               2       1     2       1.1.0.2    6200       1.1.0.2                6200      d3
               3       1     2       1.1.0.2    6200       1.1.0.2                6200      d4
 
-And here's the same ring set up for `servers_per_port`::
+And here's the same ring set up for ``servers_per_port``::
 
  Devices:    id  region  zone      ip address  port  replication ip  replication port      name
               0       1     1       1.1.0.1    6200       1.1.0.1                6200      d1
@@ -187,24 +187,24 @@ And here's the same ring set up for `servers_per_port`::
               2       1     2       1.1.0.2    6200       1.1.0.2                6200      d3
               3       1     2       1.1.0.2    6201       1.1.0.2                6201      d4
 
-When migrating from normal to `servers_per_port`, perform these steps in order:
+When migrating from normal to ``servers_per_port``, perform these steps in order:
 
- #. Upgrade Swift code to a version capable of doing `servers_per_port`.
+#. Upgrade Swift code to a version capable of doing ``servers_per_port``.
 
- #. Enable `servers_per_port` with a > 0 value
+#. Enable ``servers_per_port`` with a value greater than zero.
 
- #. Restart `swift-object-server` processes with a SIGHUP.  At this point, you
-    will have the `servers_per_port` number of `swift-object-server` processes
-    serving all requests for all disks on each node.  This preserves
-    availability, but you should perform the next step as quickly as possible.
+#. Restart ``swift-object-server`` processes with a SIGHUP.  At this point, you
+   will have the ``servers_per_port`` number of ``swift-object-server`` processes
+   serving all requests for all disks on each node.  This preserves
+   availability, but you should perform the next step as quickly as possible.
 
- #. Push out new rings that actually have different ports per disk on each
-    server.  One of the ports in the new ring should be the same as the port
-    used in the old ring ("6200" in the example above).  This will cover
-    existing proxy-server processes who haven't loaded the new ring yet.  They
-    can still talk to any storage node regardless of whether or not that
-    storage node has loaded the ring and started object-server processes on the
-    new ports.
+#. Push out new rings that actually have different ports per disk on each
+   server.  One of the ports in the new ring should be the same as the port
+   used in the old ring ("6200" in the example above).  This will cover
+   existing proxy-server processes who haven't loaded the new ring yet.  They
+   can still talk to any storage node regardless of whether or not that
+   storage node has loaded the ring and started object-server processes on the
+   new ports.
 
 If you do not run a separate object-server for replication, then this setting
 must be available to the object-replicator and object-reconstructor (i.e.
@@ -302,7 +302,7 @@ General Server Configuration
 Swift uses paste.deploy (http://pythonpaste.org/deploy/) to manage server
 configurations.
 
-Default configuration options are set in the `[DEFAULT]` section, and any
+Default configuration options are set in the ``[DEFAULT]`` section, and any
 options specified there can be overridden in any of the other sections BUT
 ONLY BY USING THE SYNTAX ``set option_name = value``. This is the unfortunate
 way paste.deploy works and I'll try to explain it in full.
@@ -336,30 +336,30 @@ The resulting configuration that myapp receives is::
             'set name4': 'globalvalue'}
     local {'name6': 'localvalue'}
 
-So, `name1` got the global value which is fine since it's only in the `DEFAULT`
+So, ``name1`` got the global value which is fine since it's only in the ``DEFAULT``
 section anyway.
 
-`name2` got the global value from `DEFAULT` even though it appears to be
-overridden in the `app:myapp` subsection. This is just the unfortunate way
+``name2`` got the global value from ``DEFAULT`` even though it appears to be
+overridden in the ``app:myapp`` subsection. This is just the unfortunate way
 paste.deploy works (at least at the time of this writing.)
 
-`name3` got the local value from the `app:myapp` subsection because it is using
+``name3`` got the local value from the ``app:myapp`` subsection because it is using
 the special paste.deploy syntax of ``set option_name = value``. So, if you want
 a default value for most app/filters but want to override it in one
 subsection, this is how you do it.
 
-`name4` got the global value from `DEFAULT` since it's only in that section
-anyway. But, since we used the ``set`` syntax in the `DEFAULT` section even
+``name4`` got the global value from ``DEFAULT`` since it's only in that section
+anyway. But, since we used the ``set`` syntax in the ``DEFAULT`` section even
 though we shouldn't, notice we also got a ``set name4`` variable. Weird, but
 probably not harmful.
 
-`name5` got the local value from the `app:myapp` subsection since it's only
+``name5`` got the local value from the ``app:myapp`` subsection since it's only
 there anyway, but notice that it is in the global configuration and not the
 local configuration. This is because we used the ``set`` syntax to set the
 value. Again, weird, but not harmful since Swift just treats the two sets of
 configuration values as one set anyway.
 
-`name6` got the local value from `app:myapp` subsection since it's only there,
+``name6`` got the local value from ``app:myapp`` subsection since it's only there,
 and since we didn't use the ``set`` syntax, it's only in the local
 configuration and not the global one. Though, as indicated above, there is no
 special distinction with Swift.
@@ -573,7 +573,7 @@ Option                             Default                Description
 use                                                       paste.deploy entry point for the
                                                           object server.  For most cases,
                                                           this should be
-                                                          `egg:swift#object`.
+                                                          ``egg:swift#object``.
 set log_name                       object-server          Label used when logging
 set log_facility                   LOG_LOCAL0             Syslog log facility
 set log_level                      INFO                   Logging level
@@ -1026,13 +1026,13 @@ processes                     0                               How many parts to 
                                                               When set 0 means that a single legacy
                                                               process will be doing all the work.
                                                               This can only be used in conjunction with
-                                                              `dequeue_from_legacy`.
+                                                              ``dequeue_from_legacy``.
 process                       0                               Which of the parts a particular legacy process will
                                                               work on. It is "zero based", if you want to use 3
                                                               processes, you should run processes with process
                                                               set to 0, 1, and 2.
                                                               This can only be used in conjunction with
-                                                              `dequeue_from_legacy`.
+                                                              ``dequeue_from_legacy``.
 reclaim_age                   604800                          How long an un-processable expired object
                                                               marker will be retried before it is abandoned.
                                                               It is not coupled with the tombstone reclaim age
@@ -1184,7 +1184,7 @@ Option                          Default           Description
 ------------------------------  ----------------  ----------------------------------------
 use                                               paste.deploy entry point for the
                                                   container server.  For most cases, this
-                                                  should be `egg:swift#container`.
+                                                  should be ``egg:swift#container``.
 set log_name                    container-server  Label used when logging
 set log_facility                LOG_LOCAL0        Syslog log facility
 set log_level                   INFO              Logging level
@@ -1541,7 +1541,7 @@ Option                         Default         Description
 -----------------------------  --------------  ------------------------------------------
 use                                            Entry point for paste.deploy for the account
                                                server.  For most cases, this should be
-                                               `egg:swift#account`.
+                                               ``egg:swift#account``.
 set log_name                   account-server  Label used when logging
 set log_facility               LOG_LOCAL0      Syslog log facility
 set log_level                  INFO            Logging level
@@ -1929,7 +1929,7 @@ Option                                  Default          Description
 use                                                      Entry point for paste.deploy for
                                                          the proxy server.  For most
                                                          cases, this should be
-                                                         `egg:swift#proxy`.
+                                                         ``egg:swift#proxy``.
 set log_name                            proxy-server     Label used when logging
 set log_facility                        LOG_LOCAL0       Syslog log facility
 set log_level                           INFO             Log level
@@ -2232,8 +2232,8 @@ Several of the Services rely on Memcached for caching certain types of
 lookups, such as auth tokens, and container/account existence.  Swift does
 not do any caching of actual object data.  Memcached should be able to run
 on any servers that have available RAM and CPU.  At Rackspace, we run
-Memcached on the proxy servers.  The `memcache_servers` config option
-in the `proxy-server.conf` should contain all memcached servers.
+Memcached on the proxy servers.  The ``memcache_servers`` config option
+in the ``proxy-server.conf`` should contain all memcached servers.
 
 -----------
 System Time
@@ -2253,7 +2253,7 @@ should also be monitored to ensure that the times do not vary too much.
 General Service Tuning
 ----------------------
 
-Most services support either a `worker` or `concurrency` value in the
+Most services support either a ``workers`` or ``concurrency`` value in the
 settings.  This allows the services to make effective use of the cores
 available. A good starting point to set the concurrency level for the proxy
 and storage services to 2 times the number of cores available. If more than
@@ -2270,7 +2270,7 @@ and Object servers with 8 workers each. Most of the background jobs are run at
 a concurrency of 1, with the exception of the replicators which are run at a
 concurrency of 2.
 
-The `max_clients` parameter can be used to adjust the number of client
+The ``max_clients`` parameter can be used to adjust the number of client
 requests an individual worker accepts for processing. The fewer requests being
 processed at one time, the less likely a request that consumes the worker's
 CPU time, or blocks in the OS, will negatively impact other requests. The more
@@ -2282,8 +2282,8 @@ more workers, raising the number of workers and lowering the maximum number of
 clients serviced per worker can lessen the impact of CPU intensive or stalled
 requests.
 
-The `nice_priority` parameter can be used to set program scheduling priority.
-The `ionice_class` and `ionice_priority` parameters can be used to set I/O scheduling
+The ``nice_priority`` parameter can be used to set program scheduling priority.
+The ``ionice_class`` and ``ionice_priority`` parameters can be used to set I/O scheduling
 class and priority on the systems that use an I/O scheduler that supports
 I/O priorities. As at kernel 2.6.17 the only such scheduler is the Completely
 Fair Queuing (CFQ) I/O scheduler. If you run your Storage servers all together
@@ -2340,7 +2340,7 @@ settings get set so that XFS can make most efficient use of the RAID array.
 For a standard Swift install, all data drives are mounted directly under
 ``/srv/node`` (as can be seen in the above example of mounting label ``D1``
 as ``/srv/node/d1``). If you choose to mount the drives in another directory,
-be sure to set the `devices` config option in all of the server configs to
+be sure to set the ``devices`` config option in all of the server configs to
 point to the correct directory.
 
 The mount points for each drive in ``/srv/node/`` should be owned by the root user
@@ -2348,8 +2348,8 @@ almost exclusively (``root:root 755``). This is required to prevent rsync from
 syncing files into the root drive in the event a drive is unmounted.
 
 Swift uses system calls to reserve space for new objects being written into
-the system. If your filesystem does not support `fallocate()` or
-`posix_fallocate()`, be sure to set the `disable_fallocate = true` config
+the system. If your filesystem does not support ``fallocate()`` or
+``posix_fallocate()``, be sure to set the ``disable_fallocate = true`` config
 parameter in account, container, and object server configs.
 
 Most current Linux distributions ship with a default installation of updatedb.
@@ -2357,7 +2357,7 @@ This tool runs periodically and updates the file name database that is used by
 the GNU locate tool. However, including Swift object and container database
 files is most likely not required and the periodic update affects the
 performance quite a bit. To disable the inclusion of these files add the path
-where Swift stores its data to the setting PRUNEPATHS in `/etc/updatedb.conf`::
+where Swift stores its data to the setting PRUNEPATHS in ``/etc/updatedb.conf``::
 
     PRUNEPATHS="... /tmp ... /var/spool ... /srv/node"
 
@@ -2369,7 +2369,7 @@ General System Tuning
 Rackspace currently runs Swift on Ubuntu Server 10.04, and the following
 changes have been found to be useful for our use cases.
 
-The following settings should be in `/etc/sysctl.conf`::
+The following settings should be in ``/etc/sysctl.conf``::
 
     # disable TIME_WAIT.. wait..
     net.ipv4.tcp_tw_recycle=1
@@ -2395,7 +2395,7 @@ Logging Considerations
 ----------------------
 
 Swift is set up to log directly to syslog. Every service can be configured
-with the `log_facility` option to set the syslog log facility destination.
+with the ``log_facility`` option to set the syslog log facility destination.
 We recommended using syslog-ng to route the logs to specific log
 files locally on the server and also to remote log collecting servers.
 Additionally, custom log handlers can be used via the custom_log_handlers
