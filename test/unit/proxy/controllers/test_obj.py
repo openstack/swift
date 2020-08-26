@@ -2443,7 +2443,7 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         feeder_q.get.side_effect = feeder_timeout
         controller.feed_remaining_primaries(
             safe_iter, pile, req, 0, self.policy,
-            mock.MagicMock(), feeder_q)
+            mock.MagicMock(), feeder_q, mock.MagicMock())
         expected_timeout = self.app.get_policy_options(
             self.policy).concurrency_timeout
         expected_call = mock.call(timeout=expected_timeout)
@@ -2454,12 +2454,21 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
     def test_GET_timeout(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         self.app.recoverable_node_timeout = 0.01
-        codes = [FakeStatus(404, response_sleep=1.0)] + \
+        codes = [FakeStatus(404, response_sleep=1.0)] * 2 + \
             [200] * (self.policy.ec_ndata)
         with mocked_http_conn(*codes) as log:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(self.policy.ec_ndata + 1, len(log.requests))
+        self.assertEqual(self.policy.ec_ndata + 2, len(log.requests))
+        self.assertEqual(
+            len(self.logger.logger.records['ERROR']), 2,
+            'Expected 2 ERROR lines, got %r' % (
+                self.logger.logger.records['ERROR'], ))
+        for retry_line in self.logger.logger.records['ERROR']:
+            self.assertIn('ERROR with Object server', retry_line)
+            self.assertIn('Trying to GET', retry_line)
+            self.assertIn('Timeout (0.01s)', retry_line)
+            self.assertIn(req.headers['x-trans-id'], retry_line)
 
     def test_GET_with_slow_primaries(self):
         segment_size = self.policy.ec_segment_size
@@ -4143,6 +4152,8 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertIn('retrying', error_lines[0])
+        retry_line = self.logger.logger.records['ERROR'][0]
+        self.assertIn(req.headers['x-trans-id'], retry_line)
 
     def test_GET_read_timeout_resume_mixed_etag(self):
         segment_size = self.policy.ec_segment_size
