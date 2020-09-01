@@ -601,6 +601,31 @@ class TestS3ApiObj(S3ApiTestCase):
         self.assertEqual(headers['etag'], etag)
 
     @s3acl
+    def test_object_PUT_quota_exceeded(self):
+        etag = self.response_headers['etag']
+        content_md5 = binascii.b2a_base64(binascii.a2b_hex(etag)).strip()
+        if not six.PY2:
+            content_md5 = content_md5.decode('ascii')
+
+        self.swift.register(
+            'PUT', '/v1/AUTH_test/bucket/object',
+            swob.HTTPRequestEntityTooLarge, {}, 'Upload exceeds quota.')
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'x-amz-storage-class': 'STANDARD',
+                     'Content-MD5': content_md5,
+                     'Date': self.get_date_header()},
+            body=self.object_body)
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertIn(b'<Code>EntityTooLarge</Code>', body)
+        self.assertIn(b'<Message>Upload exceeds quota.</Message', body)
+
+    @s3acl
     def test_object_PUT_v4(self):
         body_sha = hashlib.sha256(self.object_body).hexdigest()
         req = Request.blank(

@@ -1380,6 +1380,8 @@ class S3Request(swob.Request):
                 error_codes[sw_resp.status_int]  # pylint: disable-msg=E1101
             if isinstance(err_resp, tuple):
                 raise err_resp[0](*err_resp[1:])
+            elif b'quota' in err_msg:
+                raise err_resp(err_msg)
             else:
                 raise err_resp()
 
