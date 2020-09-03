@@ -48,125 +48,144 @@ with Apache2 installed. Install mod-wsgi using::
 
     sudo apt-get install libapache2-mod-wsgi
 
-First, change the User and Group IDs of Apache2 to be those used by Swift. For
-example in /etc/apache2/envvars use::
-
-    export APACHE_RUN_USER=swift
-    export APACHE_RUN_GROUP=swift
-
 Create a directory for the Apache2 wsgi files::
 
     sudo mkdir /srv/www/swift
 
-Create a file for each service under /srv/www/swift.
+Create a working directory for the wsgi processes::
 
-For a proxy service create /srv/www/swift/proxy-server.wsgi::
+    sudo mkdir -m 2770 /var/lib/swift
+    sudo chown swift:swift /var/lib/swift
+
+Create a file for each service under ``/srv/www/swift``.
+
+For a proxy service create ``/srv/www/swift/proxy-server.wsgi``::
 
     from swift.common.wsgi import init_request_processor
     application, conf, logger, log_name = \
         init_request_processor('/etc/swift/proxy-server.conf','proxy-server')
 
-For an account service create /srv/www/swift/account-server.wsgi::
+For an account service create ``/srv/www/swift/account-server.wsgi``::
 
     from swift.common.wsgi import init_request_processor
     application, conf, logger, log_name = \
         init_request_processor('/etc/swift/account-server.conf',
                                'account-server')
 
-For an container service create /srv/www/swift/container-server.wsgi::
+For an container service create ``/srv/www/swift/container-server.wsgi``::
 
     from swift.common.wsgi import init_request_processor
     application, conf, logger, log_name = \
         init_request_processor('/etc/swift/container-server.conf',
                               'container-server')
 
-For an object service create /srv/www/swift/object-server.wsgi::
+For an object service create ``/srv/www/swift/object-server.wsgi``::
 
     from swift.common.wsgi import init_request_processor
     application, conf, logger, log_name = \
         init_request_processor('/etc/swift/object-server.conf',
                                'object-server')
 
-Create a /etc/apache2/conf.d/swift_wsgi.conf configuration file that will define
-a port and Virtual Host per each local service. For example an Apache2 serving
-as a web front end of a proxy service::
+Create a ``/etc/apache2/conf.d/swift_wsgi.conf`` configuration file that will
+define a port and Virtual Host per each local service. For example an Apache2
+serving as a web front end of a proxy service::
 
-    #Proxy
-    NameVirtualHost *:8080
+    # Proxy
     Listen 8080
+
     <VirtualHost *:8080>
         ServerName proxy-server
+
         LimitRequestBody 5368709122
-        WSGIDaemonProcess proxy-server processes=5 threads=1
+        LimitRequestFields 200
+
+        WSGIDaemonProcess proxy-server processes=5 threads=1 user=swift group=swift display-name=%{GROUP}
         WSGIProcessGroup proxy-server
         WSGIScriptAlias / /srv/www/swift/proxy-server.wsgi
-        LimitRequestFields 200
-        ErrorLog /var/log/apache2/proxy-server
         LogLevel debug
         CustomLog /var/log/apache2/proxy.log combined
+        ErrorLog /var/log/apache2/proxy-server
     </VirtualHost>
 
 Notice that when using Apache the limit on the maximal object size should be
-imposed by Apache using the LimitRequestBody rather by the swift proxy. Note
-also that the LimitRequestBody should indicate the same value as indicated by
-max_file_size located in both /etc/swift/swift.conf and in /etc/swift/test.conf.
-The Swift default value for max_file_size (when not present) is 5368709122. For
-example an Apache2 serving as a web front end of a storage node::
+imposed by Apache using the `LimitRequestBody` rather by the swift proxy. Note
+also that the `LimitRequestBody` should indicate the same value as indicated by
+`max_file_size` located in both ``/etc/swift/swift.conf`` and in
+``/etc/swift/test.conf``.  The Swift default value for `max_file_size` (when not
+present) is `5368709122`. For example an Apache2 serving as a web front end of a
+storage node::
 
-    #Object Service
-    NameVirtualHost *:6200
+    # Object Service
     Listen 6200
+
     <VirtualHost *:6200>
         ServerName object-server
-        WSGIDaemonProcess object-server processes=5 threads=1
+
+        LimitRequestFields 200
+
+        WSGIDaemonProcess object-server processes=5 threads=1 user=swift group=swift display-name=%{GROUP}
         WSGIProcessGroup object-server
         WSGIScriptAlias / /srv/www/swift/object-server.wsgi
-        LimitRequestFields 200
-        ErrorLog /var/log/apache2/object-server
         LogLevel debug
         CustomLog /var/log/apache2/access.log combined
+        ErrorLog /var/log/apache2/object-server
     </VirtualHost>
 
-    #Container Service
-    NameVirtualHost *:6201
+    # Container Service
     Listen 6201
+
     <VirtualHost *:6201>
         ServerName container-server
-        WSGIDaemonProcess container-server processes=5 threads=1
+
+        LimitRequestFields 200
+
+        WSGIDaemonProcess container-server processes=5 threads=1 user=swift group=swift display-name=%{GROUP}
         WSGIProcessGroup container-server
         WSGIScriptAlias / /srv/www/swift/container-server.wsgi
-        LimitRequestFields 200
-        ErrorLog /var/log/apache2/container-server
         LogLevel debug
         CustomLog /var/log/apache2/access.log combined
+        ErrorLog /var/log/apache2/container-server
     </VirtualHost>
 
-    #Account Service
-    NameVirtualHost *:6202
+    # Account Service
     Listen 6202
+
     <VirtualHost *:6202>
         ServerName account-server
-        WSGIDaemonProcess account-server processes=5 threads=1
+
+        LimitRequestFields 200
+
+        WSGIDaemonProcess account-server processes=5 threads=1 user=swift group=swift display-name=%{GROUP}
         WSGIProcessGroup account-server
         WSGIScriptAlias / /srv/www/swift/account-server.wsgi
-        LimitRequestFields 200
-        ErrorLog /var/log/apache2/account-server
         LogLevel debug
         CustomLog /var/log/apache2/access.log combined
+        ErrorLog /var/log/apache2/account-server
     </VirtualHost>
 
-Next stop the Apache2 and start it again (apache2ctl restart is not enough)::
+Enable the newly configured Virtual Hosts::
 
-    apache2ctl stop
-    apache2ctl start
+    a2ensite swift_wsgi.conf
+
+Next, stop, test and start Apache2 again::
+
+    # stop it
+    systemctl stop apache2.service
+
+    # test the configuration
+    apache2ctl -t
+
+    # start it if the test succeeds
+    systemctl start apache2.service
+
 
 Edit the tests config file and add::
 
     web_front_end = apache2
     normalized_urls = True
 
-Also check to see that the file includes max_file_size of the same value as used
-for the LimitRequestBody in the apache config file above.
+Also check to see that the file includes `max_file_size` of the same value as
+used for the `LimitRequestBody` in the apache config file above.
 
 We are done. You may run functional tests to test - e.g.::
 
