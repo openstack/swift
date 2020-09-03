@@ -381,7 +381,6 @@ class Manager(object):
                 status += 1
         return status
 
-    @command
     def kill_child_pids(self, **kwargs):
         """kill child pids, optionally servicing accepted connections"""
         status = 0
