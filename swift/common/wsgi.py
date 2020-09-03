@@ -636,7 +636,7 @@ class SwiftHttpProxiedProtocol(SwiftHttpProtocol):
         return environ
 
 
-def run_server(conf, logger, sock, global_conf=None):
+def run_server(conf, logger, sock, global_conf=None, ready_callback=None):
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
     # some platforms. This locks in reported times to UTC.
     os.environ['TZ'] = 'UTC+0'
@@ -677,6 +677,8 @@ def run_server(conf, logger, sock, global_conf=None):
         # header; "Etag" just won't do).
         'capitalize_response_headers': False,
     }
+    if ready_callback:
+        ready_callback()
     try:
         wsgi.server(sock, app, wsgi_logger, **server_kwargs)
     except socket.error as err:
@@ -689,6 +691,15 @@ class StrategyBase(object):
     """
     Some operations common to all strategy classes.
     """
+    def __init__(self, conf, logger):
+        self.conf = conf
+        self.logger = logger
+        self.signaled_ready = False
+
+        # Each strategy is welcome to track data however it likes, but all
+        # socket refs should be somewhere in this dict. This allows forked-off
+        # children to easily drop refs to sibling sockets in post_fork_hook().
+        self.tracking_data = {}
 
     def post_fork_hook(self):
         """
@@ -696,7 +707,10 @@ class StrategyBase(object):
         wsgi server, to perform any initialization such as drop privileges.
         """
 
+        if not self.signaled_ready:
+            capture_stdio(self.logger)
         drop_privileges(self.conf.get('user', 'swift'))
+        del self.tracking_data  # children don't need to track siblings
 
     def shutdown_sockets(self):
         """
@@ -721,11 +735,39 @@ class StrategyBase(object):
                 # on socket objects is provided to toggle it.
                 sock.set_inheritable(False)
 
+    def signal_ready(self):
+        """
+        Signal that the server is up and accepting connections.
+        """
+        if self.signaled_ready:
+            return  # Already did it
+
+        # Redirect errors to logger and close stdio. swift-init (for example)
+        # uses this to know that the service is ready to accept connections.
+        capture_stdio(self.logger)
+
+        # If necessary, signal an old copy of us that it's okay to shutdown
+        # its listen sockets now because ours are up and ready to receive
+        # connections. This is used for seamless reloading using SIGUSR1.
+        reexec_signal_fd = os.getenv(NOTIFY_FD_ENV_KEY)
+        if reexec_signal_fd:
+            reexec_signal_fd = int(reexec_signal_fd)
+            os.write(reexec_signal_fd, str(os.getpid()).encode('utf8'))
+            os.close(reexec_signal_fd)
+
+        # Finally, signal systemd (if appropriate) that process started
+        # properly.
+        systemd_notify(logger=self.logger)
+
+        self.signaled_ready = True
+
 
 class WorkersStrategy(StrategyBase):
     """
     WSGI server management strategy object for a single bind port and listen
     socket shared by a configured number of forked-off workers.
+
+    Tracking data is a map of ``pid -> socket``.
 
     Used in :py:func:`run_wsgi`.
 
@@ -735,10 +777,7 @@ class WorkersStrategy(StrategyBase):
     """
 
     def __init__(self, conf, logger):
-        self.conf = conf
-        self.logger = logger
-        self.sock = None
-        self.children = []
+        super(WorkersStrategy, self).__init__(conf, logger)
         self.worker_count = config_auto_int_value(conf.get('workers'),
                                                   CPU_COUNT)
 
@@ -753,18 +792,6 @@ class WorkersStrategy(StrategyBase):
 
         return 0.5
 
-    def do_bind_ports(self):
-        """
-        Bind the one listen socket for this strategy.
-        """
-
-        try:
-            self.sock = get_socket(self.conf)
-        except ConfigFilePortError:
-            msg = 'bind_port wasn\'t properly set in the config file. ' \
-                'It must be explicitly set to a valid port number.'
-            return msg
-
     def no_fork_sock(self):
         """
         Return a server listen socket if the server should run in the
@@ -773,7 +800,7 @@ class WorkersStrategy(StrategyBase):
 
         # Useful for profiling [no forks].
         if self.worker_count == 0:
-            return self.sock
+            return get_socket(self.conf)
 
     def new_worker_socks(self):
         """
@@ -785,8 +812,8 @@ class WorkersStrategy(StrategyBase):
         where it will be ignored.
         """
 
-        while len(self.children) < self.worker_count:
-            yield self.sock, None
+        while len(self.tracking_data) < self.worker_count:
+            yield get_socket(self.conf), None
 
     def log_sock_exit(self, sock, _unused):
         """
@@ -810,7 +837,7 @@ class WorkersStrategy(StrategyBase):
 
         self.logger.notice('Started child %s from parent %s',
                            pid, os.getpid())
-        self.children.append(pid)
+        self.tracking_data[pid] = sock
 
     def register_worker_exit(self, pid):
         """
@@ -823,139 +850,22 @@ class WorkersStrategy(StrategyBase):
         :param int pid: The PID of the worker that exited.
         """
 
-        if pid in self.children:
+        sock = self.tracking_data.pop(pid, None)
+        if sock is None:
+            self.logger.info('Ignoring wait() result from unknown PID %s', pid)
+        else:
             self.logger.error('Removing dead child %s from parent %s',
                               pid, os.getpid())
-            self.children.remove(pid)
-        else:
-            self.logger.info('Ignoring wait() result from unknown PID %s', pid)
+            greenio.shutdown_safe(sock)
+            sock.close()
 
     def iter_sockets(self):
         """
         Yields all known listen sockets.
         """
 
-        if self.sock:
-            yield self.sock
-
-
-class PortPidState(object):
-    """
-    A helper class for :py:class:`ServersPerPortStrategy` to track listen
-    sockets and PIDs for each port.
-
-    :param int servers_per_port: The configured number of servers per port.
-    :param logger: The server's :py:class:`~swift.common.utils.LogAdaptor`
-    """
-
-    def __init__(self, servers_per_port, logger):
-        self.servers_per_port = servers_per_port
-        self.logger = logger
-        self.sock_data_by_port = {}
-
-    def sock_for_port(self, port):
-        """
-        :param int port: The port whose socket is desired.
-        :returns: The bound listen socket for the given port.
-        """
-
-        return self.sock_data_by_port[port]['sock']
-
-    def port_for_sock(self, sock):
-        """
-        :param socket sock: A tracked bound listen socket
-        :returns: The port the socket is bound to.
-        """
-
-        for port, sock_data in self.sock_data_by_port.items():
-            if sock_data['sock'] == sock:
-                return port
-
-    def _pid_to_port_and_index(self, pid):
-        for port, sock_data in self.sock_data_by_port.items():
-            for server_idx, a_pid in enumerate(sock_data['pids']):
-                if pid == a_pid:
-                    return port, server_idx
-
-    def port_index_pairs(self):
-        """
-        Returns current (port, server index) pairs.
-
-        :returns: A set of (port, server_idx) tuples for currently-tracked
-            ports, sockets, and PIDs.
-        """
-
-        current_port_index_pairs = set()
-        for port, pid_state in self.sock_data_by_port.items():
-            current_port_index_pairs |= set(
-                (port, i)
-                for i, pid in enumerate(pid_state['pids'])
-                if pid is not None)
-        return current_port_index_pairs
-
-    def track_port(self, port, sock):
-        """
-        Start tracking servers for the given port and listen socket.
-
-        :param int port: The port to start tracking
-        :param socket sock: The bound listen socket for the port.
-        """
-
-        self.sock_data_by_port[port] = {
-            'sock': sock,
-            'pids': [None] * self.servers_per_port,
-        }
-
-    def not_tracking(self, port):
-        """
-        Return True if the specified port is not being tracked.
-
-        :param int port: A port to check.
-        """
-
-        return port not in self.sock_data_by_port
-
-    def all_socks(self):
-        """
-        Yield all current listen sockets.
-        """
-
-        for orphan_data in self.sock_data_by_port.values():
-            yield orphan_data['sock']
-
-    def forget_port(self, port):
-        """
-        Idempotently forget a port, closing the listen socket at most once.
-        """
-
-        orphan_data = self.sock_data_by_port.pop(port, None)
-        if orphan_data:
-            greenio.shutdown_safe(orphan_data['sock'])
-            orphan_data['sock'].close()
-            self.logger.notice('Closing unnecessary sock for port %d', port)
-
-    def add_pid(self, port, index, pid):
-        self.sock_data_by_port[port]['pids'][index] = pid
-
-    def forget_pid(self, pid):
-        """
-        Idempotently forget a PID.  It's okay if the PID is no longer in our
-        data structure (it could have been removed by the "orphan port" removal
-        in :py:meth:`new_worker_socks`).
-
-        :param int pid: The PID which exited.
-        """
-
-        port_server_idx = self._pid_to_port_and_index(pid)
-        if port_server_idx is None:
-            # This method can lose a race with the "orphan port" removal, when
-            # a ring reload no longer contains a port.  So it's okay if we were
-            # unable to find a (port, server_idx) pair.
-            return
-        dead_port, server_idx = port_server_idx
-        self.logger.error('Removing dead child %d (PID: %s) for port %s',
-                          server_idx, pid, dead_port)
-        self.sock_data_by_port[dead_port]['pids'][server_idx] = None
+        for sock in self.tracking_data.values():
+            yield sock
 
 
 class ServersPerPortStrategy(StrategyBase):
@@ -964,6 +874,8 @@ class ServersPerPortStrategy(StrategyBase):
     port per unique local port in the storage policy rings.  The
     `servers_per_port` integer config setting determines how many workers are
     run per port.
+
+    Tracking data is a map like ``port -> [(pid, socket), ...]``.
 
     Used in :py:func:`run_wsgi`.
 
@@ -974,12 +886,10 @@ class ServersPerPortStrategy(StrategyBase):
     """
 
     def __init__(self, conf, logger, servers_per_port):
-        self.conf = conf
-        self.logger = logger
+        super(ServersPerPortStrategy, self).__init__(conf, logger)
         self.servers_per_port = servers_per_port
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
-        self.port_pid_state = PortPidState(servers_per_port, logger)
 
         bind_ip = conf.get('bind_ip', '0.0.0.0')
         self.cache = BindPortsCache(self.swift_dir, bind_ip)
@@ -990,8 +900,7 @@ class ServersPerPortStrategy(StrategyBase):
     def _bind_port(self, port):
         new_conf = self.conf.copy()
         new_conf['bind_port'] = port
-        sock = get_socket(new_conf)
-        self.port_pid_state.track_port(port, sock)
+        return get_socket(new_conf)
 
     def loop_timeout(self):
         """
@@ -1003,15 +912,6 @@ class ServersPerPortStrategy(StrategyBase):
 
         return self.ring_check_interval
 
-    def do_bind_ports(self):
-        """
-        Bind one listen socket per unique local storage policy ring port.
-        """
-
-        self._reload_bind_ports()
-        for port in self.bind_ports:
-            self._bind_port(port)
-
     def no_fork_sock(self):
         """
         This strategy does not support running in the foreground.
@@ -1021,8 +921,8 @@ class ServersPerPortStrategy(StrategyBase):
 
     def new_worker_socks(self):
         """
-        Yield a sequence of (socket, server_idx) tuples for each server which
-        should be forked-off and started.
+        Yield a sequence of (socket, (port, server_idx)) tuples for each server
+        which should be forked-off and started.
 
         Any sockets for "orphaned" ports no longer in any ring will be closed
         (causing their associated workers to gracefully exit) after all new
@@ -1033,11 +933,15 @@ class ServersPerPortStrategy(StrategyBase):
         """
 
         self._reload_bind_ports()
-        desired_port_index_pairs = set(
+        desired_port_index_pairs = {
             (p, i) for p in self.bind_ports
-            for i in range(self.servers_per_port))
+            for i in range(self.servers_per_port)}
 
-        current_port_index_pairs = self.port_pid_state.port_index_pairs()
+        current_port_index_pairs = {
+            (p, i)
+            for p, port_data in self.tracking_data.items()
+            for i, (pid, sock) in enumerate(port_data)
+            if pid is not None}
 
         if desired_port_index_pairs != current_port_index_pairs:
             # Orphan ports are ports which had object-server processes running,
@@ -1046,36 +950,44 @@ class ServersPerPortStrategy(StrategyBase):
             orphan_port_index_pairs = current_port_index_pairs - \
                 desired_port_index_pairs
 
-            # Fork off worker(s) for every port who's supposed to have
+            # Fork off worker(s) for every port that's supposed to have
             # worker(s) but doesn't
             missing_port_index_pairs = desired_port_index_pairs - \
                 current_port_index_pairs
             for port, server_idx in sorted(missing_port_index_pairs):
-                if self.port_pid_state.not_tracking(port):
-                    try:
-                        self._bind_port(port)
-                    except Exception as e:
-                        self.logger.critical('Unable to bind to port %d: %s',
-                                             port, e)
-                        continue
-                yield self.port_pid_state.sock_for_port(port), server_idx
+                try:
+                    sock = self._bind_port(port)
+                except Exception as e:
+                    self.logger.critical('Unable to bind to port %d: %s',
+                                         port, e)
+                    continue
+                yield sock, (port, server_idx)
 
-            for orphan_pair in orphan_port_index_pairs:
+            for port, idx in orphan_port_index_pairs:
                 # For any port in orphan_port_index_pairs, it is guaranteed
                 # that there should be no listen socket for that port, so we
                 # can close and forget them.
-                self.port_pid_state.forget_port(orphan_pair[0])
+                pid, sock = self.tracking_data[port][idx]
+                greenio.shutdown_safe(sock)
+                sock.close()
+                self.logger.notice(
+                    'Closing unnecessary sock for port %d (child pid %d)',
+                    port, pid)
+                self.tracking_data[port][idx] = (None, None)
+                if all(sock is None
+                       for _pid, sock in self.tracking_data[port]):
+                    del self.tracking_data[port]
 
-    def log_sock_exit(self, sock, server_idx):
+    def log_sock_exit(self, sock, data):
         """
         Log a server's exit.
         """
 
-        port = self.port_pid_state.port_for_sock(sock)
+        port, server_idx = data
         self.logger.notice('Child %d (PID %d, port %d) exiting normally',
                            server_idx, os.getpid(), port)
 
-    def register_worker_start(self, sock, server_idx, pid):
+    def register_worker_start(self, sock, data, pid):
         """
         Called when a new worker is started.
 
@@ -1085,10 +997,12 @@ class ServersPerPortStrategy(StrategyBase):
         :param int pid: The new worker process' PID
         """
 
-        port = self.port_pid_state.port_for_sock(sock)
+        port, server_idx = data
         self.logger.notice('Started child %d (PID %d) for port %d',
                            server_idx, pid, port)
-        self.port_pid_state.add_pid(port, server_idx, pid)
+        if port not in self.tracking_data:
+            self.tracking_data[port] = [(None, None)] * self.servers_per_port
+        self.tracking_data[port][server_idx] = (pid, sock)
 
     def register_worker_exit(self, pid):
         """
@@ -1097,15 +1011,22 @@ class ServersPerPortStrategy(StrategyBase):
         :param int pid: The PID of the worker that exited.
         """
 
-        self.port_pid_state.forget_pid(pid)
+        for port_data in self.tracking_data.values():
+            for idx, (child_pid, sock) in enumerate(port_data):
+                if child_pid == pid:
+                    port_data[idx] = (None, None)
+                    greenio.shutdown_safe(sock)
+                    sock.close()
+                    return
 
     def iter_sockets(self):
         """
         Yields all known listen sockets.
         """
 
-        for sock in self.port_pid_state.all_socks():
-            yield sock
+        for port_data in self.tracking_data.values():
+            for _pid, sock in port_data:
+                yield sock
 
 
 def run_wsgi(conf_path, app_section, *args, **kwargs):
@@ -1140,6 +1061,15 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             conf, logger, servers_per_port=servers_per_port)
     else:
         strategy = WorkersStrategy(conf, logger)
+        try:
+            # Quick sanity check
+            int(conf['bind_port'])
+        except (ValueError, KeyError, TypeError):
+            error_msg = 'bind_port wasn\'t properly set in the config file. ' \
+                'It must be explicitly set to a valid port number.'
+            logger.error(error_msg)
+            print(error_msg)
+            return 1
 
     # patch event before loadapp
     utils.eventlet_monkey_patch()
@@ -1154,35 +1084,14 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
         utils.config_fallocate_value(conf.get('fallocate_reserve', '1%'))
 
-    # Start listening on bind_addr/port
-    error_msg = strategy.do_bind_ports()
-    if error_msg:
-        logger.error(error_msg)
-        print(error_msg)
-        return 1
-
     # Do some daemonization process hygene before we fork any children or run a
     # server without forking.
     clean_up_daemon_hygiene()
 
-    # Redirect errors to logger and close stdio. Do this *after* binding ports;
-    # we use this to signal that the service is ready to accept connections.
-    capture_stdio(logger)
-
-    # If necessary, signal an old copy of us that it's okay to shutdown its
-    # listen sockets now because ours are up and ready to receive connections.
-    reexec_signal_fd = os.getenv(NOTIFY_FD_ENV_KEY)
-    if reexec_signal_fd:
-        reexec_signal_fd = int(reexec_signal_fd)
-        os.write(reexec_signal_fd, str(os.getpid()).encode('utf8'))
-        os.close(reexec_signal_fd)
-
-    # Finally, signal systemd (if appropriate) that process started properly.
-    systemd_notify(logger=logger)
-
     no_fork_sock = strategy.no_fork_sock()
     if no_fork_sock:
-        run_server(conf, logger, no_fork_sock, global_conf=global_conf)
+        run_server(conf, logger, no_fork_sock, global_conf=global_conf,
+                   ready_callback=strategy.signal_ready)
         return 0
 
     def stop_with_signal(signum, *args):
@@ -1198,17 +1107,38 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
     while running_context[0]:
         for sock, sock_info in strategy.new_worker_socks():
+            read_fd, write_fd = os.pipe()
             pid = os.fork()
             if pid == 0:
+                os.close(read_fd)
                 signal.signal(signal.SIGHUP, signal.SIG_DFL)
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 signal.signal(signal.SIGUSR1, signal.SIG_DFL)
                 strategy.post_fork_hook()
-                run_server(conf, logger, sock)
+
+                def notify():
+                    os.write(write_fd, b'ready')
+                    os.close(write_fd)
+
+                run_server(conf, logger, sock, ready_callback=notify)
                 strategy.log_sock_exit(sock, sock_info)
                 return 0
             else:
-                strategy.register_worker_start(sock, sock_info, pid)
+                os.close(write_fd)
+                worker_status = os.read(read_fd, 30)
+                os.close(read_fd)
+                # TODO: delay this status checking until after we've tried
+                # to start all workers. But, we currently use the register
+                # event to know when we've got enough workers :-/
+                if worker_status == b'ready':
+                    strategy.register_worker_start(sock, sock_info, pid)
+                else:
+                    raise Exception(
+                        'worker did not start normally: %r' % worker_status)
+
+        # TODO: signal_ready() as soon as we have at least one new worker for
+        # each port, instead of waiting for all of them
+        strategy.signal_ready()
 
         # The strategy may need to pay attention to something in addition to
         # child process exits (like new ports showing up in a ring).

@@ -778,7 +778,7 @@ class TestWSGI(unittest.TestCase):
 
         def _initrp(conf_file, app_section, *args, **kwargs):
             return (
-                {'__file__': 'test', 'workers': 0},
+                {'__file__': 'test', 'workers': 0, 'bind_port': 12345},
                 'logger',
                 'log_name')
 
@@ -788,7 +788,8 @@ class TestWSGI(unittest.TestCase):
         def _global_conf_callback(preloaded_app_conf, global_conf):
             calls['_global_conf_callback'] += 1
             self.assertEqual(
-                preloaded_app_conf, {'__file__': 'test', 'workers': 0})
+                preloaded_app_conf,
+                {'__file__': 'test', 'workers': 0, 'bind_port': 12345})
             self.assertEqual(global_conf, {'log_name': 'log_name'})
             global_conf['test1'] = to_inject
 
@@ -827,7 +828,7 @@ class TestWSGI(unittest.TestCase):
         def _initrp(conf_file, app_section, *args, **kwargs):
             calls['_initrp'] += 1
             return (
-                {'__file__': 'test', 'workers': 0},
+                {'__file__': 'test', 'workers': 0, 'bind_port': 12345},
                 'logger',
                 'log_name')
 
@@ -862,11 +863,17 @@ class TestWSGI(unittest.TestCase):
                                           mock_run_server):
         # Make sure the right strategy gets used in a number of different
         # config cases.
-        mock_per_port().do_bind_ports.return_value = 'stop early'
-        mock_workers().do_bind_ports.return_value = 'stop early'
+
+        class StopAtCreatingSockets(Exception):
+            '''Dummy exception to make sure we don't actually bind ports'''
+
+        mock_per_port().no_fork_sock.return_value = None
+        mock_per_port().new_worker_socks.side_effect = StopAtCreatingSockets
+        mock_workers().no_fork_sock.return_value = None
+        mock_workers().new_worker_socks.side_effect = StopAtCreatingSockets
         logger = FakeLogger()
         stub__initrp = [
-            {'__file__': 'test', 'workers': 2},  # conf
+            {'__file__': 'test', 'workers': 2, 'bind_port': 12345},  # conf
             logger,
             'log_name',
         ]
@@ -878,14 +885,13 @@ class TestWSGI(unittest.TestCase):
                 mock_per_port.reset_mock()
                 mock_workers.reset_mock()
                 logger._clear()
-                self.assertEqual(1, wsgi.run_wsgi('conf_file', server_type))
-                self.assertEqual([
-                    'stop early',
-                ], logger.get_lines_for_level('error'))
+                with self.assertRaises(StopAtCreatingSockets):
+                    wsgi.run_wsgi('conf_file', server_type)
                 self.assertEqual([], mock_per_port.mock_calls)
                 self.assertEqual([
                     mock.call(stub__initrp[0], logger),
-                    mock.call().do_bind_ports(),
+                    mock.call().no_fork_sock(),
+                    mock.call().new_worker_socks(),
                 ], mock_workers.mock_calls)
 
             stub__initrp[0]['servers_per_port'] = 3
@@ -893,26 +899,24 @@ class TestWSGI(unittest.TestCase):
                 mock_per_port.reset_mock()
                 mock_workers.reset_mock()
                 logger._clear()
-                self.assertEqual(1, wsgi.run_wsgi('conf_file', server_type))
-                self.assertEqual([
-                    'stop early',
-                ], logger.get_lines_for_level('error'))
+                with self.assertRaises(StopAtCreatingSockets):
+                    wsgi.run_wsgi('conf_file', server_type)
                 self.assertEqual([], mock_per_port.mock_calls)
                 self.assertEqual([
                     mock.call(stub__initrp[0], logger),
-                    mock.call().do_bind_ports(),
+                    mock.call().no_fork_sock(),
+                    mock.call().new_worker_socks(),
                 ], mock_workers.mock_calls)
 
             mock_per_port.reset_mock()
             mock_workers.reset_mock()
             logger._clear()
-            self.assertEqual(1, wsgi.run_wsgi('conf_file', 'object-server'))
-            self.assertEqual([
-                'stop early',
-            ], logger.get_lines_for_level('error'))
+            with self.assertRaises(StopAtCreatingSockets):
+                wsgi.run_wsgi('conf_file', 'object-server')
             self.assertEqual([
                 mock.call(stub__initrp[0], logger, servers_per_port=3),
-                mock.call().do_bind_ports(),
+                mock.call().no_fork_sock(),
+                mock.call().new_worker_socks(),
             ], mock_per_port.mock_calls)
             self.assertEqual([], mock_workers.mock_calls)
 
@@ -1331,12 +1335,16 @@ class TestProxyProtocol(ProtocolTest):
 
 class CommonTestMixin(object):
 
-    def test_post_fork_hook(self):
+    @mock.patch('swift.common.wsgi.capture_stdio')
+    def test_post_fork_hook(self, mock_capture):
         self.strategy.post_fork_hook()
 
         self.assertEqual([
             mock.call('bob'),
         ], self.mock_drop_privileges.mock_calls)
+        self.assertEqual([
+            mock.call(self.logger),
+        ], mock_capture.mock_calls)
 
 
 class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
@@ -1350,9 +1358,9 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
             'bind_ip': '2.3.4.5',
         }
         self.servers_per_port = 3
-        self.s1, self.s2 = mock.MagicMock(), mock.MagicMock()
+        self.sockets = [mock.MagicMock() for _ in range(6)]
         patcher = mock.patch('swift.common.wsgi.get_socket',
-                             side_effect=[self.s1, self.s2])
+                             side_effect=self.sockets)
         self.mock_get_socket = patcher.start()
         self.addCleanup(patcher.stop)
         patcher = mock.patch('swift.common.wsgi.drop_privileges')
@@ -1391,39 +1399,10 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
 
         self.assertEqual(15, self.strategy.loop_timeout())
 
-    def test_bind_ports(self):
-        self.strategy.do_bind_ports()
-
-        self.assertEqual(set((6006, 6007)), self.strategy.bind_ports)
-        self.assertEqual([
-            mock.call({'workers': 100,  # ignored
-                       'user': 'bob',
-                       'swift_dir': '/jim/cricket',
-                       'ring_check_interval': '76',
-                       'bind_ip': '2.3.4.5',
-                       'bind_port': 6006}),
-            mock.call({'workers': 100,  # ignored
-                       'user': 'bob',
-                       'swift_dir': '/jim/cricket',
-                       'ring_check_interval': '76',
-                       'bind_ip': '2.3.4.5',
-                       'bind_port': 6007}),
-        ], self.mock_get_socket.mock_calls)
-        self.assertEqual(
-            6006, self.strategy.port_pid_state.port_for_sock(self.s1))
-        self.assertEqual(
-            6007, self.strategy.port_pid_state.port_for_sock(self.s2))
-        # strategy binding no longer does clean_up_deemon_hygene() actions, the
-        # user of the strategy does.
-        self.assertEqual([], self.mock_setsid.mock_calls)
-        self.assertEqual([], self.mock_chdir.mock_calls)
-        self.assertEqual([], self.mock_umask.mock_calls)
-
     def test_no_fork_sock(self):
         self.assertIsNone(self.strategy.no_fork_sock())
 
     def test_new_worker_socks(self):
-        self.strategy.do_bind_ports()
         self.all_bind_ports_for_node.reset_mock()
 
         pid = 88
@@ -1434,8 +1413,12 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
             pid += 1
 
         self.assertEqual([
-            (self.s1, 0), (self.s1, 1), (self.s1, 2),
-            (self.s2, 0), (self.s2, 1), (self.s2, 2),
+            (self.sockets[0], (6006, 0)),
+            (self.sockets[1], (6006, 1)),
+            (self.sockets[2], (6006, 2)),
+            (self.sockets[3], (6007, 0)),
+            (self.sockets[4], (6007, 1)),
+            (self.sockets[5], (6007, 2)),
         ], got_si)
         self.assertEqual([
             'Started child %d (PID %d) for port %d' % (0, 88, 6006),
@@ -1454,8 +1437,8 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
         # Get rid of servers for ports which disappear from the ring
         self.ports = (6007,)
         self.all_bind_ports_for_node.return_value = set(self.ports)
-        self.s1.reset_mock()
-        self.s2.reset_mock()
+        for s in self.sockets:
+            s.reset_mock()
 
         with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
             self.assertEqual([], list(self.strategy.new_worker_socks()))
@@ -1464,23 +1447,28 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
             mock.call(),  # ring_check_interval has passed...
         ], self.all_bind_ports_for_node.mock_calls)
         self.assertEqual([
-            mock.call.shutdown_safe(self.s1),
-        ], mock_greenio.mock_calls)
+            [mock.call.close()]
+            for _ in range(3)
+        ], [s.mock_calls for s in self.sockets[:3]])
+        self.assertEqual({
+            ('shutdown_safe', (self.sockets[0],)),
+            ('shutdown_safe', (self.sockets[1],)),
+            ('shutdown_safe', (self.sockets[2],)),
+        }, {call[:2] for call in mock_greenio.mock_calls})
         self.assertEqual([
-            mock.call.close(),
-        ], self.s1.mock_calls)
-        self.assertEqual([], self.s2.mock_calls)  # not closed
-        self.assertEqual([
-            'Closing unnecessary sock for port %d' % 6006,
-        ], self.logger.get_lines_for_level('notice'))
+            [] for _ in range(3)
+        ], [s.mock_calls for s in self.sockets[3:]])  # not closed
+        self.assertEqual({
+            'Closing unnecessary sock for port %d (child pid %d)' % (6006, p)
+            for p in range(88, 91)
+        }, set(self.logger.get_lines_for_level('notice')))
         self.logger._clear()
 
         # Create new socket & workers for new ports that appear in ring
         self.ports = (6007, 6009)
         self.all_bind_ports_for_node.return_value = set(self.ports)
-        self.s1.reset_mock()
-        self.s2.reset_mock()
-        s3 = mock.MagicMock()
+        for s in self.sockets:
+            s.reset_mock()
         self.mock_get_socket.side_effect = Exception('ack')
 
         # But first make sure we handle failure to bind to the requested port!
@@ -1499,7 +1487,8 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
         self.logger._clear()
 
         # Will keep trying, so let it succeed again
-        self.mock_get_socket.side_effect = [s3]
+        new_sockets = self.mock_get_socket.side_effect = [
+            mock.MagicMock() for _ in range(3)]
 
         got_si = []
         for s, i in self.strategy.new_worker_socks():
@@ -1508,7 +1497,7 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
             pid += 1
 
         self.assertEqual([
-            (s3, 0), (s3, 1), (s3, 2),
+            (s, (6009, i)) for i, s in enumerate(new_sockets)
         ], got_si)
         self.assertEqual([
             'Started child %d (PID %d) for port %d' % (0, 94, 6009),
@@ -1524,6 +1513,11 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
         # Restart a guy who died on us
         self.strategy.register_worker_exit(95)  # server_idx == 1
 
+        # TODO: check that the socket got cleaned up
+
+        new_socket = mock.MagicMock()
+        self.mock_get_socket.side_effect = [new_socket]
+
         got_si = []
         for s, i in self.strategy.new_worker_socks():
             got_si.append((s, i))
@@ -1531,7 +1525,7 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
             pid += 1
 
         self.assertEqual([
-            (s3, 1),
+            (new_socket, (6009, 1)),
         ], got_si)
         self.assertEqual([
             'Started child %d (PID %d) for port %d' % (1, 97, 6009),
@@ -1539,7 +1533,7 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
         self.logger._clear()
 
         # Check log_sock_exit
-        self.strategy.log_sock_exit(self.s2, 2)
+        self.strategy.log_sock_exit(self.sockets[5], (6007, 2))
         self.assertEqual([
             'Child %d (PID %d, port %d) exiting normally' % (
                 2, os.getpid(), 6007),
@@ -1551,21 +1545,22 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
         self.assertIsNone(self.strategy.register_worker_exit(89))
 
     def test_shutdown_sockets(self):
-        self.strategy.do_bind_ports()
+        pid = 88
+        for s, i in self.strategy.new_worker_socks():
+            self.strategy.register_worker_start(s, i, pid)
+            pid += 1
 
         with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
             self.strategy.shutdown_sockets()
 
         self.assertEqual([
-            mock.call.shutdown_safe(self.s1),
-            mock.call.shutdown_safe(self.s2),
+            mock.call.shutdown_safe(s)
+            for s in self.sockets
         ], mock_greenio.mock_calls)
         self.assertEqual([
-            mock.call.close(),
-        ], self.s1.mock_calls)
-        self.assertEqual([
-            mock.call.close(),
-        ], self.s2.mock_calls)
+            [mock.call.close()]
+            for _ in range(3)
+        ], [s.mock_calls for s in self.sockets[:3]])
 
 
 class TestWorkersStrategy(unittest.TestCase, CommonTestMixin):
@@ -1576,8 +1571,9 @@ class TestWorkersStrategy(unittest.TestCase, CommonTestMixin):
             'user': 'bob',
         }
         self.strategy = wsgi.WorkersStrategy(self.conf, self.logger)
+        self.mock_socket = mock.Mock()
         patcher = mock.patch('swift.common.wsgi.get_socket',
-                             return_value='abc')
+                             return_value=self.mock_socket)
         self.mock_get_socket = patcher.start()
         self.addCleanup(patcher.stop)
         patcher = mock.patch('swift.common.wsgi.drop_privileges')
@@ -1593,41 +1589,19 @@ class TestWorkersStrategy(unittest.TestCase, CommonTestMixin):
         # gets checked).
         self.assertEqual(0.5, self.strategy.loop_timeout())
 
-    def test_binding(self):
-        self.assertIsNone(self.strategy.do_bind_ports())
-
-        self.assertEqual('abc', self.strategy.sock)
-        self.assertEqual([
-            mock.call(self.conf),
-        ], self.mock_get_socket.mock_calls)
-        # strategy binding no longer drops privileges nor does
-        # clean_up_deemon_hygene() actions.
-        self.assertEqual([], self.mock_drop_privileges.mock_calls)
-        self.assertEqual([], self.mock_clean_up_daemon_hygene.mock_calls)
-
-        self.mock_get_socket.side_effect = wsgi.ConfigFilePortError()
-
-        self.assertEqual(
-            'bind_port wasn\'t properly set in the config file. '
-            'It must be explicitly set to a valid port number.',
-            self.strategy.do_bind_ports())
-
     def test_no_fork_sock(self):
-        self.strategy.do_bind_ports()
         self.assertIsNone(self.strategy.no_fork_sock())
 
         self.conf['workers'] = 0
         self.strategy = wsgi.WorkersStrategy(self.conf, self.logger)
-        self.strategy.do_bind_ports()
 
-        self.assertEqual('abc', self.strategy.no_fork_sock())
+        self.assertIs(self.mock_socket, self.strategy.no_fork_sock())
 
     def test_new_worker_socks(self):
-        self.strategy.do_bind_ports()
         pid = 88
         sock_count = 0
         for s, i in self.strategy.new_worker_socks():
-            self.assertEqual('abc', s)
+            self.assertEqual(self.mock_socket, s)
             self.assertIsNone(i)  # unused for this strategy
             self.strategy.register_worker_start(s, 'unused', pid)
             pid += 1
@@ -1650,7 +1624,7 @@ class TestWorkersStrategy(unittest.TestCase, CommonTestMixin):
         ], self.logger.get_lines_for_level('error'))
 
         for s, i in self.strategy.new_worker_socks():
-            self.assertEqual('abc', s)
+            self.assertEqual(self.mock_socket, s)
             self.assertIsNone(i)  # unused for this strategy
             self.strategy.register_worker_start(s, 'unused', pid)
             pid += 1
@@ -1664,23 +1638,23 @@ class TestWorkersStrategy(unittest.TestCase, CommonTestMixin):
         ], self.logger.get_lines_for_level('notice'))
 
     def test_shutdown_sockets(self):
-        self.mock_get_socket.return_value = mock.MagicMock()
-        self.strategy.do_bind_ports()
+        self.mock_get_socket.side_effect = sockets = [
+            mock.MagicMock(), mock.MagicMock()]
+
+        pid = 88
+        for s, i in self.strategy.new_worker_socks():
+            self.strategy.register_worker_start(s, 'unused', pid)
+            pid += 1
+
         with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
             self.strategy.shutdown_sockets()
         self.assertEqual([
-            mock.call.shutdown_safe(self.mock_get_socket.return_value),
+            mock.call.shutdown_safe(s)
+            for s in sockets
         ], mock_greenio.mock_calls)
-        if six.PY2:
-            self.assertEqual([
-                mock.call.__nonzero__(),
-                mock.call.close(),
-            ], self.mock_get_socket.return_value.mock_calls)
-        else:
-            self.assertEqual([
-                mock.call.__bool__(),
-                mock.call.close(),
-            ], self.mock_get_socket.return_value.mock_calls)
+        self.assertEqual([
+            [mock.call.close()] for _ in range(2)
+        ], [s.mock_calls for s in sockets])
 
     def test_log_sock_exit(self):
         self.strategy.log_sock_exit('blahblah', 'blahblah')
