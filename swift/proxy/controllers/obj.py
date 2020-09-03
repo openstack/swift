@@ -42,7 +42,6 @@ from eventlet import GreenPile, sleep
 from eventlet.queue import Queue, Empty
 from eventlet.timeout import Timeout
 
-from swift import gettext_ as _
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
     GreenAsyncPile, GreenthreadSafeIterator, Timestamp, WatchdogTimeout,
@@ -421,8 +420,8 @@ class BaseObjectController(Controller):
             else:
                 status_type = 'commit'
             self.app.exception_occurred(
-                putter.node, _('Object'),
-                _('Trying to get %(status_type)s status of PUT to %(path)s') %
+                putter.node, 'Object',
+                'Trying to get %(status_type)s status of PUT to %(path)s' %
                 {'status_type': status_type, 'path': path})
         return (putter, resp)
 
@@ -480,13 +479,13 @@ class BaseObjectController(Controller):
             if response.status == HTTP_INSUFFICIENT_STORAGE:
                 putter.failed = True
                 self.app.error_limit(putter.node,
-                                     _('ERROR Insufficient Storage'))
+                                     'ERROR Insufficient Storage')
             elif response.status >= HTTP_INTERNAL_SERVER_ERROR:
                 putter.failed = True
                 self.app.error_occurred(
                     putter.node,
-                    _('ERROR %(status)d %(body)s From Object Server '
-                      're: %(path)s') %
+                    'ERROR %(status)d %(body)s From Object Server '
+                    're: %(path)s' %
                     {'status': response.status,
                      'body': body[:1024], 'path': req.path})
             elif is_success(response.status):
@@ -565,7 +564,7 @@ class BaseObjectController(Controller):
             if HTTP_PRECONDITION_FAILED in statuses:
                 # If we find any copy of the file, it shouldn't be uploaded
                 self.app.logger.debug(
-                    _('Object PUT returning 412, %(statuses)r'),
+                    'Object PUT returning 412, %(statuses)r',
                     {'statuses': statuses})
                 raise HTTPPreconditionFailed(request=req)
 
@@ -578,8 +577,8 @@ class BaseObjectController(Controller):
                         'X-Backend-Timestamp', 'unknown')
             } for putter in putters if putter.resp]
             self.app.logger.debug(
-                _('Object PUT returning 202 for 409: '
-                  '%(req_timestamp)s <= %(timestamps)r'),
+                'Object PUT returning 202 for 409: '
+                '%(req_timestamp)s <= %(timestamps)r',
                 {'req_timestamp': req.timestamp.internal,
                  'timestamps': ', '.join(status_times)})
             raise HTTPAccepted(request=req)
@@ -626,16 +625,14 @@ class BaseObjectController(Controller):
                 self.app.set_node_timing(node, putter.connect_duration)
                 return putter
             except InsufficientStorage:
-                self.app.error_limit(node, _('ERROR Insufficient Storage'))
+                self.app.error_limit(node, 'ERROR Insufficient Storage')
             except PutterConnectError as e:
-                self.app.error_occurred(
-                    node, _('ERROR %(status)d Expect: 100-continue '
-                            'From Object Server') % {
-                                'status': e.status})
+                msg = 'ERROR %d Expect: 100-continue From Object Server'
+                self.app.error_occurred(node, msg % e.status)
             except (Exception, Timeout):
                 self.app.exception_occurred(
-                    node, _('Object'),
-                    _('Expect: 100-continue on %s') %
+                    node, 'Object',
+                    'Expect: 100-continue on %s' %
                     quote(req.swift_entity_path))
 
     def _get_put_connections(self, req, nodes, partition, outgoing_headers,
@@ -663,8 +660,8 @@ class BaseObjectController(Controller):
         return putters
 
     def _check_min_conn(self, req, putters, min_conns, msg=None):
-        msg = msg or _('Object PUT returning 503, %(conns)s/%(nodes)s '
-                       'required connections')
+        msg = msg or ('Object PUT returning 503, %(conns)s/%(nodes)s '
+                      'required connections')
 
         if len(putters) < min_conns:
             self.app.logger.error((msg),
@@ -865,7 +862,7 @@ class ReplicatedObjectController(BaseObjectController):
         concurrency = self.app.get_object_ring(policy.idx).replica_count \
             if self.app.get_policy_options(policy).concurrent_gets else 1
         resp = self.GETorHEAD_base(
-            req, _('Object'), node_iter, partition,
+            req, 'Object', node_iter, partition,
             req.swift_entity_path, concurrency, policy)
         return resp
 
@@ -909,8 +906,8 @@ class ReplicatedObjectController(BaseObjectController):
                     putters.remove(putter)
             self._check_min_conn(
                 req, putters, min_conns,
-                msg=_('Object PUT exceptions during send, '
-                      '%(conns)s/%(nodes)s required connections'))
+                msg='Object PUT exceptions during send, '
+                    '%(conns)s/%(nodes)s required connections')
 
         min_conns = quorum_size(len(nodes))
         try:
@@ -931,7 +928,7 @@ class ReplicatedObjectController(BaseObjectController):
             ml = req.message_length()
             if ml and bytes_transferred < ml:
                 self.app.logger.warning(
-                    _('Client disconnected without sending enough data'))
+                    'Client disconnected without sending enough data')
                 self.app.logger.increment('client_disconnects')
                 raise HTTPClientDisconnect(request=req)
 
@@ -942,27 +939,27 @@ class ReplicatedObjectController(BaseObjectController):
 
             self._check_min_conn(
                 req, [p for p in putters if not p.failed], min_conns,
-                msg=_('Object PUT exceptions after last send, '
-                      '%(conns)s/%(nodes)s required connections'))
+                msg='Object PUT exceptions after last send, '
+                    '%(conns)s/%(nodes)s required connections')
         except ChunkReadTimeout as err:
             self.app.logger.warning(
-                _('ERROR Client read timeout (%ss)'), err.seconds)
+                'ERROR Client read timeout (%ss)', err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except HTTPException:
             raise
         except ChunkReadError:
             self.app.logger.warning(
-                _('Client disconnected without sending last chunk'))
+                'Client disconnected without sending last chunk')
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
         except Timeout:
             self.app.logger.exception(
-                _('ERROR Exception causing client disconnect'))
+                'ERROR Exception causing client disconnect')
             raise HTTPClientDisconnect(request=req)
         except Exception:
             self.app.logger.exception(
-                _('ERROR Exception transferring data to object servers %s'),
+                'ERROR Exception transferring data to object servers %s',
                 {'path': req.path})
             raise HTTPInternalServerError(request=req)
 
@@ -1006,11 +1003,11 @@ class ReplicatedObjectController(BaseObjectController):
 
         if len(etags) > 1:
             self.app.logger.error(
-                _('Object servers returned %s mismatched etags'), len(etags))
+                'Object servers returned %s mismatched etags', len(etags))
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
         resp = self.best_response(req, statuses, reasons, bodies,
-                                  _('Object PUT'), etag=etag)
+                                  'Object PUT', etag=etag)
         resp.last_modified = math.ceil(
             float(Timestamp(req.headers['X-Timestamp'])))
         return resp
@@ -1690,8 +1687,8 @@ class Putter(object):
                     self.conn.send(to_send)
             except (Exception, ChunkWriteTimeout):
                 self.failed = True
-                self.send_exception_handler(self.node, _('Object'),
-                                            _('Trying to write to %s')
+                self.send_exception_handler(self.node, 'Object',
+                                            'Trying to write to %s'
                                             % quote(self.path))
 
     def close(self):
@@ -2692,12 +2689,12 @@ class ECFragGetter(object):
                     part_iter.close()
 
         except ChunkReadTimeout:
-            self.app.exception_occurred(self.node, _('Object'),
-                                        _('Trying to read during GET'))
+            self.app.exception_occurred(self.node, 'Object',
+                                        'Trying to read during GET')
             raise
         except ChunkWriteTimeout:
             self.app.logger.warning(
-                _('Client did not read from proxy within %ss') %
+                'Client did not read from proxy within %ss' %
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
@@ -2715,7 +2712,7 @@ class ECFragGetter(object):
                     'Client disconnected on read of EC frag %r', self.path)
             raise
         except Exception:
-            self.app.logger.exception(_('Trying to send to client'))
+            self.app.logger.exception('Trying to send to client')
             raise
         finally:
             # Close-out the connection as best as possible.
@@ -2785,11 +2782,11 @@ class ECFragGetter(object):
             conn.close()
 
             if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
-                self.app.error_limit(node, _('ERROR Insufficient Storage'))
+                self.app.error_limit(node, 'ERROR Insufficient Storage')
             elif is_server_error(possible_source.status):
                 self.app.error_occurred(
-                    node, _('ERROR %(status)d %(body)s '
-                            'From Object Server') %
+                    node, 'ERROR %(status)d %(body)s '
+                          'From Object Server' %
                     {'status': possible_source.status,
                      'body': self.body[:1024]})
             else:
@@ -2933,7 +2930,7 @@ class ECObjectController(BaseObjectController):
             concurrency = policy.ec_ndata \
                 if self.app.get_policy_options(policy).concurrent_gets else 1
             resp = self.GETorHEAD_base(
-                req, _('Object'), node_iter, partition,
+                req, 'Object', node_iter, partition,
                 req.swift_entity_path, concurrency, policy)
             self._fix_response(req, resp)
             return resp
@@ -2983,7 +2980,7 @@ class ECObjectController(BaseObjectController):
                     buckets.add_response(get, parts_iter)
                 except ValueError as err:
                     self.app.logger.error(
-                        _("Problem with fragment response: %s"), err)
+                        "Problem with fragment response: %s", err)
                 best_bucket = buckets.best_bucket
                 if best_bucket.durable and best_bucket.shortfall <= 0:
                     # good enough!
@@ -3255,8 +3252,8 @@ class ECObjectController(BaseObjectController):
                     putters.remove(putter)
             self._check_min_conn(
                 req, putters, min_conns,
-                msg=_('Object PUT exceptions during send, '
-                      '%(conns)s/%(nodes)s required connections'))
+                msg='Object PUT exceptions during send, '
+                    '%(conns)s/%(nodes)s required connections')
 
         try:
             # build our putter_to_frag_index dict to place handoffs in the
@@ -3281,7 +3278,7 @@ class ECObjectController(BaseObjectController):
             ml = req.message_length()
             if ml and bytes_transferred < ml:
                 self.app.logger.warning(
-                    _('Client disconnected without sending enough data'))
+                    'Client disconnected without sending enough data')
                 self.app.logger.increment('client_disconnects')
                 raise HTTPClientDisconnect(request=req)
 
@@ -3323,14 +3320,14 @@ class ECObjectController(BaseObjectController):
             if not self.have_quorum(
                     statuses, len(nodes), quorum=min_conns):
                 self.app.logger.error(
-                    _('Not enough object servers ack\'ed (got %d)'),
+                    'Not enough object servers ack\'ed (got %d)',
                     statuses.count(HTTP_CONTINUE))
                 raise HTTPServiceUnavailable(request=req)
 
             elif not self._have_adequate_informational(
                     statuses, min_conns):
                 resp = self.best_response(req, statuses, reasons, bodies,
-                                          _('Object PUT'),
+                                          'Object PUT',
                                           quorum_size=min_conns)
                 if is_client_error(resp.status_int):
                     # if 4xx occurred in this state it is absolutely
@@ -3351,23 +3348,23 @@ class ECObjectController(BaseObjectController):
                 putter.send_commit_confirmation()
         except ChunkReadTimeout as err:
             self.app.logger.warning(
-                _('ERROR Client read timeout (%ss)'), err.seconds)
+                'ERROR Client read timeout (%ss)', err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except ChunkReadError:
             self.app.logger.warning(
-                _('Client disconnected without sending last chunk'))
+                'Client disconnected without sending last chunk')
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
         except HTTPException:
             raise
         except Timeout:
             self.app.logger.exception(
-                _('ERROR Exception causing client disconnect'))
+                'ERROR Exception causing client disconnect')
             raise HTTPClientDisconnect(request=req)
         except Exception:
             self.app.logger.exception(
-                _('ERROR Exception transferring data to object servers %s'),
+                'ERROR Exception transferring data to object servers %s',
                 {'path': req.path})
             raise HTTPInternalServerError(request=req)
 
@@ -3487,7 +3484,7 @@ class ECObjectController(BaseObjectController):
 
         etag = etag_hasher.hexdigest()
         resp = self.best_response(req, statuses, reasons, bodies,
-                                  _('Object PUT'), etag=etag,
+                                  'Object PUT', etag=etag,
                                   quorum_size=min_conns)
         resp.last_modified = math.ceil(
             float(Timestamp(req.headers['X-Timestamp'])))

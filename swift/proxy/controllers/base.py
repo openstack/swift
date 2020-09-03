@@ -35,7 +35,6 @@ import itertools
 import operator
 from copy import deepcopy
 from sys import exc_info
-from swift import gettext_ as _
 
 from eventlet import sleep
 from eventlet.timeout import Timeout
@@ -1153,8 +1152,8 @@ class GetOrHeadHandler(object):
                         new_source, new_node = self._get_source_and_node()
                         if new_source:
                             self.app.error_occurred(
-                                node[0], _('Trying to read object during '
-                                           'GET (retrying)'))
+                                node[0], 'Trying to read object during '
+                                         'GET (retrying)')
                             # Close-out the connection as best as possible.
                             if getattr(source[0], 'swift_conn', None):
                                 close_swift_conn(source[0])
@@ -1197,8 +1196,8 @@ class GetOrHeadHandler(object):
                         new_source, new_node = self._get_source_and_node()
                         if new_source:
                             self.app.error_occurred(
-                                node[0], _('Trying to read object during '
-                                           'GET (retrying)'))
+                                node[0], 'Trying to read object during '
+                                         'GET (retrying)')
                             # Close-out the connection as best as possible.
                             if getattr(source[0], 'swift_conn', None):
                                 close_swift_conn(source[0])
@@ -1308,12 +1307,12 @@ class GetOrHeadHandler(object):
                     part_iter.close()
 
         except ChunkReadTimeout:
-            self.app.exception_occurred(node[0], _('Object'),
-                                        _('Trying to read during GET'))
+            self.app.exception_occurred(node[0], 'Object',
+                                        'Trying to read during GET')
             raise
         except ChunkWriteTimeout:
             self.app.logger.info(
-                _('Client did not read from proxy within %ss') %
+                'Client did not read from proxy within %ss',
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
@@ -1331,7 +1330,7 @@ class GetOrHeadHandler(object):
                                      self.path)
             raise
         except Exception:
-            self.app.logger.exception(_('Trying to send to client'))
+            self.app.logger.exception('Trying to send to client')
             raise
         finally:
             # Close-out the connection as best as possible.
@@ -1375,7 +1374,7 @@ class GetOrHeadHandler(object):
         except (Exception, Timeout):
             self.app.exception_occurred(
                 node, self.server_type,
-                _('Trying to %(method)s %(path)s') %
+                'Trying to %(method)s %(path)s' %
                 {'method': self.req_method, 'path': self.req_path})
             return False
 
@@ -1446,11 +1445,11 @@ class GetOrHeadHandler(object):
                 if ts > self.latest_404_timestamp:
                     self.latest_404_timestamp = ts
             if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
-                self.app.error_limit(node, _('ERROR Insufficient Storage'))
+                self.app.error_limit(node, 'ERROR Insufficient Storage')
             elif is_server_error(possible_source.status):
                 self.app.error_occurred(
-                    node, _('ERROR %(status)d %(body)s '
-                            'From %(type)s Server') %
+                    node, ('ERROR %(status)d %(body)s '
+                           'From %(type)s Server') %
                     {'status': possible_source.status,
                      'body': self.bodies[-1][:1024],
                      'type': self.server_type})
@@ -1887,20 +1886,19 @@ class Controller(object):
                             resp.read()
                     elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.app.error_limit(node,
-                                             _('ERROR Insufficient Storage'))
+                                             'ERROR Insufficient Storage')
                     elif is_server_error(resp.status):
-                        self.app.error_occurred(
-                            node, _('ERROR %(status)d '
-                                    'Trying to %(method)s %(path)s'
-                                    ' From %(type)s Server') % {
-                                        'status': resp.status,
-                                        'method': method,
-                                        'path': path,
-                                        'type': self.server_type})
+                        msg = ('ERROR %(status)d Trying to '
+                               '%(method)s %(path)s From %(type)s Server')
+                        self.app.error_occurred(node, msg % {
+                            'status': resp.status,
+                            'method': method,
+                            'path': path,
+                            'type': self.server_type})
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,
-                    _('Trying to %(method)s %(path)s') %
+                    'Trying to %(method)s %(path)s' %
                     {'method': method, 'path': path})
 
     def make_requests(self, req, ring, part, method, path, headers,
@@ -2027,7 +2025,7 @@ class Controller(object):
 
         if not resp:
             resp = HTTPServiceUnavailable(request=req)
-            self.app.logger.error(_('%(type)s returning 503 for %(statuses)s'),
+            self.app.logger.error('%(type)s returning 503 for %(statuses)s',
                                   {'type': server_type, 'statuses': statuses})
 
         return resp
@@ -2101,11 +2099,11 @@ class Controller(object):
                                   self.app.account_ring, partition, 'PUT',
                                   path, [headers] * len(nodes))
         if is_success(resp.status_int):
-            self.app.logger.info(_('autocreate account %r'), path)
+            self.app.logger.info('autocreate account %r', path)
             clear_info_cache(self.app, req.environ, account)
             return True
         else:
-            self.app.logger.warning(_('Could not autocreate account %r'),
+            self.app.logger.warning('Could not autocreate account %r',
                                     path)
             return False
 

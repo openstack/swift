@@ -19,7 +19,6 @@ import socket
 
 from collections import defaultdict
 
-from swift import gettext_ as _
 from random import shuffle
 from time import time
 import functools
@@ -404,8 +403,8 @@ class Application(object):
                       else POLICIES.get_by_index(policy_idx))
             if options.read_affinity and options.sorting_method != 'affinity':
                 self.logger.warning(
-                    _("sorting_method is set to '%(method)s', not 'affinity'; "
-                      "%(label)s read_affinity setting will have no effect."),
+                    "sorting_method is set to '%(method)s', not 'affinity'; "
+                    "%(label)s read_affinity setting will have no effect.",
                     {'label': _label_for_policy(policy),
                      'method': options.sorting_method})
 
@@ -597,7 +596,7 @@ class Application(object):
         except HTTPException as error_response:
             return error_response
         except (Exception, Timeout):
-            self.logger.exception(_('ERROR Unhandled exception in request'))
+            self.logger.exception('ERROR Unhandled exception in request')
             return HTTPServerError(request=req)
 
     def sort_nodes(self, nodes, policy=None):
@@ -656,7 +655,7 @@ class Application(object):
         limited = error_stats['errors'] > self.error_suppression_limit
         if limited:
             self.logger.debug(
-                _('Node error limited %(ip)s:%(port)s (%(device)s)'), node)
+                'Node error limited %(ip)s:%(port)s (%(device)s)', node)
         return limited
 
     def error_limit(self, node, msg):
@@ -673,9 +672,9 @@ class Application(object):
         error_stats = self._error_limiting.setdefault(node_key, {})
         error_stats['errors'] = self.error_suppression_limit + 1
         error_stats['last_error'] = time()
-        self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
-                          {'msg': msg, 'ip': node['ip'],
-                          'port': node['port'], 'device': node['device']})
+        self.logger.error('%(msg)s %(ip)s:%(port)s/%(device)s', {
+            'msg': msg, 'ip': node['ip'],
+            'port': node['port'], 'device': node['device']})
 
     def _incr_node_errors(self, node):
         node_key = self._error_limit_node_key(node)
@@ -693,9 +692,9 @@ class Application(object):
         self._incr_node_errors(node)
         if isinstance(msg, bytes):
             msg = msg.decode('utf-8')
-        self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
-                          {'msg': msg, 'ip': node['ip'],
-                          'port': node['port'], 'device': node['device']})
+        self.logger.error('%(msg)s %(ip)s:%(port)s/%(device)s', {
+            'msg': msg, 'ip': node['ip'],
+            'port': node['port'], 'device': node['device']})
 
     def iter_nodes(self, ring, partition, node_iter=None, policy=None):
         return NodeIter(self, ring, partition, node_iter=node_iter,
@@ -719,8 +718,8 @@ class Application(object):
             log = self.logger.exception
         if isinstance(additional_info, bytes):
             additional_info = additional_info.decode('utf-8')
-        log(_('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s'
-              ' re: %(info)s'),
+        log('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s'
+            ' re: %(info)s',
             {'type': typ, 'ip': node['ip'],
              'port': node['port'], 'device': node['device'],
              'info': additional_info},
@@ -745,18 +744,18 @@ class Application(object):
                     except ValueError:  # not in pipeline; ignore it
                         pass
                 self.logger.info(
-                    _('Adding required filter %(filter_name)s to pipeline at '
-                      'position %(insert_at)d'),
+                    'Adding required filter %(filter_name)s to pipeline at '
+                    'position %(insert_at)d',
                     {'filter_name': filter_name, 'insert_at': insert_at})
                 ctx = pipe.create_filter(filter_name)
                 pipe.insert_filter(ctx, index=insert_at)
                 pipeline_was_modified = True
 
         if pipeline_was_modified:
-            self.logger.info(_("Pipeline was modified. "
-                               "New pipeline is \"%s\"."), pipe)
+            self.logger.info("Pipeline was modified. "
+                             "New pipeline is \"%s\".", pipe)
         else:
-            self.logger.debug(_("Pipeline is \"%s\""), pipe)
+            self.logger.debug("Pipeline is \"%s\"", pipe)
 
 
 def parse_per_policy_config(conf):
