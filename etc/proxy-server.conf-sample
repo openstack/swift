@@ -202,7 +202,7 @@ use = egg:swift#proxy
 #
 # By default on a GET/HEAD swift will connect to a minimum number storage nodes
 # in a minimum number of threads - for replicated data just a single request to
-# a single node one at a time.  When enabled concurrent_gets allows the proxy,
+# a single node one at a time.  When enabled concurrent_gets allows the proxy
 # to use up to replica count threads when waiting on a response.  In
 # conjunction with the concurrency_timeout option this will allow swift to send
 # out GET/HEAD requests to the storage nodes concurrently and answer as soon as
@@ -307,6 +307,9 @@ use = egg:swift#proxy
 # write_affinity =
 # write_affinity_node_count =
 # write_affinity_handoff_delete_count =
+# concurrent_gets = off
+# concurrency_timeout = 0.5
+# concurrent_ec_extra_requests = 0
 
 [filter:tempauth]
 use = egg:swift#tempauth

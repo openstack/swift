@@ -101,7 +101,8 @@ class ProxyOverrideOptions(object):
     :param conf: the proxy-server config dict.
     :param override_conf: a dict of overriding configuration options.
     """
-    def __init__(self, base_conf, override_conf):
+    def __init__(self, base_conf, override_conf, app):
+
         def get(key, default):
             return override_conf.get(key, base_conf.get(key, default))
 
@@ -147,14 +148,25 @@ class ProxyOverrideOptions(object):
             get('write_affinity_handoff_delete_count', 'auto'), None
         )
 
+        self.concurrent_gets = config_true_value(get('concurrent_gets', False))
+        self.concurrency_timeout = float(get(
+            'concurrency_timeout', app.conn_timeout))
+        self.concurrent_ec_extra_requests = int(get(
+            'concurrent_ec_extra_requests', 0))
+
     def __repr__(self):
-        return '%s({}, {%s})' % (self.__class__.__name__, ', '.join(
-            '%r: %r' % (k, getattr(self, k)) for k in (
-                'sorting_method',
-                'read_affinity',
-                'write_affinity',
-                'write_affinity_node_count',
-                'write_affinity_handoff_delete_count')))
+        return '%s({}, {%s}, app)' % (
+            self.__class__.__name__, ', '.join(
+                '%r: %r' % (k, getattr(self, k)) for k in (
+                    'sorting_method',
+                    'read_affinity',
+                    'write_affinity',
+                    'write_affinity_node_count',
+                    'write_affinity_handoff_delete_count',
+                    'concurrent_gets',
+                    'concurrency_timeout',
+                    'concurrent_ec_extra_requests',
+                )))
 
     def __eq__(self, other):
         if not isinstance(other, ProxyOverrideOptions):
@@ -164,7 +176,11 @@ class ProxyOverrideOptions(object):
             'read_affinity',
             'write_affinity',
             'write_affinity_node_count',
-            'write_affinity_handoff_delete_count'))
+            'write_affinity_handoff_delete_count',
+            'concurrent_gets',
+            'concurrency_timeout',
+            'concurrent_ec_extra_requests',
+        ))
 
 
 class Application(object):
@@ -178,10 +194,6 @@ class Application(object):
             self.logger = get_logger(conf, log_route='proxy-server')
         else:
             self.logger = logger
-        self._override_options = self._load_per_policy_config(conf)
-        self.sorts_by_timing = any(pc.sorting_method == 'timing'
-                                   for pc in self._override_options.values())
-
         self._error_limiting = {}
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -260,11 +272,6 @@ class Application(object):
             conf.get('strict_cors_mode', 't'))
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
-        self.concurrent_gets = config_true_value(conf.get('concurrent_gets'))
-        self.concurrency_timeout = float(conf.get('concurrency_timeout',
-                                                  self.conn_timeout))
-        self.concurrent_ec_extra_requests = int(
-            conf.get('concurrent_ec_extra_requests', 0))
         value = conf.get('request_node_count', '2 * replicas').lower().split()
         if len(value) == 1:
             rnc_value = int(value[0])
@@ -311,6 +318,10 @@ class Application(object):
                 'swift.valid_api_versions',
             ])))
         self.admin_key = conf.get('admin_key', None)
+        self._override_options = self._load_per_policy_config(conf)
+        self.sorts_by_timing = any(pc.sorting_method == 'timing'
+                                   for pc in self._override_options.values())
+
         register_swift_info(
             version=swift_version,
             strict_cors_mode=self.strict_cors_mode,
@@ -324,7 +335,7 @@ class Application(object):
     def _make_policy_override(self, policy, conf, override_conf):
         label_for_policy = _label_for_policy(policy)
         try:
-            override = ProxyOverrideOptions(conf, override_conf)
+            override = ProxyOverrideOptions(conf, override_conf, self)
             self.logger.debug("Loaded override config for %s: %r" %
                               (label_for_policy, override))
             return override

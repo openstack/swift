@@ -856,8 +856,8 @@ class ByteCountEnforcer(object):
 
 class GetOrHeadHandler(object):
     def __init__(self, app, req, server_type, node_iter, partition, path,
-                 backend_headers, concurrency=1, client_chunk_size=None,
-                 newest=None):
+                 backend_headers, concurrency=1, policy=None,
+                 client_chunk_size=None, newest=None):
         self.app = app
         self.node_iter = node_iter
         self.server_type = server_type
@@ -870,6 +870,7 @@ class GetOrHeadHandler(object):
         self.used_nodes = []
         self.used_source_etag = ''
         self.concurrency = concurrency
+        self.policy = policy
         self.node = None
         self.latest_404_timestamp = Timestamp(0)
 
@@ -1363,7 +1364,8 @@ class GetOrHeadHandler(object):
         for node in nodes:
             pile.spawn(self._make_node_request, node, node_timeout,
                        self.app.logger.thread_locals)
-            _timeout = self.app.concurrency_timeout \
+            _timeout = self.app.get_policy_options(
+                self.policy).concurrency_timeout \
                 if pile.inflight < self.concurrency else None
             if pile.waitfirst(_timeout):
                 break
@@ -1998,7 +2000,7 @@ class Controller(object):
             return False
 
     def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
-                       concurrency=1, client_chunk_size=None):
+                       concurrency=1, policy=None, client_chunk_size=None):
         """
         Base handler for HTTP GET or HEAD requests.
 
@@ -2008,6 +2010,7 @@ class Controller(object):
         :param partition: partition
         :param path: path for the request
         :param concurrency: number of requests to run concurrently
+        :param policy: the policy instance, or None if Account or Container
         :param client_chunk_size: chunk size for response body iterator
         :returns: swob.Response object
         """
@@ -2016,7 +2019,7 @@ class Controller(object):
 
         handler = GetOrHeadHandler(self.app, req, self.server_type, node_iter,
                                    partition, path, backend_headers,
-                                   concurrency,
+                                   concurrency, policy=policy,
                                    client_chunk_size=client_chunk_size)
         res = handler.get_working_response(req)
 
