@@ -1337,6 +1337,20 @@ class TestProxyServerLoading(unittest.TestCase):
         self.assertEqual(app.post_quorum_timeout, 0.3)
         self.assertEqual(app.concurrency_timeout, 0.2)
 
+    def test_concurrent_ec_options(self):
+        conf = {
+            'concurrent_gets': 'on',
+            'concurrency_timeout': '0.5',
+            'concurrent_ec_extra_requests': '4',
+        }
+        for policy in POLICIES:
+            policy.object_ring = FakeRing()
+        app = proxy_server.Application(conf, debug_logger(),
+                                       FakeRing(), FakeRing())
+        self.assertEqual(app.concurrent_ec_extra_requests, 4)
+        self.assertEqual(app.concurrent_gets, True)
+        self.assertEqual(app.concurrency_timeout, 0.5)
+
     def test_load_policy_rings(self):
         for policy in POLICIES:
             self.assertFalse(policy.object_ring)
@@ -4687,12 +4701,21 @@ class TestReplicatedObjectController(
                 object_ring.max_more_nodes = 0
 
     def test_iter_nodes_calls_sort_nodes(self):
-        with mock.patch.object(self.app, 'sort_nodes') as sort_nodes:
+        called = []
+
+        def fake_sort_nodes(nodes, **kwargs):
+            # caller might mutate the list we return during iteration, we're
+            # interested in the value as of call time
+            called.append(mock.call(list(nodes), **kwargs))
+            return nodes
+        with mock.patch.object(self.app, 'sort_nodes',
+                               side_effect=fake_sort_nodes):
             object_ring = self.app.get_object_ring(None)
             for node in self.app.iter_nodes(object_ring, 0):
                 pass
-            sort_nodes.assert_called_once_with(
-                object_ring.get_part_nodes(0), policy=None)
+            self.assertEqual(called, [
+                mock.call(object_ring.get_part_nodes(0), policy=None)
+            ])
 
     def test_iter_nodes_skips_error_limited(self):
         with mock.patch.object(self.app, 'sort_nodes',

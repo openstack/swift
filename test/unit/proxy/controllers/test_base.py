@@ -21,28 +21,26 @@ import mock
 
 import six
 
+from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_cache_key, get_account_info, get_info, get_object_info, \
     Controller, GetOrHeadHandler, bytes_to_skip, clear_info_cache, \
-    set_info_cache
+    set_info_cache, NodeIter
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
     bytes_to_wsgi
 from swift.common import exceptions
-from swift.common.utils import split_path, ShardRange, Timestamp
+from swift.common.utils import split_path, ShardRange, Timestamp, \
+    GreenthreadSafeIterator, GreenAsyncPile
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.unit import (
-    fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, FakeLogger,
-    make_timestamp_iter,
-    mocked_http_conn)
-from swift.proxy import server as proxy_server
+    fake_http_connect, FakeRing, FakeMemcache, PatchPolicies,
+    make_timestamp_iter, mocked_http_conn, patch_policies, debug_logger)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
-
-from test.unit import patch_policies
 
 
 class FakeResponse(object):
@@ -179,13 +177,22 @@ class FakeCache(FakeMemcache):
         return self.stub or self.store.get(key)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
-class TestFuncs(unittest.TestCase):
+class BaseTest(unittest.TestCase):
+
     def setUp(self):
-        self.app = proxy_server.Application(None,
-                                            account_ring=FakeRing(),
-                                            container_ring=FakeRing(),
-                                            logger=FakeLogger())
+        self.logger = debug_logger()
+        self.cache = FakeCache()
+        self.conf = {}
+        self.account_ring = FakeRing()
+        self.container_ring = FakeRing()
+        self.app = proxy_server.Application(self.conf,
+                                            logger=self.logger,
+                                            account_ring=self.account_ring,
+                                            container_ring=self.container_ring)
+
+
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+class TestFuncs(BaseTest):
 
     def test_get_info_zero_recheck(self):
         mock_cache = mock.Mock()
@@ -1325,3 +1332,76 @@ class TestFuncs(unittest.TestCase):
         self.assertIn('Failed to get container listing', warning_lines[0])
         self.assertIn('/a/c', warning_lines[0])
         self.assertFalse(warning_lines[1:])
+
+
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+class TestNodeIter(BaseTest):
+
+    def test_iter_default_fake_ring(self):
+        for ring in (self.account_ring, self.container_ring):
+            self.assertEqual(ring.replica_count, 3.0)
+            node_iter = NodeIter(self.app, ring, 0)
+            self.assertEqual(6, node_iter.nodes_left)
+            self.assertEqual(3, node_iter.primaries_left)
+            count = 0
+            for node in node_iter:
+                count += 1
+            self.assertEqual(count, 3)
+            self.assertEqual(0, node_iter.primaries_left)
+            # default fake_ring has NO handoffs, so nodes_left is kind of a lie
+            self.assertEqual(3, node_iter.nodes_left)
+
+    def test_iter_with_handoffs(self):
+        ring = FakeRing(replicas=3, max_more_nodes=20)  # handoffs available
+        policy = StoragePolicy(0, 'zero', object_ring=ring)
+        node_iter = NodeIter(self.app, policy.object_ring, 0, policy=policy)
+        self.assertEqual(6, node_iter.nodes_left)
+        self.assertEqual(3, node_iter.primaries_left)
+        primary_indexes = set()
+        handoff_indexes = []
+        count = 0
+        for node in node_iter:
+            if 'index' in node:
+                primary_indexes.add(node['index'])
+            else:
+                handoff_indexes.append(node['handoff_index'])
+            count += 1
+        self.assertEqual(count, 6)
+        self.assertEqual(0, node_iter.primaries_left)
+        self.assertEqual(0, node_iter.nodes_left)
+        self.assertEqual({0, 1, 2}, primary_indexes)
+        self.assertEqual([0, 1, 2], handoff_indexes)
+
+    def test_multi_iteration(self):
+        ring = FakeRing(replicas=8, max_more_nodes=20)
+        policy = StoragePolicy(0, 'ec', object_ring=ring)
+
+        # sanity
+        node_iter = NodeIter(self.app, policy.object_ring, 0, policy=policy)
+        self.assertEqual(16, len([n for n in node_iter]))
+
+        node_iter = NodeIter(self.app, policy.object_ring, 0, policy=policy)
+        self.assertEqual(16, node_iter.nodes_left)
+        self.assertEqual(8, node_iter.primaries_left)
+        pile = GreenAsyncPile(5)
+
+        def eat_node(node_iter):
+            return next(node_iter)
+
+        safe_iter = GreenthreadSafeIterator(node_iter)
+        for i in range(5):
+            pile.spawn(eat_node, safe_iter)
+
+        nodes = []
+        for node in pile:
+            nodes.append(node)
+
+        primary_indexes = {n['index'] for n in nodes}
+        self.assertEqual(5, len(primary_indexes))
+        self.assertEqual(3, node_iter.primaries_left)
+
+        # it's problematic we don't decrement nodes_left until we resume
+        self.assertEqual(12, node_iter.nodes_left)
+        for node in node_iter:
+            nodes.append(node)
+        self.assertEqual(17, len(nodes))

@@ -200,12 +200,14 @@ use = egg:swift#proxy
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
 #
-# By default on a GET/HEAD swift will connect to a storage node one at a time
-# in a single thread. There is smarts in the order they are hit however. If you
-# turn on concurrent_gets below, then replica count threads will be used.
-# With addition of the concurrency_timeout option this will allow swift to send
-# out GET/HEAD requests to the storage nodes concurrently and answer with the
-# first to respond. With an EC policy the parameter only affects HEAD requests.
+# By default on a GET/HEAD swift will connect to a minimum number storage nodes
+# in a minimum number of threads - for replicated data just a single request to
+# a single node one at a time.  When enabled concurrent_gets allows the proxy,
+# to use up to replica count threads when waiting on a response.  In
+# conjunction with the concurrency_timeout option this will allow swift to send
+# out GET/HEAD requests to the storage nodes concurrently and answer as soon as
+# the minimum number of backend responses are availabe - in replicated contexts
+# this will be the first backend replica to respond.
 # concurrent_gets = off
 #
 # This parameter controls how long to wait before firing off the next
@@ -214,6 +216,13 @@ use = egg:swift#proxy
 # between 0 and node_timeout. The default is what ever you set for the
 # conn_timeout parameter.
 # concurrency_timeout = 0.5
+#
+# By default on a EC GET request swift will connect to a minimum number of
+# storage nodes in a minimum number of threads - for erasure coded data, ndata
+# requests to primary nodes are started at the same time.  When greater than
+# zero this option provides additional robustness and may reduce first byte
+# latency by starting additional requests - up to as many as nparity.
+# concurrent_ec_extra_requests = 0
 #
 # Set to the number of nodes to contact for a normal request. You can use
 # '* replicas' at the end to have it use the number given times the number of
