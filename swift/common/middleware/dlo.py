@@ -130,7 +130,8 @@ from swift.common.swob import Request, Response, \
     HTTPRequestedRangeNotSatisfiable, HTTPBadRequest, HTTPConflict, \
     str_to_wsgi, wsgi_to_str, wsgi_quote, wsgi_unquote, normalize_etag
 from swift.common.utils import get_logger, \
-    RateLimitedIterator, quote, close_if_possible, closing_if_possible
+    RateLimitedIterator, quote, close_if_possible, closing_if_possible, \
+    drain_and_close
 from swift.common.request_helpers import SegmentedIterable, \
     update_ignore_range_header
 from swift.common.wsgi import WSGIContext, make_subrequest, load_app_config
@@ -376,6 +377,10 @@ class GetContext(WSGIContext):
         # make sure this response is for a dynamic large object manifest
         for header, value in self._response_headers:
             if (header.lower() == 'x-object-manifest'):
+                content_length = self._response_header_value('content-length')
+                if content_length is not None and int(content_length) < 1024:
+                    # Go ahead and consume small bodies
+                    drain_and_close(resp_iter)
                 close_if_possible(resp_iter)
                 response = self.get_or_head_response(
                     req, wsgi_to_str(wsgi_unquote(value)))

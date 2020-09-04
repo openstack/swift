@@ -3255,9 +3255,12 @@ class TestSloGetManifest(SloTestCase):
         headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
+        self.assertEqual(b"aaaaabbbbbbbbbb", body)
+        self.assertEqual(self.app.unread_requests, {})
         self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
             'While processing manifest /v1/AUTH_test/gettest/manifest-abcd, '
-            'got 401 while retrieving /v1/AUTH_test/gettest/c_15'
+            'got 401 (<html><h1>Unauthorized</h1><p>This server could not '
+            'verif...) while retrieving /v1/AUTH_test/gettest/c_15'
         ])
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
@@ -3277,10 +3280,12 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual("200 OK", status)
         self.assertEqual(b"aaaaa", body)
+        self.assertEqual(self.app.unread_requests, {})
         self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
             'while fetching /v1/AUTH_test/gettest/manifest-abcd, GET of '
             'submanifest /v1/AUTH_test/gettest/manifest-bc failed with '
-            'status 401'
+            'status 401 (<html><h1>Unauthorized</h1><p>This server could '
+            'not verif...)'
         ])
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
@@ -3311,10 +3316,12 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
+        self.assertEqual(self.app.unread_requests, {})
         self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
             'while fetching /v1/AUTH_test/gettest/manifest-manifest-a, GET '
             'of submanifest /v1/AUTH_test/gettest/manifest-a failed with '
-            'status 403'
+            'status 403 (<html><h1>Forbidden</h1><p>Access was denied to '
+            'this reso...)'
         ])
 
     def test_invalid_json_submanifest(self):
@@ -3473,9 +3480,11 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
+        self.assertEqual(self.app.unread_requests, {})
         self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
             'While processing manifest /v1/AUTH_test/gettest/'
-            'manifest-not-exists, got 404 while retrieving /v1/AUTH_test/'
+            'manifest-not-exists, got 404 (<html><h1>Not Found</h1><p>The '
+            'resource could not be foun...) while retrieving /v1/AUTH_test/'
             'gettest/not_exists_obj'
         ])
 
