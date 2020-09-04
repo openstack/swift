@@ -927,7 +927,6 @@ class ReplicatedObjectController(BaseObjectController):
 
             ml = req.message_length()
             if ml and bytes_transferred < ml:
-                req.client_disconnect = True
                 self.app.logger.warning(
                     _('Client disconnected without sending enough data'))
                 self.app.logger.increment('client_disconnects')
@@ -950,7 +949,6 @@ class ReplicatedObjectController(BaseObjectController):
         except HTTPException:
             raise
         except ChunkReadError:
-            req.client_disconnect = True
             self.app.logger.warning(
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
@@ -2655,7 +2653,6 @@ class ECObjectController(BaseObjectController):
 
             ml = req.message_length()
             if ml and bytes_transferred < ml:
-                req.client_disconnect = True
                 self.app.logger.warning(
                     _('Client disconnected without sending enough data'))
                 self.app.logger.increment('client_disconnects')
@@ -2731,7 +2728,6 @@ class ECObjectController(BaseObjectController):
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except ChunkReadError:
-            req.client_disconnect = True
             self.app.logger.warning(
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
