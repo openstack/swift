@@ -19,9 +19,10 @@ import six
 from unittest import SkipTest
 from six.moves.urllib.parse import unquote
 from swift.common.utils import quote
+from swift.common.swob import str_to_wsgi
 import test.functional as tf
 from test.functional import cluster_info
-from test.functional.tests import Utils, Base, BaseEnv
+from test.functional.tests import Utils, Base, Base2, BaseEnv
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 
@@ -121,7 +122,7 @@ class TestStaticWeb(Base):
 
     @property
     def domain_remap_cont(self):
-        # the storage_domain option is test.conf must be set to one of the
+        # the storage_domain option in test.conf must be set to one of the
         # domain_remap middleware storage_domain values
         return '.'.join(
             (self.env.container.name, self.env.account.conn.account_name,
@@ -191,7 +192,7 @@ class TestStaticWeb(Base):
         self._test_redirect_with_slash(host, path, anonymous=anonymous)
 
         path = '/%s/%s' % (quote(self.env.container.name),
-                           self.env.objects['dir/'].name)
+                           quote(self.env.objects['dir/'].name))
         self._test_redirect_with_slash(host, path, anonymous=anonymous)
 
     def test_redirect_slash_auth_remap_acct(self):
@@ -215,7 +216,7 @@ class TestStaticWeb(Base):
     def _test_get_path(self, host, path, anonymous=False, expected_status=200,
                        expected_in=[], expected_not_in=[]):
         self.env.account.conn.make_request(
-            'GET', path,
+            'GET', str_to_wsgi(path),
             hdrs={'X-Web-Mode': str(not anonymous), 'Host': host},
             cfg={'no_auth_token': anonymous, 'absolute_path': True})
         self.assert_status(expected_status)
@@ -416,3 +417,11 @@ class TestStaticWeb(Base):
 
     def test_index_anon_remap_cont(self):
         self._test_index_remap_cont(True)
+
+
+class TestStaticWebUTF8(Base2, TestStaticWeb):
+    def test_redirect_slash_auth_remap_cont(self):
+        self.skipTest("Can't remap UTF8 containers")
+
+    def test_redirect_slash_anon_remap_cont(self):
+        self.skipTest("Can't remap UTF8 containers")
