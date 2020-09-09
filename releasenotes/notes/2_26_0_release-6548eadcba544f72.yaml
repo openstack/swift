@@ -1,0 +1,216 @@
+---
+features:
+  - |
+    Extend concurrent reads to erasure coded policies. Previously, the
+    options ``concurrent_gets`` and ``concurrency_timeout`` only applied to
+    replicated policies.
+
+  - |
+    Add a new ``concurrent_ec_extra_requests`` option to allow the proxy to
+    make some extra backend requests immediately. The proxy will respond as
+    soon as there are enough responses available to reconstruct.
+
+  - |
+    The concurrent read options (``concurrent_gets``, ``concurrency_timeout``,
+    and ``concurrent_ec_extra_requests``) may now be configured per
+    storage-policy.
+
+  - |
+    Replication servers can now handle all request methods. This allows
+    ssync to work with a separate replication network.
+
+  - |
+    All background daemons now use the replication network. This allows
+    better isolation between external, client-facing traffic and internal,
+    background traffic. Note that during a rolling upgrade, replication
+    servers may respond with ``405 Method Not Allowed``. To avoid this,
+    operators should remove the config option ``replication_server = true``
+    from their replication servers; this will allow them to handle all
+    request methods before upgrading.
+
+  - |
+    S3 API improvements:
+
+    * Fixed some SignatureDoesNotMatch errors when using the AWS .NET SDK.
+
+    * Add basic read support for object tagging. This improves
+      compatibility with AWS CLI version 2. Write support is not
+      yet implemented, so the tag set will always be empty.
+
+    * CompleteMultipartUpload requests may now be safely retried.
+
+    * Improved quota-exceeded error messages.
+
+    * Improved logging and statsd metrics. Be aware that this will cause
+      an increase in the proxy-logging statsd metrics emited for S3
+      responses. However, this should more accurately reflect the state
+      of the system.
+
+    * S3 requests are now less demanding on the container layer.
+
+  - |
+    Servers now open one listen socket per worker, ensuring each worker
+    serves roughly the same number of concurrent connections.
+
+  - |
+    Server workers may now be gracefully terminated via ``SIGHUP`` or
+    ``SIGUSR1``. The parent process will then spawn a fresh worker.
+
+  - |
+    Allow proxy-logging middlewares to be configured more independently.
+
+  - |
+    Improve performance when increasing partition power.
+
+issues:
+  - |
+    In a rolling upgrade from liberasurecode 1.5.0 or earlier to 1.6.0 or
+    later, object-servers may quarantine newly-written data, leading to
+    availability issues or even data loss. See `bug 1886088
+    <https://bugs.launchpad.net/liberasurecode/+bug/1886088>`__ for more
+    information, including how to determine whether you are affected.
+    Several mitigations are available to operators:
+
+    * If proxy and object layers can be upgraded independently and proxies
+      can be upgraded quickly:
+
+      1. Stop and disable the object-reconstructor before upgrading. This
+         ensures no upgraded object server starts writing new fragments
+         that old object servers would quarantine.
+
+      2. Upgrade liberasurecode on all object servers. Object servers can
+         now read both old and new fragments.
+
+      3. Upgrade liberasurecode on all proxy servers. Newly-written data
+         will now use new fragments. Note that not-yet-upgraded proxies
+         will not be able to read these newly-written fragments but will
+         instead respond ``500 Internal Server Error``.
+
+      4. After upgrading, re-enable and restart the object-reconstructor.
+
+    * If your users can tolerate it, consider a read-only rolling upgrade.
+      Before upgrading, enable the `read-only middleware
+      <https://docs.openstack.org/swift/latest/middleware.html#read-only>`__
+      cluster-wide to prevent new writes during the upgrade. Additionally,
+      stop and disable the object-reconstructor as above. Upgrade normally,
+      then disable the read-only middleware and re-enable and restart the
+      object-reconstructor.
+
+    * Avoid upgrading liberasurecode until swift and liberasurecode
+      better-support a rolling upgrade. Swift remains compatible with
+      liberasurecode 1.5.0 and earlier.
+
+    .. note::
+       Ubuntu 18.04 and RDO's CentOS 7 repos package liberasurecode 1.5.0,
+       while Ubuntu 20.04 and RDO's CentOS 8 repos currently package
+       liberasurecode 1.6.0 or 1.6.1. Take care when upgrading major distro
+       versions!
+
+upgrade:
+  - |
+    **If your cluster has encryption enabled and is still running Swift
+    under Python 2**, we recommend upgrading Swift *before* transitioning to
+    Python 3. Otherwise, new writes to objects with non-ASCII characters
+    in their paths may result in corrupted downloads when read from a
+    proxy-server still running old swift on Python 2. See `bug 1888037
+    <https://bugs.launchpad.net/swift/+bug/1888037>`__ for more information.
+    Note that new tags including a fix for the bug are planned for all
+    maintained stable branches; upgrading to any one of those should be
+    sufficient to ensure a smooth upgrade to the latest Swift.
+
+  - |
+    The above bug was caused by a difference in string types that resulted
+    in ambiguity when decrypting. To prevent the ambiguity for new data, set
+    ``meta_version_to_write = 3`` in your keymaster configuration *after*
+    upgrading all proxy servers.
+
+    If upgrading from Swift 2.20.0 or Swift 2.19.1 or earlier, set
+    ``meta_version_to_write = 1`` in your keymaster configuration *prior*
+    to upgrading.
+
+    See the provided ``keymaster.conf-sample`` for more information about
+    this setting.
+
+  - |
+    **If your cluster is configured with a separate replication network**,
+    note that background daemons will switch to using this network for all
+    traffic. If your account, container, or object replication servers are
+    configured with ``replication_server = true``, these daemons may log a
+    flood of ``405 Method Not Allowed`` messages during a rolling upgrade.
+    To avoid this, comment out the option and restart replication servers
+    before upgrading.
+
+fixes:
+  - |
+    Python 3 bug fixes:
+
+    * Fixed an error when reading encrypted data that was written while
+      running Python 2 for a path that includes non-ASCII characters.
+
+    * Object expiration respects the ``expiring_objects_container_divisor``
+      config option.
+
+    * ``fallocate_reserve`` may be specified as a percentage in more places.
+
+    * The ETag-quoting middleware no longer raises TypeErrors.
+
+  - |
+    Sharding improvements:
+
+    * Prevent object updates from auto-creating shard containers. This
+      ensures more consistent listings for sharded containers during
+      rebalances.
+
+    * Deleted shard containers are no longer considered root containers.
+      This prevents unnecessary sharding audit failures and allows the
+      deleted shard database to actually be unlinked.
+
+    * ``swift-container-info`` now summarizes shard range information.
+      Pass ``-v``/``--verbose`` if you want to see all of them.
+
+    * Improved container-sharder stat reporting to reduce load on root
+      container databases.
+
+    * Don't inject shard ranges when user quits.
+
+  - |
+    During rebalances, clients should no longer get 404s for data that
+    exists but whose replicas are overloaded.
+
+  - |
+    Improved cache management for account and container responses.
+
+  - |
+    Allow operators to pass either raw or URL-quoted paths to
+    ``swift-get-nodes``. Notably, this allows ``swift-get-nodes`` to
+    work with the reserved namespace used for object versioning.
+
+  - |
+    Container read ACLs now work with object versioning. This only
+    allows access to the most-recent version via an unversioned URL.
+
+  - |
+    Improved how containers reclaim deleted rows to reduce locking and object
+    update throughput.
+
+  - |
+    Large object reads log fewer client disconnects.
+
+  - |
+    Allow ratelimit to be placed multiple times in a proxy pipeline,
+    such as both before s3api and auth (to handle swift requests without
+    needing to make an auth decision) and after (to limit S3 requests).
+
+  - |
+    Shuffle object-updater work. This somewhat reduces the impact a
+    single overloaded database has on other containers' listings.
+
+  - |
+    Fix a proxy-server error when retrieving erasure coded data when
+    there are durable fragments but not enough to reconstruct.
+
+  - |
+    Fix an error in the proxy server when finalizing data.
+
+  - |
+    Various other minor bug fixes and improvements.

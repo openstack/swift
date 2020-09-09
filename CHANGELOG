@@ -1,3 +1,127 @@
+swift (2.26.0, OpenStack Victoria)
+
+    * Extend concurrent reads to erasure coded policies. Previously, the
+      options `concurrent_gets` and `concurrency_timeout` only applied to
+      replicated policies.
+
+    * Add a new `concurrent_ec_extra_requests` option to allow the proxy to
+      make some extra backend requests immediately. The proxy will respond as
+      soon as there are enough responses available to reconstruct.
+
+    * The concurrent read options (`concurrent_gets`, `concurrency_timeout`,
+      and `concurrent_ec_extra_requests`) may now be configured per
+      storage-policy.
+
+    * Replication servers can now handle all request methods. This allows
+      ssync to work with a separate replication network.
+
+    * All background daemons now use the replication network. This allows
+      better isolation between external, client-facing traffic and internal,
+      background traffic. Note that during a rolling upgrade, replication
+      servers may respond with `405 Method Not Allowed`. To avoid this,
+      operators should remove the config option `replication_server = true`
+      from their replication servers; this will allow them to handle all
+      request methods before upgrading.
+
+    * S3 API improvements:
+
+      * Fixed some SignatureDoesNotMatch errors when using the AWS .NET SDK.
+
+      * Add basic read support for object tagging. This improves
+        compatibility with AWS CLI version 2. Write support is not
+        yet implemented, so the tag set will always be empty.
+
+      * CompleteMultipartUpload requests may now be safely retried.
+
+      * Improved quota-exceeded error messages.
+
+      * Improved logging and statsd metrics. Be aware that this will cause
+        an increase in the proxy-logging statsd metrics emited for S3
+        responses. However, this should more accurately reflect the state
+        of the system.
+
+      * S3 requests are now less demanding on the container layer.
+
+    * Python 3 bug fixes:
+
+      * Fixed an error when reading encrypted data that was written while
+        running Python 2 for a path that includes non-ASCII characters. This
+        was caused by a difference in string types that resulted in
+        ambiguity when decrypting. To prevent the ambiguity for new data, set
+        `meta_version_to_write = 3` in your keymaster configuration after
+        upgrading all proxy servers.
+
+        If upgrading from Swift 2.20.0 or Swift 2.19.1 or earlier, set
+        `meta_version_to_write = 1` in your keymaster configuration prior
+        to upgrading.
+
+      * Object expiration respects the `expiring_objects_container_divisor`
+        config option.
+
+      * `fallocate_reserve` may be specified as a percentage in more places.
+
+      * The ETag-quoting middleware no longer raises TypeErrors.
+
+    * Sharding improvements:
+
+      * Prevent object updates from auto-creating shard containers. This
+        ensures more consistent listings for sharded containers during
+        rebalances.
+
+      * Deleted shard containers are no longer considered root containers.
+        This prevents unnecessary sharding audit failures and allows the
+        deleted shard database to actually be unlinked.
+
+      * `swift-container-info` now summarizes shard range information.
+        Pass `-v`/`--verbose` if you want to see all of them.
+
+      * Improved container-sharder stat reporting to reduce load on root
+        container databases.
+
+      * Don't inject shard ranges when user quits.
+
+    * Servers now open one listen socket per worker, ensuring each worker
+      serves roughly the same number of concurrent connections.
+
+    * Server workers may now be gracefully terminated via `SIGHUP` or
+      `SIGUSR1`. The parent process will then spawn a fresh worker.
+
+    * During rebalances, clients should no longer get 404s for data that
+      exists but whose replicas are overloaded.
+
+    * Improved cache management for account and container responses.
+
+    * Allow proxy-logging middlewares to be configured more independently.
+
+    * Allow operators to pass either raw or URL-quoted paths to
+      swift-get-nodes. Notably, this allows swift-get-nodes to work with
+      the reserved namespace used for object versioning.
+
+    * Container read ACLs now work with object versioning. This only
+      allows access to the most-recent version via an unversioned URL.
+
+    * Improved how containers reclaim deleted rows to reduce locking and object
+      update throughput.
+
+    * Large object reads log fewer client disconnects.
+
+    * Allow ratelimit to be placed multiple times in a proxy pipeline,
+      such as both before s3api and auth (to handle swift requests without
+      needing to make an auth decision) and after (to limit S3 requests).
+
+    * Shuffle object-updater work. This somewhat reduces the impact a
+      single overloaded database has on other containers' listings.
+
+    * Fix a proxy-server error when retrieving erasure coded data when
+      there are durable fragments but not enough to reconstruct.
+
+    * Fix an error in the proxy server when finalizing data.
+
+    * Improve performance when increasing partition power.
+
+    * Various other minor bug fixes and improvements.
+
+
 swift (2.25.0, OpenStack Ussuri)
 
     * WSGI server processes can now notify systemd when they are ready.
