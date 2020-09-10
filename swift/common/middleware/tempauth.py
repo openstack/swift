@@ -666,8 +666,6 @@ class TempAuth(object):
             req = Request(env)
             if self.auth_prefix:
                 req.path_info_pop()
-            req.bytes_transferred = '-'
-            req.client_disconnect = False
             if 'x-storage-token' in req.headers and \
                     'x-auth-token' not in req.headers:
                 req.headers['x-auth-token'] = req.headers['x-storage-token']
