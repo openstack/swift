@@ -32,6 +32,7 @@ from swift.common.middleware.s3api.s3request import S3Request, \
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed
+from swift.common.utils import md5, md5_factory
 
 from test.unit import DebugLogger
 
@@ -823,8 +824,9 @@ class TestRequest(S3ApiTestCase):
 class TestHashingInput(S3ApiTestCase):
     def test_good(self):
         raw = b'123456789'
-        wrapped = HashingInput(BytesIO(raw), 9, hashlib.md5,
-                               hashlib.md5(raw).hexdigest())
+        wrapped = HashingInput(
+            BytesIO(raw), 9, md5_factory,
+            md5(raw, usedforsecurity=False).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # trying to read past the end gets us whatever's left
@@ -848,8 +850,9 @@ class TestHashingInput(S3ApiTestCase):
 
     def test_too_long(self):
         raw = b'123456789'
-        wrapped = HashingInput(BytesIO(raw), 8, hashlib.md5,
-                               hashlib.md5(raw).hexdigest())
+        wrapped = HashingInput(
+            BytesIO(raw), 8, md5_factory,
+            md5(raw, usedforsecurity=False).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # even though the hash matches, there was more data than we expected
@@ -861,8 +864,9 @@ class TestHashingInput(S3ApiTestCase):
 
     def test_too_short(self):
         raw = b'123456789'
-        wrapped = HashingInput(BytesIO(raw), 10, hashlib.md5,
-                               hashlib.md5(raw).hexdigest())
+        wrapped = HashingInput(
+            BytesIO(raw), 10, md5_factory,
+            md5(raw, usedforsecurity=False).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
         # even though the hash matches, there was more data than we expected
@@ -873,8 +877,9 @@ class TestHashingInput(S3ApiTestCase):
 
     def test_bad_hash(self):
         raw = b'123456789'
-        wrapped = HashingInput(BytesIO(raw), 9, hashlib.sha256,
-                               hashlib.md5(raw).hexdigest())
+        wrapped = HashingInput(
+            BytesIO(raw), 9, hashlib.sha256,
+            md5(raw, usedforsecurity=False).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'5678', wrapped.read(4))
         with self.assertRaises(swob.HTTPException) as raised:

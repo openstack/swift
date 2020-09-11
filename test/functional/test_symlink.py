@@ -26,7 +26,7 @@ from uuid import uuid4
 
 from swift.common.http import is_success
 from swift.common.swob import normalize_etag
-from swift.common.utils import json, MD5_OF_EMPTY_STRING
+from swift.common.utils import json, MD5_OF_EMPTY_STRING, md5
 from swift.common.middleware.slo import SloGetContext
 from test.functional import check_response, retry, requires_acls, \
     cluster_info, SkipTest
@@ -1798,11 +1798,13 @@ class TestSymlinkToSloSegments(Base):
             self.fail('Failed to find manifest file in container listing')
 
     def test_slo_etag_is_hash_of_etags(self):
-        expected_hash = hashlib.md5()
-        expected_hash.update(hashlib.md5(
-            b'a' * 1024 * 1024).hexdigest().encode('ascii'))
-        expected_hash.update(hashlib.md5(
-            b'b' * 1024 * 1024).hexdigest().encode('ascii'))
+        expected_hash = md5(usedforsecurity=False)
+        expected_hash.update((
+            md5(b'a' * 1024 * 1024, usedforsecurity=False)
+            .hexdigest().encode('ascii')))
+        expected_hash.update((
+            md5(b'b' * 1024 * 1024, usedforsecurity=False)
+            .hexdigest().encode('ascii')))
         expected_etag = expected_hash.hexdigest()
 
         file_item = self.env.container.file('manifest-linkto-ab')
@@ -1823,7 +1825,7 @@ class TestSymlinkToSloSegments(Base):
         source = self.env.container.file("manifest-linkto-ab")
         source_contents = source.read(parms={'multipart-manifest': 'get'})
         source_json = json.loads(source_contents)
-        manifest_etag = hashlib.md5(source_contents).hexdigest()
+        manifest_etag = md5(source_contents, usedforsecurity=False).hexdigest()
         if tf.cluster_info.get('etag_quoter', {}).get('enable_by_default'):
             manifest_etag = '"%s"' % manifest_etag
 

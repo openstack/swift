@@ -18,13 +18,13 @@ import unittest
 import mock
 
 from io import BytesIO
-from hashlib import md5
 
 from swift.common.swob import Request, HTTPAccepted
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement, XMLNS_XSI
 from swift.common.middleware.s3api.s3response import InvalidArgument
 from swift.common.middleware.s3api.acl_utils import handle_acl_header
+from swift.common.utils import md5
 
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
@@ -133,7 +133,8 @@ class TestS3ApiAcl(S3ApiTestCase):
 
     def _test_put_no_body(self, use_content_length=False,
                           use_transfer_encoding=False, string_to_md5=b''):
-        content_md5 = base64.b64encode(md5(string_to_md5).digest()).strip()
+        content_md5 = base64.b64encode(
+            md5(string_to_md5, usedforsecurity=False).digest()).strip()
         with UnreadableInput(self) as fake_input:
             req = Request.blank(
                 '/bucket?acl',

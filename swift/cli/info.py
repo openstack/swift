@@ -15,7 +15,6 @@ import itertools
 import json
 import os
 import sqlite3
-from hashlib import md5
 from collections import defaultdict
 
 from six.moves import urllib
@@ -32,6 +31,7 @@ from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
     extract_policy
 from swift.common.storage_policy import POLICIES
 from swift.common.middleware.crypto.crypto_utils import load_crypto_meta
+from swift.common.utils import md5
 
 
 class InfoSystemExit(Exception):
@@ -545,7 +545,7 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
         # Optional integrity check; it's useful, but slow.
         file_len = None
         if check_etag:
-            h = md5()
+            h = md5(usedforsecurity=False)
             file_len = 0
             while True:
                 data = fp.read(64 * 1024)

@@ -80,7 +80,7 @@
 # B703 : django_mark_safe
 
 # (optional) list included test IDs here, eg '[B101, B406]':
-tests: [B102, B103, B302, B306, B308, B309, B310, B401, B501, B502, B506, B601, B602, B609]
+tests: [B102, B103, B302, B303, B304, B305, B306, B308, B309, B310, B401, B501, B502, B506, B601, B602, B609]
 
 # (optional) list skipped test IDs here, eg '[B101, B406]':
 skips:

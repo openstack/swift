@@ -23,7 +23,6 @@ import logging.handlers
 import sys
 from contextlib import contextmanager, closing
 from collections import defaultdict, Iterable
-from hashlib import md5
 import itertools
 from numbers import Number
 from tempfile import NamedTemporaryFile
@@ -48,7 +47,7 @@ from six.moves.http_client import HTTPException
 from swift.common import storage_policy, swob, utils
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
-from swift.common.utils import Timestamp, NOTICE
+from swift.common.utils import Timestamp, NOTICE, md5
 from test import get_config
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.ring import Ring, RingData, RingBuilder
@@ -65,7 +64,7 @@ class SkipTest(unittest.SkipTest):
     pass
 
 
-EMPTY_ETAG = md5().hexdigest()
+EMPTY_ETAG = md5(usedforsecurity=False).hexdigest()
 
 # try not to import this module from swift
 if not os.path.basename(sys.argv[0]).startswith('swift'):
@@ -970,7 +969,8 @@ def fake_http_connect(*code_iter, **kwargs):
             etag = self.etag
             if not etag:
                 if isinstance(self.body, bytes):
-                    etag = '"' + md5(self.body).hexdigest() + '"'
+                    etag = ('"' + md5(
+                        self.body, usedforsecurity=False).hexdigest() + '"')
                 else:
                     etag = '"68b329da9893e34099c7d8ad5cb9c940"'
 
@@ -1262,7 +1262,7 @@ def make_ec_object_stub(test_body, policy, timestamp):
     test_body = test_body or (
         b'test' * segment_size)[:-random.randint(1, 1000)]
     timestamp = timestamp or utils.Timestamp.now()
-    etag = md5(test_body).hexdigest()
+    etag = md5(test_body, usedforsecurity=False).hexdigest()
     ec_archive_bodies = encode_frag_archive_bodies(policy, test_body)
 
     return {

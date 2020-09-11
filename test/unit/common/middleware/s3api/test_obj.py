@@ -16,7 +16,7 @@
 import binascii
 import unittest
 from datetime import datetime
-import hashlib
+from hashlib import sha256
 import os
 from os.path import join
 import time
@@ -36,6 +36,7 @@ from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import mktime, S3Timestamp
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
+from swift.common.utils import md5
 
 
 class TestS3ApiObj(S3ApiTestCase):
@@ -44,7 +45,7 @@ class TestS3ApiObj(S3ApiTestCase):
         super(TestS3ApiObj, self).setUp()
 
         self.object_body = b'hello'
-        self.etag = hashlib.md5(self.object_body).hexdigest()
+        self.etag = md5(self.object_body, usedforsecurity=False).hexdigest()
         self.last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
 
         self.response_headers = {'Content-Type': 'text/html',
@@ -643,7 +644,7 @@ class TestS3ApiObj(S3ApiTestCase):
 
     @s3acl
     def test_object_PUT_v4(self):
-        body_sha = hashlib.sha256(self.object_body).hexdigest()
+        body_sha = sha256(self.object_body).hexdigest()
         req = Request.blank(
             '/bucket/object',
             environ={'REQUEST_METHOD': 'PUT'},

@@ -14,8 +14,8 @@
 # limitations under the License.
 
 from base64 import b64encode
-from hashlib import md5
 from swift.common.middleware.s3api.etree import fromstring
+from swift.common.utils import md5
 
 
 def get_error_code(body):
@@ -29,4 +29,5 @@ def get_error_msg(body):
 
 
 def calculate_md5(body):
-    return b64encode(md5(body).digest()).strip().decode('ascii')
+    return b64encode(
+        md5(body, usedforsecurity=False).digest()).strip().decode('ascii')

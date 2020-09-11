@@ -18,7 +18,6 @@ import json
 import unittest
 import os
 from contextlib import contextmanager
-from hashlib import md5
 import time
 import pickle
 
@@ -29,7 +28,7 @@ from swift.common import direct_client
 from swift.common.direct_client import DirectClientException
 from swift.common.exceptions import ClientException
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import Timestamp, quote
+from swift.common.utils import Timestamp, quote, md5
 from swift.common.swob import RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
 from six.moves.http_client import HTTPException
@@ -81,7 +80,7 @@ class FakeConn(object):
 
     def send(self, data):
         if not self.etag:
-            self.etag = md5()
+            self.etag = md5(usedforsecurity=False)
         self.etag.update(data)
 
 
@@ -546,7 +545,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.req_headers['User-Agent'], 'my UA')
             self.assertTrue('x-timestamp' in conn.req_headers)
             self.assertEqual('bar', conn.req_headers.get('x-foo'))
-            self.assertEqual(md5(body).hexdigest(), conn.etag.hexdigest())
+            self.assertEqual(
+                md5(body, usedforsecurity=False).hexdigest(),
+                conn.etag.hexdigest())
         self.assertIsNone(rv)
 
     def test_direct_put_container_chunked(self):
@@ -568,8 +569,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual('bar', conn.req_headers.get('x-foo'))
             self.assertNotIn('Content-Length', conn.req_headers)
             expected_sent = b'%0x\r\n%s\r\n0\r\n\r\n' % (len(body), body)
-            self.assertEqual(md5(expected_sent).hexdigest(),
-                             conn.etag.hexdigest())
+            self.assertEqual(
+                md5(expected_sent, usedforsecurity=False).hexdigest(),
+                conn.etag.hexdigest())
         self.assertIsNone(rv)
 
     def test_direct_put_container_fail(self):
@@ -849,7 +851,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
-        self.assertEqual(md5(b'123456').hexdigest(), resp)
+        self.assertEqual(
+            md5(b'123456', usedforsecurity=False).hexdigest(),
+            resp)
 
     def test_direct_put_object_fail(self):
         contents = io.BytesIO(b'123456')
@@ -876,7 +880,10 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
-        self.assertEqual(md5(b'6\r\n123456\r\n0\r\n\r\n').hexdigest(), resp)
+        self.assertEqual(
+            md5(b'6\r\n123456\r\n0\r\n\r\n',
+                usedforsecurity=False).hexdigest(),
+            resp)
 
     def test_direct_put_object_args(self):
         # One test to cover all missing checks
@@ -891,7 +898,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(self.obj_path, conn.path)
             self.assertEqual(conn.req_headers['Content-Length'], '0')
             self.assertEqual(conn.req_headers['Content-Type'], 'Text')
-        self.assertEqual(md5(b'0\r\n\r\n').hexdigest(), resp)
+        self.assertEqual(
+            md5(b'0\r\n\r\n', usedforsecurity=False).hexdigest(),
+            resp)
 
     def test_direct_put_object_header_content_length(self):
         contents = io.BytesIO(b'123456')
@@ -906,7 +915,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual('PUT', conn.method)
             self.assertEqual(conn.req_headers['Content-length'], '6')
-        self.assertEqual(md5(b'123456').hexdigest(), resp)
+        self.assertEqual(
+            md5(b'123456', usedforsecurity=False).hexdigest(),
+            resp)
 
     def test_retry(self):
         headers = HeaderKeyDict({'key': 'value'})

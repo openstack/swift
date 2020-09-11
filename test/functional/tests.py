@@ -15,7 +15,6 @@
 # limitations under the License.
 
 from datetime import datetime
-import hashlib
 import io
 import locale
 import random
@@ -28,6 +27,7 @@ from copy import deepcopy
 import eventlet
 from swift.common.http import is_success, is_client_error
 from swift.common.swob import normalize_etag
+from swift.common.utils import md5
 from email.utils import parsedate
 
 if six.PY2:
@@ -1371,7 +1371,8 @@ class TestFile(Base):
                             'x-object-meta-fruit': 'Banana',
                             'accept-ranges': 'bytes',
                             'content-type': 'application/test',
-                            'etag': hashlib.md5(obj_data).hexdigest(),
+                            'etag': md5(
+                                obj_data, usedforsecurity=False).hexdigest(),
                             'last-modified': mock.ANY,
                             'date': mock.ANY,
                             'x-delete-at': mock.ANY,
@@ -1538,7 +1539,7 @@ class TestFile(Base):
         self.assertTrue(dest_cont.create())
 
         expected_body = data[100:201]
-        expected_etag = hashlib.md5(expected_body)
+        expected_etag = md5(expected_body, usedforsecurity=False)
         # copy both from within and across containers
         for cont in (self.env.container, dest_cont):
             # copy both with and without initial slash

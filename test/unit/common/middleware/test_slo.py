@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import base64
-import hashlib
 import json
 import time
 import unittest
@@ -32,7 +31,7 @@ from swift.common.swob import Request, HTTPException, str_to_wsgi, \
     bytes_to_wsgi
 from swift.common.utils import quote, closing_if_possible, close_if_possible, \
     parse_content_type, iter_multipart_mime_documents, parse_mime_headers, \
-    Timestamp, get_expirer_container
+    Timestamp, get_expirer_container, md5
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -57,7 +56,7 @@ def fake_start_response(*args, **kwargs):
 def md5hex(s):
     if not isinstance(s, bytes):
         s = s.encode('ascii')
-    return hashlib.md5(s).hexdigest()
+    return md5(s, usedforsecurity=False).hexdigest()
 
 
 class SloTestCase(unittest.TestCase):
@@ -3004,7 +3003,7 @@ class TestSloGetManifest(SloTestCase):
 
     def test_get_segment_with_non_ascii_path(self):
         segment_body = u"a møøse once bit my sister".encode("utf-8")
-        segment_etag = hashlib.md5(segment_body).hexdigest()
+        segment_etag = md5(segment_body, usedforsecurity=False).hexdigest()
         if six.PY2:
             path = u'/v1/AUTH_test/ünicode/öbject-segment'.encode('utf-8')
         else:

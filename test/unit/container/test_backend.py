@@ -17,7 +17,6 @@
 import base64
 import errno
 import os
-import hashlib
 import inspect
 import unittest
 from time import sleep, time
@@ -40,7 +39,7 @@ from swift.container.backend import ContainerBroker, \
 from swift.common.db import DatabaseAlreadyExists, GreenDBConnection
 from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
-    ShardRange, make_db_file_path
+    ShardRange, make_db_file_path, md5
 from swift.common.storage_policy import POLICIES
 
 import mock
@@ -3161,7 +3160,7 @@ class TestContainerBroker(unittest.TestCase):
         def md5_str(s):
             if not isinstance(s, bytes):
                 s = s.encode('utf8')
-            return hashlib.md5(s).hexdigest()
+            return md5(s, usedforsecurity=False).hexdigest()
 
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)

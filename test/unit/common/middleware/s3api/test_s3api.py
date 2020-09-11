@@ -18,7 +18,6 @@ import unittest
 from mock import patch, MagicMock
 import calendar
 from datetime import datetime
-import hashlib
 import mock
 import requests
 import json
@@ -29,6 +28,7 @@ import swift.common.middleware.s3api
 from swift.common.middleware.keystoneauth import KeystoneAuth
 from swift.common import swob, utils
 from swift.common.swob import Request
+from swift.common.utils import md5
 
 from keystonemiddleware.auth_token import AuthProtocol
 from keystoneauth1.access import AccessInfoV2
@@ -177,7 +177,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
         def verify(hash, path, headers):
             s = canonical_string(path, headers)
-            self.assertEqual(hash, hashlib.md5(s).hexdigest())
+            self.assertEqual(hash, md5(s, usedforsecurity=False).hexdigest())
 
         verify('6dd08c75e42190a1ce9468d1fd2eb787', '/bucket/object',
                {'Content-Type': 'text/plain', 'X-Amz-Something': 'test',
@@ -563,7 +563,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'InvalidDigest')
 
     def test_object_create_bad_md5_too_short(self):
-        too_short_digest = hashlib.md5(b'hey').digest()[:-1]
+        too_short_digest = md5(b'hey', usedforsecurity=False).digest()[:-1]
         md5_str = base64.b64encode(too_short_digest).strip()
         if not six.PY2:
             md5_str = md5_str.decode('ascii')
@@ -577,7 +577,8 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'InvalidDigest')
 
     def test_object_create_bad_md5_too_long(self):
-        too_long_digest = hashlib.md5(b'hey').digest() + b'suffix'
+        too_long_digest = md5(
+            b'hey', usedforsecurity=False).digest() + b'suffix'
         md5_str = base64.b64encode(too_long_digest).strip()
         if not six.PY2:
             md5_str = md5_str.decode('ascii')

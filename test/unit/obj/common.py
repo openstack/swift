@@ -12,7 +12,6 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import hashlib
 import os
 import shutil
 import tempfile
@@ -20,7 +19,7 @@ import unittest
 
 from swift.common import utils
 from swift.common.storage_policy import POLICIES
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, md5
 
 
 def write_diskfile(df, timestamp, data=b'test data', frag_index=None,
@@ -31,7 +30,7 @@ def write_diskfile(df, timestamp, data=b'test data', frag_index=None,
     with df.create() as writer:
         writer.write(data)
         metadata = {
-            'ETag': hashlib.md5(data).hexdigest(),
+            'ETag': md5(data, usedforsecurity=False).hexdigest(),
             'X-Timestamp': timestamp.internal,
             'Content-Length': str(len(data)),
         }

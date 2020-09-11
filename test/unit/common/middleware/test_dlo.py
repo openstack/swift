@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hashlib
 import json
 import mock
 import shutil
@@ -26,7 +25,7 @@ import unittest
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import dlo
-from swift.common.utils import closing_if_possible
+from swift.common.utils import closing_if_possible, md5
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -36,7 +35,7 @@ LIMIT = 'swift.common.constraints.CONTAINER_LISTING_LIMIT'
 def md5hex(s):
     if not isinstance(s, bytes):
         s = s.encode('utf-8')
-    return hashlib.md5(s).hexdigest()
+    return md5(s, usedforsecurity=False).hexdigest()
 
 
 class DloTestCase(unittest.TestCase):
@@ -738,7 +737,8 @@ class TestDloGetManifest(DloTestCase):
         status, headers, body = self.call_dlo(req)
         headers = HeaderKeyDict(headers)
         self.assertEqual(headers["Etag"],
-                         '"' + hashlib.md5(b"abcdef").hexdigest() + '"')
+                         '"' + md5(b"abcdef",
+                                   usedforsecurity=False).hexdigest() + '"')
 
     def test_object_prefix_quoting(self):
         self.app.register(

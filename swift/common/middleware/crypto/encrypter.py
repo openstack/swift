@@ -27,7 +27,7 @@ from swift.common.request_helpers import get_object_transient_sysmeta, \
 from swift.common.swob import Request, Match, HTTPException, \
     HTTPUnprocessableEntity, wsgi_to_bytes, bytes_to_wsgi, normalize_etag
 from swift.common.utils import get_logger, config_true_value, \
-    MD5_OF_EMPTY_STRING
+    MD5_OF_EMPTY_STRING, md5
 
 
 def encrypt_header_val(crypto, value, key):
@@ -91,8 +91,8 @@ class EncInputWrapper(object):
             self.body_crypto_meta['key_id'] = self.keys['id']
             self.body_crypto_ctxt = self.crypto.create_encryption_ctxt(
                 body_key, self.body_crypto_meta.get('iv'))
-            self.plaintext_md5 = hashlib.md5()
-            self.ciphertext_md5 = hashlib.md5()
+            self.plaintext_md5 = md5(usedforsecurity=False)
+            self.ciphertext_md5 = md5(usedforsecurity=False)
 
     def install_footers_callback(self, req):
         # the proxy controller will call back for footer metadata after

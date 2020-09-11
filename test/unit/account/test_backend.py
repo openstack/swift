@@ -16,7 +16,6 @@
 """ Tests for swift.account.backend """
 
 from collections import defaultdict
-import hashlib
 import json
 import unittest
 import pickle
@@ -40,6 +39,7 @@ from test.unit import patch_policies, with_tempdir, make_timestamp_iter
 from swift.common.db import DatabaseConnectionError
 from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.utils import md5
 
 from test.unit.common import test_db
 
@@ -821,10 +821,10 @@ class TestAccountBroker(unittest.TestCase):
                              POLICIES.default.idx)
         text = '%s-%s' % ('a', "%s-%s-%s-%s" % (
                Timestamp(1).internal, Timestamp(0).internal, 0, 0))
-        hasha = hashlib.md5(text.encode('ascii')).digest()
+        hasha = md5(text.encode('ascii'), usedforsecurity=False).digest()
         text = '%s-%s' % ('b', "%s-%s-%s-%s" % (
                Timestamp(2).internal, Timestamp(0).internal, 0, 0))
-        hashb = hashlib.md5(text.encode('ascii')).digest()
+        hashb = md5(text.encode('ascii'), usedforsecurity=False).digest()
         hashc = ''.join(('%02x' % (ord(a) ^ ord(b) if six.PY2 else a ^ b)
                          for a, b in zip(hasha, hashb)))
         self.assertEqual(broker.get_info()['hash'], hashc)
@@ -833,7 +833,7 @@ class TestAccountBroker(unittest.TestCase):
                              POLICIES.default.idx)
         text = '%s-%s' % ('b', "%s-%s-%s-%s" % (
                Timestamp(3).internal, Timestamp(0).internal, 0, 0))
-        hashb = hashlib.md5(text.encode('ascii')).digest()
+        hashb = md5(text.encode('ascii'), usedforsecurity=False).digest()
         hashc = ''.join(('%02x' % (ord(a) ^ ord(b) if six.PY2 else a ^ b)
                          for a, b in zip(hasha, hashb)))
         self.assertEqual(broker.get_info()['hash'], hashc)

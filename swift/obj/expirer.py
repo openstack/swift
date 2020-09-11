@@ -20,7 +20,6 @@ from time import time
 from os.path import join
 from swift import gettext_ as _
 from collections import defaultdict, deque
-import hashlib
 
 from eventlet import sleep, Timeout
 from eventlet.greenpool import GreenPool
@@ -30,7 +29,7 @@ from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
     Timestamp, config_true_value, normalize_delete_at_timestamp, \
-    RateLimitedIterator
+    RateLimitedIterator, md5
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 from swift.common.swob import wsgi_quote, str_to_wsgi
@@ -218,7 +217,8 @@ class ObjectExpirer(Daemon):
         if not isinstance(name, bytes):
             name = name.encode('utf8')
         # md5 is only used for shuffling mod
-        return int(hashlib.md5(name).hexdigest(), 16) % divisor
+        return int(md5(
+            name, usedforsecurity=False).hexdigest(), 16) % divisor
 
     def iter_task_accounts_to_expire(self):
         """

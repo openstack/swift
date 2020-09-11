@@ -16,14 +16,13 @@
 
 import mock
 import unittest
-from hashlib import md5
 from six.moves import urllib
 
 from swift.common import swob
 from swift.common.middleware import copy
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPException
-from swift.common.utils import closing_if_possible
+from swift.common.utils import closing_if_possible, md5
 from test.unit import patch_policies, debug_logger, FakeRing
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.proxy.controllers.test_obj import set_http_connect, \
@@ -1386,7 +1385,7 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
 
     def _test_invalid_ranges(self, method, real_body, segment_size, req_range):
         # make a request with range starts from more than real size.
-        body_etag = md5(real_body).hexdigest()
+        body_etag = md5(real_body, usedforsecurity=False).hexdigest()
         req = swob.Request.blank(
             '/v1/a/c/o', method=method,
             headers={'Destination': 'c1/o',

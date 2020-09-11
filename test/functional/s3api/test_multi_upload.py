@@ -23,13 +23,13 @@ import boto
 # pylint: disable-msg=E0611,F0401
 from distutils.version import StrictVersion
 
-from hashlib import md5
 from six.moves import zip, zip_longest
 
 import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
 from swift.common.middleware.s3api.utils import mktime
+from swift.common.utils import md5
 
 from test.functional.s3api import S3ApiBase
 from test.functional.s3api.s3_test_client import Connection
@@ -180,7 +180,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         # Upload Part
         key, upload_id = uploads[0]
         content = b'a' * self.min_segment_size
-        etag = md5(content).hexdigest()
+        etag = md5(content, usedforsecurity=False).hexdigest()
         status, headers, body = \
             self._upload_part(bucket, key, upload_id, content)
         self.assertEqual(status, 200)
@@ -196,7 +196,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         src_bucket = 'bucket2'
         src_obj = 'obj3'
         src_content = b'b' * self.min_segment_size
-        etag = md5(src_content).hexdigest()
+        etag = md5(src_content, usedforsecurity=False).hexdigest()
 
         # prepare src obj
         self.conn.make_request('PUT', src_bucket)
@@ -312,7 +312,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         concatted_etags = b''.join(
             etag.strip('"').encode('ascii') for etag in etags)
         exp_etag = '"%s-%s"' % (
-            md5(binascii.unhexlify(concatted_etags)).hexdigest(), len(etags))
+            md5(binascii.unhexlify(concatted_etags),
+                usedforsecurity=False).hexdigest(), len(etags))
         etag = elem.find('ETag').text
         self.assertEqual(etag, exp_etag)
 
@@ -324,7 +325,8 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(headers['content-type'], 'foo/bar')
         self.assertEqual(headers['x-amz-meta-baz'], 'quux')
 
-        swift_etag = '"%s"' % md5(concatted_etags).hexdigest()
+        swift_etag = '"%s"' % md5(
+            concatted_etags, usedforsecurity=False).hexdigest()
         # TODO: GET via swift api, check against swift_etag
 
         # Should be safe to retry
@@ -375,7 +377,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertIsNotNone(last_modified)
 
         exp_content = b'a' * self.min_segment_size
-        etag = md5(exp_content).hexdigest()
+        etag = md5(exp_content, usedforsecurity=False).hexdigest()
         self.assertEqual(resp_etag, etag)
 
         # Also check that the etag is correct in part listings
@@ -858,7 +860,9 @@ class TestS3ApiMultiUpload(S3ApiBase):
         src_content = b'y' * (self.min_segment_size // 2) + b'z' * \
             self.min_segment_size
         src_range = 'bytes=0-%d' % (self.min_segment_size - 1)
-        etag = md5(src_content[:self.min_segment_size]).hexdigest()
+        etag = md5(
+            src_content[:self.min_segment_size],
+            usedforsecurity=False).hexdigest()
 
         # prepare src obj
         self.conn.make_request('PUT', src_bucket)
@@ -951,7 +955,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         src_obj = 'obj4'
         src_content = b'y' * (self.min_segment_size // 2) + b'z' * \
             self.min_segment_size
-        etags = [md5(src_content).hexdigest()]
+        etags = [md5(src_content, usedforsecurity=False).hexdigest()]
 
         # prepare null-version src obj
         self.conn.make_request('PUT', src_bucket)
@@ -969,7 +973,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         src_obj2 = 'obj5'
         src_content2 = b'stub'
-        etags.append(md5(src_content2).hexdigest())
+        etags.append(md5(src_content2, usedforsecurity=False).hexdigest())
 
         # prepare src obj w/ real version
         self.conn.make_request('PUT', src_bucket, src_obj2, body=src_content2)
@@ -1098,7 +1102,7 @@ class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
 
         # Complete Multipart Upload
         key, upload_id = uploads[0]
-        etags = [md5(content).hexdigest()]
+        etags = [md5(content, usedforsecurity=False).hexdigest()]
         xml = self._gen_comp_xml(etags)
         status, headers, body = \
             self._complete_multi_upload(bucket, key, upload_id, xml)

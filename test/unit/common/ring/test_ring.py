@@ -16,7 +16,6 @@
 import array
 import collections
 import six.moves.cPickle as pickle
-import hashlib
 import os
 import unittest
 import stat
@@ -30,9 +29,9 @@ import copy
 import mock
 
 from six.moves import range
-
 from swift.common import ring, utils
 from swift.common.ring import utils as ring_utils
+from swift.common.utils import md5
 
 
 class TestRingBase(unittest.TestCase):
@@ -236,7 +235,7 @@ class TestRing(TestRingBase):
         self.assertIsNone(self.ring.version)
 
         with open(self.testgz, 'rb') as fp:
-            expected_md5 = hashlib.md5()
+            expected_md5 = md5(usedforsecurity=False)
             expected_size = 0
             for chunk in iter(lambda: fp.read(2 ** 16), b''):
                 expected_md5.update(chunk)

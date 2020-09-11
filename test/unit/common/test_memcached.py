@@ -18,7 +18,6 @@
 
 from collections import defaultdict
 import errno
-from hashlib import md5
 import io
 import logging
 import six
@@ -34,6 +33,7 @@ from eventlet import GreenPool, sleep, Queue
 from eventlet.pools import Pool
 
 from swift.common import memcached
+from swift.common.utils import md5
 from mock import patch, MagicMock
 from test.unit import debug_logger
 
@@ -337,7 +337,8 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
-        cache_key = md5(b'some_key').hexdigest().encode('ascii')
+        cache_key = md5(b'some_key',
+                        usedforsecurity=False).hexdigest().encode('ascii')
 
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
@@ -443,7 +444,8 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
-        cache_key = md5(b'some_key').hexdigest().encode('ascii')
+        cache_key = md5(b'some_key',
+                        usedforsecurity=False).hexdigest().encode('ascii')
 
         memcache_client.incr('some_key', delta=5, time=55)
         self.assertEqual(memcache_client.get('some_key'), b'5')
@@ -653,7 +655,7 @@ class TestMemcached(unittest.TestCase):
             memcache_client.get_multi(('some_key2', 'some_key1'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3]])
         for key in (b'some_key1', b'some_key2'):
-            key = md5(key).hexdigest().encode('ascii')
+            key = md5(key, usedforsecurity=False).hexdigest().encode('ascii')
             self.assertIn(key, mock.cache)
             _junk, cache_timeout, _junk = mock.cache[key]
             self.assertEqual(cache_timeout, b'0')
@@ -662,7 +664,7 @@ class TestMemcached(unittest.TestCase):
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             time=20)
         for key in (b'some_key1', b'some_key2'):
-            key = md5(key).hexdigest().encode('ascii')
+            key = md5(key, usedforsecurity=False).hexdigest().encode('ascii')
             _junk, cache_timeout, _junk = mock.cache[key]
             self.assertEqual(cache_timeout, b'20')
 
@@ -672,7 +674,7 @@ class TestMemcached(unittest.TestCase):
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             time=fortydays)
         for key in (b'some_key1', b'some_key2'):
-            key = md5(key).hexdigest().encode('ascii')
+            key = md5(key, usedforsecurity=False).hexdigest().encode('ascii')
             _junk, cache_timeout, _junk = mock.cache[key]
             self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
         self.assertEqual(memcache_client.get_multi(
@@ -709,14 +711,15 @@ class TestMemcached(unittest.TestCase):
             memcache_client.get_multi(('some_key1', 'some_key0'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3]])
         for key in (b'some_key0', b'some_key1'):
-            key = md5(key).hexdigest().encode('ascii')
+            key = md5(key, usedforsecurity=False).hexdigest().encode('ascii')
             self.assertIn(key, mock1.cache)
             _junk, cache_timeout, _junk = mock1.cache[key]
             self.assertEqual(cache_timeout, b'0')
 
         memcache_client.set('some_key0', [7, 8, 9])
         self.assertEqual(memcache_client.get('some_key0'), [7, 8, 9])
-        key = md5(b'some_key0').hexdigest().encode('ascii')
+        key = md5(b'some_key0',
+                  usedforsecurity=False).hexdigest().encode('ascii')
         self.assertIn(key, mock2.cache)
 
         # Delete 'some_key0' with server_key='multi_key'

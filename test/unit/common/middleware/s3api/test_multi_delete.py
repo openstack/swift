@@ -17,7 +17,6 @@ import base64
 import json
 import unittest
 from datetime import datetime
-from hashlib import md5
 import mock
 
 from swift.common import swob
@@ -28,6 +27,7 @@ from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
+from swift.common.utils import md5
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
 
 
@@ -47,7 +47,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         obj = SubElement(elem, 'Object')
         SubElement(obj, 'Key').text = 'object'
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip()
 
         req = Request.blank('/bucket/object?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -84,7 +85,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -138,7 +140,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -186,7 +189,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -213,7 +217,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key')
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -262,7 +267,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             if version:
                 SubElement(obj, 'VersionId').text = version
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -319,7 +325,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             if ts:
                 SubElement(obj, 'VersionId').text = ts.normal
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip()
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -392,7 +399,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = name
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = (base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip())
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -414,7 +422,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = 'x' * 1000 + str(i)
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = (base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip())
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -435,7 +444,8 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         obj = SubElement(elem, 'Object')
         SubElement(obj, 'Key').text = 'Key1'
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = (base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip())
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -460,7 +470,9 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
         body = tostring(elem, use_s3ns=False)
-        content_md5 = base64.b64encode(md5(body).digest()).strip()
+        content_md5 = (
+            base64.b64encode(md5(body, usedforsecurity=False).digest())
+            .strip())
 
         req = Request.blank('/bucket?delete',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -502,7 +514,9 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
 
     def _test_no_body(self, use_content_length=False,
                       use_transfer_encoding=False, string_to_md5=b''):
-        content_md5 = base64.b64encode(md5(string_to_md5).digest()).strip()
+        content_md5 = (base64.b64encode(
+            md5(string_to_md5, usedforsecurity=False).digest())
+            .strip())
         with UnreadableInput(self) as fake_input:
             req = Request.blank(
                 '/bucket?delete',

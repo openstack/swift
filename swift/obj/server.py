@@ -26,7 +26,6 @@ import traceback
 import socket
 import math
 from swift import gettext_ as _
-from hashlib import md5
 
 from eventlet import sleep, wsgi, Timeout, tpool
 from eventlet.greenthread import spawn
@@ -37,7 +36,7 @@ from swift.common.utils import public, get_logger, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
-    normalize_timestamp
+    normalize_timestamp, md5
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
@@ -583,7 +582,7 @@ class ObjectController(BaseStorageServer):
         footer_md5 = footer_hdrs.get('Content-MD5')
         if not footer_md5:
             raise HTTPBadRequest(body="no Content-MD5 in footer")
-        if footer_md5 != md5(footer_body).hexdigest():
+        if footer_md5 != md5(footer_body, usedforsecurity=False).hexdigest():
             raise HTTPUnprocessableEntity(body="footer MD5 mismatch")
 
         try:

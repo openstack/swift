@@ -50,13 +50,13 @@ import json
 import logging
 import time
 from bisect import bisect
-from hashlib import md5
 
 from eventlet.green import socket
 from eventlet.pools import Pool
 from eventlet import Timeout
 from six.moves import range
 from swift.common import utils
+from swift.common.utils import md5
 
 DEFAULT_MEMCACHED_PORT = 11211
 
@@ -81,7 +81,7 @@ def md5hash(key):
             key = key.encode('utf-8')
         else:
             key = key.encode('utf-8', errors='surrogateescape')
-    return md5(key).hexdigest().encode('ascii')
+    return md5(key, usedforsecurity=False).hexdigest().encode('ascii')
 
 
 def sanitize_timeout(timeout):

@@ -17,7 +17,6 @@
 import errno
 import json
 from contextlib import contextmanager
-from hashlib import md5
 import unittest
 import uuid
 import shutil
@@ -27,6 +26,7 @@ import time
 import six
 
 from swift.common.direct_client import DirectClientException
+from swift.common.utils import md5
 from test.probe.common import ECProbeTest
 
 from swift.common import direct_client
@@ -40,7 +40,7 @@ class Body(object):
 
     def __init__(self, total=3.5 * 2 ** 20):
         self.total = int(total)
-        self.hasher = md5()
+        self.hasher = md5(usedforsecurity=False)
         self.size = 0
         self.chunk = b'test' * 16 * 2 ** 10
 
@@ -118,7 +118,7 @@ class TestReconstructorRebuild(ECProbeTest):
                                           self.container_name,
                                           self.object_name,
                                           resp_chunk_size=64 * 2 ** 10)
-        resp_checksum = md5()
+        resp_checksum = md5(usedforsecurity=False)
         for chunk in body:
             resp_checksum.update(chunk)
         return headers, resp_checksum.hexdigest()
@@ -140,7 +140,7 @@ class TestReconstructorRebuild(ECProbeTest):
         headers, data = direct_client.direct_get_object(
             node, part, acc, con, obj, headers=req_headers,
             resp_chunk_size=64 * 2 ** 20)
-        hasher = md5()
+        hasher = md5(usedforsecurity=False)
         for chunk in data:
             hasher.update(chunk)
         return headers, hasher.hexdigest()

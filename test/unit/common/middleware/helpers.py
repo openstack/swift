@@ -16,14 +16,13 @@
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
 
 from collections import defaultdict, namedtuple
-from hashlib import md5
 from six.moves.urllib import parse
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import is_user_meta, \
     is_object_transient_sysmeta, resolve_etag_is_at_header
 from swift.common.swob import HTTPNotImplemented
-from swift.common.utils import split_path
+from swift.common.utils import split_path, md5
 
 from test.unit import FakeLogger, FakeRing
 
@@ -159,7 +158,7 @@ class FakeSwift(object):
                 footers = HeaderKeyDict()
                 env['swift.callback.update_footers'](footers)
                 req.headers.update(footers)
-            etag = md5(req_body).hexdigest()
+            etag = md5(req_body, usedforsecurity=False).hexdigest()
             headers.setdefault('Etag', etag)
             headers.setdefault('Content-Length', len(req_body))
 

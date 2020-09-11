@@ -35,7 +35,6 @@ from random import shuffle, randint
 from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
-from hashlib import md5 as _md5
 from contextlib import closing, contextmanager
 from gzip import GzipFile
 import pyeclib.ec_iface
@@ -50,7 +49,7 @@ from test.unit import (mock as unit_mock, temptree, mock_check_drive,
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, Timestamp, \
-    encode_timestamps, O_TMPFILE
+    encode_timestamps, O_TMPFILE, md5 as _md5
 from swift.common import ring
 from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
@@ -76,7 +75,7 @@ class md5(object):
     def __init__(self, s=b''):
         if not isinstance(s, bytes):
             s = s.encode('ascii')
-        self.md = _md5(s)
+        self.md = _md5(s, usedforsecurity=False)
 
     def update(self, s=b''):
         if not isinstance(s, bytes):

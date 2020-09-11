@@ -24,7 +24,6 @@ from textwrap import dedent
 from time import sleep, time
 from collections import defaultdict
 import unittest
-from hashlib import md5
 from uuid import uuid4
 import shutil
 from six.moves.http_client import HTTPConnection
@@ -34,7 +33,8 @@ from swiftclient import get_auth, head_account, client
 from swift.common import internal_client, direct_client
 from swift.common.direct_client import DirectClientException
 from swift.common.ring import Ring
-from swift.common.utils import readconf, renamer, rsync_module_interpolation
+from swift.common.utils import readconf, renamer, \
+    rsync_module_interpolation, md5
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.obj.diskfile import get_data_dir
@@ -297,7 +297,7 @@ class Body(object):
 
     def __init__(self, total=3.5 * 2 ** 20):
         self.length = int(total)
-        self.hasher = md5()
+        self.hasher = md5(usedforsecurity=False)
         self.read_amount = 0
         self.chunk = uuid4().hex.encode('ascii') * 2 ** 10
         self.buff = b''
