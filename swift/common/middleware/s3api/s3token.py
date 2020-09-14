@@ -235,6 +235,12 @@ class S3Token(object):
             raise self._deny_request('InvalidURI')
 
         if response.status_code < 200 or response.status_code >= 300:
+            # If a offending client is not able to provide a valid s3token
+            # There is no chance to identify that cleint otherwise, so logging
+            # the Access Key here
+            creds = json.loads(creds_json)
+            self._logger.info('S3 Access Denied for Access key: %s',
+                              creds['credentials']['access'])
             self._logger.debug('Keystone reply error: status=%s reason=%s',
                                response.status_code, response.reason)
             raise self._deny_request('AccessDenied')
