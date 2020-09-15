@@ -356,9 +356,28 @@ class TestDloGetManifest(DloTestCase):
             md5hex("aaaaa") + md5hex("bbbbb") + md5hex("ccccc") +
             md5hex("ddddd") + md5hex("eeeee"))
         self.assertEqual(headers.get("Etag"), expected_etag)
+        self.assertEqual(self.app.unread_requests, {})
+
+    def test_get_big_manifest(self):
+        self.app.register(
+            'GET', '/v1/AUTH_test/mancon/big-manifest',
+            swob.HTTPOk, {'Content-Length': '17000', 'Etag': 'manifest-etag',
+                          'X-Object-Manifest': 'c/seg'},
+            b'manifest-contents' * 1000)
+        req = swob.Request.blank('/v1/AUTH_test/mancon/big-manifest',
+                                 environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_dlo(req)
+        headers = HeaderKeyDict(headers)
+        self.assertEqual(status, "200 OK")
+        self.assertEqual(headers["Content-Length"], "25")
+        self.assertEqual(body, b'aaaaabbbbbcccccdddddeeeee')
+        expected_etag = '"%s"' % md5hex(
+            md5hex("aaaaa") + md5hex("bbbbb") + md5hex("ccccc") +
+            md5hex("ddddd") + md5hex("eeeee"))
+        self.assertEqual(headers.get("Etag"), expected_etag)
         self.assertEqual(self.app.unread_requests, {
             # Since we don't know how big this will be, we just disconnect
-            ('GET', '/v1/AUTH_test/mancon/manifest'): 1,
+            ('GET', '/v1/AUTH_test/mancon/big-manifest'): 1,
         })
 
     def test_get_range_on_segment_boundaries(self):
@@ -573,9 +592,11 @@ class TestDloGetManifest(DloTestCase):
                                  environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_dlo(req)
         self.assertEqual(status, "409 Conflict")
+        self.assertEqual(self.app.unread_requests, {})
         self.assertEqual(self.dlo.logger.get_lines_for_level('error'), [
             'While processing manifest /v1/AUTH_test/mancon/manifest, '
-            'got 403 while retrieving /v1/AUTH_test/c/seg_01',
+            'got 403 (<html><h1>Forbidden</h1><p>Access was denied to this '
+            'reso...) while retrieving /v1/AUTH_test/c/seg_01',
         ])
 
     def test_error_fetching_second_segment(self):
@@ -591,9 +612,11 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(status, "200 OK")
         # first segment made it out
         self.assertEqual(body, b'aaaaa')
+        self.assertEqual(self.app.unread_requests, {})
         self.assertEqual(self.dlo.logger.get_lines_for_level('error'), [
             'While processing manifest /v1/AUTH_test/mancon/manifest, '
-            'got 403 while retrieving /v1/AUTH_test/c/seg_02',
+            'got 403 (<html><h1>Forbidden</h1><p>Access was denied to this '
+            'reso...) while retrieving /v1/AUTH_test/c/seg_02',
         ])
 
     def test_error_listing_container_first_listing_request(self):

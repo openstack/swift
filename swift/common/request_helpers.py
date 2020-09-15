@@ -564,11 +564,16 @@ class SegmentedIterable(object):
             seg_req = data_or_req
             seg_resp = seg_req.get_response(self.app)
             if not is_success(seg_resp.status_int):
-                close_if_possible(seg_resp.app_iter)
+                # Error body should be short
+                body = seg_resp.body
+                if not six.PY2:
+                    body = body.decode('utf8')
                 raise SegmentError(
                     'While processing manifest %s, '
-                    'got %d while retrieving %s' %
-                    (self.name, seg_resp.status_int, seg_req.path))
+                    'got %d (%s) while retrieving %s' %
+                    (self.name, seg_resp.status_int,
+                     body if len(body) <= 60 else body[:57] + '...',
+                     seg_req.path))
 
             elif ((seg_etag and (seg_resp.etag != seg_etag)) or
                     (seg_size and (seg_resp.content_length != seg_size) and

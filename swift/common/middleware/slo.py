@@ -547,11 +547,15 @@ class SloGetContext(WSGIContext):
         sub_resp = sub_req.get_response(self.slo.app)
 
         if not sub_resp.is_success:
-            close_if_possible(sub_resp.app_iter)
-            raise ListingIterError(
-                'while fetching %s, GET of submanifest %s '
-                'failed with status %d' % (req.path, sub_req.path,
-                                           sub_resp.status_int))
+            # Error message should be short
+            body = sub_resp.body
+            if not six.PY2:
+                body = body.decode('utf-8')
+            msg = ('while fetching %s, GET of submanifest %s '
+                   'failed with status %d (%s)')
+            raise ListingIterError(msg % (
+                req.path, sub_req.path, sub_resp.status_int,
+                body if len(body) <= 60 else body[:57] + '...'))
 
         try:
             with closing_if_possible(sub_resp.app_iter):
