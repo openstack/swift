@@ -674,10 +674,13 @@ class DebugLogger(FakeLogger):
         FakeLogger.__init__(self, *args, **kwargs)
         self.formatter = DebugSwiftLogFormatter(
             "%(server)s %(levelname)s: %(message)s")
+        self.records = defaultdict(list)
 
     def handle(self, record):
         self._handle(record)
-        print(self.formatter.format(record))
+        formatted = self.formatter.format(record)
+        print(formatted)
+        self.records[record.levelname].append(formatted)
 
 
 class DebugLogAdapter(utils.LogAdapter):

@@ -2346,7 +2346,7 @@ def is_good_source(status):
 class ECFragGetter(object):
 
     def __init__(self, app, req, node_iter, partition, policy, path,
-                 backend_headers, header_provider=None):
+                 backend_headers, header_provider, logger_thread_locals):
         self.app = app
         self.req = req
         self.node_iter = node_iter
@@ -2359,6 +2359,7 @@ class ECFragGetter(object):
         self.skip_bytes = 0
         self.bytes_used_from_backend = 0
         self.source = None
+        self.logger_thread_locals = logger_thread_locals
 
     def fast_forward(self, num_bytes):
         """
@@ -2703,8 +2704,8 @@ class ECFragGetter(object):
         else:
             return HeaderKeyDict()
 
-    def _make_node_request(self, node, node_timeout, logger_thread_locals):
-        self.app.logger.thread_locals = logger_thread_locals
+    def _make_node_request(self, node, node_timeout):
+        self.app.logger.thread_locals = self.logger_thread_locals
         req_headers = dict(self.backend_headers)
         ip, port = get_ip_port(node, req_headers)
         req_headers.update(self.header_provider())
@@ -2772,8 +2773,7 @@ class ECFragGetter(object):
         self.status = self.reason = self.body = self.source_headers = None
         for node in self.node_iter:
             source = self._make_node_request(
-                node, self.app.recoverable_node_timeout,
-                self.app.logger.thread_locals)
+                node, self.app.recoverable_node_timeout)
 
             if source:
                 self.node = node
@@ -2794,17 +2794,19 @@ class ECFragGetter(object):
 
 @ObjectControllerRouter.register(EC_POLICY)
 class ECObjectController(BaseObjectController):
-    def _fragment_GET_request(self, req, node_iter, partition, policy,
-                              header_provider=None):
+    def _fragment_GET_request(
+            self, req, node_iter, partition, policy,
+            header_provider, logger_thread_locals):
         """
         Makes a GET request for a fragment.
         """
+        self.app.logger.thread_locals = logger_thread_locals
         backend_headers = self.generate_request_headers(
             req, additional=req.headers)
 
         getter = ECFragGetter(self.app, req, node_iter, partition,
                               policy, req.swift_entity_path, backend_headers,
-                              header_provider=header_provider)
+                              header_provider, logger_thread_locals)
         return (getter, getter.response_parts_iter(req))
 
     def _convert_range(self, req, policy):
@@ -2860,7 +2862,7 @@ class ECObjectController(BaseObjectController):
         return range_specs
 
     def feed_remaining_primaries(self, safe_iter, pile, req, partition, policy,
-                                 buckets, feeder_q):
+                                 buckets, feeder_q, logger_thread_locals):
         timeout = self.app.get_policy_options(policy).concurrency_timeout
         while True:
             try:
@@ -2871,7 +2873,8 @@ class ECObjectController(BaseObjectController):
                     # primary we won't find out until the next pass
                     pile.spawn(self._fragment_GET_request,
                                req, safe_iter, partition,
-                               policy, buckets.get_extra_headers)
+                               policy, buckets.get_extra_headers,
+                               logger_thread_locals)
                 else:
                     # ran out of primaries
                     break
@@ -2914,13 +2917,15 @@ class ECObjectController(BaseObjectController):
             for node_count in range(ec_request_count):
                 pile.spawn(self._fragment_GET_request,
                            req, safe_iter, partition,
-                           policy, buckets.get_extra_headers)
+                           policy, buckets.get_extra_headers,
+                           self.app.logger.thread_locals)
 
             feeder_q = None
             if self.app.get_policy_options(policy).concurrent_gets:
                 feeder_q = Queue()
                 pool.spawn(self.feed_remaining_primaries, safe_iter, pile, req,
-                           partition, policy, buckets, feeder_q)
+                           partition, policy, buckets, feeder_q,
+                           self.app.logger.thread_locals)
 
             extra_requests = 0
             # max_extra_requests is an arbitrary hard limit for spawning extra
@@ -2947,9 +2952,9 @@ class ECObjectController(BaseObjectController):
                 if requests_available and (
                         buckets.shortfall > pile._pending or bad_resp):
                     extra_requests += 1
-                    pile.spawn(self._fragment_GET_request,
-                               req, safe_iter, partition,
-                               policy, buckets.get_extra_headers)
+                    pile.spawn(self._fragment_GET_request, req, safe_iter,
+                               partition, policy, buckets.get_extra_headers,
+                               self.app.logger.thread_locals)
             if feeder_q:
                 feeder_q.put('stop')
 
