@@ -575,7 +575,7 @@
         - swift-tox-func-encryption-py27
         - swift-tox-func-ec-py27
         - swift-tox-func-py37
-        - swift-tox-func-encryption
+        - swift-tox-func-encryption-py37
         - swift-tox-func-ec-py37
         - swift-probetests-centos-7:
             irrelevant-files:
