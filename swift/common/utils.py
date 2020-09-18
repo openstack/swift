@@ -554,6 +554,9 @@ def eventlet_monkey_patch():
     #         if thread is monkey-patched.
     eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
                                   thread=True)
+    # Trying to log threads while monkey-patched can lead to deadlocks; see
+    # https://bugs.launchpad.net/swift/+bug/1895739
+    logging.logThreads = 0
 
 
 def noop_libc_function(*args):
