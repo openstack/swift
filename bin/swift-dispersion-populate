@@ -27,10 +27,6 @@ import six
 from six.moves import range
 from six.moves.configparser import ConfigParser
 
-try:
-    from swiftclient import get_auth
-except ImportError:
-    from swift.common.internal_client import get_auth
 from swift.common.internal_client import SimpleClient
 from swift.common.ring import Ring
 from swift.common.utils import compute_eta, get_time_units, config_true_value
@@ -88,6 +84,11 @@ def report(success):
 if __name__ == '__main__':
     global begun, created, item_type, next_report, need_to_create, retries_done
     patcher.monkey_patch()
+    try:
+        # Delay importing so urllib3 will import monkey-patched modules
+        from swiftclient import get_auth
+    except ImportError:
+        from swift.common.internal_client import get_auth
 
     conffile = '/etc/swift/dispersion.conf'
 
