@@ -542,8 +542,6 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-            # 2.25.0 had a test issue; see https://review.opendev.org/#/c/721518/
-            voting: false
         - tempest-integrated-object-storage:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$
