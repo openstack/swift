@@ -526,6 +526,7 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             'project_domain_name': 'default',
         })(FakeApp())
         self.assertEqual(20, self.middleware._secret_cache_duration)
+        self.assertIsNone(MOCK_KEYSTONE.mock_calls[0][2]['region_name'])
 
         cache = MOCK_CACHE_FROM_ENV.return_value
 
@@ -562,8 +563,11 @@ class S3TokenMiddlewareTestGood(S3TokenMiddlewareTestBase):
             'project_name': 'service',
             'user_domain_name': 'default',
             'project_domain_name': 'default',
+            'region_name': 'some-other-region',
         })(FakeApp())
         self.assertEqual(20, self.middleware._secret_cache_duration)
+        self.assertEqual(MOCK_KEYSTONE.mock_calls[0][2]['region_name'],
+                         'some-other-region')
 
         cache = MOCK_CACHE_FROM_ENV.return_value
         cache.get.return_value = None
