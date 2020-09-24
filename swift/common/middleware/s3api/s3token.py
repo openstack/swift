@@ -195,7 +195,9 @@ class S3Token(object):
 
                 auth = auth_plugin.load_from_options(**auth_options)
                 session = keystone_session.Session(auth=auth)
-                self.keystoneclient = keystone_client.Client(session=session)
+                self.keystoneclient = keystone_client.Client(
+                    session=session,
+                    region_name=conf.get('region_name'))
                 self._logger.info("Caching s3tokens for %s seconds",
                                   self._secret_cache_duration)
             except Exception:
