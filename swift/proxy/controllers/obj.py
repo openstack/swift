@@ -2907,9 +2907,10 @@ class ECObjectController(BaseObjectController):
         safe_iter = GreenthreadSafeIterator(node_iter)
 
         policy_options = self.app.get_policy_options(policy)
-        ec_request_count = policy.ec_ndata + \
-            policy_options.concurrent_ec_extra_requests
-        with ContextPool(ec_request_count) as pool:
+        ec_request_count = policy.ec_ndata
+        if policy_options.concurrent_gets:
+            ec_request_count += policy_options.concurrent_ec_extra_requests
+        with ContextPool(policy.ec_n_unique_fragments) as pool:
             pile = GreenAsyncPile(pool)
             buckets = ECGetResponseCollection(policy)
             node_iter.set_node_provider(buckets.provide_alternate_node)
@@ -2921,7 +2922,7 @@ class ECObjectController(BaseObjectController):
                            self.app.logger.thread_locals)
 
             feeder_q = None
-            if self.app.get_policy_options(policy).concurrent_gets:
+            if policy_options.concurrent_gets:
                 feeder_q = Queue()
                 pool.spawn(self.feed_remaining_primaries, safe_iter, pile, req,
                            partition, policy, buckets, feeder_q,
