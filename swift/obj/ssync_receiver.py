@@ -173,7 +173,7 @@ class Receiver(object):
                 finally:
                     if self.app.replication_semaphore:
                         self.app.replication_semaphore.release()
-            except exceptions.ReplicationLockTimeout as err:
+            except exceptions.LockTimeout as err:
                 self.app.logger.debug(
                     '%s/%s/%s SSYNC LOCK TIMEOUT: %s' % (
                         self.request.remote_addr, self.device, self.partition,

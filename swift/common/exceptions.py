@@ -215,6 +215,10 @@ class ReplicationLockTimeout(LockTimeout):
     pass
 
 
+class PartitionLockTimeout(LockTimeout):
+    pass
+
+
 class MimeInvalid(SwiftException):
     pass
 

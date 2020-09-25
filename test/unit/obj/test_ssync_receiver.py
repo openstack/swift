@@ -491,7 +491,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertEqual([mock.call(os.path.join(
                 self.controller._diskfile_router[POLICIES.legacy].devices,
-                'device'))], mocks['ismount'].call_args_list)
+                'device'))] * 2, mocks['ismount'].call_args_list)
 
     def test_SSYNC_Exception(self):
 

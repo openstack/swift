@@ -43,6 +43,7 @@ from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.obj import ssync_sender
 from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter
 from swift.common.storage_policy import POLICIES, REPL_POLICY
+from swift.common.exceptions import PartitionLockTimeout
 
 DEFAULT_RSYNC_TIMEOUT = 900
 
@@ -498,75 +499,90 @@ class ObjectReplicator(Daemon):
         begin = time.time()
         handoff_partition_deleted = False
         try:
-            responses = []
-            suffixes = tpool.execute(tpool_get_suffixes, job['path'])
-            synced_remote_regions = {}
-            delete_objs = None
-            if suffixes:
-                for node in job['nodes']:
-                    stats.rsync += 1
-                    kwargs = {}
-                    if node['region'] in synced_remote_regions and \
-                            self.conf.get('sync_method', 'rsync') == 'ssync':
-                        kwargs['remote_check_objs'] = \
-                            synced_remote_regions[node['region']]
-                    # candidates is a dict(hash=>timestamp) of objects
-                    # for deletion
-                    success, candidates = self.sync(
-                        node, job, suffixes, **kwargs)
-                    if success:
-                        with Timeout(self.http_timeout):
-                            conn = http_connect(
-                                node['replication_ip'],
-                                node['replication_port'],
-                                node['device'], job['partition'], 'REPLICATE',
-                                '/' + '-'.join(suffixes), headers=headers)
-                            conn.getresponse().read()
-                        if node['region'] != job['region']:
-                            synced_remote_regions[node['region']] = viewkeys(
-                                candidates)
-                    else:
-                        failure_devs_info.add((node['replication_ip'],
-                                               node['device']))
-                    responses.append(success)
-                for cand_objs in synced_remote_regions.values():
-                    if delete_objs is None:
-                        delete_objs = cand_objs
-                    else:
-                        delete_objs = delete_objs & cand_objs
+            df_mgr = self._df_router[job['policy']]
+            # Only object-server can take this lock if an incoming SSYNC is
+            # running on the same partition. Taking the lock here ensure we
+            # won't enter a race condition where both nodes try to
+            # cross-replicate the same partition and both delete it.
+            with df_mgr.partition_lock(job['device'], job['policy'],
+                                       job['partition'], name='replication',
+                                       timeout=0.2):
+                responses = []
+                suffixes = tpool.execute(tpool_get_suffixes, job['path'])
+                synced_remote_regions = {}
+                delete_objs = None
+                if suffixes:
+                    for node in job['nodes']:
+                        stats.rsync += 1
+                        kwargs = {}
+                        if self.conf.get('sync_method', 'rsync') == 'ssync' \
+                                and node['region'] in synced_remote_regions:
+                            kwargs['remote_check_objs'] = \
+                                synced_remote_regions[node['region']]
+                        # candidates is a dict(hash=>timestamp) of objects
+                        # for deletion
+                        success, candidates = self.sync(
+                            node, job, suffixes, **kwargs)
+                        if success:
+                            with Timeout(self.http_timeout):
+                                conn = http_connect(
+                                    node['replication_ip'],
+                                    node['replication_port'],
+                                    node['device'], job['partition'],
+                                    'REPLICATE', '/' + '-'.join(suffixes),
+                                    headers=headers)
+                                conn.getresponse().read()
+                            if node['region'] != job['region']:
+                                synced_remote_regions[node['region']] = \
+                                    viewkeys(candidates)
+                        else:
+                            failure_devs_info.add((node['replication_ip'],
+                                                   node['device']))
+                        responses.append(success)
+                    for cand_objs in synced_remote_regions.values():
+                        if delete_objs is None:
+                            delete_objs = cand_objs
+                        else:
+                            delete_objs = delete_objs & cand_objs
 
-            if self.handoff_delete:
-                # delete handoff if we have had handoff_delete successes
-                delete_handoff = len([resp for resp in responses if resp]) >= \
-                    self.handoff_delete
-            else:
-                # delete handoff if all syncs were successful
-                delete_handoff = len(responses) == len(job['nodes']) and \
-                    all(responses)
-            if delete_handoff:
-                stats.remove += 1
-                if (self.conf.get('sync_method', 'rsync') == 'ssync' and
-                        delete_objs is not None):
-                    self.logger.info(_("Removing %s objects"),
-                                     len(delete_objs))
-                    _junk, error_paths = self.delete_handoff_objs(
-                        job, delete_objs)
-                    # if replication works for a hand-off device and it failed,
-                    # the remote devices which are target of the replication
-                    # from the hand-off device will be marked. Because cleanup
-                    # after replication failed means replicator needs to
-                    # replicate again with the same info.
-                    if error_paths:
-                        failure_devs_info.update(
-                            [(failure_dev['replication_ip'],
-                              failure_dev['device'])
-                             for failure_dev in job['nodes']])
+                if self.handoff_delete:
+                    # delete handoff if we have had handoff_delete successes
+                    successes_count = len([resp for resp in responses if resp])
+                    delete_handoff = successes_count >= self.handoff_delete
                 else:
+                    # delete handoff if all syncs were successful
+                    delete_handoff = len(responses) == len(job['nodes']) and \
+                        all(responses)
+                if delete_handoff:
+                    stats.remove += 1
+                    if (self.conf.get('sync_method', 'rsync') == 'ssync' and
+                            delete_objs is not None):
+                        self.logger.info(_("Removing %s objects"),
+                                         len(delete_objs))
+                        _junk, error_paths = self.delete_handoff_objs(
+                            job, delete_objs)
+                        # if replication works for a hand-off device and it
+                        # failed, the remote devices which are target of the
+                        # replication from the hand-off device will be marked.
+                        # Because cleanup after replication failed means
+                        # replicator needs to replicate again with the same
+                        # info.
+                        if error_paths:
+                            failure_devs_info.update(
+                                [(failure_dev['replication_ip'],
+                                  failure_dev['device'])
+                                 for failure_dev in job['nodes']])
+                    else:
+                        self.delete_partition(job['path'])
+                        handoff_partition_deleted = True
+                elif not suffixes:
                     self.delete_partition(job['path'])
                     handoff_partition_deleted = True
-            elif not suffixes:
-                self.delete_partition(job['path'])
-                handoff_partition_deleted = True
+        except PartitionLockTimeout:
+            self.logger.info("Unable to lock handoff partition %d for "
+                             "replication on device %s policy %d",
+                             job['partition'], job['device'], job['policy'])
+            self.logger.increment('partition.lock-failure.count')
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing handoff partition"))
             stats.add_failure_stats(failure_devs_info)
