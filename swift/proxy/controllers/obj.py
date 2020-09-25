@@ -1388,7 +1388,8 @@ class ECAppIter(object):
         # segment at a time.
         queues = [Queue(1) for _junk in range(len(fragment_iters))]
 
-        def put_fragments_in_queue(frag_iter, queue):
+        def put_fragments_in_queue(frag_iter, queue, logger_thread_locals):
+            self.logger.thread_locals = logger_thread_locals
             try:
                 for fragment in frag_iter:
                     if fragment.startswith(b' '):
@@ -1411,7 +1412,8 @@ class ECAppIter(object):
 
         with ContextPool(len(fragment_iters)) as pool:
             for frag_iter, queue in zip(fragment_iters, queues):
-                pool.spawn(put_fragments_in_queue, frag_iter, queue)
+                pool.spawn(put_fragments_in_queue, frag_iter, queue,
+                           self.logger.thread_locals)
 
             while True:
                 fragments = []
