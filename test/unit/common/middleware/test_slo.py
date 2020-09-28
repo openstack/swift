@@ -3398,6 +3398,67 @@ class TestSloGetManifest(SloTestCase):
             '82136b4240d6ce4ea7d03e51469a393b or 10 != 999999.'
         ])
 
+    def test_mismatched_checksum(self):
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/a_5',
+            swob.HTTPOk, {'Content-Length': '5',
+                          'Etag': md5hex('a' * 5)},
+            # this segment has invalid content
+            'x' * 5)
+
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true'},
+            json.dumps([{'name': '/gettest/b_10', 'hash': md5hex('b' * 10),
+                         'content_type': 'text/plain', 'bytes': '10'},
+                        {'name': '/gettest/a_5', 'hash': md5hex('a' * 5),
+                         'content_type': 'text/plain', 'bytes': '5'},
+                        {'name': '/gettest/c_15', 'hash': md5hex('c' * 15),
+                         'content_type': 'text/plain', 'bytes': '15'}]))
+
+        req = Request.blank('/v1/AUTH_test/gettest/manifest')
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('200 OK', status)
+        self.assertEqual(body, (b'b' * 10 + b'x' * 5))
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'Bad MD5 checksum for /v1/AUTH_test/gettest/a_5 as part of '
+            '/v1/AUTH_test/gettest/manifest: headers had '
+            '594f803b380a41396ed63dca39503542, but object MD5 was '
+            'actually fb0e22c79ac75679e9881e6ba183b354',
+        ])
+
+    def test_mismatched_length(self):
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/a_5',
+            swob.HTTPOk, {'Content-Length': '5',
+                          'Etag': md5hex('a' * 5)},
+            # this segment comes up short
+            [b'a' * 4])
+
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true'},
+            json.dumps([{'name': '/gettest/b_10', 'hash': md5hex('b' * 10),
+                         'content_type': 'text/plain', 'bytes': '10'},
+                        {'name': '/gettest/a_5', 'hash': md5hex('a' * 5),
+                         'content_type': 'text/plain', 'bytes': '5'},
+                        {'name': '/gettest/c_15', 'hash': md5hex('c' * 15),
+                         'content_type': 'text/plain', 'bytes': '15'}]))
+
+        req = Request.blank('/v1/AUTH_test/gettest/manifest')
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('200 OK', status)
+        self.assertEqual(body, (b'b' * 10 + b'a' * 4))
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'Bad response length for /v1/AUTH_test/gettest/a_5 as part of '
+            '/v1/AUTH_test/gettest/manifest: headers had 5, but '
+            'response length was actually 4',
+        ])
+
     def test_first_segment_mismatched_etag(self):
         self.app.register('GET', '/v1/AUTH_test/gettest/manifest-badetag',
                           swob.HTTPOk, {'Content-Type': 'application/json',

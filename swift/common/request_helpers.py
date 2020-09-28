@@ -597,6 +597,7 @@ class SegmentedIterable(object):
             else:
                 self.current_resp = seg_resp
 
+            resp_len = 0
             seg_hash = None
             if seg_resp.etag and not seg_req.headers.get('Range'):
                 # Only calculate the MD5 if it we can use it to validate
@@ -609,15 +610,26 @@ class SegmentedIterable(object):
             for chunk in itertools.chain.from_iterable(document_iters):
                 if seg_hash:
                     seg_hash.update(chunk)
+                    resp_len += len(chunk)
                 yield (seg_req.path, chunk)
             close_if_possible(seg_resp.app_iter)
 
-            if seg_hash and seg_hash.hexdigest() != seg_resp.etag:
-                raise SegmentError(
-                    "Bad MD5 checksum in %(name)s for %(seg)s: headers had"
-                    " %(etag)s, but object MD5 was actually %(actual)s" %
-                    {'seg': seg_req.path, 'etag': seg_resp.etag,
-                     'name': self.name, 'actual': seg_hash.hexdigest()})
+            if seg_hash:
+                if resp_len != seg_resp.content_length:
+                    raise SegmentError(
+                        "Bad response length for %(seg)s as part of %(name)s: "
+                        "headers had %(from_headers)s, but response length "
+                        "was actually %(actual)s" %
+                        {'seg': seg_req.path,
+                         'from_headers': seg_resp.content_length,
+                         'name': self.name, 'actual': resp_len})
+                if seg_hash.hexdigest() != seg_resp.etag:
+                    raise SegmentError(
+                        "Bad MD5 checksum for %(seg)s as part of %(name)s: "
+                        "headers had %(etag)s, but object MD5 was actually "
+                        "%(actual)s" %
+                        {'seg': seg_req.path, 'etag': seg_resp.etag,
+                         'name': self.name, 'actual': seg_hash.hexdigest()})
 
     def _byte_counting_iter(self):
         # Checks that we give the client the right number of bytes. Raises
