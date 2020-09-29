@@ -122,13 +122,22 @@ class ConfigString(NamedConfigLoader):
         self.filename = "string"
         defaults = {
             'here': "string",
-            '__file__': self.contents,
+            '__file__': self,
         }
         self.parser = loadwsgi.NicerConfigParser("string", defaults=defaults)
         self.parser.optionxform = str  # Don't lower-case keys
         # Defaults don't need interpolation (crazy PasteDeploy...)
         self.parser.defaults = lambda: dict(self.parser._defaults, **defaults)
         self.parser.readfp(self.contents)
+
+    def readline(self, *args, **kwargs):
+        return self.contents.readline(*args, **kwargs)
+
+    def seek(self, *args, **kwargs):
+        return self.contents.seek(*args, **kwargs)
+
+    def __iter__(self):
+        return iter(self.contents)
 
 
 def wrap_conf_type(f):
@@ -386,7 +395,7 @@ def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
         func = getattr(app, 'modify_wsgi_pipeline', None)
         if func and allow_modify_pipeline:
             func(PipelineWrapper(ctx))
-        # cache the freshly created app so we con't have to redo
+        # cache the freshly created app so we don't have to redo
         # initialization checks and log startup messages again
         ctx.app_context.create = lambda: app
     return ctx.create()

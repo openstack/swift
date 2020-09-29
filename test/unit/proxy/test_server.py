@@ -1470,6 +1470,25 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             f.write(dedent(conf_body))
         return conf_path
 
+    def _default_conf(self):
+        conf_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__),
+            '../../../',
+            'etc/proxy-server.conf-sample'
+        ))
+        with open(conf_path) as f:
+            conf_body = f.read()
+        fixed_body = conf_body.replace('# swift_dir = /etc/swift',
+                                       'swift_dir = %s' % self.tempdir)
+        conf_path = self._write_conf(fixed_body)
+        return conf_path
+
+    def test_default_proxy_config(self):
+        app = loadapp(self._default_conf())
+        req = Request.blank('/info')
+        resp = req.get_response(app)
+        self.assertEqual(resp.status_int, 200)
+
     def _write_conf_and_load_app(self, conf_sections, app_name='proxy-server'):
         # write proxy-server.conf file, load app
         conf_body = dedent("""
