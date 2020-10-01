@@ -1247,6 +1247,23 @@ class TestUtils(unittest.TestCase):
             else:
                 os.environ.pop('TZ')
 
+    def test_drain_and_close(self):
+        utils.drain_and_close([])
+        utils.drain_and_close(iter([]))
+        drained = [False]
+
+        def gen():
+            yield 'x'
+            yield 'y'
+            drained[0] = True
+
+        utils.drain_and_close(gen())
+        self.assertTrue(drained[0])
+        utils.drain_and_close(Response(status=200, body=b'Some body'))
+        drained = [False]
+        utils.drain_and_close(Response(status=200, app_iter=gen()))
+        self.assertTrue(drained[0])
+
     def test_backwards(self):
         # Test swift.common.utils.backward
 

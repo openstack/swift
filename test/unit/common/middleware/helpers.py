@@ -32,15 +32,22 @@ class LeakTrackingIter(object):
     def __init__(self, inner_iter, mark_closed, mark_read, key):
         if isinstance(inner_iter, bytes):
             inner_iter = (inner_iter, )
-        self.inner_iter = inner_iter
+        self.inner_iter = iter(inner_iter)
         self.mark_closed = mark_closed
         self.mark_read = mark_read
         self.key = key
 
     def __iter__(self):
-        for x in self.inner_iter:
-            yield x
-        self.mark_read(self.key)
+        return self
+
+    def __next__(self):
+        try:
+            return next(self.inner_iter)
+        except StopIteration:
+            self.mark_read(self.key)
+            raise
+
+    next = __next__  # for py2
 
     def close(self):
         self.mark_closed(self.key)

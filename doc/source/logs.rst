@@ -93,6 +93,9 @@ container           The container part extracted from the path of the request.
 object              The object part extracted from the path of the request.
                     (anonymizable)
 pid                 PID of the process emitting the log line.
+wire_status_int     The status sent to the client, which may be different than
+                    the logged response code if there was an error during the
+                    body of the request or a disconnect.
 =================== ==========================================================
 
 In one log line, all of the above fields are space-separated and url-encoded.

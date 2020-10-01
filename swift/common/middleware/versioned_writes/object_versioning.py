@@ -329,16 +329,17 @@ class ObjectContext(ObjectVersioningContext):
 
         # do the write
         put_resp = put_req.get_response(self.app)
-        drain_and_close(put_resp)
         close_if_possible(put_req.environ['wsgi.input'])
 
         if put_resp.status_int == HTTP_NOT_FOUND:
+            drain_and_close(put_resp)
             raise HTTPInternalServerError(
                 request=req, content_type='text/plain',
                 body=b'The versions container does not exist. You may '
                      b'want to re-enable object versioning.')
 
         self._check_response_error(req, put_resp)
+        drain_and_close(put_resp)
         put_bytes = byte_counter.bytes_read
         # N.B. this is essentially the same hack that symlink does in
         # _validate_etag_and_update_sysmeta to deal with SLO
@@ -392,12 +393,13 @@ class ObjectContext(ObjectVersioningContext):
         """
         if is_success(resp.status_int):
             return
+        body = resp.body
         drain_and_close(resp)
         if is_client_error(resp.status_int):
             # missing container or bad permissions
             if resp.status_int == 404:
                 raise HTTPPreconditionFailed(request=req)
-            raise HTTPException(body=resp.body, status=resp.status,
+            raise HTTPException(body=body, status=resp.status,
                                 headers=resp.headers)
         # could not version the data, bail
         raise HTTPServiceUnavailable(request=req)

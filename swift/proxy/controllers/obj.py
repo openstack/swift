@@ -1063,7 +1063,7 @@ class ECAppIter(object):
         # cleanup the frag queue feeding coros that may be currently
         # executing the internal_parts_iters.
         if self.stashed_iter:
-            self.stashed_iter.close()
+            close_if_possible(self.stashed_iter)
         sleep()  # Give the per-frag threads a chance to clean up
         for it in self.internal_parts_iters:
             close_if_possible(it)
@@ -1200,9 +1200,14 @@ class ECAppIter(object):
 
     def __iter__(self):
         if self.stashed_iter is not None:
-            return iter(self.stashed_iter)
+            return self
         else:
             raise ValueError("Failed to call kickoff() before __iter__()")
+
+    def __next__(self):
+        return next(self.stashed_iter)
+
+    next = __next__  # py2
 
     def _real_iter(self, req, resp_headers):
         if not self.range_specs:
