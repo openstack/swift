@@ -26,6 +26,7 @@ import json
 
 from swift.common import swob
 from swift.common.swob import Request
+from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
@@ -77,6 +78,8 @@ class TestS3ApiObj(S3ApiTestCase):
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
+        # we'll want this for logging
+        self.assertEqual(req.headers['X-Backend-Storage-Policy-Index'], '2')
 
         unexpected_headers = []
         for key, val in self.response_headers.items():
@@ -172,6 +175,19 @@ class TestS3ApiObj(S3ApiTestCase):
 
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
+
+    def test_object_policy_index_logging(self):
+        req = Request.blank('/bucket/object',
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        self.s3api = ProxyLoggingMiddleware(self.s3api, {}, logger=self.logger)
+        status, headers, body = self.call_s3api(req)
+        access_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(1, len(access_lines))
+        parts = access_lines[0].split()
+        self.assertEqual(' '.join(parts[3:7]),
+                         'GET /bucket/object HTTP/1.0 200')
+        self.assertEqual(parts[-1], '2')
 
     def _test_object_HEAD_Range(self, range_value):
         req = Request.blank('/bucket/object',

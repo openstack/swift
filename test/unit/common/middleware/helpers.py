@@ -171,6 +171,10 @@ class FakeSwift(object):
                          k.lower == 'content-type')))
             self.uploaded[path] = new_metadata, data
 
+        # simulate object GET/HEAD
+        elif method in ('GET', 'HEAD') and obj:
+            req.headers['X-Backend-Storage-Policy-Index'] = '2'
+
         # note: tests may assume this copy of req_headers is case insensitive
         # so we deliberately use a HeaderKeyDict
         self._calls.append(

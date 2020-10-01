@@ -1350,6 +1350,10 @@ class S3Request(swob.Request):
             # in pipeline that need Swift PATH_INFO like ceilometermiddleware.
             self.environ['s3api.backend_path'] = \
                 sw_resp.environ['PATH_INFO']
+            # Propogate backend headers back into our req headers for logging
+            for k, v in sw_req.headers.items():
+                if k.lower().startswith('x-backend-'):
+                    self.headers.setdefault(k, v)
 
         resp = S3Response.from_swift_resp(sw_resp)
         status = resp.status_int  # pylint: disable-msg=E1101

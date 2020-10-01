@@ -93,7 +93,7 @@ class S3ApiTestCase(unittest.TestCase):
         self.app = FakeApp()
         self.swift = self.app.swift
         self.s3api = filter_factory({}, **self.conf)(self.app)
-        self.s3api.logger = self.swift.logger = debug_logger()
+        self.logger = self.s3api.logger = self.swift.logger = debug_logger()
 
         self.swift.register('HEAD', '/v1/AUTH_test',
                             swob.HTTPOk, {}, None)

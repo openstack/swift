@@ -1315,6 +1315,7 @@ class TestInternalClient(unittest.TestCase):
             'host': 'localhost:80',  # from swob.Request.blank
             'user-agent': 'test',  # from InternalClient.make_request
             'x-backend-allow-reserved-names': 'true',  # also from IC
+            'x-backend-storage-policy-index': '2',  # from proxy-server app
         })
         self.assertEqual(app.calls_with_headers, [(
             'GET', path_info + '?symlink=get', HeaderKeyDict(req_headers))])

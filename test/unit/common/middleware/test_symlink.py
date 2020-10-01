@@ -438,9 +438,12 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
         calls = self.app.calls_with_headers
-        req_headers['Host'] = 'localhost:80'
-        req_headers['X-Backend-Ignore-Range-If-Metadata-Present'] = \
-            'x-object-sysmeta-symlink-target'
+        req_headers.update({
+            'Host': 'localhost:80',
+            'X-Backend-Ignore-Range-If-Metadata-Present':
+            'x-object-sysmeta-symlink-target',
+            'X-Backend-Storage-Policy-Index': '2',
+        })
         self.assertEqual(req_headers, calls[0].headers)
         req_headers['User-Agent'] = 'Swift'
         self.assertEqual(req_headers, calls[1].headers)
@@ -611,9 +614,12 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertIn(('X-Object-Meta-Color', 'Green'), headers)
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
         calls = self.app.calls_with_headers
-        req_headers['Host'] = 'localhost:80'
-        req_headers['X-Backend-Ignore-Range-If-Metadata-Present'] = \
-            'x-object-sysmeta-symlink-target'
+        req_headers.update({
+            'Host': 'localhost:80',
+            'X-Backend-Ignore-Range-If-Metadata-Present':
+            'x-object-sysmeta-symlink-target',
+            'X-Backend-Storage-Policy-Index': '2',
+        })
         self.assertEqual(req_headers, calls[0].headers)
         req_headers['User-Agent'] = 'Swift'
         self.assertEqual(req_headers, calls[1].headers)
