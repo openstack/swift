@@ -29,7 +29,8 @@ from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache, split_path, \
-    Timestamp, config_true_value, normalize_delete_at_timestamp
+    Timestamp, config_true_value, normalize_delete_at_timestamp, \
+    RateLimitedIterator
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 from swift.common.swob import wsgi_quote, str_to_wsgi
@@ -79,6 +80,7 @@ class ObjectExpirer(Daemon):
         self.conf = conf
         self.logger = logger or get_logger(conf, log_route='object-expirer')
         self.interval = int(conf.get('interval') or 300)
+        self.tasks_per_second = float(conf.get('tasks_per_second', 50.0))
 
         self.conf_path = \
             self.conf.get('__file__') or '/etc/swift/object-expirer.conf'
@@ -351,8 +353,10 @@ class ObjectExpirer(Daemon):
                 delete_task_iter = \
                     self.round_robin_order(self.iter_task_to_expire(
                         task_account_container_list, my_index, divisor))
-
-                for delete_task in delete_task_iter:
+                rate_limited_iter = RateLimitedIterator(
+                    delete_task_iter,
+                    elements_per_second=self.tasks_per_second)
+                for delete_task in rate_limited_iter:
                     pool.spawn_n(self.delete_object, **delete_task)
 
             pool.waitall()
