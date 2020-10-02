@@ -1314,7 +1314,8 @@ class WSGIContext(object):
         Uses the same semantics as the usual WSGI start_response.
         """
         self._response_status = status
-        self._response_headers = headers
+        self._response_headers = \
+            headers if isinstance(headers, list) else list(headers)
         self._response_exc_info = exc_info
 
     def _app_call(self, env):
