@@ -663,7 +663,7 @@ class TestDloGetManifest(DloTestCase):
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_02',
             swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("bbbbb")},
-            'bbWRONGbb')
+            'WRONG')
 
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
                                  environ={'REQUEST_METHOD': 'GET'})
@@ -671,8 +671,35 @@ class TestDloGetManifest(DloTestCase):
         headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, "200 OK")
+        self.assertEqual(headers['Content-Length'], "25")
         # stop after error
-        self.assertEqual(body, b"aaaaabbWRONGbb")
+        self.assertEqual(body, b"aaaaaWRONG")
+        log_lines = self.dlo.logger.get_lines_for_level('error')
+        self.assertEqual(len(log_lines), 1,
+                         'Expected one log line, got %r' % log_lines)
+        self.assertEqual(log_lines[0][:21], 'Bad MD5 checksum for ')
+
+    def test_mismatched_length_fetching_second_segment(self):
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_02',
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("bbbb")},
+            # Use a list so we can get a discrepency between content-length and
+            # number of bytes in the app_iter
+            [b'b' * 4])
+
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_dlo(req)
+        headers = HeaderKeyDict(headers)
+
+        self.assertEqual(status, "200 OK")
+        self.assertEqual(headers['Content-Length'], "25")
+        # stop after error
+        self.assertEqual(body, b"aaaaabbbb")
+        log_lines = self.dlo.logger.get_lines_for_level('error')
+        self.assertEqual(len(log_lines), 1,
+                         'Expected one log line, got %r' % log_lines)
+        self.assertEqual(log_lines[0][:24], 'Bad response length for ')
 
     def test_etag_comparison_ignores_quotes(self):
         # a little future-proofing here in case we ever fix this in swob
