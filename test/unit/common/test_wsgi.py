@@ -1671,29 +1671,29 @@ class TestWSGIContext(unittest.TestCase):
 
         def app(env, start_response):
             start_response(statuses.pop(0), [('Content-Length', '3')])
-            yield 'Ok\n'
+            yield b'Ok\n'
 
         wc = wsgi.WSGIContext(app)
         r = Request.blank('/')
         it = wc._app_call(r.environ)
         self.assertEqual(wc._response_status, '200 Ok')
-        self.assertEqual(''.join(it), 'Ok\n')
+        self.assertEqual(b''.join(it), b'Ok\n')
         r = Request.blank('/')
         it = wc._app_call(r.environ)
         self.assertEqual(wc._response_status, '404 Not Found')
-        self.assertEqual(''.join(it), 'Ok\n')
+        self.assertEqual(b''.join(it), b'Ok\n')
 
     def test_app_iter_is_closable(self):
 
         def app(env, start_response):
-            yield ''
-            yield ''
+            yield b''
+            yield b''
             start_response('200 OK', [('Content-Length', '25')])
-            yield 'aaaaa'
-            yield 'bbbbb'
-            yield 'ccccc'
-            yield 'ddddd'
-            yield 'eeeee'
+            yield b'aaaaa'
+            yield b'bbbbb'
+            yield b'ccccc'
+            yield b'ddddd'
+            yield b'eeeee'
 
         wc = wsgi.WSGIContext(app)
         r = Request.blank('/')
@@ -1701,8 +1701,8 @@ class TestWSGIContext(unittest.TestCase):
         self.assertEqual(wc._response_status, '200 OK')
 
         iterator = iter(iterable)
-        self.assertEqual('aaaaa', next(iterator))
-        self.assertEqual('bbbbb', next(iterator))
+        self.assertEqual(b'aaaaa', next(iterator))
+        self.assertEqual(b'bbbbb', next(iterator))
         iterable.close()
         with self.assertRaises(StopIteration):
             next(iterator)
@@ -1712,15 +1712,33 @@ class TestWSGIContext(unittest.TestCase):
 
         def app(env, start_response):
             start_response(statuses.pop(0), [('Content-Length', '30')])
-            yield 'Ok\n'
+            yield b'Ok\n'
 
         wc = wsgi.WSGIContext(app)
         r = Request.blank('/')
         it = wc._app_call(r.environ)
         wc.update_content_length(35)
         self.assertEqual(wc._response_status, '200 Ok')
-        self.assertEqual(''.join(it), 'Ok\n')
+        self.assertEqual(b''.join(it), b'Ok\n')
         self.assertEqual(wc._response_headers, [('Content-Length', '35')])
+
+    def test_app_returns_headers_as_dict_items(self):
+        statuses = ['200 Ok']
+
+        def app(env, start_response):
+            start_response(statuses.pop(0), {'Content-Length': '3'}.items())
+            yield b'Ok\n'
+
+        wc = wsgi.WSGIContext(app)
+        r = Request.blank('/')
+        it = wc._app_call(r.environ)
+        wc._response_headers.append(('X-Trans-Id', 'txn'))
+        self.assertEqual(wc._response_status, '200 Ok')
+        self.assertEqual(b''.join(it), b'Ok\n')
+        self.assertEqual(wc._response_headers, [
+            ('Content-Length', '3'),
+            ('X-Trans-Id', 'txn'),
+        ])
 
 
 class TestPipelineWrapper(unittest.TestCase):
