@@ -838,6 +838,11 @@ class FakeStatus(object):
             self.expect_sleep_list.append(None)
         self.response_sleep = response_sleep
 
+    def __repr__(self):
+        return '%s(%s, expect_status=%r, response_sleep=%s)' % (
+            self.__class__.__name__, self.status,
+            self.expect_status, self.response_sleep)
+
     def get_response_status(self):
         if self.response_sleep is not None:
             eventlet.sleep(self.response_sleep)
@@ -1078,7 +1083,7 @@ def fake_http_connect(*code_iter, **kwargs):
             # the code under test may swallow the StopIteration, so by logging
             # unexpected requests here we allow the test framework to check for
             # them after the connect function has been used.
-            unexpected_requests.append((args, kwargs))
+            unexpected_requests.append((args, ckwargs))
             raise
 
         if 'give_connect' in kwargs:
@@ -1142,8 +1147,8 @@ def mocked_http_conn(*args, **kwargs):
         if left_over_status:
             raise AssertionError('left over status %r' % left_over_status)
         if fake_conn.unexpected_requests:
-            raise AssertionError('unexpected requests %r' %
-                                 fake_conn.unexpected_requests)
+            raise AssertionError('unexpected requests:\n%s' % '\n  '.join(
+                '%r' % (req,) for req in fake_conn.unexpected_requests))
 
 
 def make_timestamp_iter(offset=0):
