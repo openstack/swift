@@ -99,7 +99,7 @@ storage end points as sync destinations.
 """
 
 from swift.common.middleware import RewriteContext
-from swift.common.swob import Request, HTTPBadRequest
+from swift.common.swob import Request, HTTPBadRequest, wsgi_quote
 from swift.common.utils import config_true_value, list_from_csv, \
     register_swift_info
 
@@ -192,7 +192,8 @@ class DomainRemapMiddleware(object):
             new_path = '/'.join(new_path_parts)
             env['PATH_INFO'] = new_path
 
-            context = _DomainRemapContext(self.app, requested_path, new_path)
+            context = _DomainRemapContext(
+                self.app, wsgi_quote(requested_path), wsgi_quote(new_path))
             return context.handle_request(env, start_response)
 
         return self.app(env, start_response)
