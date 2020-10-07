@@ -327,11 +327,19 @@ class TestProxyServerReloadBase(TestWSGIServerProcessHandling):
         self.new_swift_conf_path = self.swift_conf_path + '.new'
         self.saved_swift_conf_path = self.swift_conf_path + '.orig'
         shutil.copy(self.swift_conf_path, self.saved_swift_conf_path)
-        shutil.copy(self.swift_conf_path, self.new_swift_conf_path)
-        with open(self.new_swift_conf_path, 'a+') as fh:
-            fh.seek(0, os.SEEK_END)
-            fh.write('\n[swift-constraints]\nmax_header_size = 8191\n')
-            fh.flush()
+        with open(self.swift_conf_path, 'r') as rfh:
+            config = rfh.read()
+            section_header = '\n[swift-constraints]\n'
+        if section_header in config:
+            config = config.replace(
+                section_header,
+                section_header + 'max_header_size = 8191\n',
+                1)
+        else:
+            config += section_header + 'max_header_size = 8191\n'
+        with open(self.new_swift_conf_path, 'w') as wfh:
+            wfh.write(config)
+            wfh.flush()
 
     def tearDown(self):
         shutil.move(self.saved_swift_conf_path, self.swift_conf_path)
