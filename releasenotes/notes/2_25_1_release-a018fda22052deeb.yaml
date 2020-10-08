@@ -1,0 +1,51 @@
+---
+upgrade:
+  - |
+    **If your cluster has encryption enabled and is still running Swift
+    under Python 2**, we recommend upgrading Swift *before* transitioning to
+    Python 3. Otherwise, new writes to objects with non-ASCII characters
+    in their paths may result in corrupted downloads when read from a
+    proxy-server still running old swift on Python 2. See `bug 1888037
+    <https://bugs.launchpad.net/swift/+bug/1888037>`__ for more information.
+
+  - |
+    The above bug was caused by a difference in string types that resulted
+    in ambiguity when decrypting. To prevent the ambiguity for new data, set
+    ``meta_version_to_write = 3`` in your keymaster configuration *after*
+    upgrading all proxy servers.
+
+    If upgrading from Swift 2.20.0 or Swift 2.19.1 or earlier, set
+    ``meta_version_to_write = 1`` in your keymaster configuration *prior*
+    to upgrading.
+
+    See the provided ``keymaster.conf-sample`` for more information about
+    this setting.
+
+fixes:
+  - |
+    Python 3 bug fixes:
+
+    * Fixed an error when reading encrypted data that was written while
+      running Python 2 for a path that includes non-ASCII characters.
+
+    * Object expiration respects the ``expiring_objects_container_divisor``
+      config option.
+
+    * ``fallocate_reserve`` may be specified as a percentage in more places.
+
+    * The ETag-quoting middleware no longer raises TypeErrors.
+
+  - |
+    Improved how containers reclaim deleted rows to reduce locking and object
+    update throughput.
+
+  - |
+    Fix a proxy-server error when retrieving erasure coded data when
+    there are durable fragments but not enough to reconstruct.
+
+  - |
+    Fixed some SignatureDoesNotMatch errors when using the AWS .NET SDK.
+
+  - |
+    Region name config option is now respected when configuring S3 credential
+    caching.

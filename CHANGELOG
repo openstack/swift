@@ -1,3 +1,37 @@
+swift (2.25.1, ussuri stable backports)
+
+    * Python 3 bug fixes:
+
+      * Fixed an error when reading encrypted data that was written while
+        running Python 2 for a path that includes non-ASCII characters. This
+        was caused by a difference in string types that resulted in
+        ambiguity when decrypting. To prevent the ambiguity for new data, set
+        `meta_version_to_write = 3` in your keymaster configuration after
+        upgrading all proxy servers.
+
+        If upgrading from Swift 2.20.0 or Swift 2.19.1 or earlier, set
+        `meta_version_to_write = 1` in your keymaster configuration prior
+        to upgrading.
+
+      * Object expiration respects the `expiring_objects_container_divisor`
+        config option.
+
+      * `fallocate_reserve` may be specified as a percentage in more places.
+
+      * The ETag-quoting middleware no longer raises TypeErrors.
+
+    * Improved how containers reclaim deleted rows to reduce locking and object
+      update throughput.
+
+    * Fix a proxy-server error when retrieving erasure coded data when
+      there are durable fragments but not enough to reconstruct.
+
+    * Fixed some SignatureDoesNotMatch errors when using the AWS .NET SDK.
+
+    * Region name config option is now respected when configuring S3 credential
+      caching.
+
+
 swift (2.25.0, OpenStack Ussuri)
 
     * WSGI server processes can now notify systemd when they are ready.
