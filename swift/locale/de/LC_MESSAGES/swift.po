@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2020-04-24 07:01+0000\n"
+"POT-Creation-Date: 2020-10-07 00:36+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -1127,11 +1127,6 @@ msgstr ""
 
 msgid "Unhandled exception"
 msgstr "Nicht behandelte Exception"
-
-#, python-format
-msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
-msgstr ""
-"Unbekannte Ausnahme bei GET-Versuch: %(account)r %(container)r %(object)r"
 
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"

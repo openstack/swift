@@ -7,15 +7,16 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 # Andi Chandler <andi@gowling.com>, 2018. #zanata
 # Andi Chandler <andi@gowling.com>, 2019. #zanata
+# Andi Chandler <andi@gowling.com>, 2020. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift VERSION\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2020-04-10 12:00+0000\n"
+"POT-Creation-Date: 2020-10-07 00:36+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2019-11-14 11:34+0000\n"
+"PO-Revision-Date: 2020-10-10 02:32+0000\n"
 "Last-Translator: Andi Chandler <andi@gowling.com>\n"
 "Language: en_GB\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -319,6 +320,10 @@ msgstr "ERROR %(db_file)s: %(validate_sync_to_err)s"
 #, python-format
 msgid "ERROR %(status)d %(body)s From %(type)s Server"
 msgstr "ERROR %(status)d %(body)s From %(type)s Server"
+
+#, python-format
+msgid "ERROR %(status)d %(body)s From Object Server"
+msgstr "ERROR %(status)d %(body)s From Object Server"
 
 #, python-format
 msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
@@ -1131,10 +1136,6 @@ msgstr ""
 
 msgid "Unhandled exception"
 msgstr "Unhandled exception"
-
-#, python-format
-msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
-msgstr "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
 
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"
