@@ -21,7 +21,6 @@ from six.moves.urllib.parse import unquote
 from swift.common.utils import quote
 from swift.common.swob import str_to_wsgi
 import test.functional as tf
-from test.functional import cluster_info
 from test.functional.tests import Utils, Base, Base2, BaseEnv
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
@@ -38,7 +37,7 @@ def tearDownModule():
 def requires_domain_remap(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        if 'domain_remap' not in cluster_info:
+        if 'domain_remap' not in tf.cluster_info:
             raise SkipTest('Domain Remap is not enabled')
         # domain_remap middleware does not advertise its storage_domain values
         # in swift /info responses so a storage_domain must be configured in
@@ -60,7 +59,7 @@ class TestStaticWebEnv(BaseEnv):
         cls.conn.authenticate()
 
         if cls.static_web_enabled is None:
-            cls.static_web_enabled = 'staticweb' in cluster_info
+            cls.static_web_enabled = 'staticweb' in tf.cluster_info
             if not cls.static_web_enabled:
                 return
 
