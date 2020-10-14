@@ -3981,23 +3981,26 @@ class CloseableChain(object):
     """
     def __init__(self, *iterables):
         self.iterables = iterables
+        self.chained_iter = itertools.chain(*self.iterables)
 
     def __iter__(self):
-        return iter(itertools.chain(*(self.iterables)))
+        return self
+
+    def __next__(self):
+        return next(self.chained_iter)
+
+    next = __next__  # py2
 
     def close(self):
         for it in self.iterables:
-            close_method = getattr(it, 'close', None)
-            if close_method:
-                close_method()
+            close_if_possible(it)
 
 
 def reiterate(iterable):
     """
-    Consume the first item from an iterator, then re-chain it to the rest of
-    the iterator.  This is useful when you want to make sure the prologue to
-    downstream generators have been executed before continuing.
-
+    Consume the first truthy item from an iterator, then re-chain it to the
+    rest of the iterator.  This is useful when you want to make sure the
+    prologue to downstream generators have been executed before continuing.
     :param iterable: an iterable object
     """
     if isinstance(iterable, (list, tuple)):
@@ -4005,12 +4008,13 @@ def reiterate(iterable):
     else:
         iterator = iter(iterable)
         try:
-            chunk = ''
+            chunk = next(iterator)
             while not chunk:
                 chunk = next(iterator)
             return CloseableChain([chunk], iterator)
         except StopIteration:
-            return []
+            close_if_possible(iterable)
+            return iter([])
 
 
 class InputProxy(object):
@@ -4311,6 +4315,8 @@ def drain_and_close(response_or_app_iter):
     don't care about the body of an error.
     """
     app_iter = getattr(response_or_app_iter, 'app_iter', response_or_app_iter)
+    if app_iter is None:  # for example, if we used the Response.body property
+        return
     for _chunk in app_iter:
         pass
     close_if_possible(app_iter)

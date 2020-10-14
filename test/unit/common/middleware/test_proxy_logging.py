@@ -51,8 +51,10 @@ class FakeApp(object):
         except ValueError:
             is_container_or_object_req = False
 
-        headers = [('Content-Type', 'text/plain'),
-                   ('Content-Length', str(sum(map(len, self.body))))]
+        headers = [('Content-Type', 'text/plain')]
+        if not hasattr(self.body, 'close'):
+            content_length = sum(map(len, self.body))
+            headers.append(('Content-Length', str(content_length)))
         if is_container_or_object_req and self.policy_idx is not None:
             headers.append(('X-Backend-Storage-Policy-Index',
                            str(self.policy_idx)))
@@ -612,13 +614,22 @@ class TestProxyLogging(unittest.TestCase):
 
         class CloseableBody(object):
             def __init__(self):
+                self.msg = b"CloseableBody"
                 self.closed = False
 
             def close(self):
                 self.closed = True
 
             def __iter__(self):
-                return iter(["CloseableBody"])
+                return self
+
+            def __next__(self):
+                if not self.msg:
+                    raise StopIteration
+                result, self.msg = self.msg, b''
+                return result
+
+            next = __next__  # py2
 
         body = CloseableBody()
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(body), {})
@@ -681,6 +692,27 @@ class TestProxyLogging(unittest.TestCase):
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[6], '499')
         self.assertEqual(log_parts[11], '4')  # write length
+
+    def test_exploding_body(self):
+
+        def exploding_body():
+            yield 'some'
+            yield 'stuff'
+            raise Exception('kaboom!')
+
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(exploding_body()), {
+                'log_msg_template': '{method} {path} '
+                '{status_int} {wire_status_int}',
+            })
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(app)
+        with self.assertRaises(Exception) as ctx:
+            resp.body
+        self.assertEqual('kaboom!', str(ctx.exception))
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts, ['GET', '/', '500', '200'])
 
     def test_disconnect_on_readline(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeAppReadline(), {})
@@ -748,7 +780,7 @@ class TestProxyLogging(unittest.TestCase):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeAppNoContentLengthNoTransferEncoding(
                 # test the "while not chunk: chunk = next(iterator)"
-                body=['', '', ''],
+                body=[b'', b'', b''],
             ), {})
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
