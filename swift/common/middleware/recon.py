@@ -81,7 +81,7 @@ class ReconMiddleware(object):
         try:
             with openr(cache_file, 'r') as f:
                 recondata = json.load(f)
-                return dict((key, recondata.get(key)) for key in cache_keys)
+                return {key: recondata.get(key) for key in cache_keys}
         except IOError as err:
             if err.errno == errno.ENOENT and ignore_missing:
                 pass
@@ -132,7 +132,7 @@ class ReconMiddleware(object):
 
     def get_async_info(self):
         """get # of async pendings"""
-        return self._from_recon_cache(['async_pending'],
+        return self._from_recon_cache(['async_pending', 'async_pending_last'],
                                       self.object_recon_cache)
 
     def get_driveaudit_error(self):

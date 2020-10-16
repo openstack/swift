@@ -18,6 +18,7 @@ swift-recon-cron.py
 
 import os
 import sys
+import time
 
 from eventlet import Timeout
 
@@ -65,7 +66,10 @@ def main():
     try:
         with lock_path(lock_dir):
             asyncs = get_async_count(device_dir, logger)
-            dump_recon_cache({'async_pending': asyncs}, cache_file, logger)
+            dump_recon_cache({
+                'async_pending': asyncs,
+                'async_pending_last': time.time(),
+            }, cache_file, logger)
     except (Exception, Timeout) as err:
         msg = 'Exception during recon-cron while accessing devices'
         logger.exception(msg)

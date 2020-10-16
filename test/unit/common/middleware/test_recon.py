@@ -22,6 +22,7 @@ import os
 from posix import stat_result, statvfs_result
 from shutil import rmtree
 import tempfile
+import time
 import unittest
 from unittest import TestCase
 
@@ -676,13 +677,14 @@ class TestReconSuccess(TestCase):
         self.assertEqual(rv, meminfo_resp)
 
     def test_get_async_info(self):
-        from_cache_response = {'async_pending': 5}
+        now = time.time()
+        from_cache_response = {'async_pending': 5, 'async_pending_last': now}
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_async_info()
         self.assertEqual(self.fakecache.fakeout_calls,
-                         [((['async_pending'],
+                         [((['async_pending', 'async_pending_last'],
                              '/var/cache/swift/object.recon'), {})])
-        self.assertEqual(rv, {'async_pending': 5})
+        self.assertEqual(rv, {'async_pending': 5, 'async_pending_last': now})
 
     def test_get_replication_info_account(self):
         from_cache_response = {
