@@ -28,6 +28,7 @@ from tempfile import NamedTemporaryFile
 import sys
 import zlib
 
+import six
 from six.moves import range
 
 from swift.common.exceptions import RingLoadError
@@ -221,7 +222,12 @@ class RingData(object):
         file_obj.write(struct.pack('!I', json_len))
         file_obj.write(json_text)
         for part2dev_id in ring['replica2part2dev_id']:
-            file_obj.write(part2dev_id.tostring())
+            if six.PY2:
+                # Can't just use tofile() because a GzipFile apparently
+                # doesn't count as an 'open file'
+                file_obj.write(part2dev_id.tostring())
+            else:
+                part2dev_id.tofile(file_obj)
 
     def save(self, filename, mtime=1300507380.0):
         """

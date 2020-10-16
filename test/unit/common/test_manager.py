@@ -1305,7 +1305,7 @@ class TestServer(unittest.TestCase):
                 return self
 
             def __exit__(self, *args):
-                if self.isAlive():
+                if self.is_alive():
                     self.join()
 
             def close_stdout(self):
@@ -1359,7 +1359,7 @@ class TestServer(unittest.TestCase):
                         status = server.wait()
                         self.assertEqual(status, 0)
                         # wait should return before process exits
-                        self.assertTrue(proc.isAlive())
+                        self.assertTrue(proc.is_alive())
                         self.assertFalse(proc.finished)
                     self.assertTrue(proc.finished)  # make sure it did finish
                     # test output kwarg prints subprocess output
@@ -1385,7 +1385,7 @@ class TestServer(unittest.TestCase):
                     status = server.wait()
                     self.assertEqual(status, 0)
                     for proc in procs:
-                        self.assertTrue(proc.isAlive())
+                        self.assertTrue(proc.is_alive())
                     for proc in procs:
                         proc.join()
             finally:
