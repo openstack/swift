@@ -149,6 +149,16 @@ class TestReplicatorFunctions(ReplProbeTest):
 
                     for directory in test_node_dir_list:
                         self.assertIn(directory, new_dir_list[0])
+
+                    # We want to make sure that replication is completely
+                    # settled; any invalidated hashes should be rehashed so
+                    # hashes.pkl is stable
+                    for directory in os.listdir(
+                            os.path.join(test_node, data_dir)):
+                        hashes_invalid_path = os.path.join(
+                            test_node, data_dir, directory, 'hashes.invalid')
+                        self.assertEqual(os.stat(
+                            hashes_invalid_path).st_size, 0)
                     break
                 except Exception:
                     if time.time() - begin > 60:

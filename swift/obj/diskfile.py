@@ -1509,13 +1509,15 @@ class BaseDiskFileManager(object):
                                  partition, account, container, obj,
                                  policy=policy, **kwargs)
 
-    def get_hashes(self, device, partition, suffixes, policy):
+    def get_hashes(self, device, partition, suffixes, policy,
+                   skip_rehash=False):
         """
 
         :param device: name of target device
         :param partition: partition name
         :param suffixes: a list of suffix directories to be recalculated
         :param policy: the StoragePolicy instance
+        :param skip_rehash: just mark the suffixes dirty; return None
         :returns: a dictionary that maps suffix directories
         """
         dev_path = self.get_dev_path(device)
@@ -1524,8 +1526,14 @@ class BaseDiskFileManager(object):
         partition_path = get_part_path(dev_path, policy, partition)
         if not os.path.exists(partition_path):
             mkdirs(partition_path)
-        _junk, hashes = tpool.execute(
-            self._get_hashes, device, partition, policy, recalculate=suffixes)
+        if skip_rehash:
+            for suffix in suffixes or []:
+                invalidate_hash(os.path.join(partition_path, suffix))
+            return None
+        else:
+            _junk, hashes = tpool.execute(
+                self._get_hashes, device, partition, policy,
+                recalculate=suffixes)
         return hashes
 
     def _listdir(self, path):
