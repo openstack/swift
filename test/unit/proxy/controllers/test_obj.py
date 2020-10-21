@@ -3949,6 +3949,33 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 416)
         self.assertEqual(len(log), 2 * self.replicas())
 
+    @patch_policies(
+        [ECStoragePolicy(0, name='ec', is_default=True,
+                         ec_type=DEFAULT_TEST_EC_TYPE, ec_ndata=4,
+                         ec_nparity=4, ec_segment_size=4096)],
+        fake_ring_args=[{'replicas': 8}]
+    )
+    def test_GET_ndata_equals_nparity_with_missing_and_errors(self):
+        # when ec_ndata == ec_nparity it is possible for the shortfall of a bad
+        # bucket (412's) to equal ec_ndata; verify that the 412 bucket is still
+        # chosen ahead of the initial 'dummy' bad bucket
+        POLICIES.default.object_ring.max_more_nodes = 8
+        responses = [
+            StubResponse(412, frag_index=0),
+            StubResponse(412, frag_index=1),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o', headers={
+            'Range': 'bytes=%s-' % 100000000000000})
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 412)
+        self.assertEqual(len(log), 2 * 8)
+
     def test_GET_with_success_and_507_will_503(self):
         responses = [  # only 9 good nodes
             StubResponse(200),
