@@ -31,7 +31,7 @@ from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
 from swift.common.middleware.s3api.s3request import S3Request, \
     S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT, HashingInput
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
-    NoSuchBucket, InternalError, \
+    NoSuchBucket, InternalError, ServiceUnavailable, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, BadDigest
 from swift.common.utils import md5
 
@@ -332,7 +332,8 @@ class TestRequest(S3ApiTestCase):
                 self.assertEqual(204, info['status'])  # sanity
             self.assertEqual(10, mock_info.call_count)
 
-        expected_errors = [(404, NoSuchBucket), (0, InternalError)]
+        expected_errors = [(404, NoSuchBucket), (0, InternalError),
+                           (503, ServiceUnavailable)]
         for status, expected_error in expected_errors:
             with patch('swift.common.middleware.s3api.s3request.'
                        'get_container_info',

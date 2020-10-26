@@ -1485,8 +1485,10 @@ class S3Request(swob.Request):
         info = get_container_info(sw_req.environ, app, swift_source='S3')
         if is_success(info['status']):
             return info
-        elif info['status'] == 404:
+        elif info['status'] == HTTP_NOT_FOUND:
             raise NoSuchBucket(self.container_name)
+        elif info['status'] == HTTP_SERVICE_UNAVAILABLE:
+            raise ServiceUnavailable()
         else:
             raise InternalError(
                 'unexpected status code %d' % info['status'])
