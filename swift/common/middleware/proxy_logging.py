@@ -78,6 +78,7 @@ from swift.common.middleware.catch_errors import enforce_byte_count
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 config_true_value, reiterate,
+                                close_if_possible,
                                 InputProxy, list_from_csv, get_policy_index,
                                 split_path, StrAnonymizer, StrFormatTime,
                                 LogStringFormatter)
@@ -427,7 +428,7 @@ class ProxyLoggingMiddleware(object):
                     req, status_int, input_proxy.bytes_received, bytes_sent,
                     start_time, time.time(), resp_headers=resp_headers,
                     ttfb=ttfb, wire_status_int=wire_status_int)
-                iterator.close()
+                close_if_possible(iterator)
 
         try:
             iterable = self.app(env, my_start_response)
