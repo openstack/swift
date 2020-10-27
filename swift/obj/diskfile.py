@@ -2311,6 +2311,9 @@ class BaseDiskFile(object):
                 device_path, storage_directory(get_data_dir(policy),
                                                partition, name_hash))
 
+    def __repr__(self):
+        return '<%s datadir=%r>' % (self.__class__.__name__, self._datadir)
+
     @property
     def manager(self):
         return self._manager
