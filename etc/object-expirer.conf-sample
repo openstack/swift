@@ -50,6 +50,9 @@
 # must be set to at least 1
 # concurrency = 1
 #
+# deletes can be ratelimited to prevent the expirer from overwhelming the cluster
+# tasks_per_second = 50.0
+#
 # processes is how many parts to divide the work into, one part per process
 # that will be doing the work
 # processes set 0 means that a single process will be doing all the work

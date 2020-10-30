@@ -573,6 +573,28 @@ class TestObjectExpirer(TestCase):
                 'Pass completed in 0s; 10 objects expired',
             ])
 
+    def test_run_once_rate_limited(self):
+        x = expirer.ObjectExpirer(
+            dict(self.conf, tasks_per_second=2),
+            logger=self.logger,
+            swift=self.fake_swift)
+        x.pop_queue = lambda a, c, o: None
+
+        calls = []
+
+        def fake_ratelimiter(iterator, elements_per_second):
+            captured_iter = list(iterator)
+            calls.append((captured_iter, elements_per_second))
+            return captured_iter
+
+        with mock.patch('swift.obj.expirer.RateLimitedIterator',
+                        side_effect=fake_ratelimiter):
+            x.run_once()
+        self.assertEqual(calls, [([
+            self.make_task(self.past_time, target_path)
+            for target_path in self.expired_target_path_list
+        ], 2)])
+
     def test_skip_task_account_without_task_container(self):
         fake_swift = FakeInternalClient({
             # task account has no containers
