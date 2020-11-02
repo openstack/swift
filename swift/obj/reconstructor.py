@@ -688,22 +688,6 @@ class ObjectReconstructor(Daemon):
                 suffixes.append(suffix)
         return suffixes
 
-    def rehash_remote(self, node, job, suffixes):
-        headers = self.headers.copy()
-        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
-        try:
-            with Timeout(self.http_timeout):
-                conn = http_connect(
-                    node['replication_ip'], node['replication_port'],
-                    node['device'], job['partition'], 'REPLICATE',
-                    '/' + '-'.join(sorted(suffixes)),
-                    headers=headers)
-                conn.getresponse().read()
-        except (Exception, Timeout):
-            self.logger.exception(
-                _("Trying to sync suffixes with %s") % _full_path(
-                    node, job['partition'], '', job['policy']))
-
     def _iter_nodes_for_frag(self, policy, partition, node):
         """
         Generate a priority list of nodes that can sync to the given node.
@@ -881,9 +865,6 @@ class ObjectReconstructor(Daemon):
             # ssync any out-of-sync suffixes with the remote node
             success, _ = ssync_sender(
                 self, node, job, suffixes)()
-            # let remote end know to rehash it's suffixes
-            if success:
-                self.rehash_remote(node, job, suffixes)
             # update stats for this attempt
             self.suffix_sync += len(suffixes)
             self.logger.update_stats('suffix.syncs', len(suffixes))
@@ -912,7 +893,6 @@ class ObjectReconstructor(Daemon):
                     success, in_sync_objs = ssync_sender(
                         self, node, job, job['suffixes'])()
                     if success:
-                        self.rehash_remote(node, job, job['suffixes'])
                         syncd_with += 1
                         reverted_objs.update(in_sync_objs)
                 if syncd_with >= len(job['sync_to']):
