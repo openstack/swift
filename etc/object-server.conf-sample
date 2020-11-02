@@ -380,6 +380,16 @@ use = egg:swift#recon
 # Work only with ionice_class.
 # ionice_class =
 # ionice_priority =
+#
+# When upgrading from liberasurecode<=1.5.0, you may want to continue writing
+# legacy CRCs until all nodes are upgraded and capabale of reading fragments
+# with zlib CRCs. liberasurecode>=1.6.2 checks for the environment variable
+# LIBERASURECODE_WRITE_LEGACY_CRC; if set (value doesn't matter), it will use
+# its legacy CRC. Set this option to true or false to ensure the environment
+# variable is or is not set. Leave the option blank or absent to not touch
+# the environment (default). For more information, see
+# https://bugs.launchpad.net/liberasurecode/+bug/1886088
+# write_legacy_ec_crc =
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):

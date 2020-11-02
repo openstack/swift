@@ -299,6 +299,17 @@ class Application(object):
         self.swift_owner_headers = [
             name.strip().title()
             for name in swift_owner_headers.split(',') if name.strip()]
+
+        # When upgrading from liberasurecode<=1.5.0, you may want to continue
+        # writing legacy CRCs until all nodes are upgraded and capabale of
+        # reading fragments with zlib CRCs.
+        # See https://bugs.launchpad.net/liberasurecode/+bug/1886088 for more
+        # information.
+        if 'write_legacy_ec_crc' in conf:
+            os.environ['LIBERASURECODE_WRITE_LEGACY_CRC'] = \
+                '1' if config_true_value(conf['write_legacy_ec_crc']) else '0'
+        # else, assume operators know what they're doing and leave env alone
+
         # Initialization was successful, so now apply the client chunk size
         # parameter as the default read / write buffer size for the network
         # sockets.

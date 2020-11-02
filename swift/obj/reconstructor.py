@@ -208,6 +208,17 @@ class ObjectReconstructor(Daemon):
                                 'of handoffs_only.')
         self.rebuild_handoff_node_count = int(conf.get(
             'rebuild_handoff_node_count', 2))
+
+        # When upgrading from liberasurecode<=1.5.0, you may want to continue
+        # writing legacy CRCs until all nodes are upgraded and capabale of
+        # reading fragments with zlib CRCs.
+        # See https://bugs.launchpad.net/liberasurecode/+bug/1886088 for more
+        # information.
+        if 'write_legacy_ec_crc' in conf:
+            os.environ['LIBERASURECODE_WRITE_LEGACY_CRC'] = \
+                '1' if config_true_value(conf['write_legacy_ec_crc']) else '0'
+        # else, assume operators know what they're doing and leave env alone
+
         self._df_router = DiskFileRouter(conf, self.logger)
         self.all_local_devices = self.get_local_devices()
         self.rings_mtime = None
