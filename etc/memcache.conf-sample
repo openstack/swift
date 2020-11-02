@@ -26,3 +26,11 @@
 # tries = 3
 # Timeout for read and writes
 # io_timeout = 2.0
+#
+# How long without an error before a server's error count is reset. This will
+# also be how long before a server is reenabled after suppression is triggered.
+# Set to 0 to disable error-limiting.
+# error_suppression_interval = 60.0
+#
+# How many errors can accumulate before a server is temporarily ignored.
+# error_suppression_limit = 10
