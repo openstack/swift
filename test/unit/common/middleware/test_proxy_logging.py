@@ -33,7 +33,8 @@ from test.unit.common.middleware.helpers import FakeAppThatExcepts
 
 class FakeApp(object):
 
-    def __init__(self, body=None, response_str='200 OK', policy_idx='0'):
+    def __init__(self, body=None, response_str='200 OK', policy_idx='0',
+                 chunked=False):
         if body is None:
             body = [b'FAKE APP']
         elif isinstance(body, six.binary_type):
@@ -42,6 +43,7 @@ class FakeApp(object):
         self.body = body
         self.response_str = response_str
         self.policy_idx = policy_idx
+        self.chunked = chunked
 
     def __call__(self, env, start_response):
         try:
@@ -52,9 +54,12 @@ class FakeApp(object):
             is_container_or_object_req = False
 
         headers = [('Content-Type', 'text/plain')]
-        if not hasattr(self.body, 'close'):
+        if self.chunked:
+            headers.append(('Transfer-Encoding', 'chunked'))
+        elif not hasattr(self.body, 'close'):
             content_length = sum(map(len, self.body))
             headers.append(('Content-Length', str(content_length)))
+
         if is_container_or_object_req and self.policy_idx is not None:
             headers.append(('X-Backend-Storage-Policy-Index',
                            str(self.policy_idx)))
@@ -639,6 +644,13 @@ class TestProxyLogging(unittest.TestCase):
         # exhaust generator
         [x for x in resp]
         self.assertTrue(body.closed)
+
+    def test_chunked_response(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(chunked=True), {})
+        req = Request.blank('/')
+        resp = app(req.environ, start_response)
+        # exhaust generator
+        [x for x in resp]
 
     def test_proxy_client_logging(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
