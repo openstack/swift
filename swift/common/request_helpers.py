@@ -28,7 +28,8 @@ import six
 from swift.common.header_key_dict import HeaderKeyDict
 
 from swift import gettext_ as _
-from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
+from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX, \
+    CONTAINER_LISTING_LIMIT
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success, is_server_error
@@ -61,7 +62,7 @@ else:
 
 def get_param(req, name, default=None):
     """
-    Get parameters from an HTTP request ensuring proper handling UTF-8
+    Get a parameter from an HTTP request ensuring proper handling UTF-8
     encoding.
 
     :param req: request object
@@ -94,6 +95,27 @@ def get_param(req, name, default=None):
     return value
 
 
+def validate_params(req, names):
+    """
+    Get list of parameters from an HTTP request, validating the encoding of
+    each parameter.
+
+    :param req: request object
+    :param names: parameter names
+    :returns: a dict mapping parameter names to values for each name that
+              appears in the request parameters
+    :raises HTTPBadRequest: if any parameter value is not a valid UTF-8 byte
+            sequence
+    """
+    params = {}
+    for name in names:
+        value = get_param(req, name)
+        if value is None:
+            continue
+        params[name] = value
+    return params
+
+
 def constrain_req_limit(req, constrained_limit):
     given_limit = get_param(req, 'limit')
     limit = constrained_limit
@@ -103,6 +125,14 @@ def constrain_req_limit(req, constrained_limit):
             raise HTTPPreconditionFailed(
                 request=req, body='Maximum limit is %d' % constrained_limit)
     return limit
+
+
+def validate_container_params(req):
+    params = validate_params(req, ('marker', 'end_marker', 'prefix',
+                                   'delimiter', 'path', 'format', 'reverse',
+                                   'states', 'includes'))
+    params['limit'] = constrain_req_limit(req, CONTAINER_LISTING_LIMIT)
+    return params
 
 
 def _validate_internal_name(name, type_='name'):

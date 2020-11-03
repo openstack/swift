@@ -41,7 +41,7 @@ from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
 from swift.proxy.controllers.base import get_container_info, NodeIter, \
     DEFAULT_RECHECK_CONTAINER_EXISTENCE, DEFAULT_RECHECK_ACCOUNT_EXISTENCE, \
-    DEFAULT_RECHECK_UPDATING_SHARD_RANGES
+    DEFAULT_RECHECK_UPDATING_SHARD_RANGES, DEFAULT_RECHECK_LISTING_SHARD_RANGES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request, HTTPServiceUnavailable, \
@@ -221,6 +221,9 @@ class Application(object):
         self.recheck_updating_shard_ranges = \
             int(conf.get('recheck_updating_shard_ranges',
                          DEFAULT_RECHECK_UPDATING_SHARD_RANGES))
+        self.recheck_listing_shard_ranges = \
+            int(conf.get('recheck_listing_shard_ranges',
+                         DEFAULT_RECHECK_LISTING_SHARD_RANGES))
         self.recheck_account_existence = \
             int(conf.get('recheck_account_existence',
                          DEFAULT_RECHECK_ACCOUNT_EXISTENCE))

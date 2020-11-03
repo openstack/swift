@@ -5496,6 +5496,25 @@ def find_shard_range(item, ranges):
     return None
 
 
+def filter_shard_ranges(shard_ranges, includes, marker, end_marker):
+    if includes:
+        shard_range = find_shard_range(includes, shard_ranges)
+        return [shard_range] if shard_range else []
+
+    def shard_range_filter(sr):
+        end = start = True
+        if end_marker:
+            end = end_marker > sr.lower
+        if marker:
+            start = marker < sr.upper
+        return start and end
+
+    if marker or end_marker:
+        return list(filter(shard_range_filter, shard_ranges))
+
+    return shard_ranges
+
+
 def modify_priority(conf, logger):
     """
     Modify priority by nice and ionice.

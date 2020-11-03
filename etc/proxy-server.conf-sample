@@ -131,11 +131,18 @@ use = egg:swift#proxy
 # recheck_account_existence = 60
 # recheck_container_existence = 60
 #
-# How long the proxy should cache a set of shard ranges for a container.
+# How long the proxy should cache a set of shard ranges for a container when
+# the set is to be used for directing object updates.
 # Note that stale shard range info should be fine; updates will still
 # eventually make their way to the correct shard. As a result, you can
 # usually set this much higher than the existence checks above.
 # recheck_updating_shard_ranges = 3600
+#
+# How long the proxy should cache a set of shard ranges for a container when
+# the set is to be used for gathering object listings.
+# Note that stale shard range info might result in incomplete object listings
+# so this value should be set less than recheck_updating_shard_ranges.
+# recheck_listing_shard_ranges = 600
 #
 # object_chunk_size = 65536
 # client_chunk_size = 65536
@@ -973,7 +980,7 @@ use = egg:swift#proxy_logging
 # log_anonymization_method = MD5
 #
 # Salt added during log anonymization
-# log_anonymization_salt = 
+# log_anonymization_salt =
 #
 # Template used to format access logs. All words surrounded by curly brackets
 # will be substituted with the appropriate values
