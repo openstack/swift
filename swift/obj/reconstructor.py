@@ -168,12 +168,19 @@ class ObjectReconstructor(Daemon):
         self.partition_times = []
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
-        if 'run_pause' in conf and 'interval' not in conf:
-            self.logger.warning('Option object-reconstructor/run_pause '
-                                'is deprecated and will be removed in a '
-                                'future version. Update your configuration'
-                                ' to use option object-reconstructor/'
-                                'interval.')
+        if 'run_pause' in conf:
+            if 'interval' in conf:
+                self.logger.warning(
+                    'Option object-reconstructor/run_pause is deprecated and '
+                    'object-reconstructor/interval is already configured. '
+                    'You can safely remove run_pause; it is now ignored and '
+                    'will be removed in a future version.')
+            else:
+                self.logger.warning(
+                    'Option object-reconstructor/run_pause is deprecated '
+                    'and will be removed in a future version. '
+                    'Update your configuration to use option '
+                    'object-reconstructor/interval.')
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
