@@ -3,6 +3,8 @@
 set -e
 
 swift-init all kill
+swift-orphans -a 0 -k KILL
+
 # Remove the following line if you did not set up rsyslog for individual logging:
 sudo find /var/log/swift -type f -exec rm -f {} \;
 if cut -d' ' -f2 /proc/mounts | grep -q /mnt/sdb1 ; then
