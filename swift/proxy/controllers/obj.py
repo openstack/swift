@@ -2504,19 +2504,19 @@ class ECFragGetter(object):
 
             def get_next_doc_part():
                 while True:
+                    # the loop here is to resume if trying to parse
+                    # multipart/byteranges response raises a ChunkReadTimeout
+                    # and resets the parts_iter
                     try:
-                        # This call to next() performs IO when we have a
-                        # multipart/byteranges response; it reads the MIME
-                        # boundary and part headers.
-                        #
-                        # If we don't have a multipart/byteranges response,
-                        # but just a 200 or a single-range 206, then this
-                        # performs no IO, and either just returns source or
-                        # raises StopIteration.
                         with WatchdogTimeout(self.app.watchdog, node_timeout,
                                              ChunkReadTimeout):
-                            # if StopIteration is raised, it escapes and is
-                            # handled elsewhere
+                            # If we don't have a multipart/byteranges response,
+                            # but just a 200 or a single-range 206, then this
+                            # performs no IO, and just returns source (or
+                            # raises StopIteration).
+                            # Otherwise, this call to next() performs IO when
+                            # we have a multipart/byteranges response; as it
+                            # will read the MIME boundary and part headers.
                             start_byte, end_byte, length, headers, part = next(
                                 parts_iter[0])
                         return (start_byte, end_byte, length, headers, part)
@@ -2537,7 +2537,7 @@ class ECFragGetter(object):
                                 new_source,
                                 read_chunk_size=self.app.object_chunk_size)
                         else:
-                            raise StopIteration()
+                            raise
 
             def iter_bytes_from_response_part(part_file, nbytes):
                 nchunks = 0
@@ -2579,14 +2579,13 @@ class ECFragGetter(object):
                             parts_iter[0] = http_response_to_document_iters(
                                 new_source,
                                 read_chunk_size=self.app.object_chunk_size)
-
                             try:
                                 _junk, _junk, _junk, _junk, part_file = \
                                     get_next_doc_part()
                             except StopIteration:
-                                # Tried to find a new node from which to
-                                # finish the GET, but failed. There's
-                                # nothing more we can do here.
+                                # it's not clear to me how to make
+                                # get_next_doc_part raise StopIteration for the
+                                # first doc part of a new request
                                 six.reraise(exc_type, exc_value, exc_traceback)
                             part_file = ByteCountEnforcer(part_file, nbytes)
                         else:
@@ -2652,8 +2651,14 @@ class ECFragGetter(object):
             part_iter = None
             try:
                 while True:
-                    start_byte, end_byte, length, headers, part = \
-                        get_next_doc_part()
+                    try:
+                        start_byte, end_byte, length, headers, part = \
+                            get_next_doc_part()
+                    except StopIteration:
+                        # it seems this is the only way out of the loop; not
+                        # sure why the req.environ update is always needed
+                        req.environ['swift.non_client_disconnect'] = True
+                        break
                     # note: learn_size_from_content_range() sets
                     # self.skip_bytes
                     self.learn_size_from_content_range(
@@ -2670,8 +2675,6 @@ class ECFragGetter(object):
                            'entity_length': length, 'headers': headers,
                            'part_iter': part_iter}
                     self.pop_range()
-            except StopIteration:
-                req.environ['swift.non_client_disconnect'] = True
             finally:
                 if part_iter:
                     part_iter.close()

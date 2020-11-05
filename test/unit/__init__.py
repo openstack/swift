@@ -1038,15 +1038,28 @@ def requires_o_tmpfile_support_in_tmp(func):
 
 class StubResponse(object):
 
-    def __init__(self, status, body=b'', headers=None, frag_index=None):
+    def __init__(self, status, body=b'', headers=None, frag_index=None,
+                 slowdown=None):
         self.status = status
         self.body = body
         self.readable = BytesIO(body)
+        try:
+            self._slowdown = iter(slowdown)
+        except TypeError:
+            self._slowdown = iter([slowdown])
         self.headers = HeaderKeyDict(headers)
         if frag_index is not None:
             self.headers['X-Object-Sysmeta-Ec-Frag-Index'] = frag_index
         fake_reason = ('Fake', 'This response is a lie.')
         self.reason = swob.RESPONSE_REASONS.get(status, fake_reason)[0]
+
+    def slowdown(self):
+        try:
+            wait = next(self._slowdown)
+        except StopIteration:
+            wait = None
+        if wait is not None:
+            eventlet.sleep(wait)
 
     def nuke_from_orbit(self):
         if hasattr(self, 'swift_conn'):
@@ -1061,7 +1074,12 @@ class StubResponse(object):
         return self.headers.items()
 
     def read(self, amt=0):
+        self.slowdown()
         return self.readable.read(amt)
+
+    def readline(self, size=-1):
+        self.slowdown()
+        return self.readable.readline(size)
 
     def __repr__(self):
         info = ['Status: %s' % self.status]
