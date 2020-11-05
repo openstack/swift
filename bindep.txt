@@ -38,3 +38,6 @@ py-cffi [platform:apk]
 musl-dev [platform:apk]
 man-db [pep8]
 man [platform:rpm pep8]
+# libsrvg2 is required to build docs
+librsvg2-tools [doc platform:rpm]
+librsvg2-bin [doc platform:dpkg]
