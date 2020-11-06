@@ -581,16 +581,11 @@ def in_process_setup(the_object_server=object_server):
         'swift_dir': _testdir,
         'mount_check': 'false',
         'client_timeout': '4',
+        'container_update_timeout': '3',
         'allow_account_management': 'true',
         'account_autocreate': 'true',
         'allow_versions': 'True',
         'allow_versioned_writes': 'True',
-        # TODO: move this into s3api config loader because they are
-        #       required by only s3api
-        'allowed_headers':
-            "Content-Disposition, Content-Encoding, X-Delete-At, "
-            "X-Object-Manifest, X-Static-Large-Object, Cache-Control, "
-            "Content-Language, Expires, X-Robots-Tag",
         # Below are values used by the functional test framework, as well as
         # by the various in-process swift servers
         'auth_uri': 'http://127.0.0.1:%d/auth/v1.0/' % prolis.getsockname()[1],
