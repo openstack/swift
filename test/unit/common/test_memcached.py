@@ -50,19 +50,23 @@ class MockedMemcachePool(memcached.MemcacheConnPool):
 
 
 class ExplodingMockMemcached(object):
+    should_explode = True
     exploded = False
 
     def sendall(self, string):
-        self.exploded = True
-        raise socket.error(errno.EPIPE, os.strerror(errno.EPIPE))
+        if self.should_explode:
+            self.exploded = True
+            raise socket.error(errno.EPIPE, os.strerror(errno.EPIPE))
 
     def readline(self):
-        self.exploded = True
-        raise socket.error(errno.EPIPE, os.strerror(errno.EPIPE))
+        if self.should_explode:
+            self.exploded = True
+            raise socket.error(errno.EPIPE, os.strerror(errno.EPIPE))
 
     def read(self, size):
-        self.exploded = True
-        raise socket.error(errno.EPIPE, os.strerror(errno.EPIPE))
+        if self.should_explode:
+            self.exploded = True
+            raise socket.error(errno.EPIPE, os.strerror(errno.EPIPE))
 
     def close(self):
         pass
@@ -511,6 +515,119 @@ class TestMemcached(unittest.TestCase):
         # Check that we really did call create() twice
         self.assertEqual(memcache_client._client_cache['1.2.3.5:11211'].mocks,
                          [])
+
+    def test_error_limiting(self):
+        memcache_client = memcached.MemcacheRing(
+            ['1.2.3.4:11211', '1.2.3.5:11211'], logger=self.logger)
+        mock1 = ExplodingMockMemcached()
+        mock2 = ExplodingMockMemcached()
+        mock2.should_explode = False
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock2, mock2)] * 12)
+        memcache_client._client_cache['1.2.3.5:11211'] = MockedMemcachePool(
+            [(mock1, mock1)] * 12)
+
+        for _ in range(12):
+            memcache_client.set('some_key', [1, 2, 3])
+        # twelfth one skips .5 because of error limiting and goes straight
+        # to .4
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.5:11211: '
+            '[Errno 32] Broken pipe',
+        ] * 11 + [
+            'Error limiting server 1.2.3.5:11211'
+        ])
+        self.logger.clear()
+
+        mock2.should_explode = True
+        for _ in range(12):
+            memcache_client.set('some_key', [1, 2, 3])
+        # as we keep going, eventually .4 gets error limited, too
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.4:11211: '
+            '[Errno 32] Broken pipe',
+        ] * 11 + [
+            'Error limiting server 1.2.3.4:11211'
+        ])
+        self.logger.clear()
+
+        # continued requests just keep bypassing memcache
+        for _ in range(12):
+            memcache_client.set('some_key', [1, 2, 3])
+        self.assertEqual(self.logger.get_lines_for_level('error'), [])
+
+        # and get()s are all a "cache miss"
+        self.assertIsNone(memcache_client.get('some_key'))
+        self.assertEqual(self.logger.get_lines_for_level('error'), [])
+
+    def test_error_disabled(self):
+        memcache_client = memcached.MemcacheRing(
+            ['1.2.3.4:11211'], logger=self.logger, error_limit_time=0)
+        mock1 = ExplodingMockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock1, mock1)] * 20)
+
+        for _ in range(20):
+            memcache_client.set('some_key', [1, 2, 3])
+        # twelfth one skips .5 because of error limiting and goes straight
+        # to .4
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.4:11211: '
+            '[Errno 32] Broken pipe',
+        ] * 20)
+
+    def test_error_limiting_custom_config(self):
+        def do_calls(time_step, num_calls, **memcache_kwargs):
+            self.logger.clear()
+            memcache_client = memcached.MemcacheRing(
+                ['1.2.3.5:11211'], logger=self.logger,
+                **memcache_kwargs)
+            mock1 = ExplodingMockMemcached()
+            memcache_client._client_cache['1.2.3.5:11211'] = \
+                MockedMemcachePool([(mock1, mock1)] * num_calls)
+
+            for n in range(num_calls):
+                with mock.patch.object(memcached.time, 'time',
+                                       return_value=time_step * n):
+                    memcache_client.set('some_key', [1, 2, 3])
+
+        # with default error_limit_time of 60, one call per 5 secs, twelfth one
+        # triggers error limit
+        do_calls(5, 12)
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.5:11211: '
+            '[Errno 32] Broken pipe',
+        ] * 11 + [
+            'Error limiting server 1.2.3.5:11211'
+        ])
+
+        # with default error_limit_time of 60, one call per 6 secs, error limit
+        # is not triggered
+        do_calls(6, 20)
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.5:11211: '
+            '[Errno 32] Broken pipe',
+        ] * 20)
+
+        # with error_limit_time of 66, one call per 6 secs, twelfth one
+        # triggers error limit
+        do_calls(6, 12, error_limit_time=66)
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.5:11211: '
+            '[Errno 32] Broken pipe',
+        ] * 11 + [
+            'Error limiting server 1.2.3.5:11211'
+        ])
+
+        # with error_limit_time of 70, one call per 6 secs, error_limit_count
+        # of 11, 13th call triggers error limit
+        do_calls(6, 13, error_limit_time=70, error_limit_count=11)
+        self.assertEqual(self.logger.get_lines_for_level('error'), [
+            'Error talking to memcached: 1.2.3.5:11211: '
+            '[Errno 32] Broken pipe',
+        ] * 12 + [
+            'Error limiting server 1.2.3.5:11211'
+        ])
 
     def test_delete(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
