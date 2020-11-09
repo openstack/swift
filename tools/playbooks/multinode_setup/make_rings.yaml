@@ -99,6 +99,8 @@
         cmd: |
           crudini --set /etc/swift/object-server.conf DEFAULT bind_ip {{ hostvars['object1'].nodepool.public_ipv4 }}
           crudini --set /etc/swift/object-server.conf DEFAULT user {{ ansible_user_id }}
+          crudini --set /etc/swift/object-server.conf DEFAULT conn_timeout 3
+          crudini --set /etc/swift/object-server.conf DEFAULT container_update_timeout 3
         executable: /bin/bash
 
 - hosts: swift-cluster
