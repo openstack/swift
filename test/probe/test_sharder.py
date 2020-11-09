@@ -29,7 +29,8 @@ from swift.common.memcached import MemcacheRing
 from swift.common.direct_client import DirectClientException
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
     quorum_size, config_true_value, Timestamp
-from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
+from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
+    SHARDED
 from swift.container.sharder import CleavingContext
 from swiftclient import client, get_auth, ClientException
 
@@ -1421,7 +1422,7 @@ class TestContainerSharding(BaseTestContainerSharding):
                     broker = self.get_broker(
                         part, node, donor.account, donor.container)
                     own_sr = broker.get_own_shard_range()
-                    self.assertEqual(ShardRange.SHARDED, own_sr.state)
+                    self.assertEqual(ShardRange.SHRUNK, own_sr.state)
                     self.assertTrue(own_sr.deleted)
 
             # delete all the second shard's object apart from 'alpha'
@@ -2227,6 +2228,16 @@ class TestContainerShardingMoreUTF8(TestContainerSharding):
 
 class TestManagedContainerSharding(BaseTestContainerSharding):
     '''Test sharding using swift-manage-shard-ranges'''
+
+    def sharders_once(self, **kwargs):
+        # inhibit auto_sharding regardless of the config setting
+        additional_args = kwargs.get('additional_args', [])
+        if not isinstance(additional_args, list):
+            additional_args = [additional_args]
+        additional_args.append('--no-auto-shard')
+        kwargs['additional_args'] = additional_args
+        self.sharders.once(**kwargs)
+
     def test_manage_shard_ranges(self):
         obj_names = self._make_object_names(4)
         self.put_objects(obj_names)
@@ -2239,7 +2250,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
 
         # sanity check: we don't have nearly enough objects for this to shard
         # automatically
-        self.sharders.once(number=self.brain.node_numbers[0],
+        self.sharders_once(number=self.brain.node_numbers[0],
                            additional_args='--partitions=%s' % self.brain.part)
         self.assert_container_state(self.brain.nodes[0], 'unsharded', 0)
 
@@ -2252,7 +2263,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # "Run container-replicator to replicate them to other nodes."
         self.replicators.once()
         # "Run container-sharder on all nodes to shard the container."
-        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
 
         # Everybody's settled
         self.assert_container_state(self.brain.nodes[0], 'sharded', 2)
@@ -2270,23 +2281,42 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # run replicators first time to get sync points set
         self.replicators.once()
 
+        # find 4 shard ranges on nodes[0] - let's denote these ranges 0.0, 0.1,
+        # 0.2 and 0.3 that are installed with epoch_0
         subprocess.check_output([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[0]),
             'find_and_replace', '2', '--enable'], stderr=subprocess.STDOUT)
-        self.assert_container_state(self.brain.nodes[0], 'unsharded', 4)
+        shard_ranges_0 = self.assert_container_state(self.brain.nodes[0],
+                                                     'unsharded', 4)
 
-        # *Also* go find shard ranges on *another node*, like a dumb-dumb
+        # *Also* go find 3 shard ranges on *another node*, like a dumb-dumb -
+        # let's denote these ranges 1.0, 1.1 and 1.2 that are installed with
+        # epoch_1
         subprocess.check_output([
             'swift-manage-shard-ranges',
             self.get_db_file(self.brain.part, self.brain.nodes[1]),
             'find_and_replace', '3', '--enable'], stderr=subprocess.STDOUT)
-        self.assert_container_state(self.brain.nodes[1], 'unsharded', 3)
+        shard_ranges_1 = self.assert_container_state(self.brain.nodes[1],
+                                                     'unsharded', 3)
 
-        # Run things out of order (they were likely running as daemons anyway)
-        self.sharders.once(number=self.brain.node_numbers[0],
+        # Run sharder in specific order so that the replica with the older
+        # epoch_0 starts sharding first - this will prove problematic later!
+        # On first pass the first replica passes audit, creates shards and then
+        # syncs shard ranges with the other replicas. It proceeds to cleave
+        # shard 0.0, but after 0.0 cleaving stalls because it will now have
+        # shard range 1.0 in 'found' state from the other replica that it
+        # cannot yet cleave.
+        self.sharders_once(number=self.brain.node_numbers[0],
                            additional_args='--partitions=%s' % self.brain.part)
-        self.sharders.once(number=self.brain.node_numbers[1],
+
+        # On first pass the second replica passes audit (it has its own found
+        # ranges and the first replicas created shard ranges but none in the
+        # same state overlap), creates its shards and then syncs shard ranges
+        # with the other replicas. All of the 7 shard ranges on this replica
+        # are now in created state so it proceeds to cleave the first two shard
+        # ranges, 0.1 and 1.0.
+        self.sharders_once(number=self.brain.node_numbers[1],
                            additional_args='--partitions=%s' % self.brain.part)
         self.replicators.once()
 
@@ -2296,14 +2326,164 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         # There's a race: the third replica may be sharding, may be unsharded
 
         # Try it again a few times
-        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
         self.replicators.once()
-        self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
+        self.sharders_once(additional_args='--partitions=%s' % self.brain.part)
 
-        # It's not really fixing itself...
-        self.assert_container_state(self.brain.nodes[0], 'sharding', 7)
-        self.assert_container_state(self.brain.nodes[1], 'sharding', 7)
+        # It's not really fixing itself... the sharder audit will detect
+        # overlapping ranges which prevents cleaving proceeding; expect the
+        # shard ranges to be mostly still in created state, with one or two
+        # possibly cleaved during first pass before the sharding got stalled
+        shard_ranges = self.assert_container_state(self.brain.nodes[0],
+                                                   'sharding', 7)
+        for sr in shard_ranges:
+            self.assertIn(sr.state, (ShardRange.CREATED, ShardRange.CLEAVED))
+        shard_ranges = self.assert_container_state(self.brain.nodes[1],
+                                                   'sharding', 7)
+        for sr in shard_ranges:
+            self.assertIn(sr.state, (ShardRange.CREATED, ShardRange.CLEAVED))
 
         # But hey, at least listings still work! They're just going to get
         # horribly out of date as more objects are added
+        self.assert_container_listing(obj_names)
+
+        # Let's pretend that some actor in the system has determined that the
+        # second set of 3 shard ranges (1.*) are correct and the first set of 4
+        # (0.*) are not desired, so shrink shard ranges 0.*. We've already
+        # checked they are in cleaved or created state so it's ok to move them
+        # to shrinking.
+        # TODO: replace this db manipulation if/when manage_shard_ranges can
+        # manage shrinking...
+        for sr in shard_ranges_0:
+            self.assertTrue(sr.update_state(ShardRange.SHRINKING))
+            sr.epoch = sr.state_timestamp = Timestamp.now()
+        broker = self.get_broker(self.brain.part, self.brain.nodes[0])
+        broker.merge_shard_ranges(shard_ranges_0)
+
+        # make sure all root replicas now sync their shard ranges
+        self.replicators.once()
+        # At this point one of the first two replicas may have done some useful
+        # cleaving of 1.* shards, the other may have only cleaved 0.* shards,
+        # and the third replica may have cleaved no shards. We therefore need
+        # two more passes of the sharder to get to a predictable state where
+        # all replicas have cleaved all three 0.* shards.
+        self.sharders_once()
+        self.sharders_once()
+
+        # now we expect all replicas to have just the three 1.* shards, with
+        # the 0.* shards all deleted
+        brokers = {}
+        orig_shard_ranges = sorted(shard_ranges_0 + shard_ranges_1,
+                                   key=ShardRange.sort_key)
+        for node in (0, 1, 2):
+            with annotate_failure('node %s' % node):
+                broker = self.get_broker(self.brain.part,
+                                         self.brain.nodes[node])
+                brokers[node] = broker
+                shard_ranges = broker.get_shard_ranges()
+                self.assertEqual(shard_ranges_1, shard_ranges)
+                shard_ranges = broker.get_shard_ranges(include_deleted=True)
+                self.assertLengthEqual(shard_ranges, len(orig_shard_ranges))
+                self.assertEqual(orig_shard_ranges, shard_ranges)
+                self.assertEqual(ShardRange.SHARDED,
+                                 broker._own_shard_range().state)
+        # Sadly, the first replica to start sharding us still reporting its db
+        # state to be 'unsharded' because, although it has sharded, it's shard
+        # db epoch (epoch_0) does not match its own shard range epoch
+        # (epoch_1), and that is because the second replica (with epoch_1)
+        # updated the own shard range and replicated it to all other replicas.
+        # If we had run the sharder on the second replica before the first
+        # replica, then by the time the first replica started sharding it would
+        # have learnt the newer epoch_1 and we wouldn't see this inconsistency.
+        self.assertEqual(UNSHARDED, brokers[0].get_db_state())
+        self.assertEqual(SHARDED, brokers[1].get_db_state())
+        self.assertEqual(SHARDED, brokers[2].get_db_state())
+        epoch_1 = brokers[1].db_epoch
+        self.assertEqual(epoch_1, brokers[2].db_epoch)
+        self.assertLess(brokers[0].db_epoch, epoch_1)
+        # the root replica that thinks it is unsharded is problematic - it will
+        # not return shard ranges for listings, but has no objects, so it's
+        # luck of the draw whether we get a listing or not at this point :(
+
+        # check the unwanted shards did shrink away...
+        for shard_range in shard_ranges_0:
+            with annotate_failure(shard_range):
+                found_for_shard = self.categorize_container_dir_content(
+                    shard_range.account, shard_range.container)
+                self.assertLengthEqual(found_for_shard['shard_dbs'], 3)
+                actual = []
+                for shard_db in found_for_shard['shard_dbs']:
+                    broker = ContainerBroker(shard_db)
+                    own_sr = broker.get_own_shard_range()
+                    actual.append(
+                        (broker.get_db_state(), own_sr.state, own_sr.deleted))
+                self.assertEqual([(SHARDED, ShardRange.SHRUNK, True)] * 3,
+                                 actual)
+
+        # Run the sharders again: the first replica that is still 'unsharded'
+        # because of the older epoch_0 in its db filename will now start to
+        # shard again with a newer epoch_1 db, and will start to re-cleave the
+        # 3 active shards, albeit with zero objects to cleave.
+        self.sharders_once()
+        for node in (0, 1, 2):
+            with annotate_failure('node %s' % node):
+                broker = self.get_broker(self.brain.part,
+                                         self.brain.nodes[node])
+                brokers[node] = broker
+                shard_ranges = broker.get_shard_ranges()
+                self.assertEqual(shard_ranges_1, shard_ranges)
+                shard_ranges = broker.get_shard_ranges(include_deleted=True)
+                self.assertLengthEqual(shard_ranges, len(orig_shard_ranges))
+                self.assertEqual(orig_shard_ranges, shard_ranges)
+                self.assertEqual(ShardRange.SHARDED,
+                                 broker._own_shard_range().state)
+                self.assertEqual(epoch_1, broker.db_epoch)
+        self.assertIn(brokers[0].get_db_state(), (SHARDING, SHARDED))
+        self.assertEqual(SHARDED, brokers[1].get_db_state())
+        self.assertEqual(SHARDED, brokers[2].get_db_state())
+
+        # This cycle of the sharders also guarantees that all shards have had
+        # their state updated to ACTIVE from the root; this was not necessarily
+        # true at end of the previous sharder pass because a shard audit (when
+        # the shard is updated from a root) may have happened before all roots
+        # have had their shard ranges transitioned to ACTIVE.
+        for shard_range in shard_ranges_1:
+            with annotate_failure(shard_range):
+                found_for_shard = self.categorize_container_dir_content(
+                    shard_range.account, shard_range.container)
+                self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
+                actual = []
+                for shard_db in found_for_shard['normal_dbs']:
+                    broker = ContainerBroker(shard_db)
+                    own_sr = broker.get_own_shard_range()
+                    actual.append(
+                        (broker.get_db_state(), own_sr.state, own_sr.deleted))
+                self.assertEqual([(UNSHARDED, ShardRange.ACTIVE, False)] * 3,
+                                 actual)
+
+        # We may need one more pass of the sharder before all three shard
+        # ranges are cleaved (2 per pass) and all the root replicas are
+        # predictably in sharded state. Note: the accelerated cleaving of >2
+        # zero-object shard ranges per cycle is defeated if a shard happens
+        # to exist on the same node as the root because the roots cleaving
+        # process doesn't think that it created the shard db and will therefore
+        # replicate it as per a normal cleave.
+        self.sharders_once()
+        for node in (0, 1, 2):
+            with annotate_failure('node %s' % node):
+                broker = self.get_broker(self.brain.part,
+                                         self.brain.nodes[node])
+                brokers[node] = broker
+                shard_ranges = broker.get_shard_ranges()
+                self.assertEqual(shard_ranges_1, shard_ranges)
+                shard_ranges = broker.get_shard_ranges(include_deleted=True)
+                self.assertLengthEqual(shard_ranges, len(orig_shard_ranges))
+                self.assertEqual(orig_shard_ranges, shard_ranges)
+                self.assertEqual(ShardRange.SHARDED,
+                                 broker._own_shard_range().state)
+                self.assertEqual(epoch_1, broker.db_epoch)
+                self.assertEqual(SHARDED, broker.get_db_state())
+
+        # Finally, with all root replicas in a consistent state, the listing
+        # will be be predictably correct
         self.assert_container_listing(obj_names)

@@ -4814,13 +4814,15 @@ class ShardRange(object):
     SHRINKING = 50
     SHARDING = 60
     SHARDED = 70
+    SHRUNK = 80
     STATES = {FOUND: 'found',
               CREATED: 'created',
               CLEAVED: 'cleaved',
               ACTIVE: 'active',
               SHRINKING: 'shrinking',
               SHARDING: 'sharding',
-              SHARDED: 'sharded'}
+              SHARDED: 'sharded',
+              SHRUNK: 'shrunk'}
     STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
 
     class OuterBound(object):
@@ -4877,6 +4879,13 @@ class ShardRange(object):
         self.state_timestamp = state_timestamp
         self.epoch = epoch
         self.reported = reported
+
+    @classmethod
+    def sort_key(cls, sr):
+        # defines the sort order for shard ranges
+        # note if this ever changes to *not* sort by upper first then it breaks
+        # a key assumption for bisect, which is used by utils.find_shard_range
+        return sr.upper, sr.state, sr.lower, sr.name
 
     @classmethod
     def _encode(cls, value):
