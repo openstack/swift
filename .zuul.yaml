@@ -51,6 +51,11 @@
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
+    name: swift-tox-py36-centos-8
+    parent: swift-tox-py36
+    nodeset: centos-8
+
+- job:
     name: swift-tox-py37
     parent: swift-tox-base
     nodeset: ubuntu-bionic
@@ -114,6 +119,26 @@
       tox_envlist: func-py3
       bindep_profile: test py37
       python_version: 3.7
+
+- job:
+    name: swift-tox-func-py36-centos-8
+    parent: swift-tox-func-py37
+    nodeset: centos-8
+    vars:
+      bindep_profile: test py36
+      python_version: 3.6
+
+- job:
+    name: swift-tox-func-encryption-py36-centos-8
+    parent: swift-tox-func-py36-centos-8
+    vars:
+      tox_envlist: func-encryption-py3
+
+- job:
+    name: swift-tox-func-ec-py36-centos-8
+    parent: swift-tox-func-py36-centos-8
+    vars:
+      tox_envlist: func-ec-py3
 
 - job:
     name: swift-tox-func-encryption-py37
@@ -656,6 +681,10 @@
         - swift-tox-func-py27-centos-7
         - swift-tox-func-encryption-py27-centos-7
         - swift-tox-func-ec-py27-centos-7
+        - swift-tox-py36-centos-8
+        - swift-tox-func-py36-centos-8
+        - swift-tox-func-encryption-py36-centos-8
+        - swift-tox-func-ec-py36-centos-8
         - swift-multinode-rolling-upgrade-rocky
         - swift-multinode-rolling-upgrade-stein
         - swift-multinode-rolling-upgrade-train
