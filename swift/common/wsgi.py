@@ -642,8 +642,6 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None):
     os.environ['TZ'] = 'UTC+0'
     time.tzset()
 
-    wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
-
     eventlet.hubs.use_hub(get_hub())
     eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
     eventlet.debug.hub_exceptions(eventlet_debug)
@@ -672,6 +670,7 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None):
     server_kwargs = {
         'custom_pool': pool,
         'protocol': protocol_class,
+        'socket_timeout': float(conf.get('client_timeout') or 60),
         # Disable capitalizing headers in Eventlet. This is necessary for
         # the AWS SDK to work with s3api middleware (it needs an "ETag"
         # header; "Etag" just won't do).

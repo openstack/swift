@@ -647,9 +647,6 @@ def in_process_setup(the_object_server=object_server):
                       'port': con2lis.getsockname()[1]}], 30),
                     f)
 
-    # Default to only 4 seconds for in-process functional test runs
-    eventlet.wsgi.WRITE_TIMEOUT = 4
-
     def get_logger_name(name):
         if show_debug_logs:
             return debug_logger(name)
