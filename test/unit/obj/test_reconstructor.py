@@ -4326,6 +4326,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         part_path = os.path.join(self.devices, self.local_dev['device'],
                                  diskfile.get_data_dir(self.policy),
                                  str(partition))
+        os.makedirs(part_path)
         job = {
             'job_type': object_reconstructor.REVERT,
             'frag_index': frag_index,
@@ -4336,6 +4337,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'hashes': stub_hashes,
             'policy': self.policy,
             'local_dev': self.local_dev,
+            'device': self.local_dev['device'],
         }
 
         ssync_calls = []
@@ -4375,6 +4377,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         part_path = os.path.join(self.devices, self.local_dev['device'],
                                  diskfile.get_data_dir(self.policy),
                                  str(partition))
+        os.makedirs(part_path)
         job = {
             'job_type': object_reconstructor.REVERT,
             'frag_index': frag_index,
@@ -4385,6 +4388,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'hashes': stub_hashes,
             'policy': self.policy,
             'local_dev': self.local_dev,
+            'device': self.local_dev['device'],
         }
 
         non_local = {'called': 0}
@@ -4429,6 +4433,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         part_path = os.path.join(self.devices, self.local_dev['device'],
                                  diskfile.get_data_dir(self.policy),
                                  str(partition))
+        os.makedirs(part_path)
         job = {
             'job_type': object_reconstructor.REVERT,
             'frag_index': frag_index,
@@ -4439,6 +4444,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'hashes': stub_hashes,
             'policy': self.policy,
             'local_dev': handoff_nodes[-1],
+            'device': self.local_dev['device'],
         }
 
         def ssync_response_callback(*args):
@@ -4507,6 +4513,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'hashes': {},
             'policy': self.policy,
             'local_dev': self.local_dev,
+            'device': self.local_dev['device'],
         }
 
         def ssync_response_callback(*args):
@@ -4559,6 +4566,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'hashes': {},
             'policy': self.policy,
             'local_dev': self.local_dev,
+            'device': self.local_dev['device'],
         }
 
         def ssync_response_callback(*args):

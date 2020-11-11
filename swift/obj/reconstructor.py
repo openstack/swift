@@ -45,7 +45,7 @@ from swift.obj.diskfile import DiskFileRouter, get_data_dir, \
     get_tmp_dir
 from swift.common.storage_policy import POLICIES, EC_POLICY
 from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
-    SuffixSyncError
+    SuffixSyncError, PartitionLockTimeout
 
 SYNC, REVERT = ('sync_only', 'sync_revert')
 
@@ -897,19 +897,34 @@ class ObjectReconstructor(Daemon):
             'partition.delete.count.%s' % (job['local_dev']['device'],))
         syncd_with = 0
         reverted_objs = {}
-        for node in job['sync_to']:
-            node['backend_index'] = job['policy'].get_backend_index(
-                node['index'])
-            success, in_sync_objs = ssync_sender(
-                self, node, job, job['suffixes'])()
-            if success:
-                self.rehash_remote(node, job, job['suffixes'])
-                syncd_with += 1
-                reverted_objs.update(in_sync_objs)
-        if syncd_with >= len(job['sync_to']):
-            self.delete_reverted_objs(
-                job, reverted_objs, job['frag_index'])
-        else:
+        try:
+            df_mgr = self._df_router[job['policy']]
+            # Only object-server can take this lock if an incoming SSYNC is
+            # running on the same partition. Taking the lock here ensure we
+            # won't enter a race condition where both nodes try to
+            # cross-replicate the same partition and both delete it.
+            with df_mgr.partition_lock(job['device'], job['policy'],
+                                       job['partition'], name='replication',
+                                       timeout=0.2):
+                for node in job['sync_to']:
+                    node['backend_index'] = job['policy'].get_backend_index(
+                        node['index'])
+                    success, in_sync_objs = ssync_sender(
+                        self, node, job, job['suffixes'])()
+                    if success:
+                        self.rehash_remote(node, job, job['suffixes'])
+                        syncd_with += 1
+                        reverted_objs.update(in_sync_objs)
+                if syncd_with >= len(job['sync_to']):
+                    self.delete_reverted_objs(
+                        job, reverted_objs, job['frag_index'])
+                else:
+                    self.handoffs_remaining += 1
+        except PartitionLockTimeout:
+            self.logger.info("Unable to lock handoff partition %d for revert "
+                             "on device %s policy %d",
+                             job['partition'], job['device'], job['policy'])
+            self.logger.increment('partition.lock-failure.count')
             self.handoffs_remaining += 1
         self.logger.timing_since('partition.delete.timing', begin)
 
