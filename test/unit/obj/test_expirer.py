@@ -90,7 +90,7 @@ class FakeInternalClient(object):
             resp.append(obj)
         return resp
 
-    def make_request(*a, **kw):
+    def delete_object(*a, **kw):
         pass
 
 
@@ -855,7 +855,7 @@ class TestObjectExpirer(TestCase):
 
         x = expirer.ObjectExpirer({})
         ts = Timestamp('1234')
-        x.delete_actual_object('/path/to/object', ts, False)
+        x.delete_actual_object('path/to/object', ts, False)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
         self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
                          got_env[0]['HTTP_X_IF_DELETE_AT'])
@@ -874,7 +874,7 @@ class TestObjectExpirer(TestCase):
 
         x = expirer.ObjectExpirer({})
         ts = Timestamp('1234')
-        x.delete_actual_object('/path/to/object', ts, True)
+        x.delete_actual_object('path/to/object', ts, True)
         self.assertNotIn('HTTP_X_IF_DELETE_AT', got_env[0])
         self.assertNotIn('HTTP_X_BACKEND_CLEAN_EXPIRING_OBJECT_QUEUE',
                          got_env[0])
@@ -894,7 +894,7 @@ class TestObjectExpirer(TestCase):
 
         x = expirer.ObjectExpirer({})
         ts = Timestamp('1234')
-        x.delete_actual_object('/path/to/object name', ts, False)
+        x.delete_actual_object('path/to/object name', ts, False)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
         self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
                          got_env[0]['HTTP_X_IF_DELETE_AT'])
@@ -916,9 +916,9 @@ class TestObjectExpirer(TestCase):
             ts = Timestamp('1234')
             if should_raise:
                 with self.assertRaises(internal_client.UnexpectedResponse):
-                    x.delete_actual_object('/path/to/object', ts, True)
+                    x.delete_actual_object('path/to/object', ts, True)
             else:
-                x.delete_actual_object('/path/to/object', ts, True)
+                x.delete_actual_object('path/to/object', ts, True)
             self.assertEqual(calls[0], 1, calls)
 
         # object was deleted and tombstone reaped
@@ -944,9 +944,9 @@ class TestObjectExpirer(TestCase):
             ts = Timestamp('1234')
             if should_raise:
                 with self.assertRaises(internal_client.UnexpectedResponse):
-                    x.delete_actual_object('/path/to/object', ts, False)
+                    x.delete_actual_object('path/to/object', ts, False)
             else:
-                x.delete_actual_object('/path/to/object', ts, False)
+                x.delete_actual_object('path/to/object', ts, False)
             self.assertEqual(calls[0], 1)
 
         # object was deleted and tombstone reaped
@@ -971,7 +971,7 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         exc = None
         try:
-            x.delete_actual_object('/path/to/object', Timestamp('1234'), False)
+            x.delete_actual_object('path/to/object', Timestamp('1234'), False)
         except Exception as err:
             exc = err
         finally:
@@ -979,18 +979,19 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(503, exc.resp.status_int)
 
     def test_delete_actual_object_quotes(self):
-        name = 'this name should get quoted'
+        name = 'this name/should get/quoted'
         timestamp = Timestamp('1366063156.863045')
         x = expirer.ObjectExpirer({})
         x.swift.make_request = mock.Mock()
         x.swift.make_request.return_value.status_int = 204
+        x.swift.make_request.return_value.app_iter = []
         x.delete_actual_object(name, timestamp, False)
         self.assertEqual(x.swift.make_request.call_count, 1)
         self.assertEqual(x.swift.make_request.call_args[0][1],
                          '/v1/' + urllib.parse.quote(name))
 
     def test_delete_actual_object_queue_cleaning(self):
-        name = 'something'
+        name = 'acc/cont/something'
         timestamp = Timestamp('1515544858.80602')
         x = expirer.ObjectExpirer({})
         x.swift.make_request = mock.MagicMock()

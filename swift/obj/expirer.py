@@ -32,7 +32,6 @@ from swift.common.utils import get_logger, dump_recon_cache, split_path, \
     RateLimitedIterator, md5
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
-from swift.common.swob import wsgi_quote, str_to_wsgi
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 
 from swift.container.reconciler import direct_delete_container_entry
@@ -487,7 +486,6 @@ class ObjectExpirer(Daemon):
         :raises UnexpectedResponse: if the delete was unsuccessful and
                                     should be retried later
         """
-        path = '/v1/' + wsgi_quote(str_to_wsgi(actual_obj.lstrip('/')))
         if is_async_delete:
             headers = {'X-Timestamp': timestamp.normal}
             acceptable_statuses = (2, HTTP_CONFLICT, HTTP_NOT_FOUND)
@@ -496,4 +494,6 @@ class ObjectExpirer(Daemon):
                        'X-If-Delete-At': timestamp.normal,
                        'X-Backend-Clean-Expiring-Object-Queue': 'no'}
             acceptable_statuses = (2, HTTP_CONFLICT)
-        self.swift.make_request('DELETE', path, headers, acceptable_statuses)
+        self.swift.delete_object(*split_path('/' + actual_obj, 3, 3, True),
+                                 headers=headers,
+                                 acceptable_statuses=acceptable_statuses)
