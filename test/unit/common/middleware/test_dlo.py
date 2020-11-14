@@ -583,7 +583,23 @@ class TestDloGetManifest(DloTestCase):
             self.assertFalse('If-Modified-Since' in hdrs)
             self.assertFalse('If-Unmodified-Since' in hdrs)
 
-    def test_error_fetching_first_segment(self):
+    def test_server_error_fetching_first_segment(self):
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_01',
+            swob.HTTPServiceUnavailable, {}, None)
+
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_dlo(req)
+        self.assertEqual(status, "503 Service Unavailable")
+        self.assertEqual(self.app.unread_requests, {})
+        self.assertEqual(self.dlo.logger.get_lines_for_level('error'), [
+            'While processing manifest /v1/AUTH_test/mancon/manifest, '
+            'got 503 (<html><h1>Service Unavailable</h1><p>The server is '
+            'curren...) while retrieving /v1/AUTH_test/c/seg_01',
+        ])
+
+    def test_client_error_fetching_first_segment(self):
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_01',
             swob.HTTPForbidden, {}, None)

@@ -32,7 +32,7 @@ from swift import gettext_ as _
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import ListingIterError, SegmentError
-from swift.common.http import is_success
+from swift.common.http import is_success, is_server_error
 from swift.common.swob import HTTPBadRequest, \
     HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator, \
     HTTPPreconditionFailed, wsgi_to_bytes, wsgi_unquote, wsgi_to_str
@@ -568,13 +568,16 @@ class SegmentedIterable(object):
                 body = seg_resp.body
                 if not six.PY2:
                     body = body.decode('utf8')
-                raise SegmentError(
-                    'While processing manifest %s, '
-                    'got %d (%s) while retrieving %s' %
-                    (self.name, seg_resp.status_int,
-                     body if len(body) <= 60 else body[:57] + '...',
-                     seg_req.path))
-
+                msg = 'While processing manifest %s, got %d (%s) ' \
+                    'while retrieving %s' % (
+                        self.name, seg_resp.status_int,
+                        body if len(body) <= 60 else body[:57] + '...',
+                        seg_req.path)
+                if is_server_error(seg_resp.status_int):
+                    self.logger.error(msg)
+                    raise HTTPServiceUnavailable(
+                        request=seg_req, content_type='text/plain')
+                raise SegmentError(msg)
             elif ((seg_etag and (seg_resp.etag != seg_etag)) or
                     (seg_size and (seg_resp.content_length != seg_size) and
                      not seg_req.range)):
