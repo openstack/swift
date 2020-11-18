@@ -77,7 +77,7 @@ if (3, 0) <= sys.version_info[:2] <= (3, 5):
         del JsonLoadsPatcher
 
 
-warnings.filterwarnings('ignore', module='cryptography', message=(
+warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
     'Python 2 is no longer supported by the Python core team. '
     'Support for it is now deprecated in cryptography, '
     'and will be removed in a future release.'))
