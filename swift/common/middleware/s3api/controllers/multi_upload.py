@@ -425,10 +425,14 @@ class UploadsController(Controller):
         except NoSuchBucket:
             try:
                 # multi-upload bucket doesn't exist, create one with
-                # same storage policy as the primary bucket
+                # same storage policy and acls as the primary bucket
                 info = req.get_container_info(self.app)
                 policy_name = POLICIES[info['storage_policy']].name
                 hdrs = {'X-Storage-Policy': policy_name}
+                if info.get('read_acl'):
+                    hdrs['X-Container-Read'] = info['read_acl']
+                if info.get('write_acl'):
+                    hdrs['X-Container-Write'] = info['write_acl']
                 seg_req.get_response(self.app, 'PUT', seg_container, '',
                                      headers=hdrs)
             except (BucketAlreadyExists, BucketAlreadyOwnedByYou):
