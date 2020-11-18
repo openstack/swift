@@ -467,7 +467,6 @@ class TestWSGI(unittest.TestCase):
                 logger = logging.getLogger('test')
                 sock = listen_zero()
                 wsgi.run_server(conf, logger, sock)
-        self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
         _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
@@ -479,6 +478,7 @@ class TestWSGI(unittest.TestCase):
         self.assertTrue(isinstance(server_logger, wsgi.NullLogger))
         self.assertTrue('custom_pool' in kwargs)
         self.assertEqual(1000, kwargs['custom_pool'].size)
+        self.assertEqual(30, kwargs['socket_timeout'])
 
         proto_class = kwargs['protocol']
         self.assertEqual(proto_class, wsgi.SwiftHttpProtocol)
@@ -497,7 +497,7 @@ class TestWSGI(unittest.TestCase):
         [app:proxy-server]
         use = egg:swift#proxy
         # these "set" values override defaults
-        set client_timeout = 20
+        set client_timeout = 2.5
         set max_clients = 10
         require_proxy_protocol = true
         """
@@ -517,7 +517,6 @@ class TestWSGI(unittest.TestCase):
                 logger = logging.getLogger('test')
                 sock = listen_zero()
                 wsgi.run_server(conf, logger, sock)
-        self.assertEqual(20, _wsgi.WRITE_TIMEOUT)
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
@@ -525,10 +524,11 @@ class TestWSGI(unittest.TestCase):
         server_sock, server_app, server_logger = args
         self.assertEqual(sock, server_sock)
         self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
-        self.assertEqual(20, server_app.client_timeout)
+        self.assertEqual(2.5, server_app.client_timeout)
         self.assertTrue(isinstance(server_logger, wsgi.NullLogger))
         self.assertTrue('custom_pool' in kwargs)
         self.assertEqual(10, kwargs['custom_pool'].size)
+        self.assertEqual(2.5, kwargs['socket_timeout'])
 
         proto_class = kwargs['protocol']
         self.assertEqual(proto_class, wsgi.SwiftHttpProxiedProtocol)
@@ -602,7 +602,6 @@ class TestWSGI(unittest.TestCase):
                 wsgi.run_server(conf, logger, sock)
                 self.assertNotEqual(os.environ['TZ'], '')
 
-        self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
         _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
@@ -612,6 +611,7 @@ class TestWSGI(unittest.TestCase):
         self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
         self.assertTrue(isinstance(server_logger, wsgi.NullLogger))
         self.assertTrue('custom_pool' in kwargs)
+        self.assertEqual(30, kwargs['socket_timeout'])
         self.assertTrue('protocol' in kwargs)
         self.assertEqual('HTTP/1.0',
                          kwargs['protocol'].default_request_version)
@@ -652,7 +652,6 @@ class TestWSGI(unittest.TestCase):
                 logger = logging.getLogger('test')
                 sock = listen_zero()
                 wsgi.run_server(conf, logger, sock)
-        self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
         _wsgi_evt.debug.hub_exceptions.assert_called_with(True)
         self.assertTrue(mock_server.called)
@@ -664,6 +663,7 @@ class TestWSGI(unittest.TestCase):
         self.assertIsNone(server_logger)
         self.assertTrue('custom_pool' in kwargs)
         self.assertEqual(1000, kwargs['custom_pool'].size)
+        self.assertEqual(30, kwargs['socket_timeout'])
         self.assertTrue('protocol' in kwargs)
         self.assertEqual('HTTP/1.0',
                          kwargs['protocol'].default_request_version)

@@ -145,7 +145,7 @@ class ObjectController(BaseStorageServer):
         self.container_update_timeout = float(
             conf.get('container_update_timeout', 1))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
-        self.client_timeout = int(conf.get('client_timeout', 60))
+        self.client_timeout = float(conf.get('client_timeout', 60))
         self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
         self.log_requests = config_true_value(conf.get('log_requests', 'true'))

@@ -85,7 +85,7 @@ bind_port = 8080
 # CORS documentation).
 # cors_expose_headers =
 #
-# client_timeout = 60
+# client_timeout = 60.0
 # eventlet_debug = false
 #
 # You can set scheduling priority of processes. Niceness values range from -20

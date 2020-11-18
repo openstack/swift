@@ -76,7 +76,7 @@ bind_port = 6200
 # container_update_timeout = 1.0
 # Time to wait while receiving each chunk of data from a client or another
 # backend node.
-# client_timeout = 60
+# client_timeout = 60.0
 #
 # network_chunk_size = 65536
 # disk_chunk_size = 65536
