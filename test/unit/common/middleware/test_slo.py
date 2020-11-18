@@ -28,9 +28,11 @@ from io import BytesIO
 from swift.common import swob, utils
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import slo
-from swift.common.swob import Request, HTTPException, str_to_wsgi
+from swift.common.swob import Request, HTTPException, str_to_wsgi, \
+    bytes_to_wsgi
 from swift.common.utils import quote, closing_if_possible, close_if_possible, \
-    parse_content_type, iter_multipart_mime_documents, parse_mime_headers
+    parse_content_type, iter_multipart_mime_documents, parse_mime_headers, \
+    Timestamp, get_expirer_container
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -1139,12 +1141,34 @@ class TestSloDeleteManifest(SloTestCase):
                         {'name': '/deltest/c_3', 'hash': 'b', 'bytes': '2'}]).
             encode('ascii'))
         self.app.register(
+            'GET', '/v1/AUTH_test-un\xc3\xafcode',
+            swob.HTTPOk, {}, None)
+        self.app.register(
+            'GET', '/v1/AUTH_test-un\xc3\xafcode/deltest', swob.HTTPOk, {
+                'X-Container-Read': 'diff read',
+                'X-Container-Write': 'diff write',
+            }, None)
+        self.app.register(
+            'GET', '/v1/AUTH_test-un\xc3\xafcode/\xe2\x98\x83', swob.HTTPOk, {
+                'X-Container-Read': 'same read',
+                'X-Container-Write': 'same write',
+            }, None)
+        self.app.register(
             'GET', '/v1/AUTH_test-un\xc3\xafcode/deltest/man-all-there',
             swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true'},
-            json.dumps([{'name': '/deltest/b_2', 'hash': 'a', 'bytes': '1'},
-                        {'name': '/deltest/c_3', 'hash': 'b', 'bytes': '2'}]).
-            encode('ascii'))
+            json.dumps([
+                {'name': u'/\N{SNOWMAN}/b_2', 'hash': 'a', 'bytes': '1'},
+                {'name': u'/\N{SNOWMAN}/c_3', 'hash': 'b', 'bytes': '2'},
+            ]).encode('ascii'))
+        self.app.register(
+            'GET', '/v1/AUTH_test-un\xc3\xafcode/\xe2\x98\x83/same-container',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true'},
+            json.dumps([
+                {'name': u'/\N{SNOWMAN}/b_2', 'hash': 'a', 'bytes': '1'},
+                {'name': u'/\N{SNOWMAN}/c_3', 'hash': 'b', 'bytes': '2'},
+            ]).encode('ascii'))
         self.app.register(
             'DELETE', '/v1/AUTH_test/deltest/man-all-there',
             swob.HTTPNoContent, {}, None)
@@ -1170,10 +1194,14 @@ class TestSloDeleteManifest(SloTestCase):
             'DELETE', '/v1/AUTH_test-un\xc3\xafcode/deltest/man-all-there',
             swob.HTTPNoContent, {}, None)
         self.app.register(
-            'DELETE', '/v1/AUTH_test-un\xc3\xafcode/deltest/b_2',
+            'DELETE',
+            '/v1/AUTH_test-un\xc3\xafcode/\xe2\x98\x83/same-container',
             swob.HTTPNoContent, {}, None)
         self.app.register(
-            'DELETE', '/v1/AUTH_test-un\xc3\xafcode/deltest/c_3',
+            'DELETE', '/v1/AUTH_test-un\xc3\xafcode/\xe2\x98\x83/b_2',
+            swob.HTTPNoContent, {}, None)
+        self.app.register(
+            'DELETE', '/v1/AUTH_test-un\xc3\xafcode/\xe2\x98\x83/c_3',
             swob.HTTPNoContent, {}, None)
 
         self.app.register(
@@ -1330,12 +1358,11 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', ('/v1/AUTH_test/deltest/man-all-there'))]))
 
     def test_handle_multipart_delete_non_ascii(self):
-        if six.PY2:
-            acct = u'AUTH_test-un\u00efcode'.encode('utf-8')
-        else:
-            acct = str_to_wsgi(u'AUTH_test-un\u00efcode')
+        unicode_acct = u'AUTH_test-un\u00efcode'
+        wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
         req = Request.blank(
-            '/v1/%s/deltest/man-all-there?multipart-manifest=delete' % acct,
+            '/v1/%s/deltest/man-all-there?'
+            'multipart-manifest=delete' % wsgi_acct,
             environ={'REQUEST_METHOD': 'DELETE'})
         status, _, body = self.call_slo(req)
         self.assertEqual('200 OK', status)
@@ -1351,10 +1378,11 @@ class TestSloDeleteManifest(SloTestCase):
 
         self.assertEqual(set(self.app.calls), set([
             ('GET',
-             '/v1/%s/deltest/man-all-there?multipart-manifest=get' % acct),
-            ('DELETE', '/v1/%s/deltest/b_2' % acct),
-            ('DELETE', '/v1/%s/deltest/c_3' % acct),
-            ('DELETE', ('/v1/%s/deltest/man-all-there' % acct))]))
+             '/v1/%s/deltest/man-all-there'
+             '?multipart-manifest=get' % wsgi_acct),
+            ('DELETE', '/v1/%s/\xe2\x98\x83/b_2' % wsgi_acct),
+            ('DELETE', '/v1/%s/\xe2\x98\x83/c_3' % wsgi_acct),
+            ('DELETE', ('/v1/%s/deltest/man-all-there' % wsgi_acct))]))
 
     def test_handle_multipart_delete_nested(self):
         req = Request.blank(
@@ -1522,6 +1550,268 @@ class TestSloDeleteManifest(SloTestCase):
             ('DELETE', '/v1/AUTH_test/deltest/b_2'),
             ('DELETE', '/v1/AUTH_test/deltest/c_3'),
             ('DELETE', '/v1/AUTH_test/deltest/man-all-there')]))
+
+    def test_handle_async_delete_whole_404(self):
+        self.slo.allow_async_delete = True
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/man_404?async=t&multipart-manifest=delete',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'HTTP_ACCEPT': 'application/json'})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual('404 Not Found', status)
+        self.assertEqual(
+            self.app.calls,
+            [('GET',
+              '/v1/AUTH_test/deltest/man_404?multipart-manifest=get')])
+
+    def test_handle_async_delete_turned_off(self):
+        self.slo.allow_async_delete = False
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/man-all-there?'
+            'multipart-manifest=delete&async=on&heartbeat=on',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'Accept': 'application/json'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        resp_data = json.loads(body)
+        self.assertEqual(resp_data["Number Deleted"], 3)
+
+        self.assertEqual(set(self.app.calls), set([
+            ('GET',
+             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=get'),
+            ('DELETE', '/v1/AUTH_test/deltest/b_2'),
+            ('DELETE', '/v1/AUTH_test/deltest/c_3'),
+            ('DELETE', '/v1/AUTH_test/deltest/man-all-there')]))
+
+    def test_handle_async_delete_whole(self):
+        self.slo.allow_async_delete = True
+        now = Timestamp(time.time())
+        exp_obj_cont = get_expirer_container(
+            int(now), 86400, 'AUTH_test', 'deltest', 'man-all-there')
+        self.app.register(
+            'UPDATE', '/v1/.expiring_objects/%s' % exp_obj_cont,
+            swob.HTTPNoContent, {}, None)
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/man-all-there'
+            '?async=true&multipart-manifest=delete',
+            environ={'REQUEST_METHOD': 'DELETE'})
+        with patch('swift.common.utils.Timestamp.now', return_value=now):
+            status, headers, body = self.call_slo(req)
+        self.assertEqual('204 No Content', status)
+        self.assertEqual(b'', body)
+        self.assertEqual(self.app.calls, [
+            ('GET',
+             '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=get'),
+            ('UPDATE', '/v1/.expiring_objects/%s'
+                       '?async=true&multipart-manifest=delete' % exp_obj_cont),
+            ('DELETE', '/v1/AUTH_test/deltest/man-all-there'
+                       '?async=true&multipart-manifest=delete'),
+        ])
+
+        for header, expected in (
+            ('Content-Type', 'application/json'),
+            ('X-Backend-Storage-Policy-Index', '0'),
+            ('X-Backend-Allow-Private-Methods', 'True'),
+        ):
+            self.assertIn(header, self.app.calls_with_headers[1].headers)
+            value = self.app.calls_with_headers[1].headers[header]
+            msg = 'Expected %s header to be %r, not %r'
+            self.assertEqual(value, expected, msg % (header, expected, value))
+
+        self.assertEqual(json.loads(self.app.req_bodies[1]), [
+            {'content_type': 'application/async-deleted',
+             'created_at': now.internal,
+             'deleted': 0,
+             'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'name': '%s-AUTH_test/deltest/b_2' % now.internal,
+             'size': 0,
+             'storage_policy_index': 0},
+            {'content_type': 'application/async-deleted',
+             'created_at': now.internal,
+             'deleted': 0,
+             'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'name': '%s-AUTH_test/deltest/c_3' % now.internal,
+             'size': 0,
+             'storage_policy_index': 0},
+        ])
+
+    def test_handle_async_delete_non_ascii(self):
+        self.slo.allow_async_delete = True
+        unicode_acct = u'AUTH_test-un\u00efcode'
+        wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
+        now = Timestamp(time.time())
+        exp_obj_cont = get_expirer_container(
+            int(now), 86400, unicode_acct, 'deltest', 'man-all-there')
+        self.app.register(
+            'UPDATE', '/v1/.expiring_objects/%s' % exp_obj_cont,
+            swob.HTTPNoContent, {}, None)
+        authorize_calls = []
+
+        def authorize(req):
+            authorize_calls.append((req.method, req.acl))
+
+        req = Request.blank(
+            '/v1/%s/deltest/man-all-there?'
+            'async=1&multipart-manifest=delete&heartbeat=1' % wsgi_acct,
+            environ={'REQUEST_METHOD': 'DELETE', 'swift.authorize': authorize})
+        with patch('swift.common.utils.Timestamp.now', return_value=now):
+            status, _, body = self.call_slo(req)
+        # Every async delete should only need to make 3 requests during the
+        # client request/response cycle, so no need to support heart-beating
+        self.assertEqual('204 No Content', status)
+        self.assertEqual(b'', body)
+
+        self.assertEqual(self.app.calls, [
+            ('GET',
+             '/v1/%s/deltest/man-all-there?'
+             'multipart-manifest=get' % wsgi_acct),
+            ('HEAD', '/v1/%s' % wsgi_acct),
+            ('HEAD', '/v1/%s/deltest' % wsgi_acct),
+            ('HEAD', '/v1/%s/\xe2\x98\x83' % wsgi_acct),
+            ('UPDATE',
+             '/v1/.expiring_objects/%s'
+             '?async=1&heartbeat=1&multipart-manifest=delete' % exp_obj_cont),
+            ('DELETE',
+             '/v1/%s/deltest/man-all-there'
+             '?async=1&heartbeat=1&multipart-manifest=delete' % wsgi_acct),
+        ])
+        self.assertEqual(authorize_calls, [
+            ('GET', None),  # Original GET
+            ('DELETE', 'diff write'),
+            ('DELETE', 'same write'),
+            ('DELETE', None),  # Final DELETE
+        ])
+
+        for header, expected in (
+            ('Content-Type', 'application/json'),
+            ('X-Backend-Storage-Policy-Index', '0'),
+            ('X-Backend-Allow-Private-Methods', 'True'),
+        ):
+            self.assertIn(header, self.app.calls_with_headers[-2].headers)
+            value = self.app.calls_with_headers[-2].headers[header]
+            msg = 'Expected %s header to be %r, not %r'
+            self.assertEqual(value, expected, msg % (header, expected, value))
+
+        self.assertEqual(json.loads(self.app.req_bodies[-2]), [
+            {'content_type': 'application/async-deleted',
+             'created_at': now.internal,
+             'deleted': 0,
+             'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'name': u'%s-%s/\N{SNOWMAN}/b_2' % (now.internal, unicode_acct),
+             'size': 0,
+             'storage_policy_index': 0},
+            {'content_type': 'application/async-deleted',
+             'created_at': now.internal,
+             'deleted': 0,
+             'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'name': u'%s-%s/\N{SNOWMAN}/c_3' % (now.internal, unicode_acct),
+             'size': 0,
+             'storage_policy_index': 0},
+        ])
+
+    def test_handle_async_delete_non_ascii_same_container(self):
+        self.slo.allow_async_delete = True
+        unicode_acct = u'AUTH_test-un\u00efcode'
+        wsgi_acct = bytes_to_wsgi(unicode_acct.encode('utf-8'))
+        now = Timestamp(time.time())
+        exp_obj_cont = get_expirer_container(
+            int(now), 86400, unicode_acct, u'\N{SNOWMAN}', 'same-container')
+        self.app.register(
+            'UPDATE', '/v1/.expiring_objects/%s' % exp_obj_cont,
+            swob.HTTPNoContent, {}, None)
+        authorize_calls = []
+
+        def authorize(req):
+            authorize_calls.append((req.method, req.acl))
+
+        req = Request.blank(
+            '/v1/%s/\xe2\x98\x83/same-container?'
+            'async=yes&multipart-manifest=delete' % wsgi_acct,
+            environ={'REQUEST_METHOD': 'DELETE', 'swift.authorize': authorize})
+        with patch('swift.common.utils.Timestamp.now', return_value=now):
+            status, _, body = self.call_slo(req)
+        self.assertEqual('204 No Content', status)
+        self.assertEqual(b'', body)
+
+        self.assertEqual(self.app.calls, [
+            ('GET',
+             '/v1/%s/\xe2\x98\x83/same-container?'
+             'multipart-manifest=get' % wsgi_acct),
+            ('HEAD', '/v1/%s' % wsgi_acct),
+            ('HEAD', '/v1/%s/\xe2\x98\x83' % wsgi_acct),
+            ('UPDATE',
+             '/v1/.expiring_objects/%s'
+             '?async=yes&multipart-manifest=delete' % exp_obj_cont),
+            ('DELETE',
+             '/v1/%s/\xe2\x98\x83/same-container'
+             '?async=yes&multipart-manifest=delete' % wsgi_acct),
+        ])
+        self.assertEqual(authorize_calls, [
+            ('GET', None),  # Original GET
+            ('DELETE', 'same write'),  # Only need one auth check
+            ('DELETE', None),  # Final DELETE
+        ])
+
+        for header, expected in (
+            ('Content-Type', 'application/json'),
+            ('X-Backend-Storage-Policy-Index', '0'),
+            ('X-Backend-Allow-Private-Methods', 'True'),
+        ):
+            self.assertIn(header, self.app.calls_with_headers[-2].headers)
+            value = self.app.calls_with_headers[-2].headers[header]
+            msg = 'Expected %s header to be %r, not %r'
+            self.assertEqual(value, expected, msg % (header, expected, value))
+
+        self.assertEqual(json.loads(self.app.req_bodies[-2]), [
+            {'content_type': 'application/async-deleted',
+             'created_at': now.internal,
+             'deleted': 0,
+             'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'name': u'%s-%s/\N{SNOWMAN}/b_2' % (now.internal, unicode_acct),
+             'size': 0,
+             'storage_policy_index': 0},
+            {'content_type': 'application/async-deleted',
+             'created_at': now.internal,
+             'deleted': 0,
+             'etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'name': u'%s-%s/\N{SNOWMAN}/c_3' % (now.internal, unicode_acct),
+             'size': 0,
+             'storage_policy_index': 0},
+        ])
+
+    def test_handle_async_delete_nested(self):
+        self.slo.allow_async_delete = True
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/manifest-with-submanifest' +
+            '?async=on&multipart-manifest=delete',
+            environ={'REQUEST_METHOD': 'DELETE'})
+        status, _, body = self.call_slo(req)
+        self.assertEqual('400 Bad Request', status)
+        self.assertEqual(b'No segments may be large objects.', body)
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/AUTH_test/deltest/' +
+             'manifest-with-submanifest?multipart-manifest=get')])
+
+    def test_handle_async_delete_too_many_containers(self):
+        self.slo.allow_async_delete = True
+        self.app.register(
+            'GET', '/v1/AUTH_test/deltest/man',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true'},
+            json.dumps([{'name': '/cont1/a_1', 'hash': 'a', 'bytes': '1'},
+                        {'name': '/cont2/b_2', 'hash': 'b', 'bytes': '2'}]).
+            encode('ascii'))
+
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/man?async=on&multipart-manifest=delete',
+            environ={'REQUEST_METHOD': 'DELETE'})
+        status, _, body = self.call_slo(req)
+        self.assertEqual('400 Bad Request', status)
+        expected = b'All segments must be in one container. Found segments in '
+        self.assertEqual(expected, body[:len(expected)])
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/AUTH_test/deltest/man?multipart-manifest=get')])
 
 
 class TestSloHeadOldManifest(SloTestCase):
@@ -4215,6 +4505,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(swift_info['slo'].get('min_segment_size'), 1)
         self.assertEqual(swift_info['slo'].get('max_manifest_size'),
                          mware.max_manifest_size)
+        self.assertIs(swift_info['slo'].get('allow_async_delete'), False)
         self.assertEqual(1000, mware.max_manifest_segments)
         self.assertEqual(8388608, mware.max_manifest_size)
         self.assertEqual(1048576, mware.rate_limit_under_size)
@@ -4223,19 +4514,21 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(10, mware.yield_frequency)
         self.assertEqual(2, mware.concurrency)
         self.assertEqual(2, mware.bulk_deleter.delete_concurrency)
+        self.assertIs(False, mware.allow_async_delete)
 
     def test_registered_non_defaults(self):
         conf = dict(
             max_manifest_segments=500, max_manifest_size=1048576,
             rate_limit_under_size=2097152, rate_limit_after_segment=20,
             rate_limit_segments_per_sec=2, yield_frequency=5, concurrency=1,
-            delete_concurrency=3)
+            delete_concurrency=3, allow_async_delete='y')
         mware = slo.filter_factory(conf)('have to pass in an app')
         swift_info = utils.get_swift_info()
         self.assertTrue('slo' in swift_info)
         self.assertEqual(swift_info['slo'].get('max_manifest_segments'), 500)
         self.assertEqual(swift_info['slo'].get('min_segment_size'), 1)
         self.assertEqual(swift_info['slo'].get('max_manifest_size'), 1048576)
+        self.assertIs(swift_info['slo'].get('allow_async_delete'), True)
         self.assertEqual(500, mware.max_manifest_segments)
         self.assertEqual(1048576, mware.max_manifest_size)
         self.assertEqual(2097152, mware.rate_limit_under_size)
@@ -4244,6 +4537,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(5, mware.yield_frequency)
         self.assertEqual(1, mware.concurrency)
         self.assertEqual(3, mware.bulk_deleter.delete_concurrency)
+        self.assertIs(True, mware.allow_async_delete)
 
 
 if __name__ == '__main__':

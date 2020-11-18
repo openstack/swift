@@ -60,7 +60,7 @@ def make_delete_jobs(account, container, objects, timestamp):
             'name': build_task_obj(
                 timestamp, account, container,
                 obj.decode('utf8') if six.PY2 and isinstance(obj, str)
-                else obj),
+                else obj, high_precision=True),
             'deleted': 0,
             'created_at': timestamp.internal,
             'etag': MD5_OF_EMPTY_STRING,

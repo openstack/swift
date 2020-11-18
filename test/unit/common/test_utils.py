@@ -1216,8 +1216,56 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(
             utils.normalize_delete_at_timestamp('71253327593.67890'),
             '9999999999')
-        self.assertRaises(ValueError, utils.normalize_timestamp, '')
-        self.assertRaises(ValueError, utils.normalize_timestamp, 'abc')
+        with self.assertRaises(TypeError):
+            utils.normalize_delete_at_timestamp(None)
+        with self.assertRaises(ValueError):
+            utils.normalize_delete_at_timestamp('')
+        with self.assertRaises(ValueError):
+            utils.normalize_delete_at_timestamp('abc')
+
+    def test_normalize_delete_at_timestamp_high_precision(self):
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp(1253327593, True),
+            '1253327593.00000')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp(1253327593.67890, True),
+            '1253327593.67890')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp('1253327593', True),
+            '1253327593.00000')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp('1253327593.67890', True),
+            '1253327593.67890')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp(-1253327593, True),
+            '0000000000.00000')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp(-1253327593.67890, True),
+            '0000000000.00000')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp('-1253327593', True),
+            '0000000000.00000')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp('-1253327593.67890', True),
+            '0000000000.00000')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp(71253327593, True),
+            '9999999999.99999')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp(71253327593.67890, True),
+            '9999999999.99999')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp('71253327593', True),
+            '9999999999.99999')
+        self.assertEqual(
+            utils.normalize_delete_at_timestamp('71253327593.67890', True),
+            '9999999999.99999')
+        with self.assertRaises(TypeError):
+            utils.normalize_delete_at_timestamp(None, True)
+        with self.assertRaises(ValueError):
+            utils.normalize_delete_at_timestamp('', True)
+        with self.assertRaises(ValueError):
+            utils.normalize_delete_at_timestamp('abc', True)
 
     def test_last_modified_date_to_timestamp(self):
         expectations = {

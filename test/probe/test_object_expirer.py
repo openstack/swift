@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import random
 import time
 import uuid
@@ -337,6 +338,69 @@ class TestObjectExpirer(ReplProbeTest):
 
     def test_expirer_delete_returns_outdated_412(self):
         self._test_expirer_delete_outdated_object_version(object_exists=True)
+
+    def test_slo_async_delete(self):
+        if not self.cluster_info.get('slo', {}).get('allow_async_delete'):
+            raise unittest.SkipTest('allow_async_delete not enabled')
+
+        segment_container = self.container_name + '_segments'
+        client.put_container(self.url, self.token, self.container_name, {})
+        client.put_container(self.url, self.token, segment_container, {})
+        client.put_object(self.url, self.token,
+                          segment_container, 'segment_1', b'1234')
+        client.put_object(self.url, self.token,
+                          segment_container, 'segment_2', b'5678')
+        client.put_object(
+            self.url, self.token, self.container_name, 'slo', json.dumps([
+                {'path': segment_container + '/segment_1'},
+                {'data': 'Cg=='},
+                {'path': segment_container + '/segment_2'},
+            ]), query_string='multipart-manifest=put')
+        _, body = client.get_object(self.url, self.token,
+                                    self.container_name, 'slo')
+        self.assertEqual(body, b'1234\n5678')
+
+        client.delete_object(
+            self.url, self.token, self.container_name, 'slo',
+            query_string='multipart-manifest=delete&async=true')
+
+        # Object's deleted
+        _, objects = client.get_container(self.url, self.token,
+                                          self.container_name)
+        self.assertEqual(objects, [])
+        with self.assertRaises(client.ClientException) as caught:
+            client.get_object(self.url, self.token, self.container_name, 'slo')
+        self.assertEqual(404, caught.exception.http_status)
+
+        # But segments are still around and accessible
+        _, objects = client.get_container(self.url, self.token,
+                                          segment_container)
+        self.assertEqual([o['name'] for o in objects],
+                         ['segment_1', 'segment_2'])
+        _, body = client.get_object(self.url, self.token,
+                                    segment_container, 'segment_1')
+        self.assertEqual(body, b'1234')
+        _, body = client.get_object(self.url, self.token,
+                                    segment_container, 'segment_2')
+        self.assertEqual(body, b'5678')
+
+        # make sure auto-created expirer-queue containers get in the account
+        # listing so the expirer can find them
+        Manager(['container-updater']).once()
+        self.expirer.once()
+
+        # Now the expirer has cleaned up the segments
+        _, objects = client.get_container(self.url, self.token,
+                                          segment_container)
+        self.assertEqual(objects, [])
+        with self.assertRaises(client.ClientException) as caught:
+            client.get_object(self.url, self.token,
+                              segment_container, 'segment_1')
+        self.assertEqual(404, caught.exception.http_status)
+        with self.assertRaises(client.ClientException) as caught:
+            client.get_object(self.url, self.token,
+                              segment_container, 'segment_2')
+        self.assertEqual(404, caught.exception.http_status)
 
 
 if __name__ == "__main__":

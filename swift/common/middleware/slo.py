@@ -290,6 +290,16 @@ A ``DELETE`` with a query parameter::
 will delete all the segments referenced in the manifest and then the manifest
 itself. The failure response will be similar to the bulk delete middleware.
 
+A ``DELETE`` with the query parameters::
+
+    ?multipart-manifest=delete&async=yes
+
+will schedule all the segments referenced in the manifest to be deleted
+asynchronously and then delete the manifest itself. Note that segments will
+continue to appear in listings and be counted for quotas until they are
+cleaned up by the object-expirer. This option is only available when all
+segments are in the same container and none of them are nested SLOs.
+
 ------------------------
 Modifying a Large Object
 ------------------------
@@ -324,6 +334,7 @@ from hashlib import md5
 
 import six
 
+from swift.cli.container_deleter import make_delete_jobs
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware.listing_formats import \
     MAX_CONTAINER_LISTING_CONTENT_LENGTH
@@ -332,20 +343,22 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
     HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, \
     HTTPServiceUnavailable, Response, Range, normalize_etag, \
-    RESPONSE_REASONS, str_to_wsgi, wsgi_to_str, wsgi_quote
+    RESPONSE_REASONS, str_to_wsgi, bytes_to_wsgi, wsgi_to_str, wsgi_quote
 from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
     closing_if_possible, LRUCache, StreamingPile, strict_b64decode, \
-    Timestamp
+    Timestamp, drain_and_close, get_expirer_container
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
     get_container_update_override_key, update_ignore_range_header
-from swift.common.constraints import check_utf8
+from swift.common.constraints import check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
-from swift.common.wsgi import WSGIContext, make_subrequest
+from swift.common.wsgi import WSGIContext, make_subrequest, make_env, \
+    make_pre_authed_request
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
+from swift.proxy.controllers.base import get_container_info
 
 
 DEFAULT_RATE_LIMIT_UNDER_SIZE = 1024 ** 2  # 1 MiB
@@ -1086,13 +1099,15 @@ class StaticLargeObject(object):
     def __init__(self, app, conf,
                  max_manifest_segments=DEFAULT_MAX_MANIFEST_SEGMENTS,
                  max_manifest_size=DEFAULT_MAX_MANIFEST_SIZE,
-                 yield_frequency=DEFAULT_YIELD_FREQUENCY):
+                 yield_frequency=DEFAULT_YIELD_FREQUENCY,
+                 allow_async_delete=False):
         self.conf = conf
         self.app = app
         self.logger = get_logger(conf, log_route='slo')
         self.max_manifest_segments = max_manifest_segments
         self.max_manifest_size = max_manifest_size
         self.yield_frequency = yield_frequency
+        self.allow_async_delete = allow_async_delete
         self.max_get_time = int(self.conf.get('max_get_time', 86400))
         self.rate_limit_under_size = int(self.conf.get(
             'rate_limit_under_size', DEFAULT_RATE_LIMIT_UNDER_SIZE))
@@ -1109,6 +1124,17 @@ class StaticLargeObject(object):
             max_deletes_per_request=float('inf'),
             delete_concurrency=delete_concurrency,
             logger=self.logger)
+
+        # Need to know how to expire things to do async deletes
+        if conf.get('auto_create_account_prefix'):
+            # proxy app will log about how this should get moved to swift.conf
+            prefix = conf['auto_create_account_prefix']
+        else:
+            prefix = AUTO_CREATE_ACCOUNT_PREFIX
+        self.expiring_objects_account = prefix + (
+            conf.get('expiring_objects_account_name') or 'expiring_objects')
+        self.expiring_objects_container_divisor = int(
+            conf.get('expiring_objects_container_divisor', 86400))
 
     def handle_multipart_get_or_head(self, req, start_response):
         """
@@ -1511,6 +1537,83 @@ class StaticLargeObject(object):
         else:
             raise HTTPServerError('Unable to load SLO manifest or segment.')
 
+    def handle_async_delete(self, req):
+        if not check_utf8(wsgi_to_str(req.path_info)):
+            raise HTTPPreconditionFailed(
+                request=req, body='Invalid UTF8 or contains NULL')
+        vrs, account, container, obj = req.split_path(4, 4, True)
+        if six.PY2:
+            obj_path = ('/%s/%s' % (container, obj)).decode('utf-8')
+        else:
+            obj_path = '/%s/%s' % (wsgi_to_str(container), wsgi_to_str(obj))
+        segments = [seg for seg in self.get_slo_segments(obj_path, req)
+                    if 'data' not in seg]
+        if not segments:
+            # Degenerate case: just delete the manifest
+            return self.app
+
+        segment_containers, segment_objects = zip(*(
+            split_path(seg['name'], 2, 2, True) for seg in segments))
+        segment_containers = set(segment_containers)
+        if len(segment_containers) > 1:
+            container_csv = ', '.join(
+                '"%s"' % quote(c) for c in segment_containers)
+            raise HTTPBadRequest('All segments must be in one container. '
+                                 'Found segments in %s' % container_csv)
+        if any(seg.get('sub_slo') for seg in segments):
+            raise HTTPBadRequest('No segments may be large objects.')
+
+        # Auth checks
+        segment_container = segment_containers.pop()
+        if 'swift.authorize' in req.environ:
+            container_info = get_container_info(
+                req.environ, self.app, swift_source='SLO')
+            req.acl = container_info.get('write_acl')
+            aresp = req.environ['swift.authorize'](req)
+            req.acl = None
+            if aresp:
+                return aresp
+
+            if bytes_to_wsgi(segment_container.encode('utf-8')) != container:
+                path = '/%s/%s/%s' % (vrs, account, bytes_to_wsgi(
+                    segment_container.encode('utf-8')))
+                seg_container_info = get_container_info(
+                    make_env(req.environ, path=path, swift_source='SLO'),
+                    self.app, swift_source='SLO')
+                req.acl = seg_container_info.get('write_acl')
+                aresp = req.environ['swift.authorize'](req)
+                req.acl = None
+                if aresp:
+                    return aresp
+
+        # Did our sanity checks; schedule segments to be deleted
+        ts = req.ensure_x_timestamp()
+        expirer_jobs = make_delete_jobs(
+            wsgi_to_str(account), segment_container, segment_objects, ts)
+        expirer_cont = get_expirer_container(
+            ts, self.expiring_objects_container_divisor,
+            wsgi_to_str(account), wsgi_to_str(container), wsgi_to_str(obj))
+        enqueue_req = make_pre_authed_request(
+            req.environ,
+            method='UPDATE',
+            path="/v1/%s/%s" % (self.expiring_objects_account, expirer_cont),
+            body=json.dumps(expirer_jobs),
+            headers={'Content-Type': 'application/json',
+                     'X-Backend-Storage-Policy-Index': '0',
+                     'X-Backend-Allow-Private-Methods': 'True'},
+        )
+        resp = enqueue_req.get_response(self.app)
+        if not resp.is_success:
+            self.logger.error(
+                'Failed to enqueue expiration entries: %s\n%s',
+                resp.status, resp.body)
+            return HTTPServiceUnavailable()
+        # consume the response (should be short)
+        drain_and_close(resp)
+
+        # Finally, delete the manifest
+        return self.app
+
     def handle_multipart_delete(self, req):
         """
         Will delete all the segments in the SLO manifest and then, if
@@ -1519,6 +1622,10 @@ class StaticLargeObject(object):
         :param req: a :class:`~swift.common.swob.Request` with an obj in path
         :returns: swob.Response whose app_iter set to Bulk.handle_delete_iter
         """
+        if self.allow_async_delete and config_true_value(
+                req.params.get('async')):
+            return self.handle_async_delete(req)
+
         req.headers['Content-Type'] = None  # Ignore content-type from client
         resp = HTTPOk(request=req)
         try:
@@ -1609,6 +1716,8 @@ def filter_factory(global_conf, **local_conf):
                                      DEFAULT_MAX_MANIFEST_SIZE))
     yield_frequency = int(conf.get('yield_frequency',
                                    DEFAULT_YIELD_FREQUENCY))
+    allow_async_delete = config_true_value(conf.get('allow_async_delete',
+                                                    'false'))
 
     register_swift_info('slo',
                         max_manifest_segments=max_manifest_segments,
@@ -1616,12 +1725,14 @@ def filter_factory(global_conf, **local_conf):
                         yield_frequency=yield_frequency,
                         # this used to be configurable; report it as 1 for
                         # clients that might still care
-                        min_segment_size=1)
+                        min_segment_size=1,
+                        allow_async_delete=allow_async_delete)
 
     def slo_filter(app):
         return StaticLargeObject(
             app, conf,
             max_manifest_segments=max_manifest_segments,
             max_manifest_size=max_manifest_size,
-            yield_frequency=yield_frequency)
+            yield_frequency=yield_frequency,
+            allow_async_delete=allow_async_delete)
     return slo_filter

@@ -75,10 +75,12 @@ class FakeSwift(object):
     A good-enough fake Swift proxy server to use in testing middleware.
     """
     ALLOWED_METHODS = [
-        'PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'REPLICATE']
+        'PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'REPLICATE',
+        'UPDATE']
 
     def __init__(self):
         self._calls = []
+        self.req_bodies = []
         self._unclosed_req_keys = defaultdict(int)
         self._unread_req_paths = defaultdict(int)
         self.req_method_paths = []
@@ -146,19 +148,23 @@ class FakeSwift(object):
                 raise KeyError("Didn't find %r in allowed responses" % (
                     (method, path),))
 
+        req_body = None  # generally, we don't care and let eventlet discard()
+        if (cont and not obj and method == 'UPDATE') or (
+                obj and method == 'PUT'):
+            req_body = b''.join(iter(env['wsgi.input'].read, b''))
+
         # simulate object PUT
         if method == 'PUT' and obj:
-            put_body = b''.join(iter(env['wsgi.input'].read, b''))
             if 'swift.callback.update_footers' in env:
                 footers = HeaderKeyDict()
                 env['swift.callback.update_footers'](footers)
                 req.headers.update(footers)
-            etag = md5(put_body).hexdigest()
+            etag = md5(req_body).hexdigest()
             headers.setdefault('Etag', etag)
-            headers.setdefault('Content-Length', len(put_body))
+            headers.setdefault('Content-Length', len(req_body))
 
             # keep it for subsequent GET requests later
-            self.uploaded[path] = (dict(req.headers), put_body)
+            self.uploaded[path] = (dict(req.headers), req_body)
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
 
@@ -186,6 +192,7 @@ class FakeSwift(object):
         # so we deliberately use a HeaderKeyDict
         self._calls.append(
             FakeSwiftCall(method, path, HeaderKeyDict(req.headers)))
+        self.req_bodies.append(req_body)
 
         # Apply conditional etag overrides
         conditional_etag = resolve_etag_is_at_header(req, headers)

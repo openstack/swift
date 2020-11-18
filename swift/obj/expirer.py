@@ -42,14 +42,14 @@ ASYNC_DELETE_TYPE = 'application/async-deleted'
 
 
 def build_task_obj(timestamp, target_account, target_container,
-                   target_obj):
+                   target_obj, high_precision=False):
     """
     :return: a task object name in format of
              "<timestamp>-<target_account>/<target_container>/<target_obj>"
     """
     timestamp = Timestamp(timestamp)
     return '%s-%s/%s/%s' % (
-        normalize_delete_at_timestamp(timestamp),
+        normalize_delete_at_timestamp(timestamp, high_precision),
         target_account, target_container, target_obj)
 
 

@@ -1508,15 +1508,16 @@ def last_modified_date_to_timestamp(last_modified_date_str):
     return Timestamp(delta.total_seconds())
 
 
-def normalize_delete_at_timestamp(timestamp):
+def normalize_delete_at_timestamp(timestamp, high_precision=False):
     """
     Format a timestamp (string or numeric) into a standardized
-    xxxxxxxxxx (10) format.
+    xxxxxxxxxx (10) or xxxxxxxxxx.xxxxx (10.5) format.
 
     Note that timestamps less than 0000000000 are raised to
     0000000000 and values greater than November 20th, 2286 at
     17:46:39 UTC will be capped at that date and time, resulting in
-    no return value exceeding 9999999999.
+    no return value exceeding 9999999999.99999 (or 9999999999 if
+    using low-precision).
 
     This cap is because the expirer is already working through a
     sorted list of strings that were all a length of 10. Adding
@@ -1528,7 +1529,8 @@ def normalize_delete_at_timestamp(timestamp):
     :param timestamp: unix timestamp
     :returns: normalized timestamp as a string
     """
-    return '%010d' % min(max(0, float(timestamp)), 9999999999)
+    fmt = '%016.5f' if high_precision else '%010d'
+    return fmt % min(max(0, float(timestamp)), 9999999999.99999)
 
 
 def mkdirs(path):
@@ -4428,7 +4430,7 @@ def quote(value, safe='/'):
 def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
     """
     Returns an expiring object container name for given X-Delete-At and
-    a/c/o.
+    (native string) a/c/o.
     """
     shard_int = int(hash_path(acc, cont, obj), 16) % 100
     return normalize_delete_at_timestamp(

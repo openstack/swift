@@ -1535,6 +1535,41 @@ class TestS3ApiObj(S3ApiTestCase):
             key, arg = q.split('=')
             query[key] = arg
         self.assertEqual(query['multipart-manifest'], 'delete')
+        # HEAD did not indicate that it was an S3 MPU, so no async delete
+        self.assertNotIn('async', query)
+        self.assertNotIn('Content-Type', headers)
+
+    @s3acl
+    def test_slo_object_async_DELETE(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk,
+                            {'x-static-large-object': 'True',
+                             'x-object-sysmeta-s3api-etag': 's3-style-etag'},
+                            None)
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk, {}, '<SLO delete results>')
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-Type': 'foo/bar'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '204')
+        self.assertEqual(body, b'')
+
+        self.assertIn(('HEAD', '/v1/AUTH_test/bucket/object?symlink=get'),
+                      self.swift.calls)
+        self.assertIn(('DELETE', '/v1/AUTH_test/bucket/object'
+                                 '?async=on&multipart-manifest=delete'),
+                      self.swift.calls)
+        _, path, headers = self.swift.calls_with_headers[-1]
+        path, query_string = path.split('?', 1)
+        query = {}
+        for q in query_string.split('&'):
+            key, arg = q.split('=')
+            query[key] = arg
+        self.assertEqual(query['multipart-manifest'], 'delete')
+        self.assertEqual(query['async'], 'on')
         self.assertNotIn('Content-Type', headers)
 
     def _test_object_for_s3acl(self, method, account):

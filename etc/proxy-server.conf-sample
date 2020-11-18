@@ -1041,6 +1041,13 @@ use = egg:swift#slo
 # clients may request that Swift send whitespace ahead of the final response
 # body. This whitespace will be yielded at most every yield_frequency seconds.
 # yield_frequency = 10
+#
+# Since SLOs may have thousands of segments, clients may request that the
+# object-expirer handle the deletion of segments using query params like
+# `?multipart-manifest=delete&async=on`. You may want to keep this off if it
+# negatively impacts your expirers; in that case, the deletes will still
+# be done as part of the client request.
+# allow_async_delete = false
 
 # Note: Put after auth and staticweb in the pipeline.
 # If you don't put it in the pipeline, it will be inserted for you.
