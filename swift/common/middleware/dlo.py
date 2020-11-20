@@ -126,7 +126,7 @@ from hashlib import md5
 from swift.common import constraints
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
-from swift.common.swob import Request, Response, \
+from swift.common.swob import Request, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, HTTPBadRequest, HTTPConflict, \
     str_to_wsgi, wsgi_to_str, wsgi_quote, wsgi_unquote, normalize_etag
 from swift.common.utils import get_logger, \
@@ -355,6 +355,8 @@ class GetContext(WSGIContext):
 
             try:
                 app_iter.validate_first_segment()
+            except HTTPException as err_resp:
+                return err_resp
             except (SegmentError, ListingIterError):
                 return HTTPConflict(request=req)
 

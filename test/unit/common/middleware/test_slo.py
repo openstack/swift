@@ -3839,6 +3839,32 @@ class TestSloGetManifest(SloTestCase):
             'gettest/not_exists_obj'
         ])
 
+    def test_first_segment_not_available(self):
+        self.app.register('GET', '/v1/AUTH_test/gettest/not_avail_obj',
+                          swob.HTTPServiceUnavailable, {}, None)
+        self.app.register('GET', '/v1/AUTH_test/gettest/manifest-not-avail',
+                          swob.HTTPOk, {'Content-Type': 'application/json',
+                                        'X-Static-Large-Object': 'true'},
+                          json.dumps([{'name': '/gettest/not_avail_obj',
+                                       'hash': md5hex('not_avail_obj'),
+                                       'content_type': 'text/plain',
+                                       'bytes': '%d' % len('not_avail_obj')
+                                       }]))
+
+        req = Request.blank('/v1/AUTH_test/gettest/manifest-not-avail',
+                            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('503 Service Unavailable', status)
+        self.assertEqual(self.app.unread_requests, {})
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'While processing manifest /v1/AUTH_test/gettest/'
+            'manifest-not-avail, got 503 (<html><h1>Service Unavailable</h1>'
+            '<p>The server is curren...) while retrieving /v1/AUTH_test/'
+            'gettest/not_avail_obj'
+        ])
+        self.assertIn(b'Service Unavailable', body)
+
     def test_leading_data_segment(self):
         slo_etag = md5hex(
             md5hex('preamble') +
