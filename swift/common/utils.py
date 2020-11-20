@@ -4537,7 +4537,7 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
 
     if got.strip() != boundary:
         raise swift.common.exceptions.MimeInvalid(
-            'invalid starting boundary: wanted %r, got %r', (boundary, got))
+            'invalid starting boundary: wanted %r, got %r' % (boundary, got))
     boundary = b'\r\n' + boundary
     input_buffer = b''
     done = False
@@ -5515,7 +5515,7 @@ def o_tmpfile_in_path_supported(dirpath):
             return False
         else:
             raise Exception("Error on '%(path)s' while checking "
-                            "O_TMPFILE: '%(ex)s'",
+                            "O_TMPFILE: '%(ex)s'" %
                             {'path': dirpath, 'ex': e})
     finally:
         if fd is not None:
