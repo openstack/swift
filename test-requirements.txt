@@ -12,7 +12,6 @@ os-testr>=0.8.0 # Apache-2.0
 mock>=2.0 # BSD
 python-swiftclient>=3.2.0
 python-keystoneclient!=2.1.0,>=2.0.0 # Apache-2.0
-python-openstackclient>=3.12.0
 boto>=2.32.1
 boto3>=1.9
 botocore>=1.12

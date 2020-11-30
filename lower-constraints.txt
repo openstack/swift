@@ -62,7 +62,6 @@ python-keystoneclient==2.0.0
 python-mimeparse==1.6.0
 python-subunit==1.2.0
 python-swiftclient==3.2.0
-python-openstackclient==3.12.0
 pytz==2018.3
 PyYAML==3.12
 requests==2.14.2

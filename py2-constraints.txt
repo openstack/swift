@@ -70,3 +70,4 @@ greenlet===0.4.15
 oslo.utils===3.42.1
 gitdb===0.6.4
 gitdb2===2.0.6
+python-keystoneclient===3.22.0
