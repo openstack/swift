@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import collections
 import errno
 import json
 import time
@@ -337,6 +337,106 @@ def process_compactible_shard_sequences(broker, sequences):
             acceptor.state_timestamp = timestamp
         acceptor_ranges.append(acceptor)
     finalize_shrinking(broker, acceptor_ranges, shrinking_ranges, timestamp)
+
+
+def find_paths(shard_ranges):
+    """
+    Returns a list of all continuous paths through the shard ranges. An
+    individual path may not necessarily span the entire namespace, but it will
+    span a continuous namespace without gaps.
+
+    :param shard_ranges: A list of :class:`~swift.common.utils.ShardRange`.
+    :return: A list of :class:`~swift.common.utils.ShardRangeList`.
+    """
+    # A node is a point in the namespace that is used as a bound of any shard
+    # range. Shard ranges form the edges between nodes.
+
+    # First build a dict mapping nodes to a list of edges that leave that node
+    # (in other words, shard ranges whose lower bound equals the node)
+    node_successors = collections.defaultdict(list)
+    for shard_range in shard_ranges:
+        if shard_range.state == ShardRange.SHRINKING:
+            # shrinking shards are not a viable edge in any path
+            continue
+        node_successors[shard_range.lower].append(shard_range)
+
+    paths = []
+
+    def clone_path(other=None):
+        # create a new path, possibly cloning another path, and add it to the
+        # list of all paths through the shards
+        path = ShardRangeList() if other is None else ShardRangeList(other)
+        paths.append(path)
+        return path
+
+    # we need to keep track of every path that ends at each node so that when
+    # we visit the node we can extend those paths, or clones of them, with the
+    # edges that leave the node
+    paths_to_node = collections.defaultdict(list)
+
+    # visit the nodes in ascending order by name...
+    for node, edges in sorted(node_successors.items()):
+        if not edges:
+            # this node is a dead-end, so there's no path updates to make
+            continue
+        if not paths_to_node[node]:
+            # this is either the first node to be visited, or it has no paths
+            # leading to it, so we need to start a new path here
+            paths_to_node[node].append(clone_path([]))
+        for path_to_node in paths_to_node[node]:
+            # extend each path that arrives at this node with all of the
+            # possible edges that leave the node; if more than edge leaves the
+            # node then we will make clones of the path to the node and extend
+            # those clones, adding to the collection of all paths though the
+            # shards
+            for i, edge in enumerate(edges):
+                if i == len(edges) - 1:
+                    # the last edge is used to extend the original path to the
+                    # node; there is nothing special about the last edge, but
+                    # doing this last means the original path to the node can
+                    # be cloned for all other edges before being modified here
+                    path = path_to_node
+                else:
+                    # for all but one of the edges leaving the node we need to
+                    # make a clone the original path
+                    path = clone_path(path_to_node)
+                # extend the path with the edge
+                path.append(edge)
+                # keep track of which node this path now arrives at
+                paths_to_node[edge.upper].append(path)
+    return paths
+
+
+def rank_paths(paths, shard_range_to_span):
+    """
+    Sorts the given list of paths such that the most preferred path is the
+    first item in the list.
+
+    :param paths: A list of :class:`~swift.common.utils.ShardRangeList`.
+    :param shard_range_to_span: An instance of
+        :class:`~swift.common.utils.ShardRange` that describes the namespace
+        that would ideally be spanned by a path. Paths that include this
+        namespace will be preferred over those that do not.
+    :return: A sorted list of :class:`~swift.common.utils.ShardRangeList`.
+    """
+    def sort_key(path):
+        # defines the order of preference for paths through shards
+        return (
+            # complete path for the namespace
+            path.includes(shard_range_to_span),
+            # most cleaving progress
+            path.find_lower(lambda sr: sr.state not in (
+                ShardRange.CLEAVED, ShardRange.ACTIVE)),
+            # largest object count
+            path.object_count,
+            # fewest timestamps
+            -1 * len(path.timestamps),
+            # newest timestamp
+            sorted(path.timestamps)[-1]
+        )
+
+    paths.sort(key=sort_key, reverse=True)
+    return paths
 
 
 class CleavingContext(object):

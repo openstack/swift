@@ -39,7 +39,7 @@ from swift.container.backend import ContainerBroker, \
 from swift.common.db import DatabaseAlreadyExists, GreenDBConnection
 from swift.common.request_helpers import get_reserved_name
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
-    ShardRange, make_db_file_path, md5
+    ShardRange, make_db_file_path, md5, ShardRangeList
 from swift.common.storage_policy import POLICIES
 
 import mock
@@ -4811,7 +4811,7 @@ class TestContainerBroker(unittest.TestCase):
 
     @with_tempdir
     def test_merge_shard_ranges(self, tempdir):
-        ts = [next(self.ts) for _ in range(13)]
+        ts = [next(self.ts) for _ in range(14)]
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(
@@ -4906,6 +4906,15 @@ class TestContainerBroker(unittest.TestCase):
         broker.merge_shard_ranges([sr_c_10_10_deleted, sr_c_9_12])
         self._assert_shard_ranges(
             broker, [sr_b_2_2_deleted, sr_c_10_10_deleted])
+
+        # merge a ShardRangeList
+        sr_b_13 = ShardRange('a/c_b', ts[13], lower='a', upper='b',
+                             object_count=10, meta_timestamp=ts[13])
+        sr_c_13 = ShardRange('a/c_c', ts[13], lower='b', upper='c',
+                             object_count=10, meta_timestamp=ts[13])
+        broker.merge_shard_ranges(ShardRangeList([sr_c_13, sr_b_13]))
+        self._assert_shard_ranges(
+            broker, [sr_b_13, sr_c_13])
 
     @with_tempdir
     def test_merge_shard_ranges_state(self, tempdir):

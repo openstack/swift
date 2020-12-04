@@ -27,11 +27,12 @@ from swift.common import utils
 from swift.common.utils import Timestamp, ShardRange
 from swift.container.backend import ContainerBroker
 from swift.container.sharder import make_shard_ranges
-from test.unit import mock_timestamp_now
+from test.unit import mock_timestamp_now, make_timestamp_iter, with_tempdir
 
 
 class TestManageShardRanges(unittest.TestCase):
     def setUp(self):
+        self.ts_iter = make_timestamp_iter()
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_cli_find_shards')
         utils.mkdirs(self.testdir)
         rmtree(self.testdir)
@@ -58,8 +59,39 @@ class TestManageShardRanges(unittest.TestCase):
              'object_count': 10},
         ]
 
+        self.overlap_shard_data_1 = [
+            {'index': 0, 'lower': '', 'upper': 'obj10', 'object_count': 1},
+            {'index': 1, 'lower': 'obj10', 'upper': 'obj20',
+             'object_count': 1},
+            {'index': 2, 'lower': 'obj20', 'upper': 'obj30',
+             'object_count': 1},
+            {'index': 3, 'lower': 'obj30', 'upper': 'obj39',
+             'object_count': 1},
+            {'index': 4, 'lower': 'obj39', 'upper': 'obj49',
+             'object_count': 1},
+            {'index': 5, 'lower': 'obj49', 'upper': 'obj58',
+             'object_count': 1},
+            {'index': 6, 'lower': 'obj58', 'upper': 'obj68',
+             'object_count': 1},
+            {'index': 7, 'lower': 'obj68', 'upper': 'obj78',
+             'object_count': 1},
+            {'index': 8, 'lower': 'obj78', 'upper': 'obj88',
+             'object_count': 1},
+            {'index': 9, 'lower': 'obj88', 'upper': '', 'object_count': 1},
+        ]
+
+        self.overlap_shard_data_2 = [
+            {'index': 0, 'lower': '', 'upper': 'obj11', 'object_count': 1},
+            {'index': 1, 'lower': 'obj11', 'upper': 'obj21',
+             'object_count': 1},
+        ]
+
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir))
+
+    def assert_shard_ranges_equal(self, expected, actual):
+        self.assertEqual([dict(sr) for sr in expected],
+                         [dict(sr) for sr in actual])
 
     def assert_starts_with(self, value, prefix):
         self.assertTrue(value.startswith(prefix),
@@ -117,10 +149,11 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('swift.cli.manage_shard_ranges.find_ranges') as mocked:
             main([db_file, 'find'])
         expected = Namespace(conf_file=None,
-                             container_db=mock.ANY,
+                             path_to_file=mock.ANY,
                              func=mock.ANY,
                              rows_per_shard=500000,
                              subcommand='find',
+                             force_commits=False,
                              verbose=0)
         mocked.assert_called_once_with(mock.ANY, expected)
 
@@ -128,10 +161,11 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('swift.cli.manage_shard_ranges.find_ranges') as mocked:
             main([db_file, '--config', conf_file, 'find'])
         expected = Namespace(conf_file=conf_file,
-                             container_db=mock.ANY,
+                             path_to_file=mock.ANY,
                              func=mock.ANY,
                              rows_per_shard=500,
                              subcommand='find',
+                             force_commits=False,
                              verbose=0)
         mocked.assert_called_once_with(mock.ANY, expected)
 
@@ -139,10 +173,11 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('swift.cli.manage_shard_ranges.find_ranges') as mocked:
             main([db_file, '--config', conf_file, 'find', '12345'])
         expected = Namespace(conf_file=conf_file,
-                             container_db=mock.ANY,
+                             path_to_file=mock.ANY,
                              func=mock.ANY,
                              rows_per_shard=12345,
                              subcommand='find',
+                             force_commits=False,
                              verbose=0)
         mocked.assert_called_once_with(mock.ANY, expected)
 
@@ -151,9 +186,10 @@ class TestManageShardRanges(unittest.TestCase):
                 as mocked:
             main([db_file, 'compact'])
         expected = Namespace(conf_file=None,
-                             container_db=mock.ANY,
+                             path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
+                             force_commits=False,
                              verbose=0,
                              max_expanding=-1,
                              max_shrinking=1,
@@ -167,9 +203,10 @@ class TestManageShardRanges(unittest.TestCase):
                 as mocked:
             main([db_file, '--config', conf_file, 'compact'])
         expected = Namespace(conf_file=conf_file,
-                             container_db=mock.ANY,
+                             path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
+                             force_commits=False,
                              verbose=0,
                              max_expanding=31,
                              max_shrinking=33,
@@ -197,9 +234,10 @@ class TestManageShardRanges(unittest.TestCase):
                 as mocked:
             main([db_file, '--config', conf_file, 'compact'])
         expected = Namespace(conf_file=conf_file,
-                             container_db=mock.ANY,
+                             path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
+                             force_commits=False,
                              verbose=0,
                              max_expanding=31,
                              max_shrinking=33,
@@ -217,9 +255,10 @@ class TestManageShardRanges(unittest.TestCase):
                   '--expansion-limit', '3456',
                   '--shrink-threshold', '1234'])
         expected = Namespace(conf_file=conf_file,
-                             container_db=mock.ANY,
+                             path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
+                             force_commits=False,
                              verbose=0,
                              max_expanding=11,
                              max_shrinking=22,
@@ -344,7 +383,7 @@ class TestManageShardRanges(unittest.TestCase):
                     'Metadata:',
                     '  X-Container-Sysmeta-Sharding = True']
         self.assertEqual(expected, out.getvalue().splitlines())
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
 
         retiring_db_id = broker.get_info()['id']
@@ -391,7 +430,7 @@ class TestManageShardRanges(unittest.TestCase):
         # The json.dumps() in py2 produces trailing space, not in py3.
         result = [x.rstrip() for x in out.getvalue().splitlines()]
         self.assertEqual(expected, result)
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
 
         self.assertTrue(broker.set_sharded_state())
@@ -420,7 +459,7 @@ class TestManageShardRanges(unittest.TestCase):
                     '  X-Container-Sysmeta-Sharding = True']
         self.assertEqual(expected,
                          [x.rstrip() for x in out.getvalue().splitlines()])
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
 
     def test_show(self):
@@ -430,7 +469,7 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             main([broker.db_file, 'show'])
         expected = [
-            'Loaded db broker for a/c.',
+            'Loaded db broker for a/c',
             'No shard data found.',
         ]
         self.assertEqual(expected, err.getvalue().splitlines())
@@ -447,7 +486,7 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             main([broker.db_file, 'show'])
         expected = [
-            'Loaded db broker for a/c.',
+            'Loaded db broker for a/c',
             'Existing shard ranges:',
         ]
         self.assertEqual(expected, err.getvalue().splitlines())
@@ -458,7 +497,7 @@ class TestManageShardRanges(unittest.TestCase):
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
             main([broker.db_file, 'show', '--includes', 'foo'])
         expected = [
-            'Loaded db broker for a/c.',
+            'Loaded db broker for a/c',
             'Existing shard ranges:',
         ]
         self.assertEqual(expected, err.getvalue().splitlines())
@@ -481,7 +520,7 @@ class TestManageShardRanges(unittest.TestCase):
             'Run container-replicator to replicate them to other nodes.',
             'Use the enable sub-command to enable sharding.']
         self.assertEqual(expected, out.getvalue().splitlines())
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
         self.assertEqual(
             [(data['lower'], data['upper']) for data in self.shard_data],
@@ -509,7 +548,7 @@ class TestManageShardRanges(unittest.TestCase):
         expected = ["WARNING: invalid shard ranges: ['No shard ranges.'].",
                     'Aborting.']
         self.assertEqual(expected, out.getvalue().splitlines())
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
 
         # success
@@ -531,7 +570,7 @@ class TestManageShardRanges(unittest.TestCase):
             now.internal,
             'Run container-sharder on all nodes to shard the container.']
         self.assertEqual(expected, out.getvalue().splitlines())
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
         self._assert_enabled(broker, now)
 
@@ -546,7 +585,7 @@ class TestManageShardRanges(unittest.TestCase):
             'No action required.',
             'Run container-sharder on all nodes to shard the container.']
         self.assertEqual(expected, out.getvalue().splitlines())
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
         self._assert_enabled(broker, now)
 
@@ -576,7 +615,7 @@ class TestManageShardRanges(unittest.TestCase):
             now.internal,
             'Run container-sharder on all nodes to shard the container.']
         self.assertEqual(expected, out.getvalue().splitlines())
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
         self._assert_enabled(broker, now)
         found_shard_ranges = broker.get_shard_ranges()
@@ -597,7 +636,7 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(found_shard_ranges, broker.get_shard_ranges())
         expected = ['This will delete existing 10 shard ranges.']
         self.assertEqual(expected, out.getvalue().splitlines())
-        self.assertEqual(['Loaded db broker for a/c.'],
+        self.assertEqual(['Loaded db broker for a/c'],
                          err.getvalue().splitlines())
 
     def test_compact_bad_args(self):
@@ -710,7 +749,7 @@ class TestManageShardRanges(unittest.TestCase):
                          [sr.state for sr in updated_ranges])
 
     def test_compact_user_input(self):
-        # verify user input 'y' or 'n' is respected
+        # verify user input 'yes' or 'n' is respected
         small_ranges = (3, 4, 7)
         broker = self._make_broker()
         shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
@@ -757,7 +796,7 @@ class TestManageShardRanges(unittest.TestCase):
                 'Once applied to the broker these changes will result in '
                 'shard range compaction the next time the sharder runs.',
             ]
-            if user_input == 'y':
+            if user_input == 'yes':
                 expected.extend([
                     'Updated 2 shard sequences for compaction.',
                     'Run container-replicator to replicate the changes to '
@@ -779,7 +818,7 @@ class TestManageShardRanges(unittest.TestCase):
         for i, sr in enumerate(broker_ranges):
             self.assertEqual(ShardRange.ACTIVE, sr.state)
 
-        broker_ranges = do_compact('y')
+        broker_ranges = do_compact('yes')
         # expect updated shard ranges
         shard_ranges[5].lower = shard_ranges[3].lower
         shard_ranges[8].lower = shard_ranges[7].lower
@@ -1237,3 +1276,329 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertEqual(shard_ranges, updated_ranges)
         self.assertEqual([ShardRange.SHRINKING] * 8 + [ShardRange.ACTIVE] * 2,
                          [sr.state for sr in updated_ranges])
+
+    def test_repair_not_root(self):
+        broker = self._make_broker()
+        shard_ranges = make_shard_ranges(broker, self.shard_data, '.shards_')
+        broker.merge_shard_ranges(shard_ranges)
+        # make broker appear to not be a root container
+        out = StringIO()
+        err = StringIO()
+        broker.set_sharding_sysmeta('Quoted-Root', 'not_a/c')
+        self.assertFalse(broker.is_root_container())
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair'])
+        self.assertEqual(2, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['WARNING: Shard containers cannot be repaired.',
+             'This command should be used on a root container.'],
+            out_lines[:2]
+        )
+        updated_ranges = broker.get_shard_ranges()
+        self.assert_shard_ranges_equal(shard_ranges, updated_ranges)
+
+    def test_repair_no_shard_ranges(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['No shards found, nothing to do.'],
+            out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        self.assert_shard_ranges_equal([], updated_ranges)
+
+    def test_repair_gaps_one_incomplete_sequence(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        with mock_timestamp_now(next(self.ts_iter)):
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data[:-1], '.shards_')
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair'])
+        self.assertEqual(1, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Found no complete sequence of shard ranges.'],
+            out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        self.assert_shard_ranges_equal(shard_ranges, updated_ranges)
+
+    def test_repair_gaps_overlapping_incomplete_sequences(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        with mock_timestamp_now(next(self.ts_iter)):
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data[:-1], '.shards_')
+        with mock_timestamp_now(next(self.ts_iter)):
+            # use new time to get distinct shard names
+            overlap_shard_ranges = make_shard_ranges(
+                broker,
+                self.overlap_shard_data_1[:2] + self.overlap_shard_data_1[6:],
+                '.shards_')
+        broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair'])
+        self.assertEqual(1, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Found no complete sequence of shard ranges.'],
+            out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        expected = sorted(shard_ranges + overlap_shard_ranges,
+                          key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+    def test_repair_not_needed(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        shard_ranges = make_shard_ranges(
+            broker, self.shard_data, '.shards_')
+        broker.merge_shard_ranges(shard_ranges)
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Found one complete sequence of 10 shard ranges and no '
+             'overlapping shard ranges.',
+             'No repairs necessary.'],
+            out_lines[:2])
+        updated_ranges = broker.get_shard_ranges()
+        self.assert_shard_ranges_equal(shard_ranges, updated_ranges)
+
+    def _do_test_repair_exits_if_undesirable_state(self, undesirable_state):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        with mock_timestamp_now(next(self.ts_iter)):
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        # make one shard be in an undesirable state
+        shard_ranges[2].update_state(undesirable_state)
+        with mock_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_2 = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_2)
+        self.assertTrue(broker.is_root_container())
+
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), \
+                mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'repair'])
+        self.assertEqual(1, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['WARNING: Found shard ranges in %s state'
+             % ShardRange.STATES[undesirable_state]], out_lines[:1])
+        # nothing changed in DB
+        self.assert_shard_ranges_equal(
+            sorted(shard_ranges + overlap_shard_ranges_2,
+                   key=ShardRange.sort_key),
+            broker.get_shard_ranges())
+
+    def test_repair_exits_if_sharding_state(self):
+        self._do_test_repair_exits_if_undesirable_state(ShardRange.SHARDING)
+
+    def test_repair_exits_if_shrinking_state(self):
+        self._do_test_repair_exits_if_undesirable_state(ShardRange.SHRINKING)
+
+    def test_repair_one_complete_sequences_one_incomplete(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        with mock_timestamp_now(next(self.ts_iter)):
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_2 = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_2)
+        self.assertTrue(broker.is_root_container())
+
+        def do_repair(user_input, ts_now):
+            out = StringIO()
+            err = StringIO()
+            with mock.patch('sys.stdout', out), \
+                    mock.patch('sys.stderr', err), \
+                    mock_timestamp_now(ts_now), \
+                    mock.patch('swift.cli.manage_shard_ranges.input',
+                               return_value=user_input):
+                ret = main([broker.db_file, 'repair'])
+            self.assertEqual(0, ret)
+            err_lines = err.getvalue().split('\n')
+            self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+            out_lines = out.getvalue().split('\n')
+            self.assertEqual(
+                ['Repairs necessary to remove overlapping shard ranges.'],
+                out_lines[:1])
+
+        # user input 'n'
+        ts_now = next(self.ts_iter)
+        do_repair('n', ts_now)
+        updated_ranges = broker.get_shard_ranges()
+        expected = sorted(
+            shard_ranges + overlap_shard_ranges_2,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+        # user input 'yes'
+        ts_now = next(self.ts_iter)
+        do_repair('yes', ts_now)
+        updated_ranges = broker.get_shard_ranges()
+        for sr in overlap_shard_ranges_2:
+            sr.update_state(ShardRange.SHRINKING, ts_now)
+            sr.epoch = ts_now
+        expected = sorted(
+            shard_ranges + overlap_shard_ranges_2,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+    def test_repair_two_complete_sequences_one_incomplete(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        with mock_timestamp_now(next(self.ts_iter)):
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_1 = make_shard_ranges(
+                broker, self.overlap_shard_data_1, '.shards_')
+        with mock_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_2 = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1 +
+                                  overlap_shard_ranges_2)
+        self.assertTrue(broker.is_root_container())
+        out = StringIO()
+        err = StringIO()
+        ts_now = next(self.ts_iter)
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
+                mock_timestamp_now(ts_now):
+            ret = main([broker.db_file, 'repair', '--yes'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Repairs necessary to remove overlapping shard ranges.'],
+            out_lines[:1])
+        updated_ranges = broker.get_shard_ranges()
+        for sr in overlap_shard_ranges_1 + overlap_shard_ranges_2:
+            sr.update_state(ShardRange.SHRINKING, ts_now)
+            sr.epoch = ts_now
+        expected = sorted(
+            shard_ranges + overlap_shard_ranges_1 + overlap_shard_ranges_2,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+    @with_tempdir
+    def test_show_and_analyze(self, tempdir):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        with mock_timestamp_now(next(self.ts_iter)):  # t1
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_1 = make_shard_ranges(
+                broker, self.overlap_shard_data_1, '.shards_')
+        with mock_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_2 = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1 +
+                                  overlap_shard_ranges_2)
+        self.assertTrue(broker.is_root_container())
+
+        # run show command
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'show'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(err_lines[0], 'Loaded db broker for ')
+        shard_json = json.loads(out.getvalue())
+        expected = sorted(
+            shard_ranges + overlap_shard_ranges_1 + overlap_shard_ranges_2,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(
+            expected, [ShardRange.from_dict(data) for data in shard_json])
+
+        # dump data to a file and then run analyze subcommand
+        shard_file = os.path.join(tempdir, 'shards.json')
+        with open(shard_file, 'w') as fd:
+            json.dump(shard_json, fd)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([shard_file, 'analyze'])
+        self.assertEqual(0, ret)
+        self.assertEqual('', err.getvalue())
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Repairs necessary to remove overlapping shard ranges.'],
+            out_lines[:1])
+
+        # no changes made to broker
+        updated_ranges = broker.get_shard_ranges()
+        expected = sorted(
+            shard_ranges + overlap_shard_ranges_1 + overlap_shard_ranges_2,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(expected, updated_ranges)
+
+        # tweak timestamps to make the preferred path include shards from two
+        # sets, so that shards to remove have name-timestamps that are also in
+        # shards to keep
+        t4 = next(self.ts_iter)
+        for sr in shard_ranges[:5] + overlap_shard_ranges_1[5:]:
+            sr.timestamp = t4
+        broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1 +
+                                  overlap_shard_ranges_2)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'show'])
+        self.assertEqual(0, ret)
+        shard_json = json.loads(out.getvalue())
+        expected = sorted(
+            shard_ranges + overlap_shard_ranges_1 + overlap_shard_ranges_2,
+            key=ShardRange.sort_key)
+        self.assert_shard_ranges_equal(
+            expected, [ShardRange.from_dict(data) for data in shard_json])
+        with open(shard_file, 'w') as fd:
+            json.dump(shard_json, fd)
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([shard_file, 'analyze'])
+        self.assertEqual(0, ret)
+        self.assertEqual('', err.getvalue())
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Repairs necessary to remove overlapping shard ranges.'],
+            out_lines[:1])
