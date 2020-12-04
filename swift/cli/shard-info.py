@@ -89,7 +89,7 @@ def print_own_shard_range(node, sr, indent_level):
     indent = indent_level * TAB
     range = '%r - %r' % (sr.lower, sr.upper)
     print('%s(%s) %23s, objs: %3s, bytes: %3s, timestamp: %s (%s), '
-          'modified: %s (%s), %7s: %s (%s), deleted: %s epoch: %s' %
+          'modified: %s (%s), %7s: %s (%s), deleted: %s, epoch: %s' %
           (indent, node[1][0], range, sr.object_count, sr.bytes_used,
            sr.timestamp.isoformat, sr.timestamp.internal,
            sr.meta_timestamp.isoformat, sr.meta_timestamp.internal,
@@ -108,12 +108,13 @@ def print_shard_range(node, sr, indent_level):
     indent = indent_level * TAB
     range = '%r - %r' % (sr.lower, sr.upper)
     print('%s(%s) %23s, objs: %3s, bytes: %3s, timestamp: %s (%s), '
-          'modified: %s (%s), %7s: %s (%s), deleted: %s %s' %
+          'modified: %s (%s), %7s: %s (%s), deleted: %s, epoch: %s %s' %
           (indent, node[1][0], range, sr.object_count, sr.bytes_used,
            sr.timestamp.isoformat, sr.timestamp.internal,
            sr.meta_timestamp.isoformat, sr.meta_timestamp.internal,
            sr.state_text, sr.state_timestamp.isoformat,
-           sr.state_timestamp.internal, sr.deleted, sr.name))
+           sr.state_timestamp.internal, sr.deleted,
+           sr.epoch.internal if sr.epoch else None, sr.name))
 
 
 def print_shard_range_info(node, shard_ranges, indent_level=0):
