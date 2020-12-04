@@ -198,6 +198,20 @@ class TestMemcached(unittest.TestCase):
         client = memcached.MemcacheRing([server_socket], logger=self.logger)
         self.assertIs(client.logger, self.logger)
 
+    def test_tls_context_kwarg(self):
+        with patch('swift.common.memcached.socket.socket'):
+            server = '%s:%s' % ('[::1]', 11211)
+            client = memcached.MemcacheRing([server])
+            self.assertIsNone(client._client_cache[server]._tls_context)
+
+            context = mock.Mock()
+            client = memcached.MemcacheRing([server], tls_context=context)
+            self.assertIs(client._client_cache[server]._tls_context, context)
+
+            key = uuid4().hex.encode('ascii')
+            list(client._get_conns(key))
+            context.wrap_socket.assert_called_once()
+
     def test_get_conns(self):
         sock1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock1.bind(('127.0.0.1', 0))
