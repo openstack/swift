@@ -548,6 +548,7 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/probe/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+            voting: false
         - tempest-integrated-object-storage:
             irrelevant-files:
               - ^(api-ref|doc|releasenotes)/.*$

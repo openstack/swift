@@ -70,4 +70,7 @@ greenlet===0.4.15
 oslo.utils===3.42.1
 gitdb===0.6.4
 gitdb2===2.0.6
+
+# Projects that are known to have had a final py2-supporting release
+bandit===1.6.2
 python-keystoneclient===3.22.0
