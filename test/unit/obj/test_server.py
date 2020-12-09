@@ -6960,7 +6960,7 @@ class TestObjectController(unittest.TestCase):
         try:
             diskfile.DiskFileManager._get_hashes = fake_get_hashes
             tpool.execute = my_tpool_execute
-            req = Request.blank('/sda1/p/suff',
+            req = Request.blank('/sda1/p/',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
             resp = req.get_response(self.object_controller)
@@ -6984,7 +6984,7 @@ class TestObjectController(unittest.TestCase):
         try:
             diskfile.DiskFileManager._get_hashes = fake_get_hashes
             tpool.execute = my_tpool_execute
-            req = Request.blank('/sda1/p/suff',
+            req = Request.blank('/sda1/p/',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
             with mock.patch('swift.obj.server.pickle.dumps') as fake_pickle:
@@ -7012,7 +7012,7 @@ class TestObjectController(unittest.TestCase):
         try:
             diskfile.DiskFileManager._get_hashes = fake_get_hashes
             tpool.execute = my_tpool_execute
-            req = Request.blank('/sda1/p/suff',
+            req = Request.blank('/sda1/p/',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
             self.assertRaises(Timeout, self.object_controller.REPLICATE, req)
@@ -7059,15 +7059,28 @@ class TestObjectController(unittest.TestCase):
             # tombstone still exists
             self.assertTrue(os.path.exists(tombstone_file))
 
-            # after reclaim REPLICATE will rehash
+            # after reclaim REPLICATE will mark invalid (but NOT rehash!)
             replicate_request = Request.blank(
                 '/sda1/0/%s' % suffix, method='REPLICATE',
                 headers={
                     'x-backend-storage-policy-index': int(policy),
                 })
-            the_future = time() + 200
-            with mock.patch('swift.obj.diskfile.time.time') as mock_time:
-                mock_time.return_value = the_future
+            with mock.patch('swift.obj.diskfile.time.time',
+                            return_value=time() + 200):
+                resp = replicate_request.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(None, pickle.loads(resp.body))
+            # no rehash means tombstone still exists...
+            self.assertTrue(os.path.exists(tombstone_file))
+
+            # but at some point (like the next pre-sync REPLICATE) it rehashes
+            replicate_request = Request.blank(
+                '/sda1/0/', method='REPLICATE',
+                headers={
+                    'x-backend-storage-policy-index': int(policy),
+                })
+            with mock.patch('swift.obj.diskfile.time.time',
+                            return_value=time() + 200):
                 resp = replicate_request.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual({}, pickle.loads(resp.body))
@@ -7076,8 +7089,8 @@ class TestObjectController(unittest.TestCase):
 
             # N.B. with a small reclaim age like this - if proxy clocks get far
             # enough out of whack ...
-            with mock.patch('swift.obj.diskfile.time.time') as mock_time:
-                mock_time.return_value = the_future
+            with mock.patch('swift.obj.diskfile.time.time',
+                            return_value=time() + 200):
                 resp = delete_request.get_response(self.object_controller)
                 # we won't even create the tombstone
                 self.assertFalse(os.path.exists(tombstone_file))

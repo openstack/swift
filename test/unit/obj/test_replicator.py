@@ -2011,10 +2011,11 @@ class TestObjectReplicator(unittest.TestCase):
                                   node['replication_port'], node['device'],
                                   repl_job['partition'], 'REPLICATE',
                                   '', headers=self.headers))
-            reqs.append(mock.call(node['replication_ip'],
-                                  node['replication_port'], node['device'],
-                                  repl_job['partition'], 'REPLICATE',
-                                  '/a83', headers=self.headers))
+            reqs.append(mock.call(
+                node['replication_ip'],
+                node['replication_port'], node['device'],
+                repl_job['partition'], 'REPLICATE',
+                '/a83', headers=self.headers))
         mock_http.assert_has_calls(reqs, any_order=True)
 
     @mock.patch('swift.obj.replicator.tpool.execute')

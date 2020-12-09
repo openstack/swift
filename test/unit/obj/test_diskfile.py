@@ -6931,6 +6931,14 @@ class TestSuffixHashes(unittest.TestCase):
             # so hashes should have the latest suffix hash...
             self.assertEqual(hashes[suffix], non_local['hash'])
 
+            non_local['called'] = False
+            with mock.patch.object(df_mgr, '_hash_suffix', mock_hash_suffix):
+                df_mgr.get_hashes('sda1', '0', [suffix], policy,
+                                  skip_rehash=True)
+            self.assertFalse(non_local['called'])
+            with open(invalidations_file) as f:
+                self.assertEqual(suffix, f.read().strip('\n'))  # sanity
+
     def test_hash_invalidations_race_get_hashes_same_suffix_new(self):
         self._check_hash_invalidations_race_get_hashes_same_suffix(False)
 

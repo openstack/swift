@@ -1298,7 +1298,8 @@ class ObjectController(BaseStorageServer):
         suffixes = suffix_parts.split('-') if suffix_parts else []
         try:
             hashes = self._diskfile_router[policy].get_hashes(
-                device, partition, suffixes, policy)
+                device, partition, suffixes, policy,
+                skip_rehash=bool(suffixes))
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:
