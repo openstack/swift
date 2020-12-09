@@ -18,4 +18,4 @@ python-keystoneclient!=2.1.0,>=2.0.0 # Apache-2.0
 reno>=1.8.0  # Apache-2.0
 
 # Security checks
-bandit>=1.1.0 # Apache-2.0
+bandit>=1.1.0,<=1.6.2 # Apache-2.0
