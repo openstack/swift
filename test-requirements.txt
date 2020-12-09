@@ -21,6 +21,6 @@ fixtures>=3.0.0 # Apache-2.0/BSD
 keystonemiddleware>=4.17.0 # Apache-2.0
 
 # Security checks
-bandit>=1.1.0 # Apache-2.0
+bandit>=1.1.0,<=1.6.2 # Apache-2.0
 
 docutils>=0.11  # OSI-Approved Open Source, Public Domain
