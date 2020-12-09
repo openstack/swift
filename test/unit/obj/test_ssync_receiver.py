@@ -1324,11 +1324,11 @@ class TestReceiver(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
-            [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
-             b":ERROR: 0 'Early termination for PUT /a/c/o'"])
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END'])
         self.assertEqual(resp.status_int, 200)
-        self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+        self.controller.logger.error.assert_called_once_with(
+            'None/device/partition read failed in ssync.Receiver: '
+            'Early termination for PUT /a/c/o')
 
     def test_UPDATES_failures(self):
 
@@ -2069,6 +2069,7 @@ class TestSsyncRxServer(unittest.TestCase):
 
         self.conf = {
             'devices': self.devices,
+            'mount_check': 'false',
             'swift_dir': self.tempdir,
         }
         self.rx_logger = debug_logger('test-object-server')
@@ -2134,6 +2135,69 @@ class TestSsyncRxServer(unittest.TestCase):
         resp.close()
         # sanity check that the receiver did not proceed to missing_check
         self.assertFalse(mock_missing_check.called)
+
+    def test_SSYNC_read_error(self):
+        # verify that read errors from wsgi reader are caught and reported
+        def do_send(data):
+            self.rx_logger.clear()
+            self.connection = bufferedhttp.BufferedHTTPConnection(
+                '127.0.0.1:%s' % self.rx_port)
+            self.connection.putrequest('SSYNC', '/sda1/0')
+            self.connection.putheader('Transfer-Encoding', 'chunked')
+            self.connection.putheader('X-Backend-Storage-Policy-Index',
+                                      int(POLICIES[0]))
+            self.connection.endheaders()
+            resp = self.connection.getresponse()
+            self.assertEqual(200, resp.status)
+            resp.close()
+            self.connection.send(data)
+            self.connection.close()
+            for sleep_time in (0, 0.1, 1):
+                lines = self.rx_logger.get_lines_for_level('error')
+                if lines:
+                    return lines
+                eventlet.sleep(sleep_time)
+            return []
+
+        # check read errors during missing_check phase
+        error_lines = do_send(b'')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('missing_check start: invalid literal', error_lines[0])
+
+        error_lines = do_send(b'1\r\n')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('missing_check start: unexpected end of file',
+                      error_lines[0])
+
+        error_lines = do_send(b'17\r\n:MISSING_CHECK: START\r\n\r\nx\r\n')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('missing_check line: invalid literal', error_lines[0])
+
+        error_lines = do_send(b'17\r\n:MISSING_CHECK: START\r\n\r\n12\r\n')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('missing_check line: unexpected end of file',
+                      error_lines[0])
+
+        # check read errors during updates phase
+        with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check'):
+            error_lines = do_send(b'')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('updates start: invalid literal', error_lines[0])
+
+        with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check'):
+            error_lines = do_send(b'1\r\n')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('updates start: unexpected end of file', error_lines[0])
+
+        with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check'):
+            error_lines = do_send(b'11\r\n:UPDATES: START\r\n\r\nx\r\n')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('updates line: invalid literal', error_lines[0])
+
+        with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check'):
+            error_lines = do_send(b'11\r\n:UPDATES: START\r\n\r\n12\r\n')
+        self.assertEqual(1, len(error_lines))
+        self.assertIn('updates line: unexpected end of file', error_lines[0])
 
     def test_SSYNC_invalid_policy(self):
         valid_indices = sorted([int(policy) for policy in POLICIES])

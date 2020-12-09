@@ -142,6 +142,7 @@ class Receiver(object):
         """
         # The general theme for functions __call__ calls is that they should
         # raise exceptions.MessageTimeout for client timeouts (logged locally),
+        # exceptions.ChunkReadError for client disconnects (logged locally),
         # swob.HTTPException classes for exceptions to return to the caller but
         # not log locally (unmounted, for example), and any other Exceptions
         # will be logged with a full stack trace.
@@ -185,6 +186,11 @@ class Receiver(object):
                         self.request.remote_addr, self.device, self.partition,
                         err))
                 yield (':ERROR: %d %r\n' % (408, str(err))).encode('utf8')
+            except exceptions.ChunkReadError as err:
+                self.app.logger.error(
+                    '%s/%s/%s read failed in ssync.Receiver: %s' % (
+                        self.request.remote_addr, self.device, self.partition,
+                        err))
             except swob.HTTPException as err:
                 body = b''.join(err({}, lambda *args: None))
                 yield (':ERROR: %d %r\n' % (
@@ -236,6 +242,17 @@ class Receiver(object):
         if not self.diskfile_mgr.get_dev_path(self.device):
             raise swob.HTTPInsufficientStorage(drive=self.device)
         self.fp = self.request.environ['wsgi.input']
+
+    def _readline(self, context):
+        # try to read a line from the wsgi input; annotate any timeout or read
+        # errors with a description of the calling context
+        with exceptions.MessageTimeout(
+                self.app.client_timeout, context):
+            try:
+                line = self.fp.readline(self.app.network_chunk_size)
+            except (eventlet.wsgi.ChunkReadError, IOError) as err:
+                raise exceptions.ChunkReadError('%s: %s' % (context, err))
+            return line
 
     def _check_local(self, remote, make_durable=True):
         """
@@ -335,18 +352,14 @@ class Receiver(object):
         have to read while it writes to ensure network buffers don't
         fill up and block everything.
         """
-        with exceptions.MessageTimeout(
-                self.app.client_timeout, 'missing_check start'):
-            line = self.fp.readline(self.app.network_chunk_size)
+        line = self._readline('missing_check start')
         if line.strip() != b':MISSING_CHECK: START':
             raise Exception(
                 'Looking for :MISSING_CHECK: START got %r' % line[:1024])
         object_hashes = []
         nlines = 0
         while True:
-            with exceptions.MessageTimeout(
-                    self.app.client_timeout, 'missing_check line'):
-                line = self.fp.readline(self.app.network_chunk_size)
+            line = self._readline('missing_check line')
             if not line or line.strip() == b':MISSING_CHECK: END':
                 break
             want = self._check_missing(line)
@@ -399,17 +412,13 @@ class Receiver(object):
         success. This is so the sender knows if it can remove an out
         of place partition, for example.
         """
-        with exceptions.MessageTimeout(
-                self.app.client_timeout, 'updates start'):
-            line = self.fp.readline(self.app.network_chunk_size)
+        line = self._readline('updates start')
         if line.strip() != b':UPDATES: START':
             raise Exception('Looking for :UPDATES: START got %r' % line[:1024])
         successes = 0
         failures = 0
         while True:
-            with exceptions.MessageTimeout(
-                    self.app.client_timeout, 'updates line'):
-                line = self.fp.readline(self.app.network_chunk_size)
+            line = self._readline('updates line')
             if not line or line.strip() == b':UPDATES: END':
                 break
             # Read first line METHOD PATH of subrequest.
@@ -421,8 +430,7 @@ class Receiver(object):
             content_length = None
             replication_headers = []
             while True:
-                with exceptions.MessageTimeout(self.app.client_timeout):
-                    line = self.fp.readline(self.app.network_chunk_size)
+                line = self._readline('updates line')
                 if not line:
                     raise Exception(
                         'Got no headers for %s %s' % (method, path))
