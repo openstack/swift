@@ -465,7 +465,21 @@ class ObjectReplicator(Daemon):
         data_dir = get_data_dir(job['policy'])
         args.append(join(rsync_module, node['device'],
                     data_dir, job['partition']))
-        return self._rsync(args) == 0, {}
+        success = (self._rsync(args) == 0)
+
+        # TODO: Catch and swallow (or at least minimize) timeouts when doing
+        # an update job; if we don't manage to notify the remote, we should
+        # catch it on the next pass
+        if success or not job['delete']:
+            headers = dict(self.default_headers)
+            headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
+            with Timeout(self.http_timeout):
+                conn = http_connect(
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], job['partition'], 'REPLICATE',
+                    '/' + '-'.join(suffixes), headers=headers)
+                conn.getresponse().read()
+        return success, {}
 
     def ssync(self, node, job, suffixes, remote_check_objs=None):
         return ssync_sender.Sender(
@@ -529,21 +543,12 @@ class ObjectReplicator(Daemon):
                         # for deletion
                         success, candidates = self.sync(
                             node, job, suffixes, **kwargs)
-                        if success:
-                            with Timeout(self.http_timeout):
-                                conn = http_connect(
-                                    node['replication_ip'],
-                                    node['replication_port'],
-                                    node['device'], job['partition'],
-                                    'REPLICATE', '/' + '-'.join(suffixes),
-                                    headers=headers)
-                                conn.getresponse().read()
-                            if node['region'] != job['region']:
-                                synced_remote_regions[node['region']] = \
-                                    viewkeys(candidates)
-                        else:
+                        if not success:
                             failure_devs_info.add((node['replication_ip'],
                                                    node['device']))
+                        if success and node['region'] != job['region']:
+                            synced_remote_regions[node['region']] = viewkeys(
+                                candidates)
                         responses.append(success)
                     for cand_objs in synced_remote_regions.values():
                         if delete_objs is None:
@@ -714,13 +719,6 @@ class ObjectReplicator(Daemon):
                         continue
                     stats.rsync += 1
                     success, _junk = self.sync(node, job, suffixes)
-                    with Timeout(self.http_timeout):
-                        conn = http_connect(
-                            node['replication_ip'], node['replication_port'],
-                            node['device'], job['partition'], 'REPLICATE',
-                            '/' + '-'.join(suffixes),
-                            headers=headers)
-                        conn.getresponse().read()
                     if not success:
                         failure_devs_info.add((node['replication_ip'],
                                                node['device']))

@@ -2011,11 +2011,6 @@ class TestObjectReplicator(unittest.TestCase):
                                   node['replication_port'], node['device'],
                                   repl_job['partition'], 'REPLICATE',
                                   '', headers=self.headers))
-            reqs.append(mock.call(
-                node['replication_ip'],
-                node['replication_port'], node['device'],
-                repl_job['partition'], 'REPLICATE',
-                '/a83', headers=self.headers))
         mock_http.assert_has_calls(reqs, any_order=True)
 
     @mock.patch('swift.obj.replicator.tpool.execute')
@@ -2056,12 +2051,21 @@ class TestObjectReplicator(unittest.TestCase):
         jobs = self.replicator.collect_jobs()
         _m_rsync = mock.Mock(return_value=0)
         _m_os_path_exists = mock.Mock(return_value=True)
+        expected_reqs = []
         with mock.patch.object(self.replicator, '_rsync', _m_rsync), \
-                mock.patch('os.path.exists', _m_os_path_exists):
+                mock.patch('os.path.exists', _m_os_path_exists), \
+                mocked_http_conn(
+                    *[200] * 2 * sum(len(job['nodes']) for job in jobs),
+                    body=pickle.dumps('{}')) as request_log:
             for job in jobs:
                 self.assertTrue('region' in job)
                 for node in job['nodes']:
                     for rsync_compress in (True, False):
+                        expected_reqs.append((
+                            'REPLICATE', node['ip'],
+                            '/%s/%s/fake_suffix' % (
+                                node['device'], job['partition']),
+                        ))
                         self.replicator.rsync_compress = rsync_compress
                         ret = self.replicator.sync(node, job,
                                                    ['fake_suffix'])
@@ -2086,6 +2090,8 @@ class TestObjectReplicator(unittest.TestCase):
                         self.assertEqual(
                             _m_os_path_exists.call_args_list[-2][0][0],
                             os.path.join(job['path']))
+        self.assertEqual(expected_reqs, [
+            (r['method'], r['ip'], r['path']) for r in request_log.requests])
 
     def test_do_listdir(self):
         # Test if do_listdir is enabled for every 10th partition to rehash
