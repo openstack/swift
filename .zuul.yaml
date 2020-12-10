@@ -6,7 +6,7 @@
 
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-    timeout: 3600
+    timeout: 5400
     vars:
       tox_environment:
         TMPDIR: '{{ ansible_env.HOME }}/xfstmp'
@@ -187,7 +187,7 @@
       - opendev.org/openstack/requirements
       - opendev.org/openstack/swift
       - opendev.org/openstack/keystone
-    timeout: 3600
+    timeout: 5400
     vars:
       tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
       # This tox env get run twice; once for Keystone and once for tempauth
@@ -227,7 +227,7 @@
     nodeset: centos-7
     description: |
       Setup a SAIO dev environment and run ceph-s3tests
-    timeout: 3600
+    timeout: 5400
     pre-run:
       - tools/playbooks/common/install_dependencies.yaml
       - tools/playbooks/saio_single_node_setup/setup_saio.yaml
@@ -299,7 +299,7 @@
     nodeset: swift-five-nodes
     description: |
       Build a 4 node swift cluster and run functional tests
-    timeout: 3600
+    timeout: 5400
     pre-run:
       - tools/playbooks/multinode_setup/pre.yaml
       - tools/playbooks/common/install_dependencies.yaml
