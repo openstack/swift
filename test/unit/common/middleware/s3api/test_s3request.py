@@ -32,7 +32,7 @@ from swift.common.middleware.s3api.s3request import S3Request, \
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed
-from swift.common.utils import md5, md5_factory
+from swift.common.utils import md5
 
 from test.unit import DebugLogger
 
@@ -825,7 +825,7 @@ class TestHashingInput(S3ApiTestCase):
     def test_good(self):
         raw = b'123456789'
         wrapped = HashingInput(
-            BytesIO(raw), 9, md5_factory,
+            BytesIO(raw), 9, lambda: md5(usedforsecurity=False),
             md5(raw, usedforsecurity=False).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
@@ -851,7 +851,7 @@ class TestHashingInput(S3ApiTestCase):
     def test_too_long(self):
         raw = b'123456789'
         wrapped = HashingInput(
-            BytesIO(raw), 8, md5_factory,
+            BytesIO(raw), 8, lambda: md5(usedforsecurity=False),
             md5(raw, usedforsecurity=False).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))
@@ -865,7 +865,7 @@ class TestHashingInput(S3ApiTestCase):
     def test_too_short(self):
         raw = b'123456789'
         wrapped = HashingInput(
-            BytesIO(raw), 10, md5_factory,
+            BytesIO(raw), 10, lambda: md5(usedforsecurity=False),
             md5(raw, usedforsecurity=False).hexdigest())
         self.assertEqual(b'1234', wrapped.read(4))
         self.assertEqual(b'56', wrapped.read(2))

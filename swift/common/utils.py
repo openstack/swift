@@ -4882,10 +4882,6 @@ except TypeError:
         return hashlib.md5(string)  # nosec
 
 
-def md5_factory():
-    return md5(usedforsecurity=False)
-
-
 class ShardRange(object):
     """
     A ShardRange encapsulates sharding state related to a container including
