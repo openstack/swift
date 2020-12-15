@@ -25,6 +25,7 @@ import re
 import six
 from swift import gettext_ as _
 import tempfile
+from distutils.spawn import find_executable
 
 from swift.common.utils import search_tree, remove_file, write_file, readconf
 from swift.common.exceptions import InvalidPidFileException
@@ -98,8 +99,10 @@ def command(func):
     func.publicly_accessible = True
 
     @functools.wraps(func)
-    def wrapped(*a, **kw):
-        rv = func(*a, **kw)
+    def wrapped(self, *a, **kw):
+        if getattr(self, 'missing_binaries', False):
+            return 1
+        rv = func(self, *a, **kw)
         return 1 if rv else 0
     return wrapped
 
@@ -174,6 +177,37 @@ def kill_group(pid, sig):
     os.kill(-pid, sig)
 
 
+def format_server_name(servername):
+    """
+    Formats server name as swift compatible server names
+    E.g. swift-object-server
+
+    :param servername: server name
+    :returns: swift compatible server name and its binary name
+    """
+    if '-' not in servername:
+        servername = '%s-server' % servername
+    cmd = 'swift-%s' % servername
+    return servername, cmd
+
+
+def verify_server(server):
+    """
+    Check whether the server is among swift servers or not, and also
+    checks whether the server's binaries are installed or not.
+
+    :param server: name of the server
+    :returns: True, when the server name is valid and its binaries are found.
+              False, otherwise.
+    """
+    if not server:
+        return False
+    _, cmd = format_server_name(server)
+    if find_executable(cmd) is None:
+        return False
+    return True
+
+
 class UnknownCommandError(Exception):
     pass
 
@@ -188,6 +222,7 @@ class Manager(object):
     def __init__(self, servers, run_dir=RUN_DIR):
         self.server_names = set()
         self._default_strict = True
+        self.missing_binaries = False
         for server in servers:
             if server in ALIASES:
                 self.server_names.update(ALIASES[server])
@@ -203,7 +238,10 @@ class Manager(object):
 
         self.servers = set()
         for name in self.server_names:
-            self.servers.add(Server(name, run_dir))
+            if verify_server(name):
+                self.servers.add(Server(name, run_dir))
+            else:
+                self.missing_binaries = True
 
     def __iter__(self):
         return iter(self.servers)
@@ -446,10 +484,8 @@ class Server(object):
             self.server, self.conf = self.server.rsplit('.', 1)
         else:
             self.conf = None
-        if '-' not in self.server:
-            self.server = '%s-server' % self.server
+        self.server, self.cmd = format_server_name(self.server)
         self.type = self.server.rsplit('-', 1)[0]
-        self.cmd = 'swift-%s' % self.server
         self.procs = []
         self.run_dir = run_dir
 
