@@ -25,7 +25,7 @@
 
     - name: Clone s3compat repository
       git:
-          repo: "https://github.com/swiftstack/s3compat.git"
+          repo: "https://github.com/tipabu/s3compat.git"
           dest: "{{ ansible_env.HOME }}/s3compat"
 
     - name: Install s3compat requirements
