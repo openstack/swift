@@ -1,6 +1,10 @@
 - hosts: all
   become: true
   tasks:
+    - name: Check for s3-tests outputs
+      stat:
+        path: '{{ ansible_env.HOME }}/s3compat/output'
+      register: s3_tests_output
     - name: Copy s3-tests outputs from worker nodes to executor node
       synchronize:
         src: '{{ ansible_env.HOME }}/s3compat/output'
@@ -8,3 +12,4 @@
         mode: pull
         copy_links: true
         verify_host: true
+      when: s3_tests_output.stat.exists == true
