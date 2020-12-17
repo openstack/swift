@@ -761,7 +761,7 @@ class S3Request(swob.Request):
             try:
                 self.headers['ETag'] = binascii.b2a_hex(
                     binascii.a2b_base64(value))
-            except binascii.error:
+            except binascii.Error:
                 # incorrect padding, most likely
                 raise InvalidDigest(content_md5=value)
 

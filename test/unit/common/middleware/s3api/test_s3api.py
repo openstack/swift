@@ -576,6 +576,20 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidDigest')
 
+    def test_object_create_bad_md5_bad_padding(self):
+        too_short_digest = md5(b'hey', usedforsecurity=False).digest()
+        md5_str = base64.b64encode(too_short_digest).strip(b'=\n')
+        if not six.PY2:
+            md5_str = md5_str.decode('ascii')
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
+                     'HTTP_CONTENT_MD5': md5_str},
+            headers={'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(self._get_error_code(body), 'InvalidDigest')
+
     def test_object_create_bad_md5_too_long(self):
         too_long_digest = md5(
             b'hey', usedforsecurity=False).digest() + b'suffix'
