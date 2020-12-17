@@ -15,6 +15,7 @@
 
 import base64
 import binascii
+import hashlib
 from mock import patch
 import os
 import time
@@ -1058,6 +1059,45 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual('400 Bad Request', status)
         self.assertEqual(self._get_error_code(body), 'BadDigest')
+
+    def test_object_multipart_upload_invalid_sha256(self):
+        bad_sha = hashlib.sha256(
+            XML.encode('ascii') + b'some junk').hexdigest()
+        authz_header = 'AWS4-HMAC-SHA256 ' + ', '.join([
+            'Credential=test:tester/%s/us-east-1/s3/aws4_request' %
+            self.get_v4_amz_date_header().split('T', 1)[0],
+            'SignedHeaders=host;x-amz-date',
+            'Signature=X',
+        ])
+        req = Request.blank(
+            '/bucket/object?uploadId=X',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'Authorization': authz_header,
+                     'X-Amz-Date': self.get_v4_amz_date_header(),
+                     'X-Amz-Content-SHA256': bad_sha, },
+            body=XML)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual('400 Bad Request', status)
+        self.assertEqual(self._get_error_code(body), 'BadDigest')
+
+    def test_object_multipart_upload_upper_sha256(self):
+        upper_sha = hashlib.sha256(
+            XML.encode('ascii')).hexdigest().upper()
+        authz_header = 'AWS4-HMAC-SHA256 ' + ', '.join([
+            'Credential=test:tester/%s/us-east-1/s3/aws4_request' %
+            self.get_v4_amz_date_header().split('T', 1)[0],
+            'SignedHeaders=host;x-amz-date',
+            'Signature=X',
+        ])
+        req = Request.blank(
+            '/bucket/object?uploadId=X',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'Authorization': authz_header,
+                     'X-Amz-Date': self.get_v4_amz_date_header(),
+                     'X-Amz-Content-SHA256': upper_sha, },
+            body=XML)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual('200 OK', status)
 
     @patch('swift.common.middleware.s3api.controllers.multi_upload.time')
     def test_object_multipart_upload_complete_with_heartbeat(self, mock_time):

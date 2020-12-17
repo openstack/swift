@@ -448,8 +448,8 @@ class SigV4Mixin(object):
                   'x-amz-content-sha256'
             raise InvalidRequest(msg)
         else:
-            hashed_payload = self.headers['X-Amz-Content-SHA256']
-            if hashed_payload != 'UNSIGNED-PAYLOAD':
+            hashed_payload = self.headers['X-Amz-Content-SHA256'].lower()
+            if hashed_payload != 'unsigned-payload':
                 if self.content_length == 0:
                     if hashed_payload != sha256().hexdigest():
                         raise BadDigest(
@@ -853,7 +853,15 @@ class S3Request(swob.Request):
 
         if te or ml:
             # Limit the read similar to how SLO handles manifests
-            body = self.body_file.read(max_length)
+            try:
+                body = self.body_file.read(max_length)
+            except swob.HTTPException as err:
+                if err.status_int == HTTP_UNPROCESSABLE_ENTITY:
+                    # Special case for HashingInput check
+                    raise BadDigest(
+                        'The X-Amz-Content-SHA56 you specified did not '
+                        'match what we received.')
+                raise
         else:
             # No (or zero) Content-Length provided, and not chunked transfer;
             # no body. Assume zero-length, and enforce a required body below.
