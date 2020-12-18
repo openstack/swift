@@ -23,6 +23,7 @@ import os
 import six
 from six.moves.urllib.parse import quote
 from eventlet import Timeout
+from contextlib import contextmanager
 
 from swift.common import internal_client
 from swift.common.constraints import check_drive, AUTO_CREATE_ACCOUNT_PREFIX
@@ -1712,29 +1713,35 @@ class ContainerSharder(ContainerReplicator):
 
         self._report_stats()
 
+    @contextmanager
     def _set_auto_shard_from_command_line(self, **kwargs):
+        conf_auto_shard = self.auto_shard
         auto_shard = kwargs.get('auto_shard', None)
         if auto_shard is not None:
             self.auto_shard = config_true_value(auto_shard)
+        try:
+            yield
+        finally:
+            self.auto_shard = conf_auto_shard
 
     def run_forever(self, *args, **kwargs):
         """Run the container sharder until stopped."""
-        self._set_auto_shard_from_command_line(**kwargs)
-        self.reported = time.time()
-        time.sleep(random() * self.interval)
-        while True:
-            begin = time.time()
-            try:
-                self._one_shard_cycle(devices_to_shard=Everything(),
-                                      partitions_to_shard=Everything())
-            except (Exception, Timeout):
-                self.logger.increment('errors')
-                self.logger.exception('Exception in sharder')
-            elapsed = time.time() - begin
-            self.logger.info(
-                'Container sharder cycle completed: %.02fs', elapsed)
-            if elapsed < self.interval:
-                time.sleep(self.interval - elapsed)
+        with self._set_auto_shard_from_command_line(**kwargs):
+            self.reported = time.time()
+            time.sleep(random() * self.interval)
+            while True:
+                begin = time.time()
+                try:
+                    self._one_shard_cycle(devices_to_shard=Everything(),
+                                          partitions_to_shard=Everything())
+                except (Exception, Timeout):
+                    self.logger.increment('errors')
+                    self.logger.exception('Exception in sharder')
+                elapsed = time.time() - begin
+                self.logger.info(
+                    'Container sharder cycle completed: %.02fs', elapsed)
+                if elapsed < self.interval:
+                    time.sleep(self.interval - elapsed)
 
     def run_once(self, *args, **kwargs):
         """Run the container sharder once."""
@@ -1742,10 +1749,10 @@ class ContainerSharder(ContainerReplicator):
         override_options = parse_override_options(once=True, **kwargs)
         devices_to_shard = override_options.devices or Everything()
         partitions_to_shard = override_options.partitions or Everything()
-        self._set_auto_shard_from_command_line(**kwargs)
-        begin = self.reported = time.time()
-        self._one_shard_cycle(devices_to_shard=devices_to_shard,
-                              partitions_to_shard=partitions_to_shard)
-        elapsed = time.time() - begin
-        self.logger.info(
-            'Container sharder "once" mode completed: %.02fs', elapsed)
+        with self._set_auto_shard_from_command_line(**kwargs):
+            begin = self.reported = time.time()
+            self._one_shard_cycle(devices_to_shard=devices_to_shard,
+                                  partitions_to_shard=partitions_to_shard)
+            elapsed = time.time() - begin
+            self.logger.info(
+                'Container sharder "once" mode completed: %.02fs', elapsed)
