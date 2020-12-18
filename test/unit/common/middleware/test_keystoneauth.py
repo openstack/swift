@@ -593,7 +593,7 @@ class BaseTestAuthorize(unittest.TestCase):
         return self.test_auth._keystone_identity(env)
 
 
-class TestAuthorize(BaseTestAuthorize):
+class BaseTestAuthorizeCheck(BaseTestAuthorize):
     def _check_authenticate(self, account=None, identity=None, headers=None,
                             exception=None, acl=None, env=None, path=None):
         if not identity:
@@ -626,6 +626,8 @@ class TestAuthorize(BaseTestAuthorize):
             self.assertIsNone(result)
         return req
 
+
+class TestAuthorize(BaseTestAuthorizeCheck):
     def test_authorize_fails_for_unauthorized_user(self):
         self._check_authenticate(exception=HTTP_FORBIDDEN)
 
@@ -1506,6 +1508,65 @@ class TestSetProjectDomain(BaseTestAuthorize):
                                         req_project_id='4321',
                                         req_project_domain_id='default',
                                         sysmeta_project_domain_id='test_id')
+
+
+class TestAuthorizeReader(BaseTestAuthorizeCheck):
+
+    system_reader_role_1 = 'compliance'
+    system_reader_role_2 = 'integrity'
+
+    # This cannot be in SetUp because it takes arguments from tests.
+    def _setup(self, system_reader_roles):
+        self.test_auth = keystoneauth.filter_factory(
+            {}, system_reader_roles=system_reader_roles)(FakeApp())
+        self.test_auth.logger = FakeLogger()
+
+    # Zero test: make sure that reader role has no default access
+    # when not in the list of system_reader_roles[].
+    def test_reader_none(self):
+        # We could rifle in the KeystoneAuth internals and tweak the list,
+        # but to create the middleware fresh is a clean, future-resistant way.
+        self._setup(None)
+        identity = self._get_identity(roles=[self.system_reader_role_1])
+        self._check_authenticate(exception=HTTP_FORBIDDEN,
+                                 identity=identity)
+
+    # HEAD is the same, right? No need to check, right?
+    def test_reader_get(self):
+        # While we're at it, test that our parsing of CSV works.
+        self._setup("%s, %s" %
+                    (self.system_reader_role_1, self.system_reader_role_2))
+        identity = self._get_identity(roles=[self.system_reader_role_1])
+        self._check_authenticate(identity=identity)
+
+    def test_reader_put(self):
+        self._setup(self.system_reader_role_1)
+        identity = self._get_identity(roles=[self.system_reader_role_1])
+        self._check_authenticate(exception=HTTP_FORBIDDEN,
+                                 identity=identity,
+                                 env={'REQUEST_METHOD': 'PUT'})
+        self._check_authenticate(exception=HTTP_FORBIDDEN,
+                                 identity=identity,
+                                 env={'REQUEST_METHOD': 'POST'})
+
+    def test_reader_put_to_own(self):
+        roles = operator_roles(self.test_auth) + [self.system_reader_role_1]
+        identity = self._get_identity(roles=roles)
+        req = self._check_authenticate(identity=identity,
+                                       env={'REQUEST_METHOD': 'PUT'})
+        self.assertTrue(req.environ.get('swift_owner'))
+
+    # This should not be happening, but let's make sure that reader did not
+    # obtain any extra authorizations by combining with swiftoperator,
+    # because that is how reader is going to be used in practice.
+    def test_reader_put_elsewhere_fails(self):
+        roles = operator_roles(self.test_auth) + [self.system_reader_role_1]
+        identity = self._get_identity(roles=roles)
+        account = "%s%s" % (self._get_account(identity), "2")
+        self._check_authenticate(exception=HTTP_FORBIDDEN,
+                                 identity=identity,
+                                 account=account,
+                                 env={'REQUEST_METHOD': 'PUT'})
 
 
 class ResellerInInfo(unittest.TestCase):

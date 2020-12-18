@@ -498,6 +498,14 @@ user_test5_tester5 = testing5 service
 # move between domains, you should disable backwards compatible name matching
 # in ACLs by setting allow_names_in_acls to false:
 # allow_names_in_acls = true
+#
+# In OpenStack terms, these reader roles are scoped for system: they
+# can read anything across projects and domains.
+# They are used for auditing and compliance fuctions.
+# In Swift terms, these roles are as powerful as the reseller_admin_role,
+# only do not modify the cluster.
+# By default the list of reader roles is empty.
+# system_reader_roles =
 
 [filter:s3api]
 use = egg:swift#s3api
