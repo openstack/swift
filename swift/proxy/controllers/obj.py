@@ -35,7 +35,6 @@ import mimetypes
 import time
 import math
 import random
-from hashlib import md5
 import sys
 
 from greenlet import GreenletExit
@@ -49,7 +48,8 @@ from swift.common.utils import (
     GreenAsyncPile, GreenthreadSafeIterator, Timestamp, WatchdogTimeout,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
-    quorum_size, reiterate, close_if_possible, safe_json_loads)
+    quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
+    md5_factory)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -1784,7 +1784,8 @@ class MIMEPutter(Putter):
             self._start_object_data()
 
         footer_body = json.dumps(footer_metadata).encode('ascii')
-        footer_md5 = md5(footer_body).hexdigest().encode('ascii')
+        footer_md5 = md5(
+            footer_body, usedforsecurity=False).hexdigest().encode('ascii')
 
         tail_boundary = (b"--%s" % (self.mime_boundary,))
         if not self.multiphase:
@@ -3178,7 +3179,7 @@ class ECObjectController(BaseObjectController):
         bytes_transferred = 0
         chunk_transform = chunk_transformer(policy)
         chunk_transform.send(None)
-        frag_hashers = collections.defaultdict(md5)
+        frag_hashers = collections.defaultdict(md5_factory)
 
         def send_chunk(chunk):
             # Note: there's two different hashers in here. etag_hasher is
@@ -3411,7 +3412,7 @@ class ECObjectController(BaseObjectController):
         # the same as the request body sent proxy -> object, we
         # can't rely on the object-server to do the etag checking -
         # so we have to do it here.
-        etag_hasher = md5()
+        etag_hasher = md5(usedforsecurity=False)
 
         min_conns = policy.quorum
         putters = self._get_put_connections(

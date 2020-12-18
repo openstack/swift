@@ -19,7 +19,6 @@ from __future__ import print_function
 from unittest import main
 from uuid import uuid4
 import random
-from hashlib import md5
 from collections import defaultdict
 import os
 import socket
@@ -30,6 +29,7 @@ from swiftclient import client
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.manager import Manager
+from swift.common.utils import md5
 from test.probe.common import (kill_server, start_server, ReplProbeTest,
                                ECProbeTest, Body)
 
@@ -373,7 +373,7 @@ class TestECObjectHandoff(ECProbeTest):
                                           container_name,
                                           object_name,
                                           resp_chunk_size=64 * 2 ** 10)
-        resp_checksum = md5()
+        resp_checksum = md5(usedforsecurity=False)
         for chunk in body:
             resp_checksum.update(chunk)
         return resp_checksum.hexdigest()

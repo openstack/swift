@@ -16,7 +16,6 @@ import itertools
 import json
 import unittest
 import os
-from hashlib import md5
 import mock
 import six
 import six.moves.cPickle as pickle
@@ -37,7 +36,7 @@ from six.moves.urllib.parse import unquote
 from swift.common import utils
 from swift.common.exceptions import DiskFileError
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import dump_recon_cache
+from swift.common.utils import dump_recon_cache, md5
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
@@ -4414,7 +4413,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             metadata = {
                 'X-Timestamp': ts.internal,
                 'Content-Length': len(test_data),
-                'Etag': md5(test_data).hexdigest(),
+                'Etag': md5(test_data, usedforsecurity=False).hexdigest(),
                 'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
             }
             writer.put(metadata)
@@ -4553,7 +4552,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
         broken_body = ec_archive_bodies.pop(1)
 
@@ -4583,8 +4582,8 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 self.assertEqual(0, df.content_length)
                 fixed_body = b''.join(df.reader())
         self.assertEqual(len(fixed_body), len(broken_body))
-        self.assertEqual(md5(fixed_body).hexdigest(),
-                         md5(broken_body).hexdigest())
+        self.assertEqual(md5(fixed_body, usedforsecurity=False).hexdigest(),
+                         md5(broken_body, usedforsecurity=False).hexdigest())
         self.assertEqual(len(part_nodes) - 1, len(called_headers),
                          'Expected %d calls, got %r' % (len(part_nodes) - 1,
                                                         called_headers))
@@ -4617,7 +4616,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(4)
@@ -4641,8 +4640,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                     job, node, dict(self.obj_metadata))
                 fixed_body = b''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
-                self.assertEqual(md5(fixed_body).hexdigest(),
-                                 md5(broken_body).hexdigest())
+                self.assertEqual(
+                    md5(fixed_body, usedforsecurity=False).hexdigest(),
+                    md5(broken_body, usedforsecurity=False).hexdigest())
 
     def test_reconstruct_fa_error_with_invalid_header(self):
         job = {
@@ -4654,7 +4654,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(4)
@@ -4687,8 +4687,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             fixed_body = b''.join(df.reader())
             # ... this bad response should be ignored like any other failure
             self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
 
     def test_reconstruct_parity_fa_with_data_node_failure(self):
         job = {
@@ -4702,7 +4703,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         # make up some data (trim some amount to make it unaligned with
         # segment size)
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-454]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
         # the scheme is 10+4, so this gets a parity node
         broken_body = ec_archive_bodies.pop(-4)
@@ -4724,8 +4725,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                     job, node, dict(self.obj_metadata))
                 fixed_body = b''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
-                self.assertEqual(md5(fixed_body).hexdigest(),
-                                 md5(broken_body).hexdigest())
+                self.assertEqual(
+                    md5(fixed_body, usedforsecurity=False).hexdigest(),
+                    md5(broken_body, usedforsecurity=False).hexdigest())
 
     def test_reconstruct_fa_exceptions_fails(self):
         job = {
@@ -4792,7 +4794,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         # bad response
@@ -4826,8 +4828,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 job, node, self.obj_metadata)
             fixed_body = b''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
 
         # no error and warning
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -4843,7 +4846,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(1)
@@ -4865,8 +4868,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 job, node, dict(self.obj_metadata))
             fixed_body = b''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
 
         # one newer etag won't spoil the bunch
         new_index = random.randint(0, self.policy.ec_ndata - 1)
@@ -4881,8 +4885,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 job, node, dict(self.obj_metadata))
             fixed_body = b''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
 
         # no error and warning
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -4898,7 +4903,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(1)
@@ -4917,8 +4922,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 job, node, dict(self.obj_metadata))
             fixed_body = b''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
 
         # a response at same timestamp but different etag won't spoil the bunch
         # N.B. (FIXME). if we choose the first response as garbage, the
@@ -4937,8 +4943,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 job, node, dict(self.obj_metadata))
             fixed_body = b''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
 
         # expect an error log but no warnings
         error_log_lines = self.logger.get_lines_for_level('error')
@@ -4968,7 +4975,8 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             archive_bodies = encode_frag_archive_bodies(self.policy, body)
             # pop the index to the destination node
             archive_bodies.pop(1)
-            key = (md5(body).hexdigest(), next(ts).internal, bool(i % 2))
+            key = (md5(body, usedforsecurity=False).hexdigest(),
+                   next(ts).internal, bool(i % 2))
             ec_archive_dict[key] = archive_bodies
 
         responses = list()
@@ -5041,7 +5049,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         # instead of popping the broken body, we'll just leave it in the list
@@ -5062,8 +5070,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 job, node, self.obj_metadata)
             fixed_body = b''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
 
         # no error, no warning
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -5100,7 +5109,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(1)
@@ -5122,8 +5131,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                 job, node, self.obj_metadata)
             fixed_body = b''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+            self.assertEqual(
+                md5(fixed_body, usedforsecurity=False).hexdigest(),
+                md5(broken_body, usedforsecurity=False).hexdigest())
 
         # no error and warning
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -5150,7 +5160,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(1)
@@ -5180,8 +5190,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                     job, node, self.obj_metadata)
                 fixed_body = b''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
-                self.assertEqual(md5(fixed_body).hexdigest(),
-                                 md5(broken_body).hexdigest())
+                self.assertEqual(
+                    md5(fixed_body, usedforsecurity=False).hexdigest(),
+                    md5(broken_body, usedforsecurity=False).hexdigest())
 
             # no errors
             self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -5222,7 +5233,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         node['backend_index'] = self.policy.get_backend_index(node['index'])
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(1)
@@ -5247,8 +5258,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                     job, node, self.obj_metadata)
                 fixed_body = b''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
-                self.assertEqual(md5(fixed_body).hexdigest(),
-                                 md5(broken_body).hexdigest())
+                self.assertEqual(
+                    md5(fixed_body, usedforsecurity=False).hexdigest(),
+                    md5(broken_body, usedforsecurity=False).hexdigest())
 
             # no errors
             self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -5305,7 +5317,7 @@ class TestObjectReconstructorECDuplicationFactor(TestObjectReconstructor):
         }
 
         test_data = (b'rebuild' * self.policy.ec_segment_size)[:-777]
-        etag = md5(test_data).hexdigest()
+        etag = md5(test_data, usedforsecurity=False).hexdigest()
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(index)
@@ -5343,8 +5355,9 @@ class TestObjectReconstructorECDuplicationFactor(TestObjectReconstructor):
                     job, node, metadata)
                 fixed_body = b''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
-                self.assertEqual(md5(fixed_body).hexdigest(),
-                                 md5(broken_body).hexdigest())
+                self.assertEqual(
+                    md5(fixed_body, usedforsecurity=False).hexdigest(),
+                    md5(broken_body, usedforsecurity=False).hexdigest())
                 for called_header in called_headers:
                     called_header = HeaderKeyDict(called_header)
                     self.assertIn('Content-Length', called_header)

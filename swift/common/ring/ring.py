@@ -22,7 +22,6 @@ from os.path import getmtime
 import struct
 from time import time
 import os
-from hashlib import md5
 from itertools import chain, count
 from tempfile import NamedTemporaryFile
 import sys
@@ -32,7 +31,7 @@ import six
 from six.moves import range
 
 from swift.common.exceptions import RingLoadError
-from swift.common.utils import hash_path, validate_configuration
+from swift.common.utils import hash_path, validate_configuration, md5
 from swift.common.ring.utils import tiers_for_dev
 
 
@@ -53,7 +52,7 @@ class RingReader(object):
         self._buffer = b''
         self.size = 0
         self.raw_size = 0
-        self._md5 = md5()
+        self._md5 = md5(usedforsecurity=False)
         self._decomp = zlib.decompressobj(32 + zlib.MAX_WBITS)
 
     @property
@@ -538,7 +537,8 @@ class Ring(object):
             (d['region'], d['zone'], d['ip']) for d in primary_nodes)
 
         parts = len(self._replica2part2dev_id[0])
-        part_hash = md5(str(part).encode('ascii')).digest()
+        part_hash = md5(str(part).encode('ascii'),
+                        usedforsecurity=False).digest()
         start = struct.unpack_from('>I', part_hash)[0] >> self._part_shift
         inc = int(parts / 65536) or 1
         # Multiple loops for execution speed; the checks and bookkeeping get

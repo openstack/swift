@@ -30,7 +30,6 @@ from shutil import rmtree, copyfile, move
 import gc
 import time
 from textwrap import dedent
-from hashlib import md5
 import collections
 from pyeclib.ec_iface import ECDriverError
 from tempfile import mkdtemp, NamedTemporaryFile
@@ -71,7 +70,7 @@ from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
 from swift.common import utils, constraints
 from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
-    iter_multipart_mime_documents, public, mkdirs, NullLogger
+    iter_multipart_mime_documents, public, mkdirs, NullLogger, md5
 from swift.common.wsgi import loadapp, ConfigString, SwiftHttpProtocol
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_cache_key, cors_validation, \
@@ -2152,8 +2151,8 @@ class BaseTestObjectController(object):
         self.put_container(policy.name, container_name)
 
         obj = b'this object has an etag and is otherwise unimportant'
-        etag = md5(obj).hexdigest()
-        not_etag = md5(obj + b"blahblah").hexdigest()
+        etag = md5(obj, usedforsecurity=False).hexdigest()
+        not_etag = md5(obj + b"blahblah", usedforsecurity=False).hexdigest()
 
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -5687,7 +5686,8 @@ class TestReplicatedObjectController(
         self.assertEqual(headers[:len(exp)], exp)
 
         # request with both If-None-Match and Range
-        etag = md5(b"abcdefghij").hexdigest().encode('ascii')
+        etag = md5(b"abcdefghij",
+                   usedforsecurity=False).hexdigest().encode('ascii')
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile('rwb')
         fd.write(b'GET /v1/a/con/o HTTP/1.1\r\n' +
@@ -6562,7 +6562,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                   'Content-Length: %d\r\n'
                   'X-Storage-Token: t\r\n'
                   'Content-Type: application/octet-stream\r\n'
-                  '\r\n' % (self.ec_policy.name, md5(obj).hexdigest(),
+                  '\r\n' % (self.ec_policy.name,
+                            md5(obj, usedforsecurity=False).hexdigest(),
                             len(obj))).encode('ascii'))
         fd.write(obj)
         fd.flush()
@@ -6597,7 +6598,7 @@ class BaseTestECObjectController(BaseTestObjectController):
 
                 self.assertEqual(
                     lmeta['x-object-sysmeta-ec-etag'],
-                    md5(obj).hexdigest())
+                    md5(obj, usedforsecurity=False).hexdigest())
                 self.assertEqual(
                     lmeta['x-object-sysmeta-ec-content-length'],
                     str(len(obj)))
@@ -6609,7 +6610,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                     '%s 2+1' % DEFAULT_TEST_EC_TYPE)
                 self.assertEqual(
                     lmeta['etag'],
-                    md5(contents).hexdigest())
+                    md5(contents, usedforsecurity=False).hexdigest())
 
                 # check presence for a durable data file for the timestamp
                 durable_file = (
@@ -6738,7 +6739,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                   'X-Storage-Token: t\r\n'
                   'Content-Type: application/octet-stream\r\n'
                   '\r\n' % (self.ec_policy.name,
-                            md5(b'something else').hexdigest(),
+                            md5(b'something else',
+                                usedforsecurity=False).hexdigest(),
                             len(obj))).encode('ascii'))
         fd.write(obj)
         fd.flush()
@@ -6769,8 +6771,8 @@ class BaseTestECObjectController(BaseTestObjectController):
             self.ec_policy.object_ring.replica_count - self.ec_policy.ec_ndata)
         countdown = [count]
 
-        def busted_md5_constructor(initial_str=b""):
-            hasher = md5(initial_str)
+        def busted_md5_constructor(initial_str=b"", usedforsecurity=True):
+            hasher = md5(initial_str, usedforsecurity=usedforsecurity)
             if countdown[0] > 0:
                 hasher.update(b'wrong')
             countdown[0] -= 1
@@ -6790,7 +6792,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                       'Content-Length: %d\r\n'
                       'X-Storage-Token: t\r\n'
                       'Content-Type: application/octet-stream\r\n'
-                      '\r\n' % (self.ec_policy.name, md5(obj).hexdigest(),
+                      '\r\n' % (self.ec_policy.name,
+                                md5(obj, usedforsecurity=False).hexdigest(),
                                 len(obj))).encode('ascii'))
             fd.write(obj)
             fd.flush()
@@ -6830,9 +6833,9 @@ class BaseTestECObjectController(BaseTestObjectController):
     def test_PUT_ec_fragment_quorum_archive_etag_mismatch(self):
         self.put_container("ec", "ec-con")
 
-        def busted_md5_constructor(initial_str=""):
-            hasher = md5(initial_str)
-            hasher.update('wrong')
+        def busted_md5_constructor(initial_str=b"", usedforsecurity=True):
+            hasher = md5(initial_str, usedforsecurity=usedforsecurity)
+            hasher.update(b'wrong')
             return hasher
 
         obj = b'uvarovite-esurience-cerated-symphysic'
@@ -6848,7 +6851,7 @@ class BaseTestECObjectController(BaseTestObjectController):
         commit_confirmation = \
             'swift.proxy.controllers.obj.MIMEPutter.send_commit_confirmation'
         diskfile_md5 = 'swift.obj.diskfile.md5'
-        mem_diskfile_md5 = 'swift.obj.mem_diskfile.hashlib.md5'
+        mem_diskfile_md5 = 'swift.obj.mem_diskfile.md5'
 
         with mock.patch(diskfile_md5, busted_md5_constructor), \
                 mock.patch(mem_diskfile_md5, busted_md5_constructor), \
@@ -6861,7 +6864,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                       'Content-Length: %d\r\n'
                       'X-Storage-Token: t\r\n'
                       'Content-Type: application/octet-stream\r\n'
-                      '\r\n' % (md5(obj).hexdigest(),
+                      '\r\n' % (md5(obj, usedforsecurity=False).hexdigest(),
                                 len(obj))).encode('ascii'))
             fd.write(obj)
             fd.flush()
@@ -6917,7 +6920,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                       'Content-Length: %d\r\n'
                       'X-Storage-Token: t\r\n'
                       'Content-Type: application/octet-stream\r\n'
-                      '\r\n' % (md5(obj).hexdigest(),
+                      '\r\n' % (md5(obj, usedforsecurity=False).hexdigest(),
                                 len(obj))).encode('ascii'))
             fd.write(obj)
             fd.flush()
@@ -6958,7 +6961,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                   'Content-Length: %d\r\n'
                   'X-Storage-Token: t\r\n'
                   'Content-Type: application/octet-stream\r\n'
-                  '\r\n' % (self.ec_policy.name, md5(obj).hexdigest(),
+                  '\r\n' % (self.ec_policy.name,
+                            md5(obj, usedforsecurity=False).hexdigest(),
                             len(obj))).encode('ascii'))
         fd.write(obj)
         fd.flush()
@@ -6976,7 +6980,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                   'Content-Length: %d\r\n'
                   'X-Storage-Token: t\r\n'
                   'Content-Type: application/octet-stream\r\n'
-                  '\r\n' % (self.ec_policy.name, md5(obj).hexdigest(),
+                  '\r\n' % (self.ec_policy.name,
+                            md5(obj, usedforsecurity=False).hexdigest(),
                             len(obj))).encode('ascii'))
         fd.write(obj)
         fd.flush()
@@ -7022,7 +7027,9 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         headers = parse_headers_string(headers)
         self.assertEqual(str(len(obj)), headers['Content-Length'])
-        self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
+        self.assertEqual(
+            md5(obj, usedforsecurity=False).hexdigest(),
+            headers['Etag'])
         self.assertEqual('chartreuse', headers['X-Object-Meta-Color'])
 
         gotten_obj = b''
@@ -7084,7 +7091,9 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         headers = parse_headers_string(headers)
         self.assertEqual(str(len(obj)), headers['Content-Length'])
-        self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
+        self.assertEqual(
+            md5(obj, usedforsecurity=False).hexdigest(),
+            headers['Etag'])
 
         gotten_obj = b''
         while True:
@@ -7165,7 +7174,9 @@ class BaseTestECObjectController(BaseTestObjectController):
 
             headers = parse_headers_string(headers)
             self.assertEqual(str(len(obj)), headers['Content-Length'])
-            self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
+            self.assertEqual(
+                md5(obj, usedforsecurity=False).hexdigest(),
+                headers['Etag'])
 
             gotten_obj = b''
             try:
@@ -7221,7 +7232,9 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         headers = parse_headers_string(headers)
         self.assertEqual(str(len(obj)), headers['Content-Length'])
-        self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
+        self.assertEqual(
+            md5(obj, usedforsecurity=False).hexdigest(),
+            headers['Etag'])
         self.assertEqual('chartreuse', headers['X-Object-Meta-Color'])
 
         error_lines = prosrv.logger.get_lines_for_level('error')
@@ -7310,7 +7323,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                     obj = b'abCD' * 10
 
                     extra_trans_data = [
-                        'Etag: "%s"\r\n' % md5(obj).hexdigest(),
+                        'Etag: "%s"\r\n' % md5(
+                            obj, usedforsecurity=False).hexdigest(),
                         'Content-Length: %d\r\n' % len(obj),
                         'Content-Type: application/octet-stream\r\n',
                         '\r\n%s' % obj.decode('ascii')
@@ -8214,7 +8228,7 @@ class TestObjectECRangedGET(unittest.TestCase):
             str(s) for s in range(431)).encode('ascii')
         assert seg_size * 4 > len(cls.obj) > seg_size * 3, \
             "object is wrong number of segments"
-        cls.obj_etag = md5(cls.obj).hexdigest()
+        cls.obj_etag = md5(cls.obj, usedforsecurity=False).hexdigest()
         cls.tiny_obj = b'tiny, tiny object'
         assert len(cls.tiny_obj) < seg_size, "tiny_obj too large"
 

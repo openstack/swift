@@ -61,7 +61,6 @@ Static Large Object when the multipart upload is completed.
 
 import binascii
 import copy
-from hashlib import md5
 import os
 import re
 import time
@@ -69,7 +68,7 @@ import time
 import six
 
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag
-from swift.common.utils import json, public, reiterate
+from swift.common.utils import json, public, reiterate, md5
 from swift.common.db import utf8encode
 from swift.common.request_helpers import get_container_update_override_key
 
@@ -640,7 +639,7 @@ class UploadController(Controller):
             headers['Content-Type'] = content_type
 
         container = req.container_name + MULTIUPLOAD_SUFFIX
-        s3_etag_hasher = md5()
+        s3_etag_hasher = md5(usedforsecurity=False)
         manifest = []
         previous_number = 0
         try:
@@ -650,7 +649,8 @@ class UploadController(Controller):
             if 'content-md5' in req.headers:
                 # If an MD5 was provided, we need to verify it.
                 # Note that S3Request already took care of translating to ETag
-                if req.headers['etag'] != md5(xml).hexdigest():
+                if req.headers['etag'] != md5(
+                        xml, usedforsecurity=False).hexdigest():
                     raise BadDigest(content_md5=req.headers['content-md5'])
                 # We're only interested in the body here, in the
                 # multipart-upload controller -- *don't* let it get

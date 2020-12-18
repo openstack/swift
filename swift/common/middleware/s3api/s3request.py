@@ -17,7 +17,7 @@ import base64
 import binascii
 from collections import defaultdict, OrderedDict
 from email.header import Header
-from hashlib import sha1, sha256, md5
+from hashlib import sha1, sha256
 import hmac
 import re
 import six
@@ -26,7 +26,7 @@ from six.moves.urllib.parse import quote, unquote, parse_qsl
 import string
 
 from swift.common.utils import split_path, json, get_swift_info, \
-    close_if_possible
+    close_if_possible, md5
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_NO_CONTENT, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_NOT_FOUND, \
@@ -866,7 +866,8 @@ class S3Request(swob.Request):
             raise InvalidRequest('Missing required header for this request: '
                                  'Content-MD5')
 
-        digest = base64.b64encode(md5(body).digest()).strip().decode('ascii')
+        digest = base64.b64encode(md5(
+            body, usedforsecurity=False).digest()).strip().decode('ascii')
         if self.environ['HTTP_CONTENT_MD5'] != digest:
             raise BadDigest(content_md5=self.environ['HTTP_CONTENT_MD5'])
 

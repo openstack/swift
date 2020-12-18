@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from hashlib import md5
 import time
 import uuid
 import random
@@ -23,6 +22,7 @@ from swift.common.internal_client import InternalClient
 from swift.common import utils, direct_client
 from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
+from swift.common.utils import md5
 from swift.container.reconciler import MISPLACED_OBJECTS_ACCOUNT
 from test.probe.brain import BrainSplitter, InternalBrainSplitter
 from swift.common.request_helpers import get_reserved_name
@@ -266,7 +266,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
             part_name = self.get_object_name('manifest_part_%0.2d' % i)
             manifest_entry = {
                 "path": "/%s/%s" % (self.container_name, part_name),
-                "etag": md5(body).hexdigest(),
+                "etag": md5(body, usedforsecurity=False).hexdigest(),
                 "size_bytes": len(body),
             }
             self.brain.client.put_object(self.container_name, part_name, {},

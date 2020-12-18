@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import base64
-import hashlib
 
 from swift.common.exceptions import UnknownSecretIdError
 from swift.common.middleware.crypto.crypto_utils import Crypto
+from swift.common.utils import md5
 
 
 def fetch_crypto_keys(key_id=None):
@@ -41,7 +41,7 @@ def fetch_crypto_keys(key_id=None):
 
 
 def md5hex(s):
-    return hashlib.md5(s).hexdigest()
+    return md5(s, usedforsecurity=False).hexdigest()
 
 
 def encrypt(val, key=None, iv=None, ctxt=None):

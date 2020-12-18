@@ -19,7 +19,6 @@ import socket
 from logging import DEBUG
 from math import sqrt
 from time import time
-from hashlib import md5
 import itertools
 
 from eventlet import GreenPool, sleep, Timeout
@@ -35,7 +34,7 @@ from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, whataremyips, config_true_value, \
-    Timestamp
+    Timestamp, md5
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES, PolicyError
 
@@ -271,8 +270,9 @@ class AccountReaper(Daemon):
                             container_ = container.encode('utf-8')
                         else:
                             container_ = container
-                        this_shard = int(md5(container_).hexdigest(), 16) % \
-                            len(nodes)
+                        this_shard = (
+                            int(md5(container_, usedforsecurity=False)
+                                .hexdigest(), 16) % len(nodes))
                         if container_shard not in (this_shard, None):
                             continue
 

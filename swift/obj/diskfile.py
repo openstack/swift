@@ -40,7 +40,6 @@ import os
 import re
 import time
 import uuid
-from hashlib import md5
 import logging
 import traceback
 import xattr
@@ -66,7 +65,8 @@ from swift.common.utils import mkdirs, Timestamp, \
     config_true_value, listdir, split_path, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
-    O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory
+    O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory, \
+    md5, md5_factory
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -222,14 +222,16 @@ def read_metadata(fd, add_missing_checksum=False):
         # exist. This is fine; it just means that this object predates the
         # introduction of metadata checksums.
         if add_missing_checksum:
-            new_checksum = md5(metadata).hexdigest().encode('ascii')
+            new_checksum = (md5(metadata, usedforsecurity=False)
+                            .hexdigest().encode('ascii'))
             try:
                 xattr.setxattr(fd, METADATA_CHECKSUM_KEY, new_checksum)
             except (IOError, OSError) as e:
                 logging.error("Error adding metadata: %s" % e)
 
     if metadata_checksum:
-        computed_checksum = md5(metadata).hexdigest().encode('ascii')
+        computed_checksum = (md5(metadata, usedforsecurity=False)
+                             .hexdigest().encode('ascii'))
         if metadata_checksum != computed_checksum:
             raise DiskFileBadMetadataChecksum(
                 "Metadata checksum mismatch for %s: "
@@ -254,7 +256,8 @@ def write_metadata(fd, metadata, xattr_size=65536):
     :param metadata: metadata to write
     """
     metastr = pickle.dumps(_encode_metadata(metadata), PICKLE_PROTOCOL)
-    metastr_md5 = md5(metastr).hexdigest().encode('ascii')
+    metastr_md5 = (
+        md5(metastr, usedforsecurity=False).hexdigest().encode('ascii'))
     key = 0
     try:
         while metastr:
@@ -1113,11 +1116,11 @@ class BaseDiskFileManager(object):
         :param policy: storage policy used
         """
         if six.PY2:
-            hashes = defaultdict(md5)
+            hashes = defaultdict(md5_factory)
         else:
             class shim(object):
                 def __init__(self):
-                    self.md5 = md5()
+                    self.md5 = md5(usedforsecurity=False)
 
                 def update(self, s):
                     if isinstance(s, str):
@@ -1686,7 +1689,7 @@ class BaseDiskFileWriter(object):
         self._fd = None
         self._tmppath = None
         self._size = size
-        self._chunks_etag = md5()
+        self._chunks_etag = md5(usedforsecurity=False)
         self._bytes_per_sync = bytes_per_sync
         self._diskfile = diskfile
         self.next_part_power = next_part_power
@@ -2003,7 +2006,7 @@ class BaseDiskFileReader(object):
     def _init_checks(self):
         if self._fp.tell() == 0:
             self._started_at_0 = True
-            self._iter_etag = md5()
+            self._iter_etag = md5(usedforsecurity=False)
 
     def _update_checks(self, chunk):
         if self._iter_etag:

@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hashlib
 import io
 import json
 import os
@@ -33,7 +32,7 @@ from swiftclient import get_auth
 from swift.common import constraints
 from swift.common.http import is_success
 from swift.common.swob import str_to_wsgi, wsgi_to_str
-from swift.common.utils import config_true_value
+from swift.common.utils import config_true_value, md5
 
 from test import safe_repr
 
@@ -851,7 +850,7 @@ class File(Base):
         if isinstance(data, bytes):
             data = io.BytesIO(data)
 
-        checksum = hashlib.md5()
+        checksum = md5(usedforsecurity=False)
         buff = data.read(block_size)
         while buff:
             checksum.update(buff)
@@ -1058,7 +1057,7 @@ class File(Base):
             raise ResponseError(self.conn.response, 'GET',
                                 self.conn.make_path(self.path))
 
-        checksum = hashlib.md5()
+        checksum = md5(usedforsecurity=False)
 
         scratch = self.conn.response.read(8192)
         while len(scratch) > 0:

@@ -16,7 +16,6 @@
 # limitations under the License.
 
 import datetime
-import hashlib
 import json
 import unittest
 from uuid import uuid4
@@ -29,6 +28,7 @@ from six.moves import range
 from test.functional import check_response, retry, requires_acls, \
     requires_policies, SkipTest, requires_bulk
 import test.functional as tf
+from swift.common.utils import md5
 
 
 def setUpModule():
@@ -1741,7 +1741,7 @@ class TestObject(unittest.TestCase):
                 expect_quoted = tf.cluster_info.get('etag_quoter', {}).get(
                     'enable_by_default', False)
 
-            expected_etag = hashlib.md5(b'test').hexdigest()
+            expected_etag = md5(b'test', usedforsecurity=False).hexdigest()
             if expect_quoted:
                 expected_etag = '"%s"' % expected_etag
             self.assertEqual(resp.headers['etag'], expected_etag)

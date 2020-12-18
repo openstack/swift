@@ -23,7 +23,6 @@ import time
 import string
 import xattr
 from shutil import rmtree
-from hashlib import md5
 from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
@@ -35,7 +34,7 @@ from swift.obj.diskfile import (
     DiskFileManager, ECDiskFileManager, AuditLocation, clear_auditor_status,
     get_auditor_status, HASH_FILE, HASH_INVALIDATIONS_FILE)
 from swift.common.utils import (
-    mkdirs, normalize_timestamp, Timestamp, readconf)
+    mkdirs, normalize_timestamp, Timestamp, readconf, md5)
 from swift.common.storage_policy import (
     ECStoragePolicy, StoragePolicy, POLICIES, EC_POLICY)
 from test.unit.obj.common import write_diskfile
@@ -160,7 +159,7 @@ class TestAuditor(unittest.TestCase):
             data = b'0' * 1024
             if disk_file.policy.policy_type == EC_POLICY:
                 data = disk_file.policy.pyeclib_driver.encode(data)[0]
-            etag = md5()
+            etag = md5(usedforsecurity=False)
             with disk_file.create() as writer:
                 writer.write(data)
                 etag.update(data)
@@ -198,7 +197,7 @@ class TestAuditor(unittest.TestCase):
         # simulate a PUT
         now = time.time()
         data = b'boots and cats and ' * 1024
-        hasher = md5()
+        hasher = md5(usedforsecurity=False)
         with disk_file.create() as writer:
             writer.write(data)
             hasher.update(data)
@@ -257,14 +256,16 @@ class TestAuditor(unittest.TestCase):
             checksum = xattr.getxattr(
                 file_path, "user.swift.metadata_checksum")
 
-            self.assertEqual(checksum,
-                             md5(metadata).hexdigest().encode('ascii'))
+            self.assertEqual(
+                checksum,
+                (md5(metadata, usedforsecurity=False).hexdigest()
+                 .encode('ascii')))
 
     def test_object_audit_diff_data(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
         data = b'0' * 1024
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         timestamp = str(normalize_timestamp(time.time()))
         with self.disk_file.create() as writer:
             writer.write(data)
@@ -287,7 +288,7 @@ class TestAuditor(unittest.TestCase):
             AuditLocation(self.disk_file._datadir, 'sda', '0',
                           policy=POLICIES.legacy))
         self.assertEqual(auditor_worker.quarantines, pre_quarantines)
-        etag = md5(b'1' + b'0' * 1023).hexdigest()
+        etag = md5(b'1' + b'0' * 1023, usedforsecurity=False).hexdigest()
         metadata['ETag'] = etag
 
         with self.disk_file.create() as writer:
@@ -305,7 +306,7 @@ class TestAuditor(unittest.TestCase):
 
         def do_test(data):
             # create diskfile and set ETag and content-length to match the data
-            etag = md5(data).hexdigest()
+            etag = md5(data, usedforsecurity=False).hexdigest()
             timestamp = str(normalize_timestamp(time.time()))
             with disk_file.create() as writer:
                 writer.write(data)
@@ -515,7 +516,7 @@ class TestAuditor(unittest.TestCase):
                                  policy=self.disk_file.policy)
 
         data = b'VERIFY'
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         timestamp = str(normalize_timestamp(time.time()))
         with self.disk_file.create() as writer:
             writer.write(data)
@@ -593,7 +594,7 @@ class TestAuditor(unittest.TestCase):
         timestamp = str(normalize_timestamp(time.time()))
         pre_errors = auditor_worker.errors
         data = b'0' * 1024
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
@@ -622,7 +623,7 @@ class TestAuditor(unittest.TestCase):
             with df.create() as writer:
                 writer.write(data)
                 metadata = {
-                    'ETag': md5(data).hexdigest(),
+                    'ETag': md5(data, usedforsecurity=False).hexdigest(),
                     'X-Timestamp': timestamp,
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
@@ -648,7 +649,7 @@ class TestAuditor(unittest.TestCase):
             with df.create() as writer:
                 writer.write(data)
                 metadata = {
-                    'ETag': md5(data).hexdigest(),
+                    'ETag': md5(data, usedforsecurity=False).hexdigest(),
                     'X-Timestamp': timestamp,
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
@@ -696,7 +697,7 @@ class TestAuditor(unittest.TestCase):
         with self.disk_file.create() as writer:
             writer.write(data)
             metadata = {
-                'ETag': md5(data).hexdigest(),
+                'ETag': md5(data, usedforsecurity=False).hexdigest(),
                 'X-Timestamp': ts.normal,
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
@@ -768,7 +769,7 @@ class TestAuditor(unittest.TestCase):
         # pretend that we logged (and reset counters) just now
         auditor_worker.last_logged = time.time()
         data = b'0' * 1024
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
@@ -792,7 +793,7 @@ class TestAuditor(unittest.TestCase):
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = auditor_worker.quarantines
         data = b'0' * 10
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
@@ -808,7 +809,7 @@ class TestAuditor(unittest.TestCase):
         self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'ob',
                                                   policy=POLICIES.legacy)
         data = b'1' * 10
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
@@ -828,7 +829,7 @@ class TestAuditor(unittest.TestCase):
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
         data = b'0' * 1024
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
@@ -841,7 +842,7 @@ class TestAuditor(unittest.TestCase):
             }
             writer.put(metadata)
             writer.commit(Timestamp(timestamp))
-            etag = md5()
+            etag = md5(usedforsecurity=False)
             etag.update(b'1' + b'0' * 1023)
             etag = etag.hexdigest()
             metadata['ETag'] = etag
@@ -863,7 +864,7 @@ class TestAuditor(unittest.TestCase):
             timestamp = Timestamp.now()
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         with self.disk_file.create() as writer:
             etag = etag.hexdigest()
             metadata = {
@@ -873,7 +874,7 @@ class TestAuditor(unittest.TestCase):
             }
             writer.put(metadata)
             writer.commit(Timestamp(timestamp))
-            etag = md5()
+            etag = md5(usedforsecurity=False)
             etag = etag.hexdigest()
             metadata['ETag'] = etag
             write_metadata(writer._fd, metadata)
@@ -1424,7 +1425,7 @@ class TestAuditor(unittest.TestCase):
         ts = Timestamp(time.time())
         with self.disk_file.create() as writer:
             metadata = {
-                'ETag': md5(b'').hexdigest(),
+                'ETag': md5(b'', usedforsecurity=False).hexdigest(),
                 'X-Timestamp': ts.normal,
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }

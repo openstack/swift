@@ -17,7 +17,6 @@
 
 import io
 import time
-import hashlib
 from contextlib import contextmanager
 
 from eventlet import Timeout
@@ -27,6 +26,7 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileDeleted, DiskFileNotOpen
 from swift.common.request_helpers import is_sys_meta
 from swift.common.swob import multi_range_iterator
+from swift.common.utils import md5
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, RESERVED_DATAFILE_META
 
 
@@ -103,7 +103,7 @@ class DiskFileWriter(object):
         self._name = name
         self._fp = None
         self._upload_size = 0
-        self._chunks_etag = hashlib.md5()
+        self._chunks_etag = md5(usedforsecurity=False)
 
     def open(self):
         """
@@ -197,7 +197,7 @@ class DiskFileReader(object):
             self._read_to_eof = False
             if self._fp.tell() == 0:
                 self._started_at_0 = True
-                self._iter_etag = hashlib.md5()
+                self._iter_etag = md5(usedforsecurity=False)
             while True:
                 chunk = self._fp.read()
                 if chunk:

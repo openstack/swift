@@ -31,7 +31,6 @@ import random
 from shutil import rmtree
 from time import gmtime, strftime, time, struct_time
 from tempfile import mkdtemp
-from hashlib import md5
 from collections import defaultdict
 from contextlib import contextmanager
 from textwrap import dedent
@@ -53,7 +52,7 @@ from swift.common import utils, bufferedhttp
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication, encode_timestamps, \
-    Timestamp
+    Timestamp, md5
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, WsgiBytesIO
@@ -261,7 +260,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers=headers)
         req.body = b'VERIFY'
-        etag = '"%s"' % md5(b'VERIFY').hexdigest()
+        etag = '"%s"' % md5(b'VERIFY', usedforsecurity=False).hexdigest()
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(dict(resp.headers), {
@@ -1725,9 +1724,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
             environ={'REQUEST_METHOD': 'PUT'})
 
-        obj_etag = md5(b"obj data").hexdigest()
+        obj_etag = md5(b"obj data", usedforsecurity=False).hexdigest()
         footer_meta = json.dumps({"Etag": obj_etag}).encode('ascii')
-        footer_meta_cksum = md5(footer_meta).hexdigest().encode('ascii')
+        footer_meta_cksum = md5(
+            footer_meta, usedforsecurity=False).hexdigest().encode('ascii')
 
         req.body = b"\r\n".join((
             b"--boundary",
@@ -1773,11 +1773,12 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o', headers=headers,
             environ={'REQUEST_METHOD': 'PUT'})
 
-        obj_etag = md5(b"obj data").hexdigest()
+        obj_etag = md5(b"obj data", usedforsecurity=False).hexdigest()
         footers = {'Etag': obj_etag}
         footers.update(override_footers)
         footer_meta = json.dumps(footers).encode('ascii')
-        footer_meta_cksum = md5(footer_meta).hexdigest().encode('ascii')
+        footer_meta_cksum = md5(
+            footer_meta, usedforsecurity=False).hexdigest().encode('ascii')
 
         req.body = b"\r\n".join((
             b"--boundary",
@@ -1863,9 +1864,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
             environ={'REQUEST_METHOD': 'PUT'})
 
-        footers = {"Etag": md5(b"green").hexdigest()}
+        footers = {"Etag": md5(b"green", usedforsecurity=False).hexdigest()}
         footer_meta = json.dumps(footers).encode('ascii')
-        footer_meta_cksum = md5(footer_meta).hexdigest().encode('ascii')
+        footer_meta_cksum = md5(
+            footer_meta, usedforsecurity=False).hexdigest().encode('ascii')
 
         req.body = b"\r\n".join((
             b"--boundary",
@@ -1899,7 +1901,8 @@ class TestObjectController(unittest.TestCase):
             'X-Object-Meta-X': 'Y',
             'X-Object-Sysmeta-X': 'Y',
         }).encode('ascii')
-        footer_meta_cksum = md5(footer_meta).hexdigest().encode('ascii')
+        footer_meta_cksum = md5(
+            footer_meta, usedforsecurity=False).hexdigest().encode('ascii')
 
         req.body = b"\r\n".join((
             b"--boundary",
@@ -1937,7 +1940,7 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT'})
 
         footer_meta = json.dumps({
-            "Etag": md5(b"obj data").hexdigest()
+            "Etag": md5(b"obj data", usedforsecurity=False).hexdigest()
         }).encode('ascii')
 
         req.body = b"\r\n".join((
@@ -1967,10 +1970,11 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT'})
 
         footer_meta = json.dumps({
-            "Etag": md5(b"obj data").hexdigest()
+            "Etag": md5(b"obj data", usedforsecurity=False).hexdigest()
         }).encode('ascii')
         bad_footer_meta_cksum = \
-            md5(footer_meta + b"bad").hexdigest().encode('ascii')
+            md5(footer_meta + b"bad",
+                usedforsecurity=False).hexdigest().encode('ascii')
 
         req.body = b"\r\n".join((
             b"--boundary",
@@ -1999,7 +2003,8 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT'})
 
         footer_meta = b"{{{[[{{[{[[{[{[[{{{[{{{{[[{{[{["
-        footer_meta_cksum = md5(footer_meta).hexdigest().encode('ascii')
+        footer_meta_cksum = md5(
+            footer_meta, usedforsecurity=False).hexdigest().encode('ascii')
 
         req.body = b"\r\n".join((
             b"--boundary",
@@ -2030,7 +2035,8 @@ class TestObjectController(unittest.TestCase):
         footer_meta = json.dumps({
             'X-Object-Meta-Mint': 'pepper'
         }).encode('ascii')
-        footer_meta_cksum = md5(footer_meta).hexdigest().encode('ascii')
+        footer_meta_cksum = md5(
+            footer_meta, usedforsecurity=False).hexdigest().encode('ascii')
 
         req.body = b"\r\n".join((
             b"--boundary",
@@ -3921,7 +3927,7 @@ class TestObjectController(unittest.TestCase):
                                              policy=POLICIES.legacy)
         disk_file.open()
         file_name = os.path.basename(disk_file._data_file)
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         etag.update(b'VERIF')
         etag = etag.hexdigest()
         metadata = {'X-Timestamp': timestamp, 'name': '/a/c/o',
@@ -3983,7 +3989,7 @@ class TestObjectController(unittest.TestCase):
                                              policy=POLICIES.legacy)
         disk_file.open(timestamp)
         file_name = os.path.basename(disk_file._data_file)
-        etag = md5()
+        etag = md5(usedforsecurity=False)
         etag.update(b'VERIF')
         etag = etag.hexdigest()
         metadata = {'X-Timestamp': timestamp, 'name': '/a/c/o',
@@ -4314,7 +4320,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(path, '/sda1/p/a/c/o')
             expected = {
                 'X-Size': len(b'test1'),
-                'X-Etag': md5(b'test1').hexdigest(),
+                'X-Etag': md5(b'test1', usedforsecurity=False).hexdigest(),
                 'X-Content-Type': 'text/plain',
                 'X-Timestamp': create_timestamp,
             }
@@ -4354,7 +4360,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(path, '/sda1/p/a/c/o')
             expected = {
                 'X-Size': len(b'test2'),
-                'X-Etag': md5(b'test2').hexdigest(),
+                'X-Etag': md5(b'test2', usedforsecurity=False).hexdigest(),
                 'X-Content-Type': 'text/html',
                 'X-Timestamp': offset_timestamp,
             }
@@ -4393,7 +4399,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(path, '/sda1/p/a/c/o')
             expected = {
                 'X-Size': len(b'test3'),
-                'X-Etag': md5(b'test3').hexdigest(),
+                'X-Etag': md5(b'test3', usedforsecurity=False).hexdigest(),
                 'X-Content-Type': 'text/enriched',
                 'X-Timestamp': overwrite_timestamp,
             }
@@ -4562,7 +4568,7 @@ class TestObjectController(unittest.TestCase):
             return False
 
         def my_hash_path(*args):
-            return md5(b'collide').hexdigest()
+            return md5(b'collide', usedforsecurity=False).hexdigest()
 
         with mock.patch("swift.obj.diskfile.hash_path", my_hash_path):
             with mock.patch("swift.obj.server.check_object_creation",
@@ -7677,10 +7683,11 @@ class TestObjectController(unittest.TestCase):
         test_data = b'obj data'
         footer_meta = {
             "X-Object-Sysmeta-Ec-Frag-Index": "7",
-            "Etag": md5(test_data).hexdigest(),
+            "Etag": md5(test_data, usedforsecurity=False).hexdigest(),
         }
         footer_json = json.dumps(footer_meta).encode('ascii')
-        footer_meta_cksum = md5(footer_json).hexdigest().encode('ascii')
+        footer_meta_cksum = md5(
+            footer_json, usedforsecurity=False).hexdigest().encode('ascii')
         test_doc = b"\r\n".join((
             b"--boundary123",
             b"X-Document: object body",
@@ -7921,10 +7928,11 @@ class TestObjectServer(unittest.TestCase):
         test_data = encode_frag_archive_bodies(POLICIES[1], b'obj data')[0]
         footer_meta = {
             "X-Object-Sysmeta-Ec-Frag-Index": "2",
-            "Etag": md5(test_data).hexdigest(),
+            "Etag": md5(test_data, usedforsecurity=False).hexdigest(),
         }
         footer_json = json.dumps(footer_meta).encode('ascii')
-        footer_meta_cksum = md5(footer_json).hexdigest().encode('ascii')
+        footer_meta_cksum = md5(
+            footer_json, usedforsecurity=False).hexdigest().encode('ascii')
         test_doc = test_doc or b"\r\n".join((
             b"--boundary123",
             b"X-Document: object body",
@@ -8193,10 +8201,11 @@ class TestObjectServer(unittest.TestCase):
             # make footer doc
             footer_meta = {
                 "X-Object-Sysmeta-Ec-Frag-Index": "2",
-                "Etag": md5(test_data).hexdigest(),
+                "Etag": md5(test_data, usedforsecurity=False).hexdigest(),
             }
             footer_json = json.dumps(footer_meta).encode('ascii')
-            footer_meta_cksum = md5(footer_json).hexdigest().encode('ascii')
+            footer_meta_cksum = md5(
+                footer_json, usedforsecurity=False).hexdigest().encode('ascii')
 
             # send most of the footer doc
             footer_doc = b"\r\n".join((

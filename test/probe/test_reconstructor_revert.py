@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from hashlib import md5
 import itertools
 import unittest
 import uuid
@@ -27,6 +26,7 @@ from test.probe.common import ECProbeTest, Body
 from swift.common import direct_client
 from swift.common.storage_policy import EC_POLICY
 from swift.common.manager import Manager
+from swift.common.utils import md5
 from swift.obj import reconstructor
 
 from swiftclient import client
@@ -49,7 +49,7 @@ class TestReconstructorRevert(ECProbeTest):
                                           self.container_name,
                                           self.object_name,
                                           resp_chunk_size=64 * 2 ** 10)
-        resp_checksum = md5()
+        resp_checksum = md5(usedforsecurity=False)
         for chunk in body:
             resp_checksum.update(chunk)
         return resp_checksum.hexdigest()
@@ -60,7 +60,7 @@ class TestReconstructorRevert(ECProbeTest):
             node, part, self.account, self.container_name,
             self.object_name, headers=req_headers,
             resp_chunk_size=64 * 2 ** 20)
-        hasher = md5()
+        hasher = md5(usedforsecurity=False)
         for chunk in data:
             hasher.update(chunk)
         return hasher.hexdigest()

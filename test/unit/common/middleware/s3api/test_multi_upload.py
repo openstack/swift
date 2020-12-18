@@ -15,7 +15,6 @@
 
 import base64
 import binascii
-import hashlib
 from mock import patch
 import os
 import time
@@ -24,7 +23,7 @@ from six.moves.urllib.parse import quote, quote_plus
 
 from swift.common import swob
 from swift.common.swob import Request
-from swift.common.utils import json
+from swift.common.utils import json, md5
 
 from test.unit import FakeMemcache, patch_policies
 from test.unit.common.middleware.s3api import S3ApiTestCase
@@ -70,9 +69,9 @@ MULTIPARTS_TEMPLATE = \
      ('subdir/object/Z/2', '2014-05-07T19:47:58.592270', 'fedcba9876543210',
       41))
 
-S3_ETAG = '"%s-2"' % hashlib.md5(binascii.a2b_hex(
+S3_ETAG = '"%s-2"' % md5(binascii.a2b_hex(
     '0123456789abcdef0123456789abcdef'
-    'fedcba9876543210fedcba9876543210')).hexdigest()
+    'fedcba9876543210fedcba9876543210'), usedforsecurity=False).hexdigest()
 
 
 class TestS3ApiMultiUpload(S3ApiTestCase):
@@ -891,8 +890,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'NoSuchBucket')
 
     def test_object_multipart_upload_complete(self):
-        content_md5 = base64.b64encode(hashlib.md5(
-            XML.encode('ascii')).digest())
+        content_md5 = base64.b64encode(md5(
+            XML.encode('ascii'), usedforsecurity=False).digest())
         req = Request.blank('/bucket/object?uploadId=X',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -928,8 +927,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(headers.get('X-Object-Sysmeta-S3Api-Upload-Id'), 'X')
 
     def test_object_multipart_upload_retry_complete(self):
-        content_md5 = base64.b64encode(hashlib.md5(
-            XML.encode('ascii')).digest())
+        content_md5 = base64.b64encode(md5(
+            XML.encode('ascii'), usedforsecurity=False).digest())
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object/X',
                             swob.HTTPNotFound, {}, None)
         recent_ts = S3Timestamp.now(delta=-1000000).internal  # 10s ago
@@ -964,8 +963,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         ])
 
     def test_object_multipart_upload_retry_complete_etag_mismatch(self):
-        content_md5 = base64.b64encode(hashlib.md5(
-            XML.encode('ascii')).digest())
+        content_md5 = base64.b64encode(md5(
+            XML.encode('ascii'), usedforsecurity=False).digest())
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object/X',
                             swob.HTTPNotFound, {}, None)
         recent_ts = S3Timestamp.now(delta=-1000000).internal
@@ -1013,8 +1012,8 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(headers.get('X-Object-Sysmeta-S3Api-Upload-Id'), 'X')
 
     def test_object_multipart_upload_retry_complete_upload_id_mismatch(self):
-        content_md5 = base64.b64encode(hashlib.md5(
-            XML.encode('ascii')).digest())
+        content_md5 = base64.b64encode(md5(
+            XML.encode('ascii'), usedforsecurity=False).digest())
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object/X',
                             swob.HTTPNotFound, {}, None)
         recent_ts = S3Timestamp.now(delta=-1000000).internal
@@ -1047,8 +1046,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         ])
 
     def test_object_multipart_upload_invalid_md5(self):
-        bad_md5 = base64.b64encode(hashlib.md5(
-            XML.encode('ascii') + b'some junk').digest())
+        bad_md5 = base64.b64encode(md5(
+            XML.encode('ascii') + b'some junk', usedforsecurity=False)
+            .digest())
         req = Request.blank('/bucket/object?uploadId=X',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Authorization': 'AWS test:tester:hmac',
@@ -1478,8 +1478,9 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(status.split()[0], '200')
         elem = fromstring(body, 'CompleteMultipartUploadResult')
         self.assertNotIn('Etag', headers)
-        expected_etag = '"%s-3"' % hashlib.md5(binascii.unhexlify(''.join(
-            x['hash'] for x in object_list))).hexdigest()
+        expected_etag = ('"%s-3"' % md5(binascii.unhexlify(''.join(
+            x['hash'] for x in object_list)), usedforsecurity=False)
+            .hexdigest())
         self.assertEqual(elem.find('ETag').text, expected_etag)
 
         self.assertEqual(self.swift.calls, [
@@ -2282,7 +2283,7 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
 
     def _test_no_body(self, use_content_length=False,
                       use_transfer_encoding=False, string_to_md5=b''):
-        raw_md5 = hashlib.md5(string_to_md5).digest()
+        raw_md5 = md5(string_to_md5, usedforsecurity=False).digest()
         content_md5 = base64.b64encode(raw_md5).strip()
         with UnreadableInput(self) as fake_input:
             req = Request.blank(

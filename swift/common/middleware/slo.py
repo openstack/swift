@@ -330,7 +330,6 @@ import json
 import mimetypes
 import re
 import time
-from hashlib import md5
 
 import six
 
@@ -348,7 +347,7 @@ from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
     closing_if_possible, LRUCache, StreamingPile, strict_b64decode, \
-    Timestamp, drain_and_close, get_expirer_container
+    Timestamp, drain_and_close, get_expirer_container, md5
 from swift.common.request_helpers import SegmentedIterable, \
     get_sys_meta_prefix, update_etag_is_at_header, resolve_etag_is_at_header, \
     get_container_update_override_key, update_ignore_range_header
@@ -927,7 +926,9 @@ class SloGetContext(WSGIContext):
             if header.lower() == 'content-length':
                 new_headers.append(('Content-Length', len(json_data)))
             elif header.lower() == 'etag':
-                new_headers.append(('Etag', md5(json_data).hexdigest()))
+                new_headers.append(
+                    ('Etag', md5(json_data, usedforsecurity=False)
+                     .hexdigest()))
             else:
                 new_headers.append((header, value))
         self._response_headers = new_headers
@@ -965,7 +966,7 @@ class SloGetContext(WSGIContext):
 
         # Prep to calculate content_length & etag if necessary
         if slo_etag is None:
-            calculated_etag = md5()
+            calculated_etag = md5(usedforsecurity=False)
         if content_length is None:
             calculated_content_length = 0
 
@@ -977,7 +978,8 @@ class SloGetContext(WSGIContext):
 
             if slo_etag is None:
                 if 'raw_data' in seg_dict:
-                    r = md5(seg_dict['raw_data']).hexdigest()
+                    r = md5(seg_dict['raw_data'],
+                            usedforsecurity=False).hexdigest()
                 elif seg_dict.get('range'):
                     r = '%s:%s;' % (seg_dict['hash'], seg_dict['range'])
                 else:
@@ -1347,11 +1349,11 @@ class StaticLargeObject(object):
                     out_content_type, resp_dict, problem_segments, 'upload')
                 return
 
-            slo_etag = md5()
+            slo_etag = md5(usedforsecurity=False)
             for seg_data in data_for_storage:
                 if 'data' in seg_data:
                     raw_data = base64.b64decode(seg_data['data'])
-                    r = md5(raw_data).hexdigest()
+                    r = md5(raw_data, usedforsecurity=False).hexdigest()
                 elif seg_data.get('range'):
                     r = '%s:%s;' % (seg_data['hash'], seg_data['range'])
                 else:
@@ -1386,7 +1388,7 @@ class StaticLargeObject(object):
                 SYSMETA_SLO_ETAG: slo_etag,
                 SYSMETA_SLO_SIZE: total_size,
                 'X-Static-Large-Object': 'True',
-                'Etag': md5(json_data).hexdigest(),
+                'Etag': md5(json_data, usedforsecurity=False).hexdigest(),
             })
 
             # Ensure container listings have both etags. However, if any

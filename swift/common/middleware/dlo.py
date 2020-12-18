@@ -122,7 +122,6 @@ import json
 
 import six
 
-from hashlib import md5
 from swift.common import constraints
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
@@ -131,7 +130,7 @@ from swift.common.swob import Request, Response, HTTPException, \
     str_to_wsgi, wsgi_to_str, wsgi_quote, wsgi_unquote, normalize_etag
 from swift.common.utils import get_logger, \
     RateLimitedIterator, quote, close_if_possible, closing_if_possible, \
-    drain_and_close
+    drain_and_close, md5
 from swift.common.request_helpers import SegmentedIterable, \
     update_ignore_range_header
 from swift.common.wsgi import WSGIContext, make_subrequest, load_app_config
@@ -333,7 +332,7 @@ class GetContext(WSGIContext):
         if have_complete_listing:
             response_headers = [(h, v) for h, v in response_headers
                                 if h.lower() != "etag"]
-            etag = md5()
+            etag = md5(usedforsecurity=False)
             for seg_dict in segments:
                 etag.update(normalize_etag(seg_dict['hash']).encode('utf8'))
             response_headers.append(('Etag', '"%s"' % etag.hexdigest()))

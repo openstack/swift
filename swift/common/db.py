@@ -17,7 +17,6 @@
 
 from contextlib import contextmanager, closing
 import base64
-import hashlib
 import json
 import logging
 import os
@@ -36,7 +35,7 @@ import sqlite3
 from swift.common.constraints import MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
     check_utf8
 from swift.common.utils import Timestamp, renamer, \
-    mkdirs, lock_parent_directory, fallocate
+    mkdirs, lock_parent_directory, fallocate, md5
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPBadRequest
 
@@ -186,7 +185,8 @@ def chexor(old, name, timestamp):
     """
     if name is None:
         raise Exception('name is None!')
-    new = hashlib.md5(('%s-%s' % (name, timestamp)).encode('utf8')).hexdigest()
+    new = md5(('%s-%s' % (name, timestamp)).encode('utf8'),
+              usedforsecurity=False).hexdigest()
     return '%032x' % (int(old, 16) ^ int(new, 16))
 
 

@@ -14,13 +14,13 @@
 # limitations under the License.
 
 import time
-import hashlib
 from collections import defaultdict
 
 from botocore.exceptions import ClientError
 import six
 
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.utils import md5
 from test.s3api import BaseS3TestCase
 
 
@@ -123,7 +123,7 @@ class TestObjectVersioning(BaseS3TestCase):
 
     def test_upload_fileobj_versioned(self):
         obj_data = self.create_name('some-data').encode('ascii')
-        obj_etag = hashlib.md5(obj_data).hexdigest()
+        obj_etag = md5(obj_data, usedforsecurity=False).hexdigest()
         obj_name = self.create_name('versioned-obj')
         self.client.upload_fileobj(six.BytesIO(obj_data),
                                    self.bucket_name, obj_name)
@@ -157,7 +157,7 @@ class TestObjectVersioning(BaseS3TestCase):
 
         # overwrite the object
         new_obj_data = self.create_name('some-new-data').encode('ascii')
-        new_obj_etag = hashlib.md5(new_obj_data).hexdigest()
+        new_obj_etag = md5(new_obj_data, usedforsecurity=False).hexdigest()
         self.client.upload_fileobj(six.BytesIO(new_obj_data),
                                    self.bucket_name, obj_name)
 
@@ -199,7 +199,7 @@ class TestObjectVersioning(BaseS3TestCase):
         obj_name = self.create_name('versioned-obj')
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
-            etags.insert(0, hashlib.md5(obj_data).hexdigest())
+            etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(six.BytesIO(obj_data),
                                        self.bucket_name, obj_name)
 
@@ -319,7 +319,7 @@ class TestObjectVersioning(BaseS3TestCase):
         obj_name = self.create_name('versioned-obj')
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
-            etags.insert(0, hashlib.md5(obj_data).hexdigest())
+            etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(six.BytesIO(obj_data),
                                        self.bucket_name, obj_name)
             # and make a delete marker
@@ -490,7 +490,7 @@ class TestObjectVersioning(BaseS3TestCase):
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
             # TODO: pull etag from response instead
-            etags.insert(0, hashlib.md5(obj_data).hexdigest())
+            etags.insert(0, md5(obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(
                 six.BytesIO(obj_data), self.bucket_name, obj_name)
 
@@ -571,12 +571,14 @@ class TestObjectVersioning(BaseS3TestCase):
         etags = []
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
-            etags.insert(0, '"%s"' % hashlib.md5(obj_data).hexdigest())
+            etags.insert(0, '"%s"' % md5(
+                obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(
                 six.BytesIO(obj_data), self.bucket_name, obj01_name)
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
-            etags.insert(0, '"%s"' % hashlib.md5(obj_data).hexdigest())
+            etags.insert(0, '"%s"' % md5(
+                obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(
                 six.BytesIO(obj_data), self.bucket_name, obj00_name)
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
@@ -653,7 +655,8 @@ class TestObjectVersioning(BaseS3TestCase):
             obj_name = self.create_name('versioned-obj')
             for i in range(3):
                 obj_data = self.create_name('some-data-%s' % i).encode('ascii')
-                etags[obj_name].insert(0, hashlib.md5(obj_data).hexdigest())
+                etags[obj_name].insert(0, md5(
+                    obj_data, usedforsecurity=False).hexdigest())
                 self.client.upload_fileobj(
                     six.BytesIO(obj_data), self.bucket_name, obj_name)
 
@@ -708,7 +711,8 @@ class TestObjectVersioning(BaseS3TestCase):
         obj_name = self.create_name('versioned-obj')
         for i in range(3):
             obj_data = self.create_name('some-data-%s' % i).encode('ascii')
-            etags.insert(0, hashlib.md5(obj_data).hexdigest())
+            etags.insert(0, md5(
+                obj_data, usedforsecurity=False).hexdigest())
             self.client.upload_fileobj(
                 six.BytesIO(obj_data), self.bucket_name, obj_name)
 

@@ -12,7 +12,6 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import hashlib
 import json
 import random
 
@@ -42,7 +41,7 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     CleavingContext, DEFAULT_SHARD_SHRINK_POINT, \
     DEFAULT_SHARD_CONTAINER_THRESHOLD
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
-    encode_timestamps, parse_db_filename, quorum_size, Everything
+    encode_timestamps, parse_db_filename, quorum_size, Everything, md5
 from test import annotate_failure
 
 from test.unit import debug_logger, FakeRing, \
@@ -65,7 +64,8 @@ class BaseTestSharder(unittest.TestCase):
 
     def _make_broker(self, account='a', container='c', epoch=None,
                      device='sda', part=0, hash_=None):
-        hash_ = hash_ or hashlib.md5(container.encode('utf-8')).hexdigest()
+        hash_ = hash_ or md5(
+            container.encode('utf-8'), usedforsecurity=False).hexdigest()
         datadir = os.path.join(
             self.tempdir, device, 'containers', str(part), hash_[-3:], hash_)
         if epoch:

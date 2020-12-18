@@ -12,7 +12,6 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import hashlib
 import json
 import os
 import shutil
@@ -27,7 +26,7 @@ from swift.common import direct_client, utils
 from swift.common.manager import Manager
 from swift.common.memcached import MemcacheRing
 from swift.common.utils import ShardRange, parse_db_filename, get_db_files, \
-    quorum_size, config_true_value, Timestamp
+    quorum_size, config_true_value, Timestamp, md5
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING
 from swift.container.sharder import CleavingContext
 from swiftclient import client, get_auth, ClientException
@@ -2082,7 +2081,8 @@ class TestContainerSharding(BaseTestContainerSharding):
             shard_broker.merge_items(
                 [{'name': name, 'created_at': Timestamp.now().internal,
                   'size': 0, 'content_type': 'text/plain',
-                  'etag': hashlib.md5().hexdigest(), 'deleted': deleted,
+                  'etag': md5(usedforsecurity=False).hexdigest(),
+                  'deleted': deleted,
                   'storage_policy_index': shard_broker.storage_policy_index}])
             return shard_nodes[0]
 
