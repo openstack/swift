@@ -48,8 +48,7 @@ from swift.common.utils import (
     GreenAsyncPile, GreenthreadSafeIterator, Timestamp, WatchdogTimeout,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
-    quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
-    md5_factory)
+    quorum_size, reiterate, close_if_possible, safe_json_loads, md5)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -3179,7 +3178,8 @@ class ECObjectController(BaseObjectController):
         bytes_transferred = 0
         chunk_transform = chunk_transformer(policy)
         chunk_transform.send(None)
-        frag_hashers = collections.defaultdict(md5_factory)
+        frag_hashers = collections.defaultdict(
+            lambda: md5(usedforsecurity=False))
 
         def send_chunk(chunk):
             # Note: there's two different hashers in here. etag_hasher is

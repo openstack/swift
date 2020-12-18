@@ -66,7 +66,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
     O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory, \
-    md5, md5_factory
+    md5
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -1116,7 +1116,7 @@ class BaseDiskFileManager(object):
         :param policy: storage policy used
         """
         if six.PY2:
-            hashes = defaultdict(md5_factory)
+            hashes = defaultdict(lambda: md5(usedforsecurity=False))
         else:
             class shim(object):
                 def __init__(self):
