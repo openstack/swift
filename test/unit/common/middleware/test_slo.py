@@ -3257,7 +3257,7 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(headers['X-Object-Meta-Fish'], 'Bass')
         self.assertEqual(body, b'')
 
-    def test_generator_closure(self):
+    def _do_test_generator_closure(self, leaks):
         # Test that the SLO WSGI iterable closes its internal .app_iter when
         # it receives a close() message.
         #
@@ -3270,8 +3270,6 @@ class TestSloGetManifest(SloTestCase):
         # well; calling .close() on the generator is sufficient, but not
         # necessary. However, having this test is better than nothing for
         # preventing regressions.
-        leaks = [0]
-
         class LeakTracker(object):
             def __init__(self, inner_iter):
                 leaks[0] += 1
@@ -3313,11 +3311,29 @@ class TestSloGetManifest(SloTestCase):
                           LeakTrackingSegmentedIterable):
             app_resp = self.slo(req.environ, start_response)
         self.assertEqual(status[0], '200 OK')  # sanity check
+        return app_resp
+
+    def test_generator_closure(self):
+        leaks = [0]
+        app_resp = self._do_test_generator_closure(leaks)
         body_iter = iter(app_resp)
         chunk = next(body_iter)
         self.assertEqual(chunk, b'aaaaa')  # sanity check
-
         app_resp.close()
+        self.assertEqual(0, leaks[0])
+
+    def test_generator_closure_iter_app_resp(self):
+        # verify that the result of iter(app_resp) has a close method that
+        # closes app_resp
+        leaks = [0]
+        app_resp = self._do_test_generator_closure(leaks)
+        body_iter = iter(app_resp)
+        chunk = next(body_iter)
+        self.assertEqual(chunk, b'aaaaa')  # sanity check
+        close_method = getattr(body_iter, 'close', None)
+        self.assertIsNotNone(close_method)
+        self.assertTrue(callable(close_method))
+        close_method()
         self.assertEqual(0, leaks[0])
 
     def test_head_manifest_is_efficient(self):

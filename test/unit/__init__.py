@@ -423,6 +423,25 @@ class FakeMemcache(object):
         return True
 
 
+class FakeIterable(object):
+    def __init__(self, values):
+        self.next_call_count = 0
+        self.close_call_count = 0
+        self.values = iter(values)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.next_call_count += 1
+        return next(self.values)
+
+    next = __next__  # py2
+
+    def close(self):
+        self.close_call_count += 1
+
+
 def readuntil2crlfs(fd):
     rv = b''
     lc = b''

@@ -39,7 +39,7 @@ from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
     parse_content_range, csv_append, list_from_csv, Spliterator, quote, \
-    RESERVED, config_true_value, md5
+    RESERVED, config_true_value, md5, CloseableChain
 from swift.common.wsgi import make_subrequest
 
 
@@ -736,7 +736,7 @@ class SegmentedIterable(object):
         if self.peeked_chunk is not None:
             pc = self.peeked_chunk
             self.peeked_chunk = None
-            return itertools.chain([pc], self.app_iter)
+            return CloseableChain([pc], self.app_iter)
         else:
             return self.app_iter
 

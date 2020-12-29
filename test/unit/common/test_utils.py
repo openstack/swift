@@ -19,7 +19,7 @@ from __future__ import print_function
 import hashlib
 
 from test.unit import temptree, debug_logger, make_timestamp_iter, \
-    with_tempdir, mock_timestamp_now
+    with_tempdir, mock_timestamp_now, FakeIterable
 
 import ctypes
 import contextlib
@@ -8771,3 +8771,68 @@ class TestWatchdog(unittest.TestCase):
                 self.assertEqual(exc.seconds, 5.0)
                 self.assertEqual(None, w._next_expiration)
                 w._evt.wait.assert_called_once_with(None)
+
+
+class TestReiterate(unittest.TestCase):
+    def test_reiterate_consumes_first(self):
+        test_iter = FakeIterable([1, 2, 3])
+        reiterated = utils.reiterate(test_iter)
+        self.assertEqual(1, test_iter.next_call_count)
+        self.assertEqual(1, next(reiterated))
+        self.assertEqual(1, test_iter.next_call_count)
+        self.assertEqual(2, next(reiterated))
+        self.assertEqual(2, test_iter.next_call_count)
+        self.assertEqual(3, next(reiterated))
+        self.assertEqual(3, test_iter.next_call_count)
+
+    def test_reiterate_closes(self):
+        test_iter = FakeIterable([1, 2, 3])
+        self.assertEqual(0, test_iter.close_call_count)
+        reiterated = utils.reiterate(test_iter)
+        self.assertEqual(0, test_iter.close_call_count)
+        self.assertTrue(hasattr(reiterated, 'close'))
+        self.assertTrue(callable(reiterated.close))
+        reiterated.close()
+        self.assertEqual(1, test_iter.close_call_count)
+
+        # empty iter gets closed when reiterated
+        test_iter = FakeIterable([])
+        self.assertEqual(0, test_iter.close_call_count)
+        reiterated = utils.reiterate(test_iter)
+        self.assertFalse(hasattr(reiterated, 'close'))
+        self.assertEqual(1, test_iter.close_call_count)
+
+    def test_reiterate_list_or_tuple(self):
+        test_list = [1, 2]
+        reiterated = utils.reiterate(test_list)
+        self.assertIs(test_list, reiterated)
+        test_tuple = (1, 2)
+        reiterated = utils.reiterate(test_tuple)
+        self.assertIs(test_tuple, reiterated)
+
+
+class TestCloseableChain(unittest.TestCase):
+    def test_closeable_chain_iterates(self):
+        test_iter1 = FakeIterable([1])
+        test_iter2 = FakeIterable([2, 3])
+        chain = utils.CloseableChain(test_iter1, test_iter2)
+        self.assertEqual([1, 2, 3], [x for x in chain])
+
+        chain = utils.CloseableChain([1, 2], [3])
+        self.assertEqual([1, 2, 3], [x for x in chain])
+
+    def test_closeable_chain_closes(self):
+        test_iter1 = FakeIterable([1])
+        test_iter2 = FakeIterable([2, 3])
+        chain = utils.CloseableChain(test_iter1, test_iter2)
+        self.assertEqual(0, test_iter1.close_call_count)
+        self.assertEqual(0, test_iter2.close_call_count)
+        chain.close()
+        self.assertEqual(1, test_iter1.close_call_count)
+        self.assertEqual(1, test_iter2.close_call_count)
+
+        # check that close is safe to call even when component iters have no
+        # close
+        chain = utils.CloseableChain([1, 2], [3])
+        chain.close()
+        self.assertEqual([1, 2, 3], [x for x in chain])
