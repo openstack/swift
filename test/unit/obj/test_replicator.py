@@ -1742,7 +1742,7 @@ class TestObjectReplicator(unittest.TestCase):
                             raise_exception_rmdir(OSError, ENOTDIR)):
                 self.replicator.replicate()
             self.assertEqual(mock_logger.get_lines_for_level('error'), [
-                'Unexpected error trying to cleanup suffix dir:%r: ' %
+                'Unexpected error trying to cleanup suffix dir %r: ' %
                 os.path.dirname(df._datadir),
             ])
             self.assertFalse(os.access(whole_path_from, os.F_OK))
@@ -1928,7 +1928,6 @@ class TestObjectReplicator(unittest.TestCase):
         # Check incorrect http_connect with status 507 and
         # count of attempts and call args
         resp.status = 507
-        error = '%(replication_ip)s/%(device)s responded as unmounted'
         expected_listdir_calls = [
             mock.call(int(job['partition']),
                       self.replicator.replication_cycle)
@@ -1948,13 +1947,16 @@ class TestObjectReplicator(unittest.TestCase):
             self.replicator.update(job)
             error_lines = self.logger.get_lines_for_level('error')
             expected = []
+            error = '%s responded as unmounted'
             # ... first the primaries
             for node in job['nodes']:
-                expected.append(error % node)
+                node_str = utils.node_to_string(node, replication=True)
+                expected.append(error % node_str)
             # ... then it will get handoffs
             for node in job['policy'].object_ring.get_more_nodes(
                     int(job['partition'])):
-                expected.append(error % node)
+                node_str = utils.node_to_string(node, replication=True)
+                expected.append(error % node_str)
             # ... and finally we get an error about running out of nodes
             expected.append('Ran out of handoffs while replicating '
                             'partition %s of policy %d' %
@@ -1978,13 +1980,16 @@ class TestObjectReplicator(unittest.TestCase):
         mock_do_listdir.return_value = False
         # Check incorrect http_connect with status 400 != HTTP_OK
         resp.status = 400
-        error = 'Invalid response %(resp)s from %(ip)s'
+        error = 'Invalid response %(resp)s from %(node)s'
         for job in jobs:
             set_default(self)
             self.replicator.update(job)
             # ... only the primaries
-            expected = [error % {'resp': 400, 'ip': node['replication_ip']}
-                        for node in job['nodes']]
+            expected = [
+                error % {
+                    "resp": 400,
+                    "node": utils.node_to_string(node, replication=True)}
+                for node in job['nodes']]
             self.assertEqual(expected,
                              self.logger.get_lines_for_level('error'))
             self.assertEqual(len(self.replicator.partition_times), 1)
@@ -1994,12 +1999,13 @@ class TestObjectReplicator(unittest.TestCase):
         # incorrect pickle.loads(resp.read())
         resp.status = 200
         resp.read.return_value = b'garbage'
-        expect = 'Error syncing with node: %r: '
+        expect = 'Error syncing with node: %s: '
         for job in jobs:
             set_default(self)
             self.replicator.update(job)
             # ... only the primaries
-            expected = [expect % node for node in job['nodes']]
+            expected = [expect % utils.node_to_string(node, replication=True)
+                        for node in job['nodes']]
             error_lines = self.logger.get_lines_for_level('error')
             self.assertEqual(expected, error_lines)
             self.assertEqual(len(self.replicator.partition_times), 1)

@@ -2783,6 +2783,19 @@ def parse_socket_string(socket_string, default_port):
     return (host, port)
 
 
+def node_to_string(node_dict, replication=False):
+    if replication:
+        ip = node_dict['replication_ip']
+        port = node_dict['replication_port']
+    else:
+        ip = node_dict['ip']
+        port = node_dict['port']
+    if ':' in ip:
+        # IPv6
+        ip = '[%s]' % ip
+    return '{}:{}/{}'.format(ip, port, node_dict['device'])
+
+
 def storage_directory(datadir, partition, name_hash):
     """
     Get the storage directory

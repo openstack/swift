@@ -34,7 +34,7 @@ from swift.common.ring import Ring
 from swift.common.utils import Watchdog, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
-    parse_prefixed_conf, config_auto_int_value, \
+    parse_prefixed_conf, config_auto_int_value, node_to_string, \
     config_request_node_count_value, config_percent_value
 from swift.common.registry import register_swift_info
 from swift.common.constraints import check_utf8, valid_api_version
@@ -647,7 +647,7 @@ class Application(object):
         self.node_timings[node['ip']] = (timing, now + self.timing_expiry)
 
     def _error_limit_node_key(self, node):
-        return "{ip}:{port}/{device}".format(**node)
+        return node_to_string(node)
 
     def error_limited(self, node):
         """
@@ -669,7 +669,7 @@ class Application(object):
         limited = error_stats['errors'] > self.error_suppression_limit
         if limited:
             self.logger.debug(
-                'Node error limited %(ip)s:%(port)s (%(device)s)', node)
+                'Node error limited: %s', node_to_string(node))
         return limited
 
     def error_limit(self, node, msg):
@@ -686,9 +686,8 @@ class Application(object):
         error_stats = self._error_limiting.setdefault(node_key, {})
         error_stats['errors'] = self.error_suppression_limit + 1
         error_stats['last_error'] = time()
-        self.logger.error('%(msg)s %(ip)s:%(port)s/%(device)s', {
-            'msg': msg, 'ip': node['ip'],
-            'port': node['port'], 'device': node['device']})
+        self.logger.error('%(msg)s %(node)s',
+                          {'msg': msg, 'node': node_to_string(node)})
 
     def _incr_node_errors(self, node):
         node_key = self._error_limit_node_key(node)
@@ -706,9 +705,8 @@ class Application(object):
         self._incr_node_errors(node)
         if isinstance(msg, bytes):
             msg = msg.decode('utf-8')
-        self.logger.error('%(msg)s %(ip)s:%(port)s/%(device)s', {
-            'msg': msg, 'ip': node['ip'],
-            'port': node['port'], 'device': node['device']})
+        self.logger.error('%(msg)s %(node)s',
+                          {'msg': msg, 'node': node_to_string(node)})
 
     def iter_nodes(self, ring, partition, logger, node_iter=None, policy=None):
         return NodeIter(self, ring, partition, logger, node_iter=node_iter,
@@ -732,10 +730,9 @@ class Application(object):
             log = self.logger.exception
         if isinstance(additional_info, bytes):
             additional_info = additional_info.decode('utf-8')
-        log('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s'
+        log('ERROR with %(type)s server %(node)s'
             ' re: %(info)s',
-            {'type': typ, 'ip': node['ip'],
-             'port': node['port'], 'device': node['device'],
+            {'type': typ, 'node': node_to_string(node),
              'info': additional_info},
             **kwargs)
 

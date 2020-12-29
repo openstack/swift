@@ -29,7 +29,8 @@ from swift.common import direct_client
 from swift.common.internal_client import SimpleClient
 from swift.common.ring import Ring
 from swift.common.exceptions import ClientException
-from swift.common.utils import compute_eta, get_time_units, config_true_value
+from swift.common.utils import compute_eta, get_time_units, \
+    config_true_value, node_to_string
 from swift.common.storage_policy import POLICIES
 
 
@@ -89,7 +90,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     def direct(container, part, nodes):
         found_count = 0
         for node in nodes:
-            error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
+            error_log = get_error_log(node_to_string(node))
             try:
                 attempts, _junk = direct_client.retry(
                     direct_client.direct_head_container, node, part, account,
@@ -201,7 +202,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     def direct(obj, part, nodes):
         found_count = 0
         for node in nodes:
-            error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
+            error_log = get_error_log(node_to_string(node))
             try:
                 attempts, _junk = direct_client.retry(
                     direct_client.direct_head_object, node, part, account,
