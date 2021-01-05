@@ -3071,6 +3071,27 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
     return conf
 
 
+def parse_prefixed_conf(conf_file, prefix):
+    """
+    Search the config file for any common-prefix sections and load those
+    sections to a dict mapping the after-prefix reference to options.
+
+    :param conf_file: the file name of the config to parse
+    :param prefix: the common prefix of the sections
+    :return: a dict mapping policy reference -> dict of policy options
+    :raises ValueError: if a policy config section has an invalid name
+    """
+
+    ret_config = {}
+    all_conf = readconf(conf_file)
+    for section, options in all_conf.items():
+        if not section.startswith(prefix):
+            continue
+        target_ref = section[len(prefix):]
+        ret_config[target_ref] = options
+    return ret_config
+
+
 def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
     """
     Ensure that a pickle file gets written to disk.  The file

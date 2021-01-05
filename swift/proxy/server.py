@@ -35,7 +35,7 @@ from swift.common.ring import Ring
 from swift.common.utils import Watchdog, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
-    register_swift_info, readconf, config_auto_int_value
+    register_swift_info, parse_prefixed_conf, config_auto_int_value
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
@@ -773,15 +773,8 @@ def parse_per_policy_config(conf):
     :return: a dict mapping policy reference -> dict of policy options
     :raises ValueError: if a policy config section has an invalid name
     """
-    policy_config = {}
-    all_conf = readconf(conf['__file__'])
     policy_section_prefix = conf['__name__'] + ':policy:'
-    for section, options in all_conf.items():
-        if not section.startswith(policy_section_prefix):
-            continue
-        policy_ref = section[len(policy_section_prefix):]
-        policy_config[policy_ref] = options
-    return policy_config
+    return parse_prefixed_conf(conf['__file__'], policy_section_prefix)
 
 
 def app_factory(global_conf, **local_conf):

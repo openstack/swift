@@ -416,6 +416,11 @@ class ProbeTest(unittest.TestCase):
     def tearDown(self):
         Manager(['all']).kill()
 
+    def assertLengthEqual(self, obj, length):
+        obj_len = len(obj)
+        self.assertEqual(obj_len, length, 'len(%r) == %d, not %d' % (
+            obj, obj_len, length))
+
     def device_dir(self, node):
         server_type, config_number = get_server_number(
             (node['ip'], node['port']), self.ipport2server)
