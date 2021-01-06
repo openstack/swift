@@ -148,7 +148,19 @@ class ContainerController(Controller):
         return resp
 
     def _get_from_shards(self, req, resp):
-        # construct listing using shards described by the response body
+        # Construct listing using shards described by the response body.
+        # The history of containers that have returned shard ranges is
+        # maintained in the request environ so that loops can be avoided by
+        # forcing an object listing if the same container is visited again.
+        # This can happen in at least two scenarios:
+        #   1. a container has filled a gap in its shard ranges with a
+        #      shard range pointing to itself
+        #   2. a root container returns a (stale) shard range pointing to a
+        #      shard that has shrunk into the root, in which case the shrunken
+        #      shard may return the root's shard range.
+        shard_listing_history = req.environ.setdefault(
+            'swift.shard_listing_history', [])
+        shard_listing_history.append((self.account_name, self.container_name))
         shard_ranges = [ShardRange.from_dict(data)
                         for data in json.loads(resp.body)]
         self.app.logger.debug('GET listing from %s shards for: %s',
@@ -195,8 +207,8 @@ class ContainerController(Controller):
             else:
                 params['end_marker'] = str_to_wsgi(shard_range.end_marker)
 
-            if (shard_range.account == self.account_name and
-                    shard_range.container == self.container_name):
+            if ((shard_range.account, shard_range.container) in
+                    shard_listing_history):
                 # directed back to same container - force GET of objects
                 headers = {'X-Backend-Record-Type': 'object'}
             else:
