@@ -166,6 +166,7 @@ Source Documentation
     object
     misc
     middleware
+    audit_watchers
 
 
 Indices and tables
