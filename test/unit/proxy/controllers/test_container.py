@@ -528,7 +528,7 @@ class TestContainerController(TestRingBase):
                 self.assertEqual(dict(exp_params, format='json'), got_params)
                 for k, v in exp_headers.items():
                     self.assertIn(k, req['headers'])
-                    self.assertEqual(v, req['headers'][k])
+                    self.assertEqual(v, req['headers'][k], k)
                 self.assertNotIn('X-Backend-Override-Delete', req['headers'])
         return resp
 
@@ -964,6 +964,166 @@ class TestContainerController(TestRingBase):
             mock_responses, expected_objects, expected_requests,
             query_string='?delimiter=/')
         self.check_response(resp, root_resp_hdrs)
+
+    def test_GET_sharded_container_shard_redirects_to_root(self):
+        # check that if the root redirects listing to a shard, but the shard
+        # returns the root shard (e.g. it was the final shard to shrink into
+        # the root) objects are requested from the root, rather than a loop.
+
+        # single shard spanning entire namespace
+        shard_sr = ShardRange('.shards_a/c_xyz', Timestamp.now(), '', '')
+        all_objects = self._make_shard_objects(shard_sr)
+        size_all_objects = sum([obj['bytes'] for obj in all_objects])
+        num_all_objects = len(all_objects)
+        limit = CONTAINER_LISTING_LIMIT
+
+        # when shrinking the final shard will return the root shard range into
+        # which it is shrinking
+        shard_resp_hdrs = {
+            'X-Backend-Sharding-State': 'sharded',
+            'X-Container-Object-Count': 0,
+            'X-Container-Bytes-Used': 0,
+            'X-Backend-Storage-Policy-Index': 0,
+            'X-Backend-Record-Type': 'shard'
+        }
+
+        # root still thinks it has a shard
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Backend-Timestamp': '99',
+                          'X-Container-Object-Count': num_all_objects,
+                          'X-Container-Bytes-Used': size_all_objects,
+                          'X-Backend-Storage-Policy-Index': 0}
+        root_shard_resp_hdrs = dict(root_resp_hdrs)
+        root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+
+        root_sr = ShardRange('a/c', Timestamp.now(), '', '')
+        mock_responses = [
+            # status, body, headers
+            (200, [dict(shard_sr)], root_shard_resp_hdrs),  # from root
+            (200, [dict(root_sr)], shard_resp_hdrs),  # from shard
+            (200, all_objects, root_resp_hdrs),  # from root
+        ]
+        expected_requests = [
+            # path, headers, params
+            # first request to root should specify auto record type
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing')),
+            # request to shard should specify auto record type
+            (wsgi_quote(str_to_wsgi(shard_sr.name)),
+             {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='', limit=str(limit),
+                  states='listing')),  # 200
+            # second request to root should specify object record type
+            ('a/c', {'X-Backend-Record-Type': 'object'},
+             dict(marker='', end_marker='', limit=str(limit))),  # 200
+        ]
+
+        expected_objects = all_objects
+        resp = self._check_GET_shard_listing(
+            mock_responses, expected_objects, expected_requests)
+        self.check_response(resp, root_resp_hdrs,
+                            expected_objects=expected_objects)
+        self.assertEqual(
+            [('a', 'c'), ('.shards_a', 'c_xyz')],
+            resp.request.environ.get('swift.shard_listing_history'))
+
+    def test_GET_sharded_container_shard_redirects_between_shards(self):
+        # check that if one shard redirects listing to another shard that
+        # somehow redirects listing back to the first shard, then we will break
+        # out of the loop (this isn't an expected scenario, but could perhaps
+        # happen if multiple conflicting shard-shrinking decisions are made)
+        shard_bounds = ('', 'a', 'b', '')
+        shard_ranges = [
+            ShardRange('.shards_a/c_%s' % upper, Timestamp.now(), lower, upper)
+            for lower, upper in zip(shard_bounds[:-1], shard_bounds[1:])]
+        self.assertEqual([
+            '.shards_a/c_a',
+            '.shards_a/c_b',
+            '.shards_a/c_',
+        ], [sr.name for sr in shard_ranges])
+        sr_dicts = [dict(sr) for sr in shard_ranges]
+        sr_objs = [self._make_shard_objects(sr) for sr in shard_ranges]
+        all_objects = []
+        for objects in sr_objs:
+            all_objects.extend(objects)
+        size_all_objects = sum([obj['bytes'] for obj in all_objects])
+        num_all_objects = len(all_objects)
+
+        root_resp_hdrs = {'X-Backend-Sharding-State': 'sharded',
+                          'X-Backend-Timestamp': '99',
+                          'X-Container-Object-Count': num_all_objects,
+                          'X-Container-Bytes-Used': size_all_objects,
+                          'X-Backend-Storage-Policy-Index': 0,
+                          'X-Backend-Record-Type': 'shard',
+                          }
+        shard_resp_hdrs = {'X-Backend-Sharding-State': 'unsharded',
+                           'X-Container-Object-Count': 2,
+                           'X-Container-Bytes-Used': 4,
+                           'X-Backend-Storage-Policy-Index': 0}
+        shrinking_resp_hdrs = {
+            'X-Backend-Sharding-State': 'sharded',
+            'X-Backend-Record-Type': 'shard',
+        }
+        limit = CONTAINER_LISTING_LIMIT
+
+        mock_responses = [
+            # status, body, headers
+            (200, sr_dicts, root_resp_hdrs),  # from root
+            (200, sr_objs[0], shard_resp_hdrs),  # objects from 1st shard
+            (200, [sr_dicts[2]], shrinking_resp_hdrs),  # 2nd points to 3rd
+            (200, [sr_dicts[1]], shrinking_resp_hdrs),  # 3rd points to 2nd
+            (200, sr_objs[1], shard_resp_hdrs),  # objects from 2nd
+            (200, sr_objs[2], shard_resp_hdrs),  # objects from 3rd
+        ]
+        expected_requests = [
+            # each list item is tuple (path, headers, params)
+            # request to root
+            # context GET(a/c)
+            ('a/c', {'X-Backend-Record-Type': 'auto'},
+             dict(states='listing')),
+            # request to 1st shard as per shard list from root;
+            # context GET(a/c);
+            # end_marker dictated by 1st shard range upper bound
+            ('.shards_a/c_a', {'X-Backend-Record-Type': 'auto'},
+             dict(marker='', end_marker='a\x00', states='listing',
+                  limit=str(limit))),  # 200
+            # request to 2nd shard as per shard list from root;
+            # context GET(a/c);
+            # end_marker dictated by 2nd shard range upper bound
+            ('.shards_a/c_b', {'X-Backend-Record-Type': 'auto'},
+             dict(marker='a', end_marker='b\x00', states='listing',
+                  limit=str(limit - len(sr_objs[0])))),
+            # request to 3rd shard as per shard list from *2nd shard*;
+            # new context GET(a/c)->GET(.shards_a/c_b);
+            # end_marker still dictated by 2nd shard range upper bound
+            ('.shards_a/c_', {'X-Backend-Record-Type': 'auto'},
+             dict(marker='a', end_marker='b\x00', states='listing',
+                  limit=str(
+                      limit - len(sr_objs[0])))),
+            # request to 2nd shard as per shard list from *3rd shard*; this one
+            # should specify record type object;
+            # new context GET(a/c)->GET(.shards_a/c_b)->GET(.shards_a/c_);
+            # end_marker still dictated by 2nd shard range upper bound
+            ('.shards_a/c_b', {'X-Backend-Record-Type': 'object'},
+             dict(marker='a', end_marker='b\x00',
+                  limit=str(
+                      limit - len(sr_objs[0])))),
+            # request to 3rd shard *as per shard list from root*; this one
+            # should specify record type object;
+            # context GET(a/c);
+            # end_marker dictated by 3rd shard range upper bound
+            ('.shards_a/c_', {'X-Backend-Record-Type': 'object'},
+             dict(marker='b', end_marker='',
+                  limit=str(
+                      limit - len(sr_objs[0]) - len(sr_objs[1])))),  # 200
+        ]
+        resp = self._check_GET_shard_listing(
+            mock_responses, all_objects, expected_requests)
+        self.check_response(resp, root_resp_hdrs,
+                            expected_objects=all_objects)
+        self.assertEqual(
+            [('a', 'c'), ('.shards_a', 'c_b'), ('.shards_a', 'c_')],
+            resp.request.environ.get('swift.shard_listing_history'))
 
     def test_GET_sharded_container_overlapping_shards(self):
         # verify ordered listing even if unexpected overlapping shard ranges
