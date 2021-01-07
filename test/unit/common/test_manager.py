@@ -138,19 +138,25 @@ class TestManagerModule(unittest.TestCase):
             os.environ = _orig_environ
 
     def test_command_wrapper(self):
-        @manager.command
-        def myfunc(arg1):
-            """test doc
-            """
-            return arg1
 
-        self.assertEqual(myfunc.__doc__.strip(), 'test doc')
-        self.assertEqual(myfunc(1), 1)
-        self.assertEqual(myfunc(0), 0)
-        self.assertEqual(myfunc(True), 1)
-        self.assertEqual(myfunc(False), 0)
-        self.assertTrue(hasattr(myfunc, 'publicly_accessible'))
-        self.assertTrue(myfunc.publicly_accessible)
+        class MockManager(object):
+            def __init__(self, servers_):
+                self.servers = [manager.Server(server) for server in servers_]
+
+            @manager.command
+            def myfunc(self, arg1):
+                """test doc
+                """
+                return arg1
+
+        m = MockManager(['test'])
+        self.assertEqual(m.myfunc.__doc__.strip(), 'test doc')
+        self.assertEqual(m.myfunc(1), 1)
+        self.assertEqual(m.myfunc(0), 0)
+        self.assertEqual(m.myfunc(True), 1)
+        self.assertEqual(m.myfunc(False), 0)
+        self.assertTrue(hasattr(m.myfunc, 'publicly_accessible'))
+        self.assertTrue(m.myfunc.publicly_accessible)
 
     def test_watch_server_pids(self):
         class MockOs(object):
@@ -1776,9 +1782,9 @@ class TestManager(unittest.TestCase):
             m = manager.Manager(['test', 'error'])
             kwargs = {'key': 'value'}
             status = m.status(**kwargs)
-            self.assertEqual(status, 1)
+            self.assertEqual(status, 0)
             for server in m.servers:
-                self.assertEqual(server.called_kwargs, [])
+                self.assertEqual(server.called_kwargs, [kwargs])
         finally:
             manager.verify_server = old_verify_server
             manager.Server = old_server_class
@@ -1788,7 +1794,7 @@ class TestManager(unittest.TestCase):
             getattr(mock_setup_env, 'called', []).append(True)
 
         def mock_verify_server(server):
-            if 'error' in server:
+            if 'none' in server:
                 return False
             return True
 
@@ -1842,8 +1848,17 @@ class TestManager(unittest.TestCase):
             status = m.start()
             self.assertEqual(status, 1)
             for server in m.servers:
-                self.assertEqual(server.called['launch'], [])
-                self.assertEqual(server.called['wait'], [])
+                self.assertEqual(server.called['launch'], [{}])
+                self.assertEqual(server.called['wait'], [{}])
+
+            # test missing (on launch, as it happens)
+            # We only throw a bad error code if nothing good was run.
+            m = manager.Manager(['none'])
+            status = m.start()
+            self.assertEqual(status, 1)
+            m = manager.Manager(['proxy', 'none'])
+            status = m.start()
+            self.assertEqual(status, 0)
 
             # test interact
             m = manager.Manager(['proxy', 'error'])
@@ -1851,8 +1866,8 @@ class TestManager(unittest.TestCase):
             status = m.start(**kwargs)
             self.assertEqual(status, 1)
             for server in m.servers:
-                self.assertEqual(server.called['launch'], [])
-                self.assertEqual(server.called['interact'], [])
+                self.assertEqual(server.called['launch'], [kwargs])
+                self.assertEqual(server.called['interact'], [kwargs])
             m = manager.Manager(['raise'])
             kwargs = {'daemon': False}
             status = m.start(**kwargs)
@@ -2020,8 +2035,6 @@ class TestManager(unittest.TestCase):
 
     def test_no_daemon(self):
         def mock_verify_server(server):
-            if 'error' in server:
-                return False
             return True
 
         class MockServer(object):
@@ -2049,16 +2062,16 @@ class TestManager(unittest.TestCase):
             stats = init.no_daemon()
             self.assertEqual(stats, 0)
             # test error
-            init = manager.Manager(['proxy', 'error'])
+            init = manager.Manager(['proxy', 'object-error'])
             stats = init.no_daemon()
             self.assertEqual(stats, 1)
             # test once
             init = manager.Manager(['proxy', 'object-error'])
             stats = init.no_daemon()
             for server in init.servers:
-                self.assertEqual(len(server.called['launch']), 0)
+                self.assertEqual(len(server.called['launch']), 1)
                 self.assertEqual(len(server.called['wait']), 0)
-                self.assertEqual(len(server.called['interact']), 0)
+                self.assertEqual(len(server.called['interact']), 1)
         finally:
             manager.verify_server = orig_verify_server
             manager.Server = orig_swift_server
