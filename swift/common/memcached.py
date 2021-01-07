@@ -127,11 +127,12 @@ class MemcacheConnPool(Pool):
     :func:`swift.common.utils.parse_socket_string` for details.
     """
 
-    def __init__(self, server, size, connect_timeout):
+    def __init__(self, server, size, connect_timeout, tls_context=None):
         Pool.__init__(self, max_size=size)
         self.host, self.port = utils.parse_socket_string(
             server, DEFAULT_MEMCACHED_PORT)
         self._connect_timeout = connect_timeout
+        self._tls_context = tls_context
 
     def create(self):
         addrs = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC,
@@ -141,6 +142,9 @@ class MemcacheConnPool(Pool):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         with Timeout(self._connect_timeout):
             sock.connect(sockaddr)
+        if self._tls_context:
+            sock = self._tls_context.wrap_socket(sock,
+                                                 server_hostname=self.host)
         return (sock.makefile('rwb'), sock)
 
     def get(self):
@@ -159,7 +163,7 @@ class MemcacheRing(object):
     def __init__(self, servers, connect_timeout=CONN_TIMEOUT,
                  io_timeout=IO_TIMEOUT, pool_timeout=POOL_TIMEOUT,
                  tries=TRY_COUNT, allow_pickle=False, allow_unpickle=False,
-                 max_conns=2, logger=None,
+                 max_conns=2, tls_context=None, logger=None,
                  error_limit_count=ERROR_LIMIT_COUNT,
                  error_limit_time=ERROR_LIMIT_TIME,
                  error_limit_duration=ERROR_LIMIT_DURATION):
@@ -174,10 +178,10 @@ class MemcacheRing(object):
                 self._ring[md5hash('%s-%s' % (server, i))] = server
         self._tries = tries if tries <= len(servers) else len(servers)
         self._sorted = sorted(self._ring)
-        self._client_cache = dict(((server,
-                                    MemcacheConnPool(server, max_conns,
-                                                     connect_timeout))
-                                  for server in servers))
+        self._client_cache = dict((
+            (server, MemcacheConnPool(server, max_conns, connect_timeout,
+                                      tls_context=tls_context))
+            for server in servers))
         self._connect_timeout = connect_timeout
         self._io_timeout = io_timeout
         self._pool_timeout = pool_timeout

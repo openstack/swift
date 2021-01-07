@@ -34,3 +34,25 @@
 #
 # How many errors can accumulate before a server is temporarily ignored.
 # error_suppression_limit = 10
+#
+# (Optional) Global toggle for TLS usage when comunicating with
+# the caching servers.
+# tls_enabled = false
+#
+# (Optional) Path to a file of concatenated CA certificates in PEM
+# format necessary to establish the caching server's authenticity.
+# If tls_enabled is False, this option is ignored.
+# tls_cafile =
+#
+# (Optional) Path to a single file in PEM format containing the
+# client's certificate as well as any number of CA certificates
+# needed to establish the certificate's authenticity. This file
+# is only required when client side authentication is necessary.
+# If tls_enabled is False, this option is ignored.
+# tls_certfile =
+#
+# (Optional) Path to a single file containing the client's private
+# key in. Otherwhise the private key will be taken from the file
+# specified in tls_certfile. If tls_enabled is False, this option
+# is ignored.
+# tls_keyfile =
