@@ -20,10 +20,12 @@ import fcntl
 import json
 import logging
 import os
+import time
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, get_logger, readconf, drop_privileges, \
-    RateLimitedIterator, lock_path, non_negative_float, non_negative_int
+    RateLimitedIterator, lock_path, PrefixLoggerAdapter, distribute_evenly, \
+    non_negative_float, non_negative_int, config_auto_int_value
 from swift.obj import diskfile
 
 
@@ -45,14 +47,14 @@ def policy(policy_name_or_index):
 
 
 class Relinker(object):
-    def __init__(self, conf, logger, device, do_cleanup=False):
+    def __init__(self, conf, logger, device_list=None, do_cleanup=False):
         self.conf = conf
         self.logger = logger
-        self.device = device
+        self.device_list = device_list or []
         self.do_cleanup = do_cleanup
         self.root = self.conf['devices']
-        if self.device is not None:
-            self.root = os.path.join(self.root, self.device)
+        if len(self.device_list) == 1:
+            self.root = os.path.join(self.root, list(self.device_list)[0])
         self.part_power = self.next_part_power = None
         self.diskfile_mgr = None
         self.dev_lock = None
@@ -70,8 +72,8 @@ class Relinker(object):
         }
 
     def devices_filter(self, _, devices):
-        if self.device:
-            devices = [d for d in devices if d == self.device]
+        if self.device_list:
+            devices = [d for d in devices if d in self.device_list]
 
         return set(devices)
 
@@ -494,23 +496,84 @@ class Relinker(object):
                 'There were unexpected errors while enumerating disk '
                 'files: %r', self.stats)
 
-        self.logger.info(
+        if action_errors + listdir_errors + unmounted > 0:
+            log_method = self.logger.warning
+            # NB: audit_location_generator logs unmounted disks as warnings,
+            # but we want to treat them as errors
+            status = EXIT_ERROR
+        else:
+            log_method = self.logger.info
+            status = EXIT_SUCCESS
+
+        log_method(
             '%d hash dirs processed (cleanup=%s) (%d files, %d linked, '
             '%d removed, %d errors)', hash_dirs, self.do_cleanup, files,
             linked, removed, action_errors + listdir_errors)
-        if action_errors + listdir_errors + unmounted > 0:
-            # NB: audit_location_generator logs unmounted disks as warnings,
-            # but we want to treat them as errors
-            return EXIT_ERROR
-        return EXIT_SUCCESS
+        return status
 
 
-def relink(conf, logger, device):
-    return Relinker(conf, logger, device, do_cleanup=False).run()
+def parallel_process(do_cleanup, conf, logger=None, device_list=None):
+    logger = logger or logging.getLogger()
+    device_list = sorted(set(device_list or os.listdir(conf['devices'])))
+    workers = conf['workers']
+    if workers == 'auto':
+        workers = len(device_list)
+    else:
+        workers = min(workers, len(device_list))
+    if workers == 0 or len(device_list) in (0, 1):
+        return Relinker(
+            conf, logger, device_list, do_cleanup=do_cleanup).run()
 
+    start = time.time()
+    children = {}
+    for worker_devs in distribute_evenly(device_list, workers):
+        pid = os.fork()
+        if pid == 0:
+            dev_logger = PrefixLoggerAdapter(logger, {})
+            dev_logger.set_prefix('[pid=%s, devs=%s] ' % (
+                os.getpid(), ','.join(worker_devs)))
+            os._exit(Relinker(
+                conf, dev_logger, worker_devs, do_cleanup=do_cleanup).run())
+        else:
+            children[pid] = worker_devs
 
-def cleanup(conf, logger, device):
-    return Relinker(conf, logger, device, do_cleanup=True).run()
+    final_status = EXIT_SUCCESS
+    final_messages = []
+    while children:
+        pid, status = os.wait()
+        sig = status & 0xff
+        status = status >> 8
+        time_delta = time.time() - start
+        devs = children.pop(pid, ['unknown device'])
+        worker_desc = '(pid=%s, devs=%s)' % (pid, ','.join(devs))
+        if sig != 0:
+            final_status = EXIT_ERROR
+            final_messages.append(
+                'Worker %s exited in %.1fs after receiving signal: %s'
+                % (worker_desc, time_delta, sig))
+            continue
+
+        if status == EXIT_SUCCESS:
+            continue
+
+        if status == EXIT_NO_APPLICABLE_POLICY:
+            if final_status == EXIT_SUCCESS:
+                final_status = status
+            continue
+
+        final_status = EXIT_ERROR
+        if status == EXIT_ERROR:
+            final_messages.append(
+                'Worker %s completed in %.1fs with errors'
+                % (worker_desc, time_delta))
+        else:
+            final_messages.append(
+                'Worker %s exited in %.1fs with unexpected status %s'
+                % (worker_desc, time_delta, status))
+
+    for msg in final_messages:
+        logger.warning(msg)
+    return final_status
 
 
 def main(args):
@@ -529,7 +592,8 @@ def main(args):
                         dest='devices', help='Path to swift device directory')
     parser.add_argument('--user', default=None, dest='user',
                         help='Drop privileges to this user before relinking')
-    parser.add_argument('--device', default=None, dest='device',
+    parser.add_argument('--device',
+                        default=[], dest='device_list', action='append',
                         help='Device name to relink (default: all)')
     parser.add_argument('--partition', '-p', default=[], dest='partitions',
                         type=non_negative_int, action='append',
@@ -541,6 +605,10 @@ def main(args):
                         type=non_negative_float, dest='files_per_second',
                         help='Used to limit I/O. Zero implies no limit '
                              '(default: no limit).')
+    parser.add_argument(
+        '--workers', default=None, type=non_negative_int, help=(
+            'Process devices across N workers '
+            '(default: one worker per device)'))
     parser.add_argument('--logfile', default=None, dest='logfile',
                         help='Set log file name. Ignored if using conf_file.')
     parser.add_argument('--debug', default=False, action='store_true',
@@ -584,13 +652,12 @@ def main(args):
             else non_negative_float(conf.get('files_per_second', '0'))),
         'policies': set(args.policies) or POLICIES,
         'partitions': set(args.partitions),
+        'workers': config_auto_int_value(
+            conf.get('workers') if args.workers is None else args.workers,
+            'auto'),
         'link_check_limit': (
             args.link_check_limit if args.link_check_limit is not None
             else non_negative_int(conf.get('link_check_limit', 2))),
     })
-
-    if args.action == 'relink':
-        return relink(conf, logger, device=args.device)
-
-    if args.action == 'cleanup':
-        return cleanup(conf, logger, device=args.device)
+    return parallel_process(
+        args.action == 'cleanup', conf, logger, args.device_list)
