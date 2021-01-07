@@ -167,8 +167,8 @@ def relink(swift_dir='/etc/swift',
         next_part_power = policy.object_ring.next_part_power
         if not next_part_power or next_part_power == part_power:
             continue
-        logging.info('Relinking files for policy %s under %s',
-                     policy.name, devices)
+        logger.info('Relinking files for policy %s under %s',
+                    policy.name, devices)
         run = True
         datadir = diskfile.get_data_dir(policy)
 
@@ -197,7 +197,8 @@ def relink(swift_dir='/etc/swift',
             hook_post_device=relink_hook_post_device,
             partitions_filter=relink_partition_filter,
             hook_post_partition=relink_hook_post_partition,
-            hashes_filter=relink_hashes_filter)
+            hashes_filter=relink_hashes_filter,
+            logger=logger)
         for fname, _, _ in locations:
             newfname = replace_partition_in_path(fname, next_part_power)
             try:
@@ -211,7 +212,7 @@ def relink(swift_dir='/etc/swift',
     if not run:
         logger.warning("No policy found to increase the partition power.")
         return 2
-    logging.info('Relinked %d diskfiles (%d errors)', relinked, errors)
+    logger.info('Relinked %d diskfiles (%d errors)', relinked, errors)
     if errors > 0:
         return 1
     return 0
@@ -234,8 +235,8 @@ def cleanup(swift_dir='/etc/swift',
         next_part_power = policy.object_ring.next_part_power
         if not next_part_power or next_part_power != part_power:
             continue
-        logging.info('Cleaning up files for policy %s under %s',
-                     policy.name, devices)
+        logger.info('Cleaning up files for policy %s under %s',
+                    policy.name, devices)
         run = True
         datadir = diskfile.get_data_dir(policy)
 
@@ -264,7 +265,8 @@ def cleanup(swift_dir='/etc/swift',
             hook_post_device=cleanup_hook_post_device,
             partitions_filter=cleanup_partition_filter,
             hook_post_partition=cleanup_hook_post_partition,
-            hashes_filter=cleanup_hashes_filter)
+            hashes_filter=cleanup_hashes_filter,
+            logger=logger)
         for fname, device, partition in locations:
             expected_fname = replace_partition_in_path(fname, part_power)
             if fname == expected_fname:
@@ -306,7 +308,7 @@ def cleanup(swift_dir='/etc/swift',
             try:
                 os.remove(fname)
                 cleaned_up += 1
-                logging.debug("Removed %s", fname)
+                logger.debug("Removed %s", fname)
             except OSError as exc:
                 logger.warning('Error cleaning up %s: %r', fname, exc)
                 errors += 1
@@ -314,7 +316,7 @@ def cleanup(swift_dir='/etc/swift',
     if not run:
         logger.warning("No policy found to increase the partition power.")
         return 2
-    logging.info('Cleaned up %d diskfiles (%d errors)', cleaned_up, errors)
+    logger.info('Cleaned up %d diskfiles (%d errors)', cleaned_up, errors)
     if errors > 0:
         return 1
     return 0
