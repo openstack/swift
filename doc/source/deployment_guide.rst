@@ -10,12 +10,9 @@ Detailed descriptions of configuration options can be found in the
 Hardware Considerations
 -----------------------
 
-Swift is designed to run on commodity hardware. At Rackspace, our storage
-servers are currently running fairly generic 4U servers with 24 2T SATA
-drives and 8 cores of processing power. RAID on the storage drives is not
-required and not recommended. Swift's disk usage pattern is the worst
-case possible for RAID, and performance degrades very quickly using RAID 5
-or 6.
+Swift is designed to run on commodity hardware. RAID on the storage drives is
+not required and not recommended. Swift's disk usage pattern is the worst case
+possible for RAID, and performance degrades very quickly using RAID 5 or 6.
 
 ------------------
 Deployment Options
@@ -40,12 +37,12 @@ and network I/O intensive.
 The easiest deployment is to install all services on each server. There is
 nothing wrong with doing this, as it scales each service out horizontally.
 
-At Rackspace, we put the Proxy Services on their own servers and all of the
-Storage Services on the same server. This allows us to send 10g networking to
-the proxy and 1g to the storage servers, and keep load balancing to the
-proxies more manageable.  Storage Services scale out horizontally as storage
-servers are added, and we can scale overall API throughput by adding more
-Proxies.
+Alternatively, one set of servers may be dedicated to the Proxy Services and a
+different set of servers dedicated to the Storage Services. This allows faster
+networking to be configured to the proxy than the storage servers, and keeps
+load balancing to the proxies more manageable.  Storage Services scale out
+horizontally as storage servers are added, and the overall API throughput can
+be scaled by adding more proxies.
 
 If you need more throughput to either Account or Container Services, they may
 each be deployed to their own servers. For example you might use faster (but
@@ -303,7 +300,7 @@ You can inspect the resulting combined configuration object using the
 General Server Configuration
 ----------------------------
 
-Swift uses paste.deploy (http://pythonpaste.org/deploy/) to manage server
+Swift uses paste.deploy (https://pypi.org/project/Paste/) to manage server
 configurations. Detailed descriptions of configuration options can be found in
 the :doc:`configuration documentation <config/index>`.
 
@@ -485,12 +482,12 @@ and authorization middleware <overview_auth>` is highly recommended.
 Memcached Considerations
 ------------------------
 
-Several of the Services rely on Memcached for caching certain types of
-lookups, such as auth tokens, and container/account existence.  Swift does
-not do any caching of actual object data.  Memcached should be able to run
-on any servers that have available RAM and CPU.  At Rackspace, we run
-Memcached on the proxy servers.  The ``memcache_servers`` config option
-in the ``proxy-server.conf`` should contain all memcached servers.
+Several of the Services rely on Memcached for caching certain types of lookups,
+such as auth tokens, and container/account existence.  Swift does not do any
+caching of actual object data.  Memcached should be able to run on any servers
+that have available RAM and CPU.  Typically Memcached is run on the proxy
+servers.  The ``memcache_servers`` config option in the ``proxy-server.conf``
+should contain all memcached servers.
 
 -----------
 System Time
@@ -500,9 +497,9 @@ Time may be relative but it is relatively important for Swift!  Swift uses
 timestamps to determine which is the most recent version of an object.
 It is very important for the system time on each server in the cluster to
 by synced as closely as possible (more so for the proxy server, but in general
-it is a good idea for all the servers).  At Rackspace, we use NTP with a local
-NTP server to ensure that the system times are as close as possible.  This
-should also be monitored to ensure that the times do not vary too much.
+it is a good idea for all the servers).  Typical deployments use NTP with a
+local NTP server to ensure that the system times are as close as possible.
+This should also be monitored to ensure that the times do not vary too much.
 
 .. _general-service-tuning:
 
@@ -512,20 +509,23 @@ General Service Tuning
 
 Most services support either a ``workers`` or ``concurrency`` value in the
 settings.  This allows the services to make effective use of the cores
-available. A good starting point to set the concurrency level for the proxy
+available. A good starting point is to set the concurrency level for the proxy
 and storage services to 2 times the number of cores available. If more than
 one service is sharing a server, then some experimentation may be needed to
 find the best balance.
 
-At Rackspace, our Proxy servers have dual quad core processors, giving us 8
-cores. Our testing has shown 16 workers to be a pretty good balance when
-saturating a 10g network and gives good CPU utilization.
+For example, one operator reported using the following settings in a production
+Swift cluster:
 
-Our Storage server processes all run together on the same servers. These servers have
-dual quad core processors, for 8 cores total. We run the Account, Container,
-and Object servers with 8 workers each. Most of the background jobs are run at
-a concurrency of 1, with the exception of the replicators which are run at a
-concurrency of 2.
+- Proxy servers have dual quad core processors (i.e. 8 cores); testing has
+  shown 16 workers to be a pretty good balance when saturating a 10g network
+  and gives good CPU utilization.
+
+- Storage server processes all run together on the same servers. These servers
+  have dual quad core processors, for 8 cores total. The Account, Container,
+  and Object servers are run with 8 workers each. Most of the background jobs
+  are run at a concurrency of 1, with the exception of the replicators which
+  are run at a concurrency of 2.
 
 The ``max_clients`` parameter can be used to adjust the number of client
 requests an individual worker accepts for processing. The fewer requests being
@@ -623,8 +623,8 @@ where Swift stores its data to the setting PRUNEPATHS in ``/etc/updatedb.conf``:
 General System Tuning
 ---------------------
 
-Rackspace currently runs Swift on Ubuntu Server 10.04, and the following
-changes have been found to be useful for our use cases.
+The following changes have been found to be useful when running Swift on Ubuntu
+Server 10.04.
 
 The following settings should be in ``/etc/sysctl.conf``::
 
