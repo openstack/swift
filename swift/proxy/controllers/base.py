@@ -63,13 +63,15 @@ from swift.common.swob import Request, Response, Range, \
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
-    strip_object_transient_sysmeta_prefix, get_ip_port
+    strip_object_transient_sysmeta_prefix, get_ip_port, get_user_meta_prefix, \
+    get_sys_meta_prefix
 from swift.common.storage_policy import POLICIES
 
 
 DEFAULT_RECHECK_ACCOUNT_EXISTENCE = 60  # seconds
 DEFAULT_RECHECK_CONTAINER_EXISTENCE = 60  # seconds
 DEFAULT_RECHECK_UPDATING_SHARD_RANGES = 3600  # seconds
+DEFAULT_RECHECK_LISTING_SHARD_RANGES = 600  # seconds
 
 
 def update_headers(response, headers):
@@ -195,7 +197,98 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'meta': meta,
         'sysmeta': sysmeta,
         'sharding_state': headers.get('x-backend-sharding-state', 'unsharded'),
+        # the 'internal' format version of timestamps is cached since the
+        # normal format can be derived from this when required
+        'created_at': headers.get('x-backend-timestamp'),
+        'put_timestamp': headers.get('x-backend-put-timestamp'),
+        'delete_timestamp': headers.get('x-backend-delete-timestamp'),
+        'status_changed_at': headers.get('x-backend-status-changed-at'),
     }
+
+
+def headers_from_container_info(info):
+    """
+    Construct a HeaderKeyDict from a container info dict.
+
+    :param info: a dict of container metadata
+    :returns: a HeaderKeyDict or None if info is None or any required headers
+        could not be constructed
+    """
+    if not info:
+        return None
+
+    required = (
+        ('x-backend-timestamp', 'created_at'),
+        ('x-backend-put-timestamp', 'put_timestamp'),
+        ('x-backend-delete-timestamp', 'delete_timestamp'),
+        ('x-backend-status-changed-at', 'status_changed_at'),
+        ('x-backend-storage-policy-index', 'storage_policy'),
+        ('x-container-object-count', 'object_count'),
+        ('x-container-bytes-used', 'bytes'),
+        ('x-backend-sharding-state', 'sharding_state'),
+    )
+    required_normal_format_timestamps = (
+        ('x-timestamp', 'created_at'),
+        ('x-put-timestamp', 'put_timestamp'),
+    )
+    optional = (
+        ('x-container-read', 'read_acl'),
+        ('x-container-write', 'write_acl'),
+        ('x-container-sync-key', 'sync_key'),
+        ('x-container-sync-to', 'sync_to'),
+        ('x-versions-location', 'versions'),
+    )
+    cors_optional = (
+        ('access-control-allow-origin', 'allow_origin'),
+        ('access-control-expose-headers', 'expose_headers'),
+        ('access-control-max-age', 'max_age')
+    )
+
+    def lookup(info, key):
+        # raises KeyError or ValueError
+        val = info[key]
+        if val is None:
+            raise ValueError
+        return val
+
+    # note: required headers may be missing from info for example during
+    # upgrade when stale info is still in cache
+    headers = HeaderKeyDict()
+    for hdr, key in required:
+        try:
+            headers[hdr] = lookup(info, key)
+        except (KeyError, ValueError):
+            return None
+
+    for hdr, key in required_normal_format_timestamps:
+        try:
+            headers[hdr] = Timestamp(lookup(info, key)).normal
+        except (KeyError, ValueError):
+            return None
+
+    for hdr, key in optional:
+        try:
+            headers[hdr] = lookup(info, key)
+        except (KeyError, ValueError):
+            pass
+
+    policy_index = info.get('storage_policy')
+    headers['x-storage-policy'] = POLICIES[int(policy_index)].name
+    prefix = get_user_meta_prefix('container')
+    headers.update(
+        (prefix + k, v)
+        for k, v in info.get('meta', {}).items())
+    for hdr, key in cors_optional:
+        try:
+            headers[prefix + hdr] = lookup(info.get('cors'), key)
+        except (KeyError, ValueError):
+            pass
+    prefix = get_sys_meta_prefix('container')
+    headers.update(
+        (prefix + k, v)
+        for k, v in info.get('sysmeta', {}).items())
+
+    return headers
 
 
 def headers_to_object_info(headers, status_int=HTTP_OK):
@@ -544,9 +637,7 @@ def set_info_cache(app, env, account, container, resp):
     infocache = env.setdefault('swift.infocache', {})
     memcache = cache_from_env(env, True)
     if resp is None:
-        infocache.pop(cache_key, None)
-        if memcache:
-            memcache.delete(cache_key)
+        clear_info_cache(app, env, account, container)
         return
 
     if container:
@@ -603,16 +694,24 @@ def set_object_info_cache(app, env, account, container, obj, resp):
     return info
 
 
-def clear_info_cache(app, env, account, container=None):
+def clear_info_cache(app, env, account, container=None, shard=None):
     """
     Clear the cached info in both memcache and env
 
     :param  app: the application object
     :param  env: the WSGI environment
     :param  account: the account name
-    :param  container: the containr name or None if setting info for containers
+    :param  container: the container name if clearing info for containers, or
+              None
+    :param  shard: the sharding state if clearing info for container shard
+              ranges, or None
     """
-    set_info_cache(app, env, account, container, None)
+    cache_key = get_cache_key(account, container, shard=shard)
+    infocache = env.setdefault('swift.infocache', {})
+    memcache = cache_from_env(env, True)
+    infocache.pop(cache_key, None)
+    if memcache:
+        memcache.delete(cache_key)
 
 
 def _get_info_from_infocache(env, account, container=None):
@@ -2160,6 +2259,24 @@ class Controller(object):
             raise ValueError(
                 "server_type can only be 'account' or 'container'")
 
+    def _parse_listing_response(self, req, response):
+        if not is_success(response.status_int):
+            self.app.logger.warning(
+                'Failed to get container listing from %s: %s',
+                req.path_qs, response.status_int)
+            return None
+
+        try:
+            data = json.loads(response.body)
+            if not isinstance(data, list):
+                raise ValueError('not a list')
+            return data
+        except ValueError as err:
+            self.app.logger.error(
+                'Problem with listing response from %s: %r',
+                req.path_qs, err)
+            return None
+
     def _get_container_listing(self, req, account, container, headers=None,
                                params=None):
         """
@@ -2167,7 +2284,7 @@ class Controller(object):
 
         :param req: original Request instance.
         :param account: account in which `container` is stored.
-        :param container: container from listing should be fetched.
+        :param container: container from which listing should be fetched.
         :param headers: headers to be included with the request
         :param params: query string parameters to be used.
         :return: a tuple of (deserialized json data structure, swob Response)
@@ -2185,23 +2302,28 @@ class Controller(object):
         self.app.logger.debug(
             'Get listing from %s %s' % (subreq.path_qs, headers))
         response = self.app.handle_request(subreq)
+        data = self._parse_listing_response(req, response)
+        return data, response
 
-        if not is_success(response.status_int):
-            self.app.logger.warning(
-                'Failed to get container listing from %s: %s',
-                subreq.path_qs, response.status_int)
-            return None, response
+    def _parse_shard_ranges(self, req, listing, response):
+        if listing is None:
+            return None
+
+        record_type = response.headers.get('x-backend-record-type')
+        if record_type != 'shard':
+            err = 'unexpected record type %r' % record_type
+            self.app.logger.error("Failed to get shard ranges from %s: %s",
+                                  req.path_qs, err)
+            return None
 
         try:
-            data = json.loads(response.body)
-            if not isinstance(data, list):
-                raise ValueError('not a list')
-            return data, response
-        except ValueError as err:
+            return [ShardRange.from_dict(shard_range)
+                    for shard_range in listing]
+        except (ValueError, TypeError, KeyError) as err:
             self.app.logger.error(
-                'Problem with listing response from %s: %r',
-                subreq.path_qs, err)
-            return None, response
+                "Failed to get shard ranges from %s: invalid data: %r",
+                req.path_qs, err)
+            return None
 
     def _get_shard_ranges(self, req, account, container, includes=None,
                           states=None):
@@ -2229,24 +2351,7 @@ class Controller(object):
         headers = {'X-Backend-Record-Type': 'shard'}
         listing, response = self._get_container_listing(
             req, account, container, headers=headers, params=params)
-        if listing is None:
-            return None
-
-        record_type = response.headers.get('x-backend-record-type')
-        if record_type != 'shard':
-            err = 'unexpected record type %r' % record_type
-            self.app.logger.error("Failed to get shard ranges from %s: %s",
-                                  req.path_qs, err)
-            return None
-
-        try:
-            return [ShardRange.from_dict(shard_range)
-                    for shard_range in listing]
-        except (ValueError, TypeError, KeyError) as err:
-            self.app.logger.error(
-                "Failed to get shard ranges from %s: invalid data: %r",
-                req.path_qs, err)
-            return None
+        return self._parse_shard_ranges(req, listing, response)
 
     def _get_update_shard(self, req, account, container, obj):
         """

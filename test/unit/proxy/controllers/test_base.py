@@ -27,7 +27,7 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_cache_key, get_account_info, get_info, get_object_info, \
     Controller, GetOrHeadHandler, bytes_to_skip, clear_info_cache, \
-    set_info_cache, NodeIter
+    set_info_cache, NodeIter, headers_from_container_info
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
     bytes_to_wsgi
 from swift.common import exceptions
@@ -470,6 +470,16 @@ class TestFuncs(BaseTest):
                                        u"\U0001F334".encode('utf8')),
                          expected)
 
+        self.assertEqual(get_cache_key("account", "cont", shard="listing"),
+                         'shard-listing/account/cont')
+        self.assertEqual(get_cache_key("account", "cont", shard="updating"),
+                         'shard-updating/account/cont')
+        self.assertRaises(ValueError,
+                          get_cache_key, "account", shard="listing")
+        self.assertRaises(ValueError,
+                          get_cache_key, "account", "cont", "obj",
+                          shard="listing")
+
     def test_get_container_info_env(self):
         cache_key = get_cache_key("account", "cont")
         req = Request.blank(
@@ -508,6 +518,16 @@ class TestFuncs(BaseTest):
         set_info_cache('app-is-unused', req.environ, 'account', None, None)
         check_not_in_cache(req, acct_cache_key)
         check_not_in_cache(req, cont_cache_key)
+
+        # check shard cache-keys
+        shard_cache_key = get_cache_key('account', 'cont', shard='listing')
+        shard_data = [{'shard': 'ranges'}]
+        req.environ['swift.infocache'][shard_cache_key] = shard_data
+        req.environ['swift.cache'].set(shard_cache_key, shard_data, time=600)
+        check_in_cache(req, shard_cache_key)
+        clear_info_cache('app-is-unused', req.environ, 'account', 'cont',
+                         shard='listing')
+        check_not_in_cache(req, shard_cache_key)
 
     def test_get_account_info_swift_source(self):
         app = FakeApp()
@@ -717,6 +737,101 @@ class TestFuncs(BaseTest):
         self.assertEqual(
             resp,
             headers_to_container_info(headers.items(), 200))
+
+    def test_headers_from_container_info(self):
+        self.assertIsNone(headers_from_container_info(None))
+        self.assertIsNone(headers_from_container_info({}))
+
+        meta = {'fruit': 'cake'}
+        sysmeta = {'green': 'land'}
+        info = {
+            'status': 200,
+            'read_acl': 'my-read-acl',
+            'write_acl': 'my-write-acl',
+            'sync_to': 'my-sync-to',
+            'sync_key': 'my-sync-key',
+            'object_count': 99,
+            'bytes': 999,
+            'versions': 'my-versions',
+            'storage_policy': '0',
+            'cors': {
+                'allow_origin': 'my-cors-origin',
+                'expose_headers': 'my-cors-hdrs',
+                'max_age': 'my-cors-age'},
+            'created_at': '123.456_12',
+            'put_timestamp': '234.567_34',
+            'delete_timestamp': '345_67',
+            'status_changed_at': '246.8_9',
+            'meta': meta,
+            'sysmeta': sysmeta,
+            'sharding_state': 'unsharded'
+        }
+
+        res = headers_from_container_info(info)
+
+        expected = {
+            'X-Backend-Delete-Timestamp': '345_67',
+            'X-Backend-Put-Timestamp': '234.567_34',
+            'X-Backend-Sharding-State': 'unsharded',
+            'X-Backend-Status-Changed-At': '246.8_9',
+            'X-Backend-Storage-Policy-Index': '0',
+            'X-Backend-Timestamp': '123.456_12',
+            'X-Container-Bytes-Used': '999',
+            'X-Container-Meta-Fruit': 'cake',
+            'X-Container-Object-Count': '99',
+            'X-Container-Read': 'my-read-acl',
+            'X-Container-Sync-Key': 'my-sync-key',
+            'X-Container-Sync-To': 'my-sync-to',
+            'X-Container-Sysmeta-Green': 'land',
+            'X-Container-Write': 'my-write-acl',
+            'X-Put-Timestamp': '0000000234.56700',
+            'X-Storage-Policy': 'zero',
+            'X-Timestamp': '0000000123.45600',
+            'X-Versions-Location': 'my-versions',
+            'X-Container-Meta-Access-Control-Allow-Origin': 'my-cors-origin',
+            'X-Container-Meta-Access-Control-Expose-Headers': 'my-cors-hdrs',
+            'X-Container-Meta-Access-Control-Max-Age': 'my-cors-age',
+        }
+
+        self.assertEqual(expected, res)
+
+        for required in (
+                'created_at', 'put_timestamp', 'delete_timestamp',
+                'status_changed_at', 'storage_policy', 'object_count', 'bytes',
+                'sharding_state'):
+            incomplete_info = dict(info)
+            incomplete_info.pop(required)
+            self.assertIsNone(headers_from_container_info(incomplete_info))
+
+        for hdr, optional in (
+                ('X-Container-Read', 'read_acl'),
+                ('X-Container-Write', 'write_acl'),
+                ('X-Container-Sync-Key', 'sync_key'),
+                ('X-Container-Sync-To', 'sync_to'),
+                ('X-Versions-Location', 'versions'),
+                ('X-Container-Meta-Fruit', 'meta'),
+                ('X-Container-Sysmeta-Green', 'sysmeta'),
+        ):
+            incomplete_info = dict(info)
+            incomplete_info.pop(optional)
+            incomplete_expected = dict(expected)
+            incomplete_expected.pop(hdr)
+            self.assertEqual(incomplete_expected,
+                             headers_from_container_info(incomplete_info))
+
+        for hdr, optional in (
+            ('Access-Control-Allow-Origin', 'allow_origin'),
+            ('Access-Control-Expose-Headers', 'expose_headers'),
+            ('Access-Control-Max-Age', 'max_age'),
+        ):
+            incomplete_info = dict(info)
+            incomplete_cors = dict(info['cors'])
+            incomplete_cors.pop(optional)
+            incomplete_info['cors'] = incomplete_cors
+            incomplete_expected = dict(expected)
+            incomplete_expected.pop('X-Container-Meta-' + hdr)
+            self.assertEqual(incomplete_expected,
+                             headers_from_container_info(incomplete_info))
 
     def test_container_info_needs_req(self):
         base = Controller(self.app)

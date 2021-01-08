@@ -622,6 +622,23 @@ class TestProxyServerConfiguration(unittest.TestCase):
                          set(app.cors_expose_headers))
         self.assertFalse(app.strict_cors_mode)
 
+    def test_memcache_recheck_options(self):
+        # check default options
+        app = self._make_app({})
+        self.assertEqual(app.recheck_account_existence, 60)
+        self.assertEqual(app.recheck_container_existence, 60)
+        self.assertEqual(app.recheck_updating_shard_ranges, 3600)
+        self.assertEqual(app.recheck_listing_shard_ranges, 600)
+        # check custom options
+        app = self._make_app({'recheck_account_existence': '30',
+                              'recheck_container_existence': '40',
+                              'recheck_updating_shard_ranges': '1800',
+                              'recheck_listing_shard_ranges': ' 900'})
+        self.assertEqual(app.recheck_account_existence, 30)
+        self.assertEqual(app.recheck_container_existence, 40)
+        self.assertEqual(app.recheck_updating_shard_ranges, 1800)
+        self.assertEqual(app.recheck_listing_shard_ranges, 900)
+
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestProxyServer(unittest.TestCase):

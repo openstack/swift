@@ -288,9 +288,10 @@ class BaseTestContainerSharding(ReplProbeTest):
         actual = sum(sr['object_count'] for sr in shard_ranges)
         self.assertEqual(expected_object_count, actual)
 
-    def assert_container_listing(self, expected_listing):
+    def assert_container_listing(self, expected_listing, req_hdrs=None):
+        req_hdrs = req_hdrs if req_hdrs else {}
         headers, actual_listing = client.get_container(
-            self.url, self.token, self.container_name)
+            self.url, self.token, self.container_name, headers=req_hdrs)
         self.assertIn('x-container-object-count', headers)
         expected_obj_count = len(expected_listing)
         self.assertEqual(expected_listing, [
@@ -390,18 +391,21 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
         # verify parameterised listing of a container during sharding
         all_obj_names = self._make_object_names(4 * self.max_shard_size)
         obj_names = all_obj_names[::2]
-        self.put_objects(obj_names)
+        obj_content = 'testing'
+        self.put_objects(obj_names, contents=obj_content)
         # choose some names approx in middle of each expected shard range
         markers = [
             obj_names[i] for i in range(self.max_shard_size // 4,
                                         2 * self.max_shard_size,
                                         self.max_shard_size // 2)]
 
-        def check_listing(objects, **params):
+        def check_listing(objects, req_hdrs=None, **params):
+            req_hdrs = req_hdrs if req_hdrs else {}
             qs = '&'.join('%s=%s' % (k, quote(str(v)))
                           for k, v in params.items())
             headers, listing = client.get_container(
-                self.url, self.token, self.container_name, query_string=qs)
+                self.url, self.token, self.container_name, query_string=qs,
+                headers=req_hdrs)
             listing = [x['name'].encode('utf-8') if six.PY2 else x['name']
                        for x in listing]
             if params.get('reverse'):
@@ -416,6 +420,12 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
             if 'limit' in params:
                 expected = expected[:params['limit']]
             self.assertEqual(expected, listing)
+            self.assertIn('x-timestamp', headers)
+            self.assertIn('last-modified', headers)
+            self.assertIn('x-trans-id', headers)
+            self.assertEqual('bytes', headers.get('accept-ranges'))
+            self.assertEqual('application/json; charset=utf-8',
+                             headers.get('content-type'))
 
         def check_listing_fails(exp_status, **params):
             qs = '&'.join(['%s=%s' % param for param in params.items()])
@@ -425,38 +435,39 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
             self.assertEqual(exp_status, cm.exception.http_status)
             return cm.exception
 
-        def do_listing_checks(objects):
-            check_listing(objects)
-            check_listing(objects, marker=markers[0], end_marker=markers[1])
-            check_listing(objects, marker=markers[0], end_marker=markers[2])
-            check_listing(objects, marker=markers[1], end_marker=markers[3])
-            check_listing(objects, marker=markers[1], end_marker=markers[3],
+        def do_listing_checks(objs, hdrs=None):
+            hdrs = hdrs if hdrs else {}
+            check_listing(objs, hdrs)
+            check_listing(objs, hdrs, marker=markers[0], end_marker=markers[1])
+            check_listing(objs, hdrs, marker=markers[0], end_marker=markers[2])
+            check_listing(objs, hdrs, marker=markers[1], end_marker=markers[3])
+            check_listing(objs, hdrs, marker=markers[1], end_marker=markers[3],
                           limit=self.max_shard_size // 4)
-            check_listing(objects, marker=markers[1], end_marker=markers[3],
+            check_listing(objs, hdrs, marker=markers[1], end_marker=markers[3],
                           limit=self.max_shard_size // 4)
-            check_listing(objects, marker=markers[1], end_marker=markers[2],
+            check_listing(objs, hdrs, marker=markers[1], end_marker=markers[2],
                           limit=self.max_shard_size // 2)
-            check_listing(objects, marker=markers[1], end_marker=markers[1])
-            check_listing(objects, reverse=True)
-            check_listing(objects, reverse=True, end_marker=markers[1])
-            check_listing(objects, reverse=True, marker=markers[3],
+            check_listing(objs, hdrs, marker=markers[1], end_marker=markers[1])
+            check_listing(objs, hdrs, reverse=True)
+            check_listing(objs, hdrs, reverse=True, end_marker=markers[1])
+            check_listing(objs, hdrs, reverse=True, marker=markers[3],
                           end_marker=markers[1],
                           limit=self.max_shard_size // 4)
-            check_listing(objects, reverse=True, marker=markers[3],
+            check_listing(objs, hdrs, reverse=True, marker=markers[3],
                           end_marker=markers[1], limit=0)
-            check_listing([], marker=markers[0], end_marker=markers[0])
-            check_listing([], marker=markers[0], end_marker=markers[1],
+            check_listing([], hdrs, marker=markers[0], end_marker=markers[0])
+            check_listing([], hdrs, marker=markers[0], end_marker=markers[1],
                           reverse=True)
-            check_listing(objects, prefix='obj')
-            check_listing([], prefix='zzz')
+            check_listing(objs, hdrs, prefix='obj')
+            check_listing([], hdrs, prefix='zzz')
             # delimiter
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name,
-                query_string='delimiter=' + quote(self.DELIM))
+                query_string='delimiter=' + quote(self.DELIM), headers=hdrs)
             self.assertEqual([{'subdir': 'obj' + self.DELIM}], listing)
             headers, listing = client.get_container(
                 self.url, self.token, self.container_name,
-                query_string='delimiter=j' + quote(self.DELIM))
+                query_string='delimiter=j' + quote(self.DELIM), headers=hdrs)
             self.assertEqual([{'subdir': 'obj' + self.DELIM}], listing)
 
             limit = self.cluster_info['swift']['container_listing_limit']
@@ -494,13 +505,16 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
         self.assert_container_post_ok('sharding')
         do_listing_checks(obj_names)
 
-        # put some new objects spread through entire namespace
+        # put some new objects spread through entire namespace; object updates
+        # should be directed to the shard container (both the cleaved and the
+        # created shards)
         new_obj_names = all_obj_names[1::4]
-        self.put_objects(new_obj_names)
+        self.put_objects(new_obj_names, obj_content)
 
         # new objects that fell into the first two cleaved shard ranges are
-        # reported in listing, new objects in the yet-to-be-cleaved shard
-        # ranges are not yet included in listing
+        # reported in listing; new objects in the yet-to-be-cleaved shard
+        # ranges are not yet included in listing because listings prefer the
+        # root over the final two shards that are not yet-cleaved
         exp_obj_names = [o for o in obj_names + new_obj_names
                          if o <= shard_ranges[1].upper]
         exp_obj_names += [o for o in obj_names
@@ -515,9 +529,53 @@ class TestContainerShardingNonUTF8(BaseTestContainerSharding):
         shard_ranges = self.get_container_shard_ranges()
         self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges)
 
+        # listings are now gathered from all four shard ranges so should have
+        # all the specified objects
         exp_obj_names = obj_names + new_obj_names
         exp_obj_names.sort()
         do_listing_checks(exp_obj_names)
+        # shard ranges may now be cached by proxy so do listings checks again
+        # forcing backend request
+        do_listing_checks(exp_obj_names, hdrs={'X-Newest': 'true'})
+
+        # post more metadata to the container and check that it is read back
+        # correctly from backend (using x-newest) and cache
+        test_headers = {'x-container-meta-test': 'testing',
+                        'x-container-read': 'read_acl',
+                        'x-container-write': 'write_acl',
+                        'x-container-sync-key': 'sync_key',
+                        # 'x-container-sync-to': 'sync_to',
+                        'x-versions-location': 'versions',
+                        'x-container-meta-access-control-allow-origin': 'aa',
+                        'x-container-meta-access-control-expose-headers': 'bb',
+                        'x-container-meta-access-control-max-age': '123'}
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers=test_headers)
+        headers, listing = client.get_container(
+            self.url, self.token, self.container_name,
+            headers={'X-Newest': 'true'})
+        exp_headers = dict(test_headers)
+        exp_headers.update({
+            'x-container-object-count': str(len(exp_obj_names)),
+            'x-container-bytes-used':
+            str(len(exp_obj_names) * len(obj_content))
+        })
+        for k, v in exp_headers.items():
+            self.assertIn(k, headers)
+            self.assertEqual(v, headers[k], dict(headers))
+
+        cache_headers, listing = client.get_container(
+            self.url, self.token, self.container_name)
+        for k, v in exp_headers.items():
+            self.assertIn(k, cache_headers)
+            self.assertEqual(v, cache_headers[k], dict(exp_headers))
+        # we don't expect any of these headers to be equal...
+        for k in ('x-timestamp', 'last-modified', 'date', 'x-trans-id',
+                  'x-openstack-request-id'):
+            headers.pop(k, None)
+            cache_headers.pop(k, None)
+        self.assertEqual(headers, cache_headers)
+
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
@@ -881,8 +939,16 @@ class TestContainerSharding(BaseTestContainerSharding):
         # ... and check some other container properties
         self.assertEqual(headers['last-modified'],
                          pre_sharding_headers['last-modified'])
-
         # It even works in reverse!
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name,
+                                                query_string='reverse=on')
+        self.assertEqual(pre_sharding_listing[::-1], listing)
+
+        # and repeat checks to use shard ranges now cached in proxy
+        headers, actual_listing = self.assert_container_listing(obj_names)
+        self.assertEqual(headers['last-modified'],
+                         pre_sharding_headers['last-modified'])
         headers, listing = client.get_container(self.url, self.token,
                                                 self.container_name,
                                                 query_string='reverse=on')
@@ -894,7 +960,8 @@ class TestContainerSharding(BaseTestContainerSharding):
             'beta%03d' % x for x in range(self.max_shard_size)]
         self.put_objects(more_obj_names)
 
-        # The listing includes new objects...
+        # The listing includes new objects (shard ranges haven't changed, just
+        # their object content, so cached shard ranges are still correct)...
         headers, listing = self.assert_container_listing(
             more_obj_names + obj_names)
         self.assertEqual(pre_sharding_listing, listing[len(more_obj_names):])
@@ -2002,10 +2069,14 @@ class TestContainerSharding(BaseTestContainerSharding):
         # then run sharder on the shard node without the alpha object
         self.sharders.once(additional_args='--partitions=%s' % shard_part,
                            number=shard_nodes[2])
-        # root sees first shard has shrunk, only second shard range used for
-        # listing so alpha object not in listing
+        # root sees first shard has shrunk
         self.assertLengthEqual(self.get_container_shard_ranges(), 1)
-        self.assert_container_listing([])
+        # cached shard ranges still show first shard range as active so listing
+        # will include 'alpha' if the shard listing is fetched from node (0,1)
+        # but not if fetched from node 2; to achieve predictability we use
+        # x-newest to use shard ranges from the root so that only the second
+        # shard range is used for listing, so alpha object not in listing
+        self.assert_container_listing([], req_hdrs={'x-newest': 'true'})
         self.assert_container_object_count(0)
 
         # run the updaters: the async pending update will be redirected from

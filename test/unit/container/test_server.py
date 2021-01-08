@@ -2643,7 +2643,8 @@ class TestContainerController(unittest.TestCase):
         # make a container
         ts_iter = make_timestamp_iter()
         ts_now = Timestamp.now()  # used when mocking Timestamp.now()
-        headers = {'X-Timestamp': next(ts_iter).normal}
+        ts_put = next(ts_iter)
+        headers = {'X-Timestamp': ts_put.normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
         # PUT some objects
@@ -2712,6 +2713,25 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(expected, json.loads(resp.body))
             self.assertIn('X-Backend-Record-Type', resp.headers)
             self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+
+        def check_shard_GET_override_filter(
+                expected_shard_ranges, path, state, params=''):
+            req_headers = {'X-Backend-Record-Type': 'shard',
+                           'X-Backend-Override-Shard-Name-Filter': state}
+            req = Request.blank('/sda1/p/%s?format=json%s' %
+                                (path, params), method='GET',
+                                headers=req_headers)
+            with mock_timestamp_now(ts_now):
+                resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [
+                dict(sr, last_modified=Timestamp(sr.timestamp).isoformat)
+                for sr in expected_shard_ranges]
+            self.assertEqual(expected, json.loads(resp.body))
+            self.assertIn('X-Backend-Record-Type', resp.headers)
+            self.assertEqual('shard', resp.headers['X-Backend-Record-Type'])
+            return resp
 
         # all shards
         check_shard_GET(shard_ranges, 'a/c')
@@ -2861,6 +2881,72 @@ class TestContainerController(unittest.TestCase):
                         params='&marker=egg&end_marker=cheese')
         check_shard_GET([], 'a/c',
                         params='&marker=cheese&end_marker=egg&reverse=true')
+
+        # now vary the sharding state and check the consequences of sending the
+        # x-backend-override-shard-name-filter header:
+        # in unsharded & sharding state the header should be ignored
+        self.assertEqual('unsharded', broker.get_db_state())
+        check_shard_GET(
+            reversed(shard_ranges[:2]), 'a/c',
+            params='&states=listing&reverse=true&marker=egg')
+        resp = check_shard_GET_override_filter(
+            reversed(shard_ranges[:2]), 'a/c', state='unsharded',
+            params='&states=listing&reverse=true&marker=egg')
+        self.assertNotIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        resp = check_shard_GET_override_filter(
+            reversed(shard_ranges[:2]), 'a/c', state='sharded',
+            params='&states=listing&reverse=true&marker=egg')
+        self.assertIsNone(
+            resp.headers.get('X-Backend-Override-Shard-Name-Filter'))
+        ts_epoch = next(ts_iter)
+        broker.enable_sharding(ts_epoch)
+        self.assertTrue(broker.set_sharding_state())
+        check_shard_GET(
+            reversed(shard_ranges[:2]), 'a/c',
+            params='&states=listing&reverse=true&marker=egg')
+        resp = check_shard_GET_override_filter(
+            reversed(shard_ranges[:2]), 'a/c', state='sharding',
+            params='&states=listing&reverse=true&marker=egg')
+        self.assertNotIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        resp = check_shard_GET_override_filter(
+            reversed(shard_ranges[:2]), 'a/c', state='sharded',
+            params='&states=listing&reverse=true&marker=egg')
+        self.assertIsNone(
+            resp.headers.get('X-Backend-Override-Shard-Name-Filter'))
+        # in sharded state the server *will* override the marker and reverse
+        # params and return listing shard ranges for entire namespace if
+        # X-Backend-Override-Shard-Name-Filter == 'sharded'
+        self.assertTrue(broker.set_sharded_state())
+        ts_now = next(ts_iter)
+        with mock_timestamp_now(ts_now):
+            extra_shard_range = broker.get_own_shard_range()
+        extra_shard_range.lower = shard_ranges[2].upper
+        extra_shard_range.upper = ShardRange.MAX
+        check_shard_GET(
+            reversed(shard_ranges[:2]), 'a/c',
+            params='&states=listing&reverse=true&marker=egg')
+        expected = shard_ranges[:3] + [extra_shard_range]
+        resp = check_shard_GET_override_filter(
+            reversed(shard_ranges[:2]), 'a/c', state='sharding',
+            params='&states=listing&reverse=true&marker=egg')
+        self.assertNotIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
+        resp = check_shard_GET_override_filter(
+            expected, 'a/c', state='sharded',
+            params='&states=listing&reverse=true&marker=egg')
+        self.assertEqual(
+            'true', resp.headers.get('X-Backend-Override-Shard-Name-Filter'))
+        # updating state excludes the first shard which has 'shrinking' state
+        # but includes the fourth which has 'created' state
+        extra_shard_range.lower = shard_ranges[3].upper
+        check_shard_GET(
+            shard_ranges[1:2], 'a/c',
+            params='&states=updating&includes=egg')
+        expected = shard_ranges[1:4] + [extra_shard_range]
+        resp = check_shard_GET_override_filter(
+            expected, 'a/c', state='sharded',
+            params='&states=updating&includes=egg')
+        self.assertEqual(
+            'true', resp.headers.get('X-Backend-Override-Shard-Name-Filter'))
 
         # delete a shard range
         shard_range = shard_ranges[1]

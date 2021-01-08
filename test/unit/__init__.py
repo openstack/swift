@@ -396,18 +396,29 @@ class FakeMemcache(object):
 
     def __init__(self):
         self.store = {}
+        self.calls = []
+
+    def clear_calls(self):
+        del self.calls[:]
+
+    def _called(self, method, key=None, value=None, time=None):
+        self.calls.append((method, key, value, time))
 
     def get(self, key):
+        self._called('get', key)
         return self.store.get(key)
 
     def keys(self):
+        self._called('keys')
         return self.store.keys()
 
     def set(self, key, value, time=0):
+        self._called('set', key, value, time)
         self.store[key] = value
         return True
 
     def incr(self, key, time=0):
+        self._called('incr', key, time=time)
         self.store[key] = self.store.setdefault(key, 0) + 1
         return self.store[key]
 
@@ -416,11 +427,15 @@ class FakeMemcache(object):
         yield True
 
     def delete(self, key):
+        self._called('delete', key)
         try:
             del self.store[key]
         except Exception:
             pass
         return True
+
+    def delete_all(self):
+        self.store.clear()
 
 
 class FakeIterable(object):
