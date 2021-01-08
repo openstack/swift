@@ -413,7 +413,7 @@ class TestRequest(S3ApiTestCase):
 
         headers.update(date_header)
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config(), app=None)
+        sigv4_req = SigV4Request(req.environ, self.s3api.conf, app=None)
 
         if 'X-Amz-Date' in date_header:
             timestamp = mktime(
@@ -467,7 +467,32 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
 
-        # near-future X-Amz-Date header
+        # near-past X-Amz-Date headers
+        date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
+            datetime.utcnow() - timedelta(minutes=10)
+        )}
+        self._test_request_timestamp_sigv4(date_header)
+
+        date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
+            datetime.utcnow() - timedelta(minutes=10)
+        )}
+        with self.assertRaises(RequestTimeTooSkewed) as cm, \
+                patch.object(self.s3api.conf, 'allowable_clock_skew', 300):
+            self._test_request_timestamp_sigv4(date_header)
+
+        # near-future X-Amz-Date headers
+        date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
+            datetime.utcnow() + timedelta(minutes=10)
+        )}
+        self._test_request_timestamp_sigv4(date_header)
+
+        date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
+            datetime.utcnow() + timedelta(minutes=10)
+        )}
+        with self.assertRaises(RequestTimeTooSkewed) as cm, \
+                patch.object(self.s3api.conf, 'allowable_clock_skew', 300):
+            self._test_request_timestamp_sigv4(date_header)
+
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
             datetime.utcnow() + timedelta(days=1)
         )}

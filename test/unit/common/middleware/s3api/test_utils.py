@@ -140,10 +140,21 @@ class TestConfig(unittest.TestCase):
         self.assertTrue(conf.dns_compliant_bucket_names)
         self.assertTrue(conf.allow_multipart_uploads)
         self.assertFalse(conf.allow_no_owner)
+        self.assertEqual(900, conf.allowable_clock_skew)
 
     def test_defaults(self):
+        # deliberately brittle so new defaults will need to be added to test
         conf = utils.Config()
         self._assert_defaults(conf)
+        del conf.slo_enabled
+        del conf.storage_domain
+        del conf.location
+        del conf.force_swift_request_proxy_log
+        del conf.dns_compliant_bucket_names
+        del conf.allow_multipart_uploads
+        del conf.allow_no_owner
+        del conf.allowable_clock_skew
+        self.assertEqual({}, conf)
 
     def test_update(self):
         conf = utils.Config()

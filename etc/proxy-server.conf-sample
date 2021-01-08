@@ -613,6 +613,10 @@ use = egg:swift#s3api
 # AWS S3 document says that each part must be at least 5 MB in a multipart
 # upload, except the last part.
 # min_segment_size = 5242880
+#
+# AWS allows clock skew up to 15 mins; note that older versions of swift/swift3
+# allowed at most 5 mins.
+# allowable_clock_skew = 900
 
 # You can override the default log routing for this filter here:
 # log_name = s3api

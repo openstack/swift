@@ -731,8 +731,8 @@ class S3Request(swob.Request):
 
         # If the standard date is too far ahead or behind, it is an
         # error
-        delta = 60 * 5
-        if abs(int(self.timestamp) - int(S3Timestamp.now())) > delta:
+        delta = abs(int(self.timestamp) - int(S3Timestamp.now()))
+        if delta > self.conf.allowable_clock_skew:
             raise RequestTimeTooSkewed()
 
     def _validate_headers(self):
