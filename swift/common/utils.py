@@ -2058,8 +2058,12 @@ class PrefixLoggerAdapter(SwiftLoggerAdapter):
     def set_prefix(self, prefix):
         self.extra['prefix'] = prefix
 
-    def exception(self, *a, **kw):
-        self.logger.exception(*a, **kw)
+    def exception(self, msg, *a, **kw):
+        if 'prefix' in self.extra:
+            msg = self.extra['prefix'] + msg
+        # We up-call to exception() where stdlib uses error() so we can get
+        # some of the traceback suppression from LogAdapter, below
+        self.logger.exception(msg, *a, **kw)
 
     def process(self, msg, kwargs):
         msg, kwargs = super(PrefixLoggerAdapter, self).process(msg, kwargs)

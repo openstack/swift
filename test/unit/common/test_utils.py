@@ -2039,6 +2039,56 @@ class TestUtils(unittest.TestCase):
         finally:
             logger.logger.removeHandler(handler)
 
+    @reset_logger_state
+    def test_prefixlogger(self):
+        # setup stream logging
+        sio = StringIO()
+        base_logger = utils.get_logger(None)
+        handler = logging.StreamHandler(sio)
+        base_logger.logger.addHandler(handler)
+        logger = utils.PrefixLoggerAdapter(base_logger, {})
+        logger.set_prefix('some prefix: ')
+
+        def strip_value(sio):
+            sio.seek(0)
+            v = sio.getvalue()
+            sio.truncate(0)
+            return v
+
+        def log_exception(exc):
+            try:
+                raise exc
+            except (Exception, Timeout):
+                logger.exception('blah')
+        try:
+            # establish base case
+            self.assertEqual(strip_value(sio), '')
+            logger.info('test')
+            self.assertEqual(strip_value(sio), 'some prefix: test\n')
+            self.assertEqual(strip_value(sio), '')
+            logger.info('test')
+            logger.info('test')
+            self.assertEqual(
+                strip_value(sio),
+                'some prefix: test\nsome prefix: test\n')
+            self.assertEqual(strip_value(sio), '')
+
+            # test OSError
+            for en in (errno.EIO, errno.ENOSPC):
+                log_exception(OSError(en, 'my %s error message' % en))
+                log_msg = strip_value(sio)
+                self.assertNotIn('Traceback', log_msg)
+                self.assertEqual('some prefix: ', log_msg[:13])
+                self.assertIn('my %s error message' % en, log_msg)
+            # unfiltered
+            log_exception(OSError())
+            log_msg = strip_value(sio)
+            self.assertIn('Traceback', log_msg)
+            self.assertEqual('some prefix: ', log_msg[:13])
+
+        finally:
+            base_logger.logger.removeHandler(handler)
+
     def test_storage_directory(self):
         self.assertEqual(utils.storage_directory('objects', '1', 'ABCDEF'),
                          'objects/1/DEF/ABCDEF')
