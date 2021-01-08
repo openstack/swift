@@ -677,8 +677,9 @@ class ECProbeTest(ProbeTest):
     def assert_direct_get_succeeds(self, onode, opart, require_durable=True,
                                    extra_headers=None):
         try:
-            self.direct_get(onode, opart, require_durable=require_durable,
-                            extra_headers=extra_headers)
+            return self.direct_get(onode, opart,
+                                   require_durable=require_durable,
+                                   extra_headers=extra_headers)
         except direct_client.DirectClientException as err:
             self.fail('Node data on %r was not available: %s' % (onode, err))
 
@@ -714,6 +715,31 @@ class ECProbeTest(ProbeTest):
                 if e.errno != errno.ENOENT:
                     raise
         return made_non_durable
+
+    def make_durable(self, nodes, opart):
+        # ensure all data files on the specified nodes are durable
+        made_durable = 0
+        for i, node in enumerate(nodes):
+            part_dir = self.storage_dir(node, part=opart)
+            for dirs, subdirs, files in os.walk(part_dir):
+                for fname in sorted(files, reverse=True):
+                    # make the newest non-durable be durable
+                    if (fname.endswith('.data') and
+                            not fname.endswith('#d.data')):
+                        made_durable += 1
+                        non_durable_fname = fname.replace('.data', '#d.data')
+                        os.rename(os.path.join(dirs, fname),
+                                  os.path.join(dirs, non_durable_fname))
+
+                        break
+            headers, etag = self.assert_direct_get_succeeds(node, opart)
+            self.assertIn('X-Backend-Durable-Timestamp', headers)
+            try:
+                os.remove(os.path.join(part_dir, 'hashes.pkl'))
+            except OSError as e:
+                if e.errno != errno.ENOENT:
+                    raise
+        return made_durable
 
 
 if __name__ == "__main__":

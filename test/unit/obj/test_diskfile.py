@@ -1539,8 +1539,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         invalidations_file = os.path.join(
             part_dir, diskfile.HASH_INVALIDATIONS_FILE)
         with open(invalidations_file) as f:
-            self.assertEqual('%s\n%s' % (df1_suffix, df2_suffix),
-                             f.read().strip('\n'))  # sanity
+            invalids = f.read().splitlines()
+            self.assertEqual(sorted((df1_suffix, df2_suffix)),
+                             sorted(invalids))  # sanity
 
         # next time get hashes runs
         with mock.patch('time.time', mock_time):
@@ -2768,55 +2769,59 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 expected)
 
     def test_yield_hashes_legacy_durable(self):
-        old_ts = '1383180000.12345'
-        fresh_ts = Timestamp(time() - 10).internal
-        fresher_ts = Timestamp(time() - 1).internal
+        old_ts = Timestamp('1383180000.12345')
+        fresh_ts = Timestamp(time() - 10)
+        fresher_ts = Timestamp(time() - 1)
         suffix_map = {
             'abc': {
                 '9373a92d072897b136b3fc06595b4abc': [
-                    fresh_ts + '.ts'],
+                    fresh_ts.internal + '.ts'],
             },
             '456': {
                 '9373a92d072897b136b3fc06595b0456': [
-                    old_ts + '#2.data',
-                    old_ts + '.durable'],
+                    old_ts.internal + '#2.data',
+                    old_ts.internal + '.durable'],
                 '9373a92d072897b136b3fc06595b7456': [
-                    fresh_ts + '.ts',
-                    fresher_ts + '#2.data',
-                    fresher_ts + '.durable'],
+                    fresh_ts.internal + '.ts',
+                    fresher_ts.internal + '#2.data',
+                    fresher_ts.internal + '.durable'],
             },
             'def': {},
         }
         expected = {
             '9373a92d072897b136b3fc06595b4abc': {'ts_data': fresh_ts},
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
-            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
 
     def test_yield_hashes(self):
-        old_ts = '1383180000.12345'
-        fresh_ts = Timestamp(time() - 10).internal
-        fresher_ts = Timestamp(time() - 1).internal
+        old_ts = Timestamp('1383180000.12345')
+        fresh_ts = Timestamp(time() - 10)
+        fresher_ts = Timestamp(time() - 1)
         suffix_map = {
             'abc': {
                 '9373a92d072897b136b3fc06595b4abc': [
-                    fresh_ts + '.ts'],
+                    fresh_ts.internal + '.ts'],
             },
             '456': {
                 '9373a92d072897b136b3fc06595b0456': [
-                    old_ts + '#2#d.data'],
+                    old_ts.internal + '#2#d.data'],
                 '9373a92d072897b136b3fc06595b7456': [
-                    fresh_ts + '.ts',
-                    fresher_ts + '#2#d.data'],
+                    fresh_ts.internal + '.ts',
+                    fresher_ts.internal + '#2#d.data'],
             },
             'def': {},
         }
         expected = {
             '9373a92d072897b136b3fc06595b4abc': {'ts_data': fresh_ts},
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
-            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -2847,9 +2852,11 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         expected = {
             '9373a92d072897b136b3fc06595b4abc': {'ts_data': ts1},
             '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
-                                                 'ts_meta': ts3},
+                                                 'ts_meta': ts3,
+                                                 'durable': True},
             '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1,
-                                                 'ts_meta': ts2},
+                                                 'ts_meta': ts2,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected)
 
@@ -2885,9 +2892,11 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         expected = {
             '9373a92d072897b136b3fc06595b4abc': {'ts_data': ts1},
             '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
-                                                 'ts_meta': ts3},
+                                                 'ts_meta': ts3,
+                                                 'durable': True},
             '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1,
-                                                 'ts_meta': ts2},
+                                                 'ts_meta': ts2,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected)
 
@@ -2921,8 +2930,10 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             'def': {},
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
-            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  suffixes=['456'], frag_index=2)
@@ -2947,8 +2958,10 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             'def': {},
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
-            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  suffixes=['456'], frag_index=2)
@@ -2965,7 +2978,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -2974,11 +2988,61 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         suffix_map['456']['9373a92d072897b136b3fc06595b7456'] = [
             ts1.internal + '#2#d.data']
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
-            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
+
+    def test_yield_hashes_optionally_yields_non_durable_data(self):
+        ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
+        ts1 = next(ts_iter)
+        ts2 = next(ts_iter)
+        suffix_map = {
+            'abc': {
+                '9373a92d072897b136b3fc06595b4abc': [
+                    ts1.internal + '#2#d.data',
+                    ts2.internal + '#2.data'],  # newer non-durable
+                '9373a92d072897b136b3fc06595b0abc': [
+                    ts1.internal + '#2.data',  # older non-durable
+                    ts2.internal + '#2#d.data'],
+            },
+            '456': {
+                '9373a92d072897b136b3fc06595b0456': [
+                    ts1.internal + '#2#d.data'],
+                '9373a92d072897b136b3fc06595b7456': [
+                    ts2.internal + '#2.data'],
+            },
+        }
+
+        # sanity check non-durables not yielded
+        expected = {
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': ts1,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b0abc': {'ts_data': ts2,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=2, frag_prefs=None)
+
+        # an empty frag_prefs list is sufficient to get non-durables yielded
+        # (in preference over *older* durable)
+        expected = {
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': ts2,
+                                                 'durable': False},
+            '9373a92d072897b136b3fc06595b0abc': {'ts_data': ts2,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts2,
+                                                 'durable': False},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=2, frag_prefs=[])
 
     def test_yield_hashes_skips_missing_legacy_durable(self):
         ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
@@ -2993,7 +3057,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -3002,8 +3067,10 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         suffix_map['456']['9373a92d072897b136b3fc06595b7456'].append(
             ts1.internal + '.durable')
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
-            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -3023,7 +3090,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=None)
@@ -3034,7 +3102,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         suffix_map['456']['9373a92d072897b136b3fc06595b0456'].append(
             ts2.internal + '.durable')
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts2},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts2,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=None)
@@ -3055,7 +3124,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=None)
@@ -3072,7 +3142,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts2},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts2,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=None)
@@ -3130,12 +3201,16 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9333a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+            '9333a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'durable': True},
             '9999a92d072897b136b3fc06595bb456': {'ts_data': ts1,
-                                                 'ts_meta': ts2},
-            '9333a92d072897b136b3fc06595b1456': {'ts_data': ts1},
+                                                 'ts_meta': ts2,
+                                                 'durable': True},
+            '9333a92d072897b136b3fc06595b1456': {'ts_data': ts1,
+                                                 'durable': True},
             '9999a92d072897b136b3fc06595bc456': {'ts_data': ts1,
-                                                 'ts_meta': ts2},
+                                                 'ts_meta': ts2,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -3170,9 +3245,12 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '1111111111111111111111111111127e': {'ts_data': ts1},
-            '2222222222222222222222222222227e': {'ts_data': ts2},
-            '3333333333333333333333333333300b': {'ts_data': ts3},
+            '1111111111111111111111111111127e': {'ts_data': ts1,
+                                                 'durable': True},
+            '2222222222222222222222222222227e': {'ts_data': ts2,
+                                                 'durable': True},
+            '3333333333333333333333333333300b': {'ts_data': ts3,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -3212,9 +3290,12 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '1111111111111111111111111111127e': {'ts_data': ts1},
-            '2222222222222222222222222222227e': {'ts_data': ts2},
-            '3333333333333333333333333333300b': {'ts_data': ts3},
+            '1111111111111111111111111111127e': {'ts_data': ts1,
+                                                 'durable': True},
+            '2222222222222222222222222222227e': {'ts_data': ts2,
+                                                 'durable': True},
+            '3333333333333333333333333333300b': {'ts_data': ts3,
+                                                 'durable': True},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -3271,7 +3352,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def _create_ondisk_file(self, df, data, timestamp, metadata=None,
                             ctype_timestamp=None,
-                            ext='.data', legacy_durable=False):
+                            ext='.data', legacy_durable=False, commit=True):
         mkdirs(df._datadir)
         if timestamp is None:
             timestamp = time()
@@ -3292,12 +3373,15 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         if ext == '.data' and df.policy.policy_type == EC_POLICY:
             if legacy_durable:
                 filename = '%s#%s' % (timestamp.internal, df._frag_index)
-                durable_file = os.path.join(df._datadir,
-                                            '%s.durable' % timestamp.internal)
-                with open(durable_file, 'wb') as f:
-                    pass
-            else:
+                if commit:
+                    durable_file = os.path.join(
+                        df._datadir, '%s.durable' % timestamp.internal)
+                    with open(durable_file, 'wb') as f:
+                        pass
+            elif commit:
                 filename = '%s#%s#d' % (timestamp.internal, df._frag_index)
+            else:
+                filename = '%s#%s' % (timestamp.internal, df._frag_index)
         if ctype_timestamp:
             metadata.update(
                 {'Content-Type-Timestamp':
@@ -6300,6 +6384,35 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
 
         df.open()  # not quarantined
 
+    def test_ondisk_data_info_has_durable_key(self):
+        # non-durable; use frag_prefs=[] to allow it to be opened
+        df = self._simple_get_diskfile(obj='o1', frag_prefs=[])
+        self._create_ondisk_file(df, b'', ext='.data', timestamp=10,
+                                 metadata={'name': '/a/c/o1'}, commit=False)
+        with df.open():
+            self.assertIn('durable', df._ondisk_info['data_info'])
+            self.assertFalse(df._ondisk_info['data_info']['durable'])
+
+        # durable
+        df = self._simple_get_diskfile(obj='o2')
+        self._create_ondisk_file(df, b'', ext='.data', timestamp=10,
+                                 metadata={'name': '/a/c/o2'})
+        with df.open():
+            self.assertIn('durable', df._ondisk_info['data_info'])
+            self.assertTrue(df._ondisk_info['data_info']['durable'])
+
+        # legacy durable
+        df = self._simple_get_diskfile(obj='o3')
+        self._create_ondisk_file(df, b'', ext='.data', timestamp=10,
+                                 metadata={'name': '/a/c/o3'},
+                                 legacy_durable=True)
+        with df.open():
+            data_info = df._ondisk_info['data_info']
+            # sanity check it is legacy with no #d part in filename
+            self.assertEqual(data_info['filename'], '0000000010.00000#2.data')
+            self.assertIn('durable', data_info)
+            self.assertTrue(data_info['durable'])
+
 
 @patch_policies(with_ec_default=True)
 class TestSuffixHashes(unittest.TestCase):
@@ -7066,7 +7179,9 @@ class TestSuffixHashes(unittest.TestCase):
             df2.delete(self.ts())
             # suffix2 should be in invalidations file
             with open(invalidations_file, 'r') as f:
-                self.assertEqual("%s\n%s\n" % (suffix2, suffix2), f.read())
+                invalids = f.read().splitlines()
+                self.assertEqual(sorted((suffix2, suffix2)),
+                                 sorted(invalids))  # sanity
             # hashes file is not yet changed
             with open(hashes_file, 'rb') as f:
                 found_hashes = pickle.load(f)

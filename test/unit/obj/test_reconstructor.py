@@ -52,10 +52,11 @@ from test.unit.obj.common import write_diskfile
 
 @contextmanager
 def mock_ssync_sender(ssync_calls=None, response_callback=None, **kwargs):
-    def fake_ssync(daemon, node, job, suffixes):
+    def fake_ssync(daemon, node, job, suffixes, **kwargs):
         if ssync_calls is not None:
-            ssync_calls.append(
-                {'node': node, 'job': job, 'suffixes': suffixes})
+            call_args = {'node': node, 'job': job, 'suffixes': suffixes}
+            call_args.update(kwargs)
+            ssync_calls.append(call_args)
 
         def fake_call():
             if response_callback:
@@ -1136,6 +1137,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         self.success = False
                         break
                 context['success'] = self.success
+                context.update(kwargs)
 
             def __call__(self, *args, **kwargs):
                 return self.success, self.available_map if self.success else {}
@@ -1168,6 +1170,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         expected_calls = []
         for context in ssync_calls:
             if context['job']['job_type'] == REVERT:
+                self.assertTrue(context.get('include_non_durable'))
                 for dirpath, files in visit_obj_dirs(context):
                     # sanity check - expect some files to be in dir,
                     # may not be for the reverted frag index
@@ -1176,6 +1179,9 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 expected_calls.append(mock.call(context['job'],
                                       context['available_map'],
                                       context['node']['index']))
+            else:
+                self.assertFalse(context.get('include_non_durable'))
+
         mock_delete.assert_has_calls(expected_calls, any_order=True)
 
         # N.B. in this next test sequence we acctually delete files after
@@ -1193,12 +1199,15 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.reconstructor.reconstruct()
         for context in ssync_calls:
             if context['job']['job_type'] == REVERT:
+                self.assertTrue(True, context.get('include_non_durable'))
                 data_file_tail = ('#%s.data'
                                   % context['node']['index'])
                 for dirpath, files in visit_obj_dirs(context):
                     n_files_after += len(files)
                     for filename in files:
                         self.assertFalse(filename.endswith(data_file_tail))
+            else:
+                self.assertFalse(context.get('include_non_durable'))
 
         # sanity check that some files should were deleted
         self.assertGreater(n_files, n_files_after)
@@ -1225,13 +1234,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertEqual(len(captured_ssync), 2)
         expected_ssync_calls = {
             # device, part, frag_index: expected_occurrences
-            ('sda1', 2, 2): 1,
-            ('sda1', 2, 0): 1,
+            ('sda1', 2, 2, True): 1,
+            ('sda1', 2, 0, True): 1,
         }
         self.assertEqual(expected_ssync_calls, dict(collections.Counter(
             (context['job']['device'],
              context['job']['partition'],
-             context['job']['frag_index'])
+             context['job']['frag_index'],
+             context['include_non_durable'])
             for context in captured_ssync
         )))
 
@@ -1296,14 +1306,15 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.reconstructor.reconstruct(override_partitions=[2])
 
         expected_ssync_calls = sorted([
-            (u'10.0.0.0', REVERT, 2, [u'3c1']),
-            (u'10.0.0.2', REVERT, 2, [u'061']),
+            (u'10.0.0.0', REVERT, 2, [u'3c1'], True),
+            (u'10.0.0.2', REVERT, 2, [u'061'], True),
         ])
         self.assertEqual(expected_ssync_calls, sorted((
             c['node']['ip'],
             c['job']['job_type'],
             c['job']['partition'],
             c['suffixes'],
+            c.get('include_non_durable')
         ) for c in ssync_calls))
 
         expected_stats = {
@@ -3797,14 +3808,15 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                          [(r['ip'], r['path']) for r in request_log.requests])
 
         expected_ssync_calls = sorted([
-            (sync_to[0]['ip'], 0, set(['123', 'abc'])),
-            (sync_to[1]['ip'], 0, set(['123', 'abc'])),
-            (sync_to[2]['ip'], 0, set(['123', 'abc'])),
+            (sync_to[0]['ip'], 0, set(['123', 'abc']), False),
+            (sync_to[1]['ip'], 0, set(['123', 'abc']), False),
+            (sync_to[2]['ip'], 0, set(['123', 'abc']), False),
         ])
         self.assertEqual(expected_ssync_calls, sorted((
             c['node']['ip'],
             c['job']['partition'],
             set(c['suffixes']),
+            c.get('include_non_durable'),
         ) for c in ssync_calls))
 
     def test_sync_duplicates_to_remote_region(self):
@@ -3966,12 +3978,13 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                              for r in request_log.requests))
 
         expected_ssync_calls = sorted([
-            (sync_to[1]['ip'], 0, ['abc']),
+            (sync_to[1]['ip'], 0, ['abc'], False),
         ])
         self.assertEqual(expected_ssync_calls, sorted((
             c['node']['ip'],
             c['job']['partition'],
             c['suffixes'],
+            c.get('include_non_durable')
         ) for c in ssync_calls))
 
     def test_process_job_primary_some_in_sync(self):
@@ -4038,11 +4051,12 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
 
         self.assertEqual(
             dict(collections.Counter(
-                (c['node']['index'], tuple(sorted(c['suffixes'])))
+                (c['node']['index'], tuple(sorted(c['suffixes'])),
+                 c.get('include_non_durable'))
                 for c in ssync_calls)),
-            {(sync_to[0]['index'], ('123',)): 1,
-             (sync_to[1]['index'], ('abc',)): 1,
-             (sync_to[2]['index'], ('123', 'abc')): 1,
+            {(sync_to[0]['index'], ('123',), False): 1,
+             (sync_to[1]['index'], ('abc',), False): 1,
+             (sync_to[2]['index'], ('123', 'abc'), False): 1,
              })
 
     def test_process_job_primary_down(self):
@@ -4102,14 +4116,15 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(expected_suffix_calls, found_suffix_calls)
 
         expected_ssync_calls = sorted([
-            ('10.0.0.0', 0, set(['123', 'abc'])),
-            ('10.0.0.1', 0, set(['123', 'abc'])),
-            ('10.0.0.2', 0, set(['123', 'abc'])),
+            ('10.0.0.0', 0, set(['123', 'abc']), False),
+            ('10.0.0.1', 0, set(['123', 'abc']), False),
+            ('10.0.0.2', 0, set(['123', 'abc']), False),
         ])
         found_ssync_calls = sorted((
             c['node']['ip'],
             c['job']['partition'],
             set(c['suffixes']),
+            c.get('include_non_durable')
         ) for c in ssync_calls)
         self.assertEqual(expected_ssync_calls, found_ssync_calls)
 
@@ -4276,10 +4291,11 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(
             sorted(collections.Counter(
                 (c['node']['ip'], c['node']['port'], c['node']['device'],
-                 tuple(sorted(c['suffixes'])))
+                 tuple(sorted(c['suffixes'])),
+                 c.get('include_non_durable'))
                 for c in ssync_calls).items()),
             [((sync_to[0]['ip'], sync_to[0]['port'], sync_to[0]['device'],
-               ('123', 'abc')), 1)])
+               ('123', 'abc'), True), 1)])
 
     def test_process_job_will_not_revert_to_handoff(self):
         frag_index = random.randint(
@@ -4331,10 +4347,11 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(
             sorted(collections.Counter(
                 (c['node']['ip'], c['node']['port'], c['node']['device'],
-                 tuple(sorted(c['suffixes'])))
+                 tuple(sorted(c['suffixes'])),
+                 c.get('include_non_durable'))
                 for c in ssync_calls).items()),
             [((sync_to[0]['ip'], sync_to[0]['port'], sync_to[0]['device'],
-               ('123', 'abc')), 1)])
+               ('123', 'abc'), True), 1)])
 
     def test_process_job_revert_is_handoff_fails(self):
         frag_index = random.randint(
@@ -4385,10 +4402,11 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual(
             sorted(collections.Counter(
                 (c['node']['ip'], c['node']['port'], c['node']['device'],
-                 tuple(sorted(c['suffixes'])))
+                 tuple(sorted(c['suffixes'])),
+                 c.get('include_non_durable'))
                 for c in ssync_calls).items()),
             [((sync_to[0]['ip'], sync_to[0]['port'], sync_to[0]['device'],
-               ('123', 'abc')), 1)])
+               ('123', 'abc'), True), 1)])
         self.assertEqual(self.reconstructor.handoffs_remaining, 1)
 
     def test_process_job_revert_cleanup(self):
