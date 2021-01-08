@@ -50,13 +50,18 @@ def hook_pre_device(locks, states, datadir, device_path):
     locks[0] = fd
 
     state_file = os.path.join(device_path, STATE_FILE.format(datadir=datadir))
-    states.clear()
+    states["state"].clear()
     try:
         with open(state_file, 'rt') as f:
-            tmp = json.load(f)
-            states.update(tmp)
-    except ValueError:
-        # Invalid JSON: remove the file to restart from scratch
+            state_from_disk = json.load(f)
+            if state_from_disk["next_part_power"] != states["next_part_power"]:
+                raise ValueError
+            if state_from_disk["part_power"] != states["part_power"]:
+                states["prev_part_power"] = state_from_disk["part_power"]
+                raise ValueError
+            states["state"].update(state_from_disk["state"])
+    except (ValueError, TypeError, KeyError):
+        # Bad state file: remove the file to restart from scratch
         os.unlink(state_file)
     except IOError as err:
         # Ignore file not found error
@@ -69,33 +74,39 @@ def hook_post_device(locks, _):
     locks[0] = None
 
 
-def partitions_filter(states, step, part_power, next_part_power,
+def partitions_filter(states, part_power, next_part_power,
                       datadir_path, partitions):
     # Remove all non partitions first (eg: auditor_status_ALL.json)
     partitions = [p for p in partitions if p.isdigit()]
 
-    if not (step == STEP_CLEANUP and part_power == next_part_power):
-        # This is not a cleanup after cancel, partitions in the upper half are
-        # new partitions, there is nothing to relink/cleanup from there
-        partitions = [p for p in partitions
-                      if int(p) < 2 ** next_part_power / 2]
+    relinking = (part_power != next_part_power)
+    if relinking:
+        # All partitions in the upper half are new partitions and there is
+        # nothing to relink there
+        partitions = [part for part in partitions
+                      if int(part) < 2 ** part_power]
+    elif "prev_part_power" in states:
+        # All partitions in the upper half are new partitions and there is
+        # nothing to clean up there
+        partitions = [part for part in partitions
+                      if int(part) < 2 ** states["prev_part_power"]]
 
-    # Format: { 'part': [relinked, cleaned] }
-    if states:
-        missing = list(set(partitions) - set(states.keys()))
+    # Format: { 'part': processed }
+    if states["state"]:
+        missing = list(set(partitions) - set(states["state"].keys()))
         if missing:
-            # All missing partitions was created after the first run of
-            # relink, so after the new ring was distribued, so they already
-            # are hardlinked in both partitions, but they will need to
-            # cleaned.. Just update the state file.
+            # All missing partitions were created after the first run of the
+            # relinker with this part_power/next_part_power pair. This is
+            # expected when relinking, where new partitions appear that are
+            # appropriate for the target part power. In such cases, there's
+            # nothing to be done. Err on the side of caution during cleanup,
+            # however.
             for part in missing:
-                states[part] = [True, False]
-        if step == STEP_RELINK:
-            partitions = [str(p) for p, (r, c) in states.items() if not r]
-        elif step == STEP_CLEANUP:
-            partitions = [str(p) for p, (r, c) in states.items() if not c]
+                states["state"][part] = relinking
+        partitions = [str(part) for part, processed in states["state"].items()
+                      if not processed]
     else:
-        states.update({str(p): [False, False] for p in partitions})
+        states["state"].update({str(part): False for part in partitions})
 
     # Always scan the partitions in reverse order to minimize the amount of IO
     # (it actually only matters for relink, not for cleanup).
@@ -107,7 +118,7 @@ def partitions_filter(states, step, part_power, next_part_power,
     # If the relinker then scan partition 1, it will listdir that object while
     # it's unnecessary. By working in reverse order of partitions, this is
     # avoided.
-    partitions = sorted(partitions, key=lambda x: int(x), reverse=True)
+    partitions = sorted(partitions, key=lambda part: int(part), reverse=True)
 
     return partitions
 
@@ -124,10 +135,8 @@ def hook_post_partition(states, step,
     state_file = os.path.join(device_path,
                               STATE_FILE.format(datadir=datadir_name))
 
-    if step == STEP_RELINK:
-        states[part][0] = True
-    elif step == STEP_CLEANUP:
-        states[part][1] = True
+    if step in (STEP_RELINK, STEP_CLEANUP):
+        states["state"][part] = True
     with open(state_tmp_file, 'wt') as f:
         json.dump(states, f)
         os.fsync(f.fileno())
@@ -164,14 +173,17 @@ def relink(swift_dir='/etc/swift',
         datadir = diskfile.get_data_dir(policy)
 
         locks = [None]
-        states = {}
+        states = {
+            "part_power": part_power,
+            "next_part_power": next_part_power,
+            "state": {},
+        }
         relink_devices_filter = partial(devices_filter, device)
         relink_hook_pre_device = partial(hook_pre_device, locks, states,
                                          datadir)
         relink_hook_post_device = partial(hook_post_device, locks)
         relink_partition_filter = partial(partitions_filter,
-                                          states, STEP_RELINK,
-                                          part_power, next_part_power)
+                                          states, part_power, next_part_power)
         relink_hook_post_partition = partial(hook_post_partition,
                                              states, STEP_RELINK)
         relink_hashes_filter = partial(hashes_filter, next_part_power)
@@ -228,14 +240,17 @@ def cleanup(swift_dir='/etc/swift',
         datadir = diskfile.get_data_dir(policy)
 
         locks = [None]
-        states = {}
+        states = {
+            "part_power": part_power,
+            "next_part_power": next_part_power,
+            "state": {},
+        }
         cleanup_devices_filter = partial(devices_filter, device)
         cleanup_hook_pre_device = partial(hook_pre_device, locks, states,
                                           datadir)
         cleanup_hook_post_device = partial(hook_post_device, locks)
         cleanup_partition_filter = partial(partitions_filter,
-                                           states, STEP_CLEANUP,
-                                           part_power, next_part_power)
+                                           states, part_power, next_part_power)
         cleanup_hook_post_partition = partial(hook_post_partition,
                                               states, STEP_CLEANUP)
         cleanup_hashes_filter = partial(hashes_filter, next_part_power)

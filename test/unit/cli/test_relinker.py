@@ -178,16 +178,30 @@ class TestRelinker(unittest.TestCase):
         self._save_ring()
         relinker.relink(self.testdir, self.devices, True)
         with open(state_file, 'rt') as f:
-            self.assertEqual(json.load(f), {str(self.part): [True, False]})
+            orig_inode = os.stat(state_file).st_ino
+            self.assertEqual(json.load(f), {
+                "part_power": PART_POWER,
+                "next_part_power": PART_POWER + 1,
+                "state": {str(self.part): True}})
 
         self.rb.increase_partition_power()
         self.rb._ring = None  # Force builder to reload ring
         self._save_ring()
-        relinker.cleanup(self.testdir, self.devices, True)
         with open(state_file, 'rt') as f:
-            self.assertEqual(json.load(f),
-                             {str(self.part): [True, True],
-                              str(self.next_part): [True, True]})
+            # Keep the state file open during cleanup so the inode can't be
+            # released/re-used when it gets unlinked
+            self.assertEqual(orig_inode, os.stat(state_file).st_ino)
+            relinker.cleanup(self.testdir, self.devices, True)
+            self.assertNotEqual(orig_inode, os.stat(state_file).st_ino)
+        with open(state_file, 'rt') as f:
+            # NB: part_power/next_part_power tuple changed, so state was reset
+            # (though we track prev_part_power for an efficient clean up)
+            self.assertEqual(json.load(f), {
+                "prev_part_power": PART_POWER,
+                "part_power": PART_POWER + 1,
+                "next_part_power": PART_POWER + 1,
+                "state": {str(self.part): True,
+                          str(self.next_part): True}})
 
     def test_devices_filter_filtering(self):
         # With no filtering, returns all devices
@@ -210,7 +224,8 @@ class TestRelinker(unittest.TestCase):
         lock_file = os.path.join(device_path, '.relink.%s.lock' % datadir)
 
         # The first run gets the lock
-        relinker.hook_pre_device(locks, {}, datadir, device_path)
+        states = {"state": {}}
+        relinker.hook_pre_device(locks, states, datadir, device_path)
         self.assertNotEqual([None], locks)
 
         # A following run would block
@@ -232,20 +247,21 @@ class TestRelinker(unittest.TestCase):
         datadir_path = os.path.join(device_path, datadir)
         state_file = os.path.join(device_path, 'relink.%s.json' % datadir)
 
-        def call_partition_filter(step, parts):
+        def call_partition_filter(part_power, next_part_power, parts):
             # Partition 312 will be ignored because it must have been created
             # by the relinker
-            return relinker.partitions_filter(states, step,
-                                              PART_POWER, PART_POWER + 1,
+            return relinker.partitions_filter(states,
+                                              part_power, next_part_power,
                                               datadir_path, parts)
 
         # Start relinking
-        states = {}
+        states = {"part_power": PART_POWER, "next_part_power": PART_POWER + 1,
+                  "state": {}}
 
         # Load the states: As it starts, it must be empty
         locks = [None]
         relinker.hook_pre_device(locks, states, datadir, device_path)
-        self.assertEqual({}, states)
+        self.assertEqual({}, states["state"])
         os.close(locks[0])  # Release the lock
 
         # Partition 312 is ignored because it must have been created with the
@@ -253,80 +269,134 @@ class TestRelinker(unittest.TestCase):
         # 96 and 227 are reverse ordered
         # auditor_status_ALL.json is ignored because it's not a partition
         self.assertEqual(['227', '96'],
-                         call_partition_filter(relinker.STEP_RELINK,
+                         call_partition_filter(PART_POWER, PART_POWER + 1,
                                                ['96', '227', '312',
                                                 'auditor_status.json']))
-        self.assertEqual(states, {'96': [False, False], '227': [False, False]})
+        self.assertEqual(states["state"], {'96': False, '227': False})
 
         # Ack partition 96
         relinker.hook_post_partition(states, relinker.STEP_RELINK,
                                      os.path.join(datadir_path, '96'))
-        self.assertEqual(states, {'96': [True, False], '227': [False, False]})
+        self.assertEqual(states["state"], {'96': True, '227': False})
         with open(state_file, 'rt') as f:
-            self.assertEqual(json.load(f), {'96': [True, False],
-                                            '227': [False, False]})
+            self.assertEqual(json.load(f), {
+                "part_power": PART_POWER,
+                "next_part_power": PART_POWER + 1,
+                "state": {'96': True, '227': False}})
 
         # Restart relinking after only part 96 was done
         self.assertEqual(['227'],
-                         call_partition_filter(relinker.STEP_RELINK,
+                         call_partition_filter(PART_POWER, PART_POWER + 1,
                                                ['96', '227', '312']))
-        self.assertEqual(states, {'96': [True, False], '227': [False, False]})
+        self.assertEqual(states["state"], {'96': True, '227': False})
 
         # Ack partition 227
         relinker.hook_post_partition(states, relinker.STEP_RELINK,
                                      os.path.join(datadir_path, '227'))
-        self.assertEqual(states, {'96': [True, False], '227': [True, False]})
+        self.assertEqual(states["state"], {'96': True, '227': True})
         with open(state_file, 'rt') as f:
-            self.assertEqual(json.load(f), {'96': [True, False],
-                                            '227': [True, False]})
+            self.assertEqual(json.load(f), {
+                "part_power": PART_POWER,
+                "next_part_power": PART_POWER + 1,
+                "state": {'96': True, '227': True}})
 
         # If the process restarts, it reload the state
         locks = [None]
-        states = {}
+        states = {
+            "part_power": PART_POWER,
+            "next_part_power": PART_POWER + 1,
+            "state": {},
+        }
         relinker.hook_pre_device(locks, states, datadir, device_path)
-        self.assertEqual(states, {'96': [True, False], '227': [True, False]})
+        self.assertEqual(states, {
+            "part_power": PART_POWER,
+            "next_part_power": PART_POWER + 1,
+            "state": {'96': True, '227': True}})
         os.close(locks[0])  # Release the lock
 
-        # Start cleanup
+        # Start cleanup -- note that part_power and next_part_power now match!
+        states = {
+            "part_power": PART_POWER + 1,
+            "next_part_power": PART_POWER + 1,
+            "state": {},
+        }
+        # ...which means our state file was ignored
+        relinker.hook_pre_device(locks, states, datadir, device_path)
+        self.assertEqual(states, {
+            "prev_part_power": PART_POWER,
+            "part_power": PART_POWER + 1,
+            "next_part_power": PART_POWER + 1,
+            "state": {}})
+        os.close(locks[0])  # Release the lock
+
         self.assertEqual(['227', '96'],
-                         call_partition_filter(relinker.STEP_CLEANUP,
+                         call_partition_filter(PART_POWER + 1, PART_POWER + 1,
                                                ['96', '227', '312']))
         # Ack partition 227
         relinker.hook_post_partition(states, relinker.STEP_CLEANUP,
                                      os.path.join(datadir_path, '227'))
-        self.assertEqual(states, {'96': [True, False], '227': [True, True]})
+        self.assertEqual(states["state"],
+                         {'96': False, '227': True})
         with open(state_file, 'rt') as f:
-            self.assertEqual(json.load(f), {'96': [True, False],
-                                            '227': [True, True]})
+            self.assertEqual(json.load(f), {
+                "prev_part_power": PART_POWER,
+                "part_power": PART_POWER + 1,
+                "next_part_power": PART_POWER + 1,
+                "state": {'96': False, '227': True}})
 
         # Restart cleanup after only part 227 was done
         self.assertEqual(['96'],
-                         call_partition_filter(relinker.STEP_CLEANUP,
+                         call_partition_filter(PART_POWER + 1, PART_POWER + 1,
                                                ['96', '227', '312']))
-        self.assertEqual(states, {'96': [True, False], '227': [True, True]})
+        self.assertEqual(states["state"],
+                         {'96': False, '227': True})
 
         # Ack partition 96
         relinker.hook_post_partition(states, relinker.STEP_CLEANUP,
                                      os.path.join(datadir_path, '96'))
-        self.assertEqual(states, {'96': [True, True], '227': [True, True]})
+        self.assertEqual(states["state"],
+                         {'96': True, '227': True})
         with open(state_file, 'rt') as f:
-            self.assertEqual(json.load(f), {'96': [True, True],
-                                            '227': [True, True]})
+            self.assertEqual(json.load(f), {
+                "prev_part_power": PART_POWER,
+                "part_power": PART_POWER + 1,
+                "next_part_power": PART_POWER + 1,
+                "state": {'96': True, '227': True}})
 
         # At the end, the state is still accurate
         locks = [None]
-        states = {}
+        states = {
+            "prev_part_power": PART_POWER,
+            "part_power": PART_POWER + 1,
+            "next_part_power": PART_POWER + 1,
+            "state": {},
+        }
         relinker.hook_pre_device(locks, states, datadir, device_path)
-        self.assertEqual(states, {'96': [True, True], '227': [True, True]})
+        self.assertEqual(states["state"],
+                         {'96': True, '227': True})
+        os.close(locks[0])  # Release the lock
+
+        # If the part_power/next_part_power tuple differs, restart from scratch
+        locks = [None]
+        states = {
+            "part_power": PART_POWER + 1,
+            "next_part_power": PART_POWER + 2,
+            "state": {},
+        }
+        relinker.hook_pre_device(locks, states, datadir, device_path)
+        self.assertEqual(states["state"], {})
+        self.assertFalse(os.path.exists(state_file))
         os.close(locks[0])  # Release the lock
 
         # If the file gets corrupted, restart from scratch
         with open(state_file, 'wt') as f:
             f.write('NOT JSON')
         locks = [None]
-        states = {}
+        states = {"part_power": PART_POWER, "next_part_power": PART_POWER + 1,
+                  "state": {}}
         relinker.hook_pre_device(locks, states, datadir, device_path)
-        self.assertEqual(states, {})
+        self.assertEqual(states["state"], {})
+        self.assertFalse(os.path.exists(state_file))
         os.close(locks[0])  # Release the lock
 
     def test_cleanup_not_yet_relinked(self):
