@@ -26,6 +26,9 @@ Lists old Swift processes.
     parser.add_option('-a', '--age', dest='hours', type='int', default=720,
                       help='look for processes at least HOURS old; '
                       'default: 720 (30 days)')
+    parser.add_option('-p', '--pids', action='store_true',
+                      help='only print the pids found; for example, to pipe '
+                      'to xargs kill')
     (options, args) = parser.parse_args()
 
     listing = []
@@ -68,15 +71,19 @@ Lists old Swift processes.
     if not listing:
         sys.exit()
 
-    hours_len = len('Hours')
-    pid_len = len('PID')
-    args_len = len('Command')
-    for hours, pid, args in listing:
-        hours_len = max(hours_len, len(hours))
-        pid_len = max(pid_len, len(pid))
-        args_len = max(args_len, len(args))
-    args_len = min(args_len, 78 - hours_len - pid_len)
+    if options.pids:
+        for hours, pid, args in listing:
+            print(pid)
+    else:
+        hours_len = len('Hours')
+        pid_len = len('PID')
+        args_len = len('Command')
+        for hours, pid, args in listing:
+            hours_len = max(hours_len, len(hours))
+            pid_len = max(pid_len, len(pid))
+            args_len = max(args_len, len(args))
+        args_len = min(args_len, 78 - hours_len - pid_len)
 
-    print('%*s %*s %s' % (hours_len, 'Hours', pid_len, 'PID', 'Command'))
-    for hours, pid, args in listing:
-        print('%*s %*s %s' % (hours_len, hours, pid_len, pid, args[:args_len]))
+        print('%*s %*s %s' % (hours_len, 'Hours', pid_len, 'PID', 'Command'))
+        for hours, pid, args in listing:
+            print('%*s %*s %s' % (hours_len, hours, pid_len, pid, args[:args_len]))
