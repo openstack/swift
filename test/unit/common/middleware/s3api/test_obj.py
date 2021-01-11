@@ -30,6 +30,7 @@ from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.test_s3_acl import s3acl
+from swift.common.middleware.s3api.s3request import SigV4Request
 from swift.common.middleware.s3api.subresource import ACL, User, encode_acl, \
     Owner, Grant
 from swift.common.middleware.s3api.etree import fromstring
@@ -723,6 +724,8 @@ class TestS3ApiObj(S3ApiTestCase):
         _, _, headers = self.swift.calls_with_headers[-1]
         # No way to determine ETag to send
         self.assertNotIn('etag', headers)
+        self.assertIn(b'UNSIGNED-PAYLOAD', SigV4Request(
+            req.environ, self.s3api.conf)._canonical_request())
 
     def test_object_PUT_headers(self):
         content_md5 = binascii.b2a_base64(binascii.a2b_hex(self.etag)).strip()
