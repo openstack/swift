@@ -16,7 +16,6 @@
 
 import itertools
 import unittest
-import uuid
 import random
 import shutil
 from collections import defaultdict
@@ -24,46 +23,12 @@ from collections import defaultdict
 from test.probe.common import ECProbeTest, Body
 
 from swift.common import direct_client
-from swift.common.storage_policy import EC_POLICY
-from swift.common.manager import Manager
-from swift.common.utils import md5
 from swift.obj import reconstructor
 
 from swiftclient import client
 
 
 class TestReconstructorRevert(ECProbeTest):
-
-    def setUp(self):
-        super(TestReconstructorRevert, self).setUp()
-        self.container_name = 'container-%s' % uuid.uuid4()
-        self.object_name = 'object-%s' % uuid.uuid4()
-
-        # sanity
-        self.assertEqual(self.policy.policy_type, EC_POLICY)
-        self.reconstructor = Manager(["object-reconstructor"])
-
-    def proxy_get(self):
-        # GET object
-        headers, body = client.get_object(self.url, self.token,
-                                          self.container_name,
-                                          self.object_name,
-                                          resp_chunk_size=64 * 2 ** 10)
-        resp_checksum = md5(usedforsecurity=False)
-        for chunk in body:
-            resp_checksum.update(chunk)
-        return resp_checksum.hexdigest()
-
-    def direct_get(self, node, part):
-        req_headers = {'X-Backend-Storage-Policy-Index': int(self.policy)}
-        headers, data = direct_client.direct_get_object(
-            node, part, self.account, self.container_name,
-            self.object_name, headers=req_headers,
-            resp_chunk_size=64 * 2 ** 20)
-        hasher = md5(usedforsecurity=False)
-        for chunk in data:
-            hasher.update(chunk)
-        return hasher.hexdigest()
 
     def test_revert_object(self):
         # create EC container
@@ -99,30 +64,18 @@ class TestReconstructorRevert(ECProbeTest):
         # these primaries can't serve the data any more, we expect 507
         # here and not 404 because we're using mount_check to kill nodes
         for onode in (onodes[0], onodes[1]):
-            try:
-                self.direct_get(onode, opart)
-            except direct_client.DirectClientException as err:
-                self.assertEqual(err.http_status, 507)
-            else:
-                self.fail('Node data on %r was not fully destroyed!' %
-                          (onode,))
+            self.assert_direct_get_fails(onode, opart, 507)
 
         # now take out another primary
         p_dev3 = self.device_dir(onodes[2])
         self.kill_drive(p_dev3)
 
-        # this node can't servce the data any more
-        try:
-            self.direct_get(onodes[2], opart)
-        except direct_client.DirectClientException as err:
-            self.assertEqual(err.http_status, 507)
-        else:
-            self.fail('Node data on %r was not fully destroyed!' %
-                      (onode,))
+        # this node can't serve the data any more
+        self.assert_direct_get_fails(onodes[2], opart, 507)
 
         # make sure we can still GET the object and its correct
         # we're now pulling from handoffs and reconstructing
-        etag = self.proxy_get()
+        _headers, etag = self.proxy_get()
         self.assertEqual(etag, contents.etag)
 
         # rename the dev dirs so they don't 507 anymore
@@ -137,7 +90,7 @@ class TestReconstructorRevert(ECProbeTest):
 
         # first three primaries have data again
         for onode in (onodes[0], onodes[2]):
-            self.direct_get(onode, opart)
+            self.assert_direct_get_succeeds(onode, opart)
 
         # check meta
         meta = client.head_object(self.url, self.token,
@@ -149,13 +102,7 @@ class TestReconstructorRevert(ECProbeTest):
 
         # handoffs are empty
         for hnode in hnodes:
-            try:
-                self.direct_get(hnode, opart)
-            except direct_client.DirectClientException as err:
-                self.assertEqual(err.http_status, 404)
-            else:
-                self.fail('Node data on %r was not fully destroyed!' %
-                          (hnode,))
+            self.assert_direct_get_fails(hnode, opart, 404)
 
     def test_delete_propagate(self):
         # create EC container
@@ -285,12 +232,13 @@ class TestReconstructorRevert(ECProbeTest):
 
         # fix the primary device and sanity GET
         self.revive_drive(primary_device)
-        self.assertEqual(etag, self.proxy_get())
+        _headers, actual_etag = self.proxy_get()
+        self.assertEqual(etag, actual_etag)
 
         # find a handoff holding the fragment
         for hnode in self.object_ring.get_more_nodes(opart):
             try:
-                reverted_fragment_etag = self.direct_get(hnode, opart)
+                _hdrs, reverted_fragment_etag = self.direct_get(hnode, opart)
             except direct_client.DirectClientException as err:
                 if err.http_status != 404:
                     raise
@@ -308,7 +256,7 @@ class TestReconstructorRevert(ECProbeTest):
                 # we'll keep track of the etag of this fragment we're removing
                 # in case we need it later (queue forshadowing music)...
                 try:
-                    handoff_fragment_etag = self.direct_get(node, opart)
+                    _hdrs, handoff_fragment_etag = self.direct_get(node, opart)
                 except direct_client.DirectClientException as err:
                     if err.http_status != 404:
                         raise
@@ -324,14 +272,14 @@ class TestReconstructorRevert(ECProbeTest):
 
         # verify fragment reverted to primary server
         self.assertEqual(reverted_fragment_etag,
-                         self.direct_get(primary_node, opart))
+                         self.direct_get(primary_node, opart)[1])
 
         # now we'll remove some data on one of the primary node's partners
         partner = random.choice(reconstructor._get_partners(
             primary_node['index'], onodes))
 
         try:
-            rebuilt_fragment_etag = self.direct_get(partner, opart)
+            _hdrs, rebuilt_fragment_etag = self.direct_get(partner, opart)
         except direct_client.DirectClientException as err:
             if err.http_status != 404:
                 raise
@@ -361,7 +309,7 @@ class TestReconstructorRevert(ECProbeTest):
         # and validate the partners rebuilt_fragment_etag
         try:
             self.assertEqual(rebuilt_fragment_etag,
-                             self.direct_get(partner, opart))
+                             self.direct_get(partner, opart)[1])
         except direct_client.DirectClientException as err:
             if err.http_status != 404:
                 raise
