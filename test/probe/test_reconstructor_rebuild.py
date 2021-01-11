@@ -14,14 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import errno
-import json
 from contextlib import contextmanager
 import unittest
 import uuid
-import shutil
 import random
-import os
 import time
 import six
 
@@ -30,8 +26,6 @@ from swift.common.utils import md5
 from test.probe.common import ECProbeTest
 
 from swift.common import direct_client
-from swift.common.storage_policy import EC_POLICY
-from swift.common.manager import Manager
 
 from swiftclient import client, ClientException
 
@@ -64,17 +58,8 @@ class Body(object):
 
 class TestReconstructorRebuild(ECProbeTest):
 
-    def _make_name(self, prefix):
-        return ('%s%s' % (prefix, uuid.uuid4())).encode()
-
     def setUp(self):
         super(TestReconstructorRebuild, self).setUp()
-        self.container_name = self._make_name('container-')
-        self.object_name = self._make_name('object-')
-        # sanity
-        self.assertEqual(self.policy.policy_type, EC_POLICY)
-        self.reconstructor = Manager(["object-reconstructor"])
-
         # create EC container
         headers = {'X-Storage-Policy': self.policy.name}
         client.put_container(self.url, self.token, self.container_name,
@@ -98,80 +83,6 @@ class TestReconstructorRebuild(ECProbeTest):
             self.assertIn(
                 'X-Backend-Durable-Timestamp', hdrs,
                 'Missing durable timestamp in %r' % self.frag_headers)
-
-    def proxy_put(self, extra_headers=None):
-        contents = Body()
-        headers = {
-            self._make_name('x-object-meta-').decode('utf8'):
-                self._make_name('meta-foo-').decode('utf8'),
-        }
-        if extra_headers:
-            headers.update(extra_headers)
-        self.etag = client.put_object(self.url, self.token,
-                                      self.container_name,
-                                      self.object_name,
-                                      contents=contents, headers=headers)
-
-    def proxy_get(self):
-        # GET object
-        headers, body = client.get_object(self.url, self.token,
-                                          self.container_name,
-                                          self.object_name,
-                                          resp_chunk_size=64 * 2 ** 10)
-        resp_checksum = md5(usedforsecurity=False)
-        for chunk in body:
-            resp_checksum.update(chunk)
-        return headers, resp_checksum.hexdigest()
-
-    def direct_get(self, node, part, require_durable=True, extra_headers=None):
-        req_headers = {'X-Backend-Storage-Policy-Index': int(self.policy)}
-        if extra_headers:
-            req_headers.update(extra_headers)
-        if not require_durable:
-            req_headers.update(
-                {'X-Backend-Fragment-Preferences': json.dumps([])})
-        # node dict has unicode values so utf8 decode our path parts too in
-        # case they have non-ascii characters
-        if six.PY2:
-            acc, con, obj = (s.decode('utf8') for s in (
-                self.account, self.container_name, self.object_name))
-        else:
-            acc, con, obj = self.account, self.container_name, self.object_name
-        headers, data = direct_client.direct_get_object(
-            node, part, acc, con, obj, headers=req_headers,
-            resp_chunk_size=64 * 2 ** 20)
-        hasher = md5(usedforsecurity=False)
-        for chunk in data:
-            hasher.update(chunk)
-        return headers, hasher.hexdigest()
-
-    def _break_nodes(self, failed, non_durable):
-        # delete partitions on the failed nodes and remove durable marker from
-        # non-durable nodes
-        for i, node in enumerate(self.onodes):
-            part_dir = self.storage_dir(node, part=self.opart)
-            if i in failed:
-                shutil.rmtree(part_dir, True)
-                try:
-                    self.direct_get(node, self.opart)
-                except direct_client.DirectClientException as err:
-                    self.assertEqual(err.http_status, 404)
-            elif i in non_durable:
-                for dirs, subdirs, files in os.walk(part_dir):
-                    for fname in files:
-                        if fname.endswith('.data'):
-                            non_durable_fname = fname.replace('#d', '')
-                            os.rename(os.path.join(dirs, fname),
-                                      os.path.join(dirs, non_durable_fname))
-                            break
-                headers, etag = self.direct_get(node, self.opart,
-                                                require_durable=False)
-                self.assertNotIn('X-Backend-Durable-Timestamp', headers)
-            try:
-                os.remove(os.path.join(part_dir, 'hashes.pkl'))
-            except OSError as e:
-                if e.errno != errno.ENOENT:
-                    raise
 
     def _format_node(self, node):
         return '%s#%s' % (node['device'], node['index'])
@@ -213,7 +124,7 @@ class TestReconstructorRebuild(ECProbeTest):
         # helper method to test a scenario with some nodes missing their
         # fragment and some nodes having non-durable fragments
         with self._annotate_failure_with_scenario(failed, non_durable):
-            self._break_nodes(failed, non_durable)
+            self.break_nodes(self.onodes, self.opart, failed, non_durable)
 
         # make sure we can still GET the object and it is correct; the
         # proxy is doing decode on remaining fragments to get the obj
@@ -370,10 +281,12 @@ class TestReconstructorRebuild(ECProbeTest):
 
         # sanity check - X-Backend-Replication let's us get expired frag...
         fail_node = random.choice(self.onodes)
-        self.direct_get(fail_node, self.opart,
-                        extra_headers={'X-Backend-Replication': 'True'})
+        self.assert_direct_get_succeeds(
+            fail_node, self.opart,
+            extra_headers={'X-Backend-Replication': 'True'})
         # ...until we remove the frag from fail_node
-        self._break_nodes([self.onodes.index(fail_node)], [])
+        self.break_nodes(
+            self.onodes, self.opart, [self.onodes.index(fail_node)], [])
         # ...now it's really gone
         with self.assertRaises(DirectClientException) as cm:
             self.direct_get(fail_node, self.opart,

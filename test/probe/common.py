@@ -16,6 +16,7 @@
 from __future__ import print_function
 
 import errno
+import json
 import os
 from subprocess import Popen, PIPE
 import sys
@@ -26,6 +27,7 @@ from collections import defaultdict
 import unittest
 from uuid import uuid4
 import shutil
+import six
 from six.moves.http_client import HTTPConnection
 from six.moves.urllib.parse import urlparse
 
@@ -605,6 +607,113 @@ class ECProbeTest(ProbeTest):
     obj_required_replicas = 6
     obj_required_devices = 8
     policy_requirements = {'policy_type': EC_POLICY}
+
+    def _make_name(self, prefix):
+        return ('%s%s' % (prefix, uuid4())).encode()
+
+    def setUp(self):
+        super(ECProbeTest, self).setUp()
+        self.container_name = self._make_name('container-')
+        self.object_name = self._make_name('object-')
+        # sanity
+        self.assertEqual(self.policy.policy_type, EC_POLICY)
+        self.reconstructor = Manager(["object-reconstructor"])
+
+    def proxy_put(self, extra_headers=None):
+        contents = Body()
+        headers = {
+            self._make_name('x-object-meta-').decode('utf8'):
+                self._make_name('meta-foo-').decode('utf8'),
+        }
+        if extra_headers:
+            headers.update(extra_headers)
+        self.etag = client.put_object(self.url, self.token,
+                                      self.container_name,
+                                      self.object_name,
+                                      contents=contents, headers=headers)
+
+    def proxy_get(self):
+        # GET object
+        headers, body = client.get_object(self.url, self.token,
+                                          self.container_name,
+                                          self.object_name,
+                                          resp_chunk_size=64 * 2 ** 10)
+        resp_checksum = md5(usedforsecurity=False)
+        for chunk in body:
+            resp_checksum.update(chunk)
+        return headers, resp_checksum.hexdigest()
+
+    def direct_get(self, node, part, require_durable=True, extra_headers=None):
+        req_headers = {'X-Backend-Storage-Policy-Index': int(self.policy)}
+        if extra_headers:
+            req_headers.update(extra_headers)
+        if not require_durable:
+            req_headers.update(
+                {'X-Backend-Fragment-Preferences': json.dumps([])})
+        # node dict has unicode values so utf8 decode our path parts too in
+        # case they have non-ascii characters
+        if six.PY2:
+            acc, con, obj = (s.decode('utf8') for s in (
+                self.account, self.container_name, self.object_name))
+        else:
+            acc, con, obj = self.account, self.container_name, self.object_name
+        headers, data = direct_client.direct_get_object(
+            node, part, acc, con, obj, headers=req_headers,
+            resp_chunk_size=64 * 2 ** 20)
+        hasher = md5(usedforsecurity=False)
+        for chunk in data:
+            hasher.update(chunk)
+        return headers, hasher.hexdigest()
+
+    def assert_direct_get_fails(self, onode, opart, status,
+                                require_durable=True):
+        try:
+            self.direct_get(onode, opart, require_durable=require_durable)
+        except direct_client.DirectClientException as err:
+            self.assertEqual(err.http_status, status)
+        else:
+            self.fail('Node data on %r was not fully destroyed!' % (onode,))
+
+    def assert_direct_get_succeeds(self, onode, opart, require_durable=True,
+                                   extra_headers=None):
+        try:
+            self.direct_get(onode, opart, require_durable=require_durable,
+                            extra_headers=extra_headers)
+        except direct_client.DirectClientException as err:
+            self.fail('Node data on %r was not available: %s' % (onode, err))
+
+    def break_nodes(self, nodes, opart, failed, non_durable):
+        # delete partitions on the failed nodes and remove durable marker from
+        # non-durable nodes
+        made_non_durable = 0
+        for i, node in enumerate(nodes):
+            part_dir = self.storage_dir(node, part=opart)
+            if i in failed:
+                shutil.rmtree(part_dir, True)
+                try:
+                    self.direct_get(node, opart)
+                except direct_client.DirectClientException as err:
+                    self.assertEqual(err.http_status, 404)
+            elif i in non_durable:
+                for dirs, subdirs, files in os.walk(part_dir):
+                    for fname in sorted(files, reverse=True):
+                        # make the newest durable be non-durable
+                        if fname.endswith('.data'):
+                            made_non_durable += 1
+                            non_durable_fname = fname.replace('#d', '')
+                            os.rename(os.path.join(dirs, fname),
+                                      os.path.join(dirs, non_durable_fname))
+
+                            break
+                headers, etag = self.direct_get(node, opart,
+                                                require_durable=False)
+                self.assertNotIn('X-Backend-Durable-Timestamp', headers)
+            try:
+                os.remove(os.path.join(part_dir, 'hashes.pkl'))
+            except OSError as e:
+                if e.errno != errno.ENOENT:
+                    raise
+        return made_non_durable
 
 
 if __name__ == "__main__":
