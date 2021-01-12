@@ -31,7 +31,7 @@ from swift.common.middleware.s3api.s3request import S3Request, \
     S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT, HashingInput
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, \
-    AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed
+    AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, BadDigest
 from swift.common.utils import md5
 
 from test.unit import DebugLogger
@@ -819,6 +819,93 @@ class TestRequest(S3ApiTestCase):
             req.environ, storage_domain='s3.amazonaws.com')
         self.assertFalse(sigv4_req.check_signature(
             u'\u30c9\u30e9\u30b4\u30f3'))
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_check_signature_sigv4_unsigned_payload(self):
+        environ = {
+            'HTTP_HOST': 'bucket.s3.test.com',
+            'REQUEST_METHOD': 'GET'}
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20210104/us-east-1/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
+                'Signature=f721a7941d5b7710344bc62cc45f87e66f4bb1dd00d9075ee61'
+                '5b1a5c72b0f8c',
+            'X-Amz-Content-SHA256': 'UNSIGNED-PAYLOAD',
+            'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
+            'X-Amz-Date': '20210104T102623Z'}
+
+        # Virtual hosted-style
+        self.conf.storage_domain = 's3.test.com'
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ)
+        self.assertTrue(
+            sigv4_req._canonical_request().endswith(b'UNSIGNED-PAYLOAD'))
+        self.assertTrue(sigv4_req.check_signature('secret'))
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_check_sigv4_req_zero_content_length_sha256(self):
+        # Virtual hosted-style
+        self.conf.storage_domain = 's3.test.com'
+
+        # bad sha256
+        environ = {
+            'HTTP_HOST': 'bucket.s3.test.com',
+            'REQUEST_METHOD': 'GET'}
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20210104/us-east-1/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
+                'Signature=f721a7941d5b7710344bc62cc45f87e66f4bb1dd00d9075ee61'
+                '5b1a5c72b0f8c',
+            'X-Amz-Content-SHA256': 'bad',
+            'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
+            'X-Amz-Date': '20210104T102623Z',
+            'Content-Length': 0,
+        }
+
+        # lowercase sha256
+        req = Request.blank('/', environ=environ, headers=headers)
+        self.assertRaises(BadDigest, SigV4Request, req.environ)
+        sha256_of_nothing = hashlib.sha256().hexdigest().encode('ascii')
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20210104/us-east-1/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
+                'Signature=d90542e8b4c0d2f803162040a948e8e51db00b62a59ffb16682'
+                'ef433718fde12',
+            'X-Amz-Content-SHA256': sha256_of_nothing,
+            'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
+            'X-Amz-Date': '20210104T102623Z',
+            'Content-Length': 0,
+        }
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ)
+        self.assertTrue(
+            sigv4_req._canonical_request().endswith(sha256_of_nothing))
+        self.assertTrue(sigv4_req.check_signature('secret'))
+
+        # uppercase sha256
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20210104/us-east-1/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
+                'Signature=4aab5102e58e9e40f331417d322465c24cac68a7ce77260e9bf'
+                '5ce9a6200862b',
+            'X-Amz-Content-SHA256': sha256_of_nothing.upper(),
+            'Date': 'Mon, 04 Jan 2021 10:26:23 -0000',
+            'X-Amz-Date': '20210104T102623Z',
+            'Content-Length': 0,
+        }
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ)
+        self.assertTrue(
+            sigv4_req._canonical_request().endswith(sha256_of_nothing.upper()))
+        self.assertTrue(sigv4_req.check_signature('secret'))
 
 
 class TestHashingInput(S3ApiTestCase):
