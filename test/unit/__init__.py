@@ -177,7 +177,7 @@ class PatchPolicies(object):
 
         def unpatch_cleanup(cls_self):
             if cls_self._policies_patched:
-                self.__exit__()
+                self.__exit__(None, None, None)
                 cls_self._policies_patched = False
 
         def setUp(cls_self):
@@ -204,7 +204,7 @@ class PatchPolicies(object):
         try:
             self._setup_rings()
         except:  # noqa
-            self.__exit__()
+            self.__exit__(None, None, None)
             raise
 
     def __exit__(self, *args):

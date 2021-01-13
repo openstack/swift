@@ -58,11 +58,11 @@ class TestContainerDeleter(unittest.TestCase):
         patcher = mock.patch.object(container_deleter.time, 'time',
                                     side_effect=itertools.count())
         patcher.__enter__()
-        self.addCleanup(patcher.__exit__)
+        self.addCleanup(patcher.__exit__, None, None, None)
 
         patcher = mock.patch.object(container_deleter, 'OBJECTS_PER_UPDATE', 5)
         patcher.__enter__()
-        self.addCleanup(patcher.__exit__)
+        self.addCleanup(patcher.__exit__, None, None, None)
 
     def test_make_delete_jobs(self):
         ts = '1558463777.42739'
