@@ -185,6 +185,8 @@ def format_server_name(servername):
     :param servername: server name
     :returns: swift compatible server name and its binary name
     """
+    if '.' in servername:
+        servername = servername.split('.', 1)[0]
     if '-' not in servername:
         servername = '%s-server' % servername
     cmd = 'swift-%s' % servername

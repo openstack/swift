@@ -313,6 +313,8 @@ class TestManagerModule(unittest.TestCase):
             # test valid servers
             self.assertTrue(manager.verify_server('object'))
             self.assertTrue(manager.verify_server('object-server'))
+            self.assertTrue(manager.verify_server('object.replication'))
+            self.assertTrue(manager.verify_server('object-server.1'))
             # test invalid servers
             self.assertFalse(manager.verify_server('test'))
             self.assertFalse(manager.verify_server('test-server'))
