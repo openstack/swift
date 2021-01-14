@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from __future__ import print_function
+
 import unittest
 from test.unit import temptree
 
@@ -297,17 +298,23 @@ class TestManagerModule(unittest.TestCase):
             ("-server", "swift--server"))
 
     def test_verify_server(self):
-        # test valid servers
-        self.assertTrue(manager.verify_server('object'))
-        self.assertTrue(manager.verify_server('object-server'))
-        # test invalid servers
-        self.assertFalse(manager.verify_server('test'))
-        self.assertFalse(manager.verify_server('test-server'))
-        self.assertFalse(manager.verify_server('ls'))
-        self.assertFalse(manager.verify_server(''))
-        self.assertFalse(manager.verify_server('Object'))
-        self.assertFalse(manager.verify_server('object1'))
-        self.assertFalse(manager.verify_server(None))
+        def mock_find_exe(f):
+            # pretend that swift-object-server is the only file on path
+            return f if f == 'swift-object-server' else None
+
+        with mock.patch('swift.common.manager.find_executable',
+                        side_effect=mock_find_exe):
+            # test valid servers
+            self.assertTrue(manager.verify_server('object'))
+            self.assertTrue(manager.verify_server('object-server'))
+            # test invalid servers
+            self.assertFalse(manager.verify_server('test'))
+            self.assertFalse(manager.verify_server('test-server'))
+            self.assertFalse(manager.verify_server('ls'))
+            self.assertFalse(manager.verify_server(''))
+            self.assertFalse(manager.verify_server('Object'))
+            self.assertFalse(manager.verify_server('object1'))
+            self.assertFalse(manager.verify_server(None))
 
 
 class TestServer(unittest.TestCase):
