@@ -153,7 +153,6 @@ def mktime(timestamp_str, time_format='%Y-%m-%dT%H:%M:%S'):
 
 class Config(dict):
     DEFAULTS = {
-        'slo_enabled': True,
         'storage_domain': '',
         'location': 'us-east-1',
         'force_swift_request_proxy_log': False,

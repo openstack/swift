@@ -133,7 +133,6 @@ class TestS3ApiUtils(unittest.TestCase):
 class TestConfig(unittest.TestCase):
 
     def _assert_defaults(self, conf):
-        self.assertTrue(conf.slo_enabled)
         self.assertEqual('', conf.storage_domain)
         self.assertEqual('us-east-1', conf.location)
         self.assertFalse(conf.force_swift_request_proxy_log)
@@ -146,7 +145,6 @@ class TestConfig(unittest.TestCase):
         # deliberately brittle so new defaults will need to be added to test
         conf = utils.Config()
         self._assert_defaults(conf)
-        del conf.slo_enabled
         del conf.storage_domain
         del conf.location
         del conf.force_swift_request_proxy_log
@@ -163,8 +161,8 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(conf.key1, 'val1')
         self.assertEqual(conf.key2, 'val2')
 
-        conf.update({'slo_enabled': False})
-        self.assertFalse(conf.slo_enabled)
+        conf.update({'allow_multipart_uploads': False})
+        self.assertFalse(conf.allow_multipart_uploads)
 
     def test_set_get_delete(self):
         conf = utils.Config()

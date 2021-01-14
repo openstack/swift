@@ -280,9 +280,7 @@ class S3ApiMiddleware(object):
 
         self.logger = get_logger(
             conf, log_route=conf.get('log_name', 's3api'))
-        self.slo_enabled = self.conf.allow_multipart_uploads
         self.check_pipeline(self.conf)
-        self.conf.slo_enabled = self.slo_enabled
 
     def __call__(self, env, start_response):
         try:
@@ -350,8 +348,8 @@ class S3ApiMiddleware(object):
                                  pipeline.index('proxy-server')]
 
         # Check SLO middleware
-        if self.slo_enabled and 'slo' not in auth_pipeline:
-            self.slo_enabled = False
+        if self.conf.allow_multipart_uploads and 'slo' not in auth_pipeline:
+            self.conf.allow_multipart_uploads = False
             self.logger.warning('s3api middleware requires SLO middleware '
                                 'to support multi-part upload, please add it '
                                 'in pipeline')

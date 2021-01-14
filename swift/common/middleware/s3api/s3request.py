@@ -1018,7 +1018,7 @@ class S3Request(swob.Request):
         if self.is_service_request:
             return ServiceController
 
-        if not self.conf.slo_enabled:
+        if not self.conf.allow_multipart_uploads:
             multi_part = ['partNumber', 'uploadId', 'uploads']
             if len([p for p in multi_part if p in self.params]):
                 raise S3NotImplemented("Multi-part feature isn't support")
