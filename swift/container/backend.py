@@ -812,16 +812,24 @@ class ContainerBroker(DatabaseBroker):
         info.update(self._get_alternate_object_stats()[1])
         return self._is_deleted_info(**info)
 
-    def is_reclaimable(self, now, reclaim_age):
+    def is_old_enough_to_reclaim(self, now, reclaim_age):
         with self.get() as conn:
             info = conn.execute('''
                 SELECT put_timestamp, delete_timestamp
                 FROM container_stat''').fetchone()
-        if (Timestamp(now - reclaim_age) >
-            Timestamp(info['delete_timestamp']) >
-                Timestamp(info['put_timestamp'])):
-            return self.empty()
-        return False
+        return (Timestamp(now - reclaim_age) >
+                Timestamp(info['delete_timestamp']) >
+                Timestamp(info['put_timestamp']))
+
+    def is_empty_enough_to_reclaim(self):
+        if self.is_root_container() and (self.get_shard_ranges() or
+                                         self.get_db_state() == SHARDING):
+            return False
+        return self.empty()
+
+    def is_reclaimable(self, now, reclaim_age):
+        return self.is_old_enough_to_reclaim(now, reclaim_age) and \
+            self.is_empty_enough_to_reclaim()
 
     def get_info_is_deleted(self):
         """

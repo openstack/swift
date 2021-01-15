@@ -834,6 +834,11 @@ class ContainerSharder(ContainerReplicator):
 
     def _audit_container(self, broker):
         if broker.is_deleted():
+            if broker.is_old_enough_to_reclaim(time.time(), self.reclaim_age) \
+                    and not broker.is_empty_enough_to_reclaim():
+                self.logger.warning(
+                    'Reclaimable db stuck waiting for shrinking: %s (%s)',
+                    broker.db_file, quote(broker.path))
             # if the container has been marked as deleted, all metadata will
             # have been erased so no point auditing. But we want it to pass, in
             # case any objects exist inside it.

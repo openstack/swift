@@ -131,6 +131,92 @@ class TestContainerBroker(unittest.TestCase):
         self.assertTrue(broker.conn is None)
 
     @with_tempdir
+    @mock.patch("swift.container.backend.ContainerBroker.get")
+    def test_is_old_enough_to_reclaim(self, tempdir, mocked_get):
+        db_path = os.path.join(
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+
+        def do_test(now, reclaim_age, put_ts, delete_ts, expected):
+            mocked_get.return_value.\
+                __enter__.return_value.\
+                execute.return_value.\
+                fetchone.return_value = dict(delete_timestamp=delete_ts,
+                                             put_timestamp=put_ts)
+
+            self.assertEqual(expected,
+                             broker.is_old_enough_to_reclaim(now, reclaim_age))
+
+        now_time = time()
+        tests = (
+            # (now, reclaim_age, put_ts, del_ts, expected),
+            (0, 0, 0, 0, False),
+            # Never deleted
+            (now_time, 100, now_time - 200, 0, False),
+            # Deleted ts older the put_ts
+            (now_time, 100, now_time - 150, now_time - 200, False),
+            # not reclaim_age yet
+            (now_time, 100, now_time - 150, now_time - 50, False),
+            # right on reclaim doesn't work
+            (now_time, 100, now_time - 150, now_time - 100, False),
+            # put_ts wins over del_ts
+            (now_time, 100, now_time - 150, now_time - 150, False),
+            # good case, reclaim > delete_ts > put_ts
+            (now_time, 100, now_time - 150, now_time - 125, True))
+        for test in tests:
+            do_test(*test)
+
+    @with_tempdir
+    def test_is_reclaimable(self, tempdir):
+        db_path = os.path.join(
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+
+        self.assertFalse(broker.is_reclaimable(float(next(self.ts)), 0))
+        broker.delete_db(next(self.ts).internal)
+        self.assertFalse(broker.is_reclaimable(float(next(self.ts)), 604800))
+        self.assertTrue(broker.is_reclaimable(float(next(self.ts)), 0))
+
+        # adding a shard range makes us unreclaimable
+        sr = ShardRange('.shards_a/shard_c', next(self.ts), object_count=0)
+        broker.merge_shard_ranges([sr])
+        self.assertFalse(broker.is_reclaimable(float(next(self.ts)), 0))
+        # ... but still "deleted"
+        self.assertTrue(broker.is_deleted())
+        # ... until the shard range is deleted
+        sr.set_deleted(next(self.ts))
+        broker.merge_shard_ranges([sr])
+        self.assertTrue(broker.is_reclaimable(float(next(self.ts)), 0))
+
+        # adding an object makes us unreclaimable
+        obj = {'name': 'o', 'created_at': next(self.ts).internal,
+               'size': 0, 'content_type': 'text/plain', 'etag': EMPTY_ETAG,
+               'deleted': 0}
+        broker.merge_items([dict(obj)])
+        self.assertFalse(broker.is_reclaimable(float(next(self.ts)), 0))
+        # ... and "not deleted"
+        self.assertFalse(broker.is_deleted())
+
+    @with_tempdir
+    def test_sharding_state_is_not_reclaimable(self, tempdir):
+        db_path = os.path.join(
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(next(self.ts).internal, 0)
+        broker.enable_sharding(next(self.ts))
+        broker.set_sharding_state()
+        broker.delete_db(next(self.ts).internal)
+        self.assertTrue(broker.is_deleted())
+        # we won't reclaim in SHARDING state
+        self.assertEqual(SHARDING, broker.get_db_state())
+        self.assertFalse(broker.is_reclaimable(float(next(self.ts)), 0))
+        # ... but if we find one stuck like this it's easy enough to fix
+        broker.set_sharded_state()
+        self.assertTrue(broker.is_reclaimable(float(next(self.ts)), 0))
+
+    @with_tempdir
     def test_is_deleted(self, tempdir):
         # Test ContainerBroker.is_deleted() and get_info_is_deleted()
         db_path = os.path.join(
