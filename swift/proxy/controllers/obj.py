@@ -2125,7 +2125,8 @@ class ECGetResponseCollection(object):
         """
         self.policy = policy
         self.buckets = {}
-        self.bad_buckets = {None: ECGetResponseBucket(self.policy, None)}
+        self.default_bad_bucket = ECGetResponseBucket(self.policy, None)
+        self.bad_buckets = {}
         self.node_iter_count = 0
 
     def _get_bucket(self, timestamp):
@@ -2254,6 +2255,9 @@ class ECGetResponseCollection(object):
         """
         Return the bad_bucket with the smallest shortfall
         """
+        if all(status == 404 for status in self.bad_buckets):
+            # NB: also covers an empty self.bad_buckets
+            return self.default_bad_bucket
         # we want "enough" 416s to prevent "extra" requests - but we keep
         # digging on 404s
         short, status = min((bucket.shortfall, status)
