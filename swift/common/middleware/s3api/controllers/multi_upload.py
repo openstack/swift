@@ -67,7 +67,7 @@ import time
 
 import six
 
-from swift.common.swob import Range, bytes_to_wsgi, normalize_etag
+from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, wsgi_to_str
 from swift.common.utils import json, public, reiterate, md5
 from swift.common.db import utf8encode
 from swift.common.request_helpers import get_container_update_override_key
@@ -674,7 +674,8 @@ class UploadController(Controller):
 
                 manifest.append({
                     'path': '/%s/%s/%s/%d' % (
-                        container, req.object_name, upload_id, part_number),
+                        wsgi_to_str(container), wsgi_to_str(req.object_name),
+                        upload_id, part_number),
                     'etag': etag})
                 s3_etag_hasher.update(binascii.a2b_hex(etag))
         except (XMLSyntaxError, DocumentInvalid):

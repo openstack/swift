@@ -927,6 +927,52 @@ class TestS3ApiMultiUpload(S3ApiTestCase):
         self.assertEqual(headers.get(h), override_etag)
         self.assertEqual(headers.get('X-Object-Sysmeta-S3Api-Upload-Id'), 'X')
 
+    def test_object_multipart_upload_complete_non_ascii(self):
+        wsgi_snowman = '\xe2\x98\x83'
+
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket+segments/%s/X' % wsgi_snowman,
+            swob.HTTPOk, {}, None)
+        self.swift.register('PUT', '/v1/AUTH_test/bucket/%s' % wsgi_snowman,
+                            swob.HTTPCreated, {}, None)
+        self.swift.register(
+            'DELETE', '/v1/AUTH_test/bucket+segments/%s/X' % wsgi_snowman,
+            swob.HTTPOk, {}, None)
+
+        content_md5 = base64.b64encode(md5(
+            XML.encode('ascii'), usedforsecurity=False).digest())
+        req = Request.blank('/bucket/%s?uploadId=X' % wsgi_snowman,
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5, },
+                            body=XML)
+        status, headers, body = self.call_s3api(req)
+        elem = fromstring(body, 'CompleteMultipartUploadResult')
+        self.assertNotIn('Etag', headers)
+        self.assertEqual(elem.find('ETag').text, S3_ETAG)
+        self.assertEqual(status.split()[0], '200')
+
+        self.assertEqual(self.swift.calls, [
+            # Bucket exists
+            ('HEAD', '/v1/AUTH_test'),
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            # Upload marker exists
+            ('HEAD', '/v1/AUTH_test/bucket+segments/%s/X' % wsgi_snowman),
+            # Create the SLO
+            ('PUT', '/v1/AUTH_test/bucket/%s'
+                    '?heartbeat=on&multipart-manifest=put' % wsgi_snowman),
+            # Delete the in-progress-upload marker
+            ('DELETE', '/v1/AUTH_test/bucket+segments/%s/X' % wsgi_snowman)
+        ])
+
+        self.assertEqual(json.loads(self.swift.req_bodies[-2]), [
+            {"path": u"/bucket+segments/\N{SNOWMAN}/X/1",
+             "etag": "0123456789abcdef0123456789abcdef"},
+            {"path": u"/bucket+segments/\N{SNOWMAN}/X/2",
+             "etag": "fedcba9876543210fedcba9876543210"},
+        ])
+
     def test_object_multipart_upload_retry_complete(self):
         content_md5 = base64.b64encode(md5(
             XML.encode('ascii'), usedforsecurity=False).digest())
