@@ -152,7 +152,18 @@ def mktime(timestamp_str, time_format='%Y-%m-%dT%H:%M:%S'):
 
 
 class Config(dict):
+    DEFAULTS = {
+        'slo_enabled': True,
+        'storage_domain': '',
+        'location': 'us-east-1',
+        'force_swift_request_proxy_log': False,
+        'dns_compliant_bucket_names': True,
+        'allow_multipart_uploads': True,
+        'allow_no_owner': False,
+    }
+
     def __init__(self, base=None):
+        self.update(self.DEFAULTS)
         if base is not None:
             self.update(base)
 

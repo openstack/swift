@@ -130,5 +130,39 @@ class TestS3ApiUtils(unittest.TestCase):
             time.tzset()
 
 
+class TestConfig(unittest.TestCase):
+
+    def _assert_defaults(self, conf):
+        self.assertTrue(conf.slo_enabled)
+        self.assertEqual('', conf.storage_domain)
+        self.assertEqual('us-east-1', conf.location)
+        self.assertFalse(conf.force_swift_request_proxy_log)
+        self.assertTrue(conf.dns_compliant_bucket_names)
+        self.assertTrue(conf.allow_multipart_uploads)
+        self.assertFalse(conf.allow_no_owner)
+
+    def test_defaults(self):
+        conf = utils.Config()
+        self._assert_defaults(conf)
+
+    def test_update(self):
+        conf = utils.Config()
+        conf.update({'key1': 'val1', 'key2': 'val2'})
+        self._assert_defaults(conf)
+        self.assertEqual(conf.key1, 'val1')
+        self.assertEqual(conf.key2, 'val2')
+
+        conf.update({'slo_enabled': False})
+        self.assertFalse(conf.slo_enabled)
+
+    def test_set_get_delete(self):
+        conf = utils.Config()
+        self.assertRaises(AttributeError, lambda: conf.new_attr)
+        conf.new_attr = 123
+        self.assertEqual(123, conf.new_attr)
+        del conf.new_attr
+        self.assertRaises(AttributeError, lambda: conf.new_attr)
+
+
 if __name__ == '__main__':
     unittest.main()

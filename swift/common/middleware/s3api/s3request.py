@@ -525,18 +525,11 @@ class S3Request(swob.Request):
     bucket_acl = _header_acl_property('container')
     object_acl = _header_acl_property('object')
 
-    def __init__(self, env, app=None, slo_enabled=True, storage_domain='',
-                 location='us-east-1', force_request_log=False,
-                 dns_compliant_bucket_names=True, allow_multipart_uploads=True,
-                 allow_no_owner=False):
-        # NOTE: app and allow_no_owner are not used by this class, need for
-        #       compatibility of S3acl
+    def __init__(self, env, conf, app=None):
+        # NOTE: app is not used by this class, need for compatibility of S3acl
         swob.Request.__init__(self, env)
-        self.storage_domain = storage_domain
-        self.location = location
-        self.force_request_log = force_request_log
-        self.dns_compliant_bucket_names = dns_compliant_bucket_names
-        self.allow_multipart_uploads = allow_multipart_uploads
+        self.conf = conf
+        self.location = self.conf.location
         self._timestamp = None
         self.access_key, self.signature = self._parse_auth_info()
         self.bucket_in_host = self._parse_host()
@@ -552,7 +545,6 @@ class S3Request(swob.Request):
         }
         self.account = None
         self.user_id = None
-        self.slo_enabled = slo_enabled
 
         # Avoids that swift.swob.Response replaces Location header value
         # by full URL when absolute path given. See swift.swob for more detail.
@@ -610,7 +602,7 @@ class S3Request(swob.Request):
         return 'AWSAccessKeyId' in self.params
 
     def _parse_host(self):
-        storage_domain = self.storage_domain
+        storage_domain = self.conf.storage_domain
         if not storage_domain:
             return None
 
@@ -643,7 +635,7 @@ class S3Request(swob.Request):
         bucket, obj = self.split_path(0, 2, True)
 
         if bucket and not validate_bucket_name(
-                bucket, self.dns_compliant_bucket_names):
+                bucket, self.conf.dns_compliant_bucket_names):
             # Ignore GET service case
             raise InvalidBucketName(bucket)
         return (bucket, obj)
@@ -1026,7 +1018,7 @@ class S3Request(swob.Request):
         if self.is_service_request:
             return ServiceController
 
-        if not self.slo_enabled:
+        if not self.conf.slo_enabled:
             multi_part = ['partNumber', 'uploadId', 'uploads']
             if len([p for p in multi_part if p in self.params]):
                 raise S3NotImplemented("Multi-part feature isn't support")
@@ -1154,7 +1146,7 @@ class S3Request(swob.Request):
                     if key.startswith('HTTP_X_OBJECT_META_'):
                         del env[key]
 
-        if self.force_request_log:
+        if self.conf.force_swift_request_proxy_log:
             env['swift.proxy_access_log_made'] = False
         env['swift.source'] = 'S3'
         if method is not None:
@@ -1487,7 +1479,7 @@ class S3Request(swob.Request):
                 'unexpected status code %d' % info['status'])
 
     def gen_multipart_manifest_delete_query(self, app, obj=None, version=None):
-        if not self.allow_multipart_uploads:
+        if not self.conf.allow_multipart_uploads:
             return {}
         if not obj:
             obj = self.object_name
@@ -1513,14 +1505,8 @@ class S3AclRequest(S3Request):
     """
     S3Acl request object.
     """
-    def __init__(self, env, app, slo_enabled=True, storage_domain='',
-                 location='us-east-1', force_request_log=False,
-                 dns_compliant_bucket_names=True, allow_multipart_uploads=True,
-                 allow_no_owner=False):
-        super(S3AclRequest, self).__init__(
-            env, app, slo_enabled, storage_domain, location, force_request_log,
-            dns_compliant_bucket_names, allow_multipart_uploads)
-        self.allow_no_owner = allow_no_owner
+    def __init__(self, env, conf, app):
+        super(S3AclRequest, self).__init__(env, conf, app)
         self.authenticate(app)
         self.acl_handler = None
 
@@ -1587,9 +1573,9 @@ class S3AclRequest(S3Request):
         resp = self._get_response(
             app, method, container, obj, headers, body, query)
         resp.bucket_acl = decode_acl(
-            'container', resp.sysmeta_headers, self.allow_no_owner)
+            'container', resp.sysmeta_headers, self.conf.allow_no_owner)
         resp.object_acl = decode_acl(
-            'object', resp.sysmeta_headers, self.allow_no_owner)
+            'object', resp.sysmeta_headers, self.conf.allow_no_owner)
 
         return resp
 
