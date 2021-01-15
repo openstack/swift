@@ -7837,7 +7837,8 @@ class TestECGets(unittest.TestCase):
                            for that node. Each desired state is a list of
                            dicts, with each dict describing object reference,
                            frag_index and whether the file moved to the node's
-                           hash_dir should be marked as durable or not.
+                           hash_dir should be marked as durable or not, or
+                           converted to a meta file.
         """
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv,
          obj2srv, obj3srv, _obj4srv, _obj5srv, _obj6srv) = _test_servers
@@ -7900,8 +7901,10 @@ class TestECGets(unittest.TestCase):
         # node state is in form:
         # {node_index: [{ref: object reference,
         #                frag_index: index,
-        #                durable: True or False}, ...],
+        #                durable: True or False,
+        #                meta: True or False}, ...],
         #  node_index: ...}
+        # meta takes precedence over durable
         for node_index, state in node_state.items():
             dest = node_hash_dirs[node_index]
             for frag_info in state:
@@ -7909,8 +7912,14 @@ class TestECGets(unittest.TestCase):
                 src_files = os.listdir(src)
                 # sanity check, expect just a single .data file
                 self.assertFalse(src_files[1:])
-                dest_file = src_files[0].replace(
-                    '#d', '#d' if frag_info['durable'] else '')
+                dest_file = src_files[0]
+                if frag_info.get('meta', False):
+                    # morph a data file into a meta file;
+                    # note: a real meta file would not have content
+                    dest_file = dest_file.replace(
+                        '#%d#d.data' % frag_info['frag_index'], '.meta')
+                elif not frag_info.get('durable', False):
+                    dest_file = dest_file.replace('#d', '')
                 move(os.path.join(src, src_files[0]),
                      os.path.join(dest, dest_file))
 
@@ -8010,6 +8019,7 @@ class TestECGets(unittest.TestCase):
         resp = self._setup_nodes_and_do_GET(objs, node_state)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.body, objs['obj1']['body'])
+        self.assertEqual(ts_1.normal, resp.headers['X-Timestamp'])
 
         # durable frags at two timestamps: in this scenario proxy is guaranteed
         # to see the durable at ts_2 with one of the first 2 responses, so will
@@ -8027,6 +8037,28 @@ class TestECGets(unittest.TestCase):
         resp = self._setup_nodes_and_do_GET(objs, node_state)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.body, objs['obj2']['body'])
+        self.assertEqual(ts_2.normal, resp.headers['X-Timestamp'])
+
+        # older durable, plus some newer non-durable, plus some even newer
+        # metadata files; in this scenario the fragment X-Timestamp's are
+        # determined by the metadata so we're checking that X-Timestamp or
+        # X-Backend-Timestamp do *not* interfere with the proxy EC getter
+        # response buckets, which should be based on X-Backend-Data-Timestamp
+        node_state = {
+            0: [dict(ref='obj3', frag_index=0, meta=True),
+                dict(ref='obj2', frag_index=0, durable=False),
+                dict(ref='obj1', frag_index=0, durable=True)],
+            1: [dict(ref='obj3', frag_index=1, meta=True),
+                dict(ref='obj1', frag_index=1, durable=True)],
+            2: [dict(ref='obj3', frag_index=2, meta=True),
+                dict(ref='obj2', frag_index=2, durable=False),
+                dict(ref='obj1', frag_index=2, durable=True)],
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+        self.assertEqual(ts_3.normal, resp.headers['X-Timestamp'])
 
     def test_GET_with_same_frag_index_on_multiple_nodes(self):
         ts_iter = make_timestamp_iter()
