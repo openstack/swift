@@ -100,6 +100,69 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
         self.swift.register('GET', '/something', swob.HTTPOk, {}, 'FAKE APP')
 
+    def test_init_config(self):
+        # verify config loading
+        # note: test confs do not have __file__ attribute so check_pipeline
+        # will be short-circuited
+
+        # check all defaults
+        expected = Config()
+        expected.update({
+            'auth_pipeline_check': True,
+            'check_bucket_owner': False,
+            'max_bucket_listing': 1000,
+            'max_multi_delete_objects': 1000,
+            'max_parts_listing': 1000,
+            'max_upload_part_num': 1000,
+            'min_segment_size': 5242880,
+            'multi_delete_concurrency': 2,
+            's3_acl': False,
+        })
+        s3api = S3ApiMiddleware(None, {})
+        self.assertEqual(expected, s3api.conf)
+
+        # check all non-defaults are loaded
+        conf = {
+            'slo_enabled': False,
+            'storage_domain': 'somewhere',
+            'location': 'us-west-1',
+            'force_swift_request_proxy_log': True,
+            'dns_compliant_bucket_names': False,
+            'allow_multipart_uploads': False,
+            'allow_no_owner': True,
+            'allowable_clock_skew': 300,
+            'auth_pipeline_check': False,
+            'check_bucket_owner': True,
+            'max_bucket_listing': 500,
+            'max_multi_delete_objects': 600,
+            'max_parts_listing': 70,
+            'max_upload_part_num': 800,
+            'min_segment_size': 1000000,
+            'multi_delete_concurrency': 1,
+            's3_acl': True,
+        }
+        s3api = S3ApiMiddleware(None, conf)
+        self.assertEqual(conf, s3api.conf)
+
+        def check_bad_positive_ints(**kwargs):
+            bad_conf = dict(conf, **kwargs)
+            self.assertRaises(ValueError, S3ApiMiddleware, None, bad_conf)
+
+        check_bad_positive_ints(allowable_clock_skew=-100)
+        check_bad_positive_ints(allowable_clock_skew=0)
+        check_bad_positive_ints(max_bucket_listing=-100)
+        check_bad_positive_ints(max_bucket_listing=0)
+        check_bad_positive_ints(max_multi_delete_objects=-100)
+        check_bad_positive_ints(max_multi_delete_objects=0)
+        check_bad_positive_ints(max_parts_listing=-100)
+        check_bad_positive_ints(max_parts_listing=0)
+        check_bad_positive_ints(max_upload_part_num=-100)
+        check_bad_positive_ints(max_upload_part_num=0)
+        check_bad_positive_ints(min_segment_size=-100)
+        check_bad_positive_ints(min_segment_size=0)
+        check_bad_positive_ints(multi_delete_concurrency=-100)
+        check_bad_positive_ints(multi_delete_concurrency=0)
+
     def test_non_s3_request_passthrough(self):
         req = Request.blank('/something')
         status, headers, body = self.call_s3api(req)

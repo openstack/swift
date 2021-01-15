@@ -160,6 +160,7 @@ class Config(dict):
         'dns_compliant_bucket_names': True,
         'allow_multipart_uploads': True,
         'allow_no_owner': False,
+        'allowable_clock_skew': 900,
     }
 
     def __init__(self, base=None):
