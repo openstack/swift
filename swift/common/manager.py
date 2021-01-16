@@ -100,9 +100,9 @@ def command(func):
 
     @functools.wraps(func)
     def wrapped(self, *a, **kw):
-        if getattr(self, 'missing_binaries', False):
-            return 1
         rv = func(self, *a, **kw)
+        if len(self.servers) == 0:
+            return 1
         return 1 if rv else 0
     return wrapped
 
@@ -222,7 +222,6 @@ class Manager(object):
     def __init__(self, servers, run_dir=RUN_DIR):
         self.server_names = set()
         self._default_strict = True
-        self.missing_binaries = False
         for server in servers:
             if server in ALIASES:
                 self.server_names.update(ALIASES[server])
@@ -240,8 +239,6 @@ class Manager(object):
         for name in self.server_names:
             if verify_server(name):
                 self.servers.add(Server(name, run_dir))
-            else:
-                self.missing_binaries = True
 
     def __iter__(self):
         return iter(self.servers)
