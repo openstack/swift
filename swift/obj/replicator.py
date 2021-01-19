@@ -385,7 +385,8 @@ class ObjectReplicator(Daemon):
         except Timeout:
             self.logger.error(
                 self._limit_rsync_log(
-                    _("Killing long-running rsync: %s") % str(args)))
+                    _("Killing long-running rsync after %ds: %s") % (
+                        self.rsync_timeout, str(args))))
             if proc:
                 proc.kill()
                 try:
