@@ -108,7 +108,7 @@ class TestRequest(S3ApiTestCase):
                             environ={'REQUEST_METHOD': method},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
-        s3_req = req_klass(req.environ, self.s3api.conf, app=None)
+        s3_req = req_klass(req.environ, conf=self.s3api.conf)
         s3_req.set_acl_handler(
             get_acl_handler(s3_req.controller_name)(s3_req, DebugLogger()))
         with patch('swift.common.middleware.s3api.s3request.S3Request.'
@@ -190,7 +190,7 @@ class TestRequest(S3ApiTestCase):
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'Authorization': 'AWS test:tester:hmac',
                          'Date': self.get_date_header()})
-            return S3Request(req.environ, Config(), app=None)
+            return S3Request(req.environ)
 
         s3req = create_s3request_with_param('max-keys', '1')
 
@@ -255,7 +255,7 @@ class TestRequest(S3ApiTestCase):
                 patch.object(Request, 'remote_user', 'authorized'):
 
             m_swift_resp.return_value = FakeSwiftResponse()
-            s3_req = S3AclRequest(req.environ, Config(), app=None)
+            s3_req = S3AclRequest(req.environ)
             # Yes, we *want* to assert this
             sw_req = s3_req.to_swift_req(method, container, obj)
             # So since the result of S3AclRequest init tests and with this
@@ -278,8 +278,8 @@ class TestRequest(S3ApiTestCase):
                 patch.object(Request, 'remote_user', 'authorized'):
             m_swift_resp.return_value = FakeSwiftResponse()
             s3_req = S3AclRequest(
-                req.environ, Config({'force_swift_request_proxy_log': True}),
-                app=None)
+                req.environ,
+                conf=Config({'force_swift_request_proxy_log': True}))
             sw_req = s3_req.to_swift_req(method, container, obj)
             self.assertFalse(sw_req.environ['swift.proxy_access_log_made'])
 
@@ -293,8 +293,8 @@ class TestRequest(S3ApiTestCase):
                 patch.object(Request, 'remote_user', 'authorized'):
             m_swift_resp.return_value = FakeSwiftResponse()
             s3_req = S3AclRequest(
-                req.environ, Config({'force_swift_request_proxy_log': False}),
-                app=None)
+                req.environ,
+                conf=Config({'force_swift_request_proxy_log': False}))
             sw_req = s3_req.to_swift_req(method, container, obj)
             self.assertTrue(sw_req.environ['swift.proxy_access_log_made'])
 
@@ -311,7 +311,7 @@ class TestRequest(S3ApiTestCase):
         req = Request.blank('/bucket', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
-        s3_req = S3Request(req.environ, Config(), app=None)
+        s3_req = S3Request(req.environ)
         # first, call get_response('HEAD')
         info = s3_req.get_container_info(self.app)
         self.assertTrue('status' in info)  # sanity
@@ -413,7 +413,7 @@ class TestRequest(S3ApiTestCase):
 
         headers.update(date_header)
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, self.s3api.conf, app=None)
+        sigv4_req = SigV4Request(req.environ, conf=self.s3api.conf)
 
         if 'X-Amz-Date' in date_header:
             timestamp = mktime(
@@ -516,7 +516,7 @@ class TestRequest(S3ApiTestCase):
         headers = {'Authorization': 'AWS test:tester:hmac'}
         headers.update(date_header)
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv2_req = S3Request(req.environ, Config(), app=None)
+        sigv2_req = S3Request(req.environ)
 
         if 'X-Amz-Date' in date_header:
             timestamp = mktime(req.headers.get('X-Amz-Date'))
@@ -596,7 +596,7 @@ class TestRequest(S3ApiTestCase):
             'X-Amz-Date': x_amz_date}
 
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config(), app=None)
+        sigv4_req = SigV4Request(req.environ)
 
         headers_to_sign = sigv4_req._headers_to_sign()
         self.assertEqual(headers_to_sign, [
@@ -615,7 +615,7 @@ class TestRequest(S3ApiTestCase):
             'Date': self.get_date_header()}
 
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config(), app=None)
+        sigv4_req = SigV4Request(req.environ)
 
         headers_to_sign = sigv4_req._headers_to_sign()
         self.assertEqual(headers_to_sign, [
@@ -635,7 +635,7 @@ class TestRequest(S3ApiTestCase):
 
         req = Request.blank('/', environ=environ, headers=headers)
         with self.assertRaises(SignatureDoesNotMatch):
-            sigv4_req = SigV4Request(req.environ, Config(), app=None)
+            sigv4_req = SigV4Request(req.environ)
             sigv4_req._headers_to_sign()
 
     def test_canonical_uri_sigv2(self):
@@ -649,14 +649,14 @@ class TestRequest(S3ApiTestCase):
         # Virtual hosted-style
         req = Request.blank('/', environ=environ, headers=headers)
         sigv2_req = S3Request(
-            req.environ, Config({'storage_domain': 's3.test.com'}))
+            req.environ, conf=Config({'storage_domain': 's3.test.com'}))
         uri = sigv2_req._canonical_uri()
         self.assertEqual(uri, '/bucket1/')
         self.assertEqual(req.environ['PATH_INFO'], '/')
 
         req = Request.blank('/obj1', environ=environ, headers=headers)
         sigv2_req = S3Request(
-            req.environ, Config({'storage_domain': 's3.test.com'}))
+            req.environ, conf=Config({'storage_domain': 's3.test.com'}))
         uri = sigv2_req._canonical_uri()
         self.assertEqual(uri, '/bucket1/obj1')
         self.assertEqual(req.environ['PATH_INFO'], '/obj1')
@@ -667,7 +667,7 @@ class TestRequest(S3ApiTestCase):
 
         # Path-style
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv2_req = S3Request(req.environ, Config())
+        sigv2_req = S3Request(req.environ)
         uri = sigv2_req._canonical_uri()
 
         self.assertEqual(uri, '/')
@@ -676,7 +676,7 @@ class TestRequest(S3ApiTestCase):
         req = Request.blank('/bucket1/obj1',
                             environ=environ,
                             headers=headers)
-        sigv2_req = S3Request(req.environ, Config())
+        sigv2_req = S3Request(req.environ)
         uri = sigv2_req._canonical_uri()
         self.assertEqual(uri, '/bucket1/obj1')
         self.assertEqual(req.environ['PATH_INFO'], '/bucket1/obj1')
@@ -701,14 +701,14 @@ class TestRequest(S3ApiTestCase):
         # Virtual hosted-style
         self.s3api.conf.storage_domain = 's3.test.com'
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config())
+        sigv4_req = SigV4Request(req.environ)
         uri = sigv4_req._canonical_uri()
 
         self.assertEqual(uri, b'/')
         self.assertEqual(req.environ['PATH_INFO'], '/')
 
         req = Request.blank('/obj1', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config())
+        sigv4_req = SigV4Request(req.environ)
         uri = sigv4_req._canonical_uri()
 
         self.assertEqual(uri, b'/obj1')
@@ -721,7 +721,7 @@ class TestRequest(S3ApiTestCase):
         # Path-style
         self.s3api.conf.storage_domain = ''
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config())
+        sigv4_req = SigV4Request(req.environ)
         uri = sigv4_req._canonical_uri()
 
         self.assertEqual(uri, b'/')
@@ -730,7 +730,7 @@ class TestRequest(S3ApiTestCase):
         req = Request.blank('/bucket/obj1',
                             environ=environ,
                             headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config())
+        sigv4_req = SigV4Request(req.environ)
         uri = sigv4_req._canonical_uri()
 
         self.assertEqual(uri, b'/bucket/obj1')
@@ -746,7 +746,7 @@ class TestRequest(S3ApiTestCase):
             'Authorization': ('AWS AKIAIOSFODNN7EXAMPLE:'
                               'bWq2s1WEIj+Ydj0vQ697zp+IXMU='),
         })
-        sigv2_req = S3Request(req.environ, Config({
+        sigv2_req = S3Request(req.environ, conf=Config({
             'storage_domain': 's3.amazonaws.com'}))
         expected_sts = b'\n'.join([
             b'GET',
@@ -766,7 +766,7 @@ class TestRequest(S3ApiTestCase):
             'Authorization': ('AWS AKIAIOSFODNN7EXAMPLE:'
                               'MyyxeRY7whkBe+bq8fHCL/2kKUg='),
         })
-        sigv2_req = S3Request(req.environ, Config({
+        sigv2_req = S3Request(req.environ, conf=Config({
             'storage_domain': 's3.amazonaws.com'}))
         expected_sts = b'\n'.join([
             b'PUT',
@@ -787,7 +787,7 @@ class TestRequest(S3ApiTestCase):
                 'Authorization': ('AWS AKIAIOSFODNN7EXAMPLE:'
                                   'htDYFYduRNen8P9ZfE/s9SuKy0U='),
             })
-        sigv2_req = S3Request(req.environ, Config({
+        sigv2_req = S3Request(req.environ, conf=Config({
             'storage_domain': 's3.amazonaws.com'}))
         expected_sts = b'\n'.join([
             b'GET',
@@ -858,7 +858,7 @@ class TestRequest(S3ApiTestCase):
         # Virtual hosted-style
         self.s3api.conf.storage_domain = 's3.test.com'
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config())
+        sigv4_req = SigV4Request(req.environ)
         self.assertTrue(
             sigv4_req._canonical_request().endswith(b'UNSIGNED-PAYLOAD'))
         self.assertTrue(sigv4_req.check_signature('secret'))
@@ -887,7 +887,7 @@ class TestRequest(S3ApiTestCase):
 
         # lowercase sha256
         req = Request.blank('/', environ=environ, headers=headers)
-        self.assertRaises(BadDigest, SigV4Request, req.environ, Config())
+        self.assertRaises(BadDigest, SigV4Request, req.environ)
         sha256_of_nothing = hashlib.sha256().hexdigest().encode('ascii')
         headers = {
             'Authorization':
@@ -902,7 +902,7 @@ class TestRequest(S3ApiTestCase):
             'Content-Length': 0,
         }
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config())
+        sigv4_req = SigV4Request(req.environ)
         self.assertTrue(
             sigv4_req._canonical_request().endswith(sha256_of_nothing))
         self.assertTrue(sigv4_req.check_signature('secret'))
@@ -921,7 +921,7 @@ class TestRequest(S3ApiTestCase):
             'Content-Length': 0,
         }
         req = Request.blank('/', environ=environ, headers=headers)
-        sigv4_req = SigV4Request(req.environ, Config())
+        sigv4_req = SigV4Request(req.environ)
         self.assertTrue(
             sigv4_req._canonical_request().endswith(sha256_of_nothing.upper()))
         self.assertTrue(sigv4_req.check_signature('secret'))
@@ -946,7 +946,7 @@ class TestSigV4Request(S3ApiTestCase):
                 'Date': self.get_date_header(),
                 'X-Amz-Date': x_amz_date}
             req = Request.blank('/', environ=environ, headers=headers)
-            sigv4_req = SigV4Request(req.environ, conf)
+            sigv4_req = SigV4Request(req.environ, conf=conf)
             self.assertEqual('X', sigv4_req.signature)
             self.assertEqual('test', sigv4_req.access_key)
             return sigv4_req
@@ -1036,7 +1036,7 @@ class TestSigV4Request(S3ApiTestCase):
                 'X-Amz-Date': x_amz_date}
             req = Request.blank('/', environ=environ, headers=signed_headers,
                                 params=params)
-            sigv4_req = SigV4Request(req.environ, conf)
+            sigv4_req = SigV4Request(req.environ, conf=conf)
             self.assertEqual('X', sigv4_req.signature)
             self.assertEqual('test', sigv4_req.access_key)
             return sigv4_req
@@ -1130,7 +1130,7 @@ class TestSigV4Request(S3ApiTestCase):
         def make_s3req(config, path, params):
             req = Request.blank(path, environ=environ, headers=headers,
                                 params=params)
-            return SigV4Request(req.environ, config)
+            return SigV4Request(req.environ, None, config)
 
         s3req = make_s3req(Config(), '/bkt', {'partNumber': '3'})
         self.assertEqual(controllers.multi_upload.PartController,

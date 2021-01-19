@@ -61,7 +61,7 @@ from swift.common.middleware.s3api.utils import utf8encode, \
     S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
-    validate_bucket_name
+    validate_bucket_name, Config
 from swift.common.middleware.s3api.acl_utils import handle_acl_header
 
 
@@ -525,10 +525,10 @@ class S3Request(swob.Request):
     bucket_acl = _header_acl_property('container')
     object_acl = _header_acl_property('object')
 
-    def __init__(self, env, conf, app=None):
+    def __init__(self, env, app=None, conf=None):
         # NOTE: app is not used by this class, need for compatibility of S3acl
         swob.Request.__init__(self, env)
-        self.conf = conf
+        self.conf = conf or Config()
         self.location = self.conf.location
         self._timestamp = None
         self.access_key, self.signature = self._parse_auth_info()
@@ -1505,8 +1505,8 @@ class S3AclRequest(S3Request):
     """
     S3Acl request object.
     """
-    def __init__(self, env, conf, app):
-        super(S3AclRequest, self).__init__(env, conf, app)
+    def __init__(self, env, app=None, conf=None):
+        super(S3AclRequest, self).__init__(env, app, conf)
         self.authenticate(app)
         self.acl_handler = None
 
