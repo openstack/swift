@@ -123,7 +123,6 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
         # check all non-defaults are loaded
         conf = {
-            'slo_enabled': False,
             'storage_domain': 'somewhere',
             'location': 'us-west-1',
             'force_swift_request_proxy_log': True,

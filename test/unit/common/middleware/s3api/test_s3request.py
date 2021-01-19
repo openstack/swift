@@ -1112,7 +1112,7 @@ class TestSigV4Request(S3ApiTestCase):
         do_check_bad(Config({'location': 'us-east-1'}), bad_params,
                      s3response.AuthorizationQueryParametersError)
 
-    def test_controller_slo_enabled(self):
+    def test_controller_allow_multipart_uploads(self):
         environ = {
             'HTTP_HOST': 'bucket.s3.test.com',
             'REQUEST_METHOD': 'GET'}
@@ -1144,9 +1144,10 @@ class TestSigV4Request(S3ApiTestCase):
         self.assertEqual(controllers.multi_upload.UploadsController,
                          s3req.controller)
 
-        # multi part requests require slo_enabled
+        # multi part requests require allow_multipart_uploads
         def do_check_slo_not_enabled(params):
-            s3req = make_s3req(Config({'slo_enabled': False}), '/bkt', params)
+            s3req = make_s3req(Config({
+                'allow_multipart_uploads': False}), '/bkt', params)
             self.assertRaises(s3response.S3NotImplemented,
                               lambda: s3req.controller)
 
@@ -1154,11 +1155,11 @@ class TestSigV4Request(S3ApiTestCase):
         do_check_slo_not_enabled({'uploadId': '4'})
         do_check_slo_not_enabled({'uploads': '99'})
 
-        # service requests not dependent on slo_enabled
+        # service requests not dependent on allow_multipart_uploads
         s3req = make_s3req(Config(), '/', {'partNumber': '3'})
         self.assertEqual(controllers.ServiceController,
                          s3req.controller)
-        s3req = make_s3req(Config({'slo_enabled': False}), '/',
+        s3req = make_s3req(Config({'allow_multipart_uploads': False}), '/',
                            {'partNumber': '3'})
         self.assertEqual(controllers.ServiceController,
                          s3req.controller)
