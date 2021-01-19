@@ -583,7 +583,9 @@ use = egg:swift#s3api
 # Enable multi-part uploads. (default: true)
 # This is required to store files larger than Swift's max_file_size (by
 # default, 5GiB). Note that has performance implications when deleting objects,
-# as we now have to check for whether there are also segments to delete.
+# as we now have to check for whether there are also segments to delete. The
+# SLO middleware must be in the pipeline after s3api for this option to have
+# effect.
 # allow_multipart_uploads = True
 #
 # Set the maximum number of parts for Upload Part operation.(default: 1000)

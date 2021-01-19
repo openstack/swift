@@ -23,7 +23,6 @@ from swift.common import swob
 
 from swift.common.middleware.s3api.s3api import filter_factory
 from swift.common.middleware.s3api.etree import fromstring
-from swift.common.middleware.s3api.utils import Config
 
 from test.unit import debug_logger
 from test.unit.common.middleware.s3api.helpers import FakeSwift
@@ -70,8 +69,8 @@ class S3ApiTestCase(unittest.TestCase):
         unittest.TestCase.__init__(self, name)
 
     def setUp(self):
-        # setup default config
-        self.conf = Config({
+        # setup default config dict
+        self.conf = {
             'allow_no_owner': False,
             'location': 'us-east-1',
             'dns_compliant_bucket_names': True,
@@ -86,12 +85,13 @@ class S3ApiTestCase(unittest.TestCase):
             'force_swift_request_proxy_log': False,
             'allow_multipart_uploads': True,
             'min_segment_size': 5242880,
-        })
-        # those 2 settings has existed the original test setup
-        self.conf.log_level = 'debug'
+            'log_level': 'debug'
+        }
 
         self.app = FakeApp()
         self.swift = self.app.swift
+        # note: self.conf has no __file__ key so check_pipeline will be skipped
+        # when constructing self.s3api
         self.s3api = filter_factory({}, **self.conf)(self.app)
         self.logger = self.s3api.logger = self.swift.logger = debug_logger()
 

@@ -389,7 +389,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
     @s3acl
     def test_object_multi_DELETE_lots_of_keys(self):
         elem = Element('Delete')
-        for i in range(self.conf.max_multi_delete_objects):
+        for i in range(self.s3api.conf.max_multi_delete_objects):
             status = swob.HTTPOk if i % 2 else swob.HTTPNotFound
             name = 'x' * 1000 + str(i)
             self.swift.register('HEAD', '/v1/AUTH_test/bucket/%s' % name,
@@ -413,12 +413,12 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
 
         elem = fromstring(body)
         self.assertEqual(len(elem.findall('Deleted')),
-                         self.conf.max_multi_delete_objects)
+                         self.s3api.conf.max_multi_delete_objects)
 
     @s3acl
     def test_object_multi_DELETE_too_many_keys(self):
         elem = Element('Delete')
-        for i in range(self.conf.max_multi_delete_objects + 1):
+        for i in range(self.s3api.conf.max_multi_delete_objects + 1):
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = 'x' * 1000 + str(i)
         body = tostring(elem, use_s3ns=False)

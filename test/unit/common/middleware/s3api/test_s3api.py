@@ -22,6 +22,7 @@ import mock
 import requests
 import json
 import six
+from paste.deploy import loadwsgi
 from six.moves.urllib.parse import unquote, quote
 
 import swift.common.middleware.s3api
@@ -161,6 +162,23 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         check_bad_positive_ints(min_segment_size=0)
         check_bad_positive_ints(multi_delete_concurrency=-100)
         check_bad_positive_ints(multi_delete_concurrency=0)
+
+    def test_init_passes_wsgi_conf_file_to_check_pipeline(self):
+        # verify that check_pipeline is called during init: add __file__ attr
+        # to test config to make it more representative of middleware being
+        # init'd by wgsi
+        context = mock.Mock()
+        with patch("swift.common.middleware.s3api.s3api.loadcontext",
+                   return_value=context) as loader, \
+                patch("swift.common.middleware.s3api.s3api.PipelineWrapper") \
+                as pipeline:
+            conf = dict(self.conf,
+                        auth_pipeline_check=True,
+                        __file__='proxy-conf-file')
+            pipeline.return_value = 's3api tempauth proxy-server'
+            self.s3api = S3ApiMiddleware(None, conf)
+            loader.assert_called_with(loadwsgi.APP, 'proxy-conf-file')
+            pipeline.assert_called_with(context)
 
     def test_non_s3_request_passthrough(self):
         req = Request.blank('/something')
@@ -823,20 +841,22 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         swift_info = utils.get_swift_info()
         self.assertTrue('s3api' in swift_info)
         self.assertEqual(swift_info['s3api'].get('max_bucket_listing'),
-                         self.conf.max_bucket_listing)
+                         self.conf['max_bucket_listing'])
         self.assertEqual(swift_info['s3api'].get('max_parts_listing'),
-                         self.conf.max_parts_listing)
+                         self.conf['max_parts_listing'])
         self.assertEqual(swift_info['s3api'].get('max_upload_part_num'),
-                         self.conf.max_upload_part_num)
+                         self.conf['max_upload_part_num'])
         self.assertEqual(swift_info['s3api'].get('max_multi_delete_objects'),
-                         self.conf.max_multi_delete_objects)
+                         self.conf['max_multi_delete_objects'])
 
     def test_check_pipeline(self):
         with patch("swift.common.middleware.s3api.s3api.loadcontext"), \
                 patch("swift.common.middleware.s3api.s3api.PipelineWrapper") \
                 as pipeline:
-            self.conf.auth_pipeline_check = True
-            self.conf.__file__ = ''
+            # cause check_pipeline to not return early...
+            self.conf['__file__'] = ''
+            # ...and enable pipeline auth checking
+            self.s3api.conf.auth_pipeline_check = True
 
             pipeline.return_value = 's3api tempauth proxy-server'
             self.s3api.check_pipeline(self.conf)
@@ -876,9 +896,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         with patch("swift.common.middleware.s3api.s3api.loadcontext"), \
                 patch("swift.common.middleware.s3api.s3api.PipelineWrapper") \
                 as pipeline:
-            # Disable pipeline check
-            self.conf.auth_pipeline_check = False
-            self.conf.__file__ = ''
+            # cause check_pipeline to not return early...
+            self.conf['__file__'] = ''
+            # ...but disable pipeline auth checking
+            self.s3api.conf.auth_pipeline_check = False
 
             pipeline.return_value = 's3api tempauth proxy-server'
             self.s3api.check_pipeline(self.conf)
@@ -1049,7 +1070,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                        'S3Request._validate_headers'), \
                     patch('swift.common.middleware.s3api.utils.time.time',
                           return_value=fake_time):
-                req = SigV4Request(env, self.conf, app=None)
+                req = SigV4Request(env, self.s3api.conf, app=None)
             return req
 
         def canonical_string(path, environ):
@@ -1059,7 +1080,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             # See http://docs.aws.amazon.com/general/latest/gr
             # /signature-v4-test-suite.html for where location, service, and
             # signing key came from
-            with patch.object(self.conf, 'location', 'us-east-1'), \
+            with patch.object(self.s3api.conf, 'location', 'us-east-1'), \
                     patch.object(swift.common.middleware.s3api.s3request,
                                  'SERVICE', 'host'):
                 req = _get_req(path, environ)
