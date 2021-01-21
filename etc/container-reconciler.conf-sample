@@ -58,6 +58,12 @@
 # ionice_priority =
 
 [pipeline:main]
+# Note that the reconciler's pipeline is intentionally very sparse -- it is
+# only responsible for moving data from one policy to another and should not
+# perform any transformations beyond (potentially) changing erasure coding.
+# It notably MUST NOT include transformative middlewares (such as encryption),
+# redirection middlewares (such as symlink), or composing middlewares (such
+# as slo and dlo).
 pipeline = catch_errors proxy-logging cache proxy-server
 
 [app:proxy-server]
