@@ -1992,10 +1992,13 @@ class ECGetResponseBucket(object):
     def __init__(self, policy, timestamp):
         """
         :param policy: an instance of ECStoragePolicy
-        :param timestamp: a Timestamp, or None for a bucket of error reponses
+        :param timestamp: a Timestamp, or None for a bucket of error responses
         """
         self.policy = policy
         self.timestamp = timestamp
+        # if no timestamp when init'd then the bucket will update its timestamp
+        # as responses are added
+        self.update_timestamp = timestamp is None
         self.gets = collections.defaultdict(list)
         self.alt_nodes = collections.defaultdict(list)
         self._durable = False
@@ -2016,7 +2019,7 @@ class ECGetResponseBucket(object):
         headers = getter.last_headers
         timestamp_str = headers.get('X-Backend-Timestamp',
                                     headers.get('X-Timestamp'))
-        if timestamp_str:
+        if timestamp_str and self.update_timestamp:
             # 404s will keep the most recent timestamp
             self.timestamp = max(Timestamp(timestamp_str), self.timestamp)
         if not self.gets:
