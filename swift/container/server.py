@@ -749,10 +749,14 @@ class ContainerController(BaseStorageServer):
                 marker = end_marker = includes = None
                 reverse = False
             states = params.get('states')
-            fill_gaps = False
+            fill_gaps = include_own = False
             if states:
                 states = list_from_csv(states)
                 fill_gaps = any(('listing' in states, 'updating' in states))
+                # 'auditing' is used during shard audit; if the shard is
+                # shrinking then it needs to get acceptor shard ranges, which
+                # may be the root container itself, so use include_own
+                include_own = 'auditing' in states
                 try:
                     states = broker.resolve_shard_range_states(states)
                 except ValueError:
@@ -761,7 +765,8 @@ class ContainerController(BaseStorageServer):
                 req.headers.get('x-backend-include-deleted', False))
             container_list = broker.get_shard_ranges(
                 marker, end_marker, includes, reverse, states=states,
-                include_deleted=include_deleted, fill_gaps=fill_gaps)
+                include_deleted=include_deleted, fill_gaps=fill_gaps,
+                include_own=include_own)
         else:
             resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
             if is_deleted:
