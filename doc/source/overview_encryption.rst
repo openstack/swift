@@ -781,8 +781,9 @@ encrypted.
 
 Encryption has no impact on the `container-reconciler` service. The
 `container-reconciler` uses an internal client to move objects between
-different policy rings. The destination object has the same URL as the source
-object and the object is moved without re-encryption.
+different policy rings. The reconciler's pipeline *MUST NOT* have encryption
+enabled. The destination object has the same URL as the source object and the
+object is moved without re-encryption.
 
 
 Considerations for developers
