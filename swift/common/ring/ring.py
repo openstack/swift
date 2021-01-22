@@ -36,6 +36,8 @@ from swift.common.ring.utils import tiers_for_dev
 
 
 def calc_replica_count(replica2part2dev_id):
+    if not replica2part2dev_id:
+        return 0
     base = len(replica2part2dev_id) - 1
     extra = 1.0 * len(replica2part2dev_id[-1]) / len(replica2part2dev_id[0])
     return base + extra
