@@ -48,11 +48,12 @@ from swift.proxy.controllers.base import \
 from swift.common.storage_policy import POLICIES, ECDriverError, \
     StoragePolicy, ECStoragePolicy
 
-from test.unit import FakeRing, fake_http_connect, \
-    debug_logger, patch_policies, SlowBody, FakeStatus, \
-    DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub, \
-    fake_ec_node_response, StubResponse, mocked_http_conn, \
-    quiet_eventlet_exceptions
+from test.debug_logger import debug_logger
+from test.unit import (
+    FakeRing, fake_http_connect, patch_policies, SlowBody, FakeStatus,
+    DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub,
+    fake_ec_node_response, StubResponse, mocked_http_conn,
+    quiet_eventlet_exceptions)
 from test.unit.proxy.test_server import node_error_count
 
 

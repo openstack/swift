@@ -26,7 +26,7 @@ from swift.common.middleware import proxy_logging
 from swift.common.swob import Request, Response
 from swift.common import constraints
 from swift.common.storage_policy import StoragePolicy
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 from test.unit import patch_policies
 from test.unit.common.middleware.helpers import FakeAppThatExcepts
 

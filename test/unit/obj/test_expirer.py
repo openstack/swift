@@ -15,8 +15,8 @@
 
 from time import time
 from unittest import main, TestCase
-from test.unit import FakeRing, mocked_http_conn, debug_logger, \
-    make_timestamp_iter
+from test.debug_logger import debug_logger
+from test.unit import FakeRing, mocked_http_conn, make_timestamp_iter
 from tempfile import mkdtemp
 from shutil import rmtree
 from collections import defaultdict

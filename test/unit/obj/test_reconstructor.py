@@ -43,10 +43,11 @@ from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
 from swift.obj.reconstructor import SYNC, REVERT
 
-from test.unit import (patch_policies, debug_logger, mocked_http_conn,
-                       FabricatedRing, make_timestamp_iter,
-                       DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies,
-                       quiet_eventlet_exceptions, skip_if_no_xattrs)
+from test.debug_logger import debug_logger
+from test.unit import (patch_policies, mocked_http_conn, FabricatedRing,
+                       make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
+                       encode_frag_archive_bodies, quiet_eventlet_exceptions,
+                       skip_if_no_xattrs)
 from test.unit.obj.common import write_diskfile
 
 

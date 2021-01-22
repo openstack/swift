@@ -47,8 +47,9 @@ from swift.proxy import server as proxy_server
 import swift.proxy.controllers.obj
 
 from test import listen_zero
-from test.unit import write_fake_ring, DEFAULT_TEST_EC_TYPE, debug_logger, \
-    connect_tcp, readuntil2crlfs
+from test.debug_logger import debug_logger
+from test.unit import write_fake_ring, DEFAULT_TEST_EC_TYPE, connect_tcp, \
+    readuntil2crlfs
 
 
 def setup_servers(the_object_server=object_server, extra_conf=None):

@@ -29,7 +29,8 @@ from swift.common.ring import Ring
 from swift.common.swob import Request, str_to_wsgi
 from swift.obj import diskfile
 
-from test.unit import FakeLogger, skip_if_no_xattrs
+from test.debug_logger import debug_logger
+from test.unit import skip_if_no_xattrs
 from test.unit.common.middleware.crypto.crypto_helpers import (
     md5hex, encrypt, TEST_KEYMASTER_CONF)
 from test.unit.helpers import setup_servers, teardown_servers
@@ -438,7 +439,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         partition, nodes = ring_object.get_nodes('a', self.container_name, 'o')
         conf = {'devices': self._test_context["testdir"],
                 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[policy]
+        df_mgr = diskfile.DiskFileRouter(conf, debug_logger())[policy]
         ondisk_data = []
         exp_enc_body = None
         for node_index, node in enumerate(nodes):

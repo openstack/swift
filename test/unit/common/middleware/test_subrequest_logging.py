@@ -18,7 +18,7 @@ from swift.common.middleware import copy, proxy_logging
 from swift.common.swob import Request, HTTPOk
 from swift.common.utils import close_if_possible
 from swift.common.wsgi import make_subrequest
-from test.unit import FakeLogger
+from test.debug_logger import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -57,7 +57,7 @@ class FakeFilter(object):
 
 class FakeApp(object):
     def __init__(self, conf):
-        self.fake_logger = FakeLogger()
+        self.fake_logger = debug_logger()
         self.fake_swift = self.app = FakeSwift()
         self.register = self.fake_swift.register
         for filter in reversed([

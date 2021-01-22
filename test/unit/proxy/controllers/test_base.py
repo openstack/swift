@@ -36,9 +36,10 @@ from swift.common.utils import split_path, ShardRange, Timestamp, \
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
+from test.debug_logger import debug_logger
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies,
-    make_timestamp_iter, mocked_http_conn, patch_policies, debug_logger)
+    make_timestamp_iter, mocked_http_conn, patch_policies)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )

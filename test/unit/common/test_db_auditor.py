@@ -23,7 +23,7 @@ from shutil import rmtree
 from eventlet import Timeout
 
 from swift.common.db_auditor import DatabaseAuditor
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 
 
 class FakeDatabaseBroker(object):

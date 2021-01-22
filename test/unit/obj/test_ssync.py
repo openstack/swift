@@ -35,9 +35,10 @@ from swift.obj.reconstructor import RebuildingECDiskFileStream, \
 from swift.obj.replicator import ObjectReplicator
 
 from test import listen_zero
+from test.debug_logger import debug_logger
 from test.unit.obj.common import BaseTest
-from test.unit import patch_policies, debug_logger, \
-    encode_frag_archive_bodies, skip_if_no_xattrs, quiet_eventlet_exceptions
+from test.unit import patch_policies, encode_frag_archive_bodies, \
+    skip_if_no_xattrs, quiet_eventlet_exceptions
 
 
 class TestBaseSsync(BaseTest):

@@ -41,7 +41,8 @@ from eventlet.green import httplib
 from swift import __version__ as swift_version
 from swift.common.http import is_success
 from test import listen_zero
-from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
+from test.debug_logger import debug_logger
+from test.unit import mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
     connect_tcp, readuntil2crlfs, patch_policies, encode_frag_archive_bodies, \
     mock_check_drive
@@ -7491,7 +7492,7 @@ class TestObjectController(unittest.TestCase):
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
-             'replication_server': 'true'}, logger=FakeLogger())
+             'replication_server': 'true'}, logger=debug_logger())
 
         def start_response(*args):
             """Sends args to outbuf"""
@@ -7580,7 +7581,7 @@ class TestObjectController(unittest.TestCase):
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false', 'log_requests': 'false'},
-            logger=FakeLogger())
+            logger=debug_logger())
 
         def start_response(*args):
             # Sends args to outbuf

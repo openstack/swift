@@ -24,7 +24,7 @@ from swift.common.middleware.crypto import crypto_utils
 from swift.common.middleware.crypto.crypto_utils import (
     CRYPTO_KEY_CALLBACK, Crypto, CryptoWSGIContext)
 from swift.common.swob import HTTPException
-from test.unit import FakeLogger
+from test.debug_logger import debug_logger
 from test.unit.common.middleware.crypto.crypto_helpers import fetch_crypto_keys
 
 
@@ -34,7 +34,7 @@ class TestCryptoWsgiContext(unittest.TestCase):
             app = None
             crypto = Crypto({})
 
-        self.fake_logger = FakeLogger()
+        self.fake_logger = debug_logger()
         self.crypto_context = CryptoWSGIContext(
             FakeFilter(), 'object', self.fake_logger)
 

@@ -44,7 +44,8 @@ from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
                                 storage_directory, lock_parent_directory,
                                 ShardRange, RESERVED_STR)
-from test.unit import fake_http_connect, debug_logger, mock_check_drive
+from test.debug_logger import debug_logger
+from test.unit import fake_http_connect, mock_check_drive
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 

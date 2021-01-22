@@ -40,7 +40,8 @@ from swift.common.exceptions import DriveNotMounted
 from swift.common.swob import HTTPException
 
 from test import unit
-from test.unit import FakeLogger, attach_fake_replication_rpc
+from test.debug_logger import debug_logger
+from test.unit import attach_fake_replication_rpc
 from test.unit.common.test_db import ExampleBroker
 
 
@@ -303,7 +304,7 @@ class TestDBReplicator(unittest.TestCase):
         self.recon_cache = mkdtemp()
         rmtree(self.recon_cache, ignore_errors=1)
         os.mkdir(self.recon_cache)
-        self.logger = unit.debug_logger('test-replicator')
+        self.logger = debug_logger('test-replicator')
 
     def tearDown(self):
         for patcher in self._patchers:
@@ -509,9 +510,8 @@ class TestDBReplicator(unittest.TestCase):
             FakeBroker(), -1)), False)
 
     def test_run_once_no_local_device_in_ring(self):
-        logger = unit.debug_logger('test-replicator')
         replicator = TestReplicator({'recon_cache_path': self.recon_cache},
-                                    logger=logger)
+                                    logger=self.logger)
         with patch('swift.common.db_replicator.whataremyips',
                    return_value=['127.0.0.1']):
             replicator.run_once()
@@ -519,29 +519,28 @@ class TestDBReplicator(unittest.TestCase):
             "Can't find itself 127.0.0.1 with port 1000 "
             "in ring file, not replicating",
         ]
-        self.assertEqual(expected, logger.get_lines_for_level('error'))
+        self.assertEqual(expected, self.logger.get_lines_for_level('error'))
 
     def test_run_once_with_local_device_in_ring(self):
-        logger = unit.debug_logger('test-replicator')
         base = 'swift.common.db_replicator.'
         with patch(base + 'whataremyips', return_value=['1.1.1.1']), \
                 patch(base + 'ring', FakeRingWithNodes()):
             replicator = TestReplicator({'bind_port': 6200,
                                          'recon_cache_path': self.recon_cache},
-                                        logger=logger)
+                                        logger=self.logger)
             replicator.run_once()
-        self.assertFalse(logger.get_lines_for_level('error'))
+        self.assertFalse(self.logger.get_lines_for_level('error'))
 
     def test_run_once_no_ips(self):
-        replicator = TestReplicator({}, logger=unit.FakeLogger())
+        replicator = TestReplicator({}, logger=self.logger)
         self._patch(patch.object, db_replicator, 'whataremyips',
                     lambda *a, **kw: [])
 
         replicator.run_once()
 
         self.assertEqual(
-            replicator.logger.log_dict['error'],
-            [(('ERROR Failed to get my own IPs?',), {})])
+            replicator.logger.get_lines_for_level('error'),
+            ['ERROR Failed to get my own IPs?'])
 
     def test_run_once_node_is_not_mounted(self):
         db_replicator.ring = FakeRingWithSingleNode()
@@ -549,7 +548,7 @@ class TestDBReplicator(unittest.TestCase):
         # returned by itself.
         conf = {'mount_check': 'true', 'bind_ip': '1.1.1.1',
                 'bind_port': 6200}
-        replicator = TestReplicator(conf, logger=unit.FakeLogger())
+        replicator = TestReplicator(conf, logger=self.logger)
         self.assertEqual(replicator.mount_check, True)
         self.assertEqual(replicator.port, 6200)
 
@@ -566,13 +565,13 @@ class TestDBReplicator(unittest.TestCase):
         replicator.run_once()
 
         self.assertEqual(
-            replicator.logger.log_dict['warning'],
-            [(('Skipping: %s', (err, )), {})])
+            replicator.logger.get_lines_for_level('warning'),
+            ['Skipping: %s' % (err,)])
 
     def test_run_once_node_is_mounted(self):
         db_replicator.ring = FakeRingWithSingleNode()
         conf = {'mount_check': 'true', 'bind_port': 6200}
-        replicator = TestReplicator(conf, logger=unit.FakeLogger())
+        replicator = TestReplicator(conf, logger=self.logger)
         self.assertEqual(replicator.mount_check, True)
         self.assertEqual(replicator.port, 6200)
 
@@ -631,12 +630,11 @@ class TestDBReplicator(unittest.TestCase):
     @mock.patch('swift.common.db_replicator.dump_recon_cache')
     @mock.patch('swift.common.db_replicator.time.time', return_value=1234.5678)
     def test_stats(self, mock_time, mock_recon_cache):
-        logger = unit.debug_logger('test-replicator')
-        replicator = TestReplicator({}, logger=logger)
+        replicator = TestReplicator({}, logger=self.logger)
         replicator._zero_stats()
         self.assertEqual(replicator.stats['start'], mock_time.return_value)
         replicator._report_stats()
-        self.assertEqual(logger.get_lines_for_level('info'), [
+        self.assertEqual(self.logger.get_lines_for_level('info'), [
             'Attempted to replicate 0 dbs in 0.00000 seconds (0.00000/s)',
             'Removed 0 dbs',
             '0 successes, 0 failures',
@@ -651,7 +649,7 @@ class TestDBReplicator(unittest.TestCase):
         })
 
         mock_recon_cache.reset_mock()
-        logger.clear()
+        self.logger.clear()
         replicator.stats.update({
             'attempted': 30,
             'success': 25,
@@ -670,7 +668,7 @@ class TestDBReplicator(unittest.TestCase):
         mock_time.return_value += 246.813576
         replicator._report_stats()
         self.maxDiff = None
-        self.assertEqual(logger.get_lines_for_level('info'), [
+        self.assertEqual(self.logger.get_lines_for_level('info'), [
             'Attempted to replicate 30 dbs in 246.81358 seconds (0.12155/s)',
             'Removed 9 dbs',
             '25 successes, 1 failures',
@@ -688,7 +686,7 @@ class TestDBReplicator(unittest.TestCase):
         # verify return values from replicate_object
         db_replicator.ring = FakeRingWithNodes()
         db_path = '/path/to/file'
-        replicator = TestReplicator({}, logger=FakeLogger())
+        replicator = TestReplicator({}, logger=self.logger)
         info = FakeBroker().get_replication_info()
         # make remote appear to be in sync
         rinfo = {'point': info['max_row'], 'id': 'remote_id'}
@@ -991,7 +989,7 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(5, replicator._repl_to_node.call_count)
 
     def test_replicate_account_out_of_place(self):
-        replicator = TestReplicator({}, logger=unit.FakeLogger())
+        replicator = TestReplicator({}, logger=self.logger)
         replicator.ring = FakeRingWithNodes().Ring('path')
         replicator.brokerclass = FakeAccountBroker
         replicator._repl_to_node = lambda *args: True
@@ -1007,7 +1005,7 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(error_msgs, [expected])
 
     def test_replicate_container_out_of_place(self):
-        replicator = TestReplicator({}, logger=unit.FakeLogger())
+        replicator = TestReplicator({}, logger=self.logger)
         replicator.ring = FakeRingWithNodes().Ring('path')
         replicator._repl_to_node = lambda *args: True
         replicator.delete_db = self.stub_delete_db
@@ -1018,12 +1016,12 @@ class TestDBReplicator(unittest.TestCase):
         replicator._replicate_object(str(part), '/path/to/file', node_id)
         self.assertEqual(['/path/to/file'], self.delete_db_calls)
         self.assertEqual(
-            replicator.logger.log_dict['error'],
-            [(('Found /path/to/file for /a%20c%20t/c%20o%20n when it should '
-               'be on partition 0; will replicate out and remove.',), {})])
+            replicator.logger.get_lines_for_level('error'),
+            ['Found /path/to/file for /a%20c%20t/c%20o%20n when it should '
+             'be on partition 0; will replicate out and remove.'])
 
     def test_replicate_container_out_of_place_no_node(self):
-        replicator = TestReplicator({}, logger=unit.FakeLogger())
+        replicator = TestReplicator({}, logger=self.logger)
         replicator.ring = FakeRingWithSingleNode().Ring('path')
         replicator._repl_to_node = lambda *args: True
 
@@ -1062,7 +1060,7 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_delete_db(self):
         db_replicator.lock_parent_directory = lock_parent_directory
-        replicator = TestReplicator({}, logger=unit.FakeLogger())
+        replicator = TestReplicator({}, logger=self.logger)
         replicator._zero_stats()
         replicator.extract_device = lambda _: 'some_device'
 
@@ -1373,8 +1371,8 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_replicator_sync_with_broker_replication_missing_table(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
-                                          mount_check=False)
-        rpc.logger = unit.debug_logger()
+                                          mount_check=False,
+                                          logger=self.logger)
         broker = FakeBroker()
         broker.get_repl_missing_table = True
 
@@ -1808,6 +1806,7 @@ class TestHandoffsOnly(unittest.TestCase):
 
     def setUp(self):
         self.root = mkdtemp()
+        self.logger = debug_logger()
 
         # object disks; they're just here to make sure they don't trip us up
         os.mkdir(os.path.join(self.root, 'sdc'))
@@ -1831,13 +1830,12 @@ class TestHandoffsOnly(unittest.TestCase):
         rmtree(self.root, ignore_errors=True)
 
     def test_scary_warnings(self):
-        logger = unit.FakeLogger()
         replicator = TestReplicator({
             'handoffs_only': 'yes',
             'devices': self.root,
             'bind_port': 6201,
             'mount_check': 'no',
-        }, logger=logger)
+        }, logger=self.logger)
 
         with patch.object(db_replicator, 'whataremyips',
                           return_value=['10.0.0.1']), \
@@ -1846,7 +1844,7 @@ class TestHandoffsOnly(unittest.TestCase):
             replicator.run_once()
 
         self.assertEqual(
-            logger.get_lines_for_level('warning'),
+            self.logger.get_lines_for_level('warning'),
             [('Starting replication pass with handoffs_only enabled. This '
               'mode is not intended for normal operation; use '
               'handoffs_only with care.'),
@@ -2081,14 +2079,14 @@ class TestReplicatorSync(unittest.TestCase):
         self.root = mkdtemp()
         self.rpc = self.replicator_rpc(
             self.root, self.datadir, self.backend, mount_check=False,
-            logger=unit.debug_logger())
+            logger=debug_logger())
         FakeReplConnection = attach_fake_replication_rpc(self.rpc)
         self._orig_ReplConnection = db_replicator.ReplConnection
         db_replicator.ReplConnection = FakeReplConnection
         self._orig_Ring = db_replicator.ring.Ring
         self._ring = unit.FakeRing()
         db_replicator.ring.Ring = lambda *args, **kwargs: self._get_ring()
-        self.logger = unit.debug_logger()
+        self.logger = debug_logger()
 
     def tearDown(self):
         db_replicator.ReplConnection = self._orig_ReplConnection

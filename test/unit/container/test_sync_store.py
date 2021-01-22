@@ -21,7 +21,7 @@ import logging
 import unittest
 import tempfile
 from shutil import rmtree
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 
 from swift.container.backend import DATADIR
 from swift.container import sync_store

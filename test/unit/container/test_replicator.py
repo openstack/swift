@@ -33,10 +33,10 @@ from swift.common.utils import Timestamp, encode_timestamps, ShardRange, \
     get_db_files, make_db_file_path
 from swift.common.storage_policy import POLICIES
 
+from test.debug_logger import debug_logger
 from test.unit.common import test_db_replicator
 from test.unit import patch_policies, make_timestamp_iter, mock_check_drive, \
-    debug_logger, EMPTY_ETAG, FakeLogger, attach_fake_replication_rpc, \
-    FakeHTTPResponse
+    EMPTY_ETAG, attach_fake_replication_rpc, FakeHTTPResponse
 from contextlib import contextmanager
 
 
@@ -1429,7 +1429,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_broker.initialize(put_timestamp, POLICIES.default.idx)
 
         def check_replicate(expected_shard_ranges, from_broker, to_broker):
-            daemon = replicator.ContainerReplicator({}, logger=FakeLogger())
+            daemon = replicator.ContainerReplicator({}, logger=debug_logger())
             part, node = self._get_broker_part_node(to_broker)
             info = broker.get_replication_info()
             success = daemon._repl_to_node(node, from_broker, part, info)
@@ -1593,7 +1593,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         part, node = self._get_broker_part_node(remote_broker)
         info = broker.get_replication_info()
         daemon = replicator.ContainerReplicator({})
-        daemon.logger = FakeLogger()
+        daemon.logger = debug_logger()
         success = daemon._repl_to_node(node, broker, part, info)
         self.assertFalse(success)
         # broker only has its own shard range so expect objects to be sync'd
@@ -1630,7 +1630,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         db_replicator.ReplConnection = fake_repl_connection
         part, node = self._get_broker_part_node(remote_broker)
         daemon = replicator.ContainerReplicator({'node_timeout': '0.001'})
-        daemon.logger = FakeLogger()
+        daemon.logger = debug_logger()
         with mock.patch.object(daemon.ring, 'get_part_nodes',
                                return_value=[node]), \
                 mock.patch.object(daemon, '_post_replicate_hook'):

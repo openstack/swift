@@ -34,7 +34,8 @@ from test.unit import fake_http_connect, FakeRing, FakeMemcache, \
 from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
 
-from test.unit import patch_policies, mocked_http_conn, debug_logger
+from test.debug_logger import debug_logger
+from test.unit import patch_policies, mocked_http_conn
 from test.unit.common.ring.test_ring import TestRingBase
 from test.unit.proxy.test_server import node_error_count
 

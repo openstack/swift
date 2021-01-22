@@ -44,7 +44,8 @@ from swift.common.utils import set_swift_dir
 
 from test import get_config, listen_zero
 
-from test.unit import debug_logger, FakeMemcache
+from test.debug_logger import debug_logger
+from test.unit import FakeMemcache
 # importing skip_if_no_xattrs so that functional tests can grab it from the
 # test.functional namespace. Importing SkipTest so this works under both
 # nose and testr test runners.

@@ -24,7 +24,7 @@ from swift.common import swob
 from swift.common.middleware.s3api.s3api import filter_factory
 from swift.common.middleware.s3api.etree import fromstring
 
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 from test.unit.common.middleware.s3api.helpers import FakeSwift
 
 

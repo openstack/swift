@@ -23,7 +23,8 @@ import random
 from swift.account import auditor
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import Timestamp
-from test.unit import debug_logger, patch_policies, with_tempdir
+from test.debug_logger import debug_logger
+from test.unit import patch_policies, with_tempdir
 from test.unit.account.test_backend import (
     AccountBrokerPreTrackContainerCountSetup)
 

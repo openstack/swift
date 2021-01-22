@@ -45,8 +45,9 @@ from swift.common import wsgi, utils
 from swift.common.storage_policy import POLICIES
 
 from test import listen_zero
+from test.debug_logger import debug_logger
 from test.unit import (
-    temptree, with_tempdir, write_fake_ring, patch_policies, FakeLogger)
+    temptree, with_tempdir, write_fake_ring, patch_policies)
 
 from paste.deploy import loadwsgi
 
@@ -871,7 +872,7 @@ class TestWSGI(unittest.TestCase):
         mock_per_port().new_worker_socks.side_effect = StopAtCreatingSockets
         mock_workers().no_fork_sock.return_value = None
         mock_workers().new_worker_socks.side_effect = StopAtCreatingSockets
-        logger = FakeLogger()
+        logger = debug_logger()
         stub__initrp = [
             {'__file__': 'test', 'workers': 2, 'bind_port': 12345},  # conf
             logger,
@@ -1349,7 +1350,7 @@ class CommonTestMixin(object):
 
 class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
     def setUp(self):
-        self.logger = FakeLogger()
+        self.logger = debug_logger()
         self.conf = {
             'workers': 100,  # ignored
             'user': 'bob',
@@ -1565,7 +1566,7 @@ class TestServersPerPortStrategy(unittest.TestCase, CommonTestMixin):
 
 class TestWorkersStrategy(unittest.TestCase, CommonTestMixin):
     def setUp(self):
-        self.logger = FakeLogger()
+        self.logger = debug_logger()
         self.conf = {
             'workers': 2,
             'user': 'bob',

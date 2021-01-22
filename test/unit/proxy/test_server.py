@@ -52,11 +52,11 @@ from six.moves import range
 from six.moves.urllib.parse import quote, parse_qsl
 
 from test import listen_zero
+from test.debug_logger import debug_logger
 from test.unit import (
-    connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
-    FakeMemcache, debug_logger, patch_policies, write_fake_ring,
-    mocked_http_conn, DEFAULT_TEST_EC_TYPE, make_timestamp_iter,
-    skip_if_no_xattrs)
+    connect_tcp, readuntil2crlfs, fake_http_connect, FakeRing, FakeMemcache,
+    patch_policies, write_fake_ring, mocked_http_conn, DEFAULT_TEST_EC_TYPE,
+    make_timestamp_iter, skip_if_no_xattrs)
 from test.unit.helpers import setup_servers, teardown_servers
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
@@ -784,7 +784,7 @@ class TestProxyServer(unittest.TestCase):
         swift_dir = mkdtemp()
         try:
             baseapp = proxy_server.Application({'swift_dir': swift_dir},
-                                               FakeLogger(),
+                                               debug_logger(),
                                                FakeRing(), FakeRing())
             resp = baseapp.handle_request(
                 Request.blank('/', environ={'CONTENT_LENGTH': '-1'}))
@@ -800,10 +800,10 @@ class TestProxyServer(unittest.TestCase):
     def test_adds_transaction_id(self):
         swift_dir = mkdtemp()
         try:
-            logger = FakeLogger()
+            logger = debug_logger()
             baseapp = proxy_server.Application({'swift_dir': swift_dir},
                                                logger,
-                                               container_ring=FakeLogger(),
+                                               container_ring=debug_logger(),
                                                account_ring=FakeRing())
             baseapp.handle_request(
                 Request.blank('/info',
@@ -820,10 +820,10 @@ class TestProxyServer(unittest.TestCase):
     def test_adds_transaction_id_length_limit(self):
         swift_dir = mkdtemp()
         try:
-            logger = FakeLogger()
+            logger = debug_logger()
             baseapp = proxy_server.Application({'swift_dir': swift_dir},
                                                logger,
-                                               container_ring=FakeLogger(),
+                                               container_ring=debug_logger(),
                                                account_ring=FakeRing())
             baseapp.handle_request(
                 Request.blank('/info',
@@ -840,7 +840,7 @@ class TestProxyServer(unittest.TestCase):
             baseapp = proxy_server.Application({'swift_dir': swift_dir,
                                                 'deny_host_headers':
                                                 'invalid_host.com'},
-                                               container_ring=FakeLogger(),
+                                               container_ring=debug_logger(),
                                                account_ring=FakeRing())
             resp = baseapp.handle_request(
                 Request.blank('/v1/a/c/o',
@@ -882,7 +882,7 @@ class TestProxyServer(unittest.TestCase):
         nodes = list(nodes)
         conf = dict(conf, policy_config=policy_conf)
         baseapp = proxy_server.Application(conf,
-                                           logger=FakeLogger(),
+                                           logger=debug_logger(),
                                            container_ring=FakeRing(),
                                            account_ring=FakeRing())
         if node_timings:
@@ -1519,7 +1519,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
 
         conf_path = self._write_conf(conf_body)
         with mock.patch('swift.proxy.server.get_logger',
-                        return_value=FakeLogger()):
+                        return_value=debug_logger()):
             app = loadapp(conf_path, allow_modify_pipeline=False)
         return app
 
@@ -1779,7 +1779,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         # duplicate DEFAULT sections
         conf_path = self._write_conf(conf_body)
         with mock.patch('swift.proxy.server.get_logger',
-                        return_value=FakeLogger()):
+                        return_value=debug_logger()):
             app = loadapp(conf_path, allow_modify_pipeline=False)
 
         exp_options = {
@@ -2300,7 +2300,7 @@ class TestReplicatedObjectController(
         def check_file(policy, cont, devs, check_val):
             partition, nodes = policy.object_ring.get_nodes('a', cont, 'o')
             conf = {'devices': _testdir, 'mount_check': 'false'}
-            df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+            df_mgr = diskfile.DiskFileManager(conf, debug_logger())
             for dev in devs:
                 file = df_mgr.get_diskfile(dev, partition, 'a',
                                            cont, 'o',
@@ -2424,7 +2424,7 @@ class TestReplicatedObjectController(
             'a', 'c1', 'wrong-o')
         node = nodes[0]
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileManager(conf, debug_logger())
         df = df_mgr.get_diskfile(node['device'], partition, 'a',
                                  'c1', 'wrong-o', policy=POLICIES[2])
         with df.open():
@@ -3662,7 +3662,7 @@ class TestReplicatedObjectController(
             with open(os.path.join(swift_dir, 'mime.types'), 'w') as fp:
                 fp.write('foo/bar foo\n')
             proxy_server.Application({'swift_dir': swift_dir},
-                                     FakeLogger(),
+                                     debug_logger(),
                                      FakeRing(), FakeRing())
             self.assertEqual(proxy_server.mimetypes.guess_type('blah.foo')[0],
                              'foo/bar')
@@ -4731,7 +4731,7 @@ class TestReplicatedObjectController(
 
                 # zero error-limited primary nodes -> no handoff warnings
                 self.app.log_handoffs = True
-                self.app.logger = FakeLogger()
+                self.app.logger = debug_logger()
                 self.app.request_node_count = lambda r: 7
                 object_ring.max_more_nodes = 20
                 partition, nodes = object_ring.get_nodes('account',
@@ -4746,7 +4746,7 @@ class TestReplicatedObjectController(
 
                 # one error-limited primary node -> one handoff warning
                 self.app.log_handoffs = True
-                self.app.logger = FakeLogger()
+                self.app.logger = debug_logger()
                 self.app.request_node_count = lambda r: 7
                 self.app._error_limiting = {}  # clear out errors
                 set_node_errors(self.app, object_ring._devs[0], 999,
@@ -4756,14 +4756,15 @@ class TestReplicatedObjectController(
                 for node in self.app.iter_nodes(object_ring, partition):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 7)
-                self.assertEqual(self.app.logger.log_dict['warning'], [
-                    (('Handoff requested (5)',), {})])
+                self.assertEqual(
+                    self.app.logger.get_lines_for_level('warning'), [
+                        'Handoff requested (5)'])
                 self.assertEqual(self.app.logger.get_increments(),
                                  ['handoff_count'])
 
                 # two error-limited primary nodes -> two handoff warnings
                 self.app.log_handoffs = True
-                self.app.logger = FakeLogger()
+                self.app.logger = debug_logger()
                 self.app.request_node_count = lambda r: 7
                 self.app._error_limiting = {}  # clear out errors
                 for i in range(2):
@@ -4774,9 +4775,11 @@ class TestReplicatedObjectController(
                 for node in self.app.iter_nodes(object_ring, partition):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 7)
-                self.assertEqual(self.app.logger.log_dict['warning'], [
-                    (('Handoff requested (5)',), {}),
-                    (('Handoff requested (6)',), {})])
+                self.assertEqual(
+                    self.app.logger.get_lines_for_level('warning'), [
+                        'Handoff requested (5)',
+                        'Handoff requested (6)',
+                    ])
                 self.assertEqual(self.app.logger.get_increments(),
                                  ['handoff_count',
                                   'handoff_count'])
@@ -4784,7 +4787,7 @@ class TestReplicatedObjectController(
                 # all error-limited primary nodes -> four handoff warnings,
                 # plus a handoff-all metric
                 self.app.log_handoffs = True
-                self.app.logger = FakeLogger()
+                self.app.logger = debug_logger()
                 self.app.request_node_count = lambda r: 10
                 object_ring.set_replicas(4)  # otherwise we run out of handoffs
                 self.app._error_limiting = {}  # clear out errors
@@ -4796,11 +4799,13 @@ class TestReplicatedObjectController(
                 for node in self.app.iter_nodes(object_ring, partition):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 10)
-                self.assertEqual(self.app.logger.log_dict['warning'], [
-                    (('Handoff requested (7)',), {}),
-                    (('Handoff requested (8)',), {}),
-                    (('Handoff requested (9)',), {}),
-                    (('Handoff requested (10)',), {})])
+                self.assertEqual(
+                    self.app.logger.get_lines_for_level('warning'), [
+                        'Handoff requested (7)',
+                        'Handoff requested (8)',
+                        'Handoff requested (9)',
+                        'Handoff requested (10)',
+                    ])
                 self.assertEqual(self.app.logger.get_increments(),
                                  ['handoff_count',
                                   'handoff_count',
@@ -6614,7 +6619,7 @@ class BaseTestECObjectController(BaseTestObjectController):
         partition, nodes = self.ec_policy.object_ring.get_nodes(
             'a', self.ec_policy.name, 'o1')
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, debug_logger())[self.ec_policy]
 
         got_pieces = set()
         got_indices = set()
@@ -6704,7 +6709,7 @@ class BaseTestECObjectController(BaseTestObjectController):
             'a', self.ec_policy.name, 'o2')
 
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, debug_logger())[self.ec_policy]
 
         got_durable = []
         fragment_archives = []
@@ -6789,7 +6794,7 @@ class BaseTestECObjectController(BaseTestObjectController):
             int(self.ec_policy)).get_nodes('a', self.ec_policy.name, 'o3')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, debug_logger())[self.ec_policy]
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
@@ -6843,7 +6848,7 @@ class BaseTestECObjectController(BaseTestObjectController):
             int(self.ec_policy)).get_nodes('a', self.ec_policy.name, 'pimento')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, debug_logger())[self.ec_policy]
 
         found = 0
         for node in nodes:
@@ -6915,7 +6920,7 @@ class BaseTestECObjectController(BaseTestObjectController):
             'a', 'ec-con', 'quorum')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, debug_logger())[self.ec_policy]
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
@@ -6974,7 +6979,7 @@ class BaseTestECObjectController(BaseTestObjectController):
             'a', 'ec-con', 'quorum')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, debug_logger())[self.ec_policy]
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,

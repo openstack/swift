@@ -45,8 +45,9 @@ from swift.common.storage_policy import POLICIES
 import mock
 
 from test import annotate_failure
+from test.debug_logger import debug_logger
 from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
-                       EMPTY_ETAG, FakeLogger, mock_timestamp_now)
+                       EMPTY_ETAG, mock_timestamp_now)
 from test.unit.common import test_db
 
 
@@ -4490,7 +4491,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_find_shard_ranges_errors(self, tempdir):
         db_path = os.path.join(tempdir, 'test_container.db')
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 logger=FakeLogger())
+                                 logger=debug_logger())
         broker.initialize(next(self.ts).internal, 0)
         for i in range(2):
             broker.put_object(
@@ -4713,7 +4714,7 @@ class TestContainerBroker(unittest.TestCase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 logger=FakeLogger())
+                                 logger=debug_logger())
         broker.initialize(next(self.ts).internal, 0)
         broker.enable_sharding(next(self.ts))
 
@@ -4748,7 +4749,7 @@ class TestContainerBroker(unittest.TestCase):
         retiring_db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(retiring_db_path, account='a', container='c',
-                                 logger=FakeLogger())
+                                 logger=debug_logger())
         broker.initialize(next(self.ts).internal, 0)
         pre_epoch = next(self.ts)
         broker.enable_sharding(next(self.ts))
@@ -4792,7 +4793,7 @@ class TestContainerBroker(unittest.TestCase):
         retiring_db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(retiring_db_path, account='a', container='c',
-                                 logger=FakeLogger())
+                                 logger=debug_logger())
         broker.initialize(next(self.ts).internal, 0)
         brokers = broker.get_brokers()
         self.assertEqual(retiring_db_path, brokers[0].db_file)

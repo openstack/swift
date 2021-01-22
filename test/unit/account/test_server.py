@@ -20,7 +20,6 @@ import posix
 import unittest
 from tempfile import mkdtemp
 from shutil import rmtree
-from test.unit import FakeLogger
 import itertools
 import random
 from io import BytesIO
@@ -38,8 +37,8 @@ from swift.account.server import AccountController
 from swift.common.utils import (normalize_timestamp, replication, public,
                                 mkdirs, storage_directory, Timestamp)
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
-from test.unit import patch_policies, debug_logger, mock_check_drive, \
-    make_timestamp_iter
+from test.debug_logger import debug_logger
+from test.unit import patch_policies, mock_check_drive, make_timestamp_iter
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -2626,7 +2625,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test_GET_log_requests_true(self):
-        self.controller.logger = FakeLogger()
+        self.controller.logger = debug_logger()
         self.controller.log_requests = True
 
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
@@ -2635,7 +2634,7 @@ class TestAccountController(unittest.TestCase):
         self.assertTrue(self.controller.logger.log_dict['info'])
 
     def test_GET_log_requests_false(self):
-        self.controller.logger = FakeLogger()
+        self.controller.logger = debug_logger()
         self.controller.log_requests = False
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
@@ -2646,7 +2645,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a',
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
-        self.controller.logger = FakeLogger()
+        self.controller.logger = debug_logger()
         with mock.patch(
                 'time.time',
                 mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0,
@@ -2655,9 +2654,9 @@ class TestAccountController(unittest.TestCase):
                     'os.getpid', mock.MagicMock(return_value=1234)):
                 req.get_response(self.controller)
         self.assertEqual(
-            self.controller.logger.log_dict['info'],
-            [(('1.2.3.4 - - [01/Jan/1970:02:46:42 +0000] "HEAD /sda1/p/a" 404 '
-             '- "-" "-" "-" 2.0000 "-" 1234 -',), {})])
+            self.controller.logger.get_lines_for_level('info'),
+            ['1.2.3.4 - - [01/Jan/1970:02:46:42 +0000] "HEAD /sda1/p/a" 404 '
+             '- "-" "-" "-" 2.0000 "-" 1234 -'])
 
     def test_policy_stats_with_legacy(self):
         ts = itertools.count()

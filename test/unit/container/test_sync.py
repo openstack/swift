@@ -21,7 +21,7 @@ from textwrap import dedent
 import mock
 import errno
 from swift.common.utils import Timestamp
-from test.unit import debug_logger
+from test.debug_logger import debug_logger
 from swift.container import sync
 from swift.common.db import DatabaseConnectionError
 from swift.common import utils

@@ -29,8 +29,9 @@ from swift.obj import server as object_server
 from swift.proxy import server as proxy
 import swift.proxy.controllers
 from swift.proxy.controllers.base import get_object_info
-from test.unit import FakeMemcache, debug_logger, FakeRing, \
-    fake_http_connect, patch_policies, skip_if_no_xattrs
+from test.debug_logger import debug_logger
+from test.unit import FakeMemcache, FakeRing, fake_http_connect, \
+    patch_policies, skip_if_no_xattrs
 
 
 class FakeServerConnection(WSGIContext):

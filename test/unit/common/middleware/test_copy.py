@@ -23,7 +23,8 @@ from swift.common.middleware import copy
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPException
 from swift.common.utils import closing_if_possible, md5
-from test.unit import patch_policies, debug_logger, FakeRing
+from test.debug_logger import debug_logger
+from test.unit import patch_policies, FakeRing
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.proxy.controllers.test_obj import set_http_connect, \
     PatchedObjControllerApp
