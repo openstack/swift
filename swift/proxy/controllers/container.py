@@ -391,23 +391,19 @@ class ContainerController(Controller):
                 req, shard_range.account, shard_range.container,
                 headers=headers, params=params)
 
-            shard_state = 'unknown'
-            try:
-                shard_state = shard_resp.headers['x-backend-sharding-state']
-                shard_state = ShardRange.resolve_state(shard_state)
-            except (AttributeError, ValueError, KeyError):
-                pass
+            sharding_state = shard_resp.headers.get('x-backend-sharding-state',
+                                                    'unknown')
 
             if objs is None:
                 # tolerate errors
                 self.app.logger.debug(
                     'Failed to get objects from shard (state=%s), total = %d',
-                    shard_state, len(objects))
+                    sharding_state, len(objects))
                 continue
 
             self.app.logger.debug(
                 'Found %d objects in shard (state=%s), total = %d',
-                len(objs), shard_state, len(objs) + len(objects))
+                len(objs), sharding_state, len(objs) + len(objects))
 
             if not objs:
                 # tolerate empty shard containers

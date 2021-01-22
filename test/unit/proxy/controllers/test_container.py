@@ -982,7 +982,7 @@ class TestContainerController(TestRingBase):
         # when shrinking the final shard will return the root shard range into
         # which it is shrinking
         shard_resp_hdrs = {
-            'X-Backend-Sharding-State': 'sharded',
+            'X-Backend-Sharding-State': 'sharding',
             'X-Container-Object-Count': 0,
             'X-Container-Bytes-Used': 0,
             'X-Backend-Storage-Policy-Index': 0,
@@ -1028,6 +1028,11 @@ class TestContainerController(TestRingBase):
         self.assertEqual(
             [('a', 'c'), ('.shards_a', 'c_xyz')],
             resp.request.environ.get('swift.shard_listing_history'))
+        lines = [line for line in self.app.logger.get_lines_for_level('debug')
+                 if line.startswith('Found 1024 objects in shard')]
+        self.assertEqual(2, len(lines), lines)
+        self.assertIn("(state=sharded), total = 1024", lines[0])  # shard->root
+        self.assertIn("(state=sharding), total = 1024", lines[1])  # shard
 
     def test_GET_sharded_container_shard_redirects_between_shards(self):
         # check that if one shard redirects listing to another shard that
@@ -1767,7 +1772,7 @@ class TestContainerController(TestRingBase):
             'X-Backend-Storage-Policy-Index': '0'}
 
     def _do_test_caching(self, record_type, exp_recheck_listing):
-        # this test gest shard ranges into cache and then reads from cache
+        # this test gets shard ranges into cache and then reads from cache
         sharding_state = 'sharded'
         self.memcache.delete_all()
         self.memcache.clear_calls()
