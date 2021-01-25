@@ -25,7 +25,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileDeleted, DiskFileNotExist, \
     DiskFileQuarantined
 from swift.common.utils import replace_partition_in_path, config_true_value, \
-    audit_location_generator, get_logger, readconf
+    audit_location_generator, get_logger, readconf, drop_privileges
 from swift.obj import diskfile
 
 
@@ -333,6 +333,8 @@ def main(args):
                         dest='swift_dir', help='Path to swift directory')
     parser.add_argument('--devices', default=None,
                         dest='devices', help='Path to swift device directory')
+    parser.add_argument('--user', default=None, dest='user',
+                        help='Drop privileges to this user before relinking')
     parser.add_argument('--device', default=None, dest='device',
                         help='Device name to relink (default: all)')
     parser.add_argument('--skip-mount-check', default=False,
@@ -348,9 +350,15 @@ def main(args):
         conf = readconf(args.conf_file, 'object-relinker')
         if args.debug:
             conf['log_level'] = 'DEBUG'
+        user = args.user or conf.get('user')
+        if user:
+            drop_privileges(user)
         logger = get_logger(conf)
     else:
         conf = {}
+        if args.user:
+            # Drop privs before creating log file
+            drop_privileges(args.user)
         logging.basicConfig(
             format='%(message)s',
             level=logging.DEBUG if args.debug else logging.INFO,
