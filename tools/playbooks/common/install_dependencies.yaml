@@ -17,9 +17,11 @@
   roles:
     - ensure-pip
   tasks:
-    - name: upgrade pip
+    - name: upgrade pip, but not too far
       pip:
-        name: pip
+        # 20.* works on both py2 and py3, and the pip for centos7 in EPEL
+        # isn't smart enough to prevent us upgrading to 21+
+        name: pip<21
         extra_args: --upgrade
 
     - name: install rsync-daemon - CentOS 8
