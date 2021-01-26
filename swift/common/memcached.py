@@ -303,7 +303,14 @@ class MemcacheRing(object):
                 with Timeout(self._io_timeout):
                     sock.sendall(set_msg(key, flags, timeout, value))
                     # Wait for the set to complete
-                    fp.readline()
+                    msg = fp.readline().strip()
+                    if msg != b'STORED':
+                        if not six.PY2:
+                            msg = msg.decode('ascii')
+                        self.logger.error(
+                            "Error setting value in memcached: "
+                            "%(server)s: %(msg)s",
+                            {'server': server, 'msg': msg})
                     self._return_conn(server, fp, sock)
                     return
             except (Exception, Timeout) as e:

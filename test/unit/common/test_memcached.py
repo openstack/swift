@@ -62,6 +62,7 @@ class ExplodingMockMemcached(object):
         if self.should_explode:
             self.exploded = True
             raise socket.error(errno.EPIPE, os.strerror(errno.EPIPE))
+        return b'STORED\r\n'
 
     def read(self, size):
         if self.should_explode:
@@ -70,6 +71,10 @@ class ExplodingMockMemcached(object):
 
     def close(self):
         pass
+
+
+TOO_BIG_KEY = md5(
+    b'too-big', usedforsecurity=False).hexdigest().encode('ascii')
 
 
 class MockMemcached(object):
@@ -104,7 +109,10 @@ class MockMemcached(object):
         self.cache[key] = flags, exptime, self.inbuf[:int(num_bytes)]
         self.inbuf = self.inbuf[int(num_bytes) + 2:]
         if noreply != b'noreply':
-            self.outbuf += b'STORED\r\n'
+            if key == TOO_BIG_KEY:
+                self.outbuf += b'SERVER_ERROR object too large for cache\r\n'
+            else:
+                self.outbuf += b'STORED\r\n'
 
     def handle_add(self, key, flags, exptime, num_bytes, noreply=b''):
         value = self.inbuf[:int(num_bytes)]
@@ -379,6 +387,18 @@ class TestMemcached(unittest.TestCase):
         memcache_client.set('some_key', [1, 2, 3], time=sixtydays)
         _junk, cache_timeout, _junk = mock.cache[cache_key]
         self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
+
+    def test_set_error(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
+                                                 logger=self.logger)
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
+        memcache_client.set('too-big', [1, 2, 3])
+        self.assertEqual(
+            self.logger.get_lines_for_level('error'),
+            ['Error setting value in memcached: 1.2.3.4:11211: '
+             'SERVER_ERROR object too large for cache'])
 
     def test_get_failed_connection_mid_request(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
@@ -861,11 +881,13 @@ class TestMemcached(unittest.TestCase):
             # fast. All ten (10) clients should try to talk to .5 first, and
             # then move on to .4, and we'll assert all that below.
             mock_conn = MagicMock(), MagicMock()
+            mock_conn[0].readline = lambda: b'STORED\r\n'
             mock_conn[1].sendall = lambda x: sleep(0.2)
             connections['1.2.3.5'].put(mock_conn)
             connections['1.2.3.5'].put(mock_conn)
 
             mock_conn = MagicMock(), MagicMock()
+            mock_conn[0].readline = lambda: b'STORED\r\n'
             connections['1.2.3.4'].put(mock_conn)
             connections['1.2.3.4'].put(mock_conn)
 
