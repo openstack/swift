@@ -84,7 +84,7 @@ def get_errors(error_re, log_file_pattern, minutes, logger,
     # track of the year and month in case the year recently
     # ticked over
     year = now_time.year
-    prev_entry_month = now_time.month
+    prev_entry_month = now_time.strftime('%b')
     errors = {}
 
     reached_old_logs = False
