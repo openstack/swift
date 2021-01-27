@@ -285,7 +285,7 @@ class S3ApiMiddleware(object):
     def __call__(self, env, start_response):
         try:
             req_class = get_request_class(env, self.conf.s3_acl)
-            req = req_class(env, self.conf, self.app)
+            req = req_class(env, self.app, self.conf)
             resp = self.handle_request(req)
         except NotS3Request:
             resp = self.app
